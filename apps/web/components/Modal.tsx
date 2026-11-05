@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode, useEffect } from "react";
+import { motion } from "framer-motion";
 import { X } from "lucide-react";
 
 export default function Modal({
@@ -28,7 +29,10 @@ export default function Modal({
   }, [onClose]);
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.16 }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
       role="dialog"
       aria-modal="true"
@@ -37,7 +41,10 @@ export default function Modal({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: 12, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
         className={`max-h-[calc(100vh-2rem)] w-full ${maxWidth} overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl dark:bg-gray-900`}
         onMouseDown={(event) => event.stopPropagation()}
       >
@@ -47,13 +54,13 @@ export default function Modal({
             type="button"
             onClick={onClose}
             className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-white"
-            aria-label="Tutup"
+            aria-label="Close"
           >
             <X size={17} />
           </button>
         </div>
         {children}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

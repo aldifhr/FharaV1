@@ -6,6 +6,8 @@ import Link from "next/link";
 import IconRail from "../../components/IconRail";
 import Sidebar from "../../components/Sidebar";
 import AgentAvatar from "../../components/AgentAvatar";
+import { BlurFade } from "@/components/ui/blur-fade";
+import { ShimmerButton } from "@/components/ui/shimmer-button";
 
 const KIND_LABEL: Record<string, string> = {
   apply_changes: "Apply changes",
@@ -32,24 +34,25 @@ export default function InboxPage() {
         <div className="mx-auto max-w-2xl">
           <h1 className="text-xl font-semibold">Inbox</h1>
           <p className="mt-1 text-sm text-gray-500">
-            {total ? `${total} item perlu perhatian Anda lintas project.` : "Tidak ada yang menunggu Anda."}
+            {total ? `${total} item(s) need your attention across projects.` : "Nothing is waiting for you."}
           </p>
 
           {inbox.approvals.length > 0 && (
             <section className="mt-6">
               <h2 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                Perlu approval ({inbox.approvals.length})
+                Needs approval ({inbox.approvals.length})
               </h2>
               <div className="mt-2 grid gap-2">
-                {inbox.approvals.map((a) => (
-                  <div key={a._id} className="rounded-xl border border-[#ebe9f0] bg-white p-4 shadow-[0_1px_2px_rgba(30,25,60,.03)] dark:border-gray-800 dark:bg-gray-900">
+                {inbox.approvals.map((a, i) => (
+                  <BlurFade key={a._id} delay={i * 0.05} inView>
+                  <div className="rounded-xl border border-[#ebe9f0] bg-white p-4 shadow-[0_1px_2px_rgba(30,25,60,.03)] dark:border-gray-800 dark:bg-gray-900">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-medium">{a.summary}</p>
                         <p className="mt-1 text-xs text-gray-500">
                           {a.projectName}
                           {a.taskTitle ? ` · ${a.taskTitle}` : ""}
-                          {a.requestedByAgentName ? ` · diminta ${a.requestedByAgentName}` : ""}
+                          {a.requestedByAgentName ? ` · requested by ${a.requestedByAgentName}` : ""}
                         </p>
                         <span className="mt-2 inline-block rounded-full bg-[#eeecfb] px-2 py-0.5 text-[11px] font-semibold text-[#4c42a3] dark:bg-gray-800">
                           {KIND_LABEL[a.kind] ?? a.kind}
@@ -59,16 +62,17 @@ export default function InboxPage() {
                         href={`/workspace/${a.projectId}`}
                         className="shrink-0 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
                       >
-                        Buka project
+                        Open project
                       </Link>
                     </div>
                     <div className="mt-3 flex gap-2">
-                      <button
+                      <ShimmerButton
+                        shimmerDuration="2.5s"
                         onClick={() => approve({ approvalId: a._id })}
-                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
+                        className="rounded-lg px-3 py-1.5 text-sm font-semibold"
                       >
                         Approve
-                      </button>
+                      </ShimmerButton>
                       <button
                         onClick={() => reject({ approvalId: a._id })}
                         className="rounded-lg bg-gray-200 px-3 py-1.5 text-sm font-semibold dark:bg-gray-800 dark:text-white"
@@ -77,6 +81,7 @@ export default function InboxPage() {
                       </button>
                     </div>
                   </div>
+                  </BlurFade>
                 ))}
               </div>
             </section>
@@ -85,7 +90,7 @@ export default function InboxPage() {
           {inbox.tasks.length > 0 && (
             <section className="mt-6">
               <h2 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                Task perlu perhatian ({inbox.tasks.length})
+                Task needs attention ({inbox.tasks.length})
               </h2>
               <div className="mt-2 grid gap-2">
                 {inbox.tasks.map((t) => (
@@ -101,7 +106,7 @@ export default function InboxPage() {
                         t.status === "failed" ? "bg-red-50 text-red-600 dark:bg-red-950" : "bg-amber-50 text-amber-600 dark:bg-amber-950"
                       }`}
                     >
-                      {t.status === "failed" ? "Gagal" : "Menunggu approval"}
+                      {t.status === "failed" ? "Failed" : "Pending approval"}
                     </span>
                   </Link>
                 ))}
@@ -112,7 +117,7 @@ export default function InboxPage() {
           {inbox.agents.length > 0 && (
             <section className="mt-6">
               <h2 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                Agent menunggu Anda ({inbox.agents.length})
+                Agents waiting for you ({inbox.agents.length})
               </h2>
               <div className="mt-2 grid gap-2">
                 {inbox.agents.map((a) => (
@@ -130,7 +135,7 @@ export default function InboxPage() {
 
           {total === 0 && (
             <div className="mt-10 rounded-xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-400 dark:border-gray-700">
-              Inbox kosong. Semua approval sudah diproses.
+              Inbox is empty. All approvals have been processed.
             </div>
           )}
         </div>

@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { avatarUrl, fallbackColor, initials, type AvatarParams } from "../lib/avatar";
+import { avatarUrl, defaultAvatarParams, fallbackColor, initials, type AvatarParams } from "../lib/avatar";
 
 type Props = {
   name: string;
@@ -18,13 +18,14 @@ const STATUS_DOT: Record<string, string> = {
 
 export default function AgentAvatar({ name, size = 32, status, avatarParams }: Props) {
   const [err, setErr] = useState(false);
-  const showImg = avatarParams && !err;
+  const resolvedAvatarParams = avatarParams ?? defaultAvatarParams(name);
+  const showImg = !err;
   return (
     <span className="relative inline-flex shrink-0" style={{ width: size, height: size }}>
       {showImg ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={avatarUrl(avatarParams as AvatarParams)}
+          src={avatarUrl(resolvedAvatarParams)}
           alt={name}
           width={size}
           height={size}
@@ -48,4 +49,3 @@ export default function AgentAvatar({ name, size = 32, status, avatarParams }: P
     </span>
   );
 }
-

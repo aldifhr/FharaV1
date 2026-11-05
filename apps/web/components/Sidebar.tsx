@@ -1,12 +1,25 @@
 "use client";
 import { FormEvent, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
 import Link from "next/link";
 import Modal from "./Modal";
+import { defaultAvatarParams } from "../lib/avatar";
+import { useRouter } from "next/navigation";
+import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
+import { useToast } from "./Toasts";
+import { Button } from "./ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { Check, Plus, Settings2, Trash2, X } from "lucide-react";
+import { Input } from "./ui/input";
+import { Badge } from "./ui/badge";
+import { Card, CardContent } from "./ui/card";
+import { usePathname } from "next/navigation";
 
 export default function Sidebar({ projectId, onSelectProject }: { projectId?: string; onSelectProject?: (id: string) => void }) {
+  const pathname = usePathname();
   const [q, setQ] = useState("");
   const projects = useQuery(api.projects.list, {});
   const currentProject = useQuery(api.projects.get, projectId ? { projectId: projectId as never } : "skip");
@@ -33,13 +46,20 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   const [removingAgentId, setRemovingAgentId] = useState<string | null>(null);
   const [isTeamOpen, setIsTeamOpen] = useState(false);
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
+  const [teamProjectId, setTeamProjectId] = useState<string | null>(null);
+  const [openSections, setOpenSections] = useState({ needsYou: true, projects: true, team: true });
   const updateTeam = useMutation(api.projects.updateTeam);
+  const removeProject = useMutation(api.projects.remove);
+  const router = useRouter();
+  const toast = useToast();
+  const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
 
   const filteredProjects = (projects ?? []).filter((p: any) => p.name.toLowerCase().includes(q.toLowerCase()));
   const allowedAgentIds = (currentProject as any)?.agentIds as string[] | undefined;
   const visibleAgents = allowedAgentIds
     ? (agents ?? []).filter((agent: any) => allowedAgentIds.includes(agent._id))
     : agents ?? [];
+  const previewAvatar = defaultAvatarParams(agentName || "Agent");
 
   async function handleCreateAgent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,7 +76,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
       setAgentPrompt("");
       setIsCreateAgentOpen(false);
     } catch (err) {
-      setAgentError(err instanceof Error ? err.message : "Agent gagal dibuat");
+      setAgentError(err instanceof Error ? err.message : "Failed to create agent");
     } finally {
       setSavingAgent(false);
     }
@@ -97,111 +117,223 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
         });
         closeAgentEditor();
       } catch (err) {
-        setAgentError(err instanceof Error ? err.message : "Agent gagal diperbarui");
+        setAgentError(err instanceof Error ? err.message : "Failed to update agent");
       } finally {
         setSavingAgent(false);
       }
   }
 
-  function openTeamSettings() {
-    setSelectedTeamIds(allowedAgentIds ?? (agents ?? []).map((agent: any) => agent._id));
+  function openTeamSettings(targetId?: string) {
+    const pid = targetId ?? projectId ?? null;
+    setTeamProjectId(pid);
+    const targetAgents = pid
+      ? (projects ?? []).find((p: any) => p._id === pid)?.agentIds as string[] | undefined
+      : allowedAgentIds;
+    setSelectedTeamIds(targetAgents ?? (agents ?? []).map((agent: any) => agent._id));
     setIsTeamOpen(true);
   }
 
   async function saveTeam() {
-    if (!projectId) return;
+    const pid = teamProjectId;
+    if (!pid) return;
     setTeamError("");
     setSavingTeam(true);
     try {
-      await updateTeam({ projectId: projectId as never, agentIds: selectedTeamIds as never[] });
+      await updateTeam({ projectId: pid as never, agentIds: selectedTeamIds as never[] });
       setIsTeamOpen(false);
     } catch (err) {
-      setTeamError(err instanceof Error ? err.message : "Team gagal disimpan");
+      setTeamError(err instanceof Error ? err.message : "Failed to save team");
     } finally {
       setSavingTeam(false);
     }
   }
 
-  async function handleRemoveAgent(agentId: string, agentName: string) {
-    if (!window.confirm(`Hapus agent "${agentName}"? Agent ini juga akan dikeluarkan dari project yang menggunakannya.`)) return;
+  function toggleSection(key: keyof typeof openSections) {
+    setOpenSections((s) => ({ ...s, [key]: !s[key] }));
+  }
+
+  const pendingByProject = new Map<string, number>();
+  for (const a of pending ?? []) pendingByProject.set(a.projectId as string, (pendingByProject.get(a.projectId as string) ?? 0) + 1);
+
+  async function confirmRemoveAgent(agentId: string, agentName: string) {
     setRemovingAgentId(agentId);
     try {
       await removeAgent({ agentId: agentId as never });
+      toast("success", "Agent deleted", agentName);
+      setConfirmReq(null);
     } catch (err) {
-      setAgentError(err instanceof Error ? err.message : "Agent gagal dihapus");
+      toast("error", "Failed to delete agent", err instanceof Error ? err.message : "Failed to delete agent");
     } finally {
       setRemovingAgentId(null);
     }
   }
 
+  function handleRemoveAgent(agentId: string, agentName: string) {
+    setConfirmReq({
+      title: `Delete agent "${agentName}"?`,
+      message: "This agent will also be removed from projects that use it.",
+      onOk: () => { void confirmRemoveAgent(agentId, agentName); },
+    });
+  }
+
+  async function confirmRemoveProject(projectToRemove: { _id: string; name: string }) {
+    try {
+      await removeProject({ projectId: projectToRemove._id as never });
+      if (projectId === projectToRemove._id) router.push("/chat");
+      toast("success", "Project deleted", projectToRemove.name);
+      setConfirmReq(null);
+    } catch (err) {
+      toast("error", "Failed to delete project", err instanceof Error ? err.message : "Failed to delete project");
+    }
+  }
+
+  function handleRemoveProject(projectToRemove: { _id: string; name: string }) {
+    setConfirmReq({
+      title: `Delete project "${projectToRemove.name}"?`,
+      message: "This project and all of its tasks and history will be deleted permanently.",
+      onOk: () => { void confirmRemoveProject(projectToRemove); },
+    });
+  }
+
+  const SectionHeader = ({ key_, title, count, onManage }: { key_: keyof typeof openSections; title: string; count?: number; onManage?: () => void }) => (
+    <div className="flex items-center justify-between px-1">
+      <button type="button" onClick={() => toggleSection(key_)} className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 hover:text-[#5147b4]">
+        <span className={`inline-block text-[8px] transition-transform ${openSections[key_] ? "rotate-90" : ""}`}>▶</span>
+        {title}
+      </button>
+      <span className="flex items-center gap-1">
+        {count !== undefined && <Badge variant="destructive" className="h-5 px-2 text-[11px]">{count}</Badge>}
+        {onManage && (
+          <button type="button" onClick={onManage} className="rounded px-1.5 text-xs text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4]">Manage</button>
+        )}
+      </span>
+    </div>
+  );
+
+  if (pathname === "/") return null;
+
   return (
-    <aside className="flex h-full w-[250px] shrink-0 flex-col gap-5 border-r border-[#e7e5ef] bg-[#fbfbfd] p-3.5 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-r-0">
-      <input
+    <aside className="flex h-full w-[250px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-[#e7e5ef] bg-[#fbfbfd] p-3.5 dark:border-gray-800 dark:bg-gray-950 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-r-0">
+      <ConfirmDialog request={confirmReq} pending={removingAgentId !== null} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
+      <Input
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder="Search  ⌘K"
-        className="w-full rounded-xl border border-[#e5e3eb] bg-white px-3 py-2 text-sm outline-none placeholder:text-gray-400 focus:border-[#a29ae8] focus:ring-2 focus:ring-[#e5e1ff] dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+        className="h-9 w-full shrink-0 rounded-xl border-[#e5e3eb] bg-white dark:border-gray-700 dark:bg-gray-900 dark:text-white"
       />
 
       <div>
-        <div className="flex items-center justify-between px-1">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Needs you</h3>
-          <span className="rounded-full bg-[#fff0f1] px-2 py-0.5 text-[11px] font-semibold text-[#d85b68]">
-            {pending?.length ?? 0}
-          </span>
-        </div>
-        {(pending ?? []).slice(0, 3).map((a: any) => (
-          <div key={a._id} className="mt-2 rounded-xl border border-[#ebe9f0] bg-white p-3 shadow-[0_1px_2px_rgba(30,25,60,.03)]">
+        <SectionHeader key_="needsYou" title="Needs you" count={pending?.length ?? 0} />
+        <AnimatePresence initial={false}>
+        {openSections.needsYou && (pending ?? []).slice(0, 3).map((a: any) => (
+          <motion.div key={a._id} initial={{ opacity: 0, height: 0, y: -6 }} animate={{ opacity: 1, height: "auto", y: 0 }} exit={{ opacity: 0, height: 0, y: -6 }} className="overflow-hidden">
+          <Card className="mt-2 border-[#ebe9f0] shadow-[0_1px_2px_rgba(30,25,60,.03)] dark:border-gray-800 dark:bg-gray-900">
+            <CardContent className="p-3">
             <p className="text-sm font-medium dark:text-white">{a.summary}</p>
             <p className="text-xs text-gray-500">{a.kind}</p>
             <div className="mt-2 flex gap-2">
-              <button onClick={() => approve({ approvalId: a._id })} className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700">Approve</button>
-              <button onClick={() => reject({ approvalId: a._id })} className="rounded-lg bg-gray-200 px-2 py-1 text-xs font-semibold dark:bg-gray-700 dark:text-white">Reject</button>
+              <Button type="button" size="sm" onClick={() => approve({ approvalId: a._id })} className="bg-emerald-600 text-white hover:bg-emerald-700">
+                <Check /> Approve
+              </Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => reject({ approvalId: a._id })}>
+                <X /> Reject
+              </Button>
             </div>
-          </div>
+            </CardContent>
+          </Card>
+          </motion.div>
         ))}
-        {pending?.length === 0 && <p className="px-1 pt-2 text-xs text-gray-400">Tidak ada yang menunggu approval.</p>}
+        </AnimatePresence>
+        {openSections.needsYou && pending?.length === 0 && <p className="px-1 pt-2 text-xs text-gray-400">Nothing is waiting for approval.</p>}
       </div>
 
       <div>
-        <h3 className="px-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Projects</h3>
-        {filteredProjects.length === 0 && <p className="px-1 pt-2 text-xs text-gray-400">Belum ada project.</p>}
-        {filteredProjects.map((p: any) => (
-          <Link
+        <SectionHeader key_="projects" title="Projects" />
+        {openSections.projects && filteredProjects.length === 0 && <p className="px-1 pt-2 text-xs text-gray-400">No projects yet.</p>}
+        <AnimatePresence initial={false}>
+        {openSections.projects && filteredProjects.map((p: any) => (
+          <motion.div
             key={p._id}
-            href={`/workspace/${p._id}`}
-            onClick={() => onSelectProject?.(p._id)}
-            className={`mt-1 flex items-center justify-between rounded-lg px-2.5 py-2 text-sm transition hover:bg-[#f0eff7] dark:hover:bg-gray-800 dark:text-white ${projectId === p._id ? "bg-[#eeecfb] font-semibold text-[#4c42a3]" : "text-gray-600"}`}
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -8 }}
+            className={`group mt-1 flex items-center justify-between rounded-lg px-2.5 py-2 text-sm transition hover:bg-[#f0eff7] dark:hover:bg-gray-800 dark:text-white ${projectId === p._id ? "bg-[#eeecfb] font-semibold text-[#4c42a3] dark:bg-gray-800 dark:text-indigo-300" : "text-gray-600 dark:text-gray-300"}`}
           >
-            <span className="truncate">{p.name}</span>
-            <span className="ml-2 rounded-full bg-[#eceaf3] px-2 py-0.5 text-xs text-gray-500">•</span>
-          </Link>
+            <Link
+              href={`/workspace/${p._id}`}
+              onClick={() => onSelectProject?.(p._id)}
+              className="min-w-0 flex-1 truncate"
+            >
+              {p.name}
+            </Link>
+            <span className="ml-2 flex shrink-0 items-center gap-1">
+              {pendingByProject.get(p._id) ? (
+                <Badge variant="destructive" className="h-5 px-2 text-[11px]">{pendingByProject.get(p._id)}</Badge>
+              ) : (
+                <span className="rounded-full bg-[#eceaf3] px-2 py-0.5 text-xs text-gray-500">•</span>
+              )}
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => handleRemoveProject(p)}
+                      className="hidden text-gray-400 hover:bg-red-50 hover:text-red-600 group-hover:inline-flex"
+                      aria-label={`Delete ${p.name}`}
+                    />
+                  }
+                >
+                  <Trash2 />
+                </TooltipTrigger>
+                <TooltipContent>Delete project</TooltipContent>
+              </Tooltip>
+            </span>
+          </motion.div>
         ))}
+        </AnimatePresence>
       </div>
 
       <div>
         <div className="flex items-center justify-between px-1">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Team</h3>
-          {projectId && <button
-            type="button"
-            onClick={openTeamSettings}
-            className="rounded px-1.5 text-xs text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4]"
-            title="Pilih team project"
-          >
-            Manage
-          </button>}
-          <button
-            type="button"
-            onClick={() => setIsCreateAgentOpen(true)}
-            className="rounded px-1.5 text-lg leading-none text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4]"
-            title="Create agent"
-            aria-label="Create agent"
-          >
-            +
+          <button type="button" onClick={() => toggleSection("team")} className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 hover:text-[#5147b4]">
+            <span className={`inline-block text-[8px] transition-transform ${openSections.team ? "rotate-90" : ""}`}>▶</span>
+            Team
           </button>
+          <span className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => openTeamSettings()}
+            disabled={!projectId && (projects?.length ?? 0) === 0}
+            className="text-xs text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4]"
+          >
+            <Settings2 /> Manage
+          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setIsCreateAgentOpen(true)}
+                  className="text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4]"
+                  aria-label="Create agent"
+                />
+              }
+            >
+              <Plus />
+            </TooltipTrigger>
+            <TooltipContent>Create agent</TooltipContent>
+          </Tooltip>
+          </span>
         </div>
-        {visibleAgents.map((a: any) => (
-          <div key={a._id} role="button" tabIndex={0} onClick={() => openAgentEditor(a)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") openAgentEditor(a); }} className="group mt-1 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 dark:text-white hover:bg-[#f0eff7]">
+        <AnimatePresence initial={false}>
+        {openSections.team && visibleAgents.map((a: any) => (
+          <motion.div key={a._id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} role="button" tabIndex={0} onClick={() => openAgentEditor(a)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") openAgentEditor(a); }} className="group mt-1 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 dark:text-white hover:bg-[#f0eff7]">
             <AgentAvatar name={a.name} size={28} status={a.status} avatarParams={a.avatarParams} />
             <span className="text-sm">{a.name}</span>
             <span className="ml-auto text-xs text-gray-400">{a.status}</span>
@@ -209,7 +341,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
-                void handleRemoveAgent(a._id, a.name);
+                handleRemoveAgent(a._id, a.name);
               }}
               disabled={removingAgentId === a._id}
               className="hidden rounded px-1 text-xs text-gray-400 hover:bg-red-50 hover:text-red-600 group-hover:block disabled:opacity-50"
@@ -218,8 +350,9 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
             >
               ×
             </button>
-          </div>
+          </motion.div>
         ))}
+        </AnimatePresence>
       </div>
 
       {isCreateAgentOpen && (
@@ -234,6 +367,10 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                 Role
                 <input value={agentRole} onChange={(event) => setAgentRole(event.target.value)} placeholder="frontend, backend, qa" required className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
               </label>
+              <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 p-3 dark:border-gray-700">
+                <AgentAvatar name={agentName || "Agent"} size={48} avatarParams={previewAvatar} />
+                <p className="text-xs text-gray-500">An Avataaars avatar is generated when the agent is saved.</p>
+              </div>
               <button type="submit" disabled={savingAgent} className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
                 {savingAgent ? "Creating…" : "Create agent"}
               </button>
@@ -270,11 +407,11 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
               </label>
             )}
             <label className="grid gap-1 text-sm">API key
-              <input type="password" value={agentApiKey} onChange={(event) => setAgentApiKey(event.target.value)} placeholder="Masukkan API key agent" className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
+            <input type="password" value={agentApiKey} onChange={(event) => setAgentApiKey(event.target.value)} placeholder="Enter the agent API key" className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
               <span className="text-[11px] text-gray-400">
                 {agents?.find((agent: any) => agent._id === editingAgentId)?.llmApiKeyConfigured
-                  ? "API key tersimpan. Kosongkan untuk mempertahankannya."
-                  : "Belum ada API key. Masukkan key untuk mengaktifkan agent."}
+                  ? "API key saved. Leave empty to keep it."
+                  : "No API key configured. Enter one to enable the agent."}
               </span>
             </label>
             {agentError && <p className="text-sm text-red-600">{agentError}</p>}
@@ -285,7 +422,23 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
         </Modal>
       )}
       {isTeamOpen && (
-        <Modal title="Team untuk project" onClose={() => setIsTeamOpen(false)}>
+        <Modal title={`Team for project${teamProjectId ? `: ${(projects ?? []).find((p: any) => p._id === teamProjectId)?.name ?? ""}` : ""}`} onClose={() => setIsTeamOpen(false)}>
+            {!projectId && (
+              <label className="mt-4 grid gap-1 text-sm">
+                Project
+                <select
+                  value={teamProjectId ?? ""}
+                  onChange={(event) => openTeamSettings(event.target.value)}
+                  required
+                  className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+                >
+                  <option value="">Select a project…</option>
+                  {(projects ?? []).map((p: any) => (
+                    <option key={p._id} value={p._id}>{p.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <div className="mt-4 max-h-64 space-y-2 overflow-y-auto">
               {(agents ?? []).map((agent: any) => (
                 <label key={agent._id} className="flex items-center gap-2 rounded-lg border border-gray-100 px-3 py-2 text-sm dark:border-gray-800">
@@ -301,7 +454,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
               ))}
             </div>
             {teamError && <p className="mt-3 text-sm text-red-600">{teamError}</p>}
-            <button type="button" disabled={savingTeam} onClick={() => void saveTeam()} className="mt-4 w-full rounded-lg bg-[#6252d8] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{savingTeam ? "Saving…" : "Save team"}</button>
+            <button type="button" disabled={savingTeam || !teamProjectId} onClick={() => void saveTeam()} className="mt-4 w-full rounded-lg bg-[#6252d8] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{savingTeam ? "Saving…" : "Save team"}</button>
         </Modal>
       )}
     </aside>

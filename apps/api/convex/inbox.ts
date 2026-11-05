@@ -1,4 +1,5 @@
 import { query } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 
 export const list = query({
   args: {},
@@ -20,26 +21,26 @@ export const list = query({
       .filter((q) => q.eq(q.field("status"), "needs_you"))
       .collect();
 
-    const projectIds = new Set<string>([
-      ...approvals.map((a) => a.projectId),
-      ...tasks.map((t) => t.projectId),
-    ]);
-    const projects = await Promise.all([...projectIds].map((id) => ctx.db.get(id as never)));
-    const projectNameById = new Map(
-      projects.filter(Boolean).map((p) => [p!._id as string, p!.name as string])
-    );
+    const projectIds = [...new Set<string>([...approvals.map((a) => a.projectId as string), ...tasks.map((t) => t.projectId as string)])] as Id<"projects">[];
+    const projectNameById = new Map<string, string>();
+    for (const id of projectIds) {
+      const p = await ctx.db.get(id);
+      if (p) projectNameById.set(p._id as string, p.name);
+    }
 
-    const taskIds = new Set<string>([...approvals.map((a) => a.taskId), ...tasks.map((t) => t._id)]);
-    const allTasks = await Promise.all([...taskIds].map((id) => ctx.db.get(id as never)));
-    const taskById = new Map(allTasks.filter(Boolean).map((t) => [t!._id as string, t!]));
+    const taskIds = [...new Set<string>([...approvals.map((a) => a.taskId as string), ...tasks.map((t) => t._id as string)])] as Id<"tasks">[];
+    const taskById = new Map<string, { title: string }>();
+    for (const id of taskIds) {
+      const t = await ctx.db.get(id);
+      if (t) taskById.set(t._id as string, { title: t.title });
+    }
 
-    const agentIds = new Set<string>(
-      approvals.map((a) => a.requestedByAgentId).filter(Boolean) as string[]
-    );
-    const allAgents = await Promise.all([...agentIds].map((id) => ctx.db.get(id as never)));
-    const agentNameById = new Map(
-      allAgents.filter(Boolean).map((a) => [a!._id as string, a!.name as string])
-    );
+    const agentIds = [...new Set<string>(approvals.map((a) => a.requestedByAgentId).filter(Boolean) as string[])] as Id<"agents">[];
+    const agentNameById = new Map<string, string>();
+    for (const id of agentIds) {
+      const a = await ctx.db.get(id);
+      if (a) agentNameById.set(a._id as string, a.name);
+    }
 
     const approvalTaskIds = new Set(approvals.map((a) => a.taskId as string));
 

@@ -14,6 +14,7 @@ export default defineSchema({
     llmProvider: v.optional(v.string()),
     llmModel: v.optional(v.string()),
     llmBaseUrl: v.optional(v.string()),
+    llmApiKeyEnv: v.optional(v.string()),
     llmApiKey: v.optional(v.string()),
     status: v.union(
       v.literal("idle"),

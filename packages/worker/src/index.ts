@@ -32,7 +32,10 @@ async function main() {
       if (task) {
         activeTaskId = task._id;
         console.log(`[worker] picked task ${task._id}: ${task.title}`);
-        const data = await client.query(api.tasks.getForWorker as any, { taskId: task._id });
+        const data = await client.action(api.tasks.getForWorker as any, {
+          taskId: task._id,
+          workerToken: process.env.CONVEX_SERVICE_TOKEN!,
+        });
         if (!data?.project) {
           throw new Error("Project not found for task");
         }
@@ -47,13 +50,29 @@ async function main() {
         if (!planningAgent) {
           throw new Error("No agents are assigned to this project");
         }
+        if (isGreeting(data.task.command)) {
+          await client.mutation(api.messages.appendAgentChunk as any, {
+            projectId: data.project._id,
+            taskId: task._id,
+            agentId: planningAgent._id,
+            delta: "Hello! I am ready to help. Describe the coding change or task you would like me to work on.",
+          });
+          await client.mutation(api.tasks.updateStatus, { taskId: task._id, status: "done" });
+          await client.mutation(api.taskEvents.log as any, {
+            taskId: task._id,
+            projectId: data.project._id,
+            type: "task.status",
+            payload: { status: "done", stage: "conversation" },
+          });
+          continue;
+        }
         await client.mutation(api.agents.updateStatus, { agentId: planningAgent._id, status: "working" });
         activeAgentId = planningAgent._id;
         await client.mutation(api.taskEvents.log as any, {
           taskId: task._id,
           projectId: data.project._id,
           type: "task.stage",
-          payload: { stage: "thinking", agentId: planningAgent._id, message: `${planningAgent.name} sedang menyusun rencana` },
+          payload: { stage: "thinking", agentId: planningAgent._id, message: `${planningAgent.name} is preparing a plan` },
         });
         const orchestration = await createProviderForAgent(planningAgent as AgentLLMConfig).complete([
           ...(planningAgent.systemPrompt ? [{ role: "system" as const, content: planningAgent.systemPrompt }] : []),
@@ -84,6 +103,14 @@ async function main() {
               taskId: task._id,
               agentId,
               delta,
+            });
+          },
+          appendMessage: async (agentId, content) => {
+            await client.mutation(api.messages.appendAgentChunk as any, {
+              projectId: data.project._id,
+              taskId: task._id,
+              agentId,
+              delta: content,
             });
           },
           onEvent: async (type, payload) => {
@@ -142,7 +169,10 @@ async function main() {
             taskId: activeTaskId as any,
             status: "failed",
           });
-          const taskData = await client.query(api.tasks.getForWorker as any, { taskId: activeTaskId });
+          const taskData = await client.action(api.tasks.getForWorker as any, {
+            taskId: activeTaskId,
+            workerToken: process.env.CONVEX_SERVICE_TOKEN!,
+          });
           if (taskData?.project) {
             await client.mutation(api.taskEvents.log as any, {
               taskId: activeTaskId,
@@ -158,6 +188,10 @@ async function main() {
     }
     await sleep(POLL_MS);
   }
+}
+
+function isGreeting(command: string): boolean {
+  return /^(hello|hi|hey|halo|hai)[!.?,\s]*$/i.test(command.trim());
 }
 
 main().catch((e) => {

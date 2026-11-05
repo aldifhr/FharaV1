@@ -1,4 +1,6 @@
-import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
+import { action, query, mutation, internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 
 export const listByProject = query({
@@ -60,6 +62,28 @@ export const updateStatus = mutation({
   },
 });
 
+export const remove = mutation({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return false;
+    if (task.status === "running") {
+      throw new Error("Running tasks cannot be deleted");
+    }
+
+    const relatedTables = ["messages", "approvals", "taskEvents", "fileChanges"] as const;
+    for (const table of relatedTables) {
+      const records = await ctx.db
+        .query(table)
+        .filter((q) => q.eq(q.field("taskId"), args.taskId))
+        .collect();
+      for (const record of records) await ctx.db.delete(record._id);
+    }
+    await ctx.db.delete(args.taskId);
+    return true;
+  },
+});
+
 export const failRunning = mutation({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
@@ -99,7 +123,7 @@ export const claimNextQueued = mutation({
   },
 });
 
-export const getForWorker = query({
+export const getForWorkerInternal = internalQuery({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
     const task = await ctx.db.get(args.taskId);
@@ -110,5 +134,19 @@ export const getForWorker = query({
       ? allAgents.filter((agent) => project.agentIds?.includes(agent._id))
       : allAgents;
     return { task, project, agents };
+  },
+});
+
+export const getForWorker = action({
+  args: { taskId: v.id("tasks"), workerToken: v.string() },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ task: Doc<"tasks">; project: Doc<"projects"> | null; agents: Doc<"agents">[] } | null> => {
+    const configuredToken = process.env.CONVEX_SERVICE_TOKEN;
+    if (!configuredToken || args.workerToken !== configuredToken) {
+      throw new Error("Worker authentication required");
+    }
+    return await ctx.runQuery(internal.tasks.getForWorkerInternal, { taskId: args.taskId });
   },
 });

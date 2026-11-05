@@ -20,8 +20,8 @@ export default function DiffCard({ filePath, diff, changeType }: Props) {
   }, [diff]);
 
   return (
-    <div className="mt-2 overflow-hidden rounded-xl border border-[#e5e3eb] bg-white shadow-[0_1px_2px_rgba(30,25,60,.04)]">
-      <div className="flex items-center gap-2 border-b border-[#eeeef3] bg-[#fbfbfd] px-3 py-2">
+    <div className="mt-2 overflow-hidden rounded-xl border border-[#e5e3eb] bg-white dark:border-gray-800 dark:bg-gray-900 shadow-[0_1px_2px_rgba(30,25,60,.04)]">
+      <div className="flex items-center gap-2 border-b border-[#eeeef3] bg-[#fbfbfd] dark:border-gray-800 dark:bg-gray-800/60 px-3 py-2">
         <span className="truncate font-mono text-[11px] text-[#494752]">{filePath}</span>
         {changeType === "new" && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">NEW</span>}
         <span className="ml-auto text-[11px] text-emerald-600">+3</span>

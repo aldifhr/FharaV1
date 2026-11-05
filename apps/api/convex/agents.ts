@@ -1,6 +1,28 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+function defaultAvatarParams(name: string) {
+  const palettes = ["Black", "Brown", "Blonde", "Red", "PastelPink"];
+  let hash = 0;
+  for (const character of name) hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  const hairColor = palettes[Math.abs(hash) % palettes.length];
+  return {
+    avatarStyle: "Circle",
+    topType: "ShortHairShortFlat",
+    accessoriesType: "Blank",
+    hatColor: "Black",
+    hairColor,
+    facialHairType: "Blank",
+    facialHairColor: "Brown",
+    clotheType: "ShirtCrewNeck",
+    clotheColor: "Blue03",
+    eyeType: "Default",
+    eyebrowType: "Default",
+    mouthType: "Smile",
+    skinColor: "Light",
+  };
+}
+
 export const list = query({
   args: {},
   handler: async (ctx) => {
@@ -39,6 +61,7 @@ export const create = mutation({
       ...(llmModel ? { llmModel } : {}),
       ...(llmBaseUrl ? { llmBaseUrl } : {}),
       status: "idle",
+      avatarParams: defaultAvatarParams(name),
     });
   },
 });

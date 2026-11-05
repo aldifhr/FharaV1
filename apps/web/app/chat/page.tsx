@@ -1,6 +1,7 @@
 import IconRail from "../../components/IconRail";
 import Sidebar from "../../components/Sidebar";
-import { TextAnimate } from "@/components/ui/text-animate";
+import { BackgroundBeams } from "@/components/ui/background-beams";
+import { TextGenerateEffect } from "@/components/ui/text-generate-effect";
 import { ShimmerButton } from "@/components/ui/shimmer-button";
 
 export default function ChatPage() {
@@ -9,8 +10,13 @@ export default function ChatPage() {
       <IconRail />
       <Sidebar />
       <main className="relative flex min-w-0 flex-1 items-center justify-center bg-transparent p-6">
+        <BackgroundBeams className="pointer-events-none absolute inset-0 opacity-60 dark:opacity-100" />
         <div className="relative max-w-md text-center">
-          <TextAnimate animation="fadeIn" as="h1" className="text-xl font-semibold" by="word">Select a project</TextAnimate>
+          <TextGenerateEffect
+            duration={0.4}
+            className="text-center text-xl font-semibold leading-snug text-gray-900 dark:text-white"
+            words="Select a project"
+          />
           <p className="mt-2 text-sm text-gray-500">
             Select a project from the sidebar to open its agent chat and tasks.
           </p>

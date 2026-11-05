@@ -102,13 +102,14 @@ function Board({ tasks, onSelect, onDelete }: { tasks: Task[] | undefined; onSel
 }
 
 function SectionPage({
-  section, projectId, agents, tasks, onSelectTask,
+  section, projectId, agents, tasks, onSelectTask, highlightAgentId,
 }: {
   section: Exclude<WorkspaceSection, "chat" | "board">;
   projectId: string;
   agents: Agent[] | undefined;
   tasks: Task[] | undefined;
   onSelectTask: (id: string) => void;
+  highlightAgentId?: string | null;
 }) {
   const events = useQuery(api.taskEvents.listByProject, section === "activity" ? { projectId: projectId as never } : "skip");
   const approve = useMutation(api.approvals.approve);
@@ -137,7 +138,14 @@ function SectionPage({
         {section === "team" && (
           <div className="mt-6 grid gap-2 sm:grid-cols-2">
             {(agents ?? []).map((agent) => (
-              <div key={agent._id} className="flex items-center gap-3 rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+              <div
+                key={agent._id}
+                className={`flex items-center gap-3 rounded-xl border p-4 transition ${
+                  agent._id === highlightAgentId
+                    ? "border-[#6252d8] bg-[#6252d8]/5 shadow-sm dark:border-violet-400 dark:bg-violet-500/10"
+                    : "border-gray-200 dark:border-gray-800"
+                }`}
+              >
                 <AgentAvatar name={agent.name} size={36} status={agent.status} avatarParams={agent.avatarParams} />
                 <div className="min-w-0">
                   <p className="font-medium dark:text-white">{agent.name}</p>
@@ -287,6 +295,12 @@ export default function WorkspaceClient({
   const [section, setSection] = useState<WorkspaceSection>(initialSection);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [threadCollapsed, setThreadCollapsed] = useState(false);
+  const [highlightAgentId, setHighlightAgentId] = useState<string | null>(null);
+
+  const openAgent = (agentId: string) => {
+    setSection("team");
+    setHighlightAgentId(agentId);
+  };
   const tasks = useQuery(api.tasks.listByProject, { projectId: projectId as never });
   const allAgents = useQuery(api.agents.list, {});
   const project = useQuery(api.projects.get, { projectId: projectId as never });
@@ -346,6 +360,7 @@ export default function WorkspaceClient({
           tab={tab}
           setTab={setTab}
           onSelectTask={(taskId) => { setSelectedTaskId(taskId); setThreadCollapsed(false); }}
+          onOpenAgent={openAgent}
           selectedTaskId={selectedTaskId}
         />
       ) : section === "board" ? (
@@ -357,7 +372,7 @@ export default function WorkspaceClient({
           </div>
         </motion.section>
       ) : (
-        <SectionPage section={section} projectId={projectId} agents={agents} tasks={tasks} onSelectTask={(taskId) => { setSelectedTaskId(taskId); setThreadCollapsed(false); }} />
+        <SectionPage section={section} projectId={projectId} agents={agents} tasks={tasks} highlightAgentId={highlightAgentId} onSelectTask={(taskId) => { setSelectedTaskId(taskId); setThreadCollapsed(false); }} />
       )}
       <AnimatePresence initial={false} mode="wait">
         {selectedTaskId && (

@@ -4,6 +4,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
+import { AnimatedTooltip } from "@/components/ui/animated-tooltip";
+import { avatarUrl, defaultAvatarParams } from "@/lib/avatar";
 import DiffCard from "./DiffCard";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
@@ -14,17 +16,23 @@ type Props = {
   tab: "chat" | "tasks";
   setTab: (t: "chat" | "tasks") => void;
   onSelectTask: (taskId: string) => void;
+  onOpenAgent?: (agentId: string) => void;
   selectedTaskId: string | null;
 };
 
-export default function ChatPanel({ projectId, tab, setTab, onSelectTask, selectedTaskId }: Props) {
+export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpenAgent, selectedTaskId }: Props) {
   const [command, setCommand] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const project = useQuery(api.projects.get, { projectId: projectId as any });
   const messages = useQuery(api.messages.listByProject, { projectId: projectId as any });
   const tasks = useQuery(api.tasks.listByProject, { projectId: projectId as any });
-  const agents = useQuery(api.agents.list, {});
+  const allAgents = useQuery(api.agents.list, {});
+  const projectAgentIds = project?.agentIds;
+  const agents = (projectAgentIds
+    ? (allAgents ?? []).filter((agent: any) => (projectAgentIds as readonly string[]).includes(agent._id))
+    : (allAgents ?? [])) as any[];
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
   const selectedTask = (tasks ?? []).find((task) => task._id === selectedTaskId) ?? tasks?.[0];
   const fileChangesByTask = useQuery(api.fileChanges.listByTask, selectedTask ? { taskId: selectedTask._id } : "skip");
   const taskEvents = useQuery(api.taskEvents.listByTask, selectedTask ? { taskId: selectedTask._id } : "skip");
@@ -76,9 +84,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, select
     }
   };
 
-  const allAgents = agents ?? [];
-  const headerAgents = allAgents.slice(0, 6);
-  const workingAgents = (agents ?? []).filter((agent: any) => agent.status === "working");
+  const headerAgents = agents.slice(0, 6);
+  const workingAgents = agents.filter((agent: any) => agent.status === "working");
   const taskErrors = (taskEvents ?? []).filter((event: any) => event.type === "task.error");
   const diffStats = (fileChangesByTask ?? []).reduce(
     (stats, fileChange: any) => {
@@ -109,19 +116,60 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, select
         <div className="min-w-0">
           <h1 className="truncate text-sm font-semibold">{(project as any)?.name ?? "Agent Workspace"}</h1>
           <div className="flex items-center gap-2">
-            <div className="flex items-center pl-1" aria-label={`${allAgents.length} agents`}>
-              {headerAgents.map((a: any) => (
-                <span key={a._id} className="-ml-1.5 rounded-full bg-white p-0.5 ring-1 ring-white first:ml-0" title={a.name}>
-                  <AgentAvatar name={a.name} size={22} status={a.status} avatarParams={a.avatarParams} />
-                </span>
-              ))}
-              {allAgents.length > headerAgents.length && (
-                <span className="-ml-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-[10px] font-semibold text-gray-600 ring-1 ring-white">
-                  +{allAgents.length - headerAgents.length}
+            <div className="relative flex items-center pl-1" aria-label={`${agents.length} agents`}>
+              <div
+                className="flex items-center"
+                onMouseLeave={() => setActiveAgentId(null)}
+              >
+                {headerAgents.map((a: any) => (
+                  <button
+                    key={a._id}
+                    type="button"
+                    onClick={() => onOpenAgent?.(a._id)}
+                    title={`${a.name} · Open agent`}
+                    aria-label={`Open agent ${a.name}`}
+                    className={`-ml-1.5 rounded-full p-0 first:ml-0 ${
+                      activeAgentId && activeAgentId !== a._id
+                        ? "opacity-40"
+                        : "opacity-100 transition hover:opacity-70"
+                    }`}
+                    onMouseEnter={() => setActiveAgentId(a._id)}
+                  >
+                    <AgentAvatar name={a.name} size={28} status={a.status} avatarParams={a.avatarParams} />
+                  </button>
+                ))}
+              </div>
+              {activeAgentId && (
+                <span className="pointer-events-none absolute left-0 top-full z-30 mt-2">
+                  <AnimatedTooltip
+                    items={(() => {
+                      const a = agents.find((x: any) => x._id === activeAgentId);
+                      return a
+                        ? [{
+                            id: a._id,
+                            name: a.name,
+                            designation: `${a.role} · ${a.status}`,
+                            image: avatarUrl(a.avatarParams ?? defaultAvatarParams(a.name)),
+                            size: 28,
+                          }]
+                        : [];
+                    })()}
+                  />
                 </span>
               )}
+              {agents.length > headerAgents.length && (
+                <button
+                  type="button"
+                  onClick={() => onOpenAgent?.(agents[headerAgents.length]._id)}
+                  title={`+${agents.length - headerAgents.length} more — open agents`}
+                  aria-label={`Open ${agents.length - headerAgents.length} more agents`}
+                  className="-ml-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-[10px] font-semibold text-gray-600 ring-1 ring-white transition hover:bg-gray-200"
+                >
+                  +{agents.length - headerAgents.length}
+                </button>
+              )}
             </div>
-            <span className="text-xs text-gray-500">{allAgents.length} {allAgents.length === 1 ? "agent" : "agents"}</span>
+            <span className="text-xs text-gray-500">{agents.length} {agents.length === 1 ? "agent" : "agents"}</span>
           </div>
         </div>
         <div className="ml-auto flex items-center gap-3">

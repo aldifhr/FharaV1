@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useSearchParams } from "next/navigation";
 import { api } from "../../api/convex/_generated/api";
 import Link from "next/link";
 import IconRail from "../components/IconRail";
@@ -27,6 +28,15 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export default function Home() {
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center">Loading…</div>}>
+      <HomePage />
+    </Suspense>
+  );
+}
+
+function HomePage() {
+  const searchParams = useSearchParams();
   const data = useQuery(api.overview.get, {});
   const projects = useQuery(api.projects.list, {});
   const agents = useQuery(api.agents.list, {});
@@ -45,6 +55,13 @@ export default function Home() {
   useEffect(() => {
     setDesktopReady(Boolean(window.moagentDesktop));
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get("new") === "project") {
+      setIsCreateOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

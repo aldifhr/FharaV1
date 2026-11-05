@@ -28,6 +28,7 @@ export interface AgentDefinition extends AgentLLMConfig {
   systemPrompt?: string;
   description?: string;
   capabilities?: string[];
+  skills?: string[];
   supportedTools?: string[];
   isEnabled?: boolean;
   priority?: number;

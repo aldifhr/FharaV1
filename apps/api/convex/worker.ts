@@ -359,3 +359,29 @@ export const appendAgentMessage = action({
     return await ctx.runMutation(internal.orchestration.appendAgentMessage, rest);
   },
 });
+
+export const recordAudit = action({
+  args: {
+    ...tokenArg,
+    taskId: v.optional(v.id("tasks")),
+    projectId: v.optional(v.id("projects")),
+    executionId: v.optional(v.id("executions")),
+    workerId: v.optional(v.string()),
+    actor: v.string(),
+    tool: v.string(),
+    action: v.string(),
+    decision: v.union(
+      v.literal("allowed"),
+      v.literal("denied"),
+      v.literal("pending"),
+      v.literal("recorded")
+    ),
+    target: v.optional(v.string()),
+    details: v.optional(v.any()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    assertServiceToken(args.workerToken);
+    const { workerToken: _token, ...rest } = args;
+    await ctx.runMutation(internal.audit.record, rest);
+  },
+});

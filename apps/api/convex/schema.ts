@@ -65,6 +65,7 @@ export default defineSchema({
     agentIds: v.optional(v.array(v.id("agents"))),
     ownerId: v.optional(v.string()),
     createdAt: v.optional(v.number()),
+    approvalMode: v.optional(v.union(v.literal("ask"), v.literal("auto"))),
   }).index("by_owner", ["ownerId"]),
 
   agents: defineTable({
@@ -80,6 +81,7 @@ export default defineSchema({
     avatarParams: v.optional(v.any()),
     description: v.optional(v.string()),
     capabilities: v.optional(v.array(v.string())),
+    skills: v.optional(v.array(v.string())),
     supportedTools: v.optional(v.array(v.string())),
     isEnabled: v.optional(v.boolean()),
     priority: v.optional(v.number()),
@@ -252,4 +254,21 @@ export default defineSchema({
     notes: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_task", ["taskId"]),
+
+  audit: defineTable({
+    taskId: v.optional(v.id("tasks")),
+    projectId: v.optional(v.id("projects")),
+    executionId: v.optional(v.id("executions")),
+    workerId: v.optional(v.string()),
+    actor: v.string(),
+    tool: v.string(),
+    action: v.string(),
+    decision: v.union(v.literal("allowed"), v.literal("denied"), v.literal("pending"), v.literal("recorded")),
+    target: v.optional(v.string()),
+    details: v.optional(v.any()),
+    createdAt: v.number(),
+  })
+    .index("by_task", ["taskId"])
+    .index("by_project", ["projectId"])
+    .index("by_created_at", ["createdAt"]),
 });

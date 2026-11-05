@@ -269,7 +269,7 @@ function HomePage() {
                 </div>
               </fieldset>
               <label className="grid gap-1 text-sm">
-                Path folder Windows
+                Folder path
                 <div className="flex gap-2">
                   <input
                     value={workspacePath}

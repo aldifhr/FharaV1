@@ -18,6 +18,7 @@ export interface WorkerProject {
   name: string;
   workspacePath: string;
   agentIds?: string[];
+  approvalMode?: "ask" | "auto";
 }
 
 export interface WorkerAgent {
@@ -31,6 +32,7 @@ export interface WorkerAgent {
   llmApiKey?: string;
   description?: string;
   capabilities?: string[];
+  skills?: string[];
   supportedTools?: string[];
   isEnabled?: boolean;
   priority?: number;
@@ -338,5 +340,20 @@ export class WorkerApi {
     executionId?: string;
   }): Promise<void> {
     await this.client.action(api.worker.appendAgentMessage as any, this.args(input));
+  }
+
+  async recordAudit(input: {
+    taskId?: string;
+    projectId?: string;
+    executionId?: string;
+    workerId?: string;
+    actor: string;
+    tool: string;
+    action: string;
+    decision: "allowed" | "denied" | "pending" | "recorded";
+    target?: string;
+    details?: unknown;
+  }): Promise<void> {
+    await this.client.action(api.worker.recordAudit as any, this.args(input));
   }
 }

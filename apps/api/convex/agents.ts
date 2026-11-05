@@ -57,6 +57,7 @@ export const create = mutation({
     description: v.optional(v.string()),
     capabilities: v.optional(v.array(v.string())),
     supportedTools: v.optional(v.array(v.string())),
+    skills: v.optional(v.array(v.string())),
     priority: v.optional(v.number()),
     maxConcurrency: v.optional(v.number()),
   },
@@ -86,6 +87,9 @@ export const create = mutation({
       ...(normalizeCapabilities(args.supportedTools)
         ? { supportedTools: normalizeCapabilities(args.supportedTools) }
         : {}),
+      ...(normalizeCapabilities(args.skills)
+        ? { skills: normalizeCapabilities(args.skills) }
+        : {}),
       isEnabled: true,
       priority: args.priority ?? 0,
       maxConcurrency: args.maxConcurrency ?? 1,
@@ -106,15 +110,18 @@ export const update = mutation({
     description: v.optional(v.string()),
     capabilities: v.optional(v.array(v.string())),
     supportedTools: v.optional(v.array(v.string())),
+    skills: v.optional(v.array(v.string())),
     isEnabled: v.optional(v.boolean()),
     priority: v.optional(v.number()),
     maxConcurrency: v.optional(v.number()),
+    avatarParams: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const name = args.name.trim();
     const role = args.role.trim();
     if (!name) throw new Error("Agent name is required");
     if (!role) throw new Error("Agent role is required");
+    const cleanApiKey = args.llmApiKey?.trim();
     await ctx.db.patch(args.agentId, {
       name,
       role,
@@ -122,7 +129,8 @@ export const update = mutation({
       llmProvider: args.llmProvider.trim() || "anthropic",
       llmModel: args.llmModel.trim() || undefined,
       llmBaseUrl: args.llmBaseUrl.trim() || undefined,
-      ...(args.llmApiKey?.trim() ? { llmApiKey: args.llmApiKey.trim() } : {}),
+      ...(cleanApiKey ? { llmApiKey: cleanApiKey } : {}),
+      ...(args.avatarParams ? { avatarParams: args.avatarParams } : {}),
       ...(args.description !== undefined
         ? { description: args.description.trim() || undefined }
         : {}),
@@ -131,6 +139,9 @@ export const update = mutation({
         : {}),
       ...(args.supportedTools !== undefined
         ? { supportedTools: normalizeCapabilities(args.supportedTools) }
+        : {}),
+      ...(args.skills !== undefined
+        ? { skills: normalizeCapabilities(args.skills) }
         : {}),
       ...(args.isEnabled !== undefined ? { isEnabled: args.isEnabled } : {}),
       ...(args.priority !== undefined ? { priority: args.priority } : {}),

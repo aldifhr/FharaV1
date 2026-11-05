@@ -361,6 +361,8 @@ export default function WorkspaceClient({
           setTab={setTab}
           onSelectTask={(taskId) => { setSelectedTaskId(taskId); setThreadCollapsed(false); }}
           onOpenAgent={openAgent}
+          onToggleThread={() => setThreadCollapsed((collapsed) => !collapsed)}
+          threadCollapsed={threadCollapsed}
           selectedTaskId={selectedTaskId}
         />
       ) : section === "board" ? (

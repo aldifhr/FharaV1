@@ -23,6 +23,7 @@ export const create = mutation({
     name: v.string(),
     workspacePath: v.string(),
     agentIds: v.optional(v.array(v.id("agents"))),
+    approvalMode: v.optional(v.union(v.literal("ask"), v.literal("auto"))),
   },
   handler: async (ctx, args) => {
     const name = args.name.trim();
@@ -40,6 +41,7 @@ export const create = mutation({
       workspacePath,
       ...(args.agentIds ? { agentIds: args.agentIds } : {}),
       ...(viewerId ? { ownerId: viewerId } : {}),
+      ...(args.approvalMode ? { approvalMode: args.approvalMode } : {}),
       createdAt: Date.now(),
     });
   },
@@ -58,6 +60,17 @@ export const updateTeam = mutation({
       if (!agent) throw new Error(`Agent not found: ${agentId}`);
     }
     await ctx.db.patch(args.projectId, { agentIds: uniqueAgentIds });
+  },
+});
+
+export const updateApprovalMode = mutation({
+  args: {
+    projectId: v.id("projects"),
+    approvalMode: v.union(v.literal("ask"), v.literal("auto")),
+  },
+  handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
+    await ctx.db.patch(args.projectId, { approvalMode: args.approvalMode });
   },
 });
 

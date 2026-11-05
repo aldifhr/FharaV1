@@ -21,6 +21,7 @@ export const getRunContext = internalQuery({
     agents: Doc<"agents">[];
     plan: Doc<"plans"> | null;
     subtasks: Doc<"subtasks">[];
+    approvalMode: "ask" | "auto";
   } | null> => {
     const task = await ctx.db.get(args.taskId);
     if (!task) return null;
@@ -39,7 +40,14 @@ export const getRunContext = internalQuery({
       .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
       .order("asc")
       .collect();
-    return { task, project, agents, plan: plans[0] ?? null, subtasks };
+    return {
+      task,
+      project,
+      agents,
+      plan: plans[0] ?? null,
+      subtasks,
+      approvalMode: project?.approvalMode === "auto" ? "auto" : "ask",
+    };
   },
 });
 

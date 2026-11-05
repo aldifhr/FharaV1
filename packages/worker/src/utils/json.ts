@@ -48,6 +48,15 @@ export function parseDraft(content: string): { files: DraftFile[] } | null {
     if (typeof value.filePath === "string" && typeof value.newContent === "string") {
       files.push({ filePath: value.filePath, newContent: value.newContent });
     }
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) {
+        if (!item || typeof item !== "object") continue;
+        const entry = item as Record<string, unknown>;
+        if (typeof entry.filePath === "string" && typeof entry.newContent === "string") {
+          files.push({ filePath: entry.filePath, newContent: entry.newContent });
+        }
+      }
+    }
   }
   const unique = new Map<string, DraftFile>();
   for (const file of files) unique.set(file.filePath, file);

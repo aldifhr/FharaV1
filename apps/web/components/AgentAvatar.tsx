@@ -1,11 +1,12 @@
 "use client";
-import { useState } from "react";
-import { avatarUrl, defaultAvatarParams, fallbackColor, initials, type AvatarParams } from "../lib/avatar";
+import { AvatartionAvatarView, avatartionFor, deserializeAvatartion, type AvatartionAvatar } from "./ui/avatartion";
+import type { AvatarParams } from "../lib/avatar";
 
 type Props = {
   name: string;
   size?: number;
   status?: "idle" | "working" | "queued" | "needs_you";
+  avatar?: AvatartionAvatar;
   avatarParams?: AvatarParams;
 };
 
@@ -16,31 +17,13 @@ const STATUS_DOT: Record<string, string> = {
   needs_you: "bg-rose-500",
 };
 
-export default function AgentAvatar({ name, size = 32, status, avatarParams }: Props) {
-  const [err, setErr] = useState(false);
-  const resolvedAvatarParams = avatarParams ?? defaultAvatarParams(name);
-  const showImg = !err;
+export default function AgentAvatar({ name, size = 32, status, avatar, avatarParams }: Props) {
+  const restored = avatarParams ? deserializeAvatartion(avatarParams) : null;
+  const resolvedAvatar = avatar ?? restored ?? avatartionFor(name);
+
   return (
     <span className="relative inline-flex shrink-0" style={{ width: size, height: size }}>
-      {showImg ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={avatarUrl(resolvedAvatarParams)}
-          alt={name}
-          width={size}
-          height={size}
-          className="rounded-full object-cover"
-          onError={() => setErr(true)}
-        />
-      ) : (
-        <span
-          className={`inline-flex items-center justify-center rounded-full text-white font-semibold ${fallbackColor(name)}`}
-          style={{ width: size, height: size, fontSize: size * 0.4 }}
-          aria-label={name}
-        >
-          {initials(name)}
-        </span>
-      )}
+      <AvatartionAvatarView avatar={resolvedAvatar} className="h-full w-full" />
       {status && (
         <span
           className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white ${STATUS_DOT[status] ?? "bg-gray-400"}`}

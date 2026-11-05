@@ -1,15 +1,16 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../api/convex/_generated/api";
+import Link from "next/link";
 import AgentAvatar from "./AgentAvatar";
 import { AnimatedTooltip } from "@/components/ui/animated-tooltip";
 import { avatarUrl, defaultAvatarParams } from "@/lib/avatar";
 import DiffCard from "./DiffCard";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
-import { Bell, MoreHorizontal, PanelRight, Send, Trash2 } from "lucide-react";
+import { Bell, Check, Copy, MoreHorizontal, PanelRight, Send, Trash2 } from "lucide-react";
 
 type Props = {
   projectId: string;
@@ -17,22 +18,144 @@ type Props = {
   setTab: (t: "chat" | "tasks") => void;
   onSelectTask: (taskId: string) => void;
   onOpenAgent?: (agentId: string) => void;
+  onToggleThread?: () => void;
+  threadCollapsed?: boolean;
   selectedTaskId: string | null;
 };
 
-export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpenAgent, selectedTaskId }: Props) {
+function MessageText({ content }: { content: string }) {
+  const parts = content.split(/(\n{2,})/g);
+  const isBlockStart = (line: string) => /^(#{1,6}\s|[-*]\s|\d+\.\s|```|>)/.test(line);
+
+  const blocks: { kind: "paragraph"; lines: string[] }[] = [];
+  let current: string[] = [];
+  for (const part of parts) {
+    if (/^\n{2,}$/.test(part)) {
+      if (current.length) blocks.push({ kind: "paragraph", lines: current });
+      current = [];
+      continue;
+    }
+    current.push(part);
+  }
+  if (current.length) blocks.push({ kind: "paragraph", lines: current });
+
+  const renderInline = (text: string) => {
+    const segments = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g);
+    return segments.map((seg, i) => {
+      if (/^`[^`]+`$/.test(seg)) {
+        return (
+          <code key={i} className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[12px] dark:bg-gray-800">
+            {seg.slice(1, -1)}
+          </code>
+        );
+      }
+      if (/^\*\*[^*]+\*\*$/.test(seg)) {
+        return <strong key={i} className="font-semibold">{seg.slice(2, -2)}</strong>;
+      }
+      if (/^\*[^*]+\*$/.test(seg)) {
+        return <em key={i}>{seg.slice(1, -1)}</em>;
+      }
+      const linkMatch = seg.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      if (linkMatch) {
+        return (
+          <a key={i} href={linkMatch[2]} target="_blank" rel="noreferrer" className="text-[#5147b4] underline hover:text-[#3d34a0]">
+            {linkMatch[1]}
+          </a>
+        );
+      }
+      return <span key={i}>{seg}</span>;
+    });
+  };
+
+  return (
+    <div className="mt-1 max-w-3xl space-y-2 text-[13px] leading-5 text-[#4c4a55] dark:text-gray-200">
+      {blocks.map((block, bi) => {
+        const text = block.lines.join("");
+        const lines = text.split("\n").filter((line) => line.length > 0);
+        if (lines.length === 0) return null;
+  const heading = lines[0].match(/^(#{1,6})\s+(.*)$/);
+  if (heading) {
+    return (
+      <p key={bi} className="font-semibold text-gray-900 dark:text-white">
+        {renderInline(heading[2])}
+      </p>
+    );
+  }
+        if (lines.every((line) => /^[-*]\s+/.test(line))) {
+          return (
+            <ul key={bi} className="list-inside list-disc space-y-1">
+              {lines.map((line, li) => (
+                <li key={li}>{renderInline(line.replace(/^[-*]\s+/, ""))}</li>
+              ))}
+            </ul>
+          );
+        }
+        if (lines.every((line) => /^\d+\.\s+/.test(line))) {
+          return (
+            <ol key={bi} className="list-inside list-decimal space-y-1">
+              {lines.map((line, li) => (
+                <li key={li}>{renderInline(line.replace(/^\d+\.\s+/, ""))}</li>
+              ))}
+            </ol>
+          );
+        }
+        return (
+          <p key={bi} className="whitespace-pre-wrap break-words">
+            {text.split("\n").map((line, li, arr) => (
+              <span key={li}>
+                {renderInline(line)}
+                {li < arr.length - 1 ? "\n" : ""}
+              </span>
+            ))}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpenAgent, onToggleThread, threadCollapsed, selectedTaskId }: Props) {
   const [command, setCommand] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const project = useQuery(api.projects.get, { projectId: projectId as any });
   const messages = useQuery(api.messages.listByProject, { projectId: projectId as any });
   const tasks = useQuery(api.tasks.listByProject, { projectId: projectId as any });
+  const approvals = useQuery(api.approvals.listPendingAll, {});
   const allAgents = useQuery(api.agents.list, {});
   const projectAgentIds = project?.agentIds;
   const agents = (projectAgentIds
     ? (allAgents ?? []).filter((agent: any) => (projectAgentIds as readonly string[]).includes(agent._id))
     : (allAgents ?? [])) as any[];
+  const pendingForProject = (approvals ?? []).filter((a: any) => a.projectId === projectId).length;
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(event.target as Node)) {
+        setMoreOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [moreOpen]);
+
+  const copyProjectLink = async () => {
+    const url = `${window.location.origin}/workspace/${projectId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+    setMoreOpen(false);
+  };
+
   const selectedTask = (tasks ?? []).find((task) => task._id === selectedTaskId) ?? tasks?.[0];
   const fileChangesByTask = useQuery(api.fileChanges.listByTask, selectedTask ? { taskId: selectedTask._id } : "skip");
   const taskEvents = useQuery(api.taskEvents.listByTask, selectedTask ? { taskId: selectedTask._id } : "skip");
@@ -172,10 +295,63 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             <span className="text-xs text-gray-500">{agents.length} {agents.length === 1 ? "agent" : "agents"}</span>
           </div>
         </div>
-        <div className="ml-auto flex items-center gap-3">
-          <button className="text-gray-400 hover:text-gray-700" title="Panel"><PanelRight size={15} /></button>
-          <button className="text-gray-400 hover:text-gray-700" title="Notifications"><Bell size={15} /></button>
-          <button className="text-gray-400 hover:text-gray-700" title="More"><MoreHorizontal size={17} /></button>
+        <div className="ml-auto flex items-center gap-1">
+          {selectedTaskId && onToggleThread && (
+            <button
+              type="button"
+              onClick={onToggleThread}
+              title={threadCollapsed ? "Expand task thread" : "Collapse task thread"}
+              aria-label={threadCollapsed ? "Expand task thread" : "Collapse task thread"}
+              className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+            >
+              <PanelRight size={15} />
+            </button>
+          )}
+          <Link
+            href="/inbox"
+            title={`Notifications — ${pendingForProject} pending approval${pendingForProject === 1 ? "" : "s"}`}
+            aria-label={`Open inbox — ${pendingForProject} pending approval${pendingForProject === 1 ? "" : "s"}`}
+            className="relative rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+          >
+            <Bell size={15} />
+            {pendingForProject > 0 && (
+              <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                {pendingForProject > 9 ? "9+" : pendingForProject}
+              </span>
+            )}
+          </Link>
+          <div className="relative" ref={moreRef}>
+            <button
+              type="button"
+              onClick={() => setMoreOpen((open) => !open)}
+              title="More actions"
+              aria-label="More actions"
+              aria-expanded={moreOpen}
+              className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+            >
+              <MoreHorizontal size={17} />
+            </button>
+            {moreOpen && (
+              <div className="absolute right-0 z-40 mt-2 w-48 overflow-hidden rounded-xl border border-[#ebe9f0] bg-white py-1 text-sm shadow-xl dark:border-gray-800 dark:bg-gray-900">
+                <button
+                  type="button"
+                  onClick={copyProjectLink}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  {copied ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} />}
+                  {copied ? "Link copied" : "Copy project link"}
+                </button>
+                <Link
+                  href={`/workspace/${projectId}?section=activity`}
+                  onClick={() => setMoreOpen(false)}
+                  className="flex w-full items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  <Bell size={15} />
+                  View activity
+                </Link>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -208,12 +384,12 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                   size={32}
                   avatarParams={(agents as any)?.find((a: any) => a._id === m.agentId)?.avatarParams}
                 />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2">
-                    <p className="text-[13px] font-semibold text-[#34323d]">{(agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"}</p>
-                    <span className="text-[11px] text-gray-400">{formatMessageTime(m._creationTime)}</span>
-                  </div>
-                  <p className="mt-1 max-w-2xl text-[13px] leading-5 text-[#4c4a55]">{m.content}</p>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-[13px] font-semibold text-[#34323d] dark:text-gray-100">{(agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"}</p>
+                      <span className="text-[11px] text-gray-400">{formatMessageTime(m._creationTime)}</span>
+                    </div>
+                    <MessageText content={m.content} />
                   {fileChangesByTask?.length && m.taskId === selectedTask?._id && m._id === latestAgentMessage?._id ? (
                     <div className="mt-2">
                       <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-600">

@@ -49,7 +49,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     await deps.api.completeTask(task._id, "failed", "Project not found for task");
     return;
   }
-  const { project, agents } = context;
+  const { project, agents, approvalMode } = context;
   if (agents.length === 0) {
     await deps.api.completeTask(task._id, "failed", "No agents are assigned to this project");
     return;
@@ -137,8 +137,9 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       plan,
       state,
       feedback,
-      skipQa: plan.requiresApproval,
-      completedKeys: new Set<string>(),
+    skipQa: plan.requiresApproval && approvalMode === "ask",
+    approvalMode,
+    completedKeys: new Set<string>(),
     });
 
     if (outcome === "waiting_approval") return;
@@ -254,6 +255,7 @@ async function executePlan(input: {
   feedback?: string;
   skipQa: boolean;
   approvalResolved?: boolean;
+  approvalMode: "ask" | "auto";
   completedKeys: Set<string>;
 }): Promise<"completed" | "failed" | "waiting_approval"> {
   const { deps, task, project, plan, state } = input;
@@ -470,46 +472,65 @@ async function executePlan(input: {
   }
 
   const preparedChanges = Array.from(state.fileChanges.values());
-  if (plan.requiresApproval && preparedChanges.length > 0 && !input.approvalResolved) {
-    const implementer = implementerAgent(plan, input.agents);
-    const summary = `Apply changes to ${preparedChanges.length} file(s): ${preparedChanges
-      .map((change) => change.filePath)
-      .join(", ")}`;
-    await deps.api.requestApproval({
-      taskId,
-      projectId: project._id,
-      subtaskKey: plan.subtasks.find((subtask) => subtask.kind === "code_change")?.key,
-      kind: "apply_changes",
-      summary,
-      payload: {
-        filePaths: preparedChanges.map((change) => change.filePath),
-        planVersion: plan.version,
-      },
-      requestedByAgentId: implementer?._id,
-      planVersion: plan.version,
-    });
-    await deps.api.appendAgentMessage({
-      projectId: project._id,
-      taskId,
-      agentId: implementer?._id,
-      content: `Changes are prepared and verified. ${summary}. Waiting for your approval before writing them to the workspace.`,
-    });
-    await deps.api.logEvent({
-      taskId,
-      projectId: project._id,
-      type: "task.stage",
-      payload: { stage: "waiting_approval", files: preparedChanges.length },
-      level: "warn",
-    });
-    return "waiting_approval";
-  }
-
-  if (plan.requiresApproval && preparedChanges.length === 0) {
+  if (preparedChanges.length === 0) {
     state.feedback.push("The implementation produced no file changes");
     return "failed";
   }
 
-  return "completed";
+  const dryRun = await dryRunPolicy(preparedChanges, deps, task, project, plan, planVersion, state);
+
+  if (!dryRun.allowed) {
+    return "failed";
+  }
+
+  const shouldAsk = input.approvalMode === "ask" && plan.requiresApproval && !input.approvalResolved;
+  if (!shouldAsk) {
+    return "completed";
+  }
+
+  const implementer = implementerAgent(plan, input.agents);
+  const summary = `Apply changes to ${preparedChanges.length} file(s): ${preparedChanges
+    .map((change) => change.filePath)
+    .join(", ")}`;
+  await deps.api.requestApproval({
+    taskId,
+    projectId: project._id,
+    subtaskKey: plan.subtasks.find((subtask) => subtask.kind === "code_change")?.key,
+    kind: "apply_changes",
+    summary,
+    payload: {
+      filePaths: preparedChanges.map((change) => change.filePath),
+      planVersion: plan.version,
+      policyDryRun: dryRun.summary,
+    },
+    requestedByAgentId: implementer?._id,
+    planVersion: plan.version,
+  });
+  await deps.api.appendAgentMessage({
+    projectId: project._id,
+    taskId,
+    agentId: implementer?._id,
+    content: `Changes are prepared and verified. ${summary}. Waiting for your approval before writing them to the workspace.`,
+  });
+  await deps.api.logEvent({
+    taskId,
+    projectId: project._id,
+    type: "task.stage",
+    payload: { stage: "waiting_approval", files: preparedChanges.length },
+    level: "warn",
+  });
+  await deps.api.recordAudit({
+    taskId,
+    projectId: project._id,
+    workerId: deps.workerId,
+    actor: implementer?.name ?? "orchestrator",
+    tool: "apply_changes",
+    action: "request",
+    decision: "pending",
+    target: preparedChanges.map((change) => change.filePath).join(","),
+    details: { dryRun: dryRun.summary },
+  });
+  return "waiting_approval";
 }
 
 export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void> {
@@ -527,6 +548,15 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
       projectId: context.project._id,
       taskId,
       content: "Changes were rejected by the user and were not applied to the workspace.",
+    });
+    await deps.api.recordAudit({
+      taskId,
+      projectId: context.project._id,
+      workerId: deps.workerId,
+      actor: "user",
+      tool: "apply_changes",
+      action: "reject",
+      decision: "denied",
     });
     await deps.api.completeTask(taskId, "rejected", "Changes rejected by user");
     return;
@@ -569,10 +599,21 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
         payload: { message },
         level: "error",
       });
+      await deps.api.recordAudit({
+        taskId,
+        projectId: context.project._id,
+        workerId: deps.workerId,
+        actor: "worker",
+        tool: "apply_changes",
+        action: "apply",
+        decision: "denied",
+        target: change.filePath,
+        details: { reason: message.slice(0, 500) },
+      });
       await deps.api.completeTask(taskId, "failed", message);
       return;
     }
-  }
+
   if (appliedPaths.length > 0) {
     await deps.api.markFilesApplied(taskId, appliedPaths, deps.workerId);
     await deps.api.logEvent({
@@ -580,6 +621,17 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
       projectId: context.project._id,
       type: "fileChanges.applied",
       payload: { filePaths: appliedPaths },
+    });
+    await deps.api.recordAudit({
+      taskId,
+      projectId: context.project._id,
+      workerId: deps.workerId,
+      actor: "user",
+      tool: "apply_changes",
+      action: "apply",
+      decision: "allowed",
+      target: appliedPaths.join(","),
+      details: { filePaths: appliedPaths, planVersion },
     });
   }
   await deps.api.appendAgentMessage({
@@ -617,6 +669,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
     state,
     skipQa: false,
     approvalResolved: true,
+    approvalMode: context.approvalMode,
     completedKeys,
   });
   if (outcome === "waiting_approval") return;
@@ -736,6 +789,84 @@ async function persistPlan(
     payload: input.plan,
     subtasks: input.plan.subtasks,
   });
+}
+
+async function dryRunPolicy(
+  changes: FileDiff[],
+  deps: RunnerDeps,
+  task: WorkerTask,
+  project: WorkerProject,
+  plan: ExecutionPlan,
+  planVersion: number,
+  state: RunState
+): Promise<{ allowed: boolean; summary: { filePaths: string[]; count: number; changes: string[] } }> {
+  const normalized = changes.map((change) => normalizeFileChangePath(change.filePath)).filter(Boolean);
+  const forbidden = normalized.filter((filePath) => isForbiddenFilePath(filePath));
+  const filePaths = changes.map((change) => change.filePath);
+  const summary = {
+    filePaths,
+    count: changes.length,
+    changes: changes.map((change) => `${change.changeType}:${change.filePath}`),
+  };
+
+  if (forbidden.length > 0) {
+    state.feedback.push(`Policy denied protected paths: ${forbidden.join(", ")}`);
+    await deps.api.recordAudit({
+      taskId: task._id,
+      projectId: project._id,
+      workerId: deps.workerId,
+      actor: "orchestrator",
+      tool: "apply_changes",
+      action: "dry-run",
+      decision: "denied",
+      target: forbidden.join(","),
+      details: { reason: "file-path-forbidden", planVersion },
+    });
+    return { allowed: false, summary };
+  }
+
+  await deps.api.recordAudit({
+    taskId: task._id,
+    projectId: project._id,
+    workerId: deps.workerId,
+    actor: "orchestrator",
+    tool: "apply_changes",
+    action: "dry-run",
+    decision: "allowed",
+    target: filePaths.join(","),
+    details: { count: changes.length, planVersion },
+  });
+  await deps.api.logEvent({
+    taskId: task._id,
+    projectId: project._id,
+    type: "task.policy_dry_run",
+    payload: { allowed: true, files: changes.length },
+  });
+  return { allowed: true, summary };
+}
+
+function normalizeFileChangePath(filePath: string): string {
+  return filePath.replace(/\\\\/g, "/").replace(/^\/+/, "");
+}
+
+function isForbiddenFilePath(filePath: string): boolean {
+  const normalized = normalizeFileChangePath(filePath).toLowerCase();
+  return (
+    normalized === ".env" ||
+    normalized.startsWith(".env.") ||
+    normalized.startsWith(".git/") ||
+    normalized.includes("/.git/") ||
+    normalized.startsWith("node_modules/") ||
+    normalized.includes("/node_modules/") ||
+    normalized === "package-lock.json" ||
+    normalized.endsWith("/package-lock.json") ||
+    normalized === "pnpm-lock.yaml" ||
+    normalized.endsWith("/pnpm-lock.yaml") ||
+    normalized === "yarn.lock" ||
+    normalized.endsWith("/yarn.lock") ||
+    normalized.startsWith(".ssh/") ||
+    normalized.includes("/.ssh/")
+  );
 }
 
 function implementerAgent(

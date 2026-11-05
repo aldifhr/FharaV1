@@ -6,17 +6,30 @@ import { api } from "../../api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
 import Link from "next/link";
 import Modal from "./Modal";
-import { defaultAvatarParams } from "../lib/avatar";
 import { useRouter } from "next/navigation";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import { Check, Plus, Settings2, Trash2, X } from "lucide-react";
+import { Check, Plus, Settings2, Trash2, X, Dices } from "lucide-react";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
 import { Card, CardContent } from "./ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { usePathname } from "next/navigation";
+import { randomAvatartion, type AvatartionAvatar } from "./ui/avatartion";
+
+const AGENT_ROLES = [
+  "frontend",
+  "backend",
+  "qa",
+  "reviewer",
+  "researcher",
+  "architect",
+  "security",
+  "devops",
+  "general",
+] as const;
 
 export default function Sidebar({ projectId, onSelectProject }: { projectId?: string; onSelectProject?: (id: string) => void }) {
   const pathname = usePathname();
@@ -41,6 +54,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   const [agentApiKey, setAgentApiKey] = useState("");
   const [agentError, setAgentError] = useState("");
   const [savingAgent, setSavingAgent] = useState(false);
+  const [avatarSeed, setAvatarSeed] = useState<AvatartionAvatar | null>(null);
   const [teamError, setTeamError] = useState("");
   const [savingTeam, setSavingTeam] = useState(false);
   const [removingAgentId, setRemovingAgentId] = useState<string | null>(null);
@@ -59,11 +73,29 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   const visibleAgents = allowedAgentIds
     ? (agents ?? []).filter((agent: any) => allowedAgentIds.includes(agent._id))
     : agents ?? [];
-  const previewAvatar = defaultAvatarParams(agentName || "Agent");
+
+  const previewAvatar = avatarSeed ?? undefined;
+
+  const handleRandomizeAvatar = () => {
+    setAvatarSeed(randomAvatartion());
+  };
+
+  const handleSelectRole = (value: string | null) => {
+    setAgentRole(value ?? "");
+    if (value) setAgentError("");
+  };
 
   async function handleCreateAgent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAgentError("");
+    if (!agentName.trim()) {
+      setAgentError("Name is required");
+      return;
+    }
+    if (!agentRole.trim()) {
+      setAgentError("Role is required — pick a role from the dropdown");
+      return;
+    }
     setSavingAgent(true);
     try {
       await createAgent({
@@ -74,6 +106,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
       setAgentName("");
       setAgentRole("");
       setAgentPrompt("");
+      setAvatarSeed(null);
       setIsCreateAgentOpen(false);
     } catch (err) {
       setAgentError(err instanceof Error ? err.message : "Failed to create agent");
@@ -92,16 +125,26 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
       setAgentModel(agent.llmModel ?? "");
       setAgentBaseUrl(agent.llmBaseUrl ?? "");
       setAgentApiKey("");
+      setAvatarSeed(null);
   }
 
   function closeAgentEditor() {
       setEditingAgentId(null);
+      setAvatarSeed(null);
       setAgentError("");
   }
 
   async function handleUpdateAgent(event: FormEvent<HTMLFormElement>) {
       event.preventDefault();
       if (!editingAgentId) return;
+      if (!agentName.trim()) {
+        setAgentError("Name is required");
+        return;
+      }
+      if (!agentRole.trim()) {
+        setAgentError("Role is required — pick a role from the dropdown");
+        return;
+      }
       setAgentError("");
       setSavingAgent(true);
       try {
@@ -114,6 +157,20 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
           llmModel: agentModel,
           llmBaseUrl: agentBaseUrl,
           llmApiKey: agentApiKey,
+          ...(avatarSeed
+            ? {
+                avatarParams: {
+                  face: avatarSeed.face,
+                  hair: avatarSeed.hair,
+                  eyes: avatarSeed.eyes,
+                  mouth: avatarSeed.mouth,
+                  outfit: avatarSeed.outfit,
+                  accessory: avatarSeed.accessory,
+                  facialHair: avatarSeed.facialHair,
+                  bg: avatarSeed.bg,
+                },
+              }
+            : {}),
         });
         closeAgentEditor();
       } catch (err) {
@@ -363,13 +420,36 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                 Name
                 <input value={agentName} onChange={(event) => setAgentName(event.target.value)} required className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
               </label>
-              <label className="grid gap-1 text-sm">
-                Role
-                <input value={agentRole} onChange={(event) => setAgentRole(event.target.value)} placeholder="frontend, backend, qa" required className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
-              </label>
+              <div className="grid gap-1 text-sm">
+                <span>Role</span>
+                <Select value={agentRole || undefined} onValueChange={handleSelectRole}>
+                  <SelectTrigger className="w-full rounded-lg border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
+                    <SelectValue placeholder="Select a role…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AGENT_ROLES.map((role) => (
+                      <SelectItem key={role} value={role}>
+                        {role}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 p-3 dark:border-gray-700">
-                <AgentAvatar name={agentName || "Agent"} size={48} avatarParams={previewAvatar} />
-                <p className="text-xs text-gray-500">An Avataaars avatar is generated when the agent is saved.</p>
+                <AgentAvatar name={agentName || "Agent"} size={48} avatar={avatarSeed ?? undefined} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-gray-500">Preview uses your current name. Use Generate to shuffle the SVGs.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRandomizeAvatar}
+                  title="Generate a new avatar"
+                  aria-label="Generate a new avatar"
+                  className="flex items-center gap-1.5 rounded-lg bg-[#6252d8] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#5147b4]"
+                >
+                  <Dices size={14} />
+                  Generate
+                </button>
               </div>
               <button type="submit" disabled={savingAgent} className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
                 {savingAgent ? "Creating…" : "Create agent"}
@@ -385,13 +465,41 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
               <label className="grid gap-1 text-sm">Name
                 <input value={agentName} onChange={(event) => setAgentName(event.target.value)} required className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
               </label>
-              <label className="grid gap-1 text-sm">Role
-                <input value={agentRole} onChange={(event) => setAgentRole(event.target.value)} required className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
-              </label>
+              <div className="grid gap-1 text-sm">
+                <span>Role</span>
+                <Select value={agentRole || undefined} onValueChange={handleSelectRole}>
+                  <SelectTrigger className="w-full rounded-lg border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
+                    <SelectValue placeholder="Select a role…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AGENT_ROLES.map((role) => (
+                      <SelectItem key={role} value={role}>
+                        {role}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <label className="grid gap-1 text-sm">System prompt <span className="text-gray-400">(optional)</span>
               <textarea value={agentPrompt} onChange={(event) => setAgentPrompt(event.target.value)} rows={4} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
             </label>
+            <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 p-3 dark:border-gray-700">
+              <AgentAvatar name={agentName || "Agent"} size={48} avatar={avatarSeed ?? undefined} />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-gray-500">Preview uses your current name. Use Generate to shuffle the SVGs.</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleRandomizeAvatar}
+                title="Generate a new avatar"
+                aria-label="Generate a new avatar"
+                className="flex items-center gap-1.5 rounded-lg bg-[#6252d8] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#5147b4]"
+              >
+                <Dices size={14} />
+                Generate
+              </button>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <label className="grid gap-1 text-sm">LLM provider
                 <select value={agentProvider} onChange={(event) => setAgentProvider(event.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">

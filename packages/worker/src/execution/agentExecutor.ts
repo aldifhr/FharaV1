@@ -1,6 +1,7 @@
 import { createProviderForAgent } from "../llm";
 import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "../orchestrator/types";
 import { extractFileHint, parseDraft, parseReview } from "../utils/json";
+import { validateFilePath } from "../governance/tools";
 import { computeDiff, type FileDiff } from "../tools/gitDiff";
 import { exploreRepository } from "./repositoryContext";
 import { runResponsiveQa } from "./qa";
@@ -87,27 +88,46 @@ async function executeCodeChange(
 
   if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
 
-  const response = await createProviderForAgent(agent).complete(
-    baseMessages(
-      input,
-      [
-        `Task: ${command}`,
-        `Your role in the plan: ${subtask.title} — ${subtask.description}`,
-        `Repository context:\n${context}`,
-        "",
-        "Return JSON only with the files you want to change:",
-        '{"files":[{"filePath":"relative/path","newContent":"FULL file content"}]}',
-        "Rules:",
-        "- Only relative paths inside the workspace.",
-        "- The newContent must be the complete file content, not a patch.",
-        "- Preserve unrelated behavior and code.",
-        "- Do not touch lockfiles, secrets, .env files, or node_modules.",
-        "- Keep the change minimal and focused on the task.",
-      ].join("\n")
-    )
-  );
+  const provider = createProviderForAgent(agent);
+  const basePayload = [
+    `Task: ${command}`,
+    `Your role in the plan: ${subtask.title} — ${subtask.description}`,
+    `Repository context:\n${context}`,
+    "",
+    "Return JSON only with the files you want to change:",
+    '{"files":[{"filePath":"relative/path","newContent":"FULL file content"}]}',
+    "",
+    "STRICT FORMAT RULES:",
+    "- Use exactly the keys \"filePath\" and \"newContent\" (camelCase) on every entry.",
+    "- Do NOT use keys like \"path\", \"filename\", \"newText\", or \"content\".",
+    "- Return the raw JSON object only. No explanation, no markdown fences, no commentary.",
+    "- Set newContent to the complete file after your change, not a diff or patch.",
+    "- If no files need changing, return exactly {\"files\":[]}.",
+    "",
+    "Rules:",
+    "- Only relative paths inside the workspace.",
+    "- Preserve unrelated behavior and code.",
+    "- Do not touch lockfiles, secrets, .env files, or node_modules.",
+    "- Keep the change minimal and focused on the task.",
+  ].join("\n");
 
-  const draft = parseDraft(response.content);
+  let response = await provider.complete(baseMessages(input, basePayload));
+
+  let draft = parseDraft(response.content);
+  if (!draft) {
+    await onEvent("agent.context", {
+      capability: subtask.capability,
+      retry: true,
+      reason: "invalid-file-changes-json",
+    });
+    response = await provider.complete(
+      baseMessages(
+        input,
+        `${basePayload}\n\nYour previous response was not a valid file-changes JSON object. Return ONLY the JSON object again.\n\nPrevious response (for reference):\n${response.content.slice(0, 2000)}`
+      )
+    );
+    draft = parseDraft(response.content);
+  }
   if (!draft) {
     return {
       status: "failed",
@@ -119,6 +139,10 @@ async function executeCodeChange(
   for (const file of draft.files.slice(0, 5)) {
     if (isForbiddenPath(file.filePath)) {
       return { status: "failed", error: `Refusing to modify protected path: ${file.filePath}` };
+    }
+    const filePathCheck = validateFilePath(file.filePath);
+    if (!filePathCheck.ok) {
+      return { status: "failed", error: `Refusing to modify protected path (${filePathCheck.reason}): ${file.filePath}` };
     }
     try {
       const diff = await computeDiff(workspacePath, file.filePath, file.newContent);
@@ -156,7 +180,8 @@ async function executeReview(
   const diffText = fileChanges
     .map((change) => `### ${change.filePath} (${change.changeType})\n${change.diff}`)
     .join("\n\n")
-    .slice(0, 40_000);
+    .slice(0, 40_000)
+    .replace(/\b(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9_]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)\b/g, "[REDACTED]");
 
   const response = await createProviderForAgent(agent).complete(
     baseMessages(

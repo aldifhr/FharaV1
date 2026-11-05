@@ -1,0 +1,20 @@
+{
+  "name": "@moagent/api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "codegen": "convex codegen",
+    "dev": "convex dev",
+    "typecheck": "tsc --noEmit -p convex/tsconfig.json"
+  },
+  "dependencies": {
+    "@convex-dev/agent": "^0.7.9",
+    "@convex-dev/ai-sdk-provider": "^0.3.0",
+    "ai": "^7.0.163",
+    "convex": "^1.49.0"
+  },
+  "devDependencies": {
+    "typescript": "5.5"
+  }
+}

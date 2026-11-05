@@ -1,0 +1,14 @@
+node_modules/
+.env/
+convex/_generated/
+apps/api/convex/_generated/
+apps/api/convex/*.js
+workspaces/
+*.log
+.next
+apps/web/.next
+
+.env.local
+.env
+apps/api/.env.local
+apps/web/.env.local

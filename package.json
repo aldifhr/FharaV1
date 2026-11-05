@@ -1,0 +1,28 @@
+{
+  "name": "moagent",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run --workspace=@moagent/web dev",
+    "build": "npm run --workspace=@moagent/web build",
+    "worker": "npm run --workspace=@moagent/worker start",
+    "convex": "npm run --workspace=@moagent/api codegen --silent && concurrently -k \"npm run --workspace=@moagent/api dev\" \"npm run worker\"",
+    "electron:dev": "concurrently -k \"npm run --workspace=@moagent/web dev\" \"wait-on http://localhost:3000 && electron electron/main.cjs\"",
+    "typecheck": "npm run --workspace=@moagent/web typecheck && npm run --workspace=@moagent/api typecheck && npm run --workspace=@moagent/worker typecheck",
+    "test": "npm run --workspace=@moagent/worker test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "electron": "^39.8.10",
+    "wait-on": "^9.0.1"
+  },
+  "allowScripts": {
+    "electron@39.8.10": true,
+    "esbuild@0.27.0": true,
+    "esbuild@0.28.2": true
+  }
+}

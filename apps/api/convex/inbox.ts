@@ -6,16 +6,22 @@ export const list = query({
   handler: async (ctx) => {
     const approvals = await ctx.db
       .query("approvals")
-      .filter((q) => q.eq(q.field("status"), "pending"))
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
       .order("desc")
       .collect();
-    const tasks = await ctx.db
+    const needsApproval = await ctx.db
       .query("tasks")
-      .filter((q) =>
-        q.or(q.eq(q.field("status"), "needs_approval"), q.eq(q.field("status"), "failed"))
-      )
+      .withIndex("by_status", (q) => q.eq("status", "needs_approval"))
       .order("desc")
       .collect();
+    const failed = await ctx.db
+      .query("tasks")
+      .withIndex("by_status", (q) => q.eq("status", "failed"))
+      .order("desc")
+      .collect();
+    const tasks = [...needsApproval, ...failed].sort(
+      (a, b) => (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime)
+    );
     const agents = await ctx.db
       .query("agents")
       .filter((q) => q.eq(q.field("status"), "needs_you"))

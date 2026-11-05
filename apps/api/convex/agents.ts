@@ -23,6 +23,18 @@ function defaultAvatarParams(name: string) {
   };
 }
 
+function normalizeCapabilities(values: string[] | undefined): string[] | undefined {
+  if (!values) return undefined;
+  const normalized = Array.from(
+    new Set(
+      values
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => value.length > 0)
+    )
+  );
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 export const list = query({
   args: {},
   handler: async (ctx) => {
@@ -42,6 +54,11 @@ export const create = mutation({
     llmProvider: v.optional(v.string()),
     llmModel: v.optional(v.string()),
     llmBaseUrl: v.optional(v.string()),
+    description: v.optional(v.string()),
+    capabilities: v.optional(v.array(v.string())),
+    supportedTools: v.optional(v.array(v.string())),
+    priority: v.optional(v.number()),
+    maxConcurrency: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const name = args.name.trim();
@@ -62,6 +79,16 @@ export const create = mutation({
       ...(llmBaseUrl ? { llmBaseUrl } : {}),
       status: "idle",
       avatarParams: defaultAvatarParams(name),
+      ...(args.description?.trim() ? { description: args.description.trim() } : {}),
+      ...(normalizeCapabilities(args.capabilities)
+        ? { capabilities: normalizeCapabilities(args.capabilities) }
+        : {}),
+      ...(normalizeCapabilities(args.supportedTools)
+        ? { supportedTools: normalizeCapabilities(args.supportedTools) }
+        : {}),
+      isEnabled: true,
+      priority: args.priority ?? 0,
+      maxConcurrency: args.maxConcurrency ?? 1,
     });
   },
 });
@@ -76,6 +103,12 @@ export const update = mutation({
     llmModel: v.string(),
     llmBaseUrl: v.string(),
     llmApiKey: v.optional(v.string()),
+    description: v.optional(v.string()),
+    capabilities: v.optional(v.array(v.string())),
+    supportedTools: v.optional(v.array(v.string())),
+    isEnabled: v.optional(v.boolean()),
+    priority: v.optional(v.number()),
+    maxConcurrency: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const name = args.name.trim();
@@ -90,29 +123,34 @@ export const update = mutation({
       llmModel: args.llmModel.trim() || undefined,
       llmBaseUrl: args.llmBaseUrl.trim() || undefined,
       ...(args.llmApiKey?.trim() ? { llmApiKey: args.llmApiKey.trim() } : {}),
+      ...(args.description !== undefined
+        ? { description: args.description.trim() || undefined }
+        : {}),
+      ...(args.capabilities !== undefined
+        ? { capabilities: normalizeCapabilities(args.capabilities) }
+        : {}),
+      ...(args.supportedTools !== undefined
+        ? { supportedTools: normalizeCapabilities(args.supportedTools) }
+        : {}),
+      ...(args.isEnabled !== undefined ? { isEnabled: args.isEnabled } : {}),
+      ...(args.priority !== undefined ? { priority: args.priority } : {}),
+      ...(args.maxConcurrency !== undefined
+        ? { maxConcurrency: Math.max(1, Math.floor(args.maxConcurrency)) }
+        : {}),
     });
-  },
-});
-
-export const updateStatus = mutation({
-  args: {
-    agentId: v.id("agents"),
-    status: v.union(
-      v.literal("idle"),
-      v.literal("working"),
-      v.literal("queued"),
-      v.literal("needs_you")
-    ),
-  },
-  handler: async (ctx, args) => {
-    const { agentId, status } = args;
-    return await ctx.db.patch(agentId, { status });
   },
 });
 
 export const remove = mutation({
   args: { agentId: v.id("agents") },
   handler: async (ctx, args) => {
+    const projects = await ctx.db.query("projects").collect();
+    for (const project of projects) {
+      if (!project.agentIds?.includes(args.agentId)) continue;
+      await ctx.db.patch(project._id, {
+        agentIds: project.agentIds.filter((id) => id !== args.agentId),
+      });
+    }
     await ctx.db.delete(args.agentId);
   },
 });

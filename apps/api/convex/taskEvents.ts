@@ -1,36 +1,28 @@
-import { query, mutation } from "./_generated/server";
+import { query } from "./_generated/server";
 import { v } from "convex/values";
+import { assertProjectAccess, getVisibleTask } from "./authz";
 
 export const listByProject = query({
-  args: { projectId: v.id("projects") },
+  args: { projectId: v.id("projects"), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("taskEvents")
-      .filter((q) => q.eq(q.field("projectId"), args.projectId))
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .order("desc")
-      .collect();
+      .take(Math.min(Math.max(args.limit ?? 200, 1), 500));
   },
 });
 
 export const listByTask = query({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
+    const task = await getVisibleTask(ctx, args.taskId);
+    if (!task) return [];
     return await ctx.db
       .query("taskEvents")
-      .filter((q) => q.eq(q.field("taskId"), args.taskId))
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
       .order("asc")
-      .collect();
-  },
-});
-
-export const log = mutation({
-  args: {
-    taskId: v.id("tasks"),
-    projectId: v.id("projects"),
-    type: v.string(),
-    payload: v.optional(v.any()),
-  },
-  handler: async (ctx, args) => {
-    return await ctx.db.insert("taskEvents", args);
+      .take(500);
   },
 });

@@ -129,7 +129,7 @@ function SectionPage({
   };
 
   return (
-    <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="min-w-0 flex-1 overflow-y-auto bg-white p-6 dark:bg-gray-950">
+    <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="min-w-0 flex-1 overflow-y-auto bg-transparent p-6">
       <div className="mx-auto max-w-3xl">
         <h1 className="text-xl font-semibold">{titles[section]}</h1>
         <p className="mt-1 text-sm text-gray-500">{subs[section]}</p>
@@ -328,7 +328,7 @@ export default function WorkspaceClient({
   }, [selectedTaskId, tasks]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#f7f7fb] text-[#24232d] dark:bg-gray-950 dark:text-gray-100 max-[979px]:h-auto max-[979px]:flex-col max-[979px]:overflow-y-auto">
+    <div className="flex h-screen overflow-hidden bg-transparent text-[#24232d] dark:text-gray-100 max-[979px]:h-auto max-[979px]:flex-col max-[979px]:overflow-y-auto">
       <ConfirmDialog request={confirmReq} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
       <IconRail
         projectId={projectId}
@@ -349,7 +349,7 @@ export default function WorkspaceClient({
           selectedTaskId={selectedTaskId}
         />
       ) : section === "board" ? (
-        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="min-w-0 flex-1 overflow-y-auto bg-white p-6 dark:bg-gray-950">
+        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="min-w-0 flex-1 overflow-y-auto bg-transparent p-6">
           <div className="mx-auto max-w-6xl">
             <h1 className="text-xl font-semibold">Board</h1>
             <p className="mt-1 text-sm text-gray-500">Tasks by status. Click a card to open its thread.</p>

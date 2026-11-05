@@ -1,8 +1,8 @@
 import * as fs from "node:fs/promises";
-import { resolveSandboxPath } from "./sandbox";
+import { resolveSandboxPathAsync } from "./sandbox";
 
 export async function readFile(workspaceRoot: string, filePath: string): Promise<string> {
-  const resolved = resolveSandboxPath(workspaceRoot, filePath);
+  const resolved = await resolveSandboxPathAsync(workspaceRoot, filePath);
   try {
     return await fs.readFile(resolved, "utf-8");
   } catch (err: any) {

@@ -13,7 +13,7 @@ export default function SearchPage() {
   const results = useQuery(api.search.global, { q });
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white text-gray-900 dark:bg-gray-950 dark:text-gray-100 max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
+    <div className="flex h-screen overflow-hidden bg-transparent text-gray-900 dark:text-gray-100 max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
       <IconRail />
       <Sidebar />
       <main className="min-w-0 flex-1 overflow-y-auto p-6 max-[979px]:p-4">

@@ -3,18 +3,34 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-const WHITELIST: Record<string, string[]> = {
-  npm: ["run", "test", "run build", "run typecheck"],
-  npx: ["tsc"],
-  git: ["status", "diff", "log"],
-  node: ["--version"],
+/**
+ * Exact argv allowlist. Substring/prefix allowlisting is unsafe because
+ * `npm run test; rm -rf /` or `git status --short` would pass a prefix check.
+ * Every element must match exactly (after trimming).
+ */
+const ALLOWED_ARGV: Record<string, string[][]> = {
+  npm: [["run", "test"], ["run", "build"], ["run", "typecheck"]],
+  npx: [["tsc", "--noEmit"]],
+  git: [
+    ["status"],
+    ["status", "--short"],
+    ["diff"],
+    ["diff", "--no-color"],
+    ["diff", "--stat"],
+    ["log", "--oneline", "-n", "20"],
+  ],
+  node: [["--version"]],
 };
 
-function isAllowed(command: string, args: string[]): boolean {
-  const allowedPrefixes = WHITELIST[command];
-  if (!allowedPrefixes) return false;
-  const joined = args.join(" ");
-  return allowedPrefixes.some((p) => joined === p || joined.startsWith(p + " ") || joined.startsWith(p));
+export function isCommandAllowed(command: string, args: string[]): boolean {
+  const allowed = ALLOWED_ARGV[command];
+  if (!allowed) return false;
+  if (args.some((arg) => /[\u0000-\u001f]/.test(arg))) return false;
+  return allowed.some(
+    (candidate) =>
+      candidate.length === args.length &&
+      candidate.every((value, index) => value === args[index])
+  );
 }
 
 export async function runCommand(
@@ -22,14 +38,16 @@ export async function runCommand(
   command: string,
   args: string[] = []
 ): Promise<{ stdout: string; stderr: string }> {
-  if (!isAllowed(command, args)) {
-    throw new Error(`Command blocked (not whitelisted): ${command} ${args.join(" ")}`);
+  if (!isCommandAllowed(command, args)) {
+    throw new Error(`Command blocked (not allowlisted): ${command} ${args.join(" ")}`);
   }
   try {
     const { stdout, stderr } = await execFileAsync(command, args, {
       cwd: workspaceRoot,
-      timeout: 30_000,
+      timeout: 120_000,
       maxBuffer: 10 * 1024 * 1024,
+      shell: false,
+      windowsHide: true,
     });
     return { stdout, stderr };
   } catch (err: any) {

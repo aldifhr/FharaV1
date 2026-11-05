@@ -10,14 +10,42 @@
   color-scheme: dark;
 }
 
-body {
+html {
   background: #f7f7fb;
+}
+
+html.dark {
+  background: #06060b;
+}
+
+body {
+  background: transparent;
   color: #24232d;
 }
 
 .dark body {
-  background: #030712;
+  background: transparent;
   color: #f3f4f6;
+}
+
+:root {
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html[data-font="geist"] {
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html[data-font="inter"] {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html[data-font="system"] {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html[data-font="jetbrains"] {
+  --font-sans: var(--font-jetbrains), ui-monospace, "SFMono-Regular", monospace;
 }
 
 button,

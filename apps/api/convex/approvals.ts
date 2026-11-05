@@ -1,52 +1,92 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { assertProjectAccess, getViewerId, getVisibleTask } from "./authz";
 
 export const listPendingAll = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
+    const viewerId = await getViewerId(ctx);
+    const approvals = await ctx.db
       .query("approvals")
-      .filter((q) => q.eq(q.field("status"), "pending"))
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
       .order("desc")
       .collect();
+    if (!viewerId) return approvals;
+    const visible = [];
+    for (const approval of approvals) {
+      const project = await ctx.db.get(approval.projectId);
+      if (project && (!project.ownerId || project.ownerId === viewerId)) {
+        visible.push(approval);
+      }
+    }
+    return visible;
   },
 });
 
 export const approve = mutation({
   args: { approvalId: v.id("approvals") },
   handler: async (ctx, args) => {
-    return await ctx.db.patch(args.approvalId, { status: "approved" });
+    const approval = await ctx.db.get(args.approvalId);
+    if (!approval) throw new Error("Approval not found");
+    await assertProjectAccess(ctx, approval.projectId);
+    if (approval.status !== "pending") {
+      throw new Error(`Approval already ${approval.status}`);
+    }
+    const now = Date.now();
+    await ctx.db.patch(args.approvalId, { status: "approved", resolvedAt: now });
+    await ctx.db.insert("taskEvents", {
+      taskId: approval.taskId,
+      projectId: approval.projectId,
+      type: "approval.approved",
+      payload: { kind: approval.kind, summary: approval.summary },
+      subtaskKey: approval.subtaskKey,
+      level: "info",
+    });
+    return true;
   },
 });
 
 export const reject = mutation({
   args: { approvalId: v.id("approvals") },
   handler: async (ctx, args) => {
-    return await ctx.db.patch(args.approvalId, { status: "rejected" });
-  },
-});
-
-export const request = mutation({
-  args: {
-    taskId: v.id("tasks"),
-    projectId: v.id("projects"),
-    kind: v.union(
-      v.literal("apply_changes"),
-      v.literal("git_push"),
-      v.literal("run_command")
-    ),
-    summary: v.string(),
-    payload: v.optional(v.any()),
-    requestedByAgentId: v.optional(v.id("agents")),
-  },
-  handler: async (ctx, args) => {
-    return await ctx.db.insert("approvals", { ...args, status: "pending" });
+    const approval = await ctx.db.get(args.approvalId);
+    if (!approval) throw new Error("Approval not found");
+    await assertProjectAccess(ctx, approval.projectId);
+    if (approval.status !== "pending") {
+      throw new Error(`Approval already ${approval.status}`);
+    }
+    const now = Date.now();
+    await ctx.db.patch(args.approvalId, { status: "rejected", resolvedAt: now });
+    await ctx.db.insert("taskEvents", {
+      taskId: approval.taskId,
+      projectId: approval.projectId,
+      type: "approval.rejected",
+      payload: { kind: approval.kind, summary: approval.summary },
+      subtaskKey: approval.subtaskKey,
+      level: "warn",
+    });
+    return true;
   },
 });
 
 export const getById = query({
   args: { approvalId: v.id("approvals") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.approvalId);
+    const approval = await ctx.db.get(args.approvalId);
+    if (!approval) return null;
+    await assertProjectAccess(ctx, approval.projectId);
+    return approval;
+  },
+});
+
+export const listByTask = query({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, args) => {
+    const task = await getVisibleTask(ctx, args.taskId);
+    if (!task) return [];
+    return await ctx.db
+      .query("approvals")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .collect();
   },
 });

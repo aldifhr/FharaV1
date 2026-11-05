@@ -9,7 +9,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["node", "vitest/globals"],
-    "rootDir": ".",
+    "rootDir": "../..",
     "outDir": "./dist"
   },
   "include": ["src/**/*", "tests/**/*"],

@@ -213,7 +213,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   if (pathname === "/") return null;
 
   return (
-    <aside className="flex h-full w-[250px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-[#e7e5ef] bg-[#fbfbfd] p-3.5 dark:border-gray-800 dark:bg-gray-950 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-r-0">
+    <aside className="flex h-full w-[250px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-[#e7e5ef] bg-white/70 p-3.5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/70 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-r-0">
       <ConfirmDialog request={confirmReq} pending={removingAgentId !== null} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
       <Input
         value={q}
@@ -379,14 +379,16 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
         </Modal>
       )}
       {editingAgentId && (
-        <Modal title={`Edit agent${agentName ? ` · ${agentName}` : ""}`} onClose={closeAgentEditor} maxWidth="max-w-lg">
+        <Modal title={`Edit agent${agentName ? ` · ${agentName}` : ""}`} onClose={closeAgentEditor} fullScreen>
           <form onSubmit={handleUpdateAgent} className="mt-4 grid gap-3">
-            <label className="grid gap-1 text-sm">Name
-              <input value={agentName} onChange={(event) => setAgentName(event.target.value)} required className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
-            </label>
-            <label className="grid gap-1 text-sm">Role
-              <input value={agentRole} onChange={(event) => setAgentRole(event.target.value)} required className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
-            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1 text-sm">Name
+                <input value={agentName} onChange={(event) => setAgentName(event.target.value)} required className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
+              </label>
+              <label className="grid gap-1 text-sm">Role
+                <input value={agentRole} onChange={(event) => setAgentRole(event.target.value)} required className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
+              </label>
+            </div>
             <label className="grid gap-1 text-sm">System prompt <span className="text-gray-400">(optional)</span>
               <textarea value={agentPrompt} onChange={(event) => setAgentPrompt(event.target.value)} rows={4} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
             </label>

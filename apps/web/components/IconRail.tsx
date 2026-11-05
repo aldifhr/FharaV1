@@ -1,6 +1,7 @@
 "use client";
-import { Home, Inbox, Search, MessageSquare, SquareKanban, Users, Activity, HeartPulse, Blocks, Brain, Plus } from "lucide-react";
+import { Home, Inbox, Search, MessageSquare, SquareKanban, Users, Activity, HeartPulse, Blocks, Brain, Plus, Settings } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { MouseEvent } from "react";
 import { useQuery } from "convex/react";
 import { motion } from "framer-motion";
@@ -36,6 +37,7 @@ export default function IconRail({
   onSectionChange?: (section: WorkspaceSection) => void;
 }) {
   const workspaceHref = projectId ? `/workspace/${projectId}` : "/chat";
+  const pathname = usePathname();
   const inbox = useQuery(api.inbox.list, {});
   const inboxCount = inbox ? inbox.approvals.length + inbox.tasks.length + inbox.agents.length : 0;
   const RailBtn = ({ icon: Icon, label, href, badge, active, onClick, count }: any) => (
@@ -56,7 +58,7 @@ export default function IconRail({
   );
 
   return (
-    <nav className="flex h-full w-[58px] shrink-0 flex-col items-center gap-1 bg-[#6252d8] py-3 shadow-[inset_-1px_0_rgba(255,255,255,.12)] max-[979px]:h-14 max-[979px]:w-full max-[979px]:flex-row max-[979px]:justify-between max-[979px]:px-3">
+    <nav className="flex h-full w-[58px] shrink-0 flex-col items-center gap-1 border-r border-white/10 bg-gradient-to-b from-[#6d5cf0] via-[#5b4bd6] to-[#4534a6] py-3 shadow-[inset_-1px_0_rgba(255,255,255,.12)] dark:border-white/5 dark:from-[#241e4a] dark:via-[#191534] dark:to-[#0e0b20] max-[979px]:h-14 max-[979px]:w-full max-[979px]:flex-row max-[979px]:justify-between max-[979px]:border-r-0 max-[979px]:border-b max-[979px]:bg-gradient-to-r max-[979px]:px-3">
       <div className="flex flex-col items-center gap-2">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20 text-lg font-bold text-white">A</div>
         <button onClick={onNewProject} title="New project" className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/25 text-white hover:bg-white/15">
@@ -84,7 +86,8 @@ export default function IconRail({
           />
         ))}
       </div>
-      <div className="mt-auto flex flex-col max-[979px]:mt-0">
+      <div className="mt-auto flex flex-col items-center gap-1 max-[979px]:mt-0 max-[979px]:flex-row">
+        <RailBtn icon={Settings} label="Settings" href="/settings" active={pathname === "/settings"} />
         <ThemeToggle />
       </div>
     </nav>

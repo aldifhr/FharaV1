@@ -7,7 +7,10 @@ import { ToastProvider } from "@/components/Toasts";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
-export const metadata = { title: "Agent Workspace" };
+export const metadata = {
+  title: "Agent Workspace",
+  description: "Multi-agent workspace for planning, running, and reviewing tasks.",
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

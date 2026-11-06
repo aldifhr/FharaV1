@@ -1,6 +1,6 @@
 import { mutation, query, action, httpAction } from "./_generated/server";
 import { v } from "convex/values";
-import { internal } from "./_generated/internal";
+import { internal } from "./_generated/api";
 
 // GitHub OAuth configuration
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? "";

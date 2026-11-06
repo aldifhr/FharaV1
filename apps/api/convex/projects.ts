@@ -23,6 +23,8 @@ export const create = mutation({
     name: v.string(),
     workspacePath: v.string(),
     agentIds: v.optional(v.array(v.id("agents"))),
+    qaUrl: v.optional(v.string()),
+    devUrl: v.optional(v.string()),
     approvalMode: v.optional(v.union(v.literal("ask"), v.literal("auto"))),
   },
   handler: async (ctx, args) => {
@@ -40,6 +42,8 @@ export const create = mutation({
       name,
       workspacePath,
       ...(args.agentIds ? { agentIds: args.agentIds } : {}),
+      ...(args.qaUrl ? { qaUrl: args.qaUrl.trim() } : {}),
+      ...(args.devUrl ? { devUrl: args.devUrl.trim() } : {}),
       ...(viewerId ? { ownerId: viewerId } : {}),
       ...(args.approvalMode ? { approvalMode: args.approvalMode } : {}),
       createdAt: Date.now(),
@@ -68,6 +72,8 @@ export const update = mutation({
     projectId: v.id("projects"),
     name: v.optional(v.string()),
     workspacePath: v.optional(v.string()),
+    qaUrl: v.optional(v.string()),
+    devUrl: v.optional(v.string()),
     approvalMode: v.optional(v.union(v.literal("ask"), v.literal("auto"))),
   },
   handler: async (ctx, args) => {
@@ -75,6 +81,8 @@ export const update = mutation({
     const patch: {
       name?: string;
       workspacePath?: string;
+      qaUrl?: string;
+      devUrl?: string;
       approvalMode?: "ask" | "auto";
     } = {};
     if (args.name !== undefined) {
@@ -84,6 +92,12 @@ export const update = mutation({
     }
     if (args.workspacePath !== undefined) {
       patch.workspacePath = validateWorkspacePath(args.workspacePath);
+    }
+    if (args.qaUrl !== undefined) {
+      patch.qaUrl = args.qaUrl.trim();
+    }
+    if (args.devUrl !== undefined) {
+      patch.devUrl = args.devUrl.trim();
     }
     if (args.approvalMode !== undefined) {
       patch.approvalMode = args.approvalMode;

@@ -26,6 +26,7 @@
     "esbuild@0.28.2": true
   },
   "dependencies": {
+    "@browserbasehq/stagehand": "^4.4.0",
     "effect": "^4.1.2",
     "next-themes": "^0.3.0",
     "skullet": "^0.0.3",

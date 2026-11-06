@@ -2,23 +2,17 @@ import { internalQuery, query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
 export const list = query({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => {
-    const docs = await ctx.db
-      .query("llmProviders")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .collect();
+  args: {},
+  handler: async (ctx) => {
+    const docs = await ctx.db.query("llmProviders").collect();
     return docs.map(({ apiKey, ...p }) => ({ ...p, apiKeyConfigured: Boolean(apiKey) }));
   },
 });
 
 export const get = query({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => {
-    const enabled = await ctx.db
-      .query("llmProviders")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .collect();
+  args: {},
+  handler: async (ctx) => {
+    const enabled = await ctx.db.query("llmProviders").collect();
     return enabled
       .filter((p) => p.isEnabled !== false)
       .map(({ apiKey, ...p }) => ({ ...p, apiKeyConfigured: Boolean(apiKey) }));
@@ -27,7 +21,6 @@ export const get = query({
 
 export const create = mutation({
   args: {
-    projectId: v.id("projects"),
     name: v.string(),
     provider: v.string(),
     model: v.string(),
@@ -78,12 +71,9 @@ export const remove = mutation({
 });
 
 export const getForProject = internalQuery({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => {
-    const providers = await ctx.db
-      .query("llmProviders")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .collect();
+  args: { projectId: v.optional(v.id("projects")) },
+  handler: async (ctx) => {
+    const providers = await ctx.db.query("llmProviders").collect();
     return providers
       .filter((p) => p.isEnabled !== false)
       .sort((a, b) => a.priority - b.priority);

@@ -1,114 +1,26 @@
 import type { ConvexHttpClient } from "convex/browser";
 import { api } from "@/api/convex/_generated/api";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import type { Doc } from "@/api/convex/_generated/dataModel";
 
-export interface WorkerTask {
-  _id: string;
-  projectId: string;
-  title: string;
-  command: string;
-  status: string;
-  planVersion?: number;
-  replanCount?: number;
-  workerId?: string;
-  leaseExpiresAt?: number;
-}
+/** Convex document shapes returned by the worker API. */
+export type WorkerTask = Doc<"tasks">;
+export type WorkerProject = Doc<"projects">;
+export type WorkerAgent = Doc<"agents">;
+export type WorkerPlanRecord = Doc<"plans">;
+export type WorkerSubtask = Doc<"subtasks">;
+export type WorkerFileChange = Doc<"fileChanges">;
 
-export interface WorkerProject {
-  _id: string;
-  name: string;
-  workspacePath: string;
-  qaUrl?: string;
-  devUrl?: string;
-  agentIds?: string[];
-  approvalMode?: "ask" | "auto";
-}
+export type WorkerTaskId = WorkerTask["_id"];
+export type WorkerProjectId = WorkerProject["_id"];
+export type WorkerAgentId = WorkerAgent["_id"];
+export type WorkerExecutionId = Doc<"executions">["_id"];
 
-export interface WorkerAgent {
-  _id: string;
-  name: string;
-  role: string;
-  systemPrompt?: string;
-  description?: string;
-  capabilities?: string[];
-  skills?: string[];
-  supportedTools?: string[];
-  isEnabled?: boolean;
-  priority?: number;
-  maxConcurrency?: number;
-  status?: string;
-}
-
-export interface WorkerPlanRecord {
-  _id: string;
-  taskId: string;
-  version: number;
-  strategy: string;
-  createdBy: "orchestrator" | "fallback";
-  goal: string;
-  payload: any;
-  createdAt: number;
-}
-
-export interface WorkerSubtask {
-  _id: string;
-  key: string;
-  title: string;
-  description: string;
-  kind: string;
-  capability: string;
-  dependencies: string[];
-  order: number;
-  status: string;
-  assignedAgentId?: string;
-  assignedAgentName?: string;
-  output?: string;
-  error?: string;
-  attempts: number;
-}
-
-export interface WorkerFileChange {
-  _id: string;
-  taskId: string;
-  filePath: string;
-  changeType: "new" | "modified" | "deleted";
-  oldContent?: string;
-  newContent?: string;
-  oldContentHash?: string;
-  newContentHash?: string;
-  diff: string;
-  appliedAt?: number;
-  appliedByWorkerId?: string;
-}
-
-export interface WorkerApproval {
-  _id: string;
-  taskId: string;
-  kind: "apply_changes" | "git_push" | "run_command" | "merge_pr";
-  summary: string;
-  status: "pending" | "approved" | "rejected";
-  subtaskKey?: string;
-  planVersion?: number;
-  payload?: any;
-}
-
-export interface RunContextData {
-  task: WorkerTask;
-  project: WorkerProject | null;
-  agents: WorkerAgent[];
-  plan: WorkerPlanRecord | null;
-  subtasks: WorkerSubtask[];
-  approvalMode: "ask" | "auto";
-  llmProviders?: Array<{
-    _id: string;
-    name: string;
-    provider: string;
-    model: string;
-    baseUrl: string;
-    apiKeyEnv: string;
-    apiKey?: string;
-    priority: number;
-  }>;
-}
+/**
+ * A simple type alias for Convex document IDs.
+ * The actual Id type uses branded strings for type safety.
+ */
+type Id<T extends string> = string;
 
 export class WorkerApi {
   constructor(
@@ -120,318 +32,181 @@ export class WorkerApi {
     return { ...value, workerToken: this.token };
   }
 
-  async claimTask(workerId: string, leaseMs: number): Promise<WorkerTask | null> {
-    return (await this.client.action(
-      api.worker.claimTask as any,
-      this.args({ workerId, leaseMs })
-    )) as WorkerTask | null;
+  async claimTask(
+    input: Omit<FunctionArgs<typeof api.worker.claimTask>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.claimTask>> {
+    return await this.client.action(api.worker.claimTask, this.args(input));
   }
 
-  async heartbeat(input: {
-    workerId: string;
-    hostname?: string;
-    capacity: number;
-    activeTasks: number;
-    leaseMs: number;
-  }): Promise<{ now: number }> {
-    return (await this.client.action(api.worker.heartbeat as any, this.args(input))) as {
-      now: number;
-    };
+  async heartbeat(
+    input: Omit<FunctionArgs<typeof api.worker.heartbeat>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.heartbeat>> {
+    return await this.client.action(api.worker.heartbeat, this.args(input));
   }
 
-  async markOffline(workerId: string): Promise<void> {
-    await this.client.action(api.worker.markOffline as any, this.args({ workerId }));
+  async markOffline(
+    input: Omit<FunctionArgs<typeof api.worker.markOffline>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.markOffline>> {
+    return await this.client.action(api.worker.markOffline, this.args(input));
   }
 
-  async recover(staleGraceMs: number): Promise<{ recoveredTasks: number; recoveredExecutions: number }> {
-    return (await this.client.action(api.worker.recover as any, this.args({ staleGraceMs }))) as {
-      recoveredTasks: number;
-      recoveredExecutions: number;
-    };
+  async recover(
+    input: Omit<FunctionArgs<typeof api.worker.recover>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.recover>> {
+    return await this.client.action(api.worker.recover, this.args(input));
   }
 
-  async getContext(taskId: string): Promise<RunContextData | null> {
-    return (await this.client.action(
-      api.worker.getContext as any,
-      this.args({ taskId })
-    )) as RunContextData | null;
+  async getContext(
+    input: Omit<FunctionArgs<typeof api.worker.getContext>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.getContext>> {
+    return await this.client.action(api.worker.getContext, this.args(input));
   }
 
-  async setPlanning(input: {
-    taskId: string;
-    classification: string;
-    strategy: string;
-    planVersion: number;
-  }): Promise<void> {
-    await this.client.action(api.worker.setPlanning as any, this.args(input));
+  async setPlanning(
+    input: Omit<FunctionArgs<typeof api.worker.setPlanning>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.setPlanning>> {
+    return await this.client.action(api.worker.setPlanning, this.args(input));
   }
 
-  async savePlan(input: {
-    taskId: string;
-    projectId: string;
-    version: number;
-    strategy: string;
-    createdBy: "orchestrator" | "fallback";
-    goal: string;
-    payload: unknown;
-    subtasks: Array<{
-      key: string;
-      title: string;
-      description: string;
-      kind: string;
-      capability: string;
-      dependencies: string[];
-      order: number;
-    }>;
-  }): Promise<number> {
-    return (await this.client.action(api.worker.savePlan as any, this.args(input))) as number;
+  async savePlan(
+    input: Omit<FunctionArgs<typeof api.worker.savePlan>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.savePlan>> {
+    return await this.client.action(api.worker.savePlan, this.args(input));
   }
 
-  async startExecution(input: {
-    taskId: string;
-    projectId: string;
-    subtaskKey: string;
-    agentId?: string;
-    agentName: string;
-    capability: string;
-    workerId: string;
-    attempt: number;
-    leaseMs: number;
-  }): Promise<string> {
-    return (await this.client.action(
-      api.worker.startExecution as any,
-      this.args(input)
-    )) as string;
+  async startExecution(
+    input: Omit<FunctionArgs<typeof api.worker.startExecution>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.startExecution>> {
+    return await this.client.action(api.worker.startExecution, this.args(input));
   }
 
-  async updateExecution(input: {
-    executionId: string;
-    subtaskKey?: string;
-    status: "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled";
-    output?: string;
-    error?: string;
-    meta?: unknown;
-    leaseMs?: number;
-  }): Promise<void> {
-    await this.client.action(api.worker.updateExecution as any, this.args(input));
+  async updateExecution(
+    input: Omit<FunctionArgs<typeof api.worker.updateExecution>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.updateExecution>> {
+    return await this.client.action(api.worker.updateExecution, this.args(input));
   }
 
-  async updateSubtask(input: {
-    taskId: string;
-    key: string;
-    status:
-      | "pending"
-      | "ready"
-      | "running"
-      | "waiting_approval"
-      | "completed"
-      | "failed"
-      | "blocked"
-      | "skipped";
-    output?: string;
-    error?: string;
-    agentId?: string;
-    agentName?: string;
-  }): Promise<boolean> {
-    return (await this.client.action(
-      api.worker.updateSubtask as any,
-      this.args(input)
-    )) as boolean;
+  async updateSubtask(
+    input: Omit<FunctionArgs<typeof api.worker.updateSubtask>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.updateSubtask>> {
+    return await this.client.action(api.worker.updateSubtask, this.args(input));
   }
 
-  async requestApproval(input: {
-    taskId: string;
-    projectId: string;
-    executionId?: string;
-    subtaskKey?: string;
-    kind: "apply_changes" | "git_push" | "run_command" | "merge_pr";
-    summary: string;
-    payload?: unknown;
-    requestedByAgentId?: string;
-    planVersion?: number;
-  }): Promise<string> {
-    return (await this.client.action(
-      api.worker.requestApproval as any,
-      this.args(input)
-    )) as string;
+  async requestApproval(
+    input: Omit<FunctionArgs<typeof api.worker.requestApproval>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.requestApproval>> {
+    return await this.client.action(api.worker.requestApproval, this.args(input));
   }
 
-  async getResumable(): Promise<
-    Array<{ task: WorkerTask; pendingCount: number; approvals: WorkerApproval[] }>
-  > {
-    return (await this.client.action(api.worker.getResumable as any, this.args({}))) as Array<{
-      task: WorkerTask;
-      pendingCount: number;
-      approvals: WorkerApproval[];
-    }>;
+  async getResumable(): Promise<FunctionReturnType<typeof api.worker.getResumable>> {
+    return await this.client.action(api.worker.getResumable, this.args({}));
   }
 
-  async getApprovals(taskId: string): Promise<WorkerApproval[]> {
-    return (await this.client.action(
-      api.worker.getApprovals as any,
-      this.args({ taskId })
-    )) as WorkerApproval[];
+  async getApprovals(
+    input: Omit<FunctionArgs<typeof api.worker.getApprovals>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.getApprovals>> {
+    return await this.client.action(api.worker.getApprovals, this.args(input));
   }
 
-  async getFileChanges(taskId: string): Promise<WorkerFileChange[]> {
-    return (await this.client.action(
-      api.worker.getFileChanges as any,
-      this.args({ taskId })
-    )) as WorkerFileChange[];
+  async getFileChanges(
+    input: Omit<FunctionArgs<typeof api.worker.getFileChanges>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.getFileChanges>> {
+    return await this.client.action(api.worker.getFileChanges, this.args(input));
   }
 
-  async saveFileChange(input: {
-    taskId: string;
-    projectId: string;
-    filePath: string;
-    changeType: "new" | "modified" | "deleted";
-    oldContent?: string;
-    newContent?: string;
-    oldContentHash?: string;
-    newContentHash?: string;
-    diff: string;
-    subtaskKey?: string;
-    executionId?: string;
-  }): Promise<string> {
-    return (await this.client.action(
-      api.worker.saveFileChange as any,
-      this.args(input)
-    )) as string;
+  async saveFileChange(
+    input: Omit<FunctionArgs<typeof api.worker.saveFileChange>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.saveFileChange>> {
+    return await this.client.action(api.worker.saveFileChange, this.args(input));
   }
 
-  async markFilesApplied(taskId: string, filePaths: string[], workerId: string): Promise<void> {
-    await this.client.action(
-      api.worker.markFilesApplied as any,
-      this.args({ taskId, filePaths, workerId })
-    );
+  async markFilesApplied(
+    input: Omit<FunctionArgs<typeof api.worker.markFilesApplied>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.markFilesApplied>> {
+    return await this.client.action(api.worker.markFilesApplied, this.args(input));
   }
 
   async completeTask(
-    taskId: string,
-    status: "done" | "failed" | "rejected",
-    errorMessage?: string
-  ): Promise<void> {
-    await this.client.action(
-      api.worker.completeTask as any,
-      this.args({ taskId, status, errorMessage })
-    );
+    input: Omit<FunctionArgs<typeof api.worker.completeTask>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.completeTask>> {
+    return await this.client.action(api.worker.completeTask, this.args(input));
   }
 
-  async recordEvaluation(input: {
-    taskId: string;
-    projectId: string;
-    planVersion: number;
-    verdict: "passed" | "failed" | "inconclusive";
-    checks: unknown;
-    notes?: string;
-  }): Promise<void> {
-    await this.client.action(api.worker.recordEvaluation as any, this.args(input));
+  async recordEvaluation(
+    input: Omit<FunctionArgs<typeof api.worker.recordEvaluation>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.recordEvaluation>> {
+    return await this.client.action(api.worker.recordEvaluation, this.args(input));
   }
 
-  async logEvent(input: {
-    taskId: string;
-    projectId: string;
-    type: string;
-    payload?: unknown;
-    executionId?: string;
-    subtaskKey?: string;
-    level?: "info" | "warn" | "error";
-  }): Promise<void> {
-    await this.client.action(api.worker.logEvent as any, this.args(input));
+  async logEvent(
+    input: Omit<FunctionArgs<typeof api.worker.logEvent>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.logEvent>> {
+    return await this.client.action(api.worker.logEvent, this.args(input));
   }
 
-  async appendAgentMessage(input: {
-    projectId: string;
-    taskId: string;
-    agentId?: string;
-    content: string;
-    subtaskKey?: string;
-    executionId?: string;
-  }): Promise<void> {
-    await this.client.action(api.worker.appendAgentMessage as any, this.args(input));
+  async appendAgentMessage(
+    input: Omit<FunctionArgs<typeof api.worker.appendAgentMessage>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.appendAgentMessage>> {
+    return await this.client.action(api.worker.appendAgentMessage, this.args(input));
   }
 
-  async recordAudit(input: {
-    taskId?: string;
-    projectId?: string;
-    executionId?: string;
-    workerId?: string;
-    actor: string;
-    tool: string;
-    action: string;
-    decision: "allowed" | "denied" | "pending" | "recorded";
-    target?: string;
-    details?: unknown;
-  }): Promise<void> {
-    await this.client.action(api.worker.recordAudit as any, this.args(input));
+  async recordAudit(
+    input: Omit<FunctionArgs<typeof api.worker.recordAudit>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.recordAudit>> {
+    return await this.client.action(api.worker.recordAudit, this.args(input));
   }
 
-  async recordTokenUsage(input: {
-    projectId: string;
-    taskId?: string;
-    agentId?: string;
-    agentName: string;
-    model: string;
-    inputTokens: number;
-    outputTokens: number;
-  }): Promise<void> {
-    await this.client.action(api.worker.recordTokenUsage as any, this.args(input));
+  async recordTokenUsage(
+    input: Omit<FunctionArgs<typeof api.worker.recordTokenUsage>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.recordTokenUsage>> {
+    return await this.client.action(api.worker.recordTokenUsage, this.args(input));
   }
 
-  async createBranch(input: {
-    taskId: string;
-    projectId: string;
-  }): Promise<{ branchName: string; worktreePath: string }> {
-    return (await this.client.action(api.worker.createBranch as any, this.args(input))) as {
-      branchName: string;
-      worktreePath: string;
-    };
+  async createBranch(
+    input: Omit<FunctionArgs<typeof api.worker.createBranch>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.createBranch>> {
+    return await this.client.action(api.worker.createBranch, this.args(input));
   }
 
-  async mergeBranch(input: { taskId: string }): Promise<{ success: boolean }> {
-    return (await this.client.action(api.worker.mergeBranch as any, this.args(input))) as {
-      success: boolean;
-    };
+  async mergeBranch(
+    input: Omit<FunctionArgs<typeof api.worker.mergeBranch>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.mergeBranch>> {
+    return await this.client.action(api.worker.mergeBranch, this.args(input));
   }
 
-  async discardBranch(input: { taskId: string }): Promise<void> {
-    await this.client.action(api.worker.discardBranch as any, this.args(input));
+  async discardBranch(
+    input: Omit<FunctionArgs<typeof api.worker.discardBranch>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.discardBranch>> {
+    return await this.client.action(api.worker.discardBranch, this.args(input));
   }
 
-  async getTaskContext(taskId: string): Promise<any> {
-    return (await this.client.action(api.worker.getTaskContext as any, this.args({ taskId }))) as any;
+  async getTaskContext(
+    input: Omit<FunctionArgs<typeof api.worker.getTaskContext>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.getTaskContext>> {
+    return await this.client.action(api.worker.getTaskContext, this.args(input));
   }
 
-  async upsertTaskContext(input: {
-    taskId: string;
-    projectId: string;
-    originalRequest: string;
-    objective: string;
-    status: "queued" | "running" | "needs_approval" | "done" | "rejected" | "failed";
-    decisions: unknown[];
-    artifacts: unknown[];
-    outstandingIssues: unknown[];
-  }): Promise<any> {
-    return (await this.client.action(api.worker.upsertTaskContext as any, this.args(input))) as any;
+  async upsertTaskContext(
+    input: Omit<FunctionArgs<typeof api.worker.upsertTaskContext>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.upsertTaskContext>> {
+    return await this.client.action(api.worker.upsertTaskContext, this.args(input));
   }
 
-  async recordDelegation(input: {
-    taskId: string;
-    projectId: string;
-    fromAgentId?: string;
-    toAgentId?: string;
-    decision: "APPROVE" | "REJECT" | "REVISE" | "COMPLETE" | "BLOCKED";
-    reason?: string;
-    capability?: string;
-  }): Promise<any> {
-    return (await this.client.action(api.worker.recordDelegation as any, this.args(input))) as any;
+  async recordDelegation(
+    input: Omit<FunctionArgs<typeof api.worker.recordDelegation>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.recordDelegation>> {
+    return await this.client.action(api.worker.recordDelegation, this.args(input));
   }
 
-  async recordLifecycle(input: { taskId: string; projectId: string; state: string; prevState?: string }): Promise<void> {
-    await this.client.action(api.worker.recordLifecycle as any, this.args(input));
+  async recordLifecycle(
+    input: Omit<FunctionArgs<typeof api.worker.recordLifecycle>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.recordLifecycle>> {
+    return await this.client.action(api.worker.recordLifecycle, this.args(input));
   }
 
-  async getTaskTokenUsage(taskId: string): Promise<{ calls: number; inputTokens: number; outputTokens: number }> {
-    return (await this.client.action(api.worker.getTaskTokenUsage as any, this.args({ taskId }))) as { calls: number; inputTokens: number; outputTokens: number };
+  async getTaskTokenUsage(
+    input: Omit<FunctionArgs<typeof api.worker.getTaskTokenUsage>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.getTaskTokenUsage>> {
+    return await this.client.action(api.worker.getTaskTokenUsage, this.args(input));
   }
 }

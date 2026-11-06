@@ -4,6 +4,7 @@ import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/orchestrator
 import { extractFileHint, parseDelegation, parseDraft, parseReview } from "@/utils/json";
 import { validateFilePath } from "@/governance/tools";
 import { computeDiff, type FileDiff } from "@/tools/gitDiff";
+import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
 import { runResponsiveQa } from "./qa";
 
@@ -13,6 +14,7 @@ export interface SubtaskExecutionInput {
   plan: ExecutionPlan;
   subtask: PlanSubtask;
   agent: AgentDefinition;
+  browser?: WebClient;
   priorOutputs: Map<string, string>;
   fileChanges: FileDiff[];
   signal: AbortSignal;
@@ -333,10 +335,22 @@ async function executeReadOnly(
     ].join("\n");
   }
 
+  const webContext = await buildWebContext(
+    input.browser,
+    `${subtask.title}\n${subtask.description}\n${command}`
+  );
+  if (webContext.fetched.length > 0 || webContext.failed.length > 0) {
+    await input.onEvent("agent.web_context", {
+      capability: subtask.capability,
+      fetched: webContext.fetched,
+      failed: webContext.failed,
+    });
+  }
+
   const provider = createProviderForAgent(agent);
   const messages = baseMessages(
     input,
-    `${instruction}\n\nRepository context:\n${context}\n\nUser request: ${command}`
+    `${instruction}\n\nRepository context:\n${context}${webContext.block ? `\n\n${webContext.block}` : ""}\n\nUser request: ${command}`
   );
   const response = provider.stream
     ? await provider.stream(messages, async (delta) => {
@@ -362,6 +376,53 @@ const FORBIDDEN_PATHS = [
   /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/i,
   /(^|\/)\.ssh(\/|$)/i,
 ];
+
+/**
+ * Fetch referenced URLs through the shared Stagehand browser and render them
+ * as a compact "Web context" block for read-only agents.
+ * ponytail: 3 URLs / 8k chars each; raise limits or page-range follow the
+ * links if a research task needs deeper crawling.
+ */
+async function buildWebContext(
+  browser: WebClient | undefined,
+  text: string
+): Promise<{ block: string; fetched: string[]; failed: string[] }> {
+  const urls = extractUrls(text).slice(0, 3);
+  if (!browser || urls.length === 0) return { block: "", fetched: [], failed: [] };
+
+  const fetched: string[] = [];
+  const failed: string[] = [];
+  const pages = await Promise.allSettled(
+    urls.map(async (url) => {
+      const result = await browser.fetch(url);
+      return {
+        url: result.url,
+        title: result.title,
+        content: result.content.replace(/\s+/g, " ").trim().slice(0, 8000),
+      };
+    })
+  );
+
+  const sections: string[] = [];
+  pages.forEach((page, index) => {
+    const target = urls[index];
+    if (page.status === "fulfilled") {
+      fetched.push(target);
+      sections.push(
+        `### ${page.value.title || page.value.url}\n${page.value.url}\n${page.value.content}`
+      );
+    } else {
+      failed.push(target);
+    }
+  });
+
+  if (sections.length === 0) return { block: "", fetched, failed };
+  return {
+    block: `Web context (live browser fetch):\n${sections.join("\n\n")}`,
+    fetched,
+    failed,
+  };
+}
 
 export function isForbiddenPath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, "/");

@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { WorkerApi } from "@/workerApi";
 import type {
   WorkerAgent,
+  WorkerExecutionId,
   WorkerFileChange,
   WorkerProject,
   WorkerSubtask,
@@ -30,6 +31,7 @@ import {
 } from "@/orchestrator/reviewLoop";
 import type { ReviewResult } from "@/utils/json";
 import { executeSubtask } from "@/execution/agentExecutor";
+import { WebClient } from "@/tools/webClient";
 import { runVerification } from "@/execution/verification";
 import {
   runScheduler,
@@ -64,14 +66,22 @@ interface RunState {
 }
 
 export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<void> {
-  const context = await deps.api.getContext(task._id);
+  const context = await deps.api.getContext({ taskId: task._id });
   if (!context?.project) {
-    await deps.api.completeTask(task._id, "failed", "Project not found for task");
+    await deps.api.completeTask({
+      taskId: task._id,
+      status: "failed",
+      errorMessage: "Project not found for task",
+    });
     return;
   }
   const { project, agents, approvalMode, llmProviders } = context;
   if (agents.length === 0) {
-    await deps.api.completeTask(task._id, "failed", "No agents are assigned to this project");
+    await deps.api.completeTask({
+      taskId: task._id,
+      status: "failed",
+      errorMessage: "No agents are assigned to this project",
+    });
     return;
   }
   // Inject DB provider key into env so llm.ts (process.env) picks it up.
@@ -193,7 +203,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           await deps.api.recordTokenUsage({
             projectId: project._id,
             taskId: task._id,
-            agentId,
+            agentId: agentId as WorkerAgent["_id"] | undefined,
             agentName,
             model,
             inputTokens,
@@ -354,7 +364,11 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       payload: { message: failureSummary.slice(0, 2000) },
       level: "error",
     });
-    await deps.api.completeTask(task._id, "failed", failureSummary);
+    await deps.api.completeTask({
+      taskId: task._id,
+      status: "failed",
+      errorMessage: failureSummary,
+    });
     return;
   }
 }
@@ -373,6 +387,9 @@ async function executePlan(input: {
   completedKeys: Set<string>;
 }): Promise<"completed" | "failed" | "waiting_approval"> {
   const { deps, task, project, plan, state } = input;
+  const browser = new WebClient({ headless: true });
+
+  try {
   const implementationNodes = plan.subtasks.filter(
     (subtask) => subtask.kind !== "qa" && subtask.kind !== "review"
   );
@@ -382,7 +399,7 @@ async function executePlan(input: {
     return "failed";
   }
 
-  const executionIds = new Map<string, string>();
+  const executionIds = new Map<string, WorkerExecutionId>();
   const agentByKey = new Map<string, AgentDefinition>();
   const taskId = task._id;
 
@@ -425,6 +442,7 @@ async function executePlan(input: {
         plan,
         subtask,
         agent,
+        browser,
         priorOutputs: state.priorOutputs,
         fileChanges: Array.from(state.fileChanges.values()),
         signal,
@@ -860,6 +878,9 @@ async function executePlan(input: {
       return "failed";
     }
     // QA failures are recorded on the subtasks; the evaluator decides the verdict.
+    }
+  } finally {
+    await browser.close().catch(() => undefined);
   }
 
   return "completed";

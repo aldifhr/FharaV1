@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCommandAllowed } from "@/tools/runCommand";
+import { isCommandAllowed, shouldUseShell } from "@/tools/runCommand";
 
 describe("command allowlist", () => {
   it("allows exact argv entries", () => {
@@ -22,5 +22,18 @@ describe("command allowlist", () => {
 
   it("rejects arguments that only start with an allowed prefix", () => {
     expect(isCommandAllowed("node", ["--version-evil"])).toBe(false);
+  });
+});
+
+describe("shell handling for cross-platform exec", () => {
+  it("uses a shell for npm/npx (Windows .cmd shims)", () => {
+    expect(shouldUseShell("npm")).toBe(true);
+    expect(shouldUseShell("npx")).toBe(true);
+  });
+
+  it("does not use a shell for real-executable binaries", () => {
+    expect(shouldUseShell("git")).toBe(false);
+    expect(shouldUseShell("node")).toBe(false);
+    expect(shouldUseShell("rm")).toBe(false);
   });
 });

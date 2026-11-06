@@ -33,6 +33,18 @@ export function isCommandAllowed(command: string, args: string[]): boolean {
   );
 }
 
+/**
+ * Commands whose executables are shell shims (`.cmd`/`.bat`) on Windows and
+ * therefore cannot be spawned directly via `execFile` without a shell.
+ * `git` and `node` ship as real executables, so they run without a shell on
+ * every platform. `npm`/`npx` are shims on Windows only — they need `shell: true`.
+ */
+const SHELL_REQUIRED_COMMANDS = new Set(["npm", "npx"]);
+
+export function shouldUseShell(command: string): boolean {
+  return SHELL_REQUIRED_COMMANDS.has(command);
+}
+
 export async function runCommand(
   workspaceRoot: string,
   command: string,
@@ -46,7 +58,7 @@ export async function runCommand(
       cwd: workspaceRoot,
       timeout: 120_000,
       maxBuffer: 10 * 1024 * 1024,
-      shell: false,
+      shell: shouldUseShell(command),
       windowsHide: true,
     });
     return { stdout, stderr };

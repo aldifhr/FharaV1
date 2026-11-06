@@ -63,6 +63,8 @@ export default defineSchema({
   projects: defineTable({
     name: v.string(),
     workspacePath: v.string(),
+    qaUrl: v.optional(v.string()),
+    devUrl: v.optional(v.string()),
     agentIds: v.optional(v.array(v.id("agents"))),
     ownerId: v.optional(v.string()),
     createdAt: v.optional(v.number()),
@@ -341,6 +343,7 @@ export default defineSchema({
 
   // Global LLM Provider Pool — single global config serving all projects
   llmProviders: defineTable({
+    projectId: v.optional(v.string()),
     name: v.string(),
     provider: v.string(),
     model: v.string(),
@@ -353,4 +356,45 @@ export default defineSchema({
     isEnabled: v.optional(v.boolean()),
     createdAt: v.number(),
   }),
+
+  // Integrations (e.g. GitHub MCP connector)
+  integrations: defineTable({
+    projectId: v.id("projects"),
+    type: v.union(v.literal("github")),
+    name: v.string(),
+    // Encrypted config: OAuth tokens, webhook secrets, etc.
+    config: v.optional(v.string()),
+    // For GitHub: access token, refresh token, etc.
+    accessToken: v.optional(v.string()),
+    refreshToken: v.optional(v.string()),
+    tokenExpiresAt: v.optional(v.number()),
+    // GitHub specific
+    githubOwner: v.optional(v.string()),
+    githubRepo: v.optional(v.string()),
+    webhookSecret: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("error"), v.literal("disconnected")),
+    errorMessage: v.optional(v.string()),
+    lastSyncAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_type", ["type"])
+    .index("by_project_and_type", ["projectId", "type"]),
+
+  // Integration webhook events (for async processing)
+  integrationEvents: defineTable({
+    integrationId: v.id("integrations"),
+    projectId: v.id("projects"),
+    eventType: v.string(),
+    payload: v.any(),
+    deliveryId: v.optional(v.string()),
+    status: v.union(v.literal("pending"), v.literal("processing"), v.literal("processed"), v.literal("failed")),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    processedAt: v.optional(v.number()),
+  })
+    .index("by_integration", ["integrationId"])
+    .index("by_status", ["status"])
+    .index("by_project", ["projectId"]),
 });

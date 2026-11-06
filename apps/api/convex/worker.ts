@@ -11,6 +11,13 @@ import {
 
 const tokenArg = { workerToken: v.string() };
 
+/** Authenticate a worker action and return its args without the service token. */
+function withoutToken<A extends object>(args: A): Omit<A, "workerToken"> {
+  assertServiceToken((args as { workerToken?: string }).workerToken);
+  const { workerToken: _token, ...rest } = args as A & { workerToken: string };
+  return rest;
+}
+
 export const claimTask = action({
   args: {
     ...tokenArg,
@@ -18,10 +25,10 @@ export const claimTask = action({
     leaseMs: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
+    const { workerId, leaseMs } = withoutToken(args);
     return await ctx.runMutation(internal.orchestration.claimNextTask, {
-      workerId: args.workerId,
-      leaseMs: args.leaseMs,
+      workerId,
+      leaseMs,
     });
   },
 });
@@ -36,13 +43,14 @@ export const heartbeat = action({
     leaseMs: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
+    const { workerId, hostname, capacity, activeTasks, leaseMs } =
+      withoutToken(args);
     return await ctx.runMutation(internal.orchestration.heartbeat, {
-      workerId: args.workerId,
-      hostname: args.hostname,
-      capacity: args.capacity,
-      activeTasks: args.activeTasks,
-      leaseMs: args.leaseMs,
+      workerId,
+      hostname,
+      capacity,
+      activeTasks,
+      leaseMs,
     });
   },
 });
@@ -50,9 +58,9 @@ export const heartbeat = action({
 export const markOffline = action({
   args: { ...tokenArg, workerId: v.string() },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
+    const { workerId } = withoutToken(args);
     await ctx.runMutation(internal.orchestration.markWorkerOffline, {
-      workerId: args.workerId,
+      workerId,
     });
   },
 });
@@ -63,10 +71,10 @@ export const recover = action({
     staleGraceMs: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
+    const { staleGraceMs } = withoutToken(args);
     return await ctx.runMutation(internal.orchestration.recoverStale, {
       now: Date.now(),
-      staleGraceMs: args.staleGraceMs,
+      staleGraceMs,
     });
   },
 });
@@ -74,10 +82,8 @@ export const recover = action({
 export const getContext = action({
   args: { ...tokenArg, taskId: v.id("tasks") },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    return await ctx.runQuery(internal.orchestration.getRunContext, {
-      taskId: args.taskId,
-    });
+    const { taskId } = withoutToken(args);
+    return await ctx.runQuery(internal.orchestration.getRunContext, { taskId });
   },
 });
 
@@ -90,9 +96,7 @@ export const setPlanning = action({
     planVersion: v.number(),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    await ctx.runMutation(internal.orchestration.setPlanning, rest);
+    await ctx.runMutation(internal.orchestration.setPlanning, withoutToken(args));
   },
 });
 
@@ -119,9 +123,10 @@ export const savePlan = action({
     ),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    return await ctx.runMutation(internal.orchestration.savePlan, rest);
+    return await ctx.runMutation(
+      internal.orchestration.savePlan,
+      withoutToken(args)
+    );
   },
 });
 
@@ -139,9 +144,10 @@ export const startExecution = action({
     leaseMs: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    return await ctx.runMutation(internal.orchestration.startExecution, rest);
+    return await ctx.runMutation(
+      internal.orchestration.startExecution,
+      withoutToken(args)
+    );
   },
 });
 
@@ -157,9 +163,10 @@ export const updateExecution = action({
     leaseMs: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    await ctx.runMutation(internal.orchestration.updateExecution, rest);
+    await ctx.runMutation(
+      internal.orchestration.updateExecution,
+      withoutToken(args)
+    );
   },
 });
 
@@ -175,9 +182,10 @@ export const updateSubtask = action({
     agentName: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    return await ctx.runMutation(internal.orchestration.updateSubtask, rest);
+    return await ctx.runMutation(
+      internal.orchestration.updateSubtask,
+      withoutToken(args)
+    );
   },
 });
 
@@ -200,16 +208,17 @@ export const requestApproval = action({
     planVersion: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    return await ctx.runMutation(internal.orchestration.requestApproval, rest);
+    return await ctx.runMutation(
+      internal.orchestration.requestApproval,
+      withoutToken(args)
+    );
   },
 });
 
 export const getResumable = action({
   args: { ...tokenArg },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
+    withoutToken(args);
     return await ctx.runQuery(internal.orchestration.getResumableTasks, {});
   },
 });
@@ -217,9 +226,9 @@ export const getResumable = action({
 export const getApprovals = action({
   args: { ...tokenArg, taskId: v.id("tasks") },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
+    const { taskId } = withoutToken(args);
     return await ctx.runQuery(internal.orchestration.getTaskApprovals, {
-      taskId: args.taskId,
+      taskId,
     });
   },
 });
@@ -227,9 +236,9 @@ export const getApprovals = action({
 export const getFileChanges = action({
   args: { ...tokenArg, taskId: v.id("tasks") },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
+    const { taskId } = withoutToken(args);
     return await ctx.runQuery(internal.orchestration.getTaskFileChanges, {
-      taskId: args.taskId,
+      taskId,
     });
   },
 });
@@ -254,9 +263,10 @@ export const saveFileChange = action({
     executionId: v.optional(v.id("executions")),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    return await ctx.runMutation(internal.orchestration.saveFileChange, rest);
+    return await ctx.runMutation(
+      internal.orchestration.saveFileChange,
+      withoutToken(args)
+    );
   },
 });
 
@@ -268,11 +278,11 @@ export const markFilesApplied = action({
     workerId: v.string(),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
+    const { taskId, filePaths, workerId } = withoutToken(args);
     await ctx.runMutation(internal.orchestration.markFileChangesApplied, {
-      taskId: args.taskId,
-      filePaths: args.filePaths,
-      workerId: args.workerId,
+      taskId,
+      filePaths,
+      workerId,
     });
   },
 });
@@ -285,11 +295,11 @@ export const completeTask = action({
     errorMessage: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
+    const { taskId, status, errorMessage } = withoutToken(args);
     await ctx.runMutation(internal.orchestration.completeTask, {
-      taskId: args.taskId,
-      status: args.status,
-      errorMessage: args.errorMessage,
+      taskId,
+      status,
+      errorMessage,
     });
   },
 });
@@ -297,10 +307,10 @@ export const completeTask = action({
 export const setTaskStatus = action({
   args: { ...tokenArg, taskId: v.id("tasks"), status: taskStatus },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
+    const { taskId, status } = withoutToken(args);
     await ctx.runMutation(internal.orchestration.setTaskStatus, {
-      taskId: args.taskId,
-      status: args.status,
+      taskId,
+      status,
     });
   },
 });
@@ -320,9 +330,10 @@ export const recordEvaluation = action({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    await ctx.runMutation(internal.orchestration.recordEvaluation, rest);
+    await ctx.runMutation(
+      internal.orchestration.recordEvaluation,
+      withoutToken(args)
+    );
   },
 });
 
@@ -338,9 +349,10 @@ export const logEvent = action({
     level: v.optional(v.union(v.literal("info"), v.literal("warn"), v.literal("error"))),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    await ctx.runMutation(internal.orchestration.logEvent, rest);
+    await ctx.runMutation(
+      internal.orchestration.logEvent,
+      withoutToken(args)
+    );
   },
 });
 
@@ -355,9 +367,10 @@ export const appendAgentMessage = action({
     executionId: v.optional(v.id("executions")),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    return await ctx.runMutation(internal.orchestration.appendAgentMessage, rest);
+    return await ctx.runMutation(
+      internal.orchestration.appendAgentMessage,
+      withoutToken(args)
+    );
   },
 });
 
@@ -381,9 +394,7 @@ export const recordAudit = action({
     details: v.optional(v.any()),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    await ctx.runMutation(internal.audit.record, rest);
+    await ctx.runMutation(internal.audit.record, withoutToken(args));
   },
 });
 
@@ -399,19 +410,20 @@ export const recordTokenUsage = action({
     outputTokens: v.number(),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    await ctx.runMutation(internal.orchestration.recordTokenUsage, rest);
+    await ctx.runMutation(
+      internal.orchestration.recordTokenUsage,
+      withoutToken(args)
+    );
   },
 });
 
 export const createBranch = action({
   args: { ...tokenArg, taskId: v.id("tasks"), projectId: v.id("projects") },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
+    const { taskId, projectId } = withoutToken(args);
     return await ctx.runAction(internal.worktreeNode.createBranch, {
-      taskId: args.taskId,
-      projectId: args.projectId,
+      taskId,
+      projectId,
     });
   },
 });
@@ -419,32 +431,32 @@ export const createBranch = action({
 export const getDiff = action({
   args: { ...tokenArg, taskId: v.id("tasks") },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    return await ctx.runAction(internal.worktreeNode.getDiff, { taskId: args.taskId });
+    const { taskId } = withoutToken(args);
+    return await ctx.runAction(internal.worktreeNode.getDiff, { taskId });
   },
 });
 
 export const mergeBranch = action({
   args: { ...tokenArg, taskId: v.id("tasks") },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    return await ctx.runAction(internal.worktreeNode.mergeBranch, { taskId: args.taskId });
+    const { taskId } = withoutToken(args);
+    return await ctx.runAction(internal.worktreeNode.mergeBranch, { taskId });
   },
 });
 
 export const discardBranch = action({
   args: { ...tokenArg, taskId: v.id("tasks") },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    return await ctx.runAction(internal.worktreeNode.discardBranch, { taskId: args.taskId });
+    const { taskId } = withoutToken(args);
+    return await ctx.runAction(internal.worktreeNode.discardBranch, { taskId });
   },
 });
 
 export const getTaskContext = action({
   args: { ...tokenArg, taskId: v.id("tasks") },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    return await ctx.runQuery(internal.orchestration.getTaskContext, { taskId: args.taskId });
+    const { taskId } = withoutToken(args);
+    return await ctx.runQuery(internal.orchestration.getTaskContext, { taskId });
   },
 });
 
@@ -461,9 +473,10 @@ export const upsertTaskContext = action({
     outstandingIssues: v.array(v.any()),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    return await ctx.runMutation(internal.orchestration.upsertTaskContext, rest);
+    return await ctx.runMutation(
+      internal.orchestration.upsertTaskContext,
+      withoutToken(args)
+    );
   },
 });
 
@@ -485,9 +498,10 @@ export const recordDelegation = action({
     capability: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    return await ctx.runMutation(internal.orchestration.recordDelegation, rest);
+    return await ctx.runMutation(
+      internal.orchestration.recordDelegation,
+      withoutToken(args)
+    );
   },
 });
 
@@ -500,16 +514,19 @@ export const recordLifecycle = action({
     prevState: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    const { workerToken: _token, ...rest } = args;
-    return await ctx.runMutation(internal.orchestration.recordLifecycle, rest);
+    return await ctx.runMutation(
+      internal.orchestration.recordLifecycle,
+      withoutToken(args)
+    );
   },
 });
 
 export const getTaskTokenUsage = action({
   args: { ...tokenArg, taskId: v.id("tasks") },
   handler: async (ctx, args): Promise<any> => {
-    assertServiceToken(args.workerToken);
-    return await ctx.runQuery(internal.orchestration.getTaskTokenUsage, { taskId: args.taskId });
+    const { taskId } = withoutToken(args);
+    return await ctx.runQuery(internal.orchestration.getTaskTokenUsage, {
+      taskId,
+    });
   },
 });

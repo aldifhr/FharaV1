@@ -26,6 +26,10 @@ const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
     capabilities: [CAPABILITY.RESEARCH],
   },
   {
+    pattern: /\b(github|git|pr|pull request|issue|repo)\b/i,
+    capabilities: [CAPABILITY.GITHUB],
+  },
+  {
     pattern: /\b(orchestrator|planner|manager|coordinator)\b/i,
     capabilities: [CAPABILITY.ARCHITECTURE, CAPABILITY.RESEARCH, CAPABILITY.GENERAL],
   },

@@ -108,10 +108,7 @@ export const getContext = internalQuery({
       weight: number;
       modelPatterns?: string[];
     }> = [];
-    const providers = await ctx.db
-      .query("llmProviders")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .collect();
+    const providers = await ctx.db.query("llmProviders").collect();
     for (const p of providers) {
       if (p.isEnabled !== false) {
         llmProviders.push({

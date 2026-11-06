@@ -6,6 +6,8 @@ export const CAPABILITY = {
   ARCHITECTURE: "architecture",
   SECURITY: "security-audit",
   RESEARCH: "research",
+  WEB_BROWSING: "web-browsing",
+  GITHUB: "github",
   GENERAL: "general",
 } as const;
 

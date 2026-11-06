@@ -38,7 +38,11 @@ function normalizeCapabilities(values: string[] | undefined): string[] | undefin
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("agents").collect();
+    const docs = await ctx.db.query("agents").collect();
+    return docs.map(({ llmApiKey, llmApiKeyEnv, ...agent }) => ({
+      ...agent,
+      llmApiKeyConfigured: Boolean(llmApiKey),
+    }));
   },
 });
 

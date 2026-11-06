@@ -119,6 +119,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const [managePath, setManagePath] = useState("");
   const [manageApprovalMode, setManageApprovalMode] = useState<"ask" | "auto">("ask");
   const [manageAgentIds, setManageAgentIds] = useState<string[]>([]);
+  const [manageQaUrl, setManageQaUrl] = useState("");
+  const [manageDevUrl, setManageDevUrl] = useState("");
   const [manageError, setManageError] = useState("");
   const [savingManage, setSavingManage] = useState(false);
 
@@ -130,6 +132,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     setManagePath((project as any).workspacePath ?? "");
     setManageApprovalMode((project as any).approvalMode ?? "ask");
     setManageAgentIds(((project as any).agentIds ?? []) as string[]);
+    setManageQaUrl((project as any).qaUrl ?? "");
+    setManageDevUrl((project as any).devUrl ?? "");
     setIsManageOpen(true);
   }
 
@@ -147,6 +151,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         projectId: projectId as never,
         name: manageName,
         workspacePath: managePath,
+        ...(manageQaUrl.trim() ? { qaUrl: manageQaUrl.trim() } : {}),
+        ...(manageDevUrl.trim() ? { devUrl: manageDevUrl.trim() } : {}),
         approvalMode: manageApprovalMode,
       });
       await updateTeam({ projectId: projectId as never, agentIds: manageAgentIds as never[] });
@@ -644,6 +650,24 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                 <option value="ask">Ask before changes</option>
                 <option value="auto">Auto-approve</option>
               </select>
+            </label>
+            <label className="grid gap-1 text-sm">
+              QA base URL <span className="text-xs text-gray-400">(opsional)</span>
+              <input
+                value={manageQaUrl}
+                onChange={(event) => setManageQaUrl(event.target.value)}
+                placeholder="http://localhost:3000"
+                className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+              />
+            </label>
+            <label className="grid gap-1 text-sm">
+              Dev base URL <span className="text-xs text-gray-400">(opsional)</span>
+              <input
+                value={manageDevUrl}
+                onChange={(event) => setManageDevUrl(event.target.value)}
+                placeholder="http://localhost:3000"
+                className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+              />
             </label>
             <fieldset className="grid gap-2">
               <legend className="text-sm font-medium">Team project</legend>

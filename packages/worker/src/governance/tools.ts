@@ -42,6 +42,19 @@ export interface ToolResult<T = unknown> {
 
 export type FileToolName = "read_file" | "write_file" | "delete_file";
 export type CommandToolName = "run_command";
+export type GitHubToolName =
+  | "github_list_repos"
+  | "github_get_repo"
+  | "github_list_issues"
+  | "github_create_issue"
+  | "github_list_prs"
+  | "github_get_pr"
+  | "github_create_pr"
+  | "github_review_pr"
+  | "github_search_code"
+  | "github_get_file"
+  | "github_create_file"
+  | "github_update_file";
 
 export interface FileToolArgs {
   path: string;
@@ -295,3 +308,65 @@ export function resolveTools(): Record<string, unknown> {
 }
 
 export function resolveToolsUnused(): void {}
+
+export interface GitHubToolArgs {
+  owner?: string;
+  repo?: string;
+  path?: string;
+  query?: string;
+  title?: string;
+  body?: string;
+  head?: string;
+  base?: string;
+  pullNumber?: number;
+  sha?: string;
+  ref?: string;
+  branch?: string;
+  labels?: string[];
+  review?: { body?: string; event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT" };
+  state?: "open" | "closed" | "all";
+}
+
+export async function runGovernedGitHubTool(
+  context: ToolContext,
+  tool: GitHubToolName,
+  args: GitHubToolArgs
+): Promise<ToolResult> {
+  const actionMap: Record<GitHubToolName, string> = {
+    github_list_repos: "list_repos",
+    github_get_repo: "get_repo",
+    github_list_issues: "list_issues",
+    github_create_issue: "create_issue",
+    github_list_prs: "list_prs",
+    github_get_pr: "get_pr",
+    github_create_pr: "create_pr",
+    github_review_pr: "review_pr",
+    github_search_code: "search_code",
+    github_get_file: "get_file",
+    github_create_file: "create_file",
+    github_update_file: "update_file",
+  };
+
+  const action = actionMap[tool];
+  const target = args.repo ? `${args.owner}/${args.repo}` : undefined;
+
+  // Log the tool call
+  await audit(context, {
+    tool: "github",
+    action,
+    decision: "allowed",
+    target,
+    details: {
+      tool,
+      args: {
+        owner: args.owner,
+        repo: args.repo,
+        path: args.path,
+        title: args.title,
+        pullNumber: args.pullNumber,
+      },
+    },
+  });
+
+  return { ok: true };
+}

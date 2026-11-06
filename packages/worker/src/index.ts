@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import os from "node:os";
 import path from "node:path";
 import { createConvexClient } from "./convexClient";
-import { WorkerApi } from "./workerApi";
+import { WorkerApi, type WorkerTask } from "./workerApi";
 import { loadPolicy } from "./orchestrator/policy";
 import { processTask, resumeTask, type RunnerDeps } from "./services/taskRunner";
 
@@ -53,7 +53,7 @@ async function main() {
   let lastErr: unknown = null;
   for (let attempt = 1; attempt <= 30; attempt++) {
     try {
-      recovery = await api.recover(STALE_GRACE_MS);
+      recovery = await api.recover({ staleGraceMs: STALE_GRACE_MS });
       break;
     } catch (err) {
       lastErr = err;
@@ -84,7 +84,7 @@ async function main() {
     if (now - lastRecovery >= 30_000) {
       lastRecovery = now;
       api
-        .recover(STALE_GRACE_MS)
+        .recover({ staleGraceMs: STALE_GRACE_MS })
         .catch((error) => log("recovery failed", error));
     }
   }, HEARTBEAT_MS);
@@ -94,7 +94,7 @@ async function main() {
     stopping = true;
     log(`received ${signal}, shutting down`);
     clearInterval(heartbeat);
-    await api.markOffline(workerId).catch(() => undefined);
+    await api.markOffline({ workerId }).catch(() => undefined);
     const deadline = Date.now() + 15_000;
     while (inFlight.size > 0 && Date.now() < deadline) {
       await sleep(200);
@@ -104,17 +104,17 @@ async function main() {
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
-  const startTask = (taskId: string, runner: () => Promise<void>) => {
+  const startTask = (taskId: WorkerTask["_id"], runner: () => Promise<void>) => {
     if (inFlight.has(taskId)) return;
     const promise = runner()
       .catch(async (error) => {
         log("task failed", taskId, error);
         try {
-          await api.completeTask(
+          await api.completeTask({
             taskId,
-            "failed",
-            error instanceof Error ? error.message : String(error)
-          );
+            status: "failed",
+            errorMessage: error instanceof Error ? error.message : String(error),
+          });
         } catch (cleanupError) {
           log("could not mark task failed", taskId, cleanupError);
         }
@@ -132,7 +132,11 @@ async function main() {
         continue;
       }
 
-      const resumable = await api.getResumable();
+      const resumable: Array<{
+        task: WorkerTask;
+        pendingCount: number;
+        approvals: Array<{ kind: string; status: string }>;
+      }> = await api.getResumable();
       const resumed = resumable.find(
         (entry) =>
           entry.pendingCount === 0 &&
@@ -150,7 +154,7 @@ async function main() {
         continue;
       }
 
-      const claimed = await api.claimTask(workerId, LEASE_MS);
+      const claimed = await api.claimTask({ workerId, leaseMs: LEASE_MS });
       if (claimed) {
         log(`picked task ${claimed._id}: ${claimed.title}`);
         startTask(claimed._id, () => processTask(claimed, deps));

@@ -47,6 +47,8 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
   const [selectingFolder, setSelectingFolder] = useState(false);
   const [desktopReady, setDesktopReady] = useState(false);
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
+  const [qaUrl, setQaUrl] = useState("");
+  const [devUrl, setDevUrl] = useState("");
 
   useEffect(() => {
     setDesktopReady(Boolean(window.moagentDesktop));
@@ -59,6 +61,8 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
       setWorkspacePath("");
       setError("");
       setSelectedAgentIds([]);
+      setQaUrl("");
+      setDevUrl("");
     }
   }, [open]);
 
@@ -79,7 +83,13 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
     }
     setSaving(true);
     try {
-      const projectId = (await createProject({ name, workspacePath, agentIds: selectedAgentIds as never[] })) as unknown as string;
+      const projectId = (await createProject({
+        name,
+        workspacePath,
+        agentIds: selectedAgentIds as never[],
+        ...(qaUrl.trim() ? { qaUrl: qaUrl.trim() } : {}),
+        ...(devUrl.trim() ? { devUrl: devUrl.trim() } : {}),
+      })) as unknown as string;
       setStep("project");
       setName("");
       setWorkspacePath("");
@@ -152,6 +162,24 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
                   </button>
                 )}
               </div>
+            </label>
+            <label className="grid gap-1 text-sm">
+              QA base URL <span className="text-xs text-gray-400">(opsional)</span>
+              <input
+                value={qaUrl}
+                onChange={(event) => setQaUrl(event.target.value)}
+                placeholder="http://localhost:3000"
+                className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+              />
+            </label>
+            <label className="grid gap-1 text-sm">
+              Dev base URL <span className="text-xs text-gray-400">(opsional)</span>
+              <input
+                value={devUrl}
+                onChange={(event) => setDevUrl(event.target.value)}
+                placeholder="http://localhost:3000"
+                className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+              />
             </label>
           </>
         ) : (

@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { api } from "../../api/convex/_generated/api";
+import { api } from "@/api/convex/_generated/api";
 import Link from "next/link";
 import { Trash2 } from "lucide-react";
-import { useToast } from "../components/Toasts";
-import ConfirmDialog, { type ConfirmRequest } from "../components/ConfirmDialog";
-import IconRail from "../components/IconRail";
-import AgentAvatar from "../components/AgentAvatar";
-import { useNewProject } from "../components/NewProject";
+import { useToast } from "@/components/Toasts";
+import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
+import IconRail from "@/components/IconRail";
+import AgentAvatar from "@/components/AgentAvatar";
+import { useNewProject } from "@/components/NewProject";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { TextMorph } from "torph/react";

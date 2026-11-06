@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { applyFileChange, computeDiff, StaleFileError } from "../src/tools/gitDiff";
+import { applyFileChange, computeDiff, StaleFileError } from "@/tools/gitDiff";
 
 let root: string;
 

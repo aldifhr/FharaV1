@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { EvaluationCheck } from "../orchestrator/evaluator";
+import type { EvaluationCheck } from "@/orchestrator/evaluator";
 
 export interface VerificationOptions {
   workspacePath: string;

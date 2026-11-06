@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ExecutionPlan } from "../src/orchestrator/types";
-import type { ExecutionPolicy } from "../src/orchestrator/policy";
+import type { ExecutionPlan } from "@/orchestrator/types";
+import type { ExecutionPolicy } from "@/orchestrator/policy";
 import type {
   WorkerAgent,
   WorkerApi,
   WorkerFileChange,
   WorkerSubtask,
-} from "../src/workerApi";
+} from "@/workerApi";
 
 const mockState = vi.hoisted(() => ({
   reviewCalls: 0,
@@ -73,7 +73,7 @@ vi.mock("../src/execution/agentExecutor", () => ({
   },
 }));
 
-import { processTask } from "../src/services/taskRunner";
+import { processTask } from "@/services/taskRunner";
 
 const POLICY: ExecutionPolicy = {
   maxSubtasks: 8,

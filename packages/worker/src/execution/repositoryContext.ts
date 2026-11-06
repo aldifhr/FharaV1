@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { readFile } from "../tools/readFile";
+import { readFile } from "@/tools/readFile";
 
 const IGNORED = new Set([
   ".git",

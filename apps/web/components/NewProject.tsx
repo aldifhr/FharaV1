@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { createContext, useCallback, useContext } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
-import { api } from "../../api/convex/_generated/api";
+import { api } from "@/api/convex/_generated/api";
 import Modal from "./Modal";
 
 interface NewProjectContextValue {

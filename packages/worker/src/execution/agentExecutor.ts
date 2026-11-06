@@ -1,9 +1,9 @@
-import { createProviderForAgent, getGlobalLLMConfig } from "../llm";
-import { runLlmCall } from "../effects/llmCall";
-import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "../orchestrator/types";
-import { extractFileHint, parseDelegation, parseDraft, parseReview } from "../utils/json";
-import { validateFilePath } from "../governance/tools";
-import { computeDiff, type FileDiff } from "../tools/gitDiff";
+import { createProviderForAgent, getGlobalLLMConfig } from "@/llm";
+import { runLlmCall } from "@/effects/llmCall";
+import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/orchestrator/types";
+import { extractFileHint, parseDelegation, parseDraft, parseReview } from "@/utils/json";
+import { validateFilePath } from "@/governance/tools";
+import { computeDiff, type FileDiff } from "@/tools/gitDiff";
 import { exploreRepository } from "./repositoryContext";
 import { runResponsiveQa } from "./qa";
 

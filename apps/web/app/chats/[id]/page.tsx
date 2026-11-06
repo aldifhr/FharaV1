@@ -1,4 +1,4 @@
-import WorkspaceShell from "../../WorkspaceClient";
+import WorkspaceShell from "@/app/WorkspaceClient";
 import ChatSection from "./ChatSection";
 
 export default async function ChatPage({

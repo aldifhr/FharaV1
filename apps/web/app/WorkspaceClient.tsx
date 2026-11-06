@@ -3,14 +3,14 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import IconRail from "../components/IconRail";
-import Sidebar from "../components/Sidebar";
-import TaskThreadPanel from "../components/TaskThreadPanel";
+import IconRail from "@/components/IconRail";
+import Sidebar from "@/components/Sidebar";
+import TaskThreadPanel from "@/components/TaskThreadPanel";
 import { useMutation, useQuery } from "convex/react";
 import { AnimatePresence } from "framer-motion";
-import ConfirmDialog, { type ConfirmRequest } from "../components/ConfirmDialog";
-import { useToast } from "../components/Toasts";
-import { api } from "../../api/convex/_generated/api";
+import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
+import { useToast } from "@/components/Toasts";
+import { api } from "@/api/convex/_generated/api";
 import { WorkspaceProvider, type Agent, type Task } from "./WorkspaceContext";
 
 function WorkspaceShell({

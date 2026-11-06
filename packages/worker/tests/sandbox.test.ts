@@ -7,7 +7,7 @@ import {
   resolveSandboxPath,
   resolveSandboxPathAsync,
   SandboxError,
-} from "../src/tools/sandbox";
+} from "@/tools/sandbox";
 
 const ROOT = path.resolve("./workspaces/test-project");
 

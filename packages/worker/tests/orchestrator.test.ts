@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { classifyCommand } from "../src/orchestrator/classifier";
-import { createOrchestratorPlan, evaluateAfterExecution } from "../src/orchestrator/orchestrator";
-import { BudgetTracker } from "../src/orchestrator/budget";
-import type { AgentDefinition } from "../src/orchestrator/types";
-import { loadPolicy } from "../src/orchestrator/policy";
-import { routePrimaryAgent, evaluateDelegation } from "../src/orchestrator/delegation";
+import { classifyCommand } from "@/orchestrator/classifier";
+import { createOrchestratorPlan, evaluateAfterExecution } from "@/orchestrator/orchestrator";
+import { BudgetTracker } from "@/orchestrator/budget";
+import type { AgentDefinition } from "@/orchestrator/types";
+import { loadPolicy } from "@/orchestrator/policy";
+import { routePrimaryAgent, evaluateDelegation } from "@/orchestrator/delegation";
 
 const policy = loadPolicy();
 

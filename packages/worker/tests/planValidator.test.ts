@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validatePlan, findCycle } from "../src/orchestrator/planValidator";
+import { validatePlan, findCycle } from "@/orchestrator/planValidator";
 
 const validPlan = {
   goal: "Ship a feature",

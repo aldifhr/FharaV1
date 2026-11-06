@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { runLlmCall } from "../src/effects/llmCall";
-import type { LLMProvider } from "../src/llm";
+import { runLlmCall } from "@/effects/llmCall";
+import type { LLMProvider } from "@/llm";
 
 describe("llmCall (Effect)", () => {
   it("succeeds first try", async () => {

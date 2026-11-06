@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { runScheduler, type NodeOutcome } from "../src/scheduler/dagScheduler";
+import { runScheduler, type NodeOutcome } from "@/scheduler/dagScheduler";
 
 const nodes = (definitions: Array<[string, string[]]>) =>
   definitions.map(([id, dependencies]) => ({ id, dependencies }));

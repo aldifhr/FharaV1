@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDelegation } from "../src/utils/json";
+import { parseDelegation } from "@/utils/json";
 
 describe("parseDelegation", () => {
   it("parses delegation recommendation", () => {

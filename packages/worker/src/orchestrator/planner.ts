@@ -1,9 +1,9 @@
-import { createProviderForAgent, getGlobalLLMConfig } from "../llm";
-import { runLlmCall } from "../effects/llmCall";
+import { createProviderForAgent, getGlobalLLMConfig } from "@/llm";
+import { runLlmCall } from "@/effects/llmCall";
 import { CAPABILITY, type AgentDefinition, type Classification, type ExecutionPlan } from "./types";
 import { routeCapability, capabilitiesOf, describeCapabilities, isAgentEnabled } from "./capabilities";
 import { validatePlan } from "./planValidator";
-import { extractJson } from "../utils/json";
+import { extractJson } from "@/utils/json";
 import type { ExecutionPolicy } from "./policy";
 
 export interface PlannerInput {

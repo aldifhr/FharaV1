@@ -5,8 +5,8 @@ import { useQuery } from "convex/react";
 import { useState } from "react";
 import { Activity as ActivityIcon, FileDiff, Info, Loader2, XCircle } from "lucide-react";
 import { BlurFade } from "@/components/ui/blur-fade";
-import { api } from "../../../api/convex/_generated/api";
-import IconRail from "../../components/IconRail";
+import { api } from "@/api/convex/_generated/api";
+import IconRail from "@/components/IconRail";
 import { SkeletonBox } from "skullet/react";
 
 type Event = {

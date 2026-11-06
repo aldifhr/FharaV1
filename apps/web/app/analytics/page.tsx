@@ -1,8 +1,8 @@
 "use client";
 
 import { useQuery } from "convex/react";
-import { api } from "../../../api/convex/_generated/api";
-import IconRail from "../../components/IconRail";
+import { api } from "@/api/convex/_generated/api";
+import IconRail from "@/components/IconRail";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { Liveline } from "liveline";
 import type { LivelinePoint } from "liveline";

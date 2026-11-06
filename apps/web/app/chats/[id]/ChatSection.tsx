@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import ChatPanel from "../../../components/ChatPanel";
-import { useWorkspace } from "../../WorkspaceContext";
+import ChatPanel from "@/components/ChatPanel";
+import { useWorkspace } from "@/app/WorkspaceContext";
 
 function ChatSection() {
   const { projectId, openAgent, selectTask, selectedTaskId } = useWorkspace();

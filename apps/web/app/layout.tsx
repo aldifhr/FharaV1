@@ -1,6 +1,6 @@
 import "./globals.css";
 import "skullet/styles.css";
-import ConvexClientProvider from "../lib/convex";
+import ConvexClientProvider from "@/lib/convex";
 import { Geist, Inter, JetBrains_Mono } from "next/font/google";
 import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";

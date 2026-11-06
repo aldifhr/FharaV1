@@ -1,4 +1,4 @@
-import type { ReviewFinding, ReviewResult } from "../utils/json";
+import type { ReviewFinding, ReviewResult } from "@/utils/json";
 import type { PlanSubtask } from "./types";
 
 export function formatReviewFindings(findings: ReviewFinding[]): string {

@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { hashContent } from "../src/tools/gitDiff";
-import { evaluateTask } from "../src/orchestrator/evaluator";
+import { hashContent } from "@/tools/gitDiff";
+import { evaluateTask } from "@/orchestrator/evaluator";
 
 let root: string;
 

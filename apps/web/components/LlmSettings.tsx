@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { api } from "../../api/convex/_generated/api";
+import { api } from "@/api/convex/_generated/api";
 import Modal from "./Modal";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
@@ -75,7 +75,7 @@ function LlmSettingsModal({
   onProjectChange: (projectId?: string) => void;
 }) {
   const projects = useQuery(api.projects.list, open ? {} : "skip");
-  const providers = useQuery(api.llmProviders.list, open && projectId ? { projectId: projectId as never } : "skip");
+  const providers = useQuery(api.llmProviders.list, open ? {} : "skip");
   const createProvider = useMutation(api.llmProviders.create);
   const updateProvider = useMutation(api.llmProviders.updateProvider);
   const removeProvider = useMutation(api.llmProviders.remove);
@@ -83,6 +83,9 @@ function LlmSettingsModal({
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [modelLoading, setModelLoading] = useState(false);
+  const [modelError, setModelError] = useState("");
 
   useEffect(() => {
     if (!open) {
@@ -103,12 +106,32 @@ function LlmSettingsModal({
 
   const sorted = providers ? [...providers].sort((a, b) => a.priority - b.priority) : undefined;
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!projectId) {
-      toast("error", "Select a project first", "");
+  async function fetchModels() {
+    if (!form.baseUrl.trim() || !form.apiKey.trim()) {
+      setModelError("Isi Base URL + API key dulu");
       return;
     }
+    setModelLoading(true);
+    setModelError("");
+    try {
+      const base = form.baseUrl.trim().replace(/\/$/, "");
+      const res = await fetch(`${base}/models`, {
+        headers: { authorization: `Bearer ${form.apiKey.trim()}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: any = await res.json();
+      const ids: string[] = (data.data ?? data.models ?? []).map((m: any) => typeof m === "string" ? m : m.id).filter(Boolean);
+      setModelOptions([...new Set(ids)].sort());
+      if (ids.length === 0) setModelError("Provider tidak return daftar model");
+    } catch (e: any) {
+      setModelError(e instanceof Error ? e.message : "Gagal fetch model");
+    } finally {
+      setModelLoading(false);
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
     if (!form.name.trim() || !form.model.trim() || !form.baseUrl.trim()) {
       toast("error", "Name, model, and base URL are required", "");
       return;
@@ -133,7 +156,7 @@ function LlmSettingsModal({
         await updateProvider({ id: editingId as never, ...payload });
         toast("success", "Provider updated", payload.name);
       } else {
-        await createProvider({ projectId: projectId as never, ...payload });
+        await createProvider({ ...payload });
         toast("success", "Provider added", payload.name);
       }
       setForm(emptyForm);
@@ -201,28 +224,14 @@ function LlmSettingsModal({
       <div className="mt-4 max-h-[70vh] overflow-y-auto pr-1">
         <div className="grid gap-4">
           <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
-            <h2 className="text-sm font-semibold">Project</h2>
+            <h2 className="text-sm font-semibold">Global LLM</h2>
             <p className="mt-1 text-xs text-gray-500">
-              Provider pool is scoped per project. Lower priority number = tried first (fallback). Weight balances
+              Satu provider pool global untuk semua project. Lower priority number = tried first (fallback). Weight balances
               load across same-priority providers. Model patterns like <code>gpt-4*</code> route matching models here.
             </p>
-            <select
-              value={projectId ?? ""}
-              onChange={(e) => onProjectChange(e.target.value || undefined)}
-              className={`${inputCls} mt-3`}
-              aria-label="Project"
-            >
-              <option value="">Select project…</option>
-              {(projects ?? []).map((p) => (
-                <option key={p._id} value={p._id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
           </section>
 
-          {projectId && (
-            <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
+          <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
               <h2 className="text-sm font-semibold">{editingId ? "Edit provider" : "Add provider"}</h2>
               <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-2 gap-3 text-sm">
                 <label className="grid gap-1">
@@ -248,12 +257,20 @@ function LlmSettingsModal({
                 </label>
                 <label className="grid gap-1">
                   Model
-                  <input
-                    value={form.model}
-                    onChange={(e) => setForm({ ...form, model: e.target.value })}
-                    placeholder="claude-sonnet-4-20250514"
-                    className={inputCls}
-                  />
+                  <div className="flex gap-2">
+                    {modelOptions.length > 0 ? (
+                      <select value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} className={inputCls}>
+                        <option value="">Pilih model…</option>
+                        {modelOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    ) : (
+                      <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="nous / gpt-4o-mini" className={inputCls} />
+                    )}
+                    <button type="button" onClick={fetchModels} disabled={modelLoading} className="shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 disabled:opacity-50">
+                      {modelLoading ? "…" : "Fetch"}
+                    </button>
+                  </div>
+                  {modelError && <span className="text-xs text-rose-500">{modelError}</span>}
                 </label>
                 <label className="grid gap-1">
                   Base URL
@@ -340,10 +357,8 @@ function LlmSettingsModal({
                 </div>
               </form>
             </section>
-          )}
 
-          {projectId && (
-            <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
+          <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
               <h2 className="text-sm font-semibold">Provider pool</h2>
               {sorted === undefined && <p className="mt-2 text-xs text-gray-400">Loading…</p>}
               {sorted && sorted.length === 0 && (
@@ -405,7 +420,6 @@ function LlmSettingsModal({
                 ))}
               </div>
             </section>
-          )}
         </div>
       </div>
     </Modal>

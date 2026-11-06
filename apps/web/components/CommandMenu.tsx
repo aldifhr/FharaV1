@@ -3,7 +3,7 @@
 import { Command as CommandPrimitive } from "cmdk";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
-import { api } from "../../api/convex/_generated/api";
+import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
 import {
   CommandDialog,

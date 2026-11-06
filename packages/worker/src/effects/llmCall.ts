@@ -1,5 +1,5 @@
 import { Effect, Schedule } from "effect";
-import type { LLMMessage, LLMProvider, LLMResult } from "../llm";
+import type { LLMMessage, LLMProvider, LLMResult } from "@/llm";
 
 /**
  * Effect-based LLM call with retry + timeout.

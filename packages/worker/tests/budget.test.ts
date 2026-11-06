@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BudgetTracker, resolveModelConfig, shouldUseLLMEvaluation } from "../src/orchestrator/budget";
-import { loadPolicy } from "../src/orchestrator/policy";
+import { BudgetTracker, resolveModelConfig, shouldUseLLMEvaluation } from "@/orchestrator/budget";
+import { loadPolicy } from "@/orchestrator/policy";
 
 describe("budget", () => {
   it("tracks calls and tokens", () => {

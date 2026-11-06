@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { motion } from "framer-motion";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { api } from "../../api/convex/_generated/api";
+import { api } from "@/api/convex/_generated/api";
 import Link from "next/link";
 import AgentAvatar from "./AgentAvatar";
 import { AnimatedTooltip } from "@/components/ui/animated-tooltip";

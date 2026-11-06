@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { useQuery } from "convex/react";
-import { api } from "../../../api/convex/_generated/api";
+import { api } from "@/api/convex/_generated/api";
 import Link from "next/link";
-import IconRail from "../../components/IconRail";
-import AgentAvatar from "../../components/AgentAvatar";
+import IconRail from "@/components/IconRail";
+import AgentAvatar from "@/components/AgentAvatar";
 
 export default function SearchPage() {
   const [q, setQ] = useState("");

@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import { resolveSandboxPathAsync } from "./sandbox";
-import { validateFilePath } from "../governance/tools";
+import { validateFilePath } from "@/governance/tools";
 
 export async function readFile(workspaceRoot: string, filePath: string): Promise<string> {
   const validation = validateFilePath(filePath);

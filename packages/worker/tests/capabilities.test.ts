@@ -3,8 +3,8 @@ import {
   capabilitiesOf,
   capabilityForRole,
   routeCapability,
-} from "../src/orchestrator/capabilities";
-import type { AgentDefinition } from "../src/orchestrator/types";
+} from "@/orchestrator/capabilities";
+import type { AgentDefinition } from "@/orchestrator/types";
 
 const agents: AgentDefinition[] = [
   {

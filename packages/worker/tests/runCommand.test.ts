@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCommandAllowed } from "../src/tools/runCommand";
+import { isCommandAllowed } from "@/tools/runCommand";
 
 describe("command allowlist", () => {
   it("allows exact argv entries", () => {

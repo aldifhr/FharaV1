@@ -1,10 +1,10 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import { api } from "../../../api/convex/_generated/api";
+import { api } from "@/api/convex/_generated/api";
 import Link from "next/link";
-import IconRail from "../../components/IconRail";
-import AgentAvatar from "../../components/AgentAvatar";
+import IconRail from "@/components/IconRail";
+import AgentAvatar from "@/components/AgentAvatar";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { ShimmerButton } from "@/components/ui/shimmer-button";
 import { Skeleton, SkeletonBox } from "skullet/react";

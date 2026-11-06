@@ -1,5 +1,5 @@
-import IconRail from "../../components/IconRail";
-import Sidebar from "../../components/Sidebar";
+import IconRail from "@/components/IconRail";
+import Sidebar from "@/components/Sidebar";
 import Link from "next/link";
 import { TextGenerateEffect } from "@/components/ui/text-generate-effect";
 

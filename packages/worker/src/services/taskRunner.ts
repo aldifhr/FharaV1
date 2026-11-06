@@ -1,51 +1,51 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { WorkerApi } from "../workerApi";
+import type { WorkerApi } from "@/workerApi";
 import type {
   WorkerAgent,
   WorkerFileChange,
   WorkerProject,
   WorkerSubtask,
   WorkerTask,
-} from "../workerApi";
+} from "@/workerApi";
 import {
   CAPABILITY,
   type AgentDefinition,
   type ExecutionPlan,
   type PlanSubtask,
   type SubtaskKind,
-} from "../orchestrator/types";
-import { classifyCommand } from "../orchestrator/classifier";
-import { createPlan, heuristicPlan } from "../orchestrator/planner";
-import { validatePlan } from "../orchestrator/planValidator";
-import type { ExecutionPolicy } from "../orchestrator/policy";
-import { BudgetTracker } from "../orchestrator/budget";
-import { createOrchestratorPlan, evaluateAfterExecution } from "../orchestrator/orchestrator";
-import { createSharedTaskContext, appendExecution } from "../orchestrator/taskContext";
-import { routeCapability, capabilitiesOf } from "../orchestrator/capabilities";
+} from "@/orchestrator/types";
+import { classifyCommand } from "@/orchestrator/classifier";
+import { createPlan, heuristicPlan } from "@/orchestrator/planner";
+import { validatePlan } from "@/orchestrator/planValidator";
+import type { ExecutionPolicy } from "@/orchestrator/policy";
+import { BudgetTracker } from "@/orchestrator/budget";
+import { createOrchestratorPlan, evaluateAfterExecution } from "@/orchestrator/orchestrator";
+import { createSharedTaskContext, appendExecution } from "@/orchestrator/taskContext";
+import { routeCapability, capabilitiesOf } from "@/orchestrator/capabilities";
 import {
   buildReviewFixSubtask,
   collectRequestedChanges,
   formatReviewFindings,
-} from "../orchestrator/reviewLoop";
-import type { ReviewResult } from "../utils/json";
-import { executeSubtask } from "../execution/agentExecutor";
-import { runVerification } from "../execution/verification";
+} from "@/orchestrator/reviewLoop";
+import type { ReviewResult } from "@/utils/json";
+import { executeSubtask } from "@/execution/agentExecutor";
+import { runVerification } from "@/execution/verification";
 import {
   runScheduler,
   type NodeOutcome,
   type SchedulerResult,
-} from "../scheduler/dagScheduler";
+} from "@/scheduler/dagScheduler";
 import {
   evaluateTask,
   type EvaluationCheck,
   type EvaluationResult,
-} from "../orchestrator/evaluator";
+} from "@/orchestrator/evaluator";
 import {
   applyFileChange,
   hashContent,
   type FileDiff,
-} from "../tools/gitDiff";
+} from "@/tools/gitDiff";
 
 export interface RunnerDeps {
   api: WorkerApi;
@@ -83,6 +83,9 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     process.env.LLM_MODEL = p.model;
     process.env.LLM_BASE_URL = p.baseUrl;
   }
+  // QA URL per project (Fase 1): qaUrl > devUrl > env fallback in qa.ts
+  if (project.qaUrl) process.env.QA_BASE_URL = project.qaUrl;
+  else if (project.devUrl) process.env.QA_BASE_URL = project.devUrl;
 
   let workspacePath = resolveWorkspacePath(deps.workspaceRoot, project.workspacePath);
   await fs.mkdir(workspacePath, { recursive: true });

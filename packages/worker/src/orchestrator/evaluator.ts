@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { hashContent } from "../tools/gitDiff";
-import { resolveSandboxPathAsync } from "../tools/sandbox";
+import { hashContent } from "@/tools/gitDiff";
+import { resolveSandboxPathAsync } from "@/tools/sandbox";
 
 export type EvaluationVerdict = "passed" | "failed" | "inconclusive";
 

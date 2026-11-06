@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { resolveSandboxPathAsync } from "./sandbox";
-import { validateFilePath } from "../governance/tools";
+import { validateFilePath } from "@/governance/tools";
 
 export async function writeFile(
   workspaceRoot: string,

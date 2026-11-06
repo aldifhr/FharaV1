@@ -9,7 +9,7 @@ import { motion } from "framer-motion";
 import { useNewProject } from "./NewProject";
 import { useSettings } from "./Settings";
 import { useLlmSettings } from "./LlmSettings";
-import { api } from "../../api/convex/_generated/api";
+import { api } from "@/api/convex/_generated/api";
 import CommandMenu from "./CommandMenu";
 const MENU = [
   { icon: Home, label: "Home", href: "/" },

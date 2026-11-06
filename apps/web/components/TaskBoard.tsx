@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { motion } from "framer-motion";
 import { CheckCircle2, ChevronDown, ChevronRight, Clock, Loader2, Plus, Trash2, XCircle } from "lucide-react";
-import { api } from "../../api/convex/_generated/api";
+import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
 import { useToast } from "./Toasts";
 

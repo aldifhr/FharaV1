@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "convex/react";
 import { motion } from "framer-motion";
-import { api } from "../../api/convex/_generated/api";
+import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
 import {
   CheckCircle2,

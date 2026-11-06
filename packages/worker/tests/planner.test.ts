@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { classifyCommand } from "../src/orchestrator/classifier";
-import { createPlan, ensureRequiredSubtasks, heuristicPlan } from "../src/orchestrator/planner";
-import type { AgentDefinition, ExecutionPlan } from "../src/orchestrator/types";
-import { loadPolicy } from "../src/orchestrator/policy";
+import { classifyCommand } from "@/orchestrator/classifier";
+import { createPlan, ensureRequiredSubtasks, heuristicPlan } from "@/orchestrator/planner";
+import type { AgentDefinition, ExecutionPlan } from "@/orchestrator/types";
+import { loadPolicy } from "@/orchestrator/policy";
 
 const policy = loadPolicy();
 

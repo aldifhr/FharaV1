@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createSharedTaskContext, appendExecution } from "../src/orchestrator/taskContext";
-import { buildAgentExecutionContext } from "../src/orchestrator/agentContext";
-import { classifyCommand } from "../src/orchestrator/classifier";
-import type { AgentDefinition } from "../src/orchestrator/types";
+import { createSharedTaskContext, appendExecution } from "@/orchestrator/taskContext";
+import { buildAgentExecutionContext } from "@/orchestrator/agentContext";
+import { classifyCommand } from "@/orchestrator/classifier";
+import type { AgentDefinition } from "@/orchestrator/types";
 
 const dev: AgentDefinition = { _id: "dev1", name: "Developer", role: "developer", capabilities: ["frontend-development"], systemPrompt: "You are dev" };
 const qa: AgentDefinition = { _id: "qa1", name: "QA", role: "qa", capabilities: ["browser-testing"], systemPrompt: "You are qa" };

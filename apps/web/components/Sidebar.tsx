@@ -2,7 +2,7 @@
 import { FormEvent, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery } from "convex/react";
-import { api } from "../../api/convex/_generated/api";
+import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
 import Link from "next/link";
 import Modal from "./Modal";

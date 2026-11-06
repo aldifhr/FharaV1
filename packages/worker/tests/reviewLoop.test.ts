@@ -3,8 +3,8 @@ import {
   buildReviewFixSubtask,
   collectRequestedChanges,
   formatReviewFindings,
-} from "../src/orchestrator/reviewLoop";
-import type { ReviewResult } from "../src/utils/json";
+} from "@/orchestrator/reviewLoop";
+import type { ReviewResult } from "@/utils/json";
 
 const finding = {
   severity: "high" as const,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyCommand } from "../src/orchestrator/classifier";
+import { classifyCommand } from "@/orchestrator/classifier";
 
 describe("classifier", () => {
   it("treats greetings as direct conversation", () => {

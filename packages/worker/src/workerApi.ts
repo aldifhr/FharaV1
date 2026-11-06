@@ -1,5 +1,5 @@
 import type { ConvexHttpClient } from "convex/browser";
-import { api } from "../../../apps/api/convex/_generated/api";
+import { api } from "@/api/convex/_generated/api";
 
 export interface WorkerTask {
   _id: string;
@@ -17,6 +17,8 @@ export interface WorkerProject {
   _id: string;
   name: string;
   workspacePath: string;
+  qaUrl?: string;
+  devUrl?: string;
   agentIds?: string[];
   approvalMode?: "ask" | "auto";
 }

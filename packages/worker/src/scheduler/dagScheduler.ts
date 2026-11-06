@@ -1,3 +1,5 @@
+import { isTransientLlmError } from "@/effects/llmCall";
+
 export interface SchedulerNode {
   id: string;
   dependencies: string[];
@@ -27,6 +29,57 @@ export interface SchedulerResult {
   status: "completed" | "failed" | "cancelled" | "halted";
   outcomes: Map<string, NodeOutcome>;
   failed: string[];
+}
+
+/**
+ * Subtask failure patterns that can never succeed on a blind retry: the
+ * inputs are deterministic (plan shape, path policy, capability routing,
+ * the model's final unparseable answer), so replaying the same subtask
+ * would fail identically while burning time and tokens. Patterns mirror
+ * the actual error strings produced by planValidator, the governance path
+ * guard, capability routing, and the executor's final-JSON parsing.
+ */
+const PERMANENT_SUBTASK_ERROR_PATTERNS: readonly RegExp[] = [
+  // Forbidden / protected paths (governance validateFilePath, executor guards)
+  /refusing to modify protected path/i,
+  /file[- ]path[- ]forbidden/i,
+  /forbidden path/i,
+  // No agent can serve the requested capability (routing is deterministic)
+  /no enabled agent (can serve|for) capability/i,
+  /no agent (available|found) for capability/i,
+  // The model's final answer could not be parsed as the required JSON
+  /did not return valid [^.]*json/i,
+  /unparseable/i,
+  /invalid json/i,
+  /failed to parse [^.]*json/i,
+  // Plan validation failures (planValidator messages)
+  /^plan\.(goal|subtasks) /i,
+  /plan has \d+ subtasks; limit is/i,
+  /duplicate subtask key/i,
+  /depends on unknown subtask/i,
+  /depends on itself/i,
+  /dependency cycle detected/i,
+  /subtask .*: (kind must be one of|capability is required)/i,
+  /subtask\[\d+\] (must be an object|key is invalid)/i,
+];
+
+export function isPermanentSubtaskError(error: string): boolean {
+  return PERMANENT_SUBTASK_ERROR_PATTERNS.some((pattern) => pattern.test(error));
+}
+
+/**
+ * Whether a failed subtask outcome is worth retrying. Permanent failures
+ * fail immediately; failures that came out of the LLM layer keep the LLM
+ * transient/permanent classification from effects/llmCall (429/5xx/network
+ * retry, other 4xx do not); everything else keeps the historical
+ * retry-while-attempts-remain behavior.
+ */
+export function shouldRetrySubtask(error: string): boolean {
+  if (isPermanentSubtaskError(error)) return false;
+  if (/LLM request failed/i.test(error)) {
+    return isTransientLlmError(new Error(error));
+  }
+  return true;
 }
 
 type State =
@@ -72,6 +125,15 @@ export async function runScheduler(
       states.set(node.id, "waiting");
       outcomes.set(node.id, outcome);
       halted = true;
+      return;
+    }
+    // Permanent failures (invalid plan, forbidden path, no agent for the
+    // capability, unparseable final JSON, permanent LLM 4xx) settle as
+    // failed immediately — replaying the same subtask cannot change them.
+    if (!shouldRetrySubtask(outcome.error)) {
+      states.set(node.id, "failed");
+      outcomes.set(node.id, outcome);
+      failed.push(node.id);
       return;
     }
     if (attempt <= hooks.retries && !cancelled) {

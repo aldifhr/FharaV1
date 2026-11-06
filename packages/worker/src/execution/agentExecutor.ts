@@ -22,6 +22,13 @@ export interface SubtaskExecutionInput {
   browser?: WebClient;
   /** Explicit per-task LLM config resolved by the runner (env fallback when absent). */
   llmConfig?: GlobalLLMConfig;
+  /**
+   * Explicit per-task QA base URL resolved by the runner
+   * (project qaUrl > devUrl > worker-start env fallback). Threaded through
+   * instead of read from shared process.env so concurrent tasks can never
+   * QA against another project's URL (spec §8).
+   */
+  qaBaseUrl?: string;
   /** Shared orchestrator context; when present it replaces the raw prior-output dump. */
   taskContext?: SharedTaskContext;
   priorOutputs: Map<string, string>;
@@ -294,6 +301,7 @@ async function executeQa(
   input: SubtaskExecutionInput
 ): Promise<SubtaskExecutionResult> {
   const report = await runResponsiveQa(input.workspacePath, {
+    baseUrl: input.qaBaseUrl,
     onCheck: async (check) => {
       await input.onEvent(
         "task.check",

@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import Modal from "./Modal";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
@@ -63,6 +63,28 @@ const emptyForm = {
   isEnabled: true,
 };
 
+/**
+ * Provider writes and model discovery go through the server-side route
+ * (/api/llm-providers): the Convex mutations require the service token,
+ * which lives only in the web server's environment, and model fetching
+ * must not send a provider key from the browser to an arbitrary baseUrl.
+ */
+async function providerAdmin(
+  op: string,
+  payload: Record<string, unknown>
+): Promise<any> {
+  const res = await fetch("/api/llm-providers", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ op, ...payload }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error ?? `Request failed (HTTP ${res.status})`);
+  }
+  return data;
+}
+
 function LlmSettingsModal({
   open,
   onClose,
@@ -76,9 +98,6 @@ function LlmSettingsModal({
 }) {
   const projects = useQuery(api.projects.list, open ? {} : "skip");
   const providers = useQuery(api.llmProviders.list, open ? {} : "skip");
-  const createProvider = useMutation(api.llmProviders.create);
-  const updateProvider = useMutation(api.llmProviders.updateProvider);
-  const removeProvider = useMutation(api.llmProviders.remove);
   const toast = useToast();
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -107,20 +126,27 @@ function LlmSettingsModal({
   const sorted = providers ? [...providers].sort((a, b) => a.priority - b.priority) : undefined;
 
   async function fetchModels() {
-    if (!form.baseUrl.trim() || !form.apiKey.trim()) {
+    if (!form.baseUrl.trim()) {
+      setModelError("Isi Base URL dulu");
+      return;
+    }
+    if (!form.apiKey.trim() && !editingId) {
       setModelError("Isi Base URL + API key dulu");
       return;
     }
     setModelLoading(true);
     setModelError("");
     try {
-      const base = form.baseUrl.trim().replace(/\/$/, "");
-      const res = await fetch(`${base}/models`, {
-        headers: { authorization: `Bearer ${form.apiKey.trim()}` },
+      // Routed through our own server + the Convex backend: the browser
+      // never sends the key to the provider baseUrl directly. When editing
+      // a saved provider with the key field left empty, the backend uses
+      // that provider's stored key.
+      const data = await providerAdmin("fetchModels", {
+        baseUrl: form.baseUrl.trim(),
+        ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
+        ...(!form.apiKey.trim() && editingId ? { providerId: editingId } : {}),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: any = await res.json();
-      const ids: string[] = (data.data ?? data.models ?? []).map((m: any) => typeof m === "string" ? m : m.id).filter(Boolean);
+      const ids: string[] = data.models ?? [];
       setModelOptions([...new Set(ids)].sort());
       if (ids.length === 0) setModelError("Provider tidak return daftar model");
     } catch (e: any) {
@@ -153,10 +179,10 @@ function LlmSettingsModal({
         isEnabled: form.isEnabled,
       };
       if (editingId) {
-        await updateProvider({ id: editingId as never, ...payload });
+        await providerAdmin("update", { id: editingId, ...payload });
         toast("success", "Provider updated", payload.name);
       } else {
-        await createProvider({ ...payload });
+        await providerAdmin("create", payload);
         toast("success", "Provider added", payload.name);
       }
       setForm(emptyForm);
@@ -185,7 +211,7 @@ function LlmSettingsModal({
 
   async function toggleEnabled(p: Provider) {
     try {
-      await updateProvider({ id: p._id as never, isEnabled: !(p.isEnabled !== false) });
+      await providerAdmin("update", { id: p._id, isEnabled: !(p.isEnabled !== false) });
       toast("success", p.isEnabled !== false ? "Provider disabled" : "Provider enabled", p.name);
     } catch (err) {
       toast("error", "Failed to update provider", err instanceof Error ? err.message : "");
@@ -199,7 +225,7 @@ function LlmSettingsModal({
       onOk: () => {
         void (async () => {
           try {
-            await removeProvider({ id: p._id as never });
+            await providerAdmin("remove", { id: p._id });
             toast("success", "Provider deleted", p.name);
             if (editingId === p._id) {
               setEditingId(null);

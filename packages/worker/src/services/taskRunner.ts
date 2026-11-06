@@ -104,6 +104,33 @@ function resolveTaskLlmConfig(
   };
 }
 
+/**
+ * QA base URL fallback captured ONCE per worker process (memoized on first
+ * task, after dotenv has loaded). Per-task URLs come from the project; this
+ * is only the fallback for projects without qaUrl/devUrl. Reading it once —
+ * and never writing process.env.QA_BASE_URL — is what removes the race where
+ * concurrent tasks overwrote each other's QA target (spec §8).
+ */
+let qaEnvFallbackCache: string | undefined | null = null;
+function qaEnvFallback(): string | undefined {
+  if (qaEnvFallbackCache === null) {
+    qaEnvFallbackCache = process.env.QA_BASE_URL;
+  }
+  return qaEnvFallbackCache;
+}
+
+/**
+ * Resolve the QA base URL for one task: project.qaUrl > project.devUrl >
+ * worker-start env fallback. Returns undefined when none is configured, in
+ * which case qa.ts applies its own default.
+ */
+export function resolveQaBaseUrl(
+  project: { qaUrl?: string | null; devUrl?: string | null },
+  envFallback: string | undefined = qaEnvFallback()
+): string | undefined {
+  return project.qaUrl ?? project.devUrl ?? envFallback;
+}
+
 /** Build the orchestrator's AgentResult view of a finished scheduler node. */
 function toAgentResult(input: {
   subtask: PlanSubtask;
@@ -163,9 +190,12 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
   // executors — never mutate process.env, which is shared across the
   // worker's concurrent tasks.
   const llmConfig = resolveTaskLlmConfig(llmProviders);
-  // QA URL per project (Fase 1): qaUrl > devUrl > env fallback in qa.ts
-  if (project.qaUrl) process.env.QA_BASE_URL = project.qaUrl;
-  else if (project.devUrl) process.env.QA_BASE_URL = project.devUrl;
+  // QA base URL is resolved once per task (project.qaUrl > project.devUrl >
+  // worker-start env fallback) and threaded explicitly to the QA executor.
+  // It is never written to process.env: with concurrent tasks the shared
+  // variable raced, so one project's QA could run against another's URL,
+  // and projects without a URL silently inherited the previous task's.
+  const qaBaseUrl = resolveQaBaseUrl(project);
 
   let workspacePath = resolveWorkspacePath(deps.workspaceRoot, project.workspacePath);
   await fs.mkdir(workspacePath, { recursive: true });
@@ -358,6 +388,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       sharedContext,
       classification,
       llmConfig,
+      qaBaseUrl,
     });
 
     if (outcome === "waiting_approval") return;
@@ -503,6 +534,8 @@ async function executePlan(input: {
   sharedContext?: SharedTaskContext;
   classification?: Classification;
   llmConfig?: GlobalLLMConfig;
+  /** Per-task QA base URL (project qaUrl > devUrl > env fallback), threaded to the QA executor. */
+  qaBaseUrl?: string;
 }): Promise<"completed" | "failed" | "waiting_approval"> {
   const { deps, task, project, plan, state } = input;
   const browser = new WebClient({ headless: true });
@@ -562,6 +595,7 @@ async function executePlan(input: {
         agent,
         browser,
         llmConfig: input.llmConfig,
+        qaBaseUrl: input.qaBaseUrl,
         taskContext: input.sharedContext,
         priorOutputs: state.priorOutputs,
         fileChanges: Array.from(state.fileChanges.values()),
@@ -1192,6 +1226,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
     approvalMode: context.approvalMode,
     completedKeys,
     llmConfig: resolveTaskLlmConfig(context.llmProviders),
+    qaBaseUrl: resolveQaBaseUrl(context.project),
   });
   if (outcome === "waiting_approval") return;
 

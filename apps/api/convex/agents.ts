@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { assertAgentAccess } from "./authz";
 
 function defaultAvatarParams(name: string) {
   const palettes = ["Black", "Brown", "Blonde", "Red", "PastelPink"];
@@ -104,6 +105,11 @@ export const update = mutation({
     avatarParams: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    // Same authz choke point as the other modules (authz.assertAgentAccess):
+    // validates the target before any mutation. Agents are global (no
+    // owner), so in local mode this changes nothing beyond a clear
+    // "Agent not found" error (spec §9.2 consistency).
+    await assertAgentAccess(ctx, args.agentId);
     const name = args.name.trim();
     const role = args.role.trim();
     if (!name) throw new Error("Agent name is required");
@@ -137,6 +143,7 @@ export const update = mutation({
 export const remove = mutation({
   args: { agentId: v.id("agents") },
   handler: async (ctx, args) => {
+    await assertAgentAccess(ctx, args.agentId);
     const projects = await ctx.db.query("projects").collect();
     for (const project of projects) {
       if (!project.agentIds?.includes(args.agentId)) continue;

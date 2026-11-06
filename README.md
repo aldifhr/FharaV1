@@ -54,6 +54,36 @@ The LLM provider used per task is normally configured in the web UI
 (Settings -> LLM providers, stored in the `llmProviders` table); the `LLM_*`
 env values are only the fallback when no provider row exists.
 
+## Authentication & security limitations
+
+MOAgent is currently a **single-user, local-development prototype**. There
+is no login or auth provider wired up, and it must not be exposed to an
+untrusted network as-is. The concrete model today:
+
+- **Ownership is conditional.** Project ownership (`projects.ownerId`) is
+  enforced only when a project carries an `ownerId` *and* a viewer identity
+  exists (`apps/api/convex/authz.ts`). Projects without an owner — every
+  project in local mode — are accessible to anyone who can reach the
+  deployment.
+- **Worker ↔ backend** calls use one static shared secret,
+  `CONVEX_SERVICE_TOKEN`. The comparison is timing-safe and fails closed
+  when unset, but the token is not bound to a worker id and there is no
+  rotation mechanism.
+- **Provider administration is token-gated.** The `llmProviders`
+  create/update/remove mutations require the service token. The Settings UI
+  calls them through a server-side Next route
+  (`apps/web/app/api/llm-providers`) that holds the token in the web
+  server's environment — so the web server needs `CONVEX_SERVICE_TOKEN`
+  set (server-side only, never a `NEXT_PUBLIC_*` variable) for Settings
+  writes and model discovery to work. Provider read queries are public but
+  never return the key (only `apiKeyConfigured`).
+- **Credentials are stored in plaintext for now.** Provider API keys (and
+  the legacy `agents.llmApiKey` field) sit unencrypted in the database
+  until the Phase 2 encryption migration lands. Treat database access as
+  credential access. Internal run contexts no longer ship the legacy agent
+  key fields to the worker, and the browser never sends a provider key to a
+  provider base URL directly (model discovery runs on the backend).
+
 ### 3. Run
 
 ```bash

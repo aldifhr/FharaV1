@@ -10,6 +10,24 @@ import {
 
 const DEFAULT_LEASE_MS = 60_000;
 
+/**
+ * Strip legacy per-agent LLM fields — above all the plaintext `llmApiKey` —
+ * before agent rows cross the internal boundary to the worker. The worker
+ * never reads them (its toAgentDefinition drops them); returning the raw
+ * documents only distributes plaintext credentials needlessly (spec §5).
+ */
+function projectAgentForWorker(agent: Doc<"agents">): Doc<"agents"> {
+  const {
+    llmApiKey: _llmApiKey,
+    llmApiKeyEnv: _llmApiKeyEnv,
+    llmBaseUrl: _llmBaseUrl,
+    llmModel: _llmModel,
+    llmProvider: _llmProvider,
+    ...rest
+  } = agent;
+  return rest;
+}
+
 export const getRunContext = internalQuery({
   args: { taskId: v.id("tasks") },
   handler: async (
@@ -91,7 +109,7 @@ export const getRunContext = internalQuery({
     return {
       task,
       project,
-      agents,
+      agents: agents.map(projectAgentForWorker),
       plan: plans[0] ?? null,
       subtasks,
       approvalMode: project?.approvalMode === "auto" ? "auto" : "ask",

@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { assertProjectAccess, assertTaskAccess } from "./authz";
+import { assertProjectAccess, assertTaskAccess, getViewerId } from "./authz";
 import { taskStatus } from "./schema";
 
 export const listByProject = query({
@@ -18,7 +18,22 @@ export const listByProject = query({
 export const listAll = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("tasks").order("desc").take(500);
+    const tasks = await ctx.db.query("tasks").order("desc").take(500);
+    const viewerId = await getViewerId(ctx);
+    if (!viewerId) return tasks;
+    // With an identity present, apply the same per-project visibility as
+    // listByProject/get: tasks belonging to projects owned by someone else
+    // are hidden (mirrors projects.list). Local mode without an identity
+    // keeps returning everything.
+    const visible: typeof tasks = [];
+    for (const task of tasks) {
+      const project = await ctx.db.get(task.projectId);
+      if (!project) continue;
+      if (!project.ownerId || project.ownerId === viewerId) {
+        visible.push(task);
+      }
+    }
+    return visible;
   },
 });
 
@@ -40,10 +55,30 @@ export const createFromCommand = mutation({
     assignedAgentIds: v.optional(v.array(v.id("agents"))),
   },
   handler: async (ctx, args) => {
-    await assertProjectAccess(ctx, args.projectId);
+    const project = await assertProjectAccess(ctx, args.projectId);
     const rawCommand = args.command.trim();
     if (!rawCommand) throw new Error("Command is required");
     if (rawCommand.length > 4000) throw new Error("Command is too long (max 4000 characters)");
+
+    // Validate the requested assignees: every id must exist, and when the
+    // project has a defined team (agentIds non-empty) every id must be a
+    // member of it. The ids were previously stored verbatim, which let a
+    // task pull any global agent into any project (spec §9.2). The error
+    // names the offending id so callers can fix their request.
+    if (args.assignedAgentIds) {
+      const team = project.agentIds ?? [];
+      for (const agentId of args.assignedAgentIds) {
+        const agent = await ctx.db.get(agentId);
+        if (!agent) {
+          throw new Error(`Assigned agent not found: ${agentId}`);
+        }
+        if (team.length > 0 && !team.includes(agentId)) {
+          throw new Error(
+            `Assigned agent ${agentId} is not a member of this project's team`
+          );
+        }
+      }
+    }
     const title =
       args.title?.trim() ||
       (rawCommand.length > 80 ? rawCommand.slice(0, 80) + "..." : rawCommand);

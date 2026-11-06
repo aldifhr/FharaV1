@@ -17,12 +17,28 @@ export interface SchedulerHooks {
   retryDelayMs?: number;
   shouldCancel?: () => Promise<boolean>;
   onStart: (node: SchedulerNode, attempt: number) => Promise<void>;
+  /**
+   * Called as each node settles. May return ADDITIONAL nodes to schedule
+   * within this same invocation (Phase 3 dynamic work: delegation and
+   * fix subtasks decided from this outcome). Returned nodes are
+   * validated before admission — duplicate ids are dropped, dependencies
+   * must reference nodes that already exist (or nodes accepted earlier
+   * in the same batch), and `maxAddedNodes` caps the total admitted.
+   */
   onOutcome: (
     node: SchedulerNode,
     outcome: NodeOutcome,
     attempt: number
-  ) => Promise<void>;
+  ) => Promise<SchedulerNode[] | void>;
   onBlocked?: (node: SchedulerNode, reason: string) => Promise<void>;
+  /** Cap on dynamically added nodes across the whole run. Default: no cap. */
+  maxAddedNodes?: number;
+  /**
+   * When this returns true, no further nodes are started (Phase 3:
+   * budget BLOCKED). Nodes already running finish; nodes still pending
+   * are then blocked with a halt reason instead of being executed.
+   */
+  shouldHaltNewNodes?: () => boolean;
 }
 
 export interface SchedulerResult {
@@ -105,17 +121,49 @@ export async function runScheduler(
     Promise<{ node: SchedulerNode; outcome: NodeOutcome; attempt: number }>
   >();
   const failed: string[] = [];
+  // Live node list: the initial plan plus everything admitted dynamically.
+  const allNodes: SchedulerNode[] = [...nodes];
+  let addedCount = 0;
   let halted = false;
   let cancelled = false;
+  let haltLatched = false;
   const concurrency = Math.max(1, hooks.maxConcurrency);
   const retryDelayMs = hooks.retryDelayMs ?? 250;
+  const maxAddedNodes = hooks.maxAddedNodes ?? Number.POSITIVE_INFINITY;
+
+  /**
+   * Admit dynamically returned nodes. A node is admitted only when its id
+   * is new (anti-duplicate: a key that already ran or is queued is never
+   * scheduled twice) and every dependency already exists — either in the
+   * graph or accepted earlier in this same batch, so intra-batch chains
+   * work while references to unknown/future nodes are dropped, not
+   * deadlocked. Admission stops at the maxAddedNodes cap.
+   */
+  const addNodes = (candidates: SchedulerNode[]): void => {
+    const acceptedIds = new Set<string>();
+    for (const candidate of candidates) {
+      if (addedCount >= maxAddedNodes) break;
+      if (byId.has(candidate.id) || acceptedIds.has(candidate.id)) continue;
+      const dependenciesKnown = candidate.dependencies.every(
+        (dependency) => byId.has(dependency) || acceptedIds.has(dependency)
+      );
+      if (!dependenciesKnown) continue;
+      acceptedIds.add(candidate.id);
+      byId.set(candidate.id, candidate);
+      states.set(candidate.id, "pending");
+      attempts.set(candidate.id, 0);
+      allNodes.push(candidate);
+      addedCount += 1;
+    }
+  };
 
   const settle = async (
     node: SchedulerNode,
     outcome: NodeOutcome,
     attempt: number
   ): Promise<void> => {
-    await hooks.onOutcome(node, outcome, attempt);
+    const added = await hooks.onOutcome(node, outcome, attempt);
+    if (added && added.length > 0) addNodes(added);
     if (outcome.status === "completed") {
       states.set(node.id, "success");
       outcomes.set(node.id, outcome);
@@ -226,6 +274,19 @@ export async function runScheduler(
     }
   };
 
+  /** Block every still-pending node (used when scheduling is halted). */
+  const blockAllPending = async (reason: string) => {
+    for (const [id, state] of states.entries()) {
+      if (state !== "pending") continue;
+      const node = byId.get(id);
+      if (!node) continue;
+      states.set(id, "blocked");
+      outcomes.set(id, { status: "failed", error: reason });
+      failed.push(id);
+      await hooks.onBlocked?.(node, reason);
+    }
+  };
+
   // eslint-disable-next-line no-constant-condition
   while (true) {
     if (!cancelled && hooks.shouldCancel) {
@@ -241,8 +302,12 @@ export async function runScheduler(
       if (running.size === 0) break;
     }
 
-    if (!cancelled && !halted) {
-      for (const node of nodes) {
+    if (!haltLatched && hooks.shouldHaltNewNodes?.()) {
+      haltLatched = true;
+    }
+
+    if (!cancelled && !halted && !haltLatched) {
+      for (const node of allNodes) {
         if (running.size >= concurrency) break;
         if (states.get(node.id) !== "pending") continue;
         const dependenciesSatisfied = node.dependencies.every(
@@ -253,6 +318,12 @@ export async function runScheduler(
     }
 
     if (running.size === 0) {
+      if (haltLatched) {
+        // Graceful stop: running work has drained; pending work is
+        // blocked with the halt reason instead of being executed.
+        await blockAllPending("Scheduling halted before this subtask could run");
+        break;
+      }
       await markBlocked("Dependency failed");
       const pendingLeft = Array.from(states.values()).some((state) => state === "pending");
       if (halted || cancelled || !pendingLeft) break;

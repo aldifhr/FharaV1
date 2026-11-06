@@ -19,6 +19,11 @@ export class BudgetTracker {
 
   constructor(private readonly policy: ExecutionPolicy) {}
 
+  /** The policy this tracker enforces (read by delegation decisions). */
+  getPolicy(): ExecutionPolicy {
+    return this.policy;
+  }
+
   get llmCallCount(): number {
     return this.llmCalls;
   }
@@ -77,6 +82,16 @@ export class BudgetTracker {
 
   canDelegate(): boolean {
     return this.delegationDepth < this.policy.maxDelegationDepth && this.agents.size < this.policy.maxAgentsPerTask;
+  }
+
+  /**
+   * Agent-count gate only. Delegation DEPTH is no longer decided from this
+   * tracker's global counter (Phase 3): it is derived from the delegating
+   * subtask's per-branch capability chain in delegation.ts. This gate keeps
+   * the task-wide bound on how many distinct agents may participate.
+   */
+  canAddAgent(): boolean {
+    return this.agents.size < this.policy.maxAgentsPerTask;
   }
 
   isTokenBudgetExhausted(): boolean {

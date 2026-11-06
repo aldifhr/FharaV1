@@ -2,7 +2,10 @@ import type { AgentDefinition, Classification, ExecutionPlan, PlanSubtask } from
 import { classifyCommand } from "./classifier";
 import { routeCapability, capabilitiesOf, isAgentEnabled } from "./capabilities";
 import { BudgetTracker } from "./budget";
-import { loadPolicy } from "./policy";
+import { loadPolicy, type ExecutionPolicy } from "./policy";
+import { createPlan, type PlannerInput } from "./planner";
+import type { GlobalLLMConfig } from "../llm";
+import type { TaskLlmResolver } from "../llm/resolver";
 import {
   createSharedTaskContext,
   appendExecution,
@@ -24,6 +27,13 @@ export interface OrchestratorInput {
   classification?: Classification;
   budget?: BudgetTracker;
   priorExecutions?: ExecutionHistoryEntry[];
+  /**
+   * The runner's own shared context (Phase 3). When provided, the
+   * orchestrator reasons over THIS context — the same object the runner
+   * keeps updating as subtasks finish — instead of building a throwaway
+   * one whose decisions never reach the live execution.
+   */
+  sharedContext?: SharedTaskContext;
 }
 
 export interface OrchestratorDecision {
@@ -50,16 +60,25 @@ export interface OrchestratorPlan {
 /**
  * Intelligent orchestrator — decides primary agent, evaluates budget,
  * and produces a deterministic execution sequence.
- * This does NOT execute agents itself; taskRunner still executes the plan.
- * Orchestrator provides the intelligent routing + delegation decisions.
+ *
+ * Phase 3 ownership model: the orchestrator is the control plane. This
+ * function produces the routing/decision view over the runner's shared
+ * context; `createAuthoritativePlan` below turns that into the actual
+ * ExecutionPlan that gets executed (planner.ts is its plan-building
+ * subroutine), and `evaluateAfterExecution` turns finished subtasks into
+ * decisions the runner acts on. It still does not execute agents itself —
+ * the runner/scheduler do — but its plan and decisions are now the ones
+ * that run, not an advisory side-channel.
  */
 export function createOrchestratorPlan(input: OrchestratorInput): OrchestratorPlan {
   const classification = input.classification ?? classifyCommand(input.command);
   const policy = loadPolicy();
   const budget = input.budget ?? new BudgetTracker(policy);
 
-  const routing = routePrimaryAgent(input.command, classification, input.agents);
-  const sharedContext = createSharedTaskContext({
+  const routing = routePrimaryAgent(input.command, classification, input.agents, {
+    allowFallback: policy.allowFallback,
+  });
+  const sharedContext = input.sharedContext ?? createSharedTaskContext({
     taskId: input.taskId,
     projectId: input.projectId,
     originalRequest: input.command,
@@ -175,6 +194,10 @@ export function evaluateAfterExecution(input: {
   delegationDepth: number;
   alreadyDelegated: string[];
   taskContext: SharedTaskContext;
+  /** Per-branch capability chain of the finished subtask (see delegation.ts). */
+  chainCapabilities?: string[];
+  /** Live per-agent execution counts for the delegation concurrency gate. */
+  activeByAgent?: ReadonlyMap<string, number>;
 }): { decision: DelegationDecision; nextAgent?: AgentDefinition; nextCapability?: string; reason: string; updatedContext: SharedTaskContext } {
   const { result, classification, agents, budget, previousAgents, delegationDepth, alreadyDelegated, taskContext } = input;
 
@@ -226,6 +249,8 @@ export function evaluateAfterExecution(input: {
     previousAgents,
     delegationDepth,
     alreadyDelegatedCapabilities: alreadyDelegated,
+    chainCapabilities: input.chainCapabilities,
+    activeByAgent: input.activeByAgent,
   });
 
   updated = addDecision(updated, {
@@ -243,5 +268,112 @@ export function evaluateAfterExecution(input: {
     nextCapability: evalResult.targetCapability,
     reason: evalResult.reason,
     updatedContext: updated,
+  };
+}
+
+export interface AuthoritativePlanInput {
+  taskId: string;
+  projectId: string;
+  command: string;
+  title: string;
+  agents: AgentDefinition[];
+  classification?: Classification;
+  /** The runner's budget tracker — never a throwaway instance. */
+  budget: BudgetTracker;
+  /** The runner's shared context — the one execution keeps updating. */
+  sharedContext: SharedTaskContext;
+  policy: ExecutionPolicy;
+  /**
+   * A previously persisted plan for this task (validated by the caller).
+   * When present it is adopted as-is — replans/restarts do not re-plan —
+   * and the planner subroutine is not invoked.
+   */
+  storedPlan?: ExecutionPlan | null;
+  storedCreatedBy?: "orchestrator" | "fallback";
+  feedback?: string;
+  llmConfig?: GlobalLLMConfig;
+  llmResolver?: TaskLlmResolver;
+  onTokenUsage?: PlannerInput["onTokenUsage"];
+}
+
+export interface AuthoritativePlanResult {
+  orchestratorPlan: OrchestratorPlan;
+  /** The plan that MUST be handed to the executor — the only plan. */
+  plan: ExecutionPlan;
+  createdBy: "orchestrator" | "fallback";
+  degradedReason?: string;
+  /**
+   * The primary agent, unified with per-subtask routing: the agent that
+   * serves the first subtask of the executed plan. There is no separate
+   * primary routing anymore.
+   */
+  primaryAgent: AgentDefinition | null;
+  primaryCapability: string;
+}
+
+/**
+ * The orchestrator as the single planning authority (Phase 3, spec §3).
+ *
+ * Runs the orchestrator's own decision pass over the runner's budget and
+ * shared context, then obtains the execution plan from its planner
+ * subroutine (planner.ts `createPlan` — LLM plan with deterministic
+ * fallback; its output contract is unchanged). The returned plan is the
+ * plan the runner executes: no second, discarded plan is produced, and
+ * the `orchestrator.plan` event is emitted from this result.
+ */
+export async function createAuthoritativePlan(
+  input: AuthoritativePlanInput
+): Promise<AuthoritativePlanResult> {
+  const classification = input.classification ?? classifyCommand(input.command);
+
+  const orchestratorPlan = createOrchestratorPlan({
+    taskId: input.taskId,
+    projectId: input.projectId,
+    command: input.command,
+    title: input.title,
+    agents: input.agents,
+    classification,
+    budget: input.budget,
+    sharedContext: input.sharedContext,
+    priorExecutions: input.sharedContext.agentExecutions,
+  });
+
+  let plan: ExecutionPlan;
+  let createdBy: "orchestrator" | "fallback";
+  let degradedReason: string | undefined;
+
+  if (input.storedPlan) {
+    plan = input.storedPlan;
+    createdBy = input.storedCreatedBy ?? "orchestrator";
+  } else {
+    const created = await createPlan({
+      command: input.command,
+      classification,
+      agents: input.agents,
+      policy: input.policy,
+      feedback: input.feedback,
+      llmConfig: input.llmConfig,
+      llmResolver: input.llmResolver,
+      onTokenUsage: input.onTokenUsage,
+    });
+    plan = created.plan;
+    createdBy = created.createdBy;
+    degradedReason = created.degradedReason;
+  }
+
+  const firstSubtask = plan.subtasks[0];
+  const primaryAgent = firstSubtask
+    ? routeCapability(firstSubtask.capability, input.agents, {
+        allowFallback: input.policy.allowFallback,
+      })
+    : null;
+
+  return {
+    orchestratorPlan,
+    plan,
+    createdBy,
+    degradedReason,
+    primaryAgent,
+    primaryCapability: firstSubtask?.capability ?? orchestratorPlan.primaryCapability,
   };
 }

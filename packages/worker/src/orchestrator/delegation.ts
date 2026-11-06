@@ -1,6 +1,12 @@
 import type { AgentDefinition, Classification } from "./types";
+import { CAPABILITY } from "./types";
 import { classifyCommand } from "./classifier";
-import { routeCapability, capabilitiesOf, isAgentEnabled } from "./capabilities";
+import {
+  routeCapability,
+  capabilitiesOf,
+  isAgentEnabled,
+  isAgentAvailable,
+} from "./capabilities";
 import type { AgentResult } from "./taskContext";
 import type { BudgetTracker } from "./budget";
 
@@ -26,9 +32,10 @@ export interface RoutingResult {
 export function routePrimaryAgent(
   command: string,
   classification: Classification,
-  agents: AgentDefinition[]
+  agents: AgentDefinition[],
+  options: { allowFallback?: boolean } = {}
 ): RoutingResult {
-  const enabled = agents.filter(isAgentEnabled);
+  const enabled = agents.filter(isAgentAvailable);
   if (enabled.length === 0) {
     return {
       primaryAgent: null,
@@ -43,7 +50,9 @@ export function routePrimaryAgent(
   const capabilities = classification.suggestedCapabilities;
   const primaryCapability = capabilities[0] ?? "general";
 
-  const agent = routeCapability(primaryCapability, enabled);
+  const agent = routeCapability(primaryCapability, enabled, {
+    allowFallback: options.allowFallback,
+  });
   if (!agent) {
     return {
       primaryAgent: null,
@@ -83,9 +92,37 @@ export function evaluateDelegation(input: {
   previousAgents: string[]; // agent names already used
   delegationDepth: number;
   alreadyDelegatedCapabilities: string[];
+  /**
+   * Per-branch capability chain of the subtask that produced this result:
+   * the capabilities of its delegation ancestry, root first, ending with
+   * the subtask's own capability. When provided, this chain — not the
+   * task-global counters — decides depth and circularity (Phase 3): depth
+   * is `chain.length - 1`, and delegating to a capability already in the
+   * chain is circular for THIS branch (a sibling branch may still use it).
+   * When omitted, `alreadyDelegatedCapabilities` + `delegationDepth` keep
+   * their legacy task-global meaning.
+   */
+  chainCapabilities?: string[];
+  /**
+   * Live per-agent execution counts (runner-provided). When the routing
+   * target is already running at its maxConcurrency, delegation is
+   * rejected instead of piling more work onto it. Full concurrency
+   * enforcement at dispatch time is Phase 4; this is the delegation gate.
+   */
+  activeByAgent?: ReadonlyMap<string, number>;
 }): DelegationEvaluation {
-  const { result, agents, budget, delegationDepth, alreadyDelegatedCapabilities } = input;
+  const { result, agents, budget } = input;
   const enabled = agents.filter(isAgentEnabled);
+  const policy = budget.getPolicy();
+  const allowFallback = policy.allowFallback !== false;
+
+  // The one living chain mechanism: per-branch chain when the caller
+  // supplies it, legacy task-global list otherwise.
+  const chain = input.chainCapabilities ?? input.alreadyDelegatedCapabilities;
+  const branchDepth = input.chainCapabilities
+    ? Math.max(0, input.chainCapabilities.length - 1)
+    : input.delegationDepth;
+  const maxDepth = policy.maxDelegationDepth;
 
   // If execution failed and no findings, retry same agent? orchestrator caller handles retry.
   if (!result.success) {
@@ -96,23 +133,57 @@ export function evaluateDelegation(input: {
     };
   }
 
+  // Critical/high findings on a completed result -> REVISE back to an
+  // implementer. Checked BEFORE the QA heuristic below: a result carrying
+  // serious findings needs a fix, not another validation pass. Uses the
+  // structured severity (ReviewFinding), not substring matching on free
+  // text, so wording like "no failures found" can no longer trigger it.
+  // (Generalized in Phase 3 from browser-testing sources to any finder —
+  // the spec's own example is a security audit delegating a fix.)
+  const hasCriticalFindings = result.findings?.some(
+    (f) => f.severity === "critical" || f.severity === "high"
+  );
+  if (hasCriticalFindings) {
+    // Find original implementer
+    const implementer = agents.find((a) =>
+      capabilitiesOf(a).includes(CAPABILITY.FRONTEND) || capabilitiesOf(a).includes(CAPABILITY.BACKEND)
+    );
+    if (implementer) {
+      return {
+        decision: "REVISE",
+        targetAgent: implementer,
+        targetCapability: capabilitiesOf(implementer)[0],
+        reason: `${result.agentName} reported critical/high findings that require a developer fix`,
+        shouldCallLLM: false,
+      };
+    }
+  }
+
   // Agent recommended delegation
   if (result.delegationRecommendation?.targetCapability) {
     const targetCap = result.delegationRecommendation.targetCapability;
 
-    // Check budget
-    const maxDepth = (budget as any).policy?.maxDelegationDepth ?? 2;
-    if (!budget.canDelegate() || delegationDepth >= maxDepth) {
+    // Depth is a property of this branch's chain, not a task-global counter.
+    if (branchDepth >= maxDepth) {
       return {
         decision: "REJECT",
-        reason: "Delegation depth or agent budget exhausted",
+        reason: `Delegation depth exhausted for this branch (${branchDepth}/${maxDepth})`,
+        targetCapability: targetCap,
+        shouldCallLLM: false,
+      };
+    }
+    if (!budget.canAddAgent()) {
+      return {
+        decision: "REJECT",
+        reason: "Agent budget exhausted",
         targetCapability: targetCap,
         shouldCallLLM: false,
       };
     }
 
-    // Circular delegation check
-    if (alreadyDelegatedCapabilities.includes(targetCap)) {
+    // Circular delegation check — the branch chain is the authority:
+    // A -> B -> A is rejected because A is already in B's ancestry.
+    if (preventCircularDelegation(chain, targetCap)) {
       return {
         decision: "REJECT",
         reason: `Circular delegation prevented for capability ${targetCap}`,
@@ -121,7 +192,7 @@ export function evaluateDelegation(input: {
       };
     }
 
-    const targetAgent = routeCapability(targetCap, enabled);
+    const targetAgent = routeCapability(targetCap, enabled, { allowFallback });
     if (!targetAgent) {
       return {
         decision: "BLOCKED",
@@ -131,11 +202,25 @@ export function evaluateDelegation(input: {
       };
     }
 
-    // Check if agent is available
-    if (targetAgent.isEnabled === false) {
+    // Check if agent is available (enabled + status)
+    if (!isAgentAvailable(targetAgent)) {
       return {
         decision: "BLOCKED",
         reason: `Agent ${targetAgent.name} is unavailable`,
+        targetAgent,
+        targetCapability: targetCap,
+        shouldCallLLM: false,
+      };
+    }
+
+    // Do not delegate to an agent that is already at its concurrency
+    // limit when the runner can report live execution counts.
+    const activeCount = input.activeByAgent?.get(targetAgent._id) ?? 0;
+    const concurrencyLimit = targetAgent.maxConcurrency ?? 1;
+    if (input.activeByAgent && activeCount >= concurrencyLimit) {
+      return {
+        decision: "REJECT",
+        reason: `Agent ${targetAgent.name} is at its concurrency limit (${activeCount}/${concurrencyLimit})`,
         targetAgent,
         targetCapability: targetCap,
         shouldCallLLM: false,
@@ -159,36 +244,21 @@ export function evaluateDelegation(input: {
     enabled.find((a) => a.name === name && capabilitiesOf(a).includes("browser-testing"))
   );
 
-  if (needsQa && hasQaAgent && !hasRunQa && budget.canDelegate()) {
-    const qaAgent = routeCapability("browser-testing", enabled);
+  if (
+    needsQa &&
+    hasQaAgent &&
+    !hasRunQa &&
+    branchDepth < maxDepth &&
+    budget.canAddAgent() &&
+    !preventCircularDelegation(chain, "browser-testing")
+  ) {
+    const qaAgent = routeCapability("browser-testing", enabled, { allowFallback });
     if (qaAgent) {
       return {
         decision: "APPROVE",
         targetAgent: qaAgent,
         targetCapability: "browser-testing",
         reason: "QA validation needed for code change task",
-        shouldCallLLM: false,
-      };
-    }
-  }
-
-  // Outstanding findings with severity critical/high -> REVISE back to implementer.
-  // Uses the structured severity (ReviewFinding), not substring matching on
-  // free text, so wording like "no failures found" can no longer trigger it.
-  const hasCriticalFindings = result.findings?.some(
-    (f) => f.severity === "critical" || f.severity === "high"
-  );
-  if (hasCriticalFindings && result.capability === "browser-testing") {
-    // Find original implementer
-    const implementer = agents.find((a) =>
-      capabilitiesOf(a).includes("frontend-development") || capabilitiesOf(a).includes("backend-development")
-    );
-    if (implementer) {
-      return {
-        decision: "REVISE",
-        targetAgent: implementer,
-        targetCapability: capabilitiesOf(implementer)[0],
-        reason: "QA found critical failures that require developer fix",
         shouldCallLLM: false,
       };
     }
@@ -202,6 +272,14 @@ export function evaluateDelegation(input: {
   };
 }
 
+/**
+ * The single living circular-delegation mechanism (Phase 3): `chain` is
+ * the per-branch capability ancestry of the delegating subtask (root
+ * first, including its own capability). Delegating to a capability that
+ * already appears in the chain would loop this branch (A -> B -> A), so
+ * it is rejected. Other branches are unaffected — the check is per
+ * branch, not task-global.
+ */
 export function preventCircularDelegation(
   chain: string[],
   nextCapability: string

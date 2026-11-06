@@ -21,7 +21,11 @@ import { createPlan, heuristicPlan } from "@/orchestrator/planner";
 import { validatePlan } from "@/orchestrator/planValidator";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
 import { BudgetTracker } from "@/orchestrator/budget";
-import { createOrchestratorPlan, evaluateAfterExecution } from "@/orchestrator/orchestrator";
+import {
+  createAuthoritativePlan,
+  createOrchestratorPlan,
+  evaluateAfterExecution,
+} from "@/orchestrator/orchestrator";
 import {
   createSharedTaskContext,
   appendExecution,
@@ -40,6 +44,7 @@ import {
 import { providerHealth } from "@/llm/health";
 import { routeCapability, capabilitiesOf } from "@/orchestrator/capabilities";
 import {
+  buildFixSubtask,
   buildReviewFixSubtask,
   collectRequestedChanges,
   formatReviewFindings,
@@ -51,6 +56,7 @@ import { runVerification } from "@/execution/verification";
 import {
   runScheduler,
   type NodeOutcome,
+  type SchedulerNode,
   type SchedulerResult,
 } from "@/scheduler/dagScheduler";
 import {
@@ -176,6 +182,70 @@ function toAgentResult(input: {
         ? (input.outcome.meta as Record<string, unknown> | undefined)
         : undefined,
   };
+}
+
+/** Map a delegation target capability to the subtask kind that executes it. */
+function kindForCapability(capability: string): SubtaskKind {
+  switch (capability) {
+    case CAPABILITY.BROWSER_TESTING:
+      return "qa";
+    case CAPABILITY.CODE_REVIEW:
+      return "review";
+    case CAPABILITY.FRONTEND:
+    case CAPABILITY.BACKEND:
+    case CAPABILITY.GITHUB:
+      return "code_change";
+    case CAPABILITY.SECURITY:
+      return "audit";
+    case CAPABILITY.RESEARCH:
+      return "research";
+    default:
+      return "analysis";
+  }
+}
+
+function slugifyKeyPart(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return slug || "task";
+}
+
+/**
+ * Replan feedback (Phase 3): the deterministic evaluator's summary plus
+ * what the orchestrator itself decided and found along the way — the
+ * decisions and open findings accumulated in the shared task context —
+ * so the next plan is built with the orchestrator's evaluations as
+ * input, not just the final verdict.
+ */
+export function buildReplanFeedback(
+  base: string,
+  sharedContext: SharedTaskContext
+): string {
+  const parts = [base];
+  const decisions = sharedContext.decisions.slice(-6);
+  if (decisions.length > 0) {
+    parts.push(
+      `Orchestrator evaluations: ${decisions
+        .map(
+          (decision) =>
+            `${decision.decision}${decision.capability ? ` (${decision.capability})` : ""}: ${decision.reason}`
+        )
+        .join("; ")}`
+    );
+  }
+  const openIssues = sharedContext.outstandingIssues
+    .filter((issue) => issue.status === "open")
+    .slice(-6);
+  if (openIssues.length > 0) {
+    parts.push(
+      `Open findings: ${openIssues
+        .map((issue) => `[${issue.severity}] ${issue.description}`)
+        .join("; ")}`
+    );
+  }
+  return parts.filter((part) => part.length > 0).join("\n");
 }
 
 export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<void> {
@@ -319,64 +389,129 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     })
     ?.catch(() => undefined);
   await deps.api.recordLifecycle?.({ taskId: task._id, projectId: project._id, state: "RUNNING" })?.catch(() => undefined);
-  const orchestratorPlan = createOrchestratorPlan({
-    taskId: task._id,
-    projectId: project._id,
-    command,
-    title: task.title,
-    agents: runAgents,
-    classification,
-  });
-  await deps.api.logEvent({
-    taskId: task._id,
-    projectId: project._id,
-    type: "orchestrator.plan",
-    payload: {
-      strategy: orchestratorPlan.strategy,
-      reasoning: orchestratorPlan.reasoning,
-      primary: orchestratorPlan.primary?.name ?? null,
-    },
-  });
 
   let plan: ExecutionPlan;
   let createdBy: "orchestrator" | "fallback" = "fallback";
   let planVersion: number;
 
   const stored = context.plan ? validatePlan(context.plan.payload, deps.policy.maxSubtasks) : null;
-  if (stored?.ok && stored.plan) {
-    plan = stored.plan;
-    createdBy = context.plan!.createdBy;
-    planVersion = context.plan!.version;
-  } else {
-    const created = await createPlan({
+  const storedPlan = stored?.ok && stored.plan ? stored.plan : null;
+
+  if (deps.policy.orchestratorAuthoritative === true) {
+    // Phase 3: the orchestrator is the single planning authority. It runs
+    // its decision pass over THIS task's budget + shared context and its
+    // planner subroutine produces the one plan that will be executed —
+    // the orchestrator.plan event describes that executed plan and the
+    // primary agent is the agent serving its first subtask.
+    const authoritative = await createAuthoritativePlan({
+      taskId: task._id,
+      projectId: project._id,
       command,
-      classification,
+      title: task.title,
       agents: runAgents,
+      classification,
+      budget,
+      sharedContext,
       policy: deps.policy,
+      storedPlan,
+      storedCreatedBy: storedPlan ? context.plan!.createdBy : undefined,
       llmConfig,
       llmResolver,
       onTokenUsage: recordUsage,
     });
-    plan = created.plan;
-    createdBy = created.createdBy;
-    planVersion = (context.plan?.version ?? 0) + 1;
-    if (created.degradedReason) {
-      await deps.api.logEvent({
-        taskId: task._id,
-        projectId: project._id,
-        type: "plan.degraded",
-        payload: { reason: created.degradedReason.slice(0, 1000) },
-        level: "warn",
-      });
-    }
-    await persistPlan(deps, {
+    plan = authoritative.plan;
+    createdBy = authoritative.createdBy;
+    planVersion = storedPlan
+      ? context.plan!.version
+      : (context.plan?.version ?? 0) + 1;
+    await deps.api.logEvent({
       taskId: task._id,
       projectId: project._id,
-      plan,
-      version: planVersion,
-      createdBy,
-      classification: classification.kind,
+      type: "orchestrator.plan",
+      payload: {
+        strategy: authoritative.orchestratorPlan.strategy,
+        reasoning: authoritative.orchestratorPlan.reasoning,
+        primary: authoritative.primaryAgent?.name ?? null,
+        primaryCapability: authoritative.primaryCapability,
+        authoritative: true,
+      },
     });
+    if (!storedPlan) {
+      if (authoritative.degradedReason) {
+        await deps.api.logEvent({
+          taskId: task._id,
+          projectId: project._id,
+          type: "plan.degraded",
+          payload: { reason: authoritative.degradedReason.slice(0, 1000) },
+          level: "warn",
+        });
+      }
+      await persistPlan(deps, {
+        taskId: task._id,
+        projectId: project._id,
+        plan,
+        version: planVersion,
+        createdBy,
+        classification: classification.kind,
+      });
+    }
+  } else {
+    // Legacy path (flag off): advisory orchestrator plan for the event
+    // log; the planner's plan is created and executed independently.
+    const orchestratorPlan = createOrchestratorPlan({
+      taskId: task._id,
+      projectId: project._id,
+      command,
+      title: task.title,
+      agents: runAgents,
+      classification,
+    });
+    await deps.api.logEvent({
+      taskId: task._id,
+      projectId: project._id,
+      type: "orchestrator.plan",
+      payload: {
+        strategy: orchestratorPlan.strategy,
+        reasoning: orchestratorPlan.reasoning,
+        primary: orchestratorPlan.primary?.name ?? null,
+      },
+    });
+
+    if (storedPlan) {
+      plan = storedPlan;
+      createdBy = context.plan!.createdBy;
+      planVersion = context.plan!.version;
+    } else {
+      const created = await createPlan({
+        command,
+        classification,
+        agents: runAgents,
+        policy: deps.policy,
+        llmConfig,
+        llmResolver,
+        onTokenUsage: recordUsage,
+      });
+      plan = created.plan;
+      createdBy = created.createdBy;
+      planVersion = (context.plan?.version ?? 0) + 1;
+      if (created.degradedReason) {
+        await deps.api.logEvent({
+          taskId: task._id,
+          projectId: project._id,
+          type: "plan.degraded",
+          payload: { reason: created.degradedReason.slice(0, 1000) },
+          level: "warn",
+        });
+      }
+      await persistPlan(deps, {
+        taskId: task._id,
+        projectId: project._id,
+        plan,
+        version: planVersion,
+        createdBy,
+        classification: classification.kind,
+      });
+    }
   }
 
   const state: RunState = {
@@ -389,6 +524,11 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
 
   let replans = task.replanCount ?? 0;
   let feedback: string | undefined;
+  // Spec §7 vocabulary: maxPlanningIterations is the single bound on
+  // planning iterations; it aliases maxReplans in loadPolicy and falls
+  // back to it for hand-built policies that omit the alias.
+  const maxPlanningIterations =
+    deps.policy.maxPlanningIterations ?? deps.policy.maxReplans;
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -432,12 +572,15 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         subtasks: after?.subtasks ?? [],
         state,
       });
-      if (verification.verdict === "failed" && replans < deps.policy.maxReplans) {
+      if (verification.verdict === "failed" && replans < maxPlanningIterations) {
         replans += 1;
-        feedback = `Verification failed: ${verification.checks
-          .filter((check) => check.status === "failed")
-          .map((check) => `${check.name}: ${check.details ?? ""}`)
-          .join("; ")}`;
+        feedback = buildReplanFeedback(
+          `Verification failed: ${verification.checks
+            .filter((check) => check.status === "failed")
+            .map((check) => `${check.name}: ${check.details ?? ""}`)
+            .join("; ")}`,
+          sharedContext
+        );
         const replanned = await createPlan({
           command,
           classification,
@@ -485,9 +628,9 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     // Execution failed before any approval.
     const failureSummary =
       state.feedback.join("; ") || "Execution failed without a detailed error";
-    if (replans < deps.policy.maxReplans) {
+    if (replans < maxPlanningIterations) {
       replans += 1;
-      feedback = failureSummary;
+      feedback = buildReplanFeedback(failureSummary, sharedContext);
       const replanned = await createPlan({
         command,
         classification,
@@ -587,6 +730,46 @@ async function executePlan(input: {
   const executionIds = new Map<string, WorkerExecutionId>();
   const agentByKey = new Map<string, AgentDefinition>();
   const taskId = task._id;
+
+  // --- Phase 3 orchestrator bookkeeping ---------------------------------
+  // Authoritative mode is active only when the policy flag is on AND the
+  // orchestrator wiring (budget/context/classification) is present —
+  // processTask passes it, resumeTask deliberately does not (Phase 4
+  // unifies resume state), so resume keeps the legacy record-only path.
+  const authoritative =
+    deps.policy.orchestratorAuthoritative === true &&
+    Boolean(input.budget && input.sharedContext && input.classification);
+  // Per-branch capability chain per subtask key (root first, ending with
+  // the subtask's own capability). Delegation depth and circularity are
+  // derived from this chain — never from a task-global counter.
+  const chainByKey = new Map<string, string[]>();
+  // How many orchestrator fix rounds a subtask already sits in (0 = plan
+  // or delegation subtask, 1 = fix subtask). Fix subtasks do not spawn
+  // further fixes from evaluations; the review loop owns its iterations.
+  const fixDepthByKey = new Map<string, number>();
+  // Live per-agent execution counts, fed to the delegation gate so an
+  // agent already at its concurrency limit is not delegated more work.
+  const activeByAgent = new Map<string, number>();
+  // Latched when an evaluation returns BLOCKED (budget): the scheduler
+  // stops starting new nodes and blocks the pending ones gracefully.
+  let budgetHalt = false;
+  let delegationSeq = 0;
+  let fixSeq = 0;
+  for (const subtask of plan.subtasks) {
+    chainByKey.set(subtask.key, [subtask.capability]);
+    fixDepthByKey.set(subtask.key, 0);
+  }
+  const nextOrder = (): number =>
+    plan.subtasks.reduce((max, candidate) => Math.max(max, candidate.order), 0) + 1;
+  const uniqueSubtaskKey = (base: string): string => {
+    let key = base;
+    let suffix = 2;
+    while (plan.subtasks.some((candidate) => candidate.key === key)) {
+      key = `${base}_${suffix}`;
+      suffix += 1;
+    }
+    return key;
+  };
 
   const assign = (key: string): AgentDefinition | null => {
     const existing = agentByKey.get(key);
@@ -722,6 +905,11 @@ async function executePlan(input: {
       maxConcurrency: Math.min(plan.maxConcurrency, deps.policy.maxConcurrency),
       timeoutMs: deps.policy.subtaskTimeoutMs,
       retries: deps.policy.subtaskRetries,
+      // Phase 3 dynamic work: onOutcome may add delegation/fix subtasks
+      // to this same invocation, capped per invocation; a budget BLOCKED
+      // decision latches the halt so no new nodes start afterwards.
+      maxAddedNodes: deps.policy.maxSubtasks,
+      shouldHaltNewNodes: () => budgetHalt,
       shouldCancel: async () => {
         const now = Date.now();
         if (now - lastStatusCheck < 1500) return cancelled;
@@ -739,6 +927,7 @@ async function executePlan(input: {
         const subtask = plan.subtasks.find((candidate) => candidate.key === node.id)!;
         const agent = assign(node.id);
         if (!agent) throw new Error(`No enabled agent for capability ${subtask.capability}`);
+        activeByAgent.set(agent._id, (activeByAgent.get(agent._id) ?? 0) + 1);
         await deps.api.logEvent({
           taskId,
           projectId: project._id,
@@ -766,6 +955,15 @@ async function executePlan(input: {
       onOutcome: async (node, outcome, attempt) => {
         const agent = agentByKey.get(node.id);
         const executionId = executionIds.get(node.id);
+        // The node has settled: it no longer counts as active work for
+        // its agent (a scheduler retry re-enters via onStart).
+        if (agent && !input.completedKeys.has(node.id)) {
+          activeByAgent.set(
+            agent._id,
+            Math.max(0, (activeByAgent.get(agent._id) ?? 1) - 1)
+          );
+        }
+        let dynamicNodes: SchedulerNode[] | undefined;
         if (!input.completedKeys.has(node.id) && executionId) {
           await deps.api.updateExecution({
             executionId,
@@ -800,26 +998,31 @@ async function executePlan(input: {
         }
         // Intelligent orchestrator: evaluate every finished subtask, keep
         // the shared context current for the agents that run next, and
-        // persist the decision trail. Advisory only — the DAG, the review
-        // loop and the evaluator keep their existing behavior, and any
-        // orchestrator failure is logged, never propagated.
+        // persist the decision trail. In authoritative mode (Phase 3) the
+        // decision is also ACTED on inside this scheduler invocation:
+        // APPROVE with an agent recommendation spawns a real delegation
+        // subtask, REVISE with structured findings spawns a fix subtask,
+        // and BLOCKED (budget) halts new scheduling. With the flag off
+        // the behavior is the legacy record-only one. Any orchestrator
+        // failure is logged, never propagated.
         if (input.budget && input.sharedContext && input.classification && agent) {
           try {
             const subtaskDef = plan.subtasks.find((candidate) => candidate.key === node.id);
             if (subtaskDef) {
+              const agentResult = toAgentResult({ subtask: subtaskDef, agent, outcome });
+              const chain = chainByKey.get(node.id) ?? [subtaskDef.capability];
               const evaluation = evaluateAfterExecution({
-                result: toAgentResult({ subtask: subtaskDef, agent, outcome }),
+                result: agentResult,
                 classification: input.classification,
                 agents: input.agents,
                 budget: input.budget,
                 previousAgents: input.sharedContext.agentExecutions.map(
                   (entry) => entry.agentName
                 ),
-                delegationDepth: input.budget.currentDelegationDepth,
-                alreadyDelegated: input.sharedContext.decisions
-                  .filter((decision) => decision.decision === "APPROVE")
-                  .map((decision) => decision.capability)
-                  .filter((capability): capability is string => Boolean(capability)),
+                delegationDepth: Math.max(0, chain.length - 1),
+                alreadyDelegated: chain.slice(0, -1),
+                chainCapabilities: chain,
+                activeByAgent,
                 taskContext: input.sharedContext,
               });
               input.sharedContext.decisions = evaluation.updatedContext.decisions;
@@ -828,6 +1031,104 @@ async function executePlan(input: {
                 evaluation.updatedContext.outstandingIssues;
               input.sharedContext.agentExecutions =
                 evaluation.updatedContext.agentExecutions;
+
+              // --- Decision -> action (authoritative mode only) --------
+              let delegatedSubtaskKey: string | null = null;
+              let fixSubtaskKey: string | null = null;
+              if (authoritative) {
+                if (evaluation.decision === "BLOCKED") {
+                  // Budget exhausted: stop scheduling new work in this
+                  // invocation (the scheduler blocks what is still
+                  // pending once running nodes drain) and mark the task
+                  // with an explicit budget event. Completed outputs are
+                  // preserved; full hard-stop enforcement is Phase 5.
+                  if (!budgetHalt) {
+                    budgetHalt = true;
+                    await deps.api.logEvent({
+                      taskId,
+                      projectId: project._id,
+                      type: "orchestrator.budget_blocked",
+                      payload: {
+                        subtaskKey: node.id,
+                        reason: evaluation.reason.slice(0, 500),
+                        budget: input.budget.snapshot(),
+                      },
+                      executionId,
+                      subtaskKey: node.id,
+                      level: "warn",
+                    });
+                  }
+                } else if (
+                  evaluation.decision === "APPROVE" &&
+                  evaluation.nextAgent &&
+                  evaluation.nextCapability &&
+                  outcome.status === "completed" &&
+                  agentResult.delegationRecommendation?.targetCapability ===
+                    evaluation.nextCapability
+                ) {
+                  // Only recommendation-driven approvals spawn work: the
+                  // agent explicitly asked for another capability. (The
+                  // deterministic QA heuristic stays a recorded decision —
+                  // the plan's own QA subtask already covers it, and a
+                  // second QA node mid-implementation would test code
+                  // that has not been applied yet.)
+                  delegationSeq += 1;
+                  const key = uniqueSubtaskKey(
+                    `delegate_${slugifyKeyPart(evaluation.nextCapability)}_${delegationSeq}`
+                  );
+                  const delegationSubtask: PlanSubtask = {
+                    key,
+                    title: `Delegated work: ${evaluation.nextCapability}`,
+                    description: [
+                      `Delegated by agent ${agent.name} after completing subtask "${subtaskDef.title}" (${subtaskDef.key}).`,
+                      `Reason: ${agentResult.delegationRecommendation.reason}`,
+                      `Task goal: ${plan.goal}`,
+                      "Use the shared task context (previous results, decisions and open issues) and do only the work this capability is responsible for.",
+                    ].join("\n"),
+                    kind: kindForCapability(evaluation.nextCapability),
+                    capability: evaluation.nextCapability,
+                    dependencies: [node.id],
+                    order: nextOrder(),
+                  };
+                  plan.subtasks.push(delegationSubtask);
+                  chainByKey.set(key, [...chain, evaluation.nextCapability]);
+                  fixDepthByKey.set(key, 0);
+                  delegatedSubtaskKey = key;
+                  dynamicNodes = [{ id: key, dependencies: [node.id] }];
+                } else if (
+                  evaluation.decision === "REVISE" &&
+                  outcome.status === "completed" &&
+                  subtaskDef.kind !== "review" &&
+                  (fixDepthByKey.get(node.id) ?? 0) < 1 &&
+                  agentResult.findings &&
+                  agentResult.findings.length > 0 &&
+                  evaluation.nextCapability
+                ) {
+                  // REVISE for a review subtask is owned by the review
+                  // loop (it builds its own fix subtasks) — spawning one
+                  // here too would double the fix work, so review kinds
+                  // never reach this branch. Fix subtasks themselves
+                  // (fixDepth 1) do not spawn further fixes.
+                  fixSeq += 1;
+                  const key = uniqueSubtaskKey(
+                    `fix_${slugifyKeyPart(node.id)}_${fixSeq}`
+                  );
+                  const fixSubtask = buildFixSubtask({
+                    key,
+                    title: `Address findings from "${subtaskDef.title}"`,
+                    intro: `The orchestrator evaluated subtask "${subtaskDef.title}" (${subtaskDef.key}) and requested changes.`,
+                    findings: agentResult.findings,
+                    capability: evaluation.nextCapability,
+                    order: nextOrder(),
+                    dependencies: [node.id],
+                  });
+                  plan.subtasks.push(fixSubtask);
+                  chainByKey.set(key, chain);
+                  fixDepthByKey.set(key, (fixDepthByKey.get(node.id) ?? 0) + 1);
+                  fixSubtaskKey = key;
+                  dynamicNodes = [{ id: key, dependencies: [node.id] }];
+                }
+              }
 
               if (evaluation.decision === "APPROVE" && evaluation.nextAgent) {
                 input.budget.incrementDelegation();
@@ -853,6 +1154,8 @@ async function executePlan(input: {
                   reason: evaluation.reason.slice(0, 500),
                   nextAgent: evaluation.nextAgent?.name ?? null,
                   nextCapability: evaluation.nextCapability ?? null,
+                  delegatedSubtaskKey,
+                  fixSubtaskKey,
                 },
                 executionId,
                 subtaskKey: node.id,
@@ -890,7 +1193,7 @@ async function executePlan(input: {
         }
         if (outcome.status === "completed") {
           state.priorOutputs.set(node.id, outcome.output ?? "");
-          return;
+          return dynamicNodes;
         }
         if (outcome.status === "failed") {
           state.feedback.push(`${node.id} (attempt ${attempt}): ${outcome.error}`);
@@ -905,14 +1208,20 @@ async function executePlan(input: {
             });
           }
         }
+        return dynamicNodes;
       },
       onBlocked: async (node, reason) => {
-        await deps.api.updateSubtask({
-          taskId,
-          key: node.id,
-          status: "blocked",
-          error: reason,
-        });
+        // Dynamic subtasks (Phase 3 delegation/fix) have no persisted
+        // subtask row; a failed status write for them must not take the
+        // scheduler down — the event below still records the block.
+        await deps.api
+          .updateSubtask({
+            taskId,
+            key: node.id,
+            status: "blocked",
+            error: reason,
+          })
+          .catch(() => undefined);
         await deps.api.logEvent({
           taskId,
           projectId: project._id,
@@ -990,6 +1299,11 @@ async function executePlan(input: {
         order: plan.subtasks.reduce((max, candidate) => Math.max(max, candidate.order), 0) + 1,
       });
       plan.subtasks.push(fixSubtask);
+      // The review loop owns this fix: register it as a fix-depth-1 node
+      // on its own chain so an orchestrator evaluation of its outcome can
+      // never spawn a second, duplicate fix subtask (Phase 3).
+      chainByKey.set(fixSubtask.key, [fixSubtask.capability]);
+      fixDepthByKey.set(fixSubtask.key, 1);
       state.priorOutputs.set(`${fixSubtask.key}-findings`, formatReviewFindings(findings));
 
       await deps.api.logEvent({
@@ -1757,7 +2071,6 @@ export function heuristicPlanForTest(
       maxAgentsPerTask: 3,
       maxLLMCallsPerTask: 5,
       maxDelegationDepth: 2,
-      maxDelegationChain: 2,
       maxConcurrentLLMCalls: 1,
       maxTokenBudgetPerTask: 50_000,
     },

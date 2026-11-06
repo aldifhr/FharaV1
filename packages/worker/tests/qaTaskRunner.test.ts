@@ -72,7 +72,6 @@ const POLICY: ExecutionPolicy = {
   maxAgentsPerTask: 3,
   maxLLMCallsPerTask: 5,
   maxDelegationDepth: 2,
-  maxDelegationChain: 2,
   maxConcurrentLLMCalls: 1,
   maxTokenBudgetPerTask: 50_000,
 };

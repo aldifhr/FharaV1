@@ -10,6 +10,12 @@ export interface ExecutionPolicy {
   maxSubtasks: number;
   maxConcurrency: number;
   maxReplans: number;
+  /**
+   * Spec vocabulary alias for maxReplans (spec §7): the single bound on
+   * planning iterations (initial plan + replans). loadPolicy always sets
+   * it; consumers fall back to maxReplans when a hand-built policy omits it.
+   */
+  maxPlanningIterations?: number;
   maxReviewIterations: number;
   subtaskTimeoutMs: number;
   subtaskRetries: number;
@@ -22,9 +28,22 @@ export interface ExecutionPolicy {
   maxAgentsPerTask: number;
   maxLLMCallsPerTask: number;
   maxDelegationDepth: number;
-  maxDelegationChain: number;
   maxConcurrentLLMCalls: number;
   maxTokenBudgetPerTask: number;
+  /**
+   * Whether capability routing may fall back to the highest-priority
+   * enabled agent when no agent actually serves a capability (Phase 3).
+   * When false, routing returns no agent and delegation reports a real
+   * BLOCKED instead of silently running the wrong agent.
+   */
+  allowFallback?: boolean;
+  /**
+   * Phase 3: when true, the orchestrator owns execution decisions — its
+   * plan is the one executed and its APPROVE/REVISE/BLOCKED decisions add
+   * real subtasks / halt scheduling. When false, the legacy path runs:
+   * planner plan directly, orchestrator decisions recorded only.
+   */
+  orchestratorAuthoritative?: boolean;
 }
 
 function boolFromEnv(name: string, fallback: boolean): boolean {
@@ -34,10 +53,20 @@ function boolFromEnv(name: string, fallback: boolean): boolean {
 }
 
 export function loadPolicy(): ExecutionPolicy {
+  const maxReplans = intFromEnv("ORCHESTRATOR_MAX_REPLANS", 1, 0, 3);
   return {
     maxSubtasks: intFromEnv("ORCHESTRATOR_MAX_SUBTASKS", 8, 1, 20),
     maxConcurrency: intFromEnv("ORCHESTRATOR_MAX_CONCURRENCY", 2, 1, 8),
-    maxReplans: intFromEnv("ORCHESTRATOR_MAX_REPLANS", 1, 0, 3),
+    maxReplans,
+    // Spec alias: defaults to the maxReplans value so the two never drift;
+    // ORCHESTRATOR_MAX_PLANNING_ITERATIONS overrides the iteration bound
+    // directly when set.
+    maxPlanningIterations: intFromEnv(
+      "ORCHESTRATOR_MAX_PLANNING_ITERATIONS",
+      maxReplans,
+      0,
+      3
+    ),
     maxReviewIterations: intFromEnv("ORCHESTRATOR_MAX_REVIEW_ITERATIONS", 2, 0, 5),
     subtaskTimeoutMs: intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", 300_000, 30_000, 300_000),
     subtaskRetries: intFromEnv("ORCHESTRATOR_SUBTASK_RETRIES", 1, 0, 3),
@@ -53,8 +82,9 @@ export function loadPolicy(): ExecutionPolicy {
     // limit of 5 killed normal tasks once the tracker was actually fed.
     maxLLMCallsPerTask: intFromEnv("ORCHESTRATOR_MAX_LLM_CALLS_PER_TASK", 12, 1, 50),
     maxDelegationDepth: intFromEnv("ORCHESTRATOR_MAX_DELEGATION_DEPTH", 2, 0, 10),
-    maxDelegationChain: intFromEnv("ORCHESTRATOR_MAX_DELEGATION_CHAIN", 2, 0, 10),
     maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", 1, 1, 8),
     maxTokenBudgetPerTask: intFromEnv("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK", 50_000, 1_000, 500_000),
+    allowFallback: boolFromEnv("ORCHESTRATOR_ALLOW_FALLBACK", true),
+    orchestratorAuthoritative: boolFromEnv("ORCHESTRATOR_AUTHORITATIVE", true),
   };
 }

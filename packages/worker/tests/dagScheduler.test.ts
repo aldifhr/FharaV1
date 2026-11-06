@@ -348,3 +348,143 @@ describe("subtask retry classification", () => {
     expect(attempts).toBe(2);
   });
 });
+
+describe("DAG scheduler dynamic nodes (Phase 3)", () => {
+  it("schedules nodes returned by onOutcome within the same run", async () => {
+    const order: string[] = [];
+    const result = await runScheduler(
+      nodes([["a", []]]),
+      async (node) => {
+        order.push(node.id);
+        return { status: "completed" };
+      },
+      {
+        maxConcurrency: 1,
+        timeoutMs: 2000,
+        retries: 0,
+        onStart: async () => undefined,
+        onOutcome: async (node) => {
+          if (node.id === "a") return [{ id: "extra", dependencies: ["a"] }];
+          return undefined;
+        },
+      }
+    );
+    expect(result.status).toBe("completed");
+    expect(order).toEqual(["a", "extra"]);
+    expect(result.outcomes.get("extra")?.status).toBe("completed");
+  });
+
+  it("never schedules a returned node whose id already exists", async () => {
+    const counts = new Map<string, number>();
+    const result = await runScheduler(
+      nodes([
+        ["a", []],
+        ["b", []],
+      ]),
+      async (node) => {
+        counts.set(node.id, (counts.get(node.id) ?? 0) + 1);
+        return { status: "completed" };
+      },
+      {
+        maxConcurrency: 1,
+        timeoutMs: 2000,
+        retries: 0,
+        onStart: async () => undefined,
+        onOutcome: async (node) => {
+          // Both outcomes try to (re)add an existing key.
+          if (node.id === "a") return [{ id: "b", dependencies: [] }];
+          return [{ id: "a", dependencies: [] }];
+        },
+      }
+    );
+    expect(result.status).toBe("completed");
+    expect(counts.get("a")).toBe(1);
+    expect(counts.get("b")).toBe(1);
+  });
+
+  it("drops returned nodes whose dependencies do not exist", async () => {
+    const executed: string[] = [];
+    const result = await runScheduler(
+      nodes([["a", []]]),
+      async (node) => {
+        executed.push(node.id);
+        return { status: "completed" };
+      },
+      {
+        maxConcurrency: 1,
+        timeoutMs: 2000,
+        retries: 0,
+        onStart: async () => undefined,
+        onOutcome: async (node) => {
+          if (node.id === "a") return [{ id: "orphan", dependencies: ["ghost"] }];
+          return undefined;
+        },
+      }
+    );
+    expect(result.status).toBe("completed");
+    expect(executed).toEqual(["a"]);
+    expect(result.outcomes.has("orphan")).toBe(false);
+  });
+
+  it("caps dynamically added nodes at maxAddedNodes", async () => {
+    const executed: string[] = [];
+    let seq = 0;
+    const result = await runScheduler(
+      nodes([["a", []]]),
+      async (node) => {
+        executed.push(node.id);
+        return { status: "completed" };
+      },
+      {
+        maxConcurrency: 1,
+        timeoutMs: 2000,
+        retries: 0,
+        maxAddedNodes: 2,
+        onStart: async () => undefined,
+        onOutcome: async (node) => {
+          // Every outcome tries to extend the chain forever; the cap
+          // must bound the run to 1 initial + 2 added nodes.
+          seq += 1;
+          return [{ id: `n${seq}`, dependencies: [node.id] }];
+        },
+      }
+    );
+    expect(result.status).toBe("completed");
+    expect(executed).toHaveLength(3);
+  });
+
+  it("halts new scheduling gracefully: running work drains, pending nodes are blocked", async () => {
+    const executed: string[] = [];
+    const blocked: string[] = [];
+    let halt = false;
+    const result = await runScheduler(
+      nodes([
+        ["a", []],
+        ["b", []],
+        ["c", ["b"]],
+      ]),
+      async (node) => {
+        executed.push(node.id);
+        return { status: "completed" };
+      },
+      {
+        maxConcurrency: 1,
+        timeoutMs: 2000,
+        retries: 0,
+        shouldHaltNewNodes: () => halt,
+        onStart: async () => undefined,
+        onOutcome: async (node) => {
+          if (node.id === "a") halt = true;
+          return undefined;
+        },
+        onBlocked: async (node) => {
+          blocked.push(node.id);
+        },
+      }
+    );
+    expect(executed).toEqual(["a"]);
+    expect(blocked.sort()).toEqual(["b", "c"]);
+    expect(result.failed.sort()).toEqual(["b", "c"]);
+    expect(result.outcomes.get("b")?.status).toBe("failed");
+  });
+});

@@ -60,13 +60,31 @@ export function isAgentEnabled(agent: AgentDefinition): boolean {
   return agent.isEnabled !== false;
 }
 
+/**
+ * Availability for routing/delegation: the isEnabled gate PLUS the agent's
+ * status field. The persisted status union is a presence signal
+ * ("idle" | "working" | "queued" | "needs_you") — none of those take an
+ * agent out of rotation — but explicit offline/disabled markers, if a
+ * writer ever sets them, must be honored instead of routing work to an
+ * agent that has signalled it cannot take it.
+ */
+const UNAVAILABLE_STATUSES = new Set(["offline", "disabled", "unavailable"]);
+
+export function isAgentAvailable(agent: AgentDefinition): boolean {
+  if (!isAgentEnabled(agent)) return false;
+  if (agent.status && UNAVAILABLE_STATUSES.has(agent.status.trim().toLowerCase())) {
+    return false;
+  }
+  return true;
+}
+
 export function routeCapability(
   capability: string,
   agents: AgentDefinition[],
   options: { allowFallback?: boolean } = {}
 ): AgentDefinition | null {
   const normalized = normalizeCapability(capability);
-  const enabled = agents.filter(isAgentEnabled);
+  const enabled = agents.filter(isAgentAvailable);
   if (enabled.length === 0) return null;
 
   const scored = enabled
@@ -113,7 +131,7 @@ export function routeCapability(
 
 export function describeCapabilities(agents: AgentDefinition[]): string {
   return agents
-    .filter(isAgentEnabled)
+    .filter(isAgentAvailable)
     .map((agent) => `${agent.name} (role: ${agent.role}; capabilities: ${capabilitiesOf(agent).join(", ")})`)
     .join("\n");
 }

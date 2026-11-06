@@ -1,5 +1,11 @@
 import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig, type LLMResult } from "@/llm";
-import { isTransientLlmError, runLlmCallWithFallback, type FallbackHandle } from "@/effects/llmCall";
+import {
+  isTransientLlmError,
+  runLlmCallWithFallback,
+  runWithLlmGates,
+  type FallbackHandle,
+  type LlmConcurrencyGate,
+} from "@/effects/llmCall";
 import { providerHealth } from "@/llm/health";
 import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/orchestrator/types";
 import {
@@ -30,6 +36,12 @@ export interface SubtaskExecutionInput {
    * retries, and outcomes feed the provider health registry.
    */
   llmHandles?: FallbackHandle[];
+  /**
+   * Per-task LLM gate (Phase 4 hardening): every LLM request this
+   * subtask makes — including the read-only streaming path — holds a
+   * slot on this gate and on the worker-wide gate.
+   */
+  llmTaskGate?: LlmConcurrencyGate;
   /**
    * Explicit per-task QA base URL resolved by the runner
    * (project qaUrl > devUrl > worker-start env fallback). Threaded through
@@ -177,7 +189,7 @@ async function executeCodeChange(
   let { result: response, servedBy } = await runLlmCallWithFallback(
     handles,
     baseMessages(input, basePayload),
-    { health: healthFor(input), signal: input.signal }
+    { health: healthFor(input), signal: input.signal, taskGate: input.llmTaskGate }
   );
   if (input.onTokenUsage) {
     await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedBy.config.model);
@@ -198,7 +210,7 @@ async function executeCodeChange(
         input,
         `${basePayload}\n\nYour previous response was not a valid file-changes JSON object. Return ONLY the JSON object again.\n\nPrevious response (for reference):\n${response.content.slice(0, 2000)}`
       ),
-      { health: healthFor(input), signal: input.signal }
+      { health: healthFor(input), signal: input.signal, taskGate: input.llmTaskGate }
     ));
     if (input.onTokenUsage) {
       await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedBy.config.model);
@@ -295,7 +307,7 @@ async function executeReview(
         "Reject only for concrete correctness, security, or regression risks. Do not request style-only changes.",
       ].join("\n")
     ),
-    { health: healthFor(input), signal: input.signal }
+    { health: healthFor(input), signal: input.signal, taskGate: input.llmTaskGate }
   );
   if (input.onTokenUsage) {
     await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedBy.config.model);
@@ -437,14 +449,27 @@ async function executeReadOnly(
   if (primary.provider.stream) {
     let chunkEmitted = false;
     try {
-      response = await primary.provider.stream(
-        messages,
-        async (delta) => {
-          chunkEmitted = true;
-          await input.onChunk(delta);
-        },
-        primary.config.model,
-        { signal: input.signal }
+      // Streaming gate decision (Phase 4 hardening): the read-only
+      // streaming path DOES pass through both LLM gates — it is an LLM
+      // request like any other, and Phase 4's exemption let it bypass
+      // the concurrency bound entirely. It keeps its own no-Effect
+      // shape, though: streamed chunks cannot be replayed, so the
+      // retry/fallback semantics stay the manual ones below instead of
+      // runLlmCall's Effect retry. Only the slot acquisition is shared,
+      // via runWithLlmGates.
+      const stream = primary.provider.stream.bind(primary.provider);
+      response = await runWithLlmGates(
+        () =>
+          stream(
+            messages,
+            async (delta) => {
+              chunkEmitted = true;
+              await input.onChunk(delta);
+            },
+            primary.config.model,
+            { signal: input.signal }
+          ),
+        { signal: input.signal, taskGate: input.llmTaskGate }
       );
       health?.recordSuccess(primary.connectionId);
     } catch (error) {
@@ -463,6 +488,7 @@ async function executeReadOnly(
       const fallback = await runLlmCallWithFallback(handles.slice(1), messages, {
         health,
         signal: input.signal,
+        taskGate: input.llmTaskGate,
       });
       response = fallback.result;
       servedModel = fallback.servedBy.config.model;
@@ -472,6 +498,7 @@ async function executeReadOnly(
     const { result, servedBy } = await runLlmCallWithFallback(handles, messages, {
       health,
       signal: input.signal,
+      taskGate: input.llmTaskGate,
     });
     response = result;
     servedModel = servedBy.config.model;

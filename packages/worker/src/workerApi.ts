@@ -74,6 +74,12 @@ export class WorkerApi {
     return await this.client.action(api.worker.savePlan, this.args(input));
   }
 
+  async saveDynamicSubtasks(
+    input: Omit<FunctionArgs<typeof api.worker.saveDynamicSubtasks>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.saveDynamicSubtasks>> {
+    return await this.client.action(api.worker.saveDynamicSubtasks, this.args(input));
+  }
+
   async startExecution(
     input: Omit<FunctionArgs<typeof api.worker.startExecution>, "workerToken">
   ): Promise<FunctionReturnType<typeof api.worker.startExecution>> {

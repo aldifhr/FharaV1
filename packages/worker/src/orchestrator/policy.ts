@@ -87,12 +87,17 @@ export function loadPolicy(): ExecutionPolicy {
     // limit of 5 killed normal tasks once the tracker was actually fed.
     maxLLMCallsPerTask: intFromEnv("ORCHESTRATOR_MAX_LLM_CALLS_PER_TASK", 12, 1, 50),
     maxDelegationDepth: intFromEnv("ORCHESTRATOR_MAX_DELEGATION_DEPTH", 2, 0, 10),
-    // Phase 4: this field is now LIVE — it sizes the process-wide LLM
-    // request semaphore around runLlmCall (effects/llmCall). Default
-    // raised 1 -> 2: a limit of 1 serialized every LLM call in the
-    // worker (planner, parallel subtasks, review) behind a single slot,
-    // which silently defeated the plan's own DAG parallelism; 2 keeps a
-    // real bound on provider pressure without serializing the graph.
+    // Phase 4: this field is LIVE. Phase 4 hardening: it sizes the
+    // PER-TASK LLM gate — the runner creates one LlmConcurrencyGate per
+    // task run from this value, so concurrent tasks each honor their
+    // own policy. The separate WORKER-WIDE gate (total provider
+    // pressure across tasks) is worker configuration: the
+    // WORKER_LLM_MAX_CONCURRENCY env var, bootstrapped once from this
+    // policy value by the worker entrypoint — never resized per task.
+    // Default 2: a limit of 1 serialized every LLM call of a task
+    // (planner, parallel subtasks, review) behind a single slot, which
+    // silently defeated the plan's own DAG parallelism; 2 keeps a real
+    // bound on provider pressure without serializing the graph.
     maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", 2, 1, 8),
     maxTokenBudgetPerTask: intFromEnv("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK", 50_000, 1_000, 500_000),
     allowFallback: boolFromEnv("ORCHESTRATOR_ALLOW_FALLBACK", true),

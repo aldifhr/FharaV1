@@ -6,6 +6,7 @@ import { loadPolicy, type ExecutionPolicy } from "./policy";
 import { createPlan, type PlannerInput } from "./planner";
 import type { GlobalLLMConfig } from "../llm";
 import type { TaskLlmResolver } from "../llm/resolver";
+import type { LlmConcurrencyGate } from "../effects/llmCall";
 import {
   createSharedTaskContext,
   appendExecution,
@@ -294,6 +295,14 @@ export interface AuthoritativePlanInput {
   llmConfig?: GlobalLLMConfig;
   llmResolver?: TaskLlmResolver;
   onTokenUsage?: PlannerInput["onTokenUsage"];
+  /**
+   * Task cancellation/deadline signal (Phase 4 hardening): forwarded to
+   * the planner subroutine. When aborted, planning throws instead of
+   * producing a plan for a task that is already over.
+   */
+  signal?: AbortSignal;
+  /** Per-task LLM gate (Phase 4 hardening), forwarded to the planner. */
+  llmTaskGate?: LlmConcurrencyGate;
 }
 
 export interface AuthoritativePlanResult {
@@ -324,6 +333,12 @@ export interface AuthoritativePlanResult {
 export async function createAuthoritativePlan(
   input: AuthoritativePlanInput
 ): Promise<AuthoritativePlanResult> {
+  // A cancelled/timed-out task gets no plan — not even an adopted
+  // stored one (Phase 4 hardening): planning is the first thing the
+  // deadline signal gates, before any decision pass runs.
+  if (input.signal?.aborted) {
+    throw new Error("Planning aborted: the task was cancelled or timed out");
+  }
   const classification = input.classification ?? classifyCommand(input.command);
 
   const orchestratorPlan = createOrchestratorPlan({
@@ -355,6 +370,8 @@ export async function createAuthoritativePlan(
       llmConfig: input.llmConfig,
       llmResolver: input.llmResolver,
       onTokenUsage: input.onTokenUsage,
+      signal: input.signal,
+      llmTaskGate: input.llmTaskGate,
     });
     plan = created.plan;
     createdBy = created.createdBy;

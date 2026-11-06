@@ -42,14 +42,22 @@ interface GateWaiter {
 }
 
 /**
- * Process-wide semaphore bounding how many LLM calls run at once
- * (Phase 4, spec §6): sized by policy.maxConcurrentLLMCalls and applied
- * around runLlmCall, so planner, executor and reviewer calls share one
- * bound instead of each path pressuring the provider independently. A
- * call holds its slot for its whole local retry sequence (including
- * backoff), which also damps retry stampedes. Waiters are queued FIFO;
- * a waiter whose signal aborts leaves the queue and rejects immediately
- * instead of starting a call nobody is waiting for anymore.
+ * FIFO semaphore bounding how many LLM calls run at once. A call holds
+ * its slot for its whole local retry sequence (including backoff),
+ * which also damps retry stampedes. Waiters are queued FIFO; a waiter
+ * whose signal aborts leaves the queue and rejects immediately instead
+ * of starting a call nobody is waiting for anymore.
+ *
+ * Phase 4 hardening: TWO gates guard every LLM request, always acquired
+ * in the same order (see runWithLlmGates):
+ *  1. a PER-TASK gate, created fresh by the runner for each task run
+ *     and sized by that task's policy.maxConcurrentLLMCalls — one task's
+ *     limit can never widen or narrow another task's; and
+ *  2. a WORKER-WIDE gate, sized once from the worker's own
+ *     configuration at process start — it is NEVER resized per task.
+ * Phase 4's single shared gate failed the first property: the runner
+ * re-pointed it at each new task's policy, so the last task to start
+ * silently rewrote the bound for every task already running.
  */
 export class LlmConcurrencyGate {
   private active = 0;
@@ -77,7 +85,11 @@ export class LlmConcurrencyGate {
     return this.waiters.length;
   }
 
-  /** Resize the gate (the limit is process-level policy; the runner sets it per task). */
+  /**
+   * Resize the gate. Reserved for the worker bootstrap configuring the
+   * WORKER-WIDE gate once at process start — per-task gates are created
+   * with their final limit and never resized.
+   */
   setLimit(limit: number): void {
     this.limit = LlmConcurrencyGate.clampLimit(limit);
     this.pump();
@@ -131,16 +143,73 @@ export class LlmConcurrencyGate {
   }
 }
 
-/** Shared process gate; the default size matches the policy default (2). */
-const sharedLlmGate = new LlmConcurrencyGate(2);
-
-/** Point the shared gate at the loaded policy's limit (the runner calls this per task). */
-export function setLlmConcurrencyLimit(limit: number): void {
-  sharedLlmGate.setLimit(limit);
+/**
+ * The WORKER-WIDE gate: one per worker process, bounding the total LLM
+ * pressure across ALL tasks this worker runs concurrently. Its limit
+ * comes from the worker's own configuration — the
+ * WORKER_LLM_MAX_CONCURRENCY env var, falling back to the policy env —
+ * and from the single bootstrap call in the worker entrypoint. It is
+ * deliberately NOT derived from any one task's policy at task start:
+ * tasks come and go, the worker bound stays.
+ */
+function workerGateLimitFromEnv(): number {
+  const raw =
+    process.env.WORKER_LLM_MAX_CONCURRENCY ??
+    process.env.ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS;
+  const parsed = raw ? Number(raw) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : 2;
 }
 
-export function getSharedLlmGate(): LlmConcurrencyGate {
-  return sharedLlmGate;
+const workerLlmGate = new LlmConcurrencyGate(workerGateLimitFromEnv());
+
+export function getWorkerLlmGate(): LlmConcurrencyGate {
+  return workerLlmGate;
+}
+
+/**
+ * Bootstrap-only: size the worker-wide gate from the worker's loaded
+ * policy. Called ONCE by the worker entrypoint (index.ts) at process
+ * start. The task runner must never call this — a task's own limit
+ * lives on its per-task gate instead.
+ */
+export function setWorkerLlmConcurrencyLimit(limit: number): void {
+  workerLlmGate.setLimit(limit);
+}
+
+export interface LlmGateOptions {
+  signal?: AbortSignal;
+  /**
+   * Per-task gate (Phase 4 hardening): owned by one task run, sized by
+   * that task's policy.maxConcurrentLLMCalls. When present, a request
+   * must hold a slot on it AND on the worker-wide gate.
+   */
+  taskGate?: LlmConcurrencyGate;
+  /** Worker-wide gate override (tests inject their own); defaults to the shared worker gate. */
+  gate?: LlmConcurrencyGate;
+}
+
+/**
+ * Run `fn` while holding an LLM slot on the per-task gate (when given)
+ * AND on the worker-wide gate. Acquisition order is fixed — per-task
+ * first, worker-wide second — for every caller, so two tasks can never
+ * each hold one gate and wait on the other (no circular wait, hence no
+ * deadlock). An abort while queued on either gate drops the waiter from
+ * that queue and releases any slot already held (each gate's `run`
+ * releases in a finally); an abort never leaves a slot behind.
+ */
+export async function runWithLlmGates<T>(
+  fn: () => Promise<T>,
+  options: LlmGateOptions = {}
+): Promise<T> {
+  const workerGate = options.gate ?? workerLlmGate;
+  const taskGate = options.taskGate;
+  if (taskGate && taskGate !== workerGate) {
+    return await taskGate.run(
+      () => workerGate.run(fn, options.signal),
+      options.signal
+    );
+  }
+  return await workerGate.run(fn, options.signal);
 }
 
 /**
@@ -180,9 +249,10 @@ export function llmCallEffect(
 
 /**
  * Run the Effect and return a Promise (drop-in replacement for
- * provider.complete). Every call passes through the LLM concurrency
- * gate (policy.maxConcurrentLLMCalls; a per-call gate can be injected
- * via options.gate, which is also how tests isolate themselves).
+ * provider.complete). Every call passes through BOTH LLM gates (Phase 4
+ * hardening): the per-task gate (options.taskGate, sized by the owning
+ * task's policy) and the worker-wide gate (options.gate overrides it,
+ * which is also how tests isolate themselves).
  */
 export function runLlmCall(
   provider: LLMProvider,
@@ -193,12 +263,12 @@ export function runLlmCall(
     timeoutMs?: number;
     signal?: AbortSignal;
     gate?: LlmConcurrencyGate;
+    taskGate?: LlmConcurrencyGate;
   }
 ): Promise<LLMResult> {
-  const gate = options?.gate ?? sharedLlmGate;
-  return gate.run(
+  return runWithLlmGates(
     () => Effect.runPromise(llmCallEffect(provider, messages, model, options)),
-    options?.signal
+    { signal: options?.signal, gate: options?.gate, taskGate: options?.taskGate }
   );
 }
 
@@ -229,6 +299,10 @@ export async function runLlmCallWithFallback(
     retries?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
+    /** Per-task LLM gate (Phase 4 hardening), forwarded to every attempt. */
+    taskGate?: LlmConcurrencyGate;
+    /** Worker-wide gate override (tests); defaults to the shared worker gate. */
+    gate?: LlmConcurrencyGate;
   } = {}
 ): Promise<{ result: LLMResult; servedBy: FallbackHandle }> {
   if (handles.length === 0) {
@@ -241,6 +315,8 @@ export async function runLlmCallWithFallback(
         retries: options.retries,
         timeoutMs: options.timeoutMs,
         signal: options.signal,
+        taskGate: options.taskGate,
+        gate: options.gate,
       });
       options.health?.recordSuccess(handle.connectionId);
       return { result, servedBy: handle };

@@ -20,6 +20,38 @@ const DEFAULT_LEASE_MS = 60_000;
 const MAX_TASK_RECOVERIES = 3;
 
 /**
+ * Terminal task statuses are ABSORBING (Phase 4 hardening): once a task
+ * is done, failed or rejected — user cancellation lands on "failed" via
+ * tasks.cancel — no late write (a zombie worker finishing after the
+ * fact, a stale completion racing the cancel) may move it back to a
+ * live state or overwrite the terminal outcome. The write-layer guards
+ * below enforce this in completeTask / setTaskStatus / requestApproval
+ * and report a refused write as a VALUE, not an error, so a late worker
+ * can stop cleanly instead of crashing on its own completion call.
+ */
+const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set([
+  "done",
+  "failed",
+  "rejected",
+]);
+
+/**
+ * Monotonic subtask status (Phase 4 hardening): "completed" is
+ * absorbing for late writes. Dynamic-DAG upserts and execution updates
+ * can race (two outcomes settling together, a recovery pass overlapping
+ * a late update); a completed row must never be rewritten to
+ * pending/running/blocked by a write that was issued before the
+ * completion landed.
+ */
+function monotonicSubtaskStatus(
+  current: string,
+  next: string
+): string {
+  if (current === "completed" && next !== "completed") return current;
+  return next;
+}
+
+/**
  * Strip legacy per-agent LLM fields — above all the plaintext `llmApiKey` —
  * before agent rows cross the internal boundary to the worker. The worker
  * never reads them (its toAgentDefinition drops them); returning the raw
@@ -443,6 +475,133 @@ export const savePlan = internalMutation({
   },
 });
 
+/**
+ * Persist dynamically spawned subtasks (Phase 4 hardening): the
+ * delegation and fix subtasks the orchestrator adds mid-run (Phase 3)
+ * previously lived only in the worker's memory, so a worker restart
+ * lost them and recovery could only rebuild the initial plan.
+ *
+ * Two writes, both idempotent and safe against concurrent callers:
+ *  1. PLAN CHECKPOINT — the current plan row's payload is extended
+ *     with the subtasks it does not already contain, merged BY KEY.
+ *     Only applied when the stored plan's version matches the version
+ *     the nodes were spawned under (a stale write from a superseded
+ *     plan version must not pollute the current plan). Merging by key
+ *     means a repeated or racing call converges to the same payload
+ *     instead of duplicating nodes.
+ *  2. SUBTASK ROWS — insert-only upsert by (taskId, key) via the
+ *     by_task_and_key index: a missing key is inserted as "pending"
+ *     with its full definition (dependencies, capability, origin); an
+ *     existing row is NEVER patched here, so a late persist can never
+ *     resurrect or downgrade a row that has already started or
+ *     completed (monotonic status, see monotonicSubtaskStatus).
+ * Convex mutations execute serially, so the check-then-insert cannot
+ * interleave with another mutation; combined with the key-stable
+ * upsert this makes the whole operation safe to call twice, or from
+ * two outcomes settling at the same moment.
+ */
+export const upsertDynamicSubtasks = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    version: v.number(),
+    payload: v.any(),
+    subtasks: v.array(
+      v.object({
+        key: v.string(),
+        title: v.string(),
+        description: v.string(),
+        kind: subtaskKind,
+        capability: v.string(),
+        dependencies: v.array(v.string()),
+        order: v.number(),
+        origin: v.optional(v.string()),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    const inserted: string[] = [];
+    const existing: string[] = [];
+
+    for (const subtask of args.subtasks) {
+      const row = await ctx.db
+        .query("subtasks")
+        .withIndex("by_task_and_key", (q) =>
+          q.eq("taskId", args.taskId).eq("key", subtask.key)
+        )
+        .unique();
+      if (row) {
+        existing.push(subtask.key);
+        continue;
+      }
+      await ctx.db.insert("subtasks", {
+        taskId: args.taskId,
+        projectId: args.projectId,
+        key: subtask.key,
+        title: subtask.title,
+        description: subtask.description,
+        kind: subtask.kind,
+        capability: subtask.capability,
+        dependencies: subtask.dependencies,
+        order: subtask.order,
+        status: "pending",
+        origin: subtask.origin ?? "dynamic",
+        attempts: 0,
+      });
+      inserted.push(subtask.key);
+    }
+
+    let payloadUpdated = false;
+    const plans = await ctx.db
+      .query("plans")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .order("desc")
+      .take(1);
+    const planRow = plans[0];
+    if (planRow && planRow.version === args.version) {
+      const currentPayload = (planRow.payload ?? {}) as {
+        subtasks?: Array<{ key: string }>;
+      };
+      const currentSubtasks = Array.isArray(currentPayload.subtasks)
+        ? currentPayload.subtasks
+        : [];
+      const knownKeys = new Set(currentSubtasks.map((subtask) => subtask.key));
+      const incoming = (
+        args.payload as { subtasks?: Array<{ key: string }> } | null
+      )?.subtasks;
+      const additions = Array.isArray(incoming)
+        ? incoming.filter((subtask) => !knownKeys.has(subtask.key))
+        : [];
+      if (additions.length > 0) {
+        await ctx.db.patch(planRow._id, {
+          payload: {
+            ...currentPayload,
+            subtasks: [...currentSubtasks, ...additions],
+          },
+        });
+        payloadUpdated = true;
+      }
+    }
+
+    await ctx.db.insert("taskEvents", {
+      taskId: args.taskId,
+      projectId: args.projectId,
+      type: "plan.dynamic_subtasks_persisted",
+      payload: {
+        version: args.version,
+        inserted,
+        existing,
+        payloadUpdated,
+        payloadVersionMatched: Boolean(
+          planRow && planRow.version === args.version
+        ),
+      },
+      level: "info",
+    });
+    return { inserted, existing, payloadUpdated };
+  },
+});
+
 export const startExecution = internalMutation({
   args: {
     taskId: v.id("tasks"),
@@ -583,12 +742,20 @@ export const updateExecution = internalMutation({
                 : args.status === "cancelled"
                   ? "blocked"
                   : "running";
+        // Monotonic (Phase 4 hardening): a late update for an older
+        // attempt must not rewrite a row that has since completed.
+        const nextStatus = monotonicSubtaskStatus(
+          subtask.status,
+          mapped
+        ) as typeof mapped;
         await ctx.db.patch(subtask._id, {
-          status: mapped,
+          status: nextStatus,
           output: args.output ?? subtask.output,
           error: args.error,
           completedAt:
-            mapped === "completed" || mapped === "failed" ? now : undefined,
+            nextStatus === "completed" || nextStatus === "failed"
+              ? now
+              : undefined,
         });
       }
     }
@@ -634,6 +801,20 @@ export const requestApproval = internalMutation({
       .query("approvals")
       .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
       .collect();
+    // Terminal guard (Phase 4 hardening): this mutation moves the task
+    // to needs_approval — a status transition — so a late request from
+    // a worker whose task was already cancelled/completed must not
+    // resurrect it. An approval that already exists is returned as-is;
+    // otherwise the request is refused with a clear error (the caller
+    // is already winding down: its task is over).
+    const task = await ctx.db.get(args.taskId);
+    if (task && TERMINAL_TASK_STATUSES.has(task.status)) {
+      const prior = existing.find((approval) => approval.kind === args.kind);
+      if (prior) return prior._id;
+      throw new Error(
+        `Task is already ${task.status}; approvals can no longer be requested`
+      );
+    }
     const pending = existing.find(
       (approval) =>
         approval.status === "pending" &&
@@ -794,6 +975,20 @@ export const completeTask = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    // Terminal guard (Phase 4 hardening): a task that already reached
+    // a terminal status keeps it. A worker that finishes late — after
+    // a user cancellation, a recovery failure, or another worker's
+    // completion — gets a clear refusal VALUE ({ applied: false }),
+    // not an error, so it can stop cleanly; the stored outcome, its
+    // error message and its completion timestamp are left untouched.
+    const before = await ctx.db.get(args.taskId);
+    if (before && TERMINAL_TASK_STATUSES.has(before.status)) {
+      return {
+        applied: false,
+        reason: "task_already_terminal" as const,
+        status: before.status,
+      };
+    }
     await ctx.db.patch(args.taskId, {
       status: args.status,
       errorMessage: args.errorMessage,
@@ -822,13 +1017,27 @@ export const completeTask = internalMutation({
       );
       for (const agentId of agentIds) await refreshAgentStatus(ctx, agentId);
     }
+    return { applied: true, status: args.status };
   },
 });
 
 export const setTaskStatus = internalMutation({
   args: { taskId: v.id("tasks"), status: taskStatus },
   handler: async (ctx, args) => {
+    // Terminal guard (Phase 4 hardening): same absorbing rule as
+    // completeTask — a raw status write may not resurrect a terminal
+    // task. Rewriting the SAME terminal status stays allowed
+    // (idempotent), anything else is refused with a false return.
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return false;
+    if (
+      TERMINAL_TASK_STATUSES.has(task.status) &&
+      task.status !== args.status
+    ) {
+      return false;
+    }
     await ctx.db.patch(args.taskId, { status: args.status, updatedAt: Date.now() });
+    return true;
   },
 });
 
@@ -850,14 +1059,21 @@ export const updateSubtask = internalMutation({
       )
       .unique();
     if (!subtask) return false;
+    // Monotonic (Phase 4 hardening): see monotonicSubtaskStatus — a
+    // blocked/pending write that was issued before a completion landed
+    // must not downgrade the completed row.
+    const nextStatus = monotonicSubtaskStatus(
+      subtask.status,
+      args.status
+    ) as typeof args.status;
     await ctx.db.patch(subtask._id, {
-      status: args.status,
+      status: nextStatus,
       output: args.output ?? subtask.output,
       error: args.error,
       assignedAgentId: args.agentId ?? subtask.assignedAgentId,
       assignedAgentName: args.agentName ?? subtask.assignedAgentName,
       completedAt:
-        args.status === "completed" || args.status === "failed"
+        nextStatus === "completed" || nextStatus === "failed"
           ? Date.now()
           : undefined,
     });

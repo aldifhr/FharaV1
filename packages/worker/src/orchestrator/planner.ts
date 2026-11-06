@@ -1,5 +1,9 @@
 import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig } from "@/llm";
-import { runLlmCallWithFallback, type FallbackHandle } from "@/effects/llmCall";
+import {
+  runLlmCallWithFallback,
+  type FallbackHandle,
+  type LlmConcurrencyGate,
+} from "@/effects/llmCall";
 import { providerHealth } from "@/llm/health";
 import type { TaskLlmResolver } from "@/llm/resolver";
 import { CAPABILITY, type AgentDefinition, type Classification, type ExecutionPlan } from "./types";
@@ -23,6 +27,15 @@ export interface PlannerInput {
    */
   llmResolver?: TaskLlmResolver;
   onTokenUsage?: (inputTokens: number, outputTokens: number, model: string, agentName: string, agentId?: string) => Promise<void>;
+  /**
+   * Task cancellation/deadline signal (Phase 4 hardening): forwarded to
+   * the planner's LLM call. When it fires, planning ABORTS by throwing —
+   * a cancelled task must never silently degrade to the heuristic plan
+   * and keep executing (see createPlan).
+   */
+  signal?: AbortSignal;
+  /** Per-task LLM gate (Phase 4 hardening), forwarded to the planner's call. */
+  llmTaskGate?: LlmConcurrencyGate;
 }
 
 export interface PlannerResult {
@@ -34,6 +47,13 @@ export interface PlannerResult {
 
 export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   const notes: string[] = [];
+  // Cancellation is terminal for planning (Phase 4 hardening): an
+  // already-aborted task gets NO plan at all — not even the
+  // deterministic fallback — so a cancelled task can never proceed
+  // into execution on a plan built after its cancellation.
+  if (input.signal?.aborted) {
+    throw new Error("Planning aborted: the task was cancelled or timed out");
+  }
   const orchestrator = pickOrchestrator(input.agents);
   if (orchestrator) {
     try {
@@ -53,7 +73,11 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
           ? [{ role: "system" as const, content: orchestrator.systemPrompt }]
           : []),
         { role: "user", content: buildPlanningPrompt(input) },
-      ], { health: input.llmResolver ? providerHealth : undefined });
+      ], {
+        health: input.llmResolver ? providerHealth : undefined,
+        signal: input.signal,
+        taskGate: input.llmTaskGate,
+      });
       if (input.onTokenUsage && response.inputTokens !== undefined) {
         const model = servedBy.config.model;
         await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, model, orchestrator.name, orchestrator._id);
@@ -80,12 +104,25 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         notes.push(...validation.errors);
       }
     } catch (error) {
+      // An abort is NOT planner unavailability: rethrow so the caller
+      // ends the cancelled task instead of executing the fallback plan
+      // the catch would otherwise degrade to (Phase 4 hardening).
+      if (input.signal?.aborted) {
+        throw error instanceof Error
+          ? error
+          : new Error("Planning aborted: the task was cancelled or timed out");
+      }
       notes.push(
         `LLM planner unavailable: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   } else {
     notes.push("no planner-capable agent found; using deterministic plan");
+  }
+  // The abort may have landed while a successful response was being
+  // processed: the plan it produced must not be used either.
+  if (input.signal?.aborted) {
+    throw new Error("Planning aborted: the task was cancelled or timed out");
   }
 
   return {

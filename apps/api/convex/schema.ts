@@ -158,6 +158,11 @@ export default defineSchema({
     dependencies: v.array(v.string()),
     order: v.number(),
     status: subtaskStatus,
+    // Phase 4 hardening (additive): how this row entered the DAG —
+    // "plan" rows come from savePlan; dynamically spawned work is
+    // upserted with "delegation" | "fix" | "review_fix" so recovery and
+    // the dashboard can tell recovered dynamic nodes from planned ones.
+    origin: v.optional(v.string()),
     assignedAgentId: v.optional(v.id("agents")),
     assignedAgentName: v.optional(v.string()),
     output: v.optional(v.string()),

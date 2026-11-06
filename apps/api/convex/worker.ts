@@ -130,6 +130,34 @@ export const savePlan = action({
   },
 });
 
+export const saveDynamicSubtasks = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    version: v.number(),
+    payload: v.any(),
+    subtasks: v.array(
+      v.object({
+        key: v.string(),
+        title: v.string(),
+        description: v.string(),
+        kind: subtaskKind,
+        capability: v.string(),
+        dependencies: v.array(v.string()),
+        order: v.number(),
+        origin: v.optional(v.string()),
+      })
+    ),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(
+      internal.orchestration.upsertDynamicSubtasks,
+      withoutToken(args)
+    );
+  },
+});
+
 export const startExecution = action({
   args: {
     ...tokenArg,

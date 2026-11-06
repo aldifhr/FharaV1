@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chromium, type Browser } from "playwright";
+import { killTree } from "./verification";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 
@@ -64,10 +65,14 @@ export async function runResponsiveQa(
   const signal = options.signal;
 
   // On abort, tear down immediately: close the browser and kill the
-  // dev-server child instead of letting the current step run out.
+  // dev-server PROCESS TREE instead of letting the current step run
+  // out. The server is spawned detached (its own process group), so
+  // killTree reaches the grandchildren a plain kill() would orphan —
+  // npm's shell shim and the actual dev server behind it (Phase 4
+  // hardening).
   const onAbort = () => {
     if (browser) void browser.close().catch(() => undefined);
-    if (server?.pid) server.kill();
+    if (server) killTree(server);
   };
   signal?.addEventListener("abort", onAbort, { once: true });
 
@@ -104,6 +109,9 @@ export async function runResponsiveQa(
             env: { ...process.env, PORT: "3000" },
             windowsHide: true,
             stdio: "ignore",
+            // Own process group on POSIX so the finally/abort cleanup
+            // can killTree the whole tree (see killTree).
+            detached: !isWin,
           }
         );
         if (signal?.aborted) {
@@ -257,9 +265,12 @@ export async function runResponsiveQa(
       details: error instanceof Error ? error.message : String(error),
     });
   } finally {
+    // Cleanup on EVERY exit path — success, failure, exception, abort:
+    // the browser was already closed in its own finally above; the dev
+    // server's whole process tree dies here, not just the npm shim.
     signal?.removeEventListener("abort", onAbort);
-    if (server?.pid) {
-      server.kill();
+    if (server) {
+      killTree(server);
       server = undefined;
     }
   }

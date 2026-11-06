@@ -35,7 +35,7 @@ import {
 } from "@/orchestrator/taskContext";
 import type { Classification } from "@/orchestrator/types";
 import type { GlobalLLMConfig } from "@/llm";
-import { setLlmConcurrencyLimit, type FallbackHandle } from "@/effects/llmCall";
+import { LlmConcurrencyGate, type FallbackHandle } from "@/effects/llmCall";
 import {
   materializePool,
   TaskLlmResolver,
@@ -156,10 +156,13 @@ export function resolveQaBaseUrl(
  * the staged work those subtasks produced. ONE builder is shared by
  * processTask (recovery of a re-claimed task whose stored plan was
  * adopted) and resumeTask (post-approval continuation), so a completed
- * subtask is never re-executed on either path (Phase 4). Phase 3's
- * dynamic subtasks (delegation/fix) are not persisted into the stored
- * plan, so they are invisible here by design — an accepted limitation,
- * recorded in the Phase 3 report.
+ * subtask is never re-executed on either path (Phase 4). Since Phase 4
+ * hardening, dynamic subtasks (delegation/fix/review-fix) are persisted
+ * too — their rows are in `subtasks` and their definitions in the
+ * stored plan payload — so the builder recovers the WHOLE DAG, not
+ * just the initial plan. (Runtime derivations that are not persisted —
+ * the per-branch capability chain and fix depth — are rebuilt from the
+ * plan alone; see the Phase 4H report's limitations.)
  */
 export function buildStateFromDb(input: {
   subtasks: WorkerSubtask[];
@@ -231,6 +234,55 @@ function combineSignals(
     });
   }
   return controller.signal;
+}
+
+/** Terminal task statuses: a task in one of these is finished for good. */
+function isTerminalTaskStatus(status: string | undefined): boolean {
+  return status === "done" || status === "failed" || status === "rejected";
+}
+
+/**
+ * End a task run as cancelled (Phase 4 hardening). The backend has no
+ * "cancelled" task status — tasks.cancel itself stores a user
+ * cancellation as status "failed" + "Cancelled by user" — so the
+ * outcome maps to completeTask("failed") with a cancellation message,
+ * while the dedicated `task.cancelled` event preserves the distinction
+ * (user cancel vs deadline) in the task timeline. The backend
+ * completeTask guard makes this call a no-op when the task already
+ * reached a terminal status by another path, so a late cancel ending
+ * can never overwrite a real completion either.
+ */
+async function finishCancelledTask(input: {
+  deps: RunnerDeps;
+  task: WorkerTask;
+  project: WorkerProject;
+  signal: AbortSignal;
+}): Promise<void> {
+  const { deps, task, project, signal } = input;
+  const reasonText =
+    signal.reason instanceof Error ? signal.reason.message : "";
+  const timedOut = reasonText.startsWith("Task deadline exceeded");
+  const errorMessage = timedOut ? reasonText : "Task cancelled";
+  await deps.api.logEvent({
+    taskId: task._id,
+    projectId: project._id,
+    type: "task.cancelled",
+    payload: { reason: errorMessage, timedOut },
+    level: "warn",
+  });
+  await deps.api
+    .recordLifecycle?.({
+      taskId: task._id,
+      projectId: project._id,
+      state: "FAILED",
+      prevState: "RUNNING",
+    })
+    ?.catch(() => undefined);
+  await deps.api.completeTask({
+    taskId: task._id,
+    status: "failed",
+    errorMessage,
+  });
 }
 
 /** Build the orchestrator's AgentResult view of a finished scheduler node. */
@@ -333,9 +385,6 @@ export function buildReplanFeedback(
 }
 
 export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<void> {
-  // The LLM concurrency limit is process-level policy: (re)point the
-  // shared gate at this worker's policy before any call is made.
-  setLlmConcurrencyLimit(deps.policy.maxConcurrentLLMCalls);
   const context = await deps.api.getContext({ taskId: task._id });
   if (!context?.project) {
     await deps.api.completeTask({
@@ -477,6 +526,18 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     ?.catch(() => undefined);
   await deps.api.recordLifecycle?.({ taskId: task._id, projectId: project._id, state: "RUNNING" })?.catch(() => undefined);
 
+  // Phase 4 hardening: ONE per-task LLM gate for this whole run, sized
+  // by THIS task's policy and owned by this run alone — concurrent
+  // tasks never share it and never resize each other's bound (the
+  // worker-wide gate is separate worker configuration, set once at
+  // process start). The task deadline is armed NOW, before planning:
+  // it used to be armed only after the plan existed, so a slow planner
+  // ran with no deadline at all, and a task cancelled during planning
+  // still received (and executed) a fresh plan.
+  const llmTaskGate = new LlmConcurrencyGate(deps.policy.maxConcurrentLLMCalls);
+  const taskAbort = armTaskAbort(deps.policy);
+
+  try {
   let plan: ExecutionPlan;
   let createdBy: "orchestrator" | "fallback" = "fallback";
   let planVersion: number;
@@ -490,22 +551,42 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     // planner subroutine produces the one plan that will be executed —
     // the orchestrator.plan event describes that executed plan and the
     // primary agent is the agent serving its first subtask.
-    const authoritative = await createAuthoritativePlan({
-      taskId: task._id,
-      projectId: project._id,
-      command,
-      title: task.title,
-      agents: runAgents,
-      classification,
-      budget,
-      sharedContext,
-      policy: deps.policy,
-      storedPlan,
-      storedCreatedBy: storedPlan ? context.plan!.createdBy : undefined,
-      llmConfig,
-      llmResolver,
-      onTokenUsage: recordUsage,
-    });
+    let authoritative: Awaited<ReturnType<typeof createAuthoritativePlan>>;
+    try {
+      authoritative = await createAuthoritativePlan({
+        taskId: task._id,
+        projectId: project._id,
+        command,
+        title: task.title,
+        agents: runAgents,
+        classification,
+        budget,
+        sharedContext,
+        policy: deps.policy,
+        storedPlan,
+        storedCreatedBy: storedPlan ? context.plan!.createdBy : undefined,
+        llmConfig,
+        llmResolver,
+        onTokenUsage: recordUsage,
+        signal: taskAbort.controller.signal,
+        llmTaskGate,
+      });
+    } catch (error) {
+      // Planning aborted (cancel/deadline): the task ends as cancelled
+      // and NO plan is executed. Any other planning failure keeps the
+      // historical behavior — it propagates to the worker loop, which
+      // fails the task.
+      if (taskAbort.controller.signal.aborted) {
+        await finishCancelledTask({
+          deps,
+          task,
+          project,
+          signal: taskAbort.controller.signal,
+        });
+        return;
+      }
+      throw error;
+    }
     plan = authoritative.plan;
     createdBy = authoritative.createdBy;
     planVersion = storedPlan
@@ -569,15 +650,31 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       createdBy = context.plan!.createdBy;
       planVersion = context.plan!.version;
     } else {
-      const created = await createPlan({
-        command,
-        classification,
-        agents: runAgents,
-        policy: deps.policy,
-        llmConfig,
-        llmResolver,
-        onTokenUsage: recordUsage,
-      });
+      let created: Awaited<ReturnType<typeof createPlan>>;
+      try {
+        created = await createPlan({
+          command,
+          classification,
+          agents: runAgents,
+          policy: deps.policy,
+          llmConfig,
+          llmResolver,
+          onTokenUsage: recordUsage,
+          signal: taskAbort.controller.signal,
+          llmTaskGate,
+        });
+      } catch (error) {
+        if (taskAbort.controller.signal.aborted) {
+          await finishCancelledTask({
+            deps,
+            task,
+            project,
+            signal: taskAbort.controller.signal,
+          });
+          return;
+        }
+        throw error;
+      }
       plan = created.plan;
       createdBy = created.createdBy;
       planVersion = (context.plan?.version ?? 0) + 1;
@@ -622,10 +719,9 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
   };
   let completedKeys: Set<string> = seeded?.completedKeys ?? new Set<string>();
 
-  // One abort controller for the whole task run: executePlan's cancel
-  // polling fires it when the task row turns terminal, and the
-  // policy.taskTimeoutMs deadline armed here fires it on overrun.
-  const taskAbort = armTaskAbort(deps.policy);
+  // (The run's abort controller was armed before planning, above:
+  // executePlan's cancel polling fires it when the task row turns
+  // terminal, and its policy.taskTimeoutMs deadline fires on overrun.)
 
   let replans = task.replanCount ?? 0;
   let feedback: string | undefined;
@@ -635,7 +731,6 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
   const maxPlanningIterations =
     deps.policy.maxPlanningIterations ?? deps.policy.maxReplans;
 
-  try {
     // eslint-disable-next-line no-constant-condition
     while (true) {
       await deps.api.logEvent({
@@ -652,6 +747,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         workspacePath,
         agents: runAgents,
         plan,
+        planVersion,
         state,
         feedback,
         approvalMode,
@@ -662,13 +758,63 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         classification,
         llmConfig,
         llmResolver,
+        llmTaskGate,
         qaBaseUrl,
+        onDynamicSubtasks: async ({ added, origin, plan: currentPlan, version }) => {
+          await deps.api.saveDynamicSubtasks?.({
+            taskId: task._id,
+            projectId: project._id,
+            version,
+            payload: currentPlan,
+            subtasks: added.map((subtask) => ({
+              key: subtask.key,
+              title: subtask.title,
+              description: subtask.description,
+              kind: subtask.kind,
+              capability: subtask.capability,
+              dependencies: subtask.dependencies,
+              order: subtask.order,
+              origin,
+            })),
+          });
+        },
       });
 
       if (outcome === "waiting_approval") return;
 
+      // Cancellation is terminal (Phase 4 hardening): a cancelled or
+      // timed-out task ends here — it is never replanned, never
+      // finalized, and never marked done.
+      if (outcome === "cancelled") {
+        await finishCancelledTask({
+          deps,
+          task,
+          project,
+          signal: taskAbort.controller.signal,
+        });
+        return;
+      }
+
       if (outcome === "completed") {
         const after = await deps.api.getContext({ taskId: task._id });
+        // Terminal guard (Phase 4 hardening): the cancellation may
+        // have landed while the scheduler was finishing its last node
+        // (or the task row already turned terminal by another path).
+        // A cancelled task must not be finalized into "done" — the
+        // backend completeTask guard is the second line of defense;
+        // this check keeps finalize from running at all.
+        if (
+          taskAbort.controller.signal.aborted ||
+          isTerminalTaskStatus(after?.task.status)
+        ) {
+          await finishCancelledTask({
+            deps,
+            task,
+            project,
+            signal: taskAbort.controller.signal,
+          });
+          return;
+        }
         const verification = await finalize({
           deps,
           task,
@@ -681,6 +827,16 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           signal: taskAbort.controller.signal,
         });
         if (verification.verdict === "failed" && replans < maxPlanningIterations) {
+          // No replan after cancellation/deadline (Phase 4 hardening).
+          if (taskAbort.controller.signal.aborted) {
+            await finishCancelledTask({
+              deps,
+              task,
+              project,
+              signal: taskAbort.controller.signal,
+            });
+            return;
+          }
           replans += 1;
           feedback = buildReplanFeedback(
             `Verification failed: ${verification.checks
@@ -689,16 +845,32 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
               .join("; ")}`,
             sharedContext
           );
-          const replanned = await createPlan({
-            command,
-            classification,
-            agents: runAgents,
-            policy: deps.policy,
-            feedback,
-            llmConfig,
-            llmResolver,
-            onTokenUsage: recordUsage,
-          });
+          let replanned: Awaited<ReturnType<typeof createPlan>>;
+          try {
+            replanned = await createPlan({
+              command,
+              classification,
+              agents: runAgents,
+              policy: deps.policy,
+              feedback,
+              llmConfig,
+              llmResolver,
+              onTokenUsage: recordUsage,
+              signal: taskAbort.controller.signal,
+              llmTaskGate,
+            });
+          } catch (error) {
+            if (taskAbort.controller.signal.aborted) {
+              await finishCancelledTask({
+                deps,
+                task,
+                project,
+                signal: taskAbort.controller.signal,
+              });
+              return;
+            }
+            throw error;
+          }
           plan = replanned.plan;
           planVersion += 1;
           await persistPlan(deps, {
@@ -735,22 +907,50 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         return;
       }
 
-      // Execution failed before any approval.
+      // Execution failed before any approval. A failure that is really
+      // a cancellation (the deadline fired mid-run and the scheduler
+      // settled as failed) ends as cancelled instead — and is never
+      // replanned (Phase 4 hardening).
+      if (taskAbort.controller.signal.aborted) {
+        await finishCancelledTask({
+          deps,
+          task,
+          project,
+          signal: taskAbort.controller.signal,
+        });
+        return;
+      }
       const failureSummary =
         state.feedback.join("; ") || "Execution failed without a detailed error";
       if (replans < maxPlanningIterations) {
         replans += 1;
         feedback = buildReplanFeedback(failureSummary, sharedContext);
-        const replanned = await createPlan({
-          command,
-          classification,
-          agents: runAgents,
-          policy: deps.policy,
-          feedback,
-          llmConfig,
-          llmResolver,
-          onTokenUsage: recordUsage,
-        });
+        let replanned: Awaited<ReturnType<typeof createPlan>>;
+        try {
+          replanned = await createPlan({
+            command,
+            classification,
+            agents: runAgents,
+            policy: deps.policy,
+            feedback,
+            llmConfig,
+            llmResolver,
+            onTokenUsage: recordUsage,
+            signal: taskAbort.controller.signal,
+            llmTaskGate,
+          });
+        } catch (error) {
+          if (taskAbort.controller.signal.aborted) {
+            await finishCancelledTask({
+              deps,
+              task,
+              project,
+              signal: taskAbort.controller.signal,
+            });
+            return;
+          }
+          throw error;
+        }
         plan = replanned.plan;
         planVersion += 1;
         await persistPlan(deps, {
@@ -832,7 +1032,23 @@ async function executePlan(input: {
   llmResolver?: TaskLlmResolver;
   /** Per-task QA base URL (project qaUrl > devUrl > env fallback), threaded to the QA executor. */
   qaBaseUrl?: string;
-}): Promise<"completed" | "failed" | "waiting_approval"> {
+  /** The plan version the executed plan was persisted under; dynamic-subtask checkpoints are written against it. */
+  planVersion?: number;
+  /** Per-task LLM gate (Phase 4 hardening), threaded into every subtask LLM call. */
+  llmTaskGate?: LlmConcurrencyGate;
+  /**
+   * Persist dynamically spawned subtasks (Phase 4 hardening): called
+   * the moment a delegation/fix/review-fix subtask is added to the
+   * plan, with the full updated plan, so a worker restart recovers the
+   * whole DAG instead of only the initial plan.
+   */
+  onDynamicSubtasks?: (request: {
+    added: PlanSubtask[];
+    origin: "delegation" | "fix" | "review_fix";
+    plan: ExecutionPlan;
+    version: number;
+  }) => Promise<void>;
+}): Promise<"completed" | "failed" | "waiting_approval" | "cancelled"> {
   const { deps, task, project, plan, state } = input;
   const browser = new WebClient({
     headless: true,
@@ -852,6 +1068,43 @@ async function executePlan(input: {
   const executionIds = new Map<string, WorkerExecutionId>();
   const agentByKey = new Map<string, AgentDefinition>();
   const taskId = task._id;
+
+  /**
+   * Durable dynamic DAG (Phase 4 hardening): persist a freshly spawned
+   * subtask (and the plan payload containing it) at the moment it is
+   * added, so recovery after a worker restart sees the whole DAG. A
+   * persistence failure is surfaced as an event — never silently
+   * swallowed — but does not abort the run: the in-memory DAG is still
+   * correct for THIS worker; only restart-durability is degraded.
+   */
+  const persistDynamic = async (
+    added: PlanSubtask[],
+    origin: "delegation" | "fix" | "review_fix"
+  ): Promise<void> => {
+    if (!input.onDynamicSubtasks || added.length === 0) return;
+    try {
+      await input.onDynamicSubtasks({
+        added,
+        origin,
+        plan,
+        version: input.planVersion ?? plan.version,
+      });
+    } catch (error) {
+      await deps.api
+        .logEvent({
+          taskId,
+          projectId: project._id,
+          type: "plan.dynamic_persist_failed",
+          payload: {
+            keys: added.map((subtask) => subtask.key),
+            origin,
+            message: error instanceof Error ? error.message : String(error),
+          },
+          level: "error",
+        })
+        .catch(() => undefined);
+    }
+  };
 
   // --- Phase 3 orchestrator bookkeeping ---------------------------------
   // Authoritative mode is active only when the policy flag is on AND the
@@ -908,6 +1161,9 @@ async function executePlan(input: {
 
   let lastStatusCheck = 0;
   let cancelled = false;
+  /** True once this run is cancelled — by the status poll or by the deadline signal. */
+  const taskCancelled = (): boolean =>
+    cancelled || input.taskAbort?.signal.aborted === true;
 
   const runNodes = (nodes: PlanSubtask[]): Promise<SchedulerResult> => {
     const subsetKeys = new Set(nodes.map((node) => node.key));
@@ -950,6 +1206,7 @@ async function executePlan(input: {
         browser,
         llmConfig: input.llmConfig,
         llmHandles,
+        llmTaskGate: input.llmTaskGate,
         qaBaseUrl: input.qaBaseUrl,
         taskContext: input.sharedContext,
         priorOutputs: state.priorOutputs,
@@ -1194,9 +1451,12 @@ async function executePlan(input: {
                 evaluation.updatedContext.agentExecutions;
 
               // --- Decision -> action (authoritative mode only) --------
+              // Cancellation gates decisions too (Phase 4 hardening):
+              // once the task is cancelled/timed out, an outcome that
+              // settles late is recorded but spawns NO new work.
               let delegatedSubtaskKey: string | null = null;
               let fixSubtaskKey: string | null = null;
-              if (authoritative) {
+              if (authoritative && !input.taskAbort?.signal.aborted) {
                 if (evaluation.decision === "BLOCKED") {
                   // Budget exhausted: stop scheduling new work in this
                   // invocation (the scheduler blocks what is still
@@ -1255,6 +1515,7 @@ async function executePlan(input: {
                   chainByKey.set(key, [...chain, evaluation.nextCapability]);
                   fixDepthByKey.set(key, 0);
                   delegatedSubtaskKey = key;
+                  await persistDynamic([delegationSubtask], "delegation");
                   dynamicNodes = [{ id: key, dependencies: [node.id] }];
                 } else if (
                   evaluation.decision === "REVISE" &&
@@ -1287,6 +1548,7 @@ async function executePlan(input: {
                   chainByKey.set(key, chain);
                   fixDepthByKey.set(key, (fixDepthByKey.get(node.id) ?? 0) + 1);
                   fixSubtaskKey = key;
+                  await persistDynamic([fixSubtask], "fix");
                   dynamicNodes = [{ id: key, dependencies: [node.id] }];
                 }
               }
@@ -1465,6 +1727,9 @@ async function executePlan(input: {
       // never spawn a second, duplicate fix subtask (Phase 3).
       chainByKey.set(fixSubtask.key, [fixSubtask.capability]);
       fixDepthByKey.set(fixSubtask.key, 1);
+      // The review loop's fix subtask is dynamic work too: persist it
+      // like the orchestrator's (Phase 4 hardening).
+      await persistDynamic([fixSubtask], "review_fix");
       state.priorOutputs.set(`${fixSubtask.key}-findings`, formatReviewFindings(findings));
 
       await deps.api.logEvent({
@@ -1497,10 +1762,13 @@ async function executePlan(input: {
         status: "blocked",
       })
       .catch(() => undefined);
-    return "failed";
+    // Cancellation is its own outcome (Phase 4 hardening): the caller
+    // ends the task as cancelled instead of treating it as a failure
+    // it could replan away.
+    return "cancelled";
   }
   if (implementation.status !== "completed") {
-    return "failed";
+    return taskCancelled() ? "cancelled" : "failed";
   }
 
   const hasCodeChange = plan.subtasks.some((subtask) => subtask.kind === "code_change");
@@ -1511,7 +1779,7 @@ async function executePlan(input: {
 
   const reviewApproved = await runReviewLoop();
   if (!reviewApproved) {
-    return "failed";
+    return taskCancelled() ? "cancelled" : "failed";
   }
 
   const preparedChanges = Array.from(state.fileChanges.values());
@@ -1530,7 +1798,7 @@ async function executePlan(input: {
       state
     );
     if (!dryRun.allowed) {
-      return "failed";
+      return taskCancelled() ? "cancelled" : "failed";
     }
     dryRunSummary = dryRun.summary;
   }
@@ -1597,7 +1865,7 @@ async function executePlan(input: {
         state.feedback.push(
           "Apply aborted: the task was cancelled or timed out"
         );
-        return "failed";
+        return "cancelled";
       }
       try {
         await applyFileChange(wp, change);
@@ -1661,7 +1929,7 @@ async function executePlan(input: {
     });
     const qa = await runNodes(qaNodes);
     if (qa.status === "cancelled") {
-      return "failed";
+      return "cancelled";
     }
     // QA failures are recorded on the subtasks; the evaluator decides the verdict.
     }
@@ -1673,7 +1941,6 @@ async function executePlan(input: {
 }
 
 export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void> {
-  setLlmConcurrencyLimit(deps.policy.maxConcurrentLLMCalls);
   const context = await deps.api.getContext({ taskId });
   if (!context?.project || context.task.status !== "needs_approval") return;
   const approvals = await deps.api.getApprovals({ taskId });
@@ -1720,6 +1987,13 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
   }
   const plan = planValidation.plan;
   const planVersion = context.plan?.version ?? context.task.planVersion ?? 1;
+  // Phase 4 hardening: the resumed run gets its OWN per-task LLM gate
+  // and its deadline is armed before execution setup begins (the
+  // timer is disposed on every exit path below — the resolver-failure
+  // return disposes explicitly; everything else flows through the
+  // try/finally around executePlan).
+  const llmTaskGate = new LlmConcurrencyGate(deps.policy.maxConcurrentLLMCalls);
+  const taskAbort = armTaskAbort(deps.policy);
   const workspacePath = resolveWorkspacePath(deps.workspaceRoot, context.project.workspacePath);
   await fs.mkdir(workspacePath, { recursive: true });
 
@@ -1732,6 +2006,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
     llmResolver = await buildTaskLlmResolver(context.llmProviders);
     llmConfig = llmResolver.defaultConfig();
   } catch (error) {
+    taskAbort.dispose();
     await deps.api.completeTask({
       taskId,
       status: "failed",
@@ -1772,7 +2047,6 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
     classification,
   });
 
-  const taskAbort = armTaskAbort(deps.policy);
   try {
     const outcome = await executePlan({
       deps,
@@ -1781,6 +2055,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
       workspacePath,
       agents,
       plan,
+      planVersion,
       state,
       approvalResolved: true,
       approvalMode: context.approvalMode,
@@ -1791,22 +2066,87 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
       classification,
       llmConfig,
       llmResolver,
+      llmTaskGate,
       qaBaseUrl: resolveQaBaseUrl(context.project),
+      onDynamicSubtasks: async ({ added, origin, plan: currentPlan, version }) => {
+        await deps.api.saveDynamicSubtasks?.({
+          taskId,
+          projectId: context.project._id,
+          version,
+          payload: currentPlan,
+          subtasks: added.map((subtask) => ({
+            key: subtask.key,
+            title: subtask.title,
+            description: subtask.description,
+            kind: subtask.kind,
+            capability: subtask.capability,
+            dependencies: subtask.dependencies,
+            order: subtask.order,
+            origin,
+          })),
+        });
+      },
     });
-    if (outcome === "waiting_approval") return;
 
-    const after = await deps.api.getContext({ taskId });
-    await finalize({
-      deps,
-      task: context.task,
-      project: context.project,
-      workspacePath,
-      plan,
-      planVersion,
-      subtasks: after?.subtasks ?? [],
-      state,
-      signal: taskAbort.controller.signal,
-    });
+    // EVERY executePlan outcome is handled explicitly (Phase 4
+    // hardening). The pre-hardening resume path ran finalize
+    // unconditionally, so a failed — or even cancelled — resumed
+    // execution could be finalized into "done".
+    switch (outcome) {
+      case "waiting_approval":
+        return;
+      case "cancelled":
+        await finishCancelledTask({
+          deps,
+          task: context.task,
+          project: context.project,
+          signal: taskAbort.controller.signal,
+        });
+        return;
+      case "failed": {
+        const failureSummary =
+          state.feedback.join("; ") || "Execution failed after approval";
+        await deps.api.logEvent({
+          taskId,
+          projectId: context.project._id,
+          type: "task.error",
+          payload: { message: failureSummary.slice(0, 2000) },
+          level: "error",
+        });
+        await deps.api.completeTask({
+          taskId,
+          status: "failed",
+          errorMessage: failureSummary,
+        });
+        return;
+      }
+      case "completed": {
+        // A cancellation that landed during the resumed execution
+        // wins over completion: never finalize a cancelled task.
+        if (taskAbort.controller.signal.aborted) {
+          await finishCancelledTask({
+            deps,
+            task: context.task,
+            project: context.project,
+            signal: taskAbort.controller.signal,
+          });
+          return;
+        }
+        const after = await deps.api.getContext({ taskId });
+        await finalize({
+          deps,
+          task: context.task,
+          project: context.project,
+          workspacePath,
+          plan,
+          planVersion,
+          subtasks: after?.subtasks ?? [],
+          state,
+          signal: taskAbort.controller.signal,
+        });
+        return;
+      }
+    }
   } finally {
     taskAbort.dispose();
   }

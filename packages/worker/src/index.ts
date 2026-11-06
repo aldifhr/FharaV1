@@ -4,6 +4,7 @@ import path from "node:path";
 import { createConvexClient } from "./convexClient";
 import { WorkerApi, type WorkerTask } from "./workerApi";
 import { loadPolicy } from "./orchestrator/policy";
+import { setWorkerLlmConcurrencyLimit } from "./effects/llmCall";
 import { processTask, resumeTask, type RunnerDeps } from "./services/taskRunner";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
@@ -30,6 +31,11 @@ async function main() {
   const client = createConvexClient();
   const api = new WorkerApi(client, process.env.CONVEX_SERVICE_TOKEN!);
   const policy = loadPolicy();
+  // Worker-wide LLM bound: configured ONCE here, from the worker's own
+  // policy (WORKER_LLM_MAX_CONCURRENCY can override via env). Per-task
+  // limits live on per-run gates inside the runner — no task ever
+  // resizes this gate (Phase 4 hardening).
+  setWorkerLlmConcurrencyLimit(policy.maxConcurrentLLMCalls);
   const workspaceRoot = process.env.WORKSPACE_ROOT ?? "./workspaces";
   const inFlight = new Map<string, Promise<void>>();
 

@@ -343,7 +343,15 @@ function runCommand(
   });
 }
 
-function killTree(child: ChildProcess) {
+/**
+ * Kill a child process AND its whole process tree: on POSIX the child
+ * must have been spawned `detached` (its own process group), and the
+ * group is SIGKILLed; on Windows `taskkill /T /F` walks the tree.
+ * Exported for the QA runner (execution/qa.ts), whose dev server spawns
+ * grandchildren (package-manager shims, watcher processes) that a plain
+ * child.kill() would orphan (Phase 4 hardening).
+ */
+export function killTree(child: ChildProcess) {
   if (!child.pid) return;
   if (process.platform === "win32") {
     spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {

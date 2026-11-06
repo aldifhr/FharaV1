@@ -198,6 +198,13 @@ export const retry = mutation({
       completedAt: undefined,
       updatedAt: now,
       replanCount: 0,
+      // Manual retry resets the stale-recovery budget (Phase 4
+      // hardening): a human deliberately re-queuing the task starts
+      // its recovery count over. Automatic stale recovery
+      // (orchestration.recoverStale) does the opposite — it INCREMENTS
+      // the count and never resets it, so a poisoned plan still hits
+      // the recovery bound.
+      recoveryCount: 0,
     });
     // Reset only the subtasks that never finished, so the worker
     // replans the remaining work cleanly. Completed subtasks keep their
@@ -213,7 +220,10 @@ export const retry = mutation({
       taskId: task._id,
       projectId: task.projectId,
       type: "task.retried",
-      payload: { prevStatus: task.status },
+      payload: {
+        prevStatus: task.status,
+        previousRecoveryCount: task.recoveryCount ?? 0,
+      },
       level: "info",
     });
     return true;

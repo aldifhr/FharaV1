@@ -32,17 +32,16 @@ export const send = action({
   args: {
     projectId: v.id("projects"),
     content: v.string(),
-    preferredAgentId: v.optional(v.id("agents")),
+    preferredAgentIds: v.optional(v.array(v.id("agents"))),
   },
   handler: async (ctx, args): Promise<{ messageId: string }> => {
     const messageId = await ctx.runMutation(internal.chatContext.insertUserMessage, {
       projectId: args.projectId,
       content: args.content,
     });
-    // Let the agent team answer the conversation asynchronously.
     ctx.scheduler.runAfter(0, internal.chat.replyToChat, {
       projectId: args.projectId,
-      preferredAgentId: args.preferredAgentId,
+      preferredAgentIds: args.preferredAgentIds,
       userMessageId: messageId,
     });
     return { messageId: messageId as string };

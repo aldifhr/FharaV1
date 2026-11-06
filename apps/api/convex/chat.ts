@@ -1,14 +1,8 @@
 "use node";
 
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-
-/**
- * Team chat reply: pick the best agent for the project (prefer a
- * lead/orchestrator role, else the assigned agent chip, else the first
- * enabled agent) and ask it to answer in the conversation.
- */
 
 async function completeWithAgent(
   agent: {
@@ -71,15 +65,21 @@ async function completeWithAgent(
 export const replyToChat = internalAction({
   args: {
     projectId: v.id("projects"),
-    preferredAgentId: v.optional(v.id("agents")),
+    preferredAgentIds: v.optional(v.array(v.id("agents"))),
     userMessageId: v.id("messages"),
   },
   handler: async (ctx, args) => {
+    // Concurrency guard: check if this message was already answered
+    const alreadyReplied = await ctx.runQuery(internal.chatContext.checkAlreadyReplied, {
+      userMessageId: args.userMessageId,
+    });
+    if (alreadyReplied) return;
+
     const data = (await ctx.runQuery(internal.chatContext.getContext, {
       projectId: args.projectId,
-      preferredAgentId: args.preferredAgentId,
+      preferredAgentIds: args.preferredAgentIds,
     })) as {
-      agent: {
+      agents: Array<{
         _id: string;
         name: string;
         role: string;
@@ -88,55 +88,63 @@ export const replyToChat = internalAction({
         llmModel?: string;
         llmBaseUrl?: string;
         llmApiKey?: string;
-      } | null;
+      }>;
       projectName: string;
       history: { authorType: string; content: string }[];
     };
 
-    const agent = data.agent;
-    const projectName = data.projectName;
-    const history = data.history;
+    const { agents, projectName, history } = data;
 
-    if (!agent) {
+    if (agents.length === 0) {
       await ctx.runMutation(internal.chatContext.insertAgentMessage, {
         projectId: args.projectId,
-        content: "No agent is configured for this project yet.",
+        content: "No enabled agents are assigned to this project team yet.",
+        replyToMessageId: args.userMessageId,
       });
       return;
     }
 
-    const system = [
-      `You are ${agent.name}, a ${agent.role} on the agent team of project "${projectName}".`,
-      agent.systemPrompt ?? "",
-      "Answer the user's chat message helpfully and briefly in the same language as the user. If the user asks for work to be done, tell them to use the Create task button. Do not pretend to have executed code. Respond in plain text.",
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    const messages = history.map((m) => ({
+    const conversation = history.map((m) => ({
       role: m.authorType === "agent" ? "assistant" : "user",
       content: m.content,
     }));
 
-    let content: string;
-    try {
-      content = await completeWithAgent(agent, system, messages);
-    } catch (err: any) {
-      await ctx.runMutation(internal.chatContext.insertAgentMessage, {
-        projectId: args.projectId,
-        agentId: agent._id as any,
-        content: `I couldn't reply (${err.message}). Check the agent's LLM settings.`,
-      });
-      return;
-    }
+    // Sequential multi-agent replies: each selected agent answers with its persona
+    for (const agent of agents) {
+      const multiNotice = agents.length > 1
+        ? ` You are participating in a multi-agent discussion with: ${agents.map((a) => `${a.name} (${a.role})`).join(", ")}.`
+        : "";
+      const system = [
+        `You are ${agent.name}, a ${agent.role} on the agent team of project "${projectName}".${multiNotice}`,
+        agent.systemPrompt ?? "",
+        "Answer the user's chat message helpfully and briefly from your perspective in the same language as the user. If the user asks for work to be done, tell them to use the Create task button. Do not pretend to have executed code. Respond in plain text.",
+      ]
+        .filter(Boolean)
+        .join("\n");
 
-    if (content.trim()) {
-      await ctx.runMutation(internal.chatContext.insertAgentMessage, {
-        projectId: args.projectId,
-        agentId: agent._id as any,
-        content: content.trim(),
-      });
+      let content: string;
+      try {
+        content = await completeWithAgent(agent, system, conversation);
+      } catch (err: any) {
+        await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+          projectId: args.projectId,
+          agentId: agent._id as any,
+          content: `I couldn't reply (${err.message}). Check the agent's LLM settings.`,
+          replyToMessageId: args.userMessageId,
+        });
+        continue;
+      }
+
+      if (content.trim()) {
+        await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+          projectId: args.projectId,
+          agentId: agent._id as any,
+          content: content.trim(),
+          replyToMessageId: args.userMessageId,
+        });
+        // Append response to conversation so subsequent agents have context
+        conversation.push({ role: "assistant", content: content.trim() });
+      }
     }
   },
 });
-

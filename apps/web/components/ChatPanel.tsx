@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../api/convex/_generated/api";
 import Link from "next/link";
@@ -8,12 +8,11 @@ import AgentAvatar from "./AgentAvatar";
 import { AnimatedTooltip } from "@/components/ui/animated-tooltip";
 import { avatartionFor, deserializeAvatartion } from "./ui/avatartion";
 import DiffCard from "./DiffCard";
-import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import Modal from "./Modal";
 import TaskBoard from "./TaskBoard";
 import ToolActivity from "./ToolActivity";
 import { useToast } from "./Toasts";
-import { Bell, Check, Copy, MoreHorizontal, Pencil, Send, Trash2 } from "lucide-react";
+import { Bell, Check, Copy, MoreHorizontal, Pencil, Send } from "lucide-react";
 
 type Props = {
   projectId: string;
@@ -24,18 +23,7 @@ type Props = {
   selectedTaskId: string | null;
 };
 
-function detectChatIntent(raw: string): "empty" | "conversation" | "task" {
-  const text = raw.trim().toLowerCase();
-  if (!text) return "empty";
-  if (text.startsWith("@") || text.startsWith("/")) return "task";
-  const jobWords =
-    /(\b(tolong|buatkan|buat|kerjakan|implementasikan|perbaiki|fix|audit|testing|uji|jalankan|refactor|tambah|hapus|update|deploy|merge|review|lengkapi|rapikan|optimasi|optimalkan)\b|\b(create|add|build|implement|fix|audit|test|run|refactor|deploy|merge|update|remove)\b|\btask\b|\btugas\b|\bbug\b|\bfitur\b|\bfeature\b)/;
-  if (jobWords.test(text)) return "task";
-  if (/[?？]$/.test(text) || /^(halo|hai|hi|hello|pagi|siang|sore|malam|apa kabar|bagaimana|kenapa|siapa|kapan|pendapat|opini|saran|ide|what|why|how|who|when|where|tell|explain|jelaskan)\b/.test(text)) {
-    return "conversation";
-  }
-  return "conversation";
-}
+// ponytail: auto-mode intent classification can be added via LLM when explicit modes feel too rigid
 
 function MessageText({ content }: { content: string }) {
   const parts = content.split(/(\n{2,})/g);
@@ -129,9 +117,6 @@ function MessageText({ content }: { content: string }) {
 }
 
 export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpenAgent, selectedTaskId }: Props) {
-  const [command, setCommand] = useState("");
-  const [error, setError] = useState("");
-  const [sending, setSending] = useState(false);
   const project = useQuery(api.projects.get, { projectId: projectId as any });
   const messages = useQuery(api.messages.listByProject, { projectId: projectId as any });
   const tasks = useQuery(api.tasks.listByProject, { projectId: projectId as any });
@@ -251,47 +236,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     }
   }
 
-  const createTask = useMutation(api.tasks.createFromCommand);
-  const removeTask = useMutation(api.tasks.remove);
   const toast = useToast();
-  const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  const deleteTask = (task: any) => {
-    setConfirmReq({
-      title: `Delete task “${task.title}”?`,
-      message: "All history for this task will be permanently deleted.",
-      onOk: () => { void confirmDeleteTask(task); },
-    });
-  };
-
-  const confirmDeleteTask = async (task: any) => {
-    setDeleting(true);
-    try {
-      await removeTask({ taskId: task._id });
-      if (selectedTaskId === task._id) onSelectTask("");
-      toast("success", "Task deleted", task.title);
-      setConfirmReq(null);
-    } catch (err) {
-      toast("error", "Failed to delete task", err instanceof Error ? err.message : "Failed to delete task");
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const submit = async () => {
-    if (!command.trim()) return;
-    setError("");
-    setSending(true);
-    try {
-      await createTask({ projectId: projectId as any, command: command.trim() });
-      setCommand("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send command");
-    } finally {
-      setSending(false);
-    }
-  };
 
   const sendMessage = useAction(api.messages.send);
   const [chatCommand, setChatCommand] = useState("");
@@ -300,7 +245,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const [chatSending, setChatSending] = useState(false);
   const [mention, setMention] = useState<string | null>(null);
 
-  const chatIntent = useMemo(() => detectChatIntent(chatCommand), [chatCommand]);
 
   const mentionResults = useMemo(() => {
     if (mention === null) return [];
@@ -311,30 +255,21 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       .slice(0, 8);
   }, [mention, projectFiles]);
 
-  const submitChatTask = async (forceTask = false) => {
+  const submitChat = async () => {
     const text = chatCommand.trim();
     if (!text) return;
     setChatError("");
     setChatSending(true);
     try {
-      const intent = forceTask ? "task" : detectChatIntent(text);
-      if (intent === "conversation") {
-        await sendMessage({ projectId: projectId as any, content: text });
-        setChatCommand("");
-        setMention(null);
-        return;
-      }
-      const taskId = await createTask({
+      await sendMessage({
         projectId: projectId as any,
-        command: text,
-        assignedAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
+        content: text,
+        preferredAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
       });
       setChatCommand("");
       setMention(null);
-      onSelectTask(taskId as any);
-      setTab("tasks");
     } catch (err) {
-      setChatError(err instanceof Error ? err.message : "Failed to create task");
+      setChatError(err instanceof Error ? err.message : "Failed to send");
     } finally {
       setChatSending(false);
     }
@@ -642,7 +577,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                             changeType={fc.changeType}
                             applied={Boolean(fc.appliedAt)}
                             approvalId={pendingApproval?._id as string}
-                            busy={sending}
+                            busy={false}
                             onApprove={(id) => approve({ approvalId: id as any })}
                             onReject={(id) => reject({ approvalId: id as any })}
                           />
@@ -701,7 +636,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         )}
       </div>
 
-      <ConfirmDialog request={confirmReq} pending={deleting} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
+
       {isManageOpen && (
         <Modal title={`Manage project · ${manageName}`} onClose={() => setIsManageOpen(false)} maxWidth="max-w-lg">
           <form onSubmit={handleSaveProject} className="mt-4 grid gap-3">
@@ -800,14 +735,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               )}
             </div>
           )}
-          {chatIntent === "conversation" && chatCommand.trim() && (
-            <p className="mb-2 text-[11px] text-gray-400">
-              Ini terdeteksi sebagai percakapan.{" "}
-              <button type="button" onClick={() => void submitChatTask(true)} className="font-semibold text-[#6252d8] hover:underline">
-                Jadikan task
-              </button>
-            </p>
-          )}
           <div className="relative flex gap-2">
             {mention !== null && mentionResults.length > 0 && (
               <ul className="absolute bottom-full left-0 z-30 mb-2 max-h-52 w-full overflow-y-auto rounded-xl border border-[#e5e3eb] bg-white py-1 shadow-xl dark:border-gray-700 dark:bg-gray-900">
@@ -834,38 +761,24 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                     insertMention(mentionResults[0]);
                     return;
                   }
-                  void submitChatTask();
+                  void submitChat();
                 }
               }}
-              placeholder="Describe the job… use @ to attach a file"
+              placeholder="Ask the team anything… use @ to reference a file"
               className="flex-1 rounded-xl border border-[#e5e3eb] bg-[#fbfbfd] px-3 py-2.5 text-sm outline-none focus:border-[#a29ae8] focus:ring-2 focus:ring-[#e5e1ff]"
             />
             <button
-              onClick={() => void submitChatTask()}
+              onClick={() => void submitChat()}
               disabled={chatSending || !chatCommand.trim()}
               className="flex items-center gap-1 rounded-xl bg-[#6252d8] px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#5345c2] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Send size={16} /> {chatSending ? "Sending…" : chatIntent === "conversation" ? "Send" : "Create task"}
+              <Send size={16} /> {chatSending ? "Sending…" : "Send"}
             </button>
           </div>
           {chatError && <p className="mt-2 text-xs text-red-600">{chatError}</p>}
         </div>
       )}
-      {tab === "tasks" && <div className="border-t border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/70">
-        <div className="flex gap-2">
-          <input
-            value={command}
-            onChange={(e) => setCommand(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
-            placeholder="Give the agent team a command…"
-            className="flex-1 rounded-xl border border-[#e5e3eb] bg-[#fbfbfd] px-3 py-2.5 text-sm outline-none focus:border-[#a29ae8] focus:ring-2 focus:ring-[#e5e1ff]"
-          />
-          <button onClick={() => void submit()} disabled={sending || !command.trim()} className="flex items-center gap-1 rounded-xl bg-[#6252d8] px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#5345c2] disabled:cursor-not-allowed disabled:opacity-50">
-            <Send size={16} /> {sending ? "Sending…" : "Send"}
-          </button>
-        </div>
-        {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
-      </div>}
+
     </main>
   );
 }

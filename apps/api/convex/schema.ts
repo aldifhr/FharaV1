@@ -195,9 +195,11 @@ export default defineSchema({
     content: v.string(),
     subtaskKey: v.optional(v.string()),
     executionId: v.optional(v.id("executions")),
+    replyToMessageId: v.optional(v.id("messages")),
   })
     .index("by_project", ["projectId"])
-    .index("by_task", ["taskId"]),
+    .index("by_task", ["taskId"])
+    .index("by_reply_to", ["replyToMessageId"]),
 
   approvals: defineTable({
     taskId: v.id("tasks"),

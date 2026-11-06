@@ -34,6 +34,115 @@ export function isTransientLlmError(error: unknown): boolean {
   return true;
 }
 
+interface GateWaiter {
+  grant: () => void;
+  reject: (error: Error) => void;
+  signal?: AbortSignal;
+  onAbort?: () => void;
+}
+
+/**
+ * Process-wide semaphore bounding how many LLM calls run at once
+ * (Phase 4, spec §6): sized by policy.maxConcurrentLLMCalls and applied
+ * around runLlmCall, so planner, executor and reviewer calls share one
+ * bound instead of each path pressuring the provider independently. A
+ * call holds its slot for its whole local retry sequence (including
+ * backoff), which also damps retry stampedes. Waiters are queued FIFO;
+ * a waiter whose signal aborts leaves the queue and rejects immediately
+ * instead of starting a call nobody is waiting for anymore.
+ */
+export class LlmConcurrencyGate {
+  private active = 0;
+  private readonly waiters: GateWaiter[] = [];
+  private limit: number;
+
+  constructor(limit: number) {
+    this.limit = LlmConcurrencyGate.clampLimit(limit);
+  }
+
+  private static clampLimit(limit: number): number {
+    if (!Number.isFinite(limit)) return 1;
+    return Math.min(8, Math.max(1, Math.floor(limit)));
+  }
+
+  getLimit(): number {
+    return this.limit;
+  }
+
+  getActiveCount(): number {
+    return this.active;
+  }
+
+  getQueuedCount(): number {
+    return this.waiters.length;
+  }
+
+  /** Resize the gate (the limit is process-level policy; the runner sets it per task). */
+  setLimit(limit: number): void {
+    this.limit = LlmConcurrencyGate.clampLimit(limit);
+    this.pump();
+  }
+
+  private pump(): void {
+    while (this.active < this.limit && this.waiters.length > 0) {
+      const waiter = this.waiters.shift()!;
+      if (waiter.signal && waiter.onAbort) {
+        waiter.signal.removeEventListener("abort", waiter.onAbort);
+      }
+      this.active += 1;
+      waiter.grant();
+    }
+  }
+
+  private acquire(signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) {
+      return Promise.reject(new Error("LLM request aborted by caller"));
+    }
+    if (this.active < this.limit) {
+      this.active += 1;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve, reject) => {
+      const waiter: GateWaiter = { grant: resolve, reject, signal };
+      if (signal) {
+        waiter.onAbort = () => {
+          const index = this.waiters.indexOf(waiter);
+          if (index >= 0) this.waiters.splice(index, 1);
+          reject(new Error("LLM request aborted by caller"));
+        };
+        signal.addEventListener("abort", waiter.onAbort, { once: true });
+      }
+      this.waiters.push(waiter);
+    });
+  }
+
+  private release(): void {
+    this.active = Math.max(0, this.active - 1);
+    this.pump();
+  }
+
+  async run<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    await this.acquire(signal);
+    try {
+      return await fn();
+    } finally {
+      this.release();
+    }
+  }
+}
+
+/** Shared process gate; the default size matches the policy default (2). */
+const sharedLlmGate = new LlmConcurrencyGate(2);
+
+/** Point the shared gate at the loaded policy's limit (the runner calls this per task). */
+export function setLlmConcurrencyLimit(limit: number): void {
+  sharedLlmGate.setLimit(limit);
+}
+
+export function getSharedLlmGate(): LlmConcurrencyGate {
+  return sharedLlmGate;
+}
+
 /**
  * Effect-based LLM call with retry + timeout.
  * Retry up to `retries` times with exponential backoff (500ms → 1s → 2s),
@@ -61,19 +170,36 @@ export function llmCallEffect(
       schedule: Schedule.exponential("500 millis").pipe(
         Schedule.upTo({ times: retries })
       ),
-      while: (error) => isTransientLlmError(error),
+      // An aborted call is never retried: the abort error carries no
+      // HTTP status, so the transient classifier alone would happily
+      // replay a call the task has already cancelled (Phase 4).
+      while: (error) => !options.signal?.aborted && isTransientLlmError(error),
     })
   );
 }
 
-/** Run the Effect and return a Promise (drop-in replacement for provider.complete). */
+/**
+ * Run the Effect and return a Promise (drop-in replacement for
+ * provider.complete). Every call passes through the LLM concurrency
+ * gate (policy.maxConcurrentLLMCalls; a per-call gate can be injected
+ * via options.gate, which is also how tests isolate themselves).
+ */
 export function runLlmCall(
   provider: LLMProvider,
   messages: LLMMessage[],
   model?: string,
-  options?: { retries?: number; timeoutMs?: number; signal?: AbortSignal }
+  options?: {
+    retries?: number;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    gate?: LlmConcurrencyGate;
+  }
 ): Promise<LLMResult> {
-  return Effect.runPromise(llmCallEffect(provider, messages, model, options));
+  const gate = options?.gate ?? sharedLlmGate;
+  return gate.run(
+    () => Effect.runPromise(llmCallEffect(provider, messages, model, options)),
+    options?.signal
+  );
 }
 
 /** One stop in an agent's provider chain (structurally = resolver's ResolvedProviderHandle). */
@@ -120,6 +246,10 @@ export async function runLlmCallWithFallback(
       return { result, servedBy: handle };
     } catch (error) {
       lastError = error;
+      // A caller abort (task cancel / deadline) is not a provider
+      // failure: never fall back to the next handle and never count it
+      // against the provider's health (Phase 4).
+      if (options.signal?.aborted) throw error;
       if (!isTransientLlmError(error)) throw error;
       options.health?.recordFailure(handle.connectionId, { transient: true });
       // Transient and retries exhausted on this handle: fall through to

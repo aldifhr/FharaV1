@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chromium } from "playwright";
+import { chromium, type Browser } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 
@@ -23,6 +23,12 @@ export interface QaOptions {
   baseUrl?: string;
   autoStartServer?: boolean;
   onCheck?: (check: QaCheck) => Promise<void>;
+  /**
+   * Task cancellation signal (Phase 4): checked between Playwright
+   * steps; when it fires, the browser is closed and the auto-started
+   * dev server is killed immediately instead of running to completion.
+   */
+  signal?: AbortSignal;
 }
 
 const VIEWPORTS = [
@@ -54,6 +60,16 @@ export async function runResponsiveQa(
   const failures: string[] = [];
   const inconclusive: string[] = [];
   let server: ChildProcess | undefined;
+  let browser: Browser | undefined;
+  const signal = options.signal;
+
+  // On abort, tear down immediately: close the browser and kill the
+  // dev-server child instead of letting the current step run out.
+  const onAbort = () => {
+    if (browser) void browser.close().catch(() => undefined);
+    if (server?.pid) server.kill();
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
 
   const record = async (check: QaCheck) => {
     checks.push(check);
@@ -65,7 +81,13 @@ export async function runResponsiveQa(
   };
 
   try {
-    if (!(await canReach(baseUrl))) {
+    if (signal?.aborted) {
+      await record({
+        label: "qa-run",
+        status: "failed",
+        details: "QA cancelled before it could run",
+      });
+    } else if (!(await canReach(baseUrl))) {
       if (options.autoStartServer === false) {
         await record({
           label: "application reachable",
@@ -84,12 +106,26 @@ export async function runResponsiveQa(
             stdio: "ignore",
           }
         );
-        if (!(await waitForUrl(baseUrl, 30_000))) {
+        if (signal?.aborted) {
           await record({
-            label: "application reachable",
+            label: "qa-run",
             status: "failed",
-            details: `Development server did not start at ${baseUrl}`,
+            details: "QA cancelled while the development server was starting",
           });
+        } else if (!(await waitForUrl(baseUrl, 30_000, signal))) {
+          if (signal?.aborted) {
+            await record({
+              label: "qa-run",
+              status: "failed",
+              details: "QA cancelled while the development server was starting",
+            });
+          } else {
+            await record({
+              label: "application reachable",
+              status: "failed",
+              details: `Development server did not start at ${baseUrl}`,
+            });
+          }
         } else {
           await record({
             label: "application reachable",
@@ -103,9 +139,20 @@ export async function runResponsiveQa(
     }
 
     if (failures.length === 0) {
-      const browser = await chromium.launch({ headless: true });
+      browser = await chromium.launch({ headless: true });
       try {
         for (const viewport of VIEWPORTS) {
+          // Cancellation is checked between Playwright steps: an
+          // aborted task stops before the next viewport instead of
+          // running every remaining check.
+          if (signal?.aborted) {
+            await record({
+              label: "qa-run",
+              status: "failed",
+              details: "QA cancelled",
+            });
+            break;
+          }
           const label = `${viewport.label} viewport`;
           const consoleErrors: string[] = [];
           const networkErrors: string[] = [];
@@ -200,6 +247,7 @@ export async function runResponsiveQa(
         }
       } finally {
         await browser.close();
+        browser = undefined;
       }
     }
   } catch (error) {
@@ -209,6 +257,7 @@ export async function runResponsiveQa(
       details: error instanceof Error ? error.message : String(error),
     });
   } finally {
+    signal?.removeEventListener("abort", onAbort);
     if (server?.pid) {
       server.kill();
       server = undefined;
@@ -304,9 +353,14 @@ async function canReach(url: string): Promise<boolean> {
   }
 }
 
-async function waitForUrl(url: string, timeoutMs: number): Promise<boolean> {
+async function waitForUrl(
+  url: string,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (signal?.aborted) return false;
     if (await canReach(url)) return true;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }

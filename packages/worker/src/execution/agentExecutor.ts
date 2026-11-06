@@ -177,7 +177,7 @@ async function executeCodeChange(
   let { result: response, servedBy } = await runLlmCallWithFallback(
     handles,
     baseMessages(input, basePayload),
-    { health: healthFor(input) }
+    { health: healthFor(input), signal: input.signal }
   );
   if (input.onTokenUsage) {
     await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedBy.config.model);
@@ -198,7 +198,7 @@ async function executeCodeChange(
         input,
         `${basePayload}\n\nYour previous response was not a valid file-changes JSON object. Return ONLY the JSON object again.\n\nPrevious response (for reference):\n${response.content.slice(0, 2000)}`
       ),
-      { health: healthFor(input) }
+      { health: healthFor(input), signal: input.signal }
     ));
     if (input.onTokenUsage) {
       await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedBy.config.model);
@@ -224,7 +224,14 @@ async function executeCodeChange(
     await onMessage(output);
     return { status: "completed", output, meta: { filePaths: [], ...delegationMeta } };
   }
+  // The task may have been cancelled / timed out while the model was
+  // answering (a provider that ignores the abort signal can still
+  // resolve late). A response that lost that race must not stage any
+  // file changes (Phase 4 anti-zombie rule).
+  if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
   for (const file of draft.files.slice(0, 5)) {
+    // Check between files: once aborted, no further changes are staged.
+    if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
     if (isForbiddenPath(file.filePath)) {
       return { status: "failed", error: `Refusing to modify protected path: ${file.filePath}` };
     }
@@ -288,7 +295,7 @@ async function executeReview(
         "Reject only for concrete correctness, security, or regression risks. Do not request style-only changes.",
       ].join("\n")
     ),
-    { health: healthFor(input) }
+    { health: healthFor(input), signal: input.signal }
   );
   if (input.onTokenUsage) {
     await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedBy.config.model);
@@ -335,6 +342,7 @@ async function executeQa(
 ): Promise<SubtaskExecutionResult> {
   const report = await runResponsiveQa(input.workspacePath, {
     baseUrl: input.qaBaseUrl,
+    signal: input.signal,
     onCheck: async (check) => {
       await input.onEvent(
         "task.check",
@@ -435,10 +443,15 @@ async function executeReadOnly(
           chunkEmitted = true;
           await input.onChunk(delta);
         },
-        primary.config.model
+        primary.config.model,
+        { signal: input.signal }
       );
       health?.recordSuccess(primary.connectionId);
     } catch (error) {
+      // A caller abort is not a provider failure and never falls back.
+      if (input.signal.aborted) {
+        throw error;
+      }
       if (isTransientLlmError(error)) {
         health?.recordFailure(primary.connectionId, { transient: true });
       }
@@ -447,13 +460,19 @@ async function executeReadOnly(
       if (chunkEmitted || !isTransientLlmError(error) || handles.length < 2) {
         throw error;
       }
-      const fallback = await runLlmCallWithFallback(handles.slice(1), messages, { health });
+      const fallback = await runLlmCallWithFallback(handles.slice(1), messages, {
+        health,
+        signal: input.signal,
+      });
       response = fallback.result;
       servedModel = fallback.servedBy.config.model;
       if (response.content) await input.onChunk(response.content);
     }
   } else {
-    const { result, servedBy } = await runLlmCallWithFallback(handles, messages, { health });
+    const { result, servedBy } = await runLlmCallWithFallback(handles, messages, {
+      health,
+      signal: input.signal,
+    });
     response = result;
     servedModel = servedBy.config.model;
   }

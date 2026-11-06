@@ -12,6 +12,14 @@ import {
 const DEFAULT_LEASE_MS = 60_000;
 
 /**
+ * Phase 4 recovery bound: a stale task with a valid stored plan is
+ * requeued at most this many times; beyond that the failure is treated
+ * as durable and the task is failed, so a poisoned plan cannot loop
+ * through workers forever.
+ */
+const MAX_TASK_RECOVERIES = 3;
+
+/**
  * Strip legacy per-agent LLM fields — above all the plaintext `llmApiKey` —
  * before agent rows cross the internal boundary to the worker. The worker
  * never reads them (its toAgentDefinition drops them); returning the raw
@@ -215,6 +223,73 @@ export const recoverStale = internalMutation({
       const workerAlive = task.workerId ? aliveWorkers.has(task.workerId) : false;
       if (!leaseExpired && workerAlive) continue;
 
+      // Phase 4 recovery semantics: a stale task is only a loss when
+      // there is nothing valid to resume from. When the latest stored
+      // plan is structurally valid AND subtask rows exist, the task is
+      // REQUEUED (lease cleared, recovery counted) — the next worker to
+      // claim it rebuilds state from the DB and skips the subtasks that
+      // already completed. It is failed only when no valid plan /
+      // checkpoint exists, or the recovery bound has been reached.
+      const plans = await ctx.db
+        .query("plans")
+        .withIndex("by_task", (q) => q.eq("taskId", task._id))
+        .order("desc")
+        .take(1);
+      const latestPlan = plans[0];
+      const payload = latestPlan?.payload as
+        | { subtasks?: unknown }
+        | null
+        | undefined;
+      const planValid =
+        !!latestPlan &&
+        Array.isArray(payload?.subtasks) &&
+        payload.subtasks.length > 0;
+      const subtaskRows = planValid
+        ? await ctx.db
+            .query("subtasks")
+            .withIndex("by_task", (q) => q.eq("taskId", task._id))
+            .collect()
+        : [];
+      const recoveryCount = task.recoveryCount ?? 0;
+
+      if (planValid && subtaskRows.length > 0 && recoveryCount < MAX_TASK_RECOVERIES) {
+        await ctx.db.patch(task._id, {
+          status: "queued",
+          workerId: undefined,
+          leaseExpiresAt: undefined,
+          errorMessage: undefined,
+          completedAt: undefined,
+          recoveryCount: recoveryCount + 1,
+          updatedAt: args.now,
+        });
+        // Subtasks left "running" by the dead worker have no executor
+        // anymore: return them to pending so the resumed run (and the
+        // dashboard) sees them as work still to do. Completed rows are
+        // untouched — they are the checkpoint being resumed from.
+        for (const subtask of subtaskRows) {
+          if (subtask.status === "running") {
+            await ctx.db.patch(subtask._id, {
+              status: "pending",
+              startedAt: undefined,
+            });
+          }
+        }
+        await ctx.db.insert("taskEvents", {
+          taskId: task._id,
+          projectId: task.projectId,
+          type: "task.recovered",
+          payload: {
+            action: "requeued",
+            reason: "stale_lease",
+            workerId: task.workerId ?? null,
+            recoveryCount: recoveryCount + 1,
+          },
+          level: "warn",
+        });
+        recovered.push(task._id);
+        continue;
+      }
+
       await ctx.db.patch(task._id, {
         status: "failed",
         errorMessage: task.workerId
@@ -229,7 +304,14 @@ export const recoverStale = internalMutation({
         taskId: task._id,
         projectId: task.projectId,
         type: "task.recovered",
-        payload: { reason: "stale_lease", workerId: task.workerId ?? null },
+        payload: {
+          action: "failed",
+          reason: planValid
+            ? "recovery_bound_exceeded"
+            : "no_valid_stored_plan",
+          workerId: task.workerId ?? null,
+          recoveryCount,
+        },
         level: "warn",
       });
       recovered.push(task._id);

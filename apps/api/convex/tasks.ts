@@ -199,9 +199,16 @@ export const retry = mutation({
       updatedAt: now,
       replanCount: 0,
     });
-    // clear failed subtasks so worker replans cleanly
+    // Reset only the subtasks that never finished, so the worker
+    // replans the remaining work cleanly. Completed subtasks keep their
+    // status and output (Phase 4): a manual retry resumes from them —
+    // the worker's state builder skips completed keys — instead of
+    // silently re-executing (and re-paying for) work already done.
     const subs = await ctx.db.query("subtasks").withIndex("by_task", (q) => q.eq("taskId", args.taskId)).collect();
-    for (const s of subs) await ctx.db.patch(s._id, { status: "pending", error: undefined, attempts: 0, completedAt: undefined });
+    for (const s of subs) {
+      if (s.status === "completed") continue;
+      await ctx.db.patch(s._id, { status: "pending", error: undefined, attempts: 0, completedAt: undefined });
+    }
     await ctx.db.insert("taskEvents", {
       taskId: task._id,
       projectId: task.projectId,

@@ -113,6 +113,10 @@ export default defineSchema({
     workerId: v.optional(v.string()),
     leaseExpiresAt: v.optional(v.number()),
     planVersion: v.optional(v.number()),
+    // Phase 4: how many times recoverStale has requeued this task after
+    // a stale lease. Past the recovery bound the task is failed instead
+    // of being requeued forever.
+    recoveryCount: v.optional(v.number()),
     strategy: v.optional(v.string()),
     classification: v.optional(v.string()),
     replanCount: v.optional(v.number()),

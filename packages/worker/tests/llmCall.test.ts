@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { runLlmCall } from "@/effects/llmCall";
+import { LlmConcurrencyGate, runLlmCall } from "@/effects/llmCall";
 import type { LLMProvider } from "@/llm";
 
 describe("llmCall (Effect)", () => {
@@ -80,5 +80,97 @@ describe("llmCall (Effect)", () => {
       runLlmCall(provider, [{ role: "user", content: "hi" }], undefined, { retries: 0, timeoutMs: 50 })
     ).rejects.toThrowError();
     vi.restoreAllMocks();
+  });
+});
+
+describe("llmCall concurrency gate (Phase 4)", () => {
+  const delay = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
+
+  it("never runs more calls at once than policy.maxConcurrentLLMCalls allows", async () => {
+    const gate = new LlmConcurrencyGate(2);
+    let active = 0;
+    let peak = 0;
+    const provider: LLMProvider = {
+      complete: async () => {
+        active += 1;
+        peak = Math.max(peak, active);
+        await delay(30);
+        active -= 1;
+        return { content: "ok" };
+      },
+    };
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        runLlmCall(provider, [{ role: "user", content: "hi" }], undefined, {
+          gate,
+          retries: 0,
+          timeoutMs: 5000,
+        })
+      )
+    );
+    expect(results).toHaveLength(6);
+    expect(peak).toBe(2);
+    expect(gate.getActiveCount()).toBe(0);
+    expect(gate.getQueuedCount()).toBe(0);
+  });
+
+  it("a queued call whose signal aborts leaves the queue and never reaches the provider", async () => {
+    const gate = new LlmConcurrencyGate(1);
+    let calls = 0;
+    const provider: LLMProvider = {
+      complete: async () => {
+        calls += 1;
+        await delay(60);
+        return { content: "ok" };
+      },
+    };
+    const first = runLlmCall(provider, [{ role: "user", content: "hi" }], undefined, {
+      gate,
+      retries: 0,
+      timeoutMs: 5000,
+    });
+    const controller = new AbortController();
+    const second = runLlmCall(provider, [{ role: "user", content: "hi" }], undefined, {
+      gate,
+      retries: 0,
+      timeoutMs: 5000,
+      signal: controller.signal,
+    });
+    // The second call is queued behind the first; aborting it must drop
+    // it from the queue instead of letting it fire later.
+    controller.abort();
+    await expect(second).rejects.toThrowError(/aborted/);
+    await first;
+    expect(calls).toBe(1);
+    expect(gate.getQueuedCount()).toBe(0);
+  });
+
+  it("an aborted in-flight call rejects promptly and is never retried", async () => {
+    const gate = new LlmConcurrencyGate(1);
+    let calls = 0;
+    const provider: LLMProvider = {
+      complete: (_messages, _model, opts) => {
+        calls += 1;
+        // Hangs until the caller's signal fires, like a real fetch.
+        return new Promise((_resolve, reject) => {
+          opts?.signal?.addEventListener(
+            "abort",
+            () => reject(new Error("LLM request aborted by caller")),
+            { once: true }
+          );
+        });
+      },
+    };
+    const controller = new AbortController();
+    const pending = runLlmCall(provider, [{ role: "user", content: "hi" }], undefined, {
+      gate,
+      retries: 3,
+      timeoutMs: 5000,
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 20);
+    await expect(pending).rejects.toThrowError(/aborted/);
+    expect(calls).toBe(1);
   });
 });

@@ -20,6 +20,11 @@ export interface ExecutionPolicy {
   subtaskTimeoutMs: number;
   subtaskRetries: number;
   approvalTimeoutMs: number;
+  /**
+   * Phase 4: LIVE task deadline. The runner arms one AbortController per
+   * task with this timeout; when it fires, in-flight LLM calls, QA and
+   * verification are aborted and the task ends instead of running on.
+   */
   taskTimeoutMs: number;
   verificationEnabled: boolean;
   verificationIncludeBuild: boolean;
@@ -82,7 +87,13 @@ export function loadPolicy(): ExecutionPolicy {
     // limit of 5 killed normal tasks once the tracker was actually fed.
     maxLLMCallsPerTask: intFromEnv("ORCHESTRATOR_MAX_LLM_CALLS_PER_TASK", 12, 1, 50),
     maxDelegationDepth: intFromEnv("ORCHESTRATOR_MAX_DELEGATION_DEPTH", 2, 0, 10),
-    maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", 1, 1, 8),
+    // Phase 4: this field is now LIVE — it sizes the process-wide LLM
+    // request semaphore around runLlmCall (effects/llmCall). Default
+    // raised 1 -> 2: a limit of 1 serialized every LLM call in the
+    // worker (planner, parallel subtasks, review) behind a single slot,
+    // which silently defeated the plan's own DAG parallelism; 2 keeps a
+    // real bound on provider pressure without serializing the graph.
+    maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", 2, 1, 8),
     maxTokenBudgetPerTask: intFromEnv("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK", 50_000, 1_000, 500_000),
     allowFallback: boolFromEnv("ORCHESTRATOR_ALLOW_FALLBACK", true),
     orchestratorAuthoritative: boolFromEnv("ORCHESTRATOR_AUTHORITATIVE", true),

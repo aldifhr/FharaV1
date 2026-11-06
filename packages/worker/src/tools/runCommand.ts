@@ -48,7 +48,8 @@ export function shouldUseShell(command: string): boolean {
 export async function runCommand(
   workspaceRoot: string,
   command: string,
-  args: string[] = []
+  args: string[] = [],
+  options: { signal?: AbortSignal } = {}
 ): Promise<{ stdout: string; stderr: string }> {
   if (!isCommandAllowed(command, args)) {
     throw new Error(`Command blocked (not allowlisted): ${command} ${args.join(" ")}`);
@@ -60,6 +61,10 @@ export async function runCommand(
       maxBuffer: 10 * 1024 * 1024,
       shell: shouldUseShell(command),
       windowsHide: true,
+      // Task cancellation (Phase 4): execFile kills the child when the
+      // signal fires; the rejection lands in the catch below like any
+      // other command failure.
+      signal: options.signal,
     });
     return { stdout, stderr };
   } catch (err: any) {

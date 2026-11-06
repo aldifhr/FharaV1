@@ -9,6 +9,12 @@ export interface VerificationOptions {
   includeBuild?: boolean;
   timeoutMs?: number;
   onCheck?: (check: EvaluationCheck) => Promise<void> | void;
+  /**
+   * Task cancellation signal (Phase 4): checked between steps, and a
+   * firing signal kills the running step's process tree via the same
+   * killTree the timeout uses.
+   */
+  signal?: AbortSignal;
 }
 
 export interface VerificationResult {
@@ -81,13 +87,21 @@ export async function runVerification(options: VerificationOptions): Promise<Ver
 
   for (const target of targets) {
     for (const step of steps) {
+      if (options.signal?.aborted) {
+        await record({
+          name: "verification",
+          status: "inconclusive",
+          details: "Verification aborted: the task was cancelled or timed out",
+        });
+        return finish(checks, ran, skipped);
+      }
       const command = await buildCommand(step, workspacePath, target, manager);
       if (!command) {
         skipped.push(`${target.name}:${step.name}`);
         continue;
       }
 
-      const result = await runCommand(command, target.directory, timeoutMs);
+      const result = await runCommand(command, target.directory, timeoutMs, options.signal);
       ran.push(`${target.name}:${step.name}`);
 
       if (result.timedOut) {
@@ -259,18 +273,26 @@ async function resolveLocalBinary(
   return null;
 }
 
-function runCommand(command: string, cwd: string, timeoutMs: number): Promise<RunResult> {
+function runCommand(
+  command: string,
+  cwd: string,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<RunResult> {
   return new Promise((resolve) => {
     const started = Date.now();
     let output = "";
     let timedOut = false;
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
+    // Assigned once the child exists; finishRun detaches it either way.
+    let onAbort: () => void = () => undefined;
 
     const finishRun = (code: number | null) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       resolve({ code, timedOut, output, durationMs: Date.now() - started });
     };
 
@@ -287,6 +309,18 @@ function runCommand(command: string, cwd: string, timeoutMs: number): Promise<Ru
       output = error instanceof Error ? error.message : String(error);
       finishRun(null);
       return;
+    }
+
+    // Task cancellation kills the step's whole process tree, exactly
+    // like the step timeout does (Phase 4).
+    onAbort = () => {
+      output += "\nVerification step aborted";
+      killTree(child);
+    };
+    if (signal?.aborted) {
+      onAbort();
+    } else {
+      signal?.addEventListener("abort", onAbort, { once: true });
     }
 
     const append = (chunk: Buffer | string) => {

@@ -16,6 +16,26 @@ export interface SchedulerHooks {
   retries: number;
   retryDelayMs?: number;
   shouldCancel?: () => Promise<boolean>;
+  /**
+   * Per-node start gate (Phase 4 per-agent concurrency): consulted on
+   * every scan pass for every pending node whose dependencies are met.
+   * When it returns false the node is DEFERRED — left pending, not
+   * started and not failed — and reconsidered on later passes as other
+   * nodes settle. The runner uses it to hold a subtask back while its
+   * agent is already at AgentDefinition.maxConcurrency.
+   */
+  canStartNode?: (node: SchedulerNode) => boolean;
+  /**
+   * Final veto on retrying a failed node (Phase 4): consulted after the
+   * static permanent/transient classification says a retry is allowed.
+   * The runner uses it to stop retries once the task deadline has fired
+   * or the LLM call budget can no longer pay for another attempt.
+   */
+  shouldRetryNode?: (
+    node: SchedulerNode,
+    outcome: NodeOutcome,
+    attempt: number
+  ) => boolean | Promise<boolean>;
   onStart: (node: SchedulerNode, attempt: number) => Promise<void>;
   /**
    * Called as each node settles. May return ADDITIONAL nodes to schedule
@@ -185,6 +205,17 @@ export async function runScheduler(
       return;
     }
     if (attempt <= hooks.retries && !cancelled) {
+      // Even a classifiable retry is vetoed when the surrounding task
+      // can no longer pay for it (deadline fired / LLM budget spent).
+      if (
+        hooks.shouldRetryNode &&
+        !(await hooks.shouldRetryNode(node, outcome, attempt))
+      ) {
+        states.set(node.id, "failed");
+        outcomes.set(node.id, outcome);
+        failed.push(node.id);
+        return;
+      }
       states.set(node.id, "pending");
       if (retryDelayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt));
@@ -313,7 +344,13 @@ export async function runScheduler(
         const dependenciesSatisfied = node.dependencies.every(
           (dependency) => states.get(dependency) === "success"
         );
-        if (dependenciesSatisfied) start(node);
+        if (!dependenciesSatisfied) continue;
+        // Per-agent concurrency gate: a node whose agent is at its
+        // limit is deferred to a later pass — not started, not failed.
+        // It becomes runnable again as soon as a same-agent node
+        // settles and frees a slot.
+        if (hooks.canStartNode && !hooks.canStartNode(node)) continue;
+        start(node);
       }
     }
 
@@ -327,8 +364,26 @@ export async function runScheduler(
       await markBlocked("Dependency failed");
       const pendingLeft = Array.from(states.values()).some((state) => state === "pending");
       if (halted || cancelled || !pendingLeft) break;
-      // No runnable nodes: treat remaining pending as blocked to avoid a deadlock.
-      await markBlocked("Dependency could not run");
+      // Nothing is running and nothing can start, yet nodes remain
+      // pending: their dependencies can never be satisfied (a cycle the
+      // validator missed) or every runnable node is deferred by the
+      // start gate with no running work left to free a slot. Block them
+      // explicitly so the run ends with a clear status instead of
+      // spinning forever or reporting a false success.
+      const stalledDeferred = allNodes.some(
+        (node) =>
+          states.get(node.id) === "pending" &&
+          node.dependencies.every(
+            (dependency) => states.get(dependency) === "success"
+          ) &&
+          hooks.canStartNode !== undefined &&
+          !hooks.canStartNode(node)
+      );
+      await blockAllPending(
+        stalledDeferred
+          ? "Start gate never freed a slot for this subtask (agent concurrency limit)"
+          : "Dependency could not run"
+      );
       break;
     }
 

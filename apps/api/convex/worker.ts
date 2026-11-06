@@ -191,7 +191,8 @@ export const requestApproval = action({
     kind: v.union(
       v.literal("apply_changes"),
       v.literal("git_push"),
-      v.literal("run_command")
+      v.literal("run_command"),
+      v.literal("merge_pr")
     ),
     summary: v.string(),
     payload: v.optional(v.any()),
@@ -383,5 +384,58 @@ export const recordAudit = action({
     assertServiceToken(args.workerToken);
     const { workerToken: _token, ...rest } = args;
     await ctx.runMutation(internal.audit.record, rest);
+  },
+});
+
+export const recordTokenUsage = action({
+  args: {
+    ...tokenArg,
+    projectId: v.id("projects"),
+    taskId: v.optional(v.id("tasks")),
+    agentId: v.optional(v.id("agents")),
+    agentName: v.string(),
+    model: v.string(),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    assertServiceToken(args.workerToken);
+    const { workerToken: _token, ...rest } = args;
+    await ctx.runMutation(internal.orchestration.recordTokenUsage, rest);
+  },
+});
+
+export const createBranch = action({
+  args: { ...tokenArg, taskId: v.id("tasks"), projectId: v.id("projects") },
+  handler: async (ctx, args): Promise<any> => {
+    assertServiceToken(args.workerToken);
+    return await ctx.runMutation(internal.orchestration.createBranch, {
+      taskId: args.taskId,
+      projectId: args.projectId,
+    });
+  },
+});
+
+export const getDiff = action({
+  args: { ...tokenArg, taskId: v.id("tasks") },
+  handler: async (ctx, args): Promise<any> => {
+    assertServiceToken(args.workerToken);
+    return await ctx.runQuery(internal.orchestration.getDiff, { taskId: args.taskId });
+  },
+});
+
+export const mergeBranch = action({
+  args: { ...tokenArg, taskId: v.id("tasks") },
+  handler: async (ctx, args): Promise<any> => {
+    assertServiceToken(args.workerToken);
+    return await ctx.runMutation(internal.orchestration.mergeBranch, { taskId: args.taskId });
+  },
+});
+
+export const discardBranch = action({
+  args: { ...tokenArg, taskId: v.id("tasks") },
+  handler: async (ctx, args): Promise<any> => {
+    assertServiceToken(args.workerToken);
+    return await ctx.runMutation(internal.orchestration.discardBranch, { taskId: args.taskId });
   },
 });

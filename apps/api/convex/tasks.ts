@@ -15,6 +15,13 @@ export const listByProject = query({
   },
 });
 
+export const listAll = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("tasks").order("desc").take(500);
+  },
+});
+
 export const get = query({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {

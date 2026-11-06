@@ -31,6 +31,16 @@ const VIEWPORTS = [
   { label: "mobile", width: 375, height: 812 },
 ];
 
+const DEV_NOISE_PATTERNS = [
+  /\/_next\/(?:webpack-)?hmr\b/i,
+  /webpack-hmr/i,
+  /\[Fast Refresh\]/i,
+];
+
+function isDevNoise(text: string): boolean {
+  return DEV_NOISE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 export async function runResponsiveQa(
   workspaceRoot: string,
   options: QaOptions = {}
@@ -63,12 +73,17 @@ export async function runResponsiveQa(
           details: `No server reachable at ${baseUrl}`,
         });
       } else {
-        server = spawn(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "dev"], {
-          cwd: workspaceRoot,
-          env: { ...process.env, PORT: "3000" },
-          windowsHide: true,
-          stdio: "ignore",
-        });
+        const isWin = process.platform === "win32";
+        server = spawn(
+          isWin ? "cmd.exe" : "npm",
+          isWin ? ["/c", "npm.cmd", "run", "dev"] : ["run", "dev"],
+          {
+            cwd: workspaceRoot,
+            env: { ...process.env, PORT: "3000" },
+            windowsHide: true,
+            stdio: "ignore",
+          }
+        );
         if (!(await waitForUrl(baseUrl, 30_000))) {
           await record({
             label: "application reachable",
@@ -98,11 +113,16 @@ export async function runResponsiveQa(
             viewport: { width: viewport.width, height: viewport.height },
           });
           page.on("console", (message) => {
-            if (message.type() === "error") consoleErrors.push(message.text().slice(0, 300));
+            if (message.type() !== "error") return;
+            const text = message.text().slice(0, 300);
+            if (isDevNoise(text)) return;
+            consoleErrors.push(text);
           });
           page.on("requestfailed", (request) => {
+            const url = request.url();
+            if (isDevNoise(url)) return;
             networkErrors.push(
-              `${request.method()} ${request.url()}: ${request.failure()?.errorText ?? "failed"}`
+              `${request.method()} ${url}: ${request.failure()?.errorText ?? "failed"}`
             );
           });
 
@@ -129,7 +149,7 @@ export async function runResponsiveQa(
             }
 
             const overlay = page.locator(
-              "[data-nextjs-dialog-overlay], nextjs-portal, .vite-error-overlay"
+              "[data-nextjs-dialog-overlay], .vite-error-overlay"
             );
             if ((await overlay.count()) > 0) {
               await record({

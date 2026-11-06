@@ -1,69 +1,57 @@
 "use client";
-import { Home, Inbox, Search, MessageSquare, SquareKanban, Users, Activity, HeartPulse, Blocks, Brain, Plus, Settings } from "lucide-react";
 import Link from "next/link";
+import { Home, Inbox, Search, MessageSquare, Activity, BarChart3, Plus, Settings } from "lucide-react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { usePathname } from "next/navigation";
-import { useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "convex/react";
 import { motion } from "framer-motion";
-import { ThemeToggle } from "./ui/theme-toggle";
+import { useNewProject } from "./NewProject";
+import { useSettings } from "./Settings";
 import { api } from "../../api/convex/_generated/api";
-
+import CommandMenu from "./CommandMenu";
 const MENU = [
   { icon: Home, label: "Home", href: "/" },
+  { icon: MessageSquare, label: "Chats", href: "/chats" },
   { icon: Inbox, label: "Inbox", href: "/inbox", badge: true },
-  { icon: Search, label: "Search", href: "/search" },
-];
-export type WorkspaceSection = "chat" | "board" | "team" | "activity" | "health" | "integrations" | "memory";
-
-const WS: { icon: typeof MessageSquare; label: string; key: WorkspaceSection; badge?: boolean }[] = [
-  { icon: MessageSquare, label: "Chat", key: "chat" },
-  { icon: SquareKanban, label: "Board", key: "board" },
-  { icon: Users, label: "Team", key: "team" },
-  { icon: Activity, label: "Activity", key: "activity" },
-  { icon: HeartPulse, label: "Agent health", key: "health", badge: true },
-  { icon: Blocks, label: "Integrations", key: "integrations" },
-  { icon: Brain, label: "Memory", key: "memory" },
-];
+  { icon: BarChart3, label: "Analytics", href: "/analytics" },
+  { icon: Activity, label: "Activities", href: "/activities" },
+];export type WorkspaceSection = never;
 
 export default function IconRail({
   onNewProject,
   projectId,
-  activeSection,
-  onSectionChange,
 }: {
   onNewProject?: () => void;
   projectId?: string;
-  activeSection?: WorkspaceSection;
-  onSectionChange?: (section: WorkspaceSection) => void;
 }) {
-  const workspaceHref = projectId ? `/workspace/${projectId}` : "/chat";
+  const { openNewProject } = useNewProject();
+  const { openSettings } = useSettings();
   const pathname = usePathname();
   const inbox = useQuery(api.inbox.list, {});
   const inboxCount = inbox ? inbox.approvals.length + inbox.tasks.length + inbox.agents.length : 0;
+  const [commandOpen, setCommandOpen] = useState(false);
+  const activeSection = undefined;
   const RailBtn = ({ icon: Icon, label, href, badge, active, onClick, count }: any) => {
     const [tooltip, setTooltip] = useState<{ x: number; y: number } | null>(null);
-    const anchorRef = useRef<HTMLAnchorElement | null>(null);
 
-    const showTooltip = (event: MouseEvent<HTMLAnchorElement>) => {
+    const showTooltip = (event: MouseEvent<HTMLElement>) => {
       const rect = event.currentTarget.getBoundingClientRect();
       setTooltip({ x: rect.right + 10, y: rect.top + rect.height / 2 });
     };
     const hideTooltip = () => setTooltip(null);
 
-    return (
-      <motion.div whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.94 }}>
-      <Link
-        ref={anchorRef}
-        href={href}
-        onClick={onClick}
-        title={label}
-        aria-label={label}
-        onMouseEnter={showTooltip}
-        onMouseMove={showTooltip}
-        onMouseLeave={hideTooltip}
-        className={`group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white/65 transition hover:bg-white/15 hover:text-white ${active ? "bg-white/20 text-white shadow-sm" : ""}`}
-      >
+    const shared = {
+      title: label,
+      "aria-label": label,
+      onMouseEnter: showTooltip,
+      onMouseMove: showTooltip,
+      onMouseLeave: hideTooltip,
+      className: `group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[#5147b4] transition hover:bg-[#eceaf3] hover:text-[#3d34a0] dark:text-white/65 dark:hover:bg-white/15 dark:hover:text-white ${active ? "bg-[#5147b4] text-white shadow-sm hover:bg-[#5147b4] dark:bg-white/20 dark:hover:bg-white/15" : ""}`,
+    };
+
+    const inner = (
+      <>
         <Icon size={20} />
         {count > 0 && (
           <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
@@ -71,7 +59,20 @@ export default function IconRail({
           </span>
         )}
         {badge && count === 0 && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-rose-500" />}
-      </Link>
+      </>
+    );
+
+    return (
+      <motion.div whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.94 }}>
+      {href ? (
+        <Link href={href} onClick={onClick} {...shared}>
+          {inner}
+        </Link>
+      ) : (
+        <button type="button" onClick={onClick} {...shared}>
+          {inner}
+        </button>
+      )}
       {tooltip && typeof document !== "undefined" && createPortal(
         <span
           className="pointer-events-none fixed z-[70] -translate-y-1/2 whitespace-nowrap rounded-lg bg-gray-900 px-2 py-1 text-xs text-white shadow-lg"
@@ -85,44 +86,52 @@ export default function IconRail({
     );
   };
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
-    <nav className="flex h-full w-[58px] shrink-0 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto border-r border-white/10 bg-gradient-to-b from-[#6d5cf0] via-[#5b4bd6] to-[#4534a6] py-3 shadow-[inset_-1px_0_rgba(255,255,255,.12)] dark:border-white/5 dark:from-[#241e4a] dark:via-[#191534] dark:to-[#0e0b20] max-[979px]:h-14 max-[979px]:w-full max-[979px]:flex-row max-[979px]:justify-between max-[979px]:overflow-x-auto max-[979px]:overflow-y-hidden max-[979px]:border-r-0 max-[979px]:border-b max-[979px]:bg-gradient-to-r max-[979px]:px-3">
+    <nav className="flex h-full w-[58px] shrink-0 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto border-r border-[#e7e5ef] bg-white py-3 shadow-[inset_-1px_0_rgba(30,25,60,.04)] dark:border-white/5 dark:to-[#0e0b20] dark:from-[#1b1833] dark:via-[#141127] dark:bg-gradient-to-b max-[979px]:h-14 max-[979px]:w-full max-[979px]:flex-row max-[979px]:justify-between max-[979px]:overflow-x-auto max-[979px]:overflow-y-hidden max-[979px]:border-r-0 max-[979px]:border-b max-[979px]:px-3">
+      <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} />
       <div className="flex shrink-0 flex-col items-center gap-2">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20 text-lg font-bold text-white">A</div>
-        {onNewProject ? (
-          <button onClick={onNewProject} title="New project" aria-label="New project" className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/25 text-white hover:bg-white/15">
-            <Plus size={18} />
-          </button>
-        ) : (
-          <Link href="/?new=project" title="New project" aria-label="New project" className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/25 text-white hover:bg-white/15">
-            <Plus size={18} />
-          </Link>
-        )}
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#eceaf3] font-bold text-[#5147b4] dark:bg-white/20 dark:text-white">
+          <span className="text-lg">Z.</span>
+        </div>
+        <button
+          onClick={onNewProject ?? openNewProject}
+          title="New project"
+          aria-label="New project"
+          className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e7e5ef] bg-white text-[#5147b4] hover:bg-[#eceaf3] dark:border-white/25 dark:bg-transparent dark:text-white dark:hover:bg-white/15"
+        >
+          <Plus size={18} />
+        </button>
+        <button
+          onClick={() => setCommandOpen(true)}
+          title="Search"
+          aria-label="Search"
+          className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e7e5ef] bg-white text-[#5147b4] hover:bg-[#eceaf3] dark:border-white/25 dark:bg-transparent dark:text-white dark:hover:bg-white/15"
+        >
+          <Search size={18} />
+        </button>
       </div>
       <div className="mt-5 flex shrink-0 flex-col gap-1 max-[979px]:mt-0 max-[979px]:flex-row">
-        {MENU.map((m) => <RailBtn key={m.label} {...m} count={m.label === "Inbox" ? inboxCount : 0} />)}
-      </div>
-      <div className="mt-5 flex shrink-0 flex-col gap-1 max-[979px]:mt-0 max-[979px]:flex-row">
-        {WS.map((m) => (
+        {MENU.map((m) => (
           <RailBtn
             key={m.label}
-            icon={m.icon}
-            label={m.label}
-            href={projectId ? `${workspaceHref}?section=${m.key}` : workspaceHref}
-            badge={m.badge}
-            active={activeSection === m.key}
-            onClick={(event: MouseEvent<HTMLAnchorElement>) => {
-              if (onSectionChange) {
-                event.preventDefault();
-                onSectionChange(m.key);
-              }
-            }}
+            {...m}
+            count={m.label === "Inbox" ? inboxCount : 0}
           />
         ))}
       </div>
       <div className="mt-auto flex shrink-0 flex-col items-center gap-1 pt-2 max-[979px]:mt-0 max-[979px]:flex-row max-[979px]:pt-0">
-        <RailBtn icon={Settings} label="Settings" href="/settings" active={pathname === "/settings"} />
-        <ThemeToggle />
+        <RailBtn icon={Settings} label="Settings" onClick={openSettings} />
       </div>
     </nav>
   );

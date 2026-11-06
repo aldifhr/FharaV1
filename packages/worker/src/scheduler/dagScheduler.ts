@@ -5,7 +5,7 @@ export interface SchedulerNode {
 
 export type NodeOutcome =
   | { status: "completed"; output?: string; meta?: unknown }
-  | { status: "failed"; error: string }
+  | { status: "failed"; error: string; meta?: unknown }
   | { status: "waiting_approval"; output?: string; meta?: unknown };
 
 export interface SchedulerHooks {
@@ -93,8 +93,10 @@ export async function runScheduler(
     const controller = new AbortController();
     controllers.set(node.id, controller);
     let timer: NodeJS.Timeout | undefined;
+    let timedOut = false;
     const timeout = new Promise<NodeOutcome>((resolve) => {
       timer = setTimeout(() => {
+        timedOut = true;
         controller.abort();
         resolve({ status: "failed", error: `Subtask timed out after ${hooks.timeoutMs}ms` });
       }, hooks.timeoutMs);
@@ -106,6 +108,13 @@ export async function runScheduler(
           execute(node, controller.signal),
           timeout,
         ]);
+        if (timedOut) {
+          return {
+            node,
+            outcome: { status: "failed" as const, error: `Subtask timed out after ${hooks.timeoutMs}ms` },
+            attempt,
+          };
+        }
         return { node, outcome, attempt };
       } catch (error) {
         return {

@@ -5,7 +5,6 @@ import { useQuery } from "convex/react";
 import { api } from "../../../api/convex/_generated/api";
 import Link from "next/link";
 import IconRail from "../../components/IconRail";
-import Sidebar from "../../components/Sidebar";
 import AgentAvatar from "../../components/AgentAvatar";
 
 export default function SearchPage() {
@@ -15,7 +14,6 @@ export default function SearchPage() {
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-gray-900 dark:text-gray-100 max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
       <IconRail />
-      <Sidebar />
       <main className="min-w-0 flex-1 overflow-y-auto p-6 max-[979px]:p-4">
         <div className="mx-auto max-w-2xl">
           <h1 className="text-xl font-semibold">Search</h1>

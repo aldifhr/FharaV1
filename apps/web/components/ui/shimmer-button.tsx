@@ -18,7 +18,7 @@ export const ShimmerButton = React.forwardRef<
 >(
   (
     {
-      shimmerColor = "#ffffff",
+      shimmerColor,
       shimmerSize = "0.05em",
       shimmerDuration = "3s",
       borderRadius = "100px",
@@ -29,12 +29,13 @@ export const ShimmerButton = React.forwardRef<
     },
     ref
   ) => {
+    const effectiveShimmer = shimmerColor ?? "rgba(168, 156, 232, 0.9)";
     return (
       <button
         style={
           {
             "--spread": "90deg",
-            "--shimmer-color": shimmerColor,
+            "--shimmer-color": effectiveShimmer,
             "--radius": borderRadius,
             "--speed": shimmerDuration,
             "--cut": shimmerSize,
@@ -42,7 +43,7 @@ export const ShimmerButton = React.forwardRef<
           } as CSSProperties
         }
         className={cn(
-          "group relative z-0 flex cursor-pointer items-center justify-center overflow-hidden [border-radius:var(--radius)] border border-white/10 px-6 py-3 whitespace-nowrap text-white [background:var(--bg)]",
+          "group relative z-0 flex cursor-pointer items-center justify-center overflow-hidden [border-radius:var(--radius)] border border-[#6252d8]/30 px-6 py-3 whitespace-nowrap text-white [background:var(--bg)]",
           "transform-gpu transition-transform duration-300 ease-in-out active:translate-y-px",
           className
         )}
@@ -69,16 +70,16 @@ export const ShimmerButton = React.forwardRef<
           className={cn(
             "absolute inset-0 size-full",
 
-            "rounded-2xl px-4 py-1.5 text-sm font-medium shadow-[inset_0_-8px_10px_#ffffff1f]",
+            "rounded-2xl px-4 py-1.5 text-sm font-medium shadow-[inset_0_-8px_10px_rgba(98,82,216,0.18)]",
 
             // transition
             "transform-gpu transition-all duration-300 ease-in-out",
 
             // on hover
-            "group-hover:shadow-[inset_0_-6px_10px_#ffffff3f]",
+            "group-hover:shadow-[inset_0_-6px_10px_rgba(98,82,216,0.28)]",
 
             // on click
-            "group-active:shadow-[inset_0_-10px_10px_#ffffff3f]"
+            "group-active:shadow-[inset_0_-10px_10px_rgba(98,82,216,0.28)]"
           )}
         />
 

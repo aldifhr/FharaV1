@@ -117,6 +117,7 @@ export async function applyFileChange(
         `${change.filePath} was removed after approval; refusing to recreate`
       );
     }
+    if (expectedNew !== undefined && hashContent(current) === expectedNew) return;
     if (expectedOld && hashContent(current) !== expectedOld) {
       throw new StaleFileError(
         `${change.filePath} changed after approval; refusing to overwrite`

@@ -53,3 +53,34 @@ export const getForTask = query({
     };
   },
 });
+
+export const activeByAgent = query({
+  args: {},
+  handler: async (ctx) => {
+    const active = await ctx.db
+      .query("executions")
+      .withIndex("by_status", (q) => q.eq("status", "running"))
+      .collect();
+    const waiting = await ctx.db
+      .query("executions")
+      .withIndex("by_status", (q) => q.eq("status", "waiting_approval"))
+      .collect();
+    const queued = await ctx.db
+      .query("executions")
+      .withIndex("by_status", (q) => q.eq("status", "queued"))
+      .collect();
+    const map = new Map<string, { taskId: string; taskTitle: string; subtaskKey?: string; status: string }>();
+    for (const exec of [...active, ...waiting, ...queued]) {
+      if (!exec.agentId) continue;
+      const task = await ctx.db.get(exec.taskId);
+      if (!task) continue;
+      map.set(exec.agentId as string, {
+        taskId: exec.taskId as string,
+        taskTitle: task.title,
+        subtaskKey: exec.subtaskKey,
+        status: exec.status,
+      });
+    }
+    return Object.fromEntries(map);
+  },
+});

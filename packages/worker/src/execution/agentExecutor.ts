@@ -23,6 +23,13 @@ export interface SubtaskExecutionInput {
   onMessage: (content: string) => Promise<void>;
   onChunk: (delta: string) => Promise<void>;
   saveFileChange: (change: FileDiff) => Promise<void>;
+  onTokenUsage?: (inputTokens: number, outputTokens: number, model: string) => Promise<void>;
+}
+
+function resolveModelForAgent(agent: AgentDefinition): string {
+  if (agent.llmModel) return agent.llmModel;
+  if ((agent.llmProvider ?? "anthropic") === "openai-compatible") return "gpt-4o-mini";
+  return "claude-sonnet-4-20250514";
 }
 
 export type SubtaskExecutionResult =
@@ -78,7 +85,7 @@ function baseMessages(input: SubtaskExecutionInput, userContent: string) {
 async function executeCodeChange(
   input: SubtaskExecutionInput
 ): Promise<SubtaskExecutionResult> {
-  const { workspacePath, command, agent, subtask, onEvent, signal } = input;
+  const { workspacePath, command, agent, subtask, onEvent, onMessage, signal } = input;
   const fileHint = extractFileHint(`${subtask.description}\n${command}`);
   const { context } = await exploreRepository(workspacePath, { fileHint });
   await onEvent("agent.context", {
@@ -112,6 +119,9 @@ async function executeCodeChange(
   ].join("\n");
 
   let response = await provider.complete(baseMessages(input, basePayload));
+  if (input.onTokenUsage) {
+    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent));
+  }
 
   let draft = parseDraft(response.content);
   if (!draft) {
@@ -126,6 +136,9 @@ async function executeCodeChange(
         `${basePayload}\n\nYour previous response was not a valid file-changes JSON object. Return ONLY the JSON object again.\n\nPrevious response (for reference):\n${response.content.slice(0, 2000)}`
       )
     );
+    if (input.onTokenUsage) {
+      await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent));
+    }
     draft = parseDraft(response.content);
   }
   if (!draft) {
@@ -136,6 +149,11 @@ async function executeCodeChange(
   }
 
   const prepared: FileDiff[] = [];
+  if (draft.files.length === 0) {
+    const output = "No file changes needed for this task.";
+    await onMessage(output);
+    return { status: "completed", output, meta: { filePaths: [] } };
+  }
   for (const file of draft.files.slice(0, 5)) {
     if (isForbiddenPath(file.filePath)) {
       return { status: "failed", error: `Refusing to modify protected path: ${file.filePath}` };
@@ -197,6 +215,9 @@ async function executeReview(
       ].join("\n")
     )
   );
+  if (input.onTokenUsage) {
+    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent));
+  }
 
   const review = parseReview(response.content);
   if (!review) {
@@ -220,13 +241,18 @@ async function executeReview(
 
   if (review.verdict !== "approved") {
     return {
-      status: "failed",
-      error: `Review requested changes: ${review.findings
-        .map((finding) => finding.description)
-        .join("; ")}`,
+      status: "completed",
+      output: `Review requested changes:\n${review.findings
+        .map((finding) => `- [${finding.severity}] ${finding.filePath}: ${finding.description}`)
+        .join("\n")}`,
+      meta: { verdict: review.verdict, findings: review.findings },
     };
   }
-  return { status: "completed", output: "Review approved.", meta: { findings: review.findings } };
+  return {
+    status: "completed",
+    output: "Review approved.",
+    meta: { verdict: review.verdict, findings: review.findings },
+  };
 }
 
 async function executeQa(
@@ -311,6 +337,9 @@ async function executeReadOnly(
         await input.onChunk(delta);
       })
     : await provider.complete(messages);
+  if (input.onTokenUsage) {
+    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent));
+  }
 
   const content = response.content.trim();
   if (!content) {

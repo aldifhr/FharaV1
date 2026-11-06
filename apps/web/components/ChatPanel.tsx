@@ -6,11 +6,13 @@ import { api } from "../../api/convex/_generated/api";
 import Link from "next/link";
 import AgentAvatar from "./AgentAvatar";
 import { AnimatedTooltip } from "@/components/ui/animated-tooltip";
-import { avatarUrl, defaultAvatarParams } from "@/lib/avatar";
+import { avatartionFor, deserializeAvatartion } from "./ui/avatartion";
 import DiffCard from "./DiffCard";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
+import Modal from "./Modal";
+import ToolActivity from "./ToolActivity";
 import { useToast } from "./Toasts";
-import { Bell, Check, Copy, MoreHorizontal, PanelRight, Send, Trash2 } from "lucide-react";
+import { Bell, Check, Copy, MoreHorizontal, Pencil, Send, Trash2 } from "lucide-react";
 
 type Props = {
   projectId: string;
@@ -18,8 +20,6 @@ type Props = {
   setTab: (t: "chat" | "tasks") => void;
   onSelectTask: (taskId: string) => void;
   onOpenAgent?: (agentId: string) => void;
-  onToggleThread?: () => void;
-  threadCollapsed?: boolean;
   selectedTaskId: string | null;
 };
 
@@ -114,7 +114,7 @@ function MessageText({ content }: { content: string }) {
   );
 }
 
-export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpenAgent, onToggleThread, threadCollapsed, selectedTaskId }: Props) {
+export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpenAgent, selectedTaskId }: Props) {
   const [command, setCommand] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -122,16 +122,25 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const messages = useQuery(api.messages.listByProject, { projectId: projectId as any });
   const tasks = useQuery(api.tasks.listByProject, { projectId: projectId as any });
   const approvals = useQuery(api.approvals.listPendingAll, {});
+  const approve = useMutation(api.approvals.approve);
+  const reject = useMutation(api.approvals.reject);
   const allAgents = useQuery(api.agents.list, {});
+  const updateProject = useMutation(api.projects.update);
+  const updateTeam = useMutation(api.projects.updateTeam);
+  const updateApprovalMode = useMutation(api.projects.updateApprovalMode);
+  const [isManageOpen, setIsManageOpen] = useState(false);
   const projectAgentIds = project?.agentIds;
   const agents = (projectAgentIds
     ? (allAgents ?? []).filter((agent: any) => (projectAgentIds as readonly string[]).includes(agent._id))
     : (allAgents ?? [])) as any[];
   const pendingForProject = (approvals ?? []).filter((a: any) => a.projectId === projectId).length;
+  const pendingItems = (approvals ?? []).filter((a: any) => a.projectId === projectId);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -144,8 +153,19 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [moreOpen]);
 
+  useEffect(() => {
+    if (!notifOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setNotifOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [notifOpen]);
+
   const copyProjectLink = async () => {
-    const url = `${window.location.origin}/workspace/${projectId}`;
+    const url = `${window.location.origin}/chats/${projectId}`;
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
@@ -164,6 +184,50 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     : [];
   const agentMessages = (messages ?? []).filter((message: any) => message.authorType === "agent");
   const latestAgentMessage = [...selectedTaskMessages].reverse().find((message: any) => message.authorType === "agent");
+
+  const [manageName, setManageName] = useState("");
+  const [managePath, setManagePath] = useState("");
+  const [manageApprovalMode, setManageApprovalMode] = useState<"ask" | "auto">("ask");
+  const [manageAgentIds, setManageAgentIds] = useState<string[]>([]);
+  const [manageError, setManageError] = useState("");
+  const [savingManage, setSavingManage] = useState(false);
+
+  function openManageProject() {
+    if (!project) return;
+    setMoreOpen(false);
+    setManageError("");
+    setManageName((project as any).name ?? "");
+    setManagePath((project as any).workspacePath ?? "");
+    setManageApprovalMode((project as any).approvalMode ?? "ask");
+    setManageAgentIds(((project as any).agentIds ?? []) as string[]);
+    setIsManageOpen(true);
+  }
+
+  async function handleSaveProject(event: React.FormEvent) {
+    event.preventDefault();
+    if (!project) return;
+    if (!manageName.trim()) {
+      setManageError("Name is required");
+      return;
+    }
+    setManageError("");
+    setSavingManage(true);
+    try {
+      await updateProject({
+        projectId: projectId as never,
+        name: manageName,
+        workspacePath: managePath,
+        approvalMode: manageApprovalMode,
+      });
+      await updateTeam({ projectId: projectId as never, agentIds: manageAgentIds as never[] });
+      setIsManageOpen(false);
+      toast("success", "Project updated");
+    } catch (err) {
+      setManageError(err instanceof Error ? err.message : "Failed to update project");
+    } finally {
+      setSavingManage(false);
+    }
+  }
 
   const createTask = useMutation(api.tasks.createFromCommand);
   const removeTask = useMutation(api.tasks.remove);
@@ -249,8 +313,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                     key={a._id}
                     type="button"
                     onClick={() => onOpenAgent?.(a._id)}
-                    title={`${a.name} · Open agent`}
-                    aria-label={`Open agent ${a.name}`}
+                    aria-label={a.name}
                     className={`-ml-1.5 rounded-full p-0 first:ml-0 ${
                       activeAgentId && activeAgentId !== a._id
                         ? "opacity-40"
@@ -258,7 +321,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                     }`}
                     onMouseEnter={() => setActiveAgentId(a._id)}
                   >
-                    <AgentAvatar name={a.name} size={28} status={a.status} avatarParams={a.avatarParams} />
+                    <AgentAvatar name={a.name} size={20} status={a.status} avatarParams={a.avatarParams} />
                   </button>
                 ))}
               </div>
@@ -272,8 +335,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                             id: a._id,
                             name: a.name,
                             designation: `${a.role} · ${a.status}`,
-                            image: avatarUrl(a.avatarParams ?? defaultAvatarParams(a.name)),
-                            size: 28,
+                            avatar: (a.avatarParams ? deserializeAvatartion(a.avatarParams) : null) ?? avatartionFor(a.name),
+                            size: 20,
                           }]
                         : [];
                     })()}
@@ -296,30 +359,57 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1">
-          {selectedTaskId && onToggleThread && (
+          <div className="relative" ref={notifRef}>
             <button
               type="button"
-              onClick={onToggleThread}
-              title={threadCollapsed ? "Expand task thread" : "Collapse task thread"}
-              aria-label={threadCollapsed ? "Expand task thread" : "Collapse task thread"}
-              className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+              onClick={() => setNotifOpen((open) => !open)}
+              title={`Notifications — ${pendingForProject} pending approval${pendingForProject === 1 ? "" : "s"}`}
+              aria-label={`Notifications — ${pendingForProject} pending approval${pendingForProject === 1 ? "" : "s"}`}
+              aria-expanded={notifOpen}
+              className="relative rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
             >
-              <PanelRight size={15} />
+              <Bell size={15} />
+              {pendingForProject > 0 && (
+                <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                  {pendingForProject > 9 ? "9+" : pendingForProject}
+                </span>
+              )}
             </button>
-          )}
-          <Link
-            href="/inbox"
-            title={`Notifications — ${pendingForProject} pending approval${pendingForProject === 1 ? "" : "s"}`}
-            aria-label={`Open inbox — ${pendingForProject} pending approval${pendingForProject === 1 ? "" : "s"}`}
-            className="relative rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-          >
-            <Bell size={15} />
-            {pendingForProject > 0 && (
-              <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
-                {pendingForProject > 9 ? "9+" : pendingForProject}
-              </span>
+            {notifOpen && (
+              <div className="absolute right-0 z-40 mt-2 w-72 overflow-hidden rounded-xl border border-[#ebe9f0] bg-white py-1 text-sm shadow-xl dark:border-gray-800 dark:bg-gray-900">
+                <p className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  Notifications ({pendingForProject})
+                </p>
+                <div className="max-h-64 overflow-y-auto">
+                  {pendingItems.length === 0 && (
+                    <p className="px-3 py-3 text-sm text-gray-400">Nothing is waiting for approval.</p>
+                  )}
+                  {pendingItems.map((a: any) => (
+                    <div key={a._id} className="border-t border-gray-100 px-3 py-2 dark:border-gray-800">
+                      <p className="truncate text-sm font-medium">{a.summary}</p>
+                      <p className="mt-0.5 text-xs text-gray-500">{a.kind}</p>
+                      <div className="mt-1.5 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => approve({ approvalId: a._id })}
+                          className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-semibold text-white"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => reject({ approvalId: a._id })}
+                          className="rounded-lg bg-gray-200 px-2 py-1 text-xs font-semibold dark:bg-gray-700 dark:text-white"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
-          </Link>
+          </div>
           <div className="relative" ref={moreRef}>
             <button
               type="button"
@@ -341,8 +431,16 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                   {copied ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} />}
                   {copied ? "Link copied" : "Copy project link"}
                 </button>
+                <button
+                  type="button"
+                  onClick={openManageProject}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  <Pencil size={15} />
+                  Manage project
+                </button>
                 <Link
-                  href={`/workspace/${projectId}?section=activity`}
+                  href="/activities"
                   onClick={() => setMoreOpen(false)}
                   className="flex w-full items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
@@ -371,6 +469,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         ))}
         {tab === "chat" ? (
           <>
+            <ToolActivity events={(taskEvents as any[]) ?? []} />
             {agentMessages.map((m: any, index: number) => (
                 <motion.div
                   key={m._id}
@@ -451,6 +550,72 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       </div>
 
       <ConfirmDialog request={confirmReq} pending={deleting} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
+      {isManageOpen && (
+        <Modal title={`Manage project · ${manageName}`} onClose={() => setIsManageOpen(false)} maxWidth="max-w-lg">
+          <form onSubmit={handleSaveProject} className="mt-4 grid gap-3">
+            <label className="grid gap-1 text-sm">
+              Project name
+              <input
+                value={manageName}
+                onChange={(event) => setManageName(event.target.value)}
+                required
+                className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+              />
+            </label>
+            <label className="grid gap-1 text-sm">
+              Folder path
+              <input
+                value={managePath}
+                onChange={(event) => setManagePath(event.target.value)}
+                required
+                className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+              />
+            </label>
+            <label className="grid gap-1 text-sm">
+              Approval mode
+              <select
+                value={manageApprovalMode}
+                onChange={(event) => setManageApprovalMode(event.target.value as "ask" | "auto")}
+                className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+              >
+                <option value="ask">Ask before changes</option>
+                <option value="auto">Auto-approve</option>
+              </select>
+            </label>
+            <fieldset className="grid gap-2">
+              <legend className="text-sm font-medium">Team project</legend>
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2 dark:border-gray-700">
+                {(allAgents ?? []).length === 0 && <p className="text-xs text-gray-400">Belum ada agent. Buat agent dulu dari halaman Teams.</p>}
+                {(allAgents ?? []).map((agent: any) => (
+                  <label key={agent._id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={manageAgentIds.includes(agent._id)}
+                      onChange={(event) =>
+                        setManageAgentIds((current) =>
+                          event.target.checked
+                            ? [...current, agent._id]
+                            : current.filter((id) => id !== agent._id)
+                        )
+                      }
+                    />
+                    <span>{agent.name}</span>
+                    <span className="text-xs text-gray-400">{agent.role}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            {manageError && <p className="text-sm text-red-600">{manageError}</p>}
+            <button
+              type="submit"
+              disabled={savingManage}
+              className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-gray-900"
+            >
+              {savingManage ? "Saving…" : "Save project"}
+            </button>
+          </form>
+        </Modal>
+      )}
       {tab === "tasks" && <div className="border-t border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/70">
         <div className="flex gap-2">
           <input

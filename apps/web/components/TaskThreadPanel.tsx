@@ -6,7 +6,6 @@ import AgentAvatar from "./AgentAvatar";
 import {
   CheckCircle2,
   ChevronLeft,
-  ChevronRight,
   Circle,
   GitBranch,
   ListTree,
@@ -43,10 +42,10 @@ export default function TaskThreadPanel({
   if (collapsed) {
     return (
       <motion.aside
-        initial={{ opacity: 0, x: 16 }}
-        animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: 16 }}
-        transition={{ duration: 0.18, ease: "easeOut" }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0, transition: { duration: 0.15 } }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
         className="flex h-full w-11 shrink-0 items-start justify-center border-l border-[#ebe9f0] bg-white/80 pt-3 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80 max-[979px]:h-11 max-[979px]:w-full max-[979px]:items-center max-[979px]:border-l-0 max-[979px]:border-t max-[979px]:pt-0"
       >
         <button
@@ -81,9 +80,9 @@ export default function TaskThreadPanel({
 
   return (
     <motion.aside
-      initial={{ opacity: 0, x: 24 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 24 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, transition: { duration: 0.15 } }}
       transition={{ duration: 0.2, ease: "easeOut" }}
       className="flex h-full w-[318px] shrink-0 flex-col border-l border-[#ebe9f0] bg-white/80 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-l-0 max-[979px]:border-t"
     >
@@ -93,15 +92,6 @@ export default function TaskThreadPanel({
           <p className="mt-0.5 text-[11px] text-gray-400">Task thread · {(project as any)?.name ?? "Workspace"}</p>
         </div>
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={onToggle}
-            title="Collapse task thread"
-            aria-label="Collapse task thread"
-            className="rounded-lg p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-800"
-          >
-            <ChevronRight size={16} />
-          </button>
           <button type="button" onClick={onClose} title="Close task thread" aria-label="Close task thread" className="rounded-lg p-1 hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} /></button>
         </div>
       </header>

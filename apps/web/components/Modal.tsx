@@ -4,6 +4,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
+import { Card, CardContent } from "./ui/card";
 
 export default function Modal({
   title,
@@ -60,14 +61,14 @@ export default function Modal({
       transition={{ duration: 0.16 }}
       className={
         fullScreen
-          ? "fixed inset-0 z-50"
+          ? "fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
           : "fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
       }
       role="dialog"
       aria-modal="true"
       aria-label={title}
       onMouseDown={(event) => {
-        if (!fullScreen && event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) onClose();
       }}
     >
       <motion.div
@@ -76,22 +77,17 @@ export default function Modal({
         transition={{ duration: 0.2, ease: "easeOut" }}
         className={
           fullScreen
-            ? "flex h-[100dvh] w-full flex-col overflow-y-auto bg-white p-5 shadow-2xl dark:bg-gray-900"
-            : `max-h-[calc(100vh-2rem)] w-full ${maxWidth} overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl dark:bg-gray-900`
+            ? "w-full max-w-3xl"
+            : `w-full ${maxWidth}`
         }
         onMouseDown={(event) => event.stopPropagation()}
       >
-        {fullScreen ? (
-          <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
+        <Card className="overflow-hidden border-[#ebe9f0] bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900">
+          <CardContent className="p-5">
             {header}
-            <div className="flex flex-1 flex-col justify-center py-6">{children}</div>
-          </div>
-        ) : (
-          <>
-            {header}
-            {children}
-          </>
-        )}
+            <div className={fullScreen ? "mt-4" : ""}>{children}</div>
+          </CardContent>
+        </Card>
       </motion.div>
     </motion.div>,
     document.body

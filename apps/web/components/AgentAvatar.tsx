@@ -22,7 +22,10 @@ export default function AgentAvatar({ name, size = 32, status, avatar, avatarPar
   const resolvedAvatar = avatar ?? restored ?? avatartionFor(name);
 
   return (
-    <span className="relative inline-flex shrink-0" style={{ width: size, height: size }}>
+    <span
+      className={`relative inline-flex shrink-0 transition-transform ${status === "working" ? "scale-110" : ""}`}
+      style={{ width: size, height: size }}
+    >
       <AvatartionAvatarView avatar={resolvedAvatar} className="h-full w-full" />
       {status && (
         <span

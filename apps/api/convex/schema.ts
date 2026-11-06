@@ -49,7 +49,8 @@ export const executionStatus = v.union(
 export const approvalKind = v.union(
   v.literal("apply_changes"),
   v.literal("git_push"),
-  v.literal("run_command")
+  v.literal("run_command"),
+  v.literal("merge_pr")
 );
 
 export const approvalStatus = v.union(
@@ -66,6 +67,8 @@ export default defineSchema({
     ownerId: v.optional(v.string()),
     createdAt: v.optional(v.number()),
     approvalMode: v.optional(v.union(v.literal("ask"), v.literal("auto"))),
+    mainBranch: v.optional(v.string()),
+    worktreesPath: v.optional(v.string()),
   }).index("by_owner", ["ownerId"]),
 
   agents: defineTable({
@@ -103,6 +106,8 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
     errorMessage: v.optional(v.string()),
     updatedAt: v.optional(v.number()),
+    branchName: v.optional(v.string()),
+    worktreePath: v.optional(v.string()),
   })
     .index("by_project", ["projectId"])
     .index("by_status", ["status"])
@@ -227,7 +232,7 @@ export default defineSchema({
     approvedAt: v.optional(v.number()),
     appliedAt: v.optional(v.number()),
     appliedByWorkerId: v.optional(v.string()),
-  }).index("by_task", ["taskId"]),
+  }).index("by_task", ["taskId"]).index("by_project", ["projectId"]),
 
   taskEvents: defineTable({
     taskId: v.id("tasks"),
@@ -269,6 +274,20 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_task", ["taskId"])
+    .index("by_project", ["projectId"])
+    .index("by_created_at", ["createdAt"]),
+
+  tokenUsage: defineTable({
+    projectId: v.id("projects"),
+    taskId: v.optional(v.id("tasks")),
+    agentId: v.optional(v.id("agents")),
+    agentName: v.string(),
+    model: v.string(),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_agent", ["agentId"])
     .index("by_project", ["projectId"])
     .index("by_created_at", ["createdAt"]),
 });

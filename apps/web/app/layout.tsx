@@ -1,10 +1,16 @@
 import "./globals.css";
+import "skullet/styles.css";
 import ConvexClientProvider from "../lib/convex";
 import { Geist, Inter, JetBrains_Mono } from "next/font/google";
 import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ToastProvider } from "@/components/Toasts";
+import { NewProjectProvider } from "@/components/NewProject";
+import { SettingsProvider } from "@/components/Settings";
 import { ShellBackground } from "@/components/ui/background-snippets";
+import Script from "next/script";
+import { ThemeProvider } from "@/components/ui/theme-provider";
+import { SkulletProvider } from "skullet/react";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -20,16 +26,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning className={cn("font-sans", geist.variable, inter.variable, jetbrains.variable)} data-font="geist">
       <body>
         <ShellBackground />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('moagent-theme');var d=t?t==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;if(d){document.documentElement.classList.add('dark');}var f=localStorage.getItem('moagent-font');var ok=['geist','inter','system','jetbrains'];document.documentElement.setAttribute('data-font',ok.indexOf(f)>=0?f:'geist');}catch(e){}})();`,
-          }}
-        />
+        <Script src="/font-init.js" strategy="beforeInteractive" />
+        <ThemeProvider>
+        <SkulletProvider mode="system">
         <TooltipProvider>
           <ToastProvider>
-            <ConvexClientProvider>{children}</ConvexClientProvider>
+        <ConvexClientProvider>
+          <NewProjectProvider><SettingsProvider>{children}</SettingsProvider></NewProjectProvider>
+        </ConvexClientProvider>
           </ToastProvider>
         </TooltipProvider>
+        </SkulletProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

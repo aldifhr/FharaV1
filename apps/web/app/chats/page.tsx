@@ -1,8 +1,7 @@
 import IconRail from "../../components/IconRail";
 import Sidebar from "../../components/Sidebar";
-import { BackgroundBeams } from "@/components/ui/background-beams";
+import Link from "next/link";
 import { TextGenerateEffect } from "@/components/ui/text-generate-effect";
-import { ShimmerButton } from "@/components/ui/shimmer-button";
 
 export default function ChatPage() {
   return (
@@ -10,7 +9,6 @@ export default function ChatPage() {
       <IconRail />
       <Sidebar />
       <main className="relative flex min-w-0 flex-1 items-center justify-center bg-transparent p-6">
-        <BackgroundBeams className="pointer-events-none absolute inset-0 opacity-60 dark:opacity-100" />
         <div className="relative max-w-md text-center">
           <TextGenerateEffect
             duration={0.4}
@@ -18,9 +16,14 @@ export default function ChatPage() {
             words="Select a project"
           />
           <p className="mt-2 text-sm text-gray-500">
-            Select a project from the sidebar to open its agent chat and tasks.
+            Choose a project from the sidebar to open its agent chat and tasks.
           </p>
-          <ShimmerButton shimmerDuration="2.5s" className="mt-4 rounded-lg px-4 py-2 text-sm">Open sidebar →</ShimmerButton>
+          <Link
+            href="/"
+            className="mt-4 inline-block rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
+          >
+            View projects →
+          </Link>
         </div>
       </main>
     </div>

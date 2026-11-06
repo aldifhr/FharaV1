@@ -63,6 +63,35 @@ export const updateTeam = mutation({
   },
 });
 
+export const update = mutation({
+  args: {
+    projectId: v.id("projects"),
+    name: v.optional(v.string()),
+    workspacePath: v.optional(v.string()),
+    approvalMode: v.optional(v.union(v.literal("ask"), v.literal("auto"))),
+  },
+  handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
+    const patch: {
+      name?: string;
+      workspacePath?: string;
+      approvalMode?: "ask" | "auto";
+    } = {};
+    if (args.name !== undefined) {
+      const name = args.name.trim();
+      if (!name) throw new Error("Project name is required");
+      patch.name = name;
+    }
+    if (args.workspacePath !== undefined) {
+      patch.workspacePath = validateWorkspacePath(args.workspacePath);
+    }
+    if (args.approvalMode !== undefined) {
+      patch.approvalMode = args.approvalMode;
+    }
+    await ctx.db.patch(args.projectId, patch);
+  },
+});
+
 export const updateApprovalMode = mutation({
   args: {
     projectId: v.id("projects"),

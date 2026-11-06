@@ -35,6 +35,10 @@ export interface DraftFile {
 
 export function parseDraft(content: string): { files: DraftFile[] } | null {
   const parsed = extractJson(content);
+  if (!parsed || typeof parsed !== "object") return null;
+  const value = parsed as Record<string, unknown>;
+  // {"files":[]} is a valid response meaning "no files to change"
+  if (Array.isArray(value.files) && value.files.length === 0) return { files: [] };
   const candidates: unknown[] = [];
   if (parsed && typeof parsed === "object") {
     const value = parsed as Record<string, unknown>;

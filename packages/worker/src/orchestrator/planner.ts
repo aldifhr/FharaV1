@@ -11,6 +11,7 @@ export interface PlannerInput {
   agents: AgentDefinition[];
   policy: ExecutionPolicy;
   feedback?: string;
+  onTokenUsage?: (inputTokens: number, outputTokens: number, model: string, agentName: string, agentId?: string) => Promise<void>;
 }
 
 export interface PlannerResult {
@@ -32,6 +33,11 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
           : []),
         { role: "user", content: buildPlanningPrompt(input) },
       ]);
+      if (input.onTokenUsage && response.inputTokens !== undefined) {
+        const model = orchestrator.llmModel
+          ?? ((orchestrator.llmProvider ?? "anthropic") === "openai-compatible" ? "gpt-4o-mini" : "claude-sonnet-4-20250514");
+        await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, model, orchestrator.name, orchestrator._id);
+      }
       const parsed = extractJson(response.content);
       const validation = validatePlan(
         parsed && typeof parsed === "object" && !Array.isArray(parsed)
@@ -46,7 +52,8 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         input.policy.maxSubtasks
       );
       if (validation.ok && validation.plan) {
-        const routed = ensureRoutable(validation.plan, input.agents);
+        const enforced = ensureRequiredSubtasks(validation.plan, input.agents);
+        const routed = ensureRoutable(enforced, input.agents);
         if (routed) return { plan: routed, createdBy: "orchestrator", notes };
         notes.push("planner output references capabilities that no enabled agent can serve");
       } else {
@@ -109,6 +116,63 @@ function buildPlanningPrompt(input: PlannerInput): string {
   ]
     .filter((line) => line !== "")
     .join("\n");
+}
+
+export function ensureRequiredSubtasks(
+  plan: ExecutionPlan,
+  agents: AgentDefinition[]
+): ExecutionPlan {
+  const hasCodeChange = plan.subtasks.some((subtask) => subtask.kind === "code_change");
+  if (!hasCodeChange) return plan;
+
+  const subtasks = plan.subtasks.slice();
+  const codeChangeKeys = subtasks
+    .filter((subtask) => subtask.kind === "code_change")
+    .map((subtask) => subtask.key);
+
+  let review = subtasks.find((subtask) => subtask.kind === "review");
+  if (!review) {
+    review = {
+      key: uniqueKey("review", subtasks),
+      title: "Review the change",
+      description: "Review the prepared diff for correctness, regressions and missing cases.",
+      kind: "review",
+      capability: CAPABILITY.CODE_REVIEW,
+      dependencies: codeChangeKeys,
+      order: subtasks.length,
+    };
+    subtasks.push(review);
+  }
+
+  const hasQaAgent = agents.some(
+    (agent) => isAgentEnabled(agent) && capabilitiesOf(agent).includes(CAPABILITY.BROWSER_TESTING)
+  );
+  if (hasQaAgent && !subtasks.some((subtask) => subtask.kind === "qa")) {
+    subtasks.push({
+      key: uniqueKey("qa", subtasks),
+      title: "Verify in a browser",
+      description:
+        "Run the app after changes are applied and verify responsiveness, console errors and network failures.",
+      kind: "qa",
+      capability: CAPABILITY.BROWSER_TESTING,
+      dependencies: [review.key],
+      order: subtasks.length,
+    });
+  }
+
+  return {
+    ...plan,
+    strategy: subtasks.length > 1 ? "dag" : plan.strategy,
+    subtasks: subtasks.map((subtask, index) => ({ ...subtask, order: index })),
+  };
+}
+
+function uniqueKey(base: string, subtasks: ExecutionPlan["subtasks"]): string {
+  const used = new Set(subtasks.map((subtask) => subtask.key));
+  if (!used.has(base)) return base;
+  let index = 2;
+  while (used.has(`${base}_${index}`)) index += 1;
+  return `${base}_${index}`;
 }
 
 function ensureRoutable(plan: ExecutionPlan, agents: AgentDefinition[]): ExecutionPlan | null {

@@ -18,16 +18,15 @@ import { Card, CardContent } from "./ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { usePathname } from "next/navigation";
 import { randomAvatartion, type AvatartionAvatar } from "./ui/avatartion";
+import { SkeletonBox } from "skullet/react";
 
 const AGENT_ROLES = [
   "frontend",
   "backend",
   "qa",
-  "reviewer",
-  "researcher",
   "architect",
   "security",
-  "devops",
+  "researcher",
   "general",
 ] as const;
 
@@ -37,6 +36,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   const projects = useQuery(api.projects.list, {});
   const currentProject = useQuery(api.projects.get, projectId ? { projectId: projectId as never } : "skip");
   const agents = useQuery(api.agents.list, {});
+  const activeByAgent = useQuery(api.executionView.activeByAgent, {});
   const pending = useQuery(api.approvals.listPendingAll, {});
   const approve = useMutation(api.approvals.approve);
   const reject = useMutation(api.approvals.reject);
@@ -69,10 +69,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
 
   const filteredProjects = (projects ?? []).filter((p: any) => p.name.toLowerCase().includes(q.toLowerCase()));
-  const allowedAgentIds = (currentProject as any)?.agentIds as string[] | undefined;
-  const visibleAgents = allowedAgentIds
-    ? (agents ?? []).filter((agent: any) => allowedAgentIds.includes(agent._id))
-    : agents ?? [];
+  const visibleAgents = agents ?? [];
 
   const previewAvatar = avatarSeed ?? undefined;
 
@@ -98,7 +95,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
     }
     setSavingAgent(true);
     try {
-      await createAgent({
+      const newAgentId = await createAgent({
         name: agentName,
         role: agentRole,
         ...(agentPrompt.trim() ? { systemPrompt: agentPrompt } : {}),
@@ -108,6 +105,11 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
       setAgentPrompt("");
       setAvatarSeed(null);
       setIsCreateAgentOpen(false);
+      if (projectId) {
+        setSelectedTeamIds((current) => [...new Set([...(current ?? []), newAgentId as string])]);
+        setTeamProjectId(projectId);
+        setIsTeamOpen(true);
+      }
     } catch (err) {
       setAgentError(err instanceof Error ? err.message : "Failed to create agent");
     } finally {
@@ -180,13 +182,13 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
       }
   }
 
-  function openTeamSettings(targetId?: string) {
+  function openTeamSettings(targetId?: string, preselectedAgentIds?: string[]) {
     const pid = targetId ?? projectId ?? null;
     setTeamProjectId(pid);
     const targetAgents = pid
       ? (projects ?? []).find((p: any) => p._id === pid)?.agentIds as string[] | undefined
-      : allowedAgentIds;
-    setSelectedTeamIds(targetAgents ?? (agents ?? []).map((agent: any) => agent._id));
+      : undefined;
+    setSelectedTeamIds(preselectedAgentIds ?? targetAgents ?? (agents ?? []).map((agent: any) => agent._id));
     setIsTeamOpen(true);
   }
 
@@ -236,7 +238,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   async function confirmRemoveProject(projectToRemove: { _id: string; name: string }) {
     try {
       await removeProject({ projectId: projectToRemove._id as never });
-      if (projectId === projectToRemove._id) router.push("/chat");
+      if (projectId === projectToRemove._id) router.push("/chats");
       toast("success", "Project deleted", projectToRemove.name);
       setConfirmReq(null);
     } catch (err) {
@@ -268,6 +270,22 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   );
 
   if (pathname === "/") return null;
+
+  const ProjectMark = ({ name, active = false }: { name: string; active?: boolean }) => {
+    const initial = (name.trim().charAt(0) || "•").toUpperCase();
+    return (
+      <span
+        aria-hidden="true"
+        className={`mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+          active
+            ? "bg-[#5147b4] text-white"
+            : "bg-[#eceaf3] text-[#5147b4] dark:bg-gray-800 dark:text-indigo-300"
+        }`}
+      >
+        {initial}
+      </span>
+    );
+  };
 
   return (
     <aside className="flex h-full w-[250px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-[#e7e5ef] bg-white/70 p-3.5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/70 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-r-0">
@@ -306,7 +324,17 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
 
       <div>
         <SectionHeader key_="projects" title="Projects" />
-        {openSections.projects && filteredProjects.length === 0 && <p className="px-1 pt-2 text-xs text-gray-400">No projects yet.</p>}
+        {openSections.projects && projects === undefined && (
+          <div aria-hidden className="mt-2 space-y-2 px-1">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <SkeletonBox height={20} width={20} radius={6} />
+                <SkeletonBox height={14} width={i === 1 ? "60%" : "45%"} />
+              </div>
+            ))}
+          </div>
+        )}
+        {openSections.projects && projects !== undefined && filteredProjects.length === 0 && <p className="px-1 pt-2 text-xs text-gray-400">No projects yet.</p>}
         <AnimatePresence initial={false}>
         {openSections.projects && filteredProjects.map((p: any) => (
           <motion.div
@@ -316,8 +344,9 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
             exit={{ opacity: 0, x: -8 }}
             className={`group mt-1 flex items-center justify-between rounded-lg px-2.5 py-2 text-sm transition hover:bg-[#f0eff7] dark:hover:bg-gray-800 dark:text-white ${projectId === p._id ? "bg-[#eeecfb] font-semibold text-[#4c42a3] dark:bg-gray-800 dark:text-indigo-300" : "text-gray-600 dark:text-gray-300"}`}
           >
+            <ProjectMark name={p.name} active={projectId === p._id} />
             <Link
-              href={`/workspace/${p._id}`}
+              href={`/chats/${p._id}`}
               onClick={() => onSelectProject?.(p._id)}
               className="min-w-0 flex-1 truncate"
             >
@@ -388,12 +417,44 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
           </Tooltip>
           </span>
         </div>
+        {openSections.team && agents === undefined && (
+          <div aria-hidden className="mt-2 space-y-2 px-1">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <SkeletonBox height={28} width={28} radius={999} />
+                <div className="flex-1">
+                  <SkeletonBox height={13} width={i === 1 ? "55%" : "70%"} />
+                  <SkeletonBox height={11} width="35%" className="mt-1.5" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <AnimatePresence initial={false}>
-        {openSections.team && visibleAgents.map((a: any) => (
+        {openSections.team && visibleAgents.map((a: any) => {
+          const active = (activeByAgent as any)?.[a._id as string] as { taskId: string; taskTitle: string; subtaskKey?: string; status: string } | undefined;
+          const isWorking = Boolean(active);
+          return (
           <motion.div key={a._id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} role="button" tabIndex={0} onClick={() => openAgentEditor(a)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") openAgentEditor(a); }} className="group mt-1 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 dark:text-white hover:bg-[#f0eff7]">
-            <AgentAvatar name={a.name} size={28} status={a.status} avatarParams={a.avatarParams} />
-            <span className="text-sm">{a.name}</span>
-            <span className="ml-auto text-xs text-gray-400">{a.status}</span>
+            <AgentAvatar name={a.name} size={28} status={isWorking ? "working" : a.status} avatarParams={a.avatarParams} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm">{a.name}</span>
+              <span className="block truncate text-[11px] capitalize text-gray-400">
+                {isWorking ? (
+                  <>
+                    <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                      {active!.status === "running" ? "working" : active!.status === "waiting_approval" ? "waiting approval" : "queued"}
+                    </span>
+                    {" · "}
+                    {active!.taskTitle}
+                    {active!.subtaskKey ? ` · ${active!.subtaskKey}` : ""}
+                  </>
+                ) : (
+                  a.role
+                )}
+              </span>
+            </span>
+            <span className={`text-xs ${isWorking ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-gray-400"}`}>{isWorking ? "busy" : a.status}</span>
             <button
               type="button"
               onClick={(event) => {
@@ -408,7 +469,8 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
               ×
             </button>
           </motion.div>
-        ))}
+          );
+        })}
         </AnimatePresence>
       </div>
 
@@ -422,7 +484,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
               </label>
               <div className="grid gap-1 text-sm">
                 <span>Role</span>
-                <Select value={agentRole || undefined} onValueChange={handleSelectRole}>
+                <Select value={agentRole} onValueChange={handleSelectRole}>
                   <SelectTrigger className="w-full rounded-lg border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
                     <SelectValue placeholder="Select a role…" />
                   </SelectTrigger>
@@ -467,7 +529,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
               </label>
               <div className="grid gap-1 text-sm">
                 <span>Role</span>
-                <Select value={agentRole || undefined} onValueChange={handleSelectRole}>
+                <Select value={agentRole} onValueChange={handleSelectRole}>
                   <SelectTrigger className="w-full rounded-lg border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
                     <SelectValue placeholder="Select a role…" />
                   </SelectTrigger>

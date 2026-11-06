@@ -8,6 +8,7 @@ import {
   useMotionValue,
   useSpring,
 } from "motion/react";
+import { AvatartionAvatarView, type AvatartionAvatar } from "./avatartion";
 
 export const AnimatedTooltip = ({
   items,
@@ -16,7 +17,8 @@ export const AnimatedTooltip = ({
     id: number | string;
     name: string;
     designation: string;
-    image: string;
+    avatar?: AvatartionAvatar;
+    image?: string;
     size?: number;
   }[];
 }) => {
@@ -78,22 +80,31 @@ export const AnimatedTooltip = ({
               >
                 <div className="absolute inset-x-10 -bottom-px z-30 h-px w-[20%] bg-gradient-to-r from-transparent via-emerald-500 to-transparent" />
                 <div className="absolute -bottom-px left-10 z-30 h-px w-[40%] bg-gradient-to-r from-transparent via-sky-500 to-transparent" />
-                <div className="relative z-30 text-base font-bold text-white">
-                  {item.name}
-                </div>
+                <div className="relative z-30 text-base font-bold text-white">{item.name}</div>
                 <div className="text-xs text-white">{item.designation}</div>
               </motion.div>
             )}
           </AnimatePresence>
-          <img
-            onMouseMove={handleMouseMove}
-            height={item.size ?? 100}
-            width={item.size ?? 100}
-            src={item.image}
-            alt={item.name}
-            className="relative !m-0 h-14 w-14 rounded-full border-2 border-white object-cover object-top !p-0 transition duration-500 group-hover:z-30 group-hover:scale-105"
-            style={item.size ? { width: item.size, height: item.size } : undefined}
-          />
+          {item.avatar ? (
+            <div
+              onMouseMove={handleMouseMove}
+              className="relative !m-0 h-14 w-14 rounded-full border-2 border-white p-0 transition duration-500 group-hover:z-30 group-hover:scale-105"
+              style={item.size ? { width: item.size, height: item.size } : undefined}
+            >
+              <AvatartionAvatarView avatar={item.avatar} className="h-full w-full" />
+            </div>
+          ) : item.image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              onMouseMove={handleMouseMove}
+              height={item.size ?? 100}
+              width={item.size ?? 100}
+              src={item.image}
+              alt={item.name}
+              className="relative !m-0 h-14 w-14 rounded-full border-2 border-white object-cover object-top !p-0 transition duration-500 group-hover:z-30 group-hover:scale-105"
+              style={item.size ? { width: item.size, height: item.size } : undefined}
+            />
+          ) : null}
         </div>
       ))}
     </div>

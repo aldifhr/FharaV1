@@ -24,5 +24,9 @@
     "electron@39.8.10": true,
     "esbuild@0.27.0": true,
     "esbuild@0.28.2": true
+  },
+  "dependencies": {
+    "skullet": "^0.0.3",
+    "torph": "^0.1.3"
   }
 }

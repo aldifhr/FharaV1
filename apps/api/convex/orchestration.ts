@@ -1,4 +1,4 @@
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import {
@@ -506,7 +506,8 @@ export const requestApproval = internalMutation({
     kind: v.union(
       v.literal("apply_changes"),
       v.literal("git_push"),
-      v.literal("run_command")
+      v.literal("run_command"),
+      v.literal("merge_pr")
     ),
     summary: v.string(),
     payload: v.optional(v.any()),
@@ -835,3 +836,227 @@ async function refreshAgentStatus(
     await ctx.db.patch(agentId, { status: nextStatus });
   }
 }
+
+export const recordTokenUsage = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    taskId: v.optional(v.id("tasks")),
+    agentId: v.optional(v.id("agents")),
+    agentName: v.string(),
+    model: v.string(),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("tokenUsage", {
+      projectId: args.projectId,
+      taskId: args.taskId,
+      agentId: args.agentId,
+      agentName: args.agentName,
+      model: args.model,
+      inputTokens: args.inputTokens,
+      outputTokens: args.outputTokens,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const tokenUsageStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const records = await ctx.db.query("tokenUsage").collect();
+    const byAgent: Record<string, { inputTokens: number; outputTokens: number; calls: number }> = {};
+    let totalInput = 0;
+    let totalOutput = 0;
+    // Bucket by hour: { hourStartUnixSec: tokens }
+    const byHour: Record<number, number> = {};
+    for (const r of records) {
+      if (!byAgent[r.agentName]) {
+        byAgent[r.agentName] = { inputTokens: 0, outputTokens: 0, calls: 0 };
+      }
+      byAgent[r.agentName].inputTokens += r.inputTokens;
+      byAgent[r.agentName].outputTokens += r.outputTokens;
+      byAgent[r.agentName].calls += 1;
+      totalInput += r.inputTokens;
+      totalOutput += r.outputTokens;
+      const hourStart = Math.floor(r.createdAt / 1000 / 3600) * 3600; // unix seconds, start of hour UTC
+      byHour[hourStart] = (byHour[hourStart] ?? 0) + r.inputTokens + r.outputTokens;
+    }
+    // Cumulative timeline for the chart
+    const sortedHours = Object.keys(byHour)
+      .map(Number)
+      .sort((a, b) => a - b);
+    const nowSec = Math.floor(Date.now() / 1000);
+    // Liveline needs >=2 points to draw; seed with a zero baseline 24h back
+    const seedStart = nowSec - 24 * 3600;
+    let cumulative = 0;
+    const timeline: { time: number; value: number }[] = [{ time: seedStart, value: 0 }];
+    for (const hour of sortedHours) {
+      cumulative += byHour[hour];
+      timeline.push({ time: hour, value: cumulative });
+    }
+    if (timeline[timeline.length - 1].time < nowSec) {
+      timeline.push({ time: nowSec, value: totalInput + totalOutput });
+    }
+    return { byAgent, totalInput, totalOutput, totalCalls: records.length, timeline };
+  },
+});
+
+export const getBranchContext = internalQuery({
+  args: { taskId: v.id("tasks"), projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.taskId);
+    const project = await ctx.db.get(args.projectId);
+    if (!task || !project) throw new Error("Task or project not found");
+    return {
+      taskTitle: task.title,
+      workspacePath: project.workspacePath,
+      worktreesPath: project.worktreesPath,
+      mainBranch: project.mainBranch,
+      projectName: project.name,
+      existingBranchName: task.branchName,
+      existingWorktreePath: task.worktreePath,
+    };
+  },
+});
+
+export const completeBranchCreation = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    branchName: v.string(),
+    worktreePath: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.taskId, {
+      branchName: args.branchName,
+      worktreePath: args.worktreePath,
+      updatedAt: Date.now(),
+    });
+    await ctx.db.insert("taskEvents", {
+      taskId: args.taskId,
+      projectId: args.projectId,
+      type: "branch.created",
+      payload: { branchName: args.branchName, worktreePath: args.worktreePath },
+      level: "info",
+    });
+  },
+});
+
+export const getDiffContext = internalQuery({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) throw new Error("Task not found");
+    if (!task.worktreePath) throw new Error("No worktreePath for task");
+    const project = await ctx.db.get(task.projectId);
+    return {
+      worktreePath: task.worktreePath,
+      branchName: task.branchName ?? "",
+      mainBranch: project?.mainBranch ?? "main",
+    };
+  },
+});
+
+export const getMergeContext = internalQuery({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) throw new Error("Task not found");
+    if (!task.branchName || !task.worktreePath) {
+      throw new Error("No branch/worktree for this task");
+    }
+    const project = await ctx.db.get(task.projectId);
+    return {
+      branchName: task.branchName,
+      worktreePath: task.worktreePath,
+      workspacePath: project?.workspacePath ?? "",
+      mainBranch: project?.mainBranch ?? "main",
+      projectId: task.projectId,
+    };
+  },
+});
+
+export const mergeBranchCompleted = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    branchName: v.string(),
+    conflict: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (args.conflict) {
+      await ctx.db.insert("taskEvents", {
+        taskId: args.taskId,
+        projectId: args.projectId,
+        type: "branch.merge_conflict",
+        payload: { branchName: args.branchName, error: args.conflict },
+        level: "error",
+      });
+      throw new Error(`Merge failed: ${args.conflict}`);
+    }
+    await ctx.db.patch(args.taskId, {
+      branchName: undefined,
+      worktreePath: undefined,
+    });
+    await ctx.db.insert("taskEvents", {
+      taskId: args.taskId,
+      projectId: args.projectId,
+      type: "branch.merged",
+      payload: { branchName: args.branchName },
+      level: "info",
+    });
+    return { success: true };
+  },
+});
+
+export const getDiscardContext = internalQuery({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return null;
+    const project = await ctx.db.get(task.projectId);
+    return {
+      workspacePath: project?.workspacePath ?? "",
+      worktreePath: task.worktreePath,
+      branchName: task.branchName,
+      projectId: task.projectId,
+    };
+  },
+});
+
+export const discardBranchDone = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    branchName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.taskId, {
+      branchName: undefined,
+      worktreePath: undefined,
+    });
+    await ctx.db.insert("taskEvents", {
+      taskId: args.taskId,
+      projectId: args.projectId,
+      type: "branch.discarded",
+      payload: { branchName: args.branchName },
+      level: "warn",
+    });
+  },
+});
+
+export const cleanupWorktreeContext = internalQuery({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return null;
+    const project = await ctx.db.get(task.projectId);
+    if (!project) return null;
+    return {
+      workspacePath: project.workspacePath,
+      worktreesPath: project.worktreesPath,
+      branchPrefix: `moagent/${args.taskId}/`,
+    };
+  },
+});

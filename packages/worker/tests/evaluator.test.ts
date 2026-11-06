@@ -92,6 +92,30 @@ describe("evaluator", () => {
     expect(result.verdict).toBe("inconclusive");
   });
 
+  it("fails when static verification fails", async () => {
+    const content = "export const ok = true;\n";
+    await fs.writeFile(path.join(root, "app.ts"), content, "utf-8");
+    const result = await evaluateTask({
+      workspacePath: root,
+      subtasks: [{ key: "implement", kind: "code_change", status: "completed" }],
+      fileChanges: [
+        {
+          filePath: "app.ts",
+          changeType: "modified",
+          newContentHash: hashContent(content),
+          appliedAt: Date.now(),
+        },
+      ],
+      hasApprovalPlan: true,
+      qaVerdicts: {},
+      verificationChecks: [
+        { name: "@app/web:typecheck", status: "failed", details: "error TS2322" },
+      ],
+    });
+    expect(result.verdict).toBe("failed");
+    expect(result.checks.map((check) => check.name)).toContain("@app/web:typecheck");
+  });
+
   it("fails when QA reports failures", async () => {
     const result = await evaluateTask({
       workspacePath: root,

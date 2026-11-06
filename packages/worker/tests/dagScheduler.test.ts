@@ -129,6 +129,32 @@ describe("DAG scheduler", () => {
     expect(result.failed).toContain("a");
   });
 
+  it("stops timed-out work before retrying", async () => {
+    const events: string[] = [];
+    const result = await runScheduler(
+      nodes([["a", []]]),
+      async (node, signal) => {
+        events.push(`start:${node.id}`);
+        await new Promise((resolve) => {
+          signal.addEventListener("abort", () => {
+            resolve(undefined);
+          });
+        });
+        events.push(`settled:${node.id}`);
+        return { status: "completed" };
+      },
+      {
+        maxConcurrency: 1,
+        timeoutMs: 20,
+        retries: 0,
+        onStart: async () => undefined,
+        onOutcome: async () => undefined,
+      }
+    );
+    expect(result.status).toBe("failed");
+    expect(events).toEqual(["start:a", "settled:a"]);
+  });
+
   it("stops scheduling when the task is cancelled", async () => {
     const executed: string[] = [];
     const shouldCancel = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true);

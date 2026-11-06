@@ -32,6 +32,7 @@ export interface EvaluationInput {
   fileChanges: EvaluationFileChange[];
   hasApprovalPlan: boolean;
   qaVerdicts: Record<string, EvaluationVerdict>;
+  verificationChecks?: EvaluationCheck[];
 }
 
 export interface EvaluationResult {
@@ -95,6 +96,15 @@ export async function evaluateTask(input: EvaluationInput): Promise<EvaluationRe
       checks.push(verification);
       if (verification.status !== "passed") notes.push(verification.details ?? "");
     }
+  }
+
+  if (input.verificationChecks && input.verificationChecks.length > 0) {
+    checks.push(...input.verificationChecks);
+    notes.push(
+      ...input.verificationChecks
+        .filter((check) => check.status !== "passed")
+        .map((check) => `${check.name}: ${check.details ?? ""}`)
+    );
   }
 
   const qaEntries = Object.entries(input.qaVerdicts);

@@ -6,7 +6,7 @@ const CHANGE_VERB =
 const AUDIT_ONLY =
   /\b(audit|review|inspect|analy[sz]e|check for|security review|code review)\b/i;
 const QUESTION =
-  /\b(explain|how does|how do|why|what is|what are|where is|document|describe|summari[sz]e)\b/i;
+  /\b(explain|how does|how do|why|what is|what are|where is|document|describe|summari[sz]e|pelajari|learn|study|explore|understand)\b/i;
 const FRONTEND =
   /\b(frontend|front-end|ui|ux|react|next\.?js|component|page|button|form|layout|css|tailwind|responsive|design)\b/i;
 const BACKEND =

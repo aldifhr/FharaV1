@@ -99,6 +99,7 @@ export interface RunContextData {
   agents: WorkerAgent[];
   plan: WorkerPlanRecord | null;
   subtasks: WorkerSubtask[];
+  approvalMode: "ask" | "auto";
 }
 
 export class WorkerApi {
@@ -235,7 +236,7 @@ export class WorkerApi {
     projectId: string;
     executionId?: string;
     subtaskKey?: string;
-    kind: "apply_changes" | "git_push" | "run_command";
+    kind: "apply_changes" | "git_push" | "run_command" | "merge_pr";
     summary: string;
     payload?: unknown;
     requestedByAgentId?: string;
@@ -355,5 +356,27 @@ export class WorkerApi {
     details?: unknown;
   }): Promise<void> {
     await this.client.action(api.worker.recordAudit as any, this.args(input));
+  }
+
+  async recordTokenUsage(input: {
+    projectId: string;
+    taskId?: string;
+    agentId?: string;
+    agentName: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+  }): Promise<void> {
+    await this.client.action(api.worker.recordTokenUsage as any, this.args(input));
+  }
+
+  async createBranch(input: {
+    taskId: string;
+    projectId: string;
+  }): Promise<{ branchName: string; worktreePath: string }> {
+    return (await this.client.action(api.worker.createBranch as any, this.args(input))) as {
+      branchName: string;
+      worktreePath: string;
+    };
   }
 }

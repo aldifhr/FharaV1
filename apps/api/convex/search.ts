@@ -5,7 +5,6 @@ export const global = query({
   args: { q: v.string() },
   handler: async (ctx, args) => {
     const q = args.q.trim().toLowerCase();
-    if (!q) return { projects: [], tasks: [], agents: [] };
 
     const [projects, tasks, agents] = await Promise.all([
       ctx.db.query("projects").collect(),
@@ -14,14 +13,16 @@ export const global = query({
     ]);
     const nameById = new Map(projects.map((p) => [p._id as string, p.name]));
 
+    const matches = (s: string) => !q || s.toLowerCase().includes(q);
+
     return {
-      projects: projects.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 8),
+      projects: projects.filter((p) => matches(p.name)).slice(0, 8),
       tasks: tasks
-        .filter((t) => t.title.toLowerCase().includes(q) || t.command.toLowerCase().includes(q))
+        .filter((t) => matches(t.title) || matches(t.command))
         .slice(0, 12)
         .map((t) => ({ ...t, projectName: nameById.get(t.projectId as string) ?? "—" })),
       agents: agents
-        .filter((a) => a.name.toLowerCase().includes(q) || a.role.toLowerCase().includes(q))
+        .filter((a) => matches(a.name) || matches(a.role))
         .slice(0, 8)
         .map(({ llmApiKey, ...a }) => ({ ...a, llmApiKeyConfigured: Boolean(llmApiKey) })),
     };

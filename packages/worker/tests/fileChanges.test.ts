@@ -33,6 +33,14 @@ describe("file change staging", () => {
     await expect(applyFileChange(root, change)).resolves.toBeUndefined();
   });
 
+  it("is idempotent when a modification is already applied", async () => {
+    await fs.writeFile(path.join(root, "file.txt"), "one", "utf-8");
+    const change = await computeDiff(root, "file.txt", "two");
+    await applyFileChange(root, change);
+    await expect(applyFileChange(root, change)).resolves.toBeUndefined();
+    expect(await fs.readFile(path.join(root, "file.txt"), "utf-8")).toBe("two");
+  });
+
   it("applies modifications and detects stale content", async () => {
     await fs.writeFile(path.join(root, "file.txt"), "one", "utf-8");
     const change = await computeDiff(root, "file.txt", "two");

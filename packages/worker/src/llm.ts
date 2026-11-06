@@ -7,6 +7,8 @@ export interface LLMMessage {
 
 export interface LLMResult {
   content: string;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface LLMProvider {
@@ -43,7 +45,11 @@ export class AnthropicProvider implements LLMProvider {
       .filter((c): c is Anthropic.TextBlock => c.type === "text")
       .map((c) => c.text)
       .join("");
-    return { content: text };
+    return {
+      content: text,
+      inputTokens: res.usage?.input_tokens,
+      outputTokens: res.usage?.output_tokens,
+    };
   }
 
   async stream(messages: LLMMessage[], onChunk: (delta: string) => void, model?: string): Promise<LLMResult> {
@@ -76,7 +82,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
   async complete(messages: LLMMessage[], model?: string): Promise<LLMResult> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
+    const timeout = setTimeout(() => controller.abort(), 120_000);
     let response: Response;
     try {
       response = await fetch(`${this.baseUrl.replace(/\/$/, "")}/chat/completions`, {
@@ -90,7 +96,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        throw new Error(`LLM request timed out after 30s at ${this.baseUrl}/chat/completions`);
+        throw new Error(`LLM request timed out after 120s at ${this.baseUrl}/chat/completions`);
       }
       throw error;
     } finally {
@@ -106,8 +112,12 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
     const normalizedBody = responseBody.replace(/(?:\r?\n)?data:\s*\[DONE\]\s*$/, "");
     try {
-      const data = JSON.parse(normalizedBody) as { choices?: { message?: { content?: string } }[] };
-      return { content: data.choices?.[0]?.message?.content ?? "" };
+      const data = JSON.parse(normalizedBody) as { choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } };
+      return {
+        content: data.choices?.[0]?.message?.content ?? "",
+        inputTokens: data.usage?.prompt_tokens,
+        outputTokens: data.usage?.completion_tokens,
+      };
     } catch (error) {
       if (!(error instanceof SyntaxError)) throw error;
 

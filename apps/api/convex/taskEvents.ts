@@ -2,6 +2,16 @@ import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { assertProjectAccess, getVisibleTask } from "./authz";
 
+export const listAll = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("taskEvents")
+      .order("desc")
+      .take(Math.min(Math.max(args.limit ?? 200, 1), 500));
+  },
+});
+
 export const listByProject = query({
   args: { projectId: v.id("projects"), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {

@@ -30,7 +30,14 @@ import {
   type SharedTaskContext,
 } from "@/orchestrator/taskContext";
 import type { Classification } from "@/orchestrator/types";
-import { getGlobalLLMConfig, type GlobalLLMConfig } from "@/llm";
+import type { GlobalLLMConfig } from "@/llm";
+import type { FallbackHandle } from "@/effects/llmCall";
+import {
+  materializePool,
+  TaskLlmResolver,
+  type PoolConnectionRow,
+} from "@/llm/resolver";
+import { providerHealth } from "@/llm/health";
 import { routeCapability, capabilitiesOf } from "@/orchestrator/capabilities";
 import {
   buildReviewFixSubtask,
@@ -39,7 +46,7 @@ import {
 } from "@/orchestrator/reviewLoop";
 import type { ReviewResult } from "@/utils/json";
 import { executeSubtask } from "@/execution/agentExecutor";
-import { WebClient } from "@/tools/webClient";
+import { WebClient, type WebClientConfig } from "@/tools/webClient";
 import { runVerification } from "@/execution/verification";
 import {
   runScheduler,
@@ -74,33 +81,38 @@ interface RunState {
 }
 
 /**
- * Resolve the per-task LLM config from the DB provider pool (Settings page).
- * DB fields win; the API key falls back to the env var named by the
- * provider's apiKeyEnv, then to the worker's env config. This replaces the
- * old process.env mutation, which leaked one task's provider into the next
- * when the worker ran tasks concurrently.
+ * Build the per-task LLM resolver from the DB provider pool (Settings
+ * page). The pool rows carry only ENCRYPTED keys; materializePool decrypts
+ * them with the worker's PROVIDER_ENCRYPTION_KEY (or reads the env var a
+ * connection names via apiKeyEnv). A decryption failure is a hard error
+ * naming the provider — the caller fails the task with it rather than
+ * silently calling an LLM with the wrong credential.
+ *
+ * Each agent then resolves independently (assignment → fallback
+ * assignment → pool by priority/weight, circuit-open connections
+ * excluded) — replacing the old single `llmProviders[0]` task config.
  */
-function resolveTaskLlmConfig(
-  llmProviders:
-    | Array<{
-        provider: string;
-        model: string;
-        baseUrl: string;
-        apiKeyEnv: string;
-        apiKey?: string;
-      }>
-    | undefined
-): GlobalLLMConfig {
-  const envConfig = getGlobalLLMConfig();
-  const provider = llmProviders?.[0];
-  if (!provider) return envConfig;
+async function buildTaskLlmResolver(
+  llmProviders: PoolConnectionRow[] | undefined
+): Promise<TaskLlmResolver> {
+  const pool = await materializePool(llmProviders);
+  return new TaskLlmResolver(pool, providerHealth);
+}
+
+/**
+ * Stagehand (live browser) model + key, derived from the task's resolved
+ * default LLM config — threaded explicitly into WebClient so the browser
+ * tool follows the same provider resolution as every other LLM consumer
+ * instead of reading shared process.env values.
+ */
+function stagehandConfigFrom(
+  llmConfig: GlobalLLMConfig | undefined
+): { stagehandModelName?: WebClientConfig["stagehandModelName"]; stagehandApiKey?: string } {
+  if (!llmConfig?.apiKey) return {};
+  const family = llmConfig.provider.toLowerCase() === "anthropic" ? "anthropic" : "openai";
   return {
-    provider: provider.provider,
-    model: provider.model,
-    baseUrl: provider.baseUrl,
-    apiKey:
-      provider.apiKey ??
-      (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] ?? envConfig.apiKey : envConfig.apiKey),
+    stagehandModelName: `${family}/${llmConfig.model}` as WebClientConfig["stagehandModelName"],
+    stagehandApiKey: llmConfig.apiKey,
   };
 }
 
@@ -185,11 +197,24 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     });
     return;
   }
-  // Global LLM config lives in Settings (llmProviders). Resolve it once per
-  // task into an explicit config object threaded through the planner and the
-  // executors — never mutate process.env, which is shared across the
-  // worker's concurrent tasks.
-  const llmConfig = resolveTaskLlmConfig(llmProviders);
+  // LLM resolution is per agent (Phase 2 resolver): the pool is
+  // materialized once per task (keys decrypted here, never via process.env
+  // mutation), and each planner/executor call resolves its own agent's
+  // assignment → fallback → pool chain. `llmConfig` remains as the
+  // task-level default for agent-less consumers.
+  let llmResolver: TaskLlmResolver;
+  let llmConfig: GlobalLLMConfig;
+  try {
+    llmResolver = await buildTaskLlmResolver(llmProviders);
+    llmConfig = llmResolver.defaultConfig();
+  } catch (error) {
+    await deps.api.completeTask({
+      taskId: task._id,
+      status: "failed",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
   // QA base URL is resolved once per task (project.qaUrl > project.devUrl >
   // worker-start env fallback) and threaded explicitly to the QA executor.
   // It is never written to process.env: with concurrent tasks the shared
@@ -329,6 +354,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       agents: runAgents,
       policy: deps.policy,
       llmConfig,
+      llmResolver,
       onTokenUsage: recordUsage,
     });
     plan = created.plan;
@@ -388,6 +414,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       sharedContext,
       classification,
       llmConfig,
+      llmResolver,
       qaBaseUrl,
     });
 
@@ -418,6 +445,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           policy: deps.policy,
           feedback,
           llmConfig,
+          llmResolver,
           onTokenUsage: recordUsage,
         });
         plan = replanned.plan;
@@ -467,6 +495,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         policy: deps.policy,
         feedback,
         llmConfig,
+        llmResolver,
         onTokenUsage: recordUsage,
       });
       plan = replanned.plan;
@@ -534,11 +563,16 @@ async function executePlan(input: {
   sharedContext?: SharedTaskContext;
   classification?: Classification;
   llmConfig?: GlobalLLMConfig;
+  /** Per-agent LLM resolver (Phase 2); executors resolve their own agent's chain from it. */
+  llmResolver?: TaskLlmResolver;
   /** Per-task QA base URL (project qaUrl > devUrl > env fallback), threaded to the QA executor. */
   qaBaseUrl?: string;
 }): Promise<"completed" | "failed" | "waiting_approval"> {
   const { deps, task, project, plan, state } = input;
-  const browser = new WebClient({ headless: true });
+  const browser = new WebClient({
+    headless: true,
+    ...stagehandConfigFrom(input.llmConfig),
+  });
 
   try {
   const implementationNodes = plan.subtasks.filter(
@@ -587,6 +621,18 @@ async function executePlan(input: {
         return { status: "completed", output: "Previously completed" };
       }
       const executionId = executionIds.get(node.id);
+      // Resolve this agent's provider chain (assignment → fallback → pool).
+      // A resolution failure (e.g. no provider can serve the agent, or a
+      // provider cannot be constructed) fails the subtask explicitly.
+      let llmHandles: FallbackHandle[] | undefined;
+      try {
+        llmHandles = input.llmResolver?.handlesFor(agent);
+      } catch (error) {
+        return {
+          status: "failed",
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
       return await executeSubtask({
         workspacePath: input.workspacePath,
         command: task.command,
@@ -595,6 +641,7 @@ async function executePlan(input: {
         agent,
         browser,
         llmConfig: input.llmConfig,
+        llmHandles,
         qaBaseUrl: input.qaBaseUrl,
         taskContext: input.sharedContext,
         priorOutputs: state.priorOutputs,
@@ -1194,6 +1241,21 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
 
   const changes = await deps.api.getFileChanges({ taskId });
 
+  // Resumed tasks resolve LLMs exactly like fresh ones (Phase 2 resolver).
+  let llmResolver: TaskLlmResolver;
+  let llmConfig: GlobalLLMConfig;
+  try {
+    llmResolver = await buildTaskLlmResolver(context.llmProviders);
+    llmConfig = llmResolver.defaultConfig();
+  } catch (error) {
+    await deps.api.completeTask({
+      taskId,
+      status: "failed",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
   const agents = context.agents.map(toAgentDefinition);
   const completedKeys = new Set(
     context.subtasks
@@ -1225,7 +1287,8 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
     approvalResolved: true,
     approvalMode: context.approvalMode,
     completedKeys,
-    llmConfig: resolveTaskLlmConfig(context.llmProviders),
+    llmConfig,
+    llmResolver,
     qaBaseUrl: resolveQaBaseUrl(context.project),
   });
   if (outcome === "waiting_approval") return;
@@ -1619,6 +1682,12 @@ export function toAgentDefinition(agent: WorkerAgent): AgentDefinition {
     priority: agent.priority,
     maxConcurrency: agent.maxConcurrency,
     status: agent.status,
+    // LLM assignment for the Phase 2 resolver (ids only — never key material).
+    llmProviderId: agent.llmProviderId,
+    llmModelId: agent.llmModelId,
+    llmFallbackProviderId: agent.llmFallbackProviderId,
+    llmFallbackModelId: agent.llmFallbackModelId,
+    llmSelectionPolicy: agent.llmSelectionPolicy,
   };
 }
 

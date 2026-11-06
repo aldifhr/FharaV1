@@ -1,5 +1,6 @@
 import { Effect, Schedule } from "effect";
-import type { LLMMessage, LLMProvider, LLMResult } from "@/llm";
+import type { GlobalLLMConfig, LLMMessage, LLMProvider, LLMResult } from "@/llm";
+import type { ProviderHealthRegistry } from "@/llm/health";
 
 /**
  * Whether an LLM call failure is worth retrying.
@@ -43,13 +44,13 @@ export function llmCallEffect(
   provider: LLMProvider,
   messages: LLMMessage[],
   model?: string,
-  options: { retries?: number; timeoutMs?: number } = {}
+  options: { retries?: number; timeoutMs?: number; signal?: AbortSignal } = {}
 ) {
   const retries = options.retries ?? 2;
   const timeoutMs = options.timeoutMs ?? 300_000;
 
   const callPromise = () =>
-    provider.complete(messages, model).then((res) => res as LLMResult);
+    provider.complete(messages, model, { signal: options.signal }).then((res) => res as LLMResult);
 
   return Effect.tryPromise({
     try: callPromise,
@@ -70,7 +71,62 @@ export function runLlmCall(
   provider: LLMProvider,
   messages: LLMMessage[],
   model?: string,
-  options?: { retries?: number; timeoutMs?: number }
+  options?: { retries?: number; timeoutMs?: number; signal?: AbortSignal }
 ): Promise<LLMResult> {
   return Effect.runPromise(llmCallEffect(provider, messages, model, options));
+}
+
+/** One stop in an agent's provider chain (structurally = resolver's ResolvedProviderHandle). */
+export interface FallbackHandle {
+  connectionId: string;
+  connectionName: string;
+  config: GlobalLLMConfig;
+  provider: LLMProvider;
+}
+
+/**
+ * Call an LLM through an ordered provider chain with in-task fallback
+ * (spec §4D): each handle gets the normal local retry policy first; when a
+ * handle fails TRANSIENTLY and its local retries are exhausted, the next
+ * handle in the chain serves the SAME call within the same task. Permanent
+ * errors (4xx) never trigger fallback — retrying the same payload against
+ * another provider would fail the same way and hide the real problem.
+ *
+ * Every outcome is recorded into the health registry: successes close the
+ * circuit, transient failures count toward opening it.
+ */
+export async function runLlmCallWithFallback(
+  handles: FallbackHandle[],
+  messages: LLMMessage[],
+  options: {
+    health?: ProviderHealthRegistry;
+    retries?: number;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  } = {}
+): Promise<{ result: LLMResult; servedBy: FallbackHandle }> {
+  if (handles.length === 0) {
+    throw new Error("No LLM provider handles available for this call");
+  }
+  let lastError: unknown;
+  for (const handle of handles) {
+    try {
+      const result = await runLlmCall(handle.provider, messages, handle.config.model, {
+        retries: options.retries,
+        timeoutMs: options.timeoutMs,
+        signal: options.signal,
+      });
+      options.health?.recordSuccess(handle.connectionId);
+      return { result, servedBy: handle };
+    } catch (error) {
+      lastError = error;
+      if (!isTransientLlmError(error)) throw error;
+      options.health?.recordFailure(handle.connectionId, { transient: true });
+      // Transient and retries exhausted on this handle: fall through to
+      // the next candidate in the chain (same task, same call).
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`All ${handles.length} LLM providers in the fallback chain failed`);
 }

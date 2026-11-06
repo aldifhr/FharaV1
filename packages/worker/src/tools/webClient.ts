@@ -102,12 +102,16 @@ export class WebClient {
       headless: this.config.headless ?? true,
     });
     this.browser = browser;
+    // Model + key come from the resolved LLM config threaded in by the
+    // caller (agentExecutor/taskRunner via the Phase 2 resolver) — this
+    // tool no longer reads LLM_* env vars, so provider rotation/disable in
+    // Settings actually takes effect here. Stagehand-specific env vars
+    // remain as operator overrides.
     const modelName: StagehandModelName =
       (this.config.stagehandModelName as StagehandModelName | undefined) ??
       (process.env.STAGEHAND_MODEL as StagehandModelName | undefined) ??
-      (process.env.LLM_MODEL as StagehandModelName | undefined) ??
       "anthropic/claude-sonnet-4-20250514";
-    const apiKey = this.config.stagehandApiKey ?? process.env.STAGEHAND_API_KEY ?? process.env.LLM_API_KEY ?? "";
+    const apiKey = this.config.stagehandApiKey ?? process.env.STAGEHAND_API_KEY ?? "";
     const stagehand = await Stagehand.create({
       browser,
       ...(apiKey ? { model: { modelName, apiKey } } : {}),

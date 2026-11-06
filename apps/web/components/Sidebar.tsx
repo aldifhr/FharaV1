@@ -36,6 +36,8 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   const projects = useQuery(api.projects.list, {});
   const currentProject = useQuery(api.projects.get, projectId ? { projectId: projectId as never } : "skip");
   const agents = useQuery(api.agents.list, {});
+  const llmProviders = useQuery(api.llmProviders.list, {});
+  const llmModels = useQuery(api.llmModels.list, {});
   const activeByAgent = useQuery(api.executionView.activeByAgent, {});
   const pending = useQuery(api.approvals.listPendingAll, {});
   const approve = useMutation(api.approvals.approve);
@@ -48,6 +50,12 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   const [agentName, setAgentName] = useState("");
   const [agentRole, setAgentRole] = useState("");
   const [agentPrompt, setAgentPrompt] = useState("");
+  // LLM assignment (Phase 2 resolver): "" = unassigned (pool decides).
+  const [agentLlmProviderId, setAgentLlmProviderId] = useState("");
+  const [agentLlmModelId, setAgentLlmModelId] = useState("");
+  const [agentLlmFallbackProviderId, setAgentLlmFallbackProviderId] = useState("");
+  const [agentLlmFallbackModelId, setAgentLlmFallbackModelId] = useState("");
+  const [agentLlmPolicy, setAgentLlmPolicy] = useState("");
   const [agentError, setAgentError] = useState("");
   const [savingAgent, setSavingAgent] = useState(false);
   const [avatarSeed, setAvatarSeed] = useState<AvatartionAvatar | null>(null);
@@ -119,6 +127,11 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
       setAgentName(agent.name);
       setAgentRole(agent.role);
       setAgentPrompt(agent.systemPrompt ?? "");
+      setAgentLlmProviderId(agent.llmProviderId ?? "");
+      setAgentLlmModelId(agent.llmModelId ?? "");
+      setAgentLlmFallbackProviderId(agent.llmFallbackProviderId ?? "");
+      setAgentLlmFallbackModelId(agent.llmFallbackModelId ?? "");
+      setAgentLlmPolicy(agent.llmSelectionPolicy ?? "");
       setAvatarSeed(null);
   }
 
@@ -147,6 +160,12 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
           name: agentName,
           role: agentRole,
           systemPrompt: agentPrompt,
+          // LLM assignment: an id sets it, null clears it (backend contract).
+          llmProviderId: (agentLlmProviderId || null) as never,
+          llmModelId: (agentLlmModelId || null) as never,
+          llmFallbackProviderId: (agentLlmFallbackProviderId || null) as never,
+          llmFallbackModelId: (agentLlmFallbackModelId || null) as never,
+          llmSelectionPolicy: (agentLlmPolicy || null) as never,
           ...(avatarSeed
             ? {
                 avatarParams: {
@@ -534,6 +553,55 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
             <label className="grid gap-1 text-sm">System prompt <span className="text-gray-400">(optional)</span>
               <textarea value={agentPrompt} onChange={(event) => setAgentPrompt(event.target.value)} rows={4} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
             </label>
+            <fieldset className="grid gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+              <legend className="px-1 text-xs font-semibold text-gray-500">LLM assignment <span className="font-normal text-gray-400">(optional — kosong = ikut pool)</span></legend>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-sm">Provider
+                  <select value={agentLlmProviderId} onChange={(event) => { setAgentLlmProviderId(event.target.value); setAgentLlmModelId(""); }} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
+                    <option value="">Pool (priority/weight)</option>
+                    {(llmProviders ?? []).map((p: any) => (
+                      <option key={p._id} value={p._id}>{p.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm">Model
+                  <select value={agentLlmModelId} onChange={(event) => setAgentLlmModelId(event.target.value)} disabled={!agentLlmProviderId} className="rounded-lg border border-gray-300 px-3 py-2 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800">
+                    <option value="">Model pertama yang tersedia</option>
+                    {(llmModels ?? []).filter((m: any) => m.providerId === agentLlmProviderId).map((m: any) => (
+                      <option key={m._id} value={m._id}>{m.displayName || m.modelId}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm">Fallback provider
+                  <select value={agentLlmFallbackProviderId} onChange={(event) => { setAgentLlmFallbackProviderId(event.target.value); setAgentLlmFallbackModelId(""); }} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
+                    <option value="">Tidak ada (lanjut ke pool)</option>
+                    {(llmProviders ?? []).map((p: any) => (
+                      <option key={p._id} value={p._id}>{p.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm">Fallback model
+                  <select value={agentLlmFallbackModelId} onChange={(event) => setAgentLlmFallbackModelId(event.target.value)} disabled={!agentLlmFallbackProviderId} className="rounded-lg border border-gray-300 px-3 py-2 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800">
+                    <option value="">Model pertama yang tersedia</option>
+                    {(llmModels ?? []).filter((m: any) => m.providerId === agentLlmFallbackProviderId).map((m: any) => (
+                      <option key={m._id} value={m._id}>{m.displayName || m.modelId}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm sm:col-span-2">Selection policy
+                  <select value={agentLlmPolicy} onChange={(event) => setAgentLlmPolicy(event.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
+                    <option value="">Default (weighted di antara priority setara)</option>
+                    <option value="weighted">Weighted — weighted random di antara priority setara</option>
+                    <option value="priority">Priority — selalu priority terendah, abaikan weight</option>
+                    <option value="fixed">Fixed — hanya penugasan di atas, tanpa kandidat pool</option>
+                  </select>
+                </label>
+              </div>
+              <p className="text-xs text-gray-400">
+                Resolver mencoba penugasan ini dulu, lalu fallback-nya, lalu pool. Koneksi yang circuit-nya
+                terbuka (3× gagal transien, cooldown 60 detik) dilewati otomatis.
+              </p>
+            </fieldset>
             <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 p-3 dark:border-gray-700">
               <AgentAvatar name={agentName || "Agent"} size={48} avatar={avatarSeed ?? undefined} />
               <div className="min-w-0 flex-1">

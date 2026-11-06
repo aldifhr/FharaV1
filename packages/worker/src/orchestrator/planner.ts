@@ -1,5 +1,7 @@
 import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig } from "@/llm";
-import { runLlmCall } from "@/effects/llmCall";
+import { runLlmCallWithFallback, type FallbackHandle } from "@/effects/llmCall";
+import { providerHealth } from "@/llm/health";
+import type { TaskLlmResolver } from "@/llm/resolver";
 import { CAPABILITY, type AgentDefinition, type Classification, type ExecutionPlan } from "./types";
 import { routeCapability, capabilitiesOf, describeCapabilities, isAgentEnabled } from "./capabilities";
 import { validatePlan } from "./planValidator";
@@ -14,6 +16,12 @@ export interface PlannerInput {
   feedback?: string;
   /** Explicit per-task LLM config (resolved by the runner); env is the fallback. */
   llmConfig?: GlobalLLMConfig;
+  /**
+   * Per-agent resolver (Phase 2): when present, the planner agent's own
+   * assignment/pool resolution decides its provider + model, with in-task
+   * fallback across its chain. Takes precedence over `llmConfig`.
+   */
+  llmResolver?: TaskLlmResolver;
   onTokenUsage?: (inputTokens: number, outputTokens: number, model: string, agentName: string, agentId?: string) => Promise<void>;
 }
 
@@ -29,15 +37,25 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   const orchestrator = pickOrchestrator(input.agents);
   if (orchestrator) {
     try {
-      const provider = createProviderForAgent(orchestrator, input.llmConfig);
-      const response = await runLlmCall(provider, [
+      // The planner is an agent like any other: its LLM comes from its own
+      // resolver chain (assignment → fallback assignment → pool), not from
+      // a single task-wide config, unless no resolver was threaded in.
+      const handles: FallbackHandle[] = input.llmResolver
+        ? input.llmResolver.handlesFor(orchestrator)
+        : [{
+            connectionId: "",
+            connectionName: "(task config)",
+            config: input.llmConfig ?? getGlobalLLMConfig(),
+            provider: createProviderForAgent(orchestrator, input.llmConfig),
+          }];
+      const { result: response, servedBy } = await runLlmCallWithFallback(handles, [
         ...(orchestrator.systemPrompt
           ? [{ role: "system" as const, content: orchestrator.systemPrompt }]
           : []),
         { role: "user", content: buildPlanningPrompt(input) },
-      ]);
+      ], { health: input.llmResolver ? providerHealth : undefined });
       if (input.onTokenUsage && response.inputTokens !== undefined) {
-        const model = input.llmConfig?.model ?? getGlobalLLMConfig().model;
+        const model = servedBy.config.model;
         await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, model, orchestrator.name, orchestrator._id);
       }
       const parsed = extractJson(response.content);

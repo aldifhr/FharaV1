@@ -34,6 +34,13 @@ export interface AgentDefinition {
   priority?: number;
   maxConcurrency?: number;
   status?: string;
+  // LLM assignment (Phase 2 resolver): optional per-agent provider/model
+  // preference + fallback + selection policy, independent of identity/role.
+  llmProviderId?: string;
+  llmModelId?: string;
+  llmFallbackProviderId?: string;
+  llmFallbackModelId?: string;
+  llmSelectionPolicy?: "fixed" | "priority" | "weighted";
 }
 
 export interface PlanSubtask {

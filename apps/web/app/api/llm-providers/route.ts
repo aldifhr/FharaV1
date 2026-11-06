@@ -67,6 +67,22 @@ export async function POST(request: NextRequest) {
         });
         return NextResponse.json({ models });
       }
+      // Model Registry operations (Phase 2) — same token gate, backend-side.
+      case "createModel": {
+        const id = await client.mutation(api.llmModels.create, {
+          ...payload,
+          token,
+        });
+        return NextResponse.json({ id });
+      }
+      case "updateModel": {
+        await client.mutation(api.llmModels.update, { ...payload, token });
+        return NextResponse.json({ ok: true });
+      }
+      case "removeModel": {
+        await client.mutation(api.llmModels.remove, { ...payload, token });
+        return NextResponse.json({ ok: true });
+      }
       default:
         return NextResponse.json(
           { error: `Unknown op: ${String(op)}` },

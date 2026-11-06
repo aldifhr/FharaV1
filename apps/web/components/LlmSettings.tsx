@@ -48,6 +48,20 @@ type Provider = {
   weight: number;
   modelPatterns?: string[];
   isEnabled?: boolean;
+  apiKeyConfigured?: boolean;
+};
+
+type ModelRow = {
+  _id: string;
+  providerId: string;
+  modelId: string;
+  displayName?: string;
+  contextWindow?: number;
+  supportsTools?: boolean;
+  supportsReasoning?: boolean;
+  inputPricePer1k?: number;
+  outputPricePer1k?: number;
+  isAvailable: boolean;
 };
 
 const emptyForm = {
@@ -61,6 +75,18 @@ const emptyForm = {
   weight: "100",
   modelPatterns: "",
   isEnabled: true,
+};
+
+const emptyModelForm = {
+  providerId: "",
+  modelId: "",
+  displayName: "",
+  contextWindow: "",
+  supportsTools: false,
+  supportsReasoning: false,
+  inputPricePer1k: "",
+  outputPricePer1k: "",
+  isAvailable: true,
 };
 
 /**
@@ -98,9 +124,15 @@ function LlmSettingsModal({
 }) {
   const projects = useQuery(api.projects.list, open ? {} : "skip");
   const providers = useQuery(api.llmProviders.list, open ? {} : "skip");
+  const models = useQuery(api.llmModels.list, open ? {} : "skip");
   const toast = useToast();
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [modelForm, setModelForm] = useState(emptyModelForm);
+  const [editingModelId, setEditingModelId] = useState<string | null>(null);
+  const [regModelOptions, setRegModelOptions] = useState<string[]>([]);
+  const [regModelLoading, setRegModelLoading] = useState(false);
+  const [regModelError, setRegModelError] = useState("");
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [modelLoading, setModelLoading] = useState(false);
@@ -110,9 +142,18 @@ function LlmSettingsModal({
     if (!open) {
       setForm(emptyForm);
       setEditingId(null);
+      setModelForm(emptyModelForm);
+      setEditingModelId(null);
       setConfirmReq(null);
     }
-  }, [open]);
+  }, [open ]);
+
+  // Default the model form's connection to the first one in the pool.
+  useEffect(() => {
+    if (open && providers && providers.length > 0 && !modelForm.providerId && !editingModelId) {
+      setModelForm((f) => ({ ...f, providerId: providers[0]._id }));
+    }
+  }, [open, providers, modelForm.providerId, editingModelId]);
 
   useEffect(() => {
     if (!open) return;
@@ -241,6 +282,111 @@ function LlmSettingsModal({
     });
   }
 
+  // ---- Model Registry (Phase 2) ----
+
+  async function fetchRegistryModels() {
+    const connection = (providers ?? []).find((p: any) => p._id === modelForm.providerId);
+    if (!connection) {
+      setRegModelError("Pilih connection dulu");
+      return;
+    }
+    setRegModelLoading(true);
+    setRegModelError("");
+    try {
+      // Backend-side fetch using the connection's stored (encrypted) key.
+      const data = await providerAdmin("fetchModels", {
+        baseUrl: connection.baseUrl,
+        providerId: connection._id,
+      });
+      const ids: string[] = data.models ?? [];
+      setRegModelOptions([...new Set(ids)].sort());
+      if (ids.length === 0) setRegModelError("Provider tidak return daftar model");
+    } catch (e: any) {
+      setRegModelError(e instanceof Error ? e.message : "Gagal fetch model");
+    } finally {
+      setRegModelLoading(false);
+    }
+  }
+
+  async function handleModelSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!modelForm.providerId || !modelForm.modelId.trim()) {
+      toast("error", "Connection and model ID are required", "");
+      return;
+    }
+    try {
+      const payload: Record<string, unknown> = {
+        modelId: modelForm.modelId.trim(),
+        ...(modelForm.displayName.trim() ? { displayName: modelForm.displayName.trim() } : {}),
+        ...(modelForm.contextWindow.trim() ? { contextWindow: Number(modelForm.contextWindow) } : {}),
+        supportsTools: modelForm.supportsTools,
+        supportsReasoning: modelForm.supportsReasoning,
+        ...(modelForm.inputPricePer1k.trim() ? { inputPricePer1k: Number(modelForm.inputPricePer1k) } : {}),
+        ...(modelForm.outputPricePer1k.trim() ? { outputPricePer1k: Number(modelForm.outputPricePer1k) } : {}),
+        isAvailable: modelForm.isAvailable,
+      };
+      if (editingModelId) {
+        await providerAdmin("updateModel", { id: editingModelId, ...payload });
+        toast("success", "Model updated", payload.modelId as string);
+      } else {
+        await providerAdmin("createModel", { providerId: modelForm.providerId, ...payload });
+        toast("success", "Model registered", payload.modelId as string);
+      }
+      setModelForm({ ...emptyModelForm, providerId: modelForm.providerId });
+      setEditingModelId(null);
+      setRegModelOptions([]);
+    } catch (err) {
+      toast("error", "Failed to save model", err instanceof Error ? err.message : "Failed to save model");
+    }
+  }
+
+  function startEditModel(m: ModelRow) {
+    setEditingModelId(m._id);
+    setModelForm({
+      providerId: m.providerId,
+      modelId: m.modelId,
+      displayName: m.displayName ?? "",
+      contextWindow: m.contextWindow !== undefined ? String(m.contextWindow) : "",
+      supportsTools: m.supportsTools === true,
+      supportsReasoning: m.supportsReasoning === true,
+      inputPricePer1k: m.inputPricePer1k !== undefined ? String(m.inputPricePer1k) : "",
+      outputPricePer1k: m.outputPricePer1k !== undefined ? String(m.outputPricePer1k) : "",
+      isAvailable: m.isAvailable !== false,
+    });
+  }
+
+  async function toggleModelAvailable(m: ModelRow) {
+    try {
+      await providerAdmin("updateModel", { id: m._id, isAvailable: !(m.isAvailable !== false) });
+      toast("success", m.isAvailable !== false ? "Model marked unavailable" : "Model marked available", m.modelId);
+    } catch (err) {
+      toast("error", "Failed to update model", err instanceof Error ? err.message : "");
+    }
+  }
+
+  function askDeleteModel(m: ModelRow) {
+    setConfirmReq({
+      title: `Delete model "${m.modelId}"?`,
+      message: "The model is removed from the registry. Agents assigned to it fall back to the connection's remaining models.",
+      onOk: () => {
+        void (async () => {
+          try {
+            await providerAdmin("removeModel", { id: m._id });
+            toast("success", "Model deleted", m.modelId);
+            if (editingModelId === m._id) {
+              setEditingModelId(null);
+              setModelForm({ ...emptyModelForm, providerId: modelForm.providerId });
+            }
+          } catch (err) {
+            toast("error", "Failed to delete model", err instanceof Error ? err.message : "");
+          } finally {
+            setConfirmReq(null);
+          }
+        })();
+      },
+    });
+  }
+
   const inputCls =
     "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800";
 
@@ -250,15 +396,22 @@ function LlmSettingsModal({
       <div className="mt-4 max-h-[70vh] overflow-y-auto pr-1">
         <div className="grid gap-4">
           <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
-            <h2 className="text-sm font-semibold">Global LLM</h2>
+            <h2 className="text-sm font-semibold">How resolution works</h2>
             <p className="mt-1 text-xs text-gray-500">
-              Satu provider pool global untuk semua project. Lower priority number = tried first (fallback). Weight balances
-              load across same-priority providers. Model patterns like <code>gpt-4*</code> route matching models here.
+              Satu pool koneksi global untuk semua project. Setiap agent memilih LLM-nya sendiri: penugasan
+              provider/model di form agent dicoba dulu, lalu penugasan fallback-nya, lalu pool. Di dalam pool,
+              nomor priority terendah menang; di antara priority yang sama, pilihan dilakukan secara weighted
+              random menurut Weight (kecuali policy agent diset ke &quot;priority&quot;). Model patterns
+              membatasi model mana saja yang boleh dilayani koneksi ini (glob seperti <code>gpt-4*</code>,
+              dicocokkan ke Model Registry di bawah). Koneksi yang gagal 3× beruntun karena error transien
+              (timeout/5xx) dikeluarkan sementara selama 60 detik (circuit breaker), dan task otomatis pindah
+              ke kandidat berikutnya. API key tersimpan terenkripsi AES-256-GCM di backend — UI hanya pernah
+              melihat status <em>key configured</em>, tidak pernah key-nya.
             </p>
           </section>
 
           <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
-              <h2 className="text-sm font-semibold">{editingId ? "Edit provider" : "Add provider"}</h2>
+              <h2 className="text-sm font-semibold">{editingId ? "Edit connection" : "Add connection"}</h2>
               <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-2 gap-3 text-sm">
                 <label className="grid gap-1">
                   Name
@@ -282,7 +435,7 @@ function LlmSettingsModal({
                   </select>
                 </label>
                 <label className="grid gap-1">
-                  Model
+                  Initial model
                   <div className="flex gap-2">
                     {modelOptions.length > 0 ? (
                       <select value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} className={inputCls}>
@@ -297,6 +450,10 @@ function LlmSettingsModal({
                     </button>
                   </div>
                   {modelError && <span className="text-xs text-rose-500">{modelError}</span>}
+                  <span className="text-[11px] text-gray-400">
+                    Dipakai sebagai model awal koneksi ini dan otomatis terdaftar di Models di bawah; model lain
+                    bisa ditambah/diubah dari panel Models.
+                  </span>
                 </label>
                 <label className="grid gap-1">
                   Base URL
@@ -385,7 +542,7 @@ function LlmSettingsModal({
             </section>
 
           <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
-              <h2 className="text-sm font-semibold">Provider pool</h2>
+              <h2 className="text-sm font-semibold">Connections</h2>
               {sorted === undefined && <p className="mt-2 text-xs text-gray-400">Loading…</p>}
               {sorted && sorted.length === 0 && (
                 <p className="mt-2 text-xs text-gray-500">
@@ -411,6 +568,15 @@ function LlmSettingsModal({
                         {p.isEnabled === false && (
                           <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
                             disabled
+                          </span>
+                        )}
+                        {p.apiKeyConfigured ? (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                            key configured
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                            no key stored
                           </span>
                         )}
                       </div>
@@ -446,6 +612,148 @@ function LlmSettingsModal({
                 ))}
               </div>
             </section>
+
+          <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
+            <h2 className="text-sm font-semibold">Models</h2>
+            <p className="mt-1 text-xs text-gray-500">
+              Model Registry: model adalah entitas sendiri per koneksi — agent memilih model dari registry ini.
+              Model yang ditandai unavailable tidak akan dipilih resolver; agent yang butuh tool-use/reasoning
+              hanya menerima model dengan flag tersebut.
+            </p>
+            <form onSubmit={handleModelSubmit} className="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <label className="grid gap-1">
+                Connection
+                <select
+                  value={modelForm.providerId}
+                  onChange={(e) => setModelForm({ ...modelForm, providerId: e.target.value })}
+                  disabled={editingModelId !== null}
+                  className={inputCls}
+                >
+                  <option value="">Pilih connection…</option>
+                  {(providers ?? []).map((p: any) => (
+                    <option key={p._id} value={p._id}>{p.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1">
+                Model ID
+                <div className="flex gap-2">
+                  {regModelOptions.length > 0 ? (
+                    <select value={modelForm.modelId} onChange={(e) => setModelForm({ ...modelForm, modelId: e.target.value })} className={inputCls}>
+                      <option value="">Pilih model…</option>
+                      {regModelOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  ) : (
+                    <input value={modelForm.modelId} onChange={(e) => setModelForm({ ...modelForm, modelId: e.target.value })} placeholder="nous / gpt-4o-mini" className={inputCls} />
+                  )}
+                  <button type="button" onClick={fetchRegistryModels} disabled={regModelLoading} className="shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 disabled:opacity-50">
+                    {regModelLoading ? "…" : "Fetch"}
+                  </button>
+                </div>
+                {regModelError && <span className="text-xs text-rose-500">{regModelError}</span>}
+              </label>
+              <label className="grid gap-1">
+                Display name (opsional)
+                <input value={modelForm.displayName} onChange={(e) => setModelForm({ ...modelForm, displayName: e.target.value })} className={inputCls} />
+              </label>
+              <label className="grid gap-1">
+                Context window (tokens, opsional)
+                <input value={modelForm.contextWindow} onChange={(e) => setModelForm({ ...modelForm, contextWindow: e.target.value })} type="number" min="0" className={inputCls} />
+              </label>
+              <label className="grid gap-1">
+                Input price / 1k tokens (opsional)
+                <input value={modelForm.inputPricePer1k} onChange={(e) => setModelForm({ ...modelForm, inputPricePer1k: e.target.value })} type="number" min="0" step="any" className={inputCls} />
+              </label>
+              <label className="grid gap-1">
+                Output price / 1k tokens (opsional)
+                <input value={modelForm.outputPricePer1k} onChange={(e) => setModelForm({ ...modelForm, outputPricePer1k: e.target.value })} type="number" min="0" step="any" className={inputCls} />
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={modelForm.supportsTools} onChange={(e) => setModelForm({ ...modelForm, supportsTools: e.target.checked })} />
+                Supports tools
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={modelForm.supportsReasoning} onChange={(e) => setModelForm({ ...modelForm, supportsReasoning: e.target.checked })} />
+                Supports reasoning
+              </label>
+              <label className="col-span-2 flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={modelForm.isAvailable} onChange={(e) => setModelForm({ ...modelForm, isAvailable: e.target.checked })} />
+                Available — resolver boleh memilih model ini
+              </label>
+              <div className="col-span-2 flex gap-2">
+                <button type="submit" className="flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-gray-900">
+                  <Plus size={15} /> {editingModelId ? "Save model" : "Register model"}
+                </button>
+                {editingModelId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingModelId(null);
+                      setModelForm({ ...emptyModelForm, providerId: modelForm.providerId });
+                    }}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm dark:border-gray-700"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </form>
+
+            {models === undefined && <p className="mt-3 text-xs text-gray-400">Loading…</p>}
+            {models && models.length === 0 && (
+              <p className="mt-3 text-xs text-gray-500">
+                Belum ada model terdaftar. Membuat koneksi baru otomatis mendaftarkan initial model-nya; tambah
+                model lain lewat form di atas.
+              </p>
+            )}
+            <div className="mt-3 grid gap-3">
+              {(providers ?? []).map((p: any) => {
+                const rows = (models ?? []).filter((m: any) => m.providerId === p._id);
+                if (rows.length === 0) return null;
+                return (
+                  <div key={p._id}>
+                    <div className="text-xs font-semibold text-gray-500">{p.name}</div>
+                    <div className="mt-1.5 grid gap-2">
+                      {rows.map((m: any) => (
+                        <div key={m._id} className="flex items-center gap-3 rounded-xl border border-[#e5e3eb] px-3 py-2.5 text-sm dark:border-gray-700">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium truncate">{m.displayName || m.modelId}</span>
+                              {m.displayName && <span className="text-xs text-gray-400">{m.modelId}</span>}
+                              {m.isAvailable === false && (
+                                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                                  unavailable
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-0.5 truncate text-xs text-gray-500">
+                              {[
+                                m.contextWindow ? `ctx ${m.contextWindow}` : null,
+                                m.supportsTools ? "tools" : null,
+                                m.supportsReasoning ? "reasoning" : null,
+                                m.inputPricePer1k !== undefined || m.outputPricePer1k !== undefined
+                                  ? `price in ${m.inputPricePer1k ?? "–"} / out ${m.outputPricePer1k ?? "–"} per 1k`
+                                  : null,
+                              ].filter(Boolean).join(" · ") || "—"}
+                            </div>
+                          </div>
+                          <button type="button" onClick={() => toggleModelAvailable(m)} className="rounded-lg border border-gray-200 px-2 py-1 text-xs dark:border-gray-700">
+                            {m.isAvailable !== false ? "Mark unavailable" : "Mark available"}
+                          </button>
+                          <button type="button" onClick={() => startEditModel(m)} className="rounded-lg p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800" aria-label={`Edit ${m.modelId}`}>
+                            <Pencil size={14} />
+                          </button>
+                          <button type="button" onClick={() => askDeleteModel(m)} className="rounded-lg p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30" aria-label={`Delete ${m.modelId}`}>
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         </div>
       </div>
     </Modal>

@@ -58,6 +58,14 @@ export const create = mutation({
     skills: v.optional(v.array(v.string())),
     priority: v.optional(v.number()),
     maxConcurrency: v.optional(v.number()),
+    // LLM assignment (Phase 2): optional resolver preference — see schema.
+    llmProviderId: v.optional(v.id("llmProviders")),
+    llmModelId: v.optional(v.id("llmModels")),
+    llmFallbackProviderId: v.optional(v.id("llmProviders")),
+    llmFallbackModelId: v.optional(v.id("llmModels")),
+    llmSelectionPolicy: v.optional(
+      v.union(v.literal("fixed"), v.literal("priority"), v.literal("weighted"))
+    ),
   },
   handler: async (ctx, args) => {
     const name = args.name.trim();
@@ -85,6 +93,13 @@ export const create = mutation({
       isEnabled: true,
       priority: args.priority ?? 0,
       maxConcurrency: args.maxConcurrency ?? 1,
+      ...(args.llmProviderId ? { llmProviderId: args.llmProviderId } : {}),
+      ...(args.llmModelId ? { llmModelId: args.llmModelId } : {}),
+      ...(args.llmFallbackProviderId
+        ? { llmFallbackProviderId: args.llmFallbackProviderId }
+        : {}),
+      ...(args.llmFallbackModelId ? { llmFallbackModelId: args.llmFallbackModelId } : {}),
+      ...(args.llmSelectionPolicy ? { llmSelectionPolicy: args.llmSelectionPolicy } : {}),
     });
   },
 });
@@ -103,6 +118,14 @@ export const update = mutation({
     priority: v.optional(v.number()),
     maxConcurrency: v.optional(v.number()),
     avatarParams: v.optional(v.any()),
+    // LLM assignment: pass an id to set, null to clear, omit to leave as-is.
+    llmProviderId: v.optional(v.union(v.id("llmProviders"), v.null())),
+    llmModelId: v.optional(v.union(v.id("llmModels"), v.null())),
+    llmFallbackProviderId: v.optional(v.union(v.id("llmProviders"), v.null())),
+    llmFallbackModelId: v.optional(v.union(v.id("llmModels"), v.null())),
+    llmSelectionPolicy: v.optional(
+      v.union(v.literal("fixed"), v.literal("priority"), v.literal("weighted"), v.null())
+    ),
   },
   handler: async (ctx, args) => {
     // Same authz choke point as the other modules (authz.assertAgentAccess):
@@ -135,6 +158,19 @@ export const update = mutation({
       ...(args.priority !== undefined ? { priority: args.priority } : {}),
       ...(args.maxConcurrency !== undefined
         ? { maxConcurrency: Math.max(1, Math.floor(args.maxConcurrency)) }
+        : {}),
+      ...(args.llmProviderId !== undefined
+        ? { llmProviderId: args.llmProviderId ?? undefined }
+        : {}),
+      ...(args.llmModelId !== undefined ? { llmModelId: args.llmModelId ?? undefined } : {}),
+      ...(args.llmFallbackProviderId !== undefined
+        ? { llmFallbackProviderId: args.llmFallbackProviderId ?? undefined }
+        : {}),
+      ...(args.llmFallbackModelId !== undefined
+        ? { llmFallbackModelId: args.llmFallbackModelId ?? undefined }
+        : {}),
+      ...(args.llmSelectionPolicy !== undefined
+        ? { llmSelectionPolicy: args.llmSelectionPolicy ?? undefined }
         : {}),
     });
   },

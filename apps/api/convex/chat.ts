@@ -3,6 +3,11 @@
 import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import {
+  pickPrimaryConnection,
+  resolveConnectionKey,
+  type PoolConnectionPayload,
+} from "./llmResolver";
 
 function classifyChatIntent(text: string): { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean } {
   const t = text.toLowerCase();
@@ -133,18 +138,24 @@ function getGlobalLLMConfig(): { provider: string; model: string; baseUrl: strin
   };
 }
 
-function resolveConfigFromProviders(
-  providers: Array<{ provider: string; model: string; baseUrl: string; apiKeyEnv: string; apiKey?: string }> | undefined,
+/**
+ * Resolve the chat LLM config from the shared provider pool (llmResolver):
+ * the primary connection (lowest priority with an available model) and its
+ * first available model. The key is decrypted here on the backend for the
+ * backend's own call — a decryption failure is a hard error naming the
+ * provider — with the connection's `apiKeyEnv` env var as fallback.
+ */
+async function resolveConfigFromProviders(
+  providers: PoolConnectionPayload[] | undefined,
   fallback: { provider: string; model: string; baseUrl: string; apiKey: string }
-): { provider: string; model: string; baseUrl: string; apiKey: string } {
-  const env: Record<string, string | undefined> = (globalThis as any).process?.env ?? {};
-  if (providers && providers.length > 0) {
-    const p = providers[0];
-    const key = p.apiKey?.trim() || env[p.apiKeyEnv]?.trim() || "";
+): Promise<{ provider: string; model: string; baseUrl: string; apiKey: string }> {
+  const pick = providers ? pickPrimaryConnection(providers) : null;
+  if (pick) {
+    const key = await resolveConnectionKey(pick.connection);
     return {
-      provider: p.provider.toLowerCase(),
-      model: p.model,
-      baseUrl: p.baseUrl,
+      provider: pick.connection.provider.toLowerCase(),
+      model: pick.model.modelId,
+      baseUrl: pick.connection.baseUrl,
       apiKey: key || fallback.apiKey,
     };
   }
@@ -176,11 +187,11 @@ export const replyToChat = internalAction({
       }>;
       projectName: string;
       history: { authorType: string; content: string }[];
-      llmProviders?: Array<{ provider: string; model: string; baseUrl: string; apiKeyEnv: string }>;
+      llmProviders?: PoolConnectionPayload[];
     };
 
     const { agents, projectName, history, llmProviders } = data;
-    const globalConfig = resolveConfigFromProviders(llmProviders, getGlobalLLMConfig());
+    const globalConfig = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig());
 
     if (agents.length === 0) {
       await ctx.runMutation(internal.chatContext.insertAgentMessage, {

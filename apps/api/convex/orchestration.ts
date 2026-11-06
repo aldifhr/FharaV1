@@ -1,6 +1,7 @@
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
+import { loadProviderPool, type PoolConnectionPayload } from "./llmResolver";
 import {
   taskStatus,
   subtaskKind,
@@ -40,17 +41,7 @@ export const getRunContext = internalQuery({
     plan: Doc<"plans"> | null;
     subtasks: Doc<"subtasks">[];
     approvalMode: "ask" | "auto";
-    llmProviders: Array<{
-      _id: string;
-      name: string;
-      provider: string;
-      baseUrl: string;
-      apiKeyEnv: string;
-      apiKey?: string;
-      priority: number;
-      weight: number;
-      modelPatterns?: string[];
-    }>;  
+    llmProviders: PoolConnectionPayload[];
   } | null> => {
     const task = await ctx.db.get(args.taskId);
     if (!task) return null;
@@ -73,38 +64,12 @@ export const getRunContext = internalQuery({
       .order("asc")
       .collect();
 
-    const llmProviders: Array<{
-      _id: string;
-      name: string;
-      provider: string;
-      model: string;
-      baseUrl: string;
-      apiKeyEnv: string;
-      apiKey?: string;
-      priority: number;
-      weight: number;
-      modelPatterns?: string[];
-    }> = [];
-    if (project) {
-      const providers = await ctx.db.query("llmProviders").collect();
-      for (const p of providers) {
-        if (p.isEnabled !== false) {
-          llmProviders.push({
-            _id: p._id,
-            name: p.name,
-            provider: p.provider,
-            model: p.model,
-            baseUrl: p.baseUrl,
-            apiKeyEnv: p.apiKeyEnv,
-            apiKey: p.apiKey,
-            priority: p.priority,
-            weight: p.weight,
-            modelPatterns: p.modelPatterns,
-          });
-        }
-      }
-      llmProviders.sort((a, b) => a.priority - b.priority);
-    }
+    // Provider pool (connections + model registry) assembled by the shared
+    // backend helper. Only the ENCRYPTED key crosses to the worker — the
+    // worker decrypts on its side (spec §5); plaintext is never returned.
+    const llmProviders: PoolConnectionPayload[] = project
+      ? await loadProviderPool(ctx)
+      : [];
 
     return {
       task,

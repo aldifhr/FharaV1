@@ -1,5 +1,6 @@
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { loadProviderPool } from "./llmResolver";
 
 export const insertUserMessage = internalMutation({
   args: { projectId: v.id("projects"), content: v.string() },
@@ -96,36 +97,9 @@ export const getContext = internalQuery({
       systemPrompt: a.systemPrompt,
     });
 
-    const llmProviders: Array<{
-      _id: string;
-      name: string;
-      provider: string;
-      model: string;
-      baseUrl: string;
-      apiKeyEnv: string;
-      apiKey?: string;
-      priority: number;
-      weight: number;
-      modelPatterns?: string[];
-    }> = [];
-    const providers = await ctx.db.query("llmProviders").collect();
-    for (const p of providers) {
-      if (p.isEnabled !== false) {
-        llmProviders.push({
-          _id: p._id,
-          name: p.name,
-          provider: p.provider,
-          model: p.model,
-          baseUrl: p.baseUrl,
-          apiKeyEnv: p.apiKeyEnv,
-          apiKey: p.apiKey,
-          priority: p.priority,
-          weight: p.weight,
-          modelPatterns: p.modelPatterns,
-        });
-      }
-    }
-    llmProviders.sort((a, b) => a.priority - b.priority);
+    // Shared pool assembly (connections + models, encrypted key only) —
+    // see llmResolver.ts. chat.ts decrypts on the backend for its own call.
+    const llmProviders = await loadProviderPool(ctx);
 
     return {
       agents: selected.map(agentShape),

@@ -84,6 +84,16 @@ export default defineSchema({
     llmBaseUrl: v.optional(v.string()),
     llmApiKeyEnv: v.optional(v.string()),
     llmApiKey: v.optional(v.string()),
+    // LLM assignment (Phase 2 resolver): optional per-agent provider/model
+    // preference. The resolver (worker llm/resolver.ts) tries the preferred
+    // connection/model first, then the fallback assignment, then the pool.
+    llmProviderId: v.optional(v.id("llmProviders")),
+    llmModelId: v.optional(v.id("llmModels")),
+    llmFallbackProviderId: v.optional(v.id("llmProviders")),
+    llmFallbackModelId: v.optional(v.id("llmModels")),
+    llmSelectionPolicy: v.optional(
+      v.union(v.literal("fixed"), v.literal("priority"), v.literal("weighted"))
+    ),
     status: agentStatus,
     avatarParams: v.optional(v.any()),
     description: v.optional(v.string()),
@@ -292,6 +302,9 @@ export default defineSchema({
     agentId: v.optional(v.id("agents")),
     agentName: v.string(),
     model: v.string(),
+    // Provider connection that served the call (filled from Phase 5;
+    // column created in Phase 2 so the schema changes only once).
+    providerId: v.optional(v.id("llmProviders")),
     inputTokens: v.number(),
     outputTokens: v.number(),
     createdAt: v.number(),
@@ -341,7 +354,14 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_task", ["taskId"]),
 
-  // Global LLM Provider Pool — single global config serving all projects
+  // Provider Connections (spec §4A) — reusable connections shared by all
+  // projects/agents. Models live in llmModels (§4B); a connection can offer
+  // many models. NOTE (Phase 2, additive step): the legacy `model` column
+  // and the plaintext `apiKey` column are still declared so existing rows
+  // validate; new writes store the key ONLY as `apiKeyCiphertext`
+  // (AES-256-GCM, see llmCrypto.ts) and the migration moves `model` into
+  // llmModels. Dropping both legacy columns is a separate deploy step that
+  // happens after the migration is verified.
   llmProviders: defineTable({
     projectId: v.optional(v.string()),
     name: v.string(),
@@ -350,12 +370,32 @@ export default defineSchema({
     baseUrl: v.string(),
     apiKeyEnv: v.string(),
     apiKey: v.optional(v.string()),
+    apiKeyCiphertext: v.optional(v.string()),
     priority: v.number(),
     weight: v.number(),
     modelPatterns: v.optional(v.array(v.string())),
     isEnabled: v.optional(v.boolean()),
     createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
   }),
+
+  // Model Registry (spec §4B) — model metadata independent of agents and
+  // of connections; one connection offers many models.
+  llmModels: defineTable({
+    providerId: v.id("llmProviders"),
+    modelId: v.string(),
+    displayName: v.optional(v.string()),
+    contextWindow: v.optional(v.number()),
+    supportsTools: v.optional(v.boolean()),
+    supportsReasoning: v.optional(v.boolean()),
+    inputPricePer1k: v.optional(v.number()),
+    outputPricePer1k: v.optional(v.number()),
+    isAvailable: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_provider", ["providerId"])
+    .index("by_provider_and_model", ["providerId", "modelId"]),
 
   // Integrations (e.g. GitHub MCP connector)
   integrations: defineTable({

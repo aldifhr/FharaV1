@@ -1,5 +1,6 @@
-import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig } from "@/llm";
-import { runLlmCall } from "@/effects/llmCall";
+import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig, type LLMResult } from "@/llm";
+import { isTransientLlmError, runLlmCallWithFallback, type FallbackHandle } from "@/effects/llmCall";
+import { providerHealth } from "@/llm/health";
 import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/orchestrator/types";
 import {
   buildAgentExecutionContext,
@@ -23,6 +24,13 @@ export interface SubtaskExecutionInput {
   /** Explicit per-task LLM config resolved by the runner (env fallback when absent). */
   llmConfig?: GlobalLLMConfig;
   /**
+   * Per-agent provider chain from the Phase 2 resolver (primary first).
+   * When present it takes precedence over `llmConfig`: calls fall back to
+   * the next connection in the chain within the same task after local
+   * retries, and outcomes feed the provider health registry.
+   */
+  llmHandles?: FallbackHandle[];
+  /**
    * Explicit per-task QA base URL resolved by the runner
    * (project qaUrl > devUrl > worker-start env fallback). Threaded through
    * instead of read from shared process.env so concurrent tasks can never
@@ -45,8 +53,25 @@ export interface SubtaskExecutionInput {
   onTokenUsage?: (inputTokens: number, outputTokens: number, model: string) => Promise<void>;
 }
 
-function resolveModelForAgent(_agent?: AgentDefinition, llmConfig?: GlobalLLMConfig): string {
-  return llmConfig?.model ?? getGlobalLLMConfig().model;
+/**
+ * The provider chain for this subtask's agent: the resolver's chain when
+ * threaded in, otherwise a single handle built from the task config (or
+ * the worker env). Health is only recorded for resolver chains — the
+ * synthetic single handle has no connection identity to track.
+ */
+function handlesFor(input: SubtaskExecutionInput): FallbackHandle[] {
+  if (input.llmHandles && input.llmHandles.length > 0) return input.llmHandles;
+  const config = input.llmConfig ?? getGlobalLLMConfig();
+  return [{
+    connectionId: "",
+    connectionName: "(task config)",
+    config,
+    provider: createProviderForAgent(input.agent, config),
+  }];
+}
+
+function healthFor(input: SubtaskExecutionInput) {
+  return input.llmHandles && input.llmHandles.length > 0 ? providerHealth : undefined;
 }
 
 export type SubtaskExecutionResult =
@@ -122,7 +147,7 @@ async function executeCodeChange(
 
   if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
 
-  const provider = createProviderForAgent(agent, input.llmConfig);
+  const handles = handlesFor(input);
   const basePayload = [
     `Task: ${command}`,
     `Your role in the plan: ${subtask.title} — ${subtask.description}`,
@@ -149,9 +174,13 @@ async function executeCodeChange(
     "- Keep the change minimal and focused on the task.",
   ].join("\n");
 
-  let response = await runLlmCall(provider, baseMessages(input, basePayload));
+  let { result: response, servedBy } = await runLlmCallWithFallback(
+    handles,
+    baseMessages(input, basePayload),
+    { health: healthFor(input) }
+  );
   if (input.onTokenUsage) {
-    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent, input.llmConfig));
+    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedBy.config.model);
   }
 
   let draft = parseDraft(response.content);
@@ -161,15 +190,18 @@ async function executeCodeChange(
       retry: true,
       reason: "invalid-file-changes-json",
     });
-    response = await runLlmCall(
-      provider,
+    // Retry on the connection that served the first call (stickiness);
+    // the single-handle chain still applies local retries + health.
+    ({ result: response, servedBy } = await runLlmCallWithFallback(
+      [servedBy],
       baseMessages(
         input,
         `${basePayload}\n\nYour previous response was not a valid file-changes JSON object. Return ONLY the JSON object again.\n\nPrevious response (for reference):\n${response.content.slice(0, 2000)}`
-      )
-    );
+      ),
+      { health: healthFor(input) }
+    ));
     if (input.onTokenUsage) {
-      await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent, input.llmConfig));
+      await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedBy.config.model);
     }
     draft = parseDraft(response.content);
   }
@@ -242,8 +274,8 @@ async function executeReview(
     .slice(0, 40_000)
     .replace(/\b(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9_]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)\b/g, "[REDACTED]");
 
-  const response = await runLlmCall(
-    createProviderForAgent(agent, input.llmConfig),
+  const { result: response, servedBy } = await runLlmCallWithFallback(
+    handlesFor(input),
     baseMessages(
       input,
       [
@@ -255,10 +287,11 @@ async function executeReview(
         '{"verdict":"approved"|"changes_requested","findings":[{"severity":"critical"|"high"|"medium"|"low","filePath":"...","description":"...","suggestion":"..."}]}',
         "Reject only for concrete correctness, security, or regression risks. Do not request style-only changes.",
       ].join("\n")
-    )
+    ),
+    { health: healthFor(input) }
   );
   if (input.onTokenUsage) {
-    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent, input.llmConfig));
+    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedBy.config.model);
   }
 
   const review = parseReview(response.content);
@@ -384,18 +417,48 @@ async function executeReadOnly(
     });
   }
 
-  const provider = createProviderForAgent(agent, input.llmConfig);
+  const handles = handlesFor(input);
+  const health = healthFor(input);
   const messages = baseMessages(
     input,
     `${instruction}\n\nRepository context:\n${context}${webContext.block ? `\n\n${webContext.block}` : ""}\n\nUser request: ${command}`
   );
-  const response = provider.stream
-    ? await provider.stream(messages, async (delta) => {
-        await input.onChunk(delta);
-      })
-    : await runLlmCall(provider, messages);
+  let response: LLMResult;
+  let servedModel = handles[0].config.model;
+  const primary = handles[0];
+  if (primary.provider.stream) {
+    let chunkEmitted = false;
+    try {
+      response = await primary.provider.stream(
+        messages,
+        async (delta) => {
+          chunkEmitted = true;
+          await input.onChunk(delta);
+        },
+        primary.config.model
+      );
+      health?.recordSuccess(primary.connectionId);
+    } catch (error) {
+      if (isTransientLlmError(error)) {
+        health?.recordFailure(primary.connectionId, { transient: true });
+      }
+      // Fall back only when nothing was streamed yet — re-emitting partial
+      // output from a second provider would corrupt the reply.
+      if (chunkEmitted || !isTransientLlmError(error) || handles.length < 2) {
+        throw error;
+      }
+      const fallback = await runLlmCallWithFallback(handles.slice(1), messages, { health });
+      response = fallback.result;
+      servedModel = fallback.servedBy.config.model;
+      if (response.content) await input.onChunk(response.content);
+    }
+  } else {
+    const { result, servedBy } = await runLlmCallWithFallback(handles, messages, { health });
+    response = result;
+    servedModel = servedBy.config.model;
+  }
   if (input.onTokenUsage) {
-    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent, input.llmConfig));
+    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedModel);
   }
 
   const content = response.content.trim();

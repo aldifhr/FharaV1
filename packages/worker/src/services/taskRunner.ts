@@ -19,7 +19,10 @@ import { classifyCommand } from "../orchestrator/classifier";
 import { createPlan, heuristicPlan } from "../orchestrator/planner";
 import { validatePlan } from "../orchestrator/planValidator";
 import type { ExecutionPolicy } from "../orchestrator/policy";
-import { capabilitiesOf, routeCapability } from "../orchestrator/capabilities";
+import { BudgetTracker } from "../orchestrator/budget";
+import { createOrchestratorPlan, evaluateAfterExecution } from "../orchestrator/orchestrator";
+import { createSharedTaskContext, appendExecution } from "../orchestrator/taskContext";
+import { routeCapability, capabilitiesOf } from "../orchestrator/capabilities";
 import {
   buildReviewFixSubtask,
   collectRequestedChanges,
@@ -66,10 +69,19 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     await deps.api.completeTask(task._id, "failed", "Project not found for task");
     return;
   }
-  const { project, agents, approvalMode } = context;
+  const { project, agents, approvalMode, llmProviders } = context;
   if (agents.length === 0) {
     await deps.api.completeTask(task._id, "failed", "No agents are assigned to this project");
     return;
+  }
+  // Inject DB provider key into env so llm.ts (process.env) picks it up.
+  // Worker has no separate env — global LLM lives in Settings (llmProviders).
+  if (llmProviders && llmProviders.length > 0) {
+    const p = llmProviders[0];
+    if (p.apiKey) process.env.LLM_API_KEY = p.apiKey;
+    process.env.LLM_PROVIDER = p.provider;
+    process.env.LLM_MODEL = p.model;
+    process.env.LLM_BASE_URL = p.baseUrl;
   }
 
   let workspacePath = resolveWorkspacePath(deps.workspaceRoot, project.workspacePath);
@@ -114,6 +126,47 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       kind: classification.kind,
       strategy: classification.strategy,
       reasons: classification.reasons,
+    },
+  });
+
+  // Intelligent orchestrator: shared context + budget
+  const budget = new BudgetTracker(deps.policy);
+  const sharedContext = createSharedTaskContext({
+    taskId: task._id,
+    projectId: project._id,
+    originalRequest: command,
+    title: task.title,
+    classification,
+  });
+  await deps.api
+    .upsertTaskContext?.({
+      taskId: task._id,
+      projectId: project._id,
+      originalRequest: command,
+      objective: command.slice(0, 500),
+      status: (task.status as any) || "running",
+      decisions: [],
+      artifacts: [],
+      outstandingIssues: [],
+    })
+    ?.catch(() => undefined);
+  await deps.api.recordLifecycle?.({ taskId: task._id, projectId: project._id, state: "RUNNING" })?.catch(() => undefined);
+  const orchestratorPlan = createOrchestratorPlan({
+    taskId: task._id,
+    projectId: project._id,
+    command,
+    title: task.title,
+    agents: runAgents,
+    classification,
+  });
+  await deps.api.logEvent({
+    taskId: task._id,
+    projectId: project._id,
+    type: "orchestrator.plan",
+    payload: {
+      strategy: orchestratorPlan.strategy,
+      reasoning: orchestratorPlan.reasoning,
+      primary: orchestratorPlan.primary?.name ?? null,
     },
   });
 
@@ -1253,10 +1306,6 @@ export function toAgentDefinition(agent: WorkerAgent): AgentDefinition {
     name: agent.name,
     role: agent.role,
     systemPrompt: agent.systemPrompt,
-    llmProvider: agent.llmProvider,
-    llmModel: agent.llmModel,
-    llmBaseUrl: agent.llmBaseUrl,
-    llmApiKey: agent.llmApiKey,
     description: agent.description,
     capabilities: agent.capabilities,
     supportedTools: agent.supportedTools,
@@ -1330,6 +1379,12 @@ export function heuristicPlanForTest(
       verificationEnabled: true,
       verificationIncludeBuild: true,
       verificationTimeoutMs: 180_000,
+      maxAgentsPerTask: 3,
+      maxLLMCallsPerTask: 5,
+      maxDelegationDepth: 2,
+      maxDelegationChain: 2,
+      maxConcurrentLLMCalls: 1,
+      maxTokenBudgetPerTask: 50_000,
     },
   });
 }

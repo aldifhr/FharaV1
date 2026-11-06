@@ -48,10 +48,6 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   const [agentName, setAgentName] = useState("");
   const [agentRole, setAgentRole] = useState("");
   const [agentPrompt, setAgentPrompt] = useState("");
-  const [agentProvider, setAgentProvider] = useState("anthropic");
-  const [agentModel, setAgentModel] = useState("");
-  const [agentBaseUrl, setAgentBaseUrl] = useState("");
-  const [agentApiKey, setAgentApiKey] = useState("");
   const [agentError, setAgentError] = useState("");
   const [savingAgent, setSavingAgent] = useState(false);
   const [avatarSeed, setAvatarSeed] = useState<AvatartionAvatar | null>(null);
@@ -123,10 +119,6 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
       setAgentName(agent.name);
       setAgentRole(agent.role);
       setAgentPrompt(agent.systemPrompt ?? "");
-      setAgentProvider(agent.llmProvider ?? "anthropic");
-      setAgentModel(agent.llmModel ?? "");
-      setAgentBaseUrl(agent.llmBaseUrl ?? "");
-      setAgentApiKey("");
       setAvatarSeed(null);
   }
 
@@ -155,10 +147,6 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
           name: agentName,
           role: agentRole,
           systemPrompt: agentPrompt,
-          llmProvider: agentProvider,
-          llmModel: agentModel,
-          llmBaseUrl: agentBaseUrl,
-          llmApiKey: agentApiKey,
           ...(avatarSeed
             ? {
                 avatarParams: {
@@ -562,30 +550,6 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                 Generate
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="grid gap-1 text-sm">LLM provider
-                <select value={agentProvider} onChange={(event) => setAgentProvider(event.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-                  <option value="anthropic">Anthropic</option>
-                  <option value="openai-compatible">OpenAI-compatible</option>
-                </select>
-              </label>
-              <label className="grid gap-1 text-sm">Model
-                <input value={agentModel} onChange={(event) => setAgentModel(event.target.value)} placeholder={agentProvider === "anthropic" ? "claude-sonnet-4-20250514" : "gpt-4o-mini"} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
-              </label>
-            </div>
-            {agentProvider === "openai-compatible" && (
-              <label className="grid gap-1 text-sm">Base URL
-                <input value={agentBaseUrl} onChange={(event) => setAgentBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
-              </label>
-            )}
-            <label className="grid gap-1 text-sm">API key
-            <input type="password" value={agentApiKey} onChange={(event) => setAgentApiKey(event.target.value)} placeholder="Enter the agent API key" className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
-              <span className="text-[11px] text-gray-400">
-                {agents?.find((agent: any) => agent._id === editingAgentId)?.llmApiKeyConfigured
-                  ? "API key saved. Leave empty to keep it."
-                  : "No API key configured. Enter one to enable the agent."}
-              </span>
-            </label>
             {agentError && <p className="text-sm text-red-600">{agentError}</p>}
             <button type="submit" disabled={savingAgent} className="rounded-lg bg-[#6252d8] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
               {savingAgent ? "Saving…" : "Save changes"}

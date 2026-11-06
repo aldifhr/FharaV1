@@ -38,11 +38,7 @@ function normalizeCapabilities(values: string[] | undefined): string[] | undefin
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const agents = await ctx.db.query("agents").collect();
-    return agents.map(({ llmApiKey, ...agent }) => ({
-      ...agent,
-      llmApiKeyConfigured: Boolean(llmApiKey),
-    }));
+    return await ctx.db.query("agents").collect();
   },
 });
 
@@ -51,9 +47,6 @@ export const create = mutation({
     name: v.string(),
     role: v.string(),
     systemPrompt: v.optional(v.string()),
-    llmProvider: v.optional(v.string()),
-    llmModel: v.optional(v.string()),
-    llmBaseUrl: v.optional(v.string()),
     description: v.optional(v.string()),
     capabilities: v.optional(v.array(v.string())),
     supportedTools: v.optional(v.array(v.string())),
@@ -65,9 +58,6 @@ export const create = mutation({
     const name = args.name.trim();
     const role = args.role.trim();
     const systemPrompt = args.systemPrompt?.trim();
-    const llmProvider = args.llmProvider?.trim() || "anthropic";
-    const llmModel = args.llmModel?.trim();
-    const llmBaseUrl = args.llmBaseUrl?.trim();
     if (!name) throw new Error("Agent name is required");
     if (!role) throw new Error("Agent role is required");
 
@@ -75,9 +65,6 @@ export const create = mutation({
       name,
       role,
       ...(systemPrompt ? { systemPrompt } : {}),
-      llmProvider,
-      ...(llmModel ? { llmModel } : {}),
-      ...(llmBaseUrl ? { llmBaseUrl } : {}),
       status: "idle",
       avatarParams: defaultAvatarParams(name),
       ...(args.description?.trim() ? { description: args.description.trim() } : {}),
@@ -103,10 +90,6 @@ export const update = mutation({
     name: v.string(),
     role: v.string(),
     systemPrompt: v.string(),
-    llmProvider: v.string(),
-    llmModel: v.string(),
-    llmBaseUrl: v.string(),
-    llmApiKey: v.optional(v.string()),
     description: v.optional(v.string()),
     capabilities: v.optional(v.array(v.string())),
     supportedTools: v.optional(v.array(v.string())),
@@ -121,15 +104,10 @@ export const update = mutation({
     const role = args.role.trim();
     if (!name) throw new Error("Agent name is required");
     if (!role) throw new Error("Agent role is required");
-    const cleanApiKey = args.llmApiKey?.trim();
     await ctx.db.patch(args.agentId, {
       name,
       role,
       systemPrompt: args.systemPrompt.trim() || undefined,
-      llmProvider: args.llmProvider.trim() || "anthropic",
-      llmModel: args.llmModel.trim() || undefined,
-      llmBaseUrl: args.llmBaseUrl.trim() || undefined,
-      ...(cleanApiKey ? { llmApiKey: cleanApiKey } : {}),
       ...(args.avatarParams ? { avatarParams: args.avatarParams } : {}),
       ...(args.description !== undefined
         ? { description: args.description.trim() || undefined }

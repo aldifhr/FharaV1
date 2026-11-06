@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { motion } from "framer-motion";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../api/convex/_generated/api";
@@ -26,92 +28,11 @@ type Props = {
 // ponytail: auto-mode intent classification can be added via LLM when explicit modes feel too rigid
 
 function MessageText({ content }: { content: string }) {
-  const parts = content.split(/(\n{2,})/g);
-  const isBlockStart = (line: string) => /^(#{1,6}\s|[-*]\s|\d+\.\s|```|>)/.test(line);
-
-  const blocks: { kind: "paragraph"; lines: string[] }[] = [];
-  let current: string[] = [];
-  for (const part of parts) {
-    if (/^\n{2,}$/.test(part)) {
-      if (current.length) blocks.push({ kind: "paragraph", lines: current });
-      current = [];
-      continue;
-    }
-    current.push(part);
-  }
-  if (current.length) blocks.push({ kind: "paragraph", lines: current });
-
-  const renderInline = (text: string) => {
-    const segments = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g);
-    return segments.map((seg, i) => {
-      if (/^`[^`]+`$/.test(seg)) {
-        return (
-          <code key={i} className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[12px] dark:bg-gray-800">
-            {seg.slice(1, -1)}
-          </code>
-        );
-      }
-      if (/^\*\*[^*]+\*\*$/.test(seg)) {
-        return <strong key={i} className="font-semibold">{seg.slice(2, -2)}</strong>;
-      }
-      if (/^\*[^*]+\*$/.test(seg)) {
-        return <em key={i}>{seg.slice(1, -1)}</em>;
-      }
-      const linkMatch = seg.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-      if (linkMatch) {
-        return (
-          <a key={i} href={linkMatch[2]} target="_blank" rel="noreferrer" className="text-[#5147b4] underline hover:text-[#3d34a0]">
-            {linkMatch[1]}
-          </a>
-        );
-      }
-      return <span key={i}>{seg}</span>;
-    });
-  };
-
   return (
     <div className="mt-1 max-w-3xl space-y-2 text-[13px] leading-5 text-[#4c4a55] dark:text-gray-200">
-      {blocks.map((block, bi) => {
-        const text = block.lines.join("");
-        const lines = text.split("\n").filter((line) => line.length > 0);
-        if (lines.length === 0) return null;
-  const heading = lines[0].match(/^(#{1,6})\s+(.*)$/);
-  if (heading) {
-    return (
-      <p key={bi} className="font-semibold text-gray-900 dark:text-white">
-        {renderInline(heading[2])}
-      </p>
-    );
-  }
-        if (lines.every((line) => /^[-*]\s+/.test(line))) {
-          return (
-            <ul key={bi} className="list-inside list-disc space-y-1">
-              {lines.map((line, li) => (
-                <li key={li}>{renderInline(line.replace(/^[-*]\s+/, ""))}</li>
-              ))}
-            </ul>
-          );
-        }
-        if (lines.every((line) => /^\d+\.\s+/.test(line))) {
-          return (
-            <ol key={bi} className="list-inside list-decimal space-y-1">
-              {lines.map((line, li) => (
-                <li key={li}>{renderInline(line.replace(/^\d+\.\s+/, ""))}</li>
-              ))}
-            </ol>
-          );
-        }
-        return (
-          <p key={bi} className="whitespace-pre-wrap break-words">
-            {text.split("\n").map((line, li, arr) => (
-              <span key={li}>
-                {renderInline(line)}
-                {li < arr.length - 1 ? "\n" : ""}
-              </span>
-            ))}
-          </p>
-        );
-      })}
+      <div className="markdown-body">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
     </div>
   );
 }
@@ -138,6 +59,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const [moreOpen, setMoreOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [showScrollDown, setShowScrollDown] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
 
@@ -244,16 +167,57 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const [chatError, setChatError] = useState("");
   const [chatSending, setChatSending] = useState(false);
   const [mention, setMention] = useState<string | null>(null);
+  const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
 
+  useEffect(() => {
+    const workspacePath = (project as any)?.workspacePath;
+    if (!workspacePath) {
+      setWorkspaceFiles([]);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/project-files?workspacePath=${encodeURIComponent(workspacePath)}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Unable to list project files");
+        return (await response.json()) as { files?: string[] };
+      })
+      .then((data) => {
+        if (!cancelled) setWorkspaceFiles(data.files ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaceFiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [(project as any)?.workspacePath]);
 
   const mentionResults = useMemo(() => {
     if (mention === null) return [];
     const q = mention.toLowerCase();
-    return (projectFiles ?? [])
-      .map((f: any) => f.filePath as string)
+    const changedFiles = (projectFiles ?? []).map((f: any) => f.filePath as string);
+    return [...new Set([...workspaceFiles, ...changedFiles])]
       .filter((p) => p.toLowerCase().includes(q))
-      .slice(0, 8);
-  }, [mention, projectFiles]);
+      .slice(0, 30);
+  }, [mention, projectFiles, workspaceFiles]);
+
+  const attachMentionedFiles = async (text: string) => {
+    const paths = [...new Set(
+      [...text.matchAll(/@([\w./-]+\.[\w]{1,12})/g)].map((match) => match[1]),
+    )];
+    if (paths.length === 0 || !(project as any)?.workspacePath) return text;
+    const contents = await Promise.all(paths.map(async (filePath) => {
+      const params = new URLSearchParams({
+        workspacePath: (project as any).workspacePath,
+        filePath,
+      });
+      const response = await fetch(`/api/project-files?${params}`);
+      if (!response.ok) return "";
+      const data = (await response.json()) as { content?: string };
+      return data.content ? `\n\n--- File: ${filePath} ---\n${data.content}` : "";
+    }));
+    return `${text}${contents.join("")}`.slice(0, 8000);
+  };
 
   const submitChat = async () => {
     const text = chatCommand.trim();
@@ -261,9 +225,10 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     setChatError("");
     setChatSending(true);
     try {
+      const content = await attachMentionedFiles(text);
       await sendMessage({
         projectId: projectId as any,
-        content: text,
+        content,
         preferredAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
       });
       setChatCommand("");
@@ -325,7 +290,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   };
 
   return (
-    <main className="flex min-w-0 flex-1 flex-col bg-transparent">
+    <main className="relative flex min-w-0 flex-1 flex-col bg-transparent">
       <header className="flex items-center gap-3 border-b border-[#ebe9f0] px-5 py-3 dark:border-gray-800">
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#e6f4ed] text-sm font-bold text-[#3d9b67]">
           {(project as any)?.name?.slice(0, 2).toUpperCase() ?? "AW"}
@@ -491,7 +456,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         ))}
       </div>
 
-      <div className="flex-1 space-y-5 overflow-y-auto bg-transparent p-5">
+      <div ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (el) setShowScrollDown(el.scrollHeight - el.scrollTop - el.clientHeight > 120); }} className="flex-1 space-y-5 overflow-y-auto bg-transparent p-5">
         {taskErrors.map((event: any, index: number) => (
           <div key={`task-error-${index}`} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             <span className="font-semibold">Agent error:</span> {event.payload?.message ?? "Task failed to process."}
@@ -636,6 +601,17 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         )}
       </div>
 
+      {showScrollDown && (
+        <button
+          type="button"
+          onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })}
+          aria-label="Scroll to bottom"
+          className="absolute bottom-24 left-1/2 z-20 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full bg-white shadow-lg ring-1 ring-gray-200 hover:bg-gray-50 dark:bg-gray-800 dark:ring-gray-700"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+      )}
+
 
       {isManageOpen && (
         <Modal title={`Manage project · ${manageName}`} onClose={() => setIsManageOpen(false)} maxWidth="max-w-lg">
@@ -765,7 +741,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                 }
               }}
               placeholder="Ask the team anything… use @ to reference a file"
-              className="flex-1 rounded-xl border border-[#e5e3eb] bg-[#fbfbfd] px-3 py-2.5 text-sm outline-none focus:border-[#a29ae8] focus:ring-2 focus:ring-[#e5e1ff]"
+              className="flex-1 rounded-xl border border-[#e5e3eb] bg-[#fbfbfd] px-3 py-2.5 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-[#a29ae8] focus:ring-2 focus:ring-[#e5e1ff] dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:placeholder:text-gray-400 dark:focus:border-indigo-400 dark:focus:ring-indigo-900"
             />
             <button
               onClick={() => void submitChat()}

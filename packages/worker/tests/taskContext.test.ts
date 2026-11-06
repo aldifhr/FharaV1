@@ -1,0 +1,42 @@
+import { describe, expect, it } from "vitest";
+import { createSharedTaskContext, appendExecution } from "../src/orchestrator/taskContext";
+import { buildAgentExecutionContext } from "../src/orchestrator/agentContext";
+import { classifyCommand } from "../src/orchestrator/classifier";
+import type { AgentDefinition } from "../src/orchestrator/types";
+
+const dev: AgentDefinition = { _id: "dev1", name: "Developer", role: "developer", capabilities: ["frontend-development"], systemPrompt: "You are dev" };
+const qa: AgentDefinition = { _id: "qa1", name: "QA", role: "qa", capabilities: ["browser-testing"], systemPrompt: "You are qa" };
+
+describe("agent context", () => {
+  it("same task id, previous results available, relevant only", () => {
+    const cmd = "Implement and thoroughly test a complex feature";
+    const ctx = createSharedTaskContext({
+      taskId: "AUTH-001",
+      projectId: "p1",
+      originalRequest: cmd,
+      title: "Feature",
+      classification: classifyCommand(cmd),
+    });
+
+    const withDev = appendExecution(ctx, {
+      agentId: "dev1",
+      agentName: "Developer",
+      capability: "frontend-development",
+      subtaskKey: "implement",
+      title: "Implement",
+      status: "COMPLETED",
+      summary: "Implemented auth",
+    });
+
+    const devCtx = buildAgentExecutionContext({ taskContext: withDev, agent: dev, assignment: cmd });
+    expect(devCtx.taskId).toBe("AUTH-001");
+    expect(devCtx.previousResults).toHaveLength(1);
+
+    const qaCtx = buildAgentExecutionContext({ taskContext: withDev, agent: qa, assignment: "Test auth" });
+    expect(qaCtx.taskId).toBe("AUTH-001");
+    // QA should see developer summary, not full raw history
+    expect(qaCtx.previousResults[0].summary).toBe("Implemented auth");
+    // Exclude irrelevant? QA does not get developer internal reasoning — only summary
+    expect(qaCtx.previousResults.length).toBeLessThanOrEqual(3);
+  });
+});

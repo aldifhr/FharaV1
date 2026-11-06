@@ -75,6 +75,8 @@ export default defineSchema({
     name: v.string(),
     role: v.string(),
     systemPrompt: v.optional(v.string()),
+    // Legacy fields from pre-global-LLM era. Kept optional so old docs
+    // (e.g. llmProvider) still pass validation. New code does not write these.
     llmProvider: v.optional(v.string()),
     llmModel: v.optional(v.string()),
     llmBaseUrl: v.optional(v.string()),
@@ -294,5 +296,61 @@ export default defineSchema({
   })
     .index("by_agent", ["agentId"])
     .index("by_project", ["projectId"])
-    .index("by_created_at", ["createdAt"]),
+    .index("by_created_at", ["createdAt"])
+    .index("by_task", ["taskId"]),
+
+  // Intelligent orchestrator — shared task context
+  taskContexts: defineTable({
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    originalRequest: v.string(),
+    objective: v.string(),
+    status: taskStatus,
+    decisions: v.array(v.any()),
+    artifacts: v.array(v.any()),
+    outstandingIssues: v.array(v.any()),
+    updatedAt: v.number(),
+  }).index("by_task", ["taskId"]),
+
+  // Conditional delegation decisions
+  delegations: defineTable({
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    fromAgentId: v.optional(v.id("agents")),
+    toAgentId: v.optional(v.id("agents")),
+    decision: v.union(
+      v.literal("APPROVE"),
+      v.literal("REJECT"),
+      v.literal("REVISE"),
+      v.literal("COMPLETE"),
+      v.literal("BLOCKED")
+    ),
+    reason: v.optional(v.string()),
+    capability: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_task", ["taskId"]),
+
+  // Lifecycle state history (for recoverability)
+  lifecycleHistory: defineTable({
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    state: v.string(),
+    prevState: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_task", ["taskId"]),
+
+  // Global LLM Provider Pool — single global config serving all projects
+  llmProviders: defineTable({
+    name: v.string(),
+    provider: v.string(),
+    model: v.string(),
+    baseUrl: v.string(),
+    apiKeyEnv: v.string(),
+    apiKey: v.optional(v.string()),
+    priority: v.number(),
+    weight: v.number(),
+    modelPatterns: v.optional(v.array(v.string())),
+    isEnabled: v.optional(v.boolean()),
+    createdAt: v.number(),
+  }),
 });

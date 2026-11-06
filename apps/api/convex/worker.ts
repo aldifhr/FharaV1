@@ -439,3 +439,77 @@ export const discardBranch = action({
     return await ctx.runAction(internal.worktreeNode.discardBranch, { taskId: args.taskId });
   },
 });
+
+export const getTaskContext = action({
+  args: { ...tokenArg, taskId: v.id("tasks") },
+  handler: async (ctx, args): Promise<any> => {
+    assertServiceToken(args.workerToken);
+    return await ctx.runQuery(internal.orchestration.getTaskContext, { taskId: args.taskId });
+  },
+});
+
+export const upsertTaskContext = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    originalRequest: v.string(),
+    objective: v.string(),
+    status: taskStatus,
+    decisions: v.array(v.any()),
+    artifacts: v.array(v.any()),
+    outstandingIssues: v.array(v.any()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    assertServiceToken(args.workerToken);
+    const { workerToken: _token, ...rest } = args;
+    return await ctx.runMutation(internal.orchestration.upsertTaskContext, rest);
+  },
+});
+
+export const recordDelegation = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    fromAgentId: v.optional(v.id("agents")),
+    toAgentId: v.optional(v.id("agents")),
+    decision: v.union(
+      v.literal("APPROVE"),
+      v.literal("REJECT"),
+      v.literal("REVISE"),
+      v.literal("COMPLETE"),
+      v.literal("BLOCKED")
+    ),
+    reason: v.optional(v.string()),
+    capability: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    assertServiceToken(args.workerToken);
+    const { workerToken: _token, ...rest } = args;
+    return await ctx.runMutation(internal.orchestration.recordDelegation, rest);
+  },
+});
+
+export const recordLifecycle = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    state: v.string(),
+    prevState: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    assertServiceToken(args.workerToken);
+    const { workerToken: _token, ...rest } = args;
+    return await ctx.runMutation(internal.orchestration.recordLifecycle, rest);
+  },
+});
+
+export const getTaskTokenUsage = action({
+  args: { ...tokenArg, taskId: v.id("tasks") },
+  handler: async (ctx, args): Promise<any> => {
+    assertServiceToken(args.workerToken);
+    return await ctx.runQuery(internal.orchestration.getTaskTokenUsage, { taskId: args.taskId });
+  },
+});

@@ -48,7 +48,22 @@ async function main() {
     `listening: convex=${process.env.NEXT_PUBLIC_CONVEX_URL} root=${workspaceRoot} concurrency=${CONCURRENCY}`
   );
 
-  const recovery = await api.recover(STALE_GRACE_MS);
+  // Retry recover until Convex is reachable (cloud or local dev)
+  let recovery: { recoveredTasks: number; recoveredExecutions: number } | null = null;
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= 30; attempt++) {
+    try {
+      recovery = await api.recover(STALE_GRACE_MS);
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (attempt === 1 || attempt === 5 || attempt === 10 || attempt === 15 || attempt === 20 || attempt === 25 || attempt === 30) {
+        log(`Convex not ready yet, retrying (${attempt}/30)...`, err instanceof Error ? err.message : err);
+      }
+      await sleep(1000);
+    }
+  }
+  if (!recovery) throw new Error(`Convex did not become ready in time: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
   if (recovery.recoveredTasks > 0 || recovery.recoveredExecutions > 0) {
     log(
       `recovered ${recovery.recoveredTasks} stale task(s) and ${recovery.recoveredExecutions} execution(s)`

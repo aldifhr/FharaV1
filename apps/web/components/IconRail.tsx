@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { Home, Inbox, Search, MessageSquare, Activity, BarChart3, Plus, Settings } from "lucide-react";
+import { Home, Inbox, Search, MessageSquare, Activity, BarChart3, Plus, Settings, Cpu } from "lucide-react";
 import { useEffect, useState, type MouseEvent } from "react";
 import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
@@ -8,6 +8,7 @@ import { useQuery } from "convex/react";
 import { motion } from "framer-motion";
 import { useNewProject } from "./NewProject";
 import { useSettings } from "./Settings";
+import { useLlmSettings } from "./LlmSettings";
 import { api } from "../../api/convex/_generated/api";
 import CommandMenu from "./CommandMenu";
 const MENU = [
@@ -27,6 +28,7 @@ export default function IconRail({
 }) {
   const { openNewProject } = useNewProject();
   const { openSettings } = useSettings();
+  const { openLlmSettings } = useLlmSettings();
   const pathname = usePathname();
   const inbox = useQuery(api.inbox.list, {});
   const inboxCount = inbox ? inbox.approvals.length + inbox.tasks.length + inbox.agents.length : 0;
@@ -131,6 +133,7 @@ export default function IconRail({
         ))}
       </div>
       <div className="mt-auto flex shrink-0 flex-col items-center gap-1 pt-2 max-[979px]:mt-0 max-[979px]:flex-row max-[979px]:pt-0">
+        <RailBtn icon={Cpu} label="LLM Settings" onClick={() => openLlmSettings(projectId)} />
         <RailBtn icon={Settings} label="Settings" onClick={openSettings} />
       </div>
     </nav>

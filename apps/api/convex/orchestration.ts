@@ -22,6 +22,17 @@ export const getRunContext = internalQuery({
     plan: Doc<"plans"> | null;
     subtasks: Doc<"subtasks">[];
     approvalMode: "ask" | "auto";
+    llmProviders: Array<{
+      _id: string;
+      name: string;
+      provider: string;
+      baseUrl: string;
+      apiKeyEnv: string;
+      apiKey?: string;
+      priority: number;
+      weight: number;
+      modelPatterns?: string[];
+    }>;  
   } | null> => {
     const task = await ctx.db.get(args.taskId);
     if (!task) return null;
@@ -43,6 +54,43 @@ export const getRunContext = internalQuery({
       .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
       .order("asc")
       .collect();
+
+    const llmProviders: Array<{
+      _id: string;
+      name: string;
+      provider: string;
+      model: string;
+      baseUrl: string;
+      apiKeyEnv: string;
+      apiKey?: string;
+      priority: number;
+      weight: number;
+      modelPatterns?: string[];
+    }> = [];
+    if (project) {
+      const providers = await ctx.db
+        .query("llmProviders")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect();
+      for (const p of providers) {
+        if (p.isEnabled !== false) {
+          llmProviders.push({
+            _id: p._id,
+            name: p.name,
+            provider: p.provider,
+            model: p.model,
+            baseUrl: p.baseUrl,
+            apiKeyEnv: p.apiKeyEnv,
+            apiKey: p.apiKey,
+            priority: p.priority,
+            weight: p.weight,
+            modelPatterns: p.modelPatterns,
+          });
+        }
+      }
+      llmProviders.sort((a, b) => a.priority - b.priority);
+    }
+
     return {
       task,
       project,
@@ -50,6 +98,7 @@ export const getRunContext = internalQuery({
       plan: plans[0] ?? null,
       subtasks,
       approvalMode: project?.approvalMode === "auto" ? "auto" : "ask",
+      llmProviders,
     };
   },
 });
@@ -1060,6 +1109,101 @@ export const cleanupWorktreeContext = internalQuery({
       workspacePath: project.workspacePath,
       worktreesPath: project.worktreesPath,
       branchPrefix: `moagent/${args.taskId}/`,
+    };
+  },
+});
+
+// Intelligent orchestrator — shared task context
+
+export const getTaskContext = internalQuery({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, args) => {
+    const contexts = await ctx.db
+      .query("taskContexts")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .order("desc")
+      .take(1);
+    return contexts[0] ?? null;
+  },
+});
+
+export const upsertTaskContext = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    originalRequest: v.string(),
+    objective: v.string(),
+    status: taskStatus,
+    decisions: v.array(v.any()),
+    artifacts: v.array(v.any()),
+    outstandingIssues: v.array(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("taskContexts")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .first();
+    const now = Date.now();
+    if (existing) {
+      await ctx.db.patch(existing._id, { ...args, updatedAt: now });
+      return existing._id;
+    }
+    return await ctx.db.insert("taskContexts", { ...args, updatedAt: now });
+  },
+});
+
+export const recordDelegation = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    fromAgentId: v.optional(v.id("agents")),
+    toAgentId: v.optional(v.id("agents")),
+    decision: v.union(
+      v.literal("APPROVE"),
+      v.literal("REJECT"),
+      v.literal("REVISE"),
+      v.literal("COMPLETE"),
+      v.literal("BLOCKED")
+    ),
+    reason: v.optional(v.string()),
+    capability: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const id = await ctx.db.insert("delegations", { ...args, createdAt: Date.now() });
+    await ctx.db.insert("taskEvents", {
+      taskId: args.taskId,
+      projectId: args.projectId,
+      type: "orchestrator.delegation",
+      payload: { decision: args.decision, reason: args.reason ?? null, capability: args.capability ?? null },
+      level: args.decision === "BLOCKED" ? "warn" : "info",
+    });
+    return id;
+  },
+});
+
+export const recordLifecycle = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    state: v.string(),
+    prevState: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("lifecycleHistory", { ...args, createdAt: Date.now() });
+  },
+});
+
+export const getTaskTokenUsage = internalQuery({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, args) => {
+    const usage = await ctx.db
+      .query("tokenUsage")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .collect();
+    return {
+      calls: usage.length,
+      inputTokens: usage.reduce((s, u) => s + u.inputTokens, 0),
+      outputTokens: usage.reduce((s, u) => s + u.outputTokens, 0),
     };
   },
 });

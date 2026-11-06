@@ -16,12 +16,21 @@ export interface LLMProvider {
   stream?(messages: LLMMessage[], onChunk: (delta: string) => void, model?: string): Promise<LLMResult>;
 }
 
-export type AgentLLMConfig = {
-  llmProvider?: string;
-  llmModel?: string;
-  llmBaseUrl?: string;
-  llmApiKey?: string;
-};
+export interface GlobalLLMConfig {
+  provider: string;
+  model: string;
+  baseUrl: string;
+  apiKey: string;
+}
+
+export function getGlobalLLMConfig(env?: Record<string, string | undefined>): GlobalLLMConfig {
+  const e = env ?? process.env;
+  const provider = (e.LLM_PROVIDER ?? "anthropic").toLowerCase();
+  const model = e.LLM_MODEL ?? (provider === "openai-compatible" || provider === "openai" ? "gpt-4o-mini" : "claude-sonnet-4-20250514");
+  const baseUrl = e.LLM_BASE_URL ?? (provider === "openai-compatible" || provider === "openai" ? "https://api.openai.com/v1" : "https://api.anthropic.com/v1");
+  const apiKey = e.LLM_API_KEY ?? e.OPENAI_API_KEY ?? "";
+  return { provider, model, baseUrl, apiKey };
+}
 
 export class AnthropicProvider implements LLMProvider {
   private client: Anthropic;
@@ -82,7 +91,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
   async complete(messages: LLMMessage[], model?: string): Promise<LLMResult> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
+    const timeout = setTimeout(() => controller.abort(), 300_000);
     let response: Response;
     try {
       response = await fetch(`${this.baseUrl.replace(/\/$/, "")}/chat/completions`, {
@@ -143,20 +152,22 @@ export class OpenAICompatibleProvider implements LLMProvider {
   }
 }
 
-export function createProviderForAgent(config: AgentLLMConfig): LLMProvider {
-  const provider = config.llmProvider ?? "anthropic";
-  const apiKey = config.llmApiKey;
-  if (!apiKey) throw new Error(`API key missing for ${provider} agent`);
+export function createGlobalLLMProvider(config?: GlobalLLMConfig): LLMProvider {
+  const cfg = config ?? getGlobalLLMConfig();
+  const provider = cfg.provider.toLowerCase();
+  const apiKey = cfg.apiKey;
+  if (!apiKey) throw new Error(`API key missing for global LLM provider (${provider}). Set LLM_API_KEY.`);
 
-  if (provider === "openai-compatible") {
-    return new OpenAICompatibleProvider(
-      apiKey,
-      config.llmModel ?? "gpt-4o-mini",
-      config.llmBaseUrl ?? "https://api.openai.com/v1"
-    );
+  if (provider === "openai-compatible" || provider === "openai") {
+    return new OpenAICompatibleProvider(apiKey, cfg.model, cfg.baseUrl);
   }
   if (provider === "anthropic") {
-    return new AnthropicProvider(apiKey, config.llmModel ?? "claude-sonnet-4-20250514");
+    return new AnthropicProvider(apiKey, cfg.model);
   }
   throw new Error(`Unsupported LLM provider: ${provider}`);
+}
+
+// Back-compat: agent identity no longer carries LLM config. All agents share global LLM.
+export function createProviderForAgent(_config?: unknown): LLMProvider {
+  return createGlobalLLMProvider();
 }

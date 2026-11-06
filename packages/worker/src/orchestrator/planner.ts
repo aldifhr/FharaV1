@@ -1,4 +1,5 @@
-import { createProviderForAgent } from "../llm";
+import { createProviderForAgent, getGlobalLLMConfig } from "../llm";
+import { runLlmCall } from "../effects/llmCall";
 import { CAPABILITY, type AgentDefinition, type Classification, type ExecutionPlan } from "./types";
 import { routeCapability, capabilitiesOf, describeCapabilities, isAgentEnabled } from "./capabilities";
 import { validatePlan } from "./planValidator";
@@ -27,15 +28,14 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   if (orchestrator) {
     try {
       const provider = createProviderForAgent(orchestrator);
-      const response = await provider.complete([
+      const response = await runLlmCall(provider, [
         ...(orchestrator.systemPrompt
           ? [{ role: "system" as const, content: orchestrator.systemPrompt }]
           : []),
         { role: "user", content: buildPlanningPrompt(input) },
       ]);
       if (input.onTokenUsage && response.inputTokens !== undefined) {
-        const model = orchestrator.llmModel
-          ?? ((orchestrator.llmProvider ?? "anthropic") === "openai-compatible" ? "gpt-4o-mini" : "claude-sonnet-4-20250514");
+        const model = getGlobalLLMConfig().model;
         await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, model, orchestrator.name, orchestrator._id);
       }
       const parsed = extractJson(response.content);
@@ -216,6 +216,33 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
   }
 
   if (classification.kind === "audit") {
+    // Codebase audit: split into frontend/backend/security lanes when capable agents exist.
+    const lanes: Array<{ key: string; title: string; capability: string; description: string }> = [];
+    if (hasCapability(CAPABILITY.FRONTEND)) lanes.push({ key: "audit-frontend", title: "Audit frontend", capability: CAPABILITY.FRONTEND, description: "Read-only audit of frontend (components, pages, styles, a11y, state). Report findings with file refs. No code changes." });
+    if (hasCapability(CAPABILITY.BACKEND)) lanes.push({ key: "audit-backend", title: "Audit backend", capability: CAPABILITY.BACKEND, description: "Read-only audit of backend (API routes, Convex/DB, auth, validation, errors). Report findings with file refs. No code changes." });
+    if (hasCapability(CAPABILITY.SECURITY)) lanes.push({ key: "audit-security", title: "Security audit", capability: CAPABILITY.SECURITY, description: "Read-only security audit (auth, secrets, injection, CORS, deps). Report findings with severity + file refs. No code changes." });
+    if (hasCapability(CAPABILITY.CODE_REVIEW)) lanes.push({ key: "audit-consolidate", title: "Consolidate audit findings", capability: CAPABILITY.CODE_REVIEW, description: "Consolidate frontend/backend/security findings into prioritized report with severity, impact, recommendation. No code changes." });
+
+    if (lanes.length > 1) {
+      const subtasks = lanes.map((lane, i) => ({
+        key: lane.key,
+        title: lane.title,
+        description: lane.description,
+        kind: "audit" as const,
+        capability: lane.capability,
+        dependencies: lane.key === "audit-consolidate" ? lanes.filter((l) => l.key !== "audit-consolidate").map((l) => l.key) : [],
+        order: i,
+      }));
+      return {
+        version: 1,
+        goal,
+        strategy: "dag",
+        requiresApproval: false,
+        maxConcurrency: 3,
+        subtasks,
+      };
+    }
+
     const capability = hasCapability(CAPABILITY.SECURITY)
       ? CAPABILITY.SECURITY
       : CAPABILITY.CODE_REVIEW;

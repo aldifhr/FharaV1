@@ -94,16 +94,47 @@ export const getContext = internalQuery({
       name: a.name,
       role: a.role,
       systemPrompt: a.systemPrompt,
-      llmProvider: a.llmProvider,
-      llmModel: a.llmModel,
-      llmBaseUrl: a.llmBaseUrl,
-      llmApiKey: a.llmApiKey,
     });
+
+    const llmProviders: Array<{
+      _id: string;
+      name: string;
+      provider: string;
+      model: string;
+      baseUrl: string;
+      apiKeyEnv: string;
+      apiKey?: string;
+      priority: number;
+      weight: number;
+      modelPatterns?: string[];
+    }> = [];
+    const providers = await ctx.db
+      .query("llmProviders")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    for (const p of providers) {
+      if (p.isEnabled !== false) {
+        llmProviders.push({
+          _id: p._id,
+          name: p.name,
+          provider: p.provider,
+          model: p.model,
+          baseUrl: p.baseUrl,
+          apiKeyEnv: p.apiKeyEnv,
+          apiKey: p.apiKey,
+          priority: p.priority,
+          weight: p.weight,
+          modelPatterns: p.modelPatterns,
+        });
+      }
+    }
+    llmProviders.sort((a, b) => a.priority - b.priority);
 
     return {
       agents: selected.map(agentShape),
       projectName: project.name,
       history,
+      llmProviders,
     };
   },
 });

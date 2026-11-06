@@ -48,20 +48,21 @@ export const createFromCommand = mutation({
       args.title?.trim() ||
       (rawCommand.length > 80 ? rawCommand.slice(0, 80) + "..." : rawCommand);
 
-    // Automatic conversation context: recent chat messages become part of the task command.
-    // Only conversation (task-less) messages are used, so agent reports from other
-    // tasks don't leak into this task's context.
+    // Conversation context: opt-in, deduped, error-filtered.
+    // Do NOT leak LLM/agent error chatter into the task command.
+    const isErrorChatter = (content: string) =>
+      /I couldn'?t reply|No LLM API key|LLM request failed|Unexpected non-whitespace|Check global LLM settings|I can'?t run shell|Gue nggak bisa jalanin|nggak punya akses terminal/i.test(content);
     const history = await ctx.db
       .query("messages")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .order("desc")
       .take(30);
-    const historyLines = history
-      .filter((m) => !m.taskId)
-      .slice(0, 12)
-      .reverse()
-      .map((m) => `${m.authorType === "user" ? "User" : "Agent"}: ${m.content}`)
-      .join("\n\n");
+    const conversationMsgs = history.filter((m) => !m.taskId && !isErrorChatter(m.content) && m.authorType === "user");
+    // Only include context if the user message itself is short / ambiguous
+    const needsContext = rawCommand.length < 80 || /^(git pull|pull|push|checkout|buatin|buat)$/i.test(rawCommand);
+    const historyLines = needsContext
+      ? conversationMsgs.slice(0, 6).reverse().map((m) => `${m.authorType === "user" ? "User" : "Agent"}: ${m.content.slice(0, 500)}`).join("\n\n")
+      : "";
     const contextBlock = historyLines ? `\n\n--- Conversation context ---\n${historyLines}` : "";
     let command = rawCommand + contextBlock;
     if (command.length > 4000) {
@@ -143,6 +144,35 @@ export const cancel = mutation({
       type: "task.cancelled",
       payload: {},
       level: "warn",
+    });
+    return true;
+  },
+});
+
+export const retry = mutation({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, args) => {
+    const task = await assertTaskAccess(ctx, args.taskId);
+    if (task.status === "running") throw new Error("Running tasks cannot be retried");
+    const now = Date.now();
+    await ctx.db.patch(args.taskId, {
+      status: "queued",
+      workerId: undefined,
+      leaseExpiresAt: undefined,
+      errorMessage: undefined,
+      completedAt: undefined,
+      updatedAt: now,
+      replanCount: 0,
+    });
+    // clear failed subtasks so worker replans cleanly
+    const subs = await ctx.db.query("subtasks").withIndex("by_task", (q) => q.eq("taskId", args.taskId)).collect();
+    for (const s of subs) await ctx.db.patch(s._id, { status: "pending", error: undefined, attempts: 0, completedAt: undefined });
+    await ctx.db.insert("taskEvents", {
+      taskId: task._id,
+      projectId: task.projectId,
+      type: "task.retried",
+      payload: { prevStatus: task.status },
+      level: "info",
     });
     return true;
   },

@@ -1,6 +1,7 @@
-import { createProviderForAgent } from "../llm";
+import { createProviderForAgent, getGlobalLLMConfig } from "../llm";
+import { runLlmCall } from "../effects/llmCall";
 import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "../orchestrator/types";
-import { extractFileHint, parseDraft, parseReview } from "../utils/json";
+import { extractFileHint, parseDelegation, parseDraft, parseReview } from "../utils/json";
 import { validateFilePath } from "../governance/tools";
 import { computeDiff, type FileDiff } from "../tools/gitDiff";
 import { exploreRepository } from "./repositoryContext";
@@ -26,10 +27,8 @@ export interface SubtaskExecutionInput {
   onTokenUsage?: (inputTokens: number, outputTokens: number, model: string) => Promise<void>;
 }
 
-function resolveModelForAgent(agent: AgentDefinition): string {
-  if (agent.llmModel) return agent.llmModel;
-  if ((agent.llmProvider ?? "anthropic") === "openai-compatible") return "gpt-4o-mini";
-  return "claude-sonnet-4-20250514";
+function resolveModelForAgent(_agent?: AgentDefinition): string {
+  return getGlobalLLMConfig().model;
 }
 
 export type SubtaskExecutionResult =
@@ -118,7 +117,7 @@ async function executeCodeChange(
     "- Keep the change minimal and focused on the task.",
   ].join("\n");
 
-  let response = await provider.complete(baseMessages(input, basePayload));
+  let response = await runLlmCall(provider, baseMessages(input, basePayload));
   if (input.onTokenUsage) {
     await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent));
   }
@@ -130,7 +129,8 @@ async function executeCodeChange(
       retry: true,
       reason: "invalid-file-changes-json",
     });
-    response = await provider.complete(
+    response = await runLlmCall(
+      provider,
       baseMessages(
         input,
         `${basePayload}\n\nYour previous response was not a valid file-changes JSON object. Return ONLY the JSON object again.\n\nPrevious response (for reference):\n${response.content.slice(0, 2000)}`
@@ -174,13 +174,18 @@ async function executeCodeChange(
     }
   }
 
+  const delegation = parseDelegation(response.content);
   const output = `Prepared ${prepared.length} file change(s): ${prepared
     .map((change) => change.filePath)
     .join(", ")}`;
   return {
     status: "completed",
     output,
-    meta: { filePaths: prepared.map((change) => change.filePath) },
+    meta: {
+      filePaths: prepared.map((change) => change.filePath),
+      ...(delegation?.delegationRecommendation ? { delegationRecommendation: delegation.delegationRecommendation } : {}),
+      ...(delegation?.findings ? { findings: delegation.findings } : {}),
+    },
   };
 }
 
@@ -201,7 +206,8 @@ async function executeReview(
     .slice(0, 40_000)
     .replace(/\b(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9_]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)\b/g, "[REDACTED]");
 
-  const response = await createProviderForAgent(agent).complete(
+  const response = await runLlmCall(
+    createProviderForAgent(agent),
     baseMessages(
       input,
       [
@@ -336,7 +342,7 @@ async function executeReadOnly(
     ? await provider.stream(messages, async (delta) => {
         await input.onChunk(delta);
       })
-    : await provider.complete(messages);
+    : await runLlmCall(provider, messages);
   if (input.onTokenUsage) {
     await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent));
   }

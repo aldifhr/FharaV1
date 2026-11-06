@@ -4,28 +4,59 @@ import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 
+function classifyChatIntent(text: string): { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean } {
+  const t = text.toLowerCase();
+  const frontend = /\b(frontend|ui|react|component|page|button|css|tailwind)\b/.test(t);
+  const backend = /\b(backend|api|server|database|auth|endpoint|convex)\b/.test(t);
+  const testing = /\b(test|qa|e2e|bug|error)\b/.test(t);
+  const security = /\b(security|audit|vulnerab|secret)\b/.test(t);
+  const isTask = /\b(buatin|buat|tambah|implement|build|create|fix|perbaiki|refactor|update|change|add|remove)\b/.test(t) && !(frontend || backend || testing || security || t.length < 15);
+  // If command contains impl keywords, treat as task regardless
+  const impl = /\b(buatin|buat|tambah|implement|build|create|fix|perbaiki|refactor|update|change|add|remove|git\s+pull|checkout|push|audit|cari\s+bug|bug|review|investigate|research|qa|test|security|desain|design)\b/.test(t);
+  return { kind: impl ? "task" : "chat", frontend, backend, testing, security };
+}
+
+function buildPlanningGuidance(agent: { role: string }, opts: { isOrchestrator: boolean; taskIntent: { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean } }): string[] {
+  if (opts.isOrchestrator && opts.taskIntent.kind === "task") {
+    return [
+      "You are the orchestrator/planner (architect).",
+      "Do NOT just chat. Produce a concise execution PLAN for this request:",
+      "1) 2-4 concrete subtasks: name + owner agent (role) + files/routes to inspect + expected finding/output.",
+      "2) Order & dependencies (what blocks what).",
+      "3) Validation per subtask (typecheck, tests, audit checklist).",
+      "4) End with exact delegation line: 'Delegasi: [Agent A] untuk X, [Agent B] untuk Y.'",
+      "Do NOT offer a shortcut / lazy alternative. Audit the full scope the user asked for.",
+      "Then end with: 'To execute this plan, klik Create task — saya akan delegasikan ke agent yang sesuai.'",
+      "Do not pretend to have executed code.",
+    ];
+  }
+  if (opts.isOrchestrator) {
+    return [
+      "You are the orchestrator/planner.",
+      "Answer briefly. If user asks for work to be done, propose a plan + delegation, then tell them to use Create task. Do not pretend to have executed code. Respond in plain text.",
+    ];
+  }
+  return [
+    "Answer the user's chat message helpfully and briefly from your perspective in the same language as the user.",
+    "Do not pretend to have executed code. Respond in plain text.",
+  ];
+}
+
 async function completeWithAgent(
-  agent: {
-    llmProvider?: string;
-    llmModel?: string;
-    llmBaseUrl?: string;
-    llmApiKey?: string;
-  },
   system: string,
   history: { role: string; content: string }[],
+  globalConfig: { provider: string; model: string; baseUrl: string; apiKey: string }
 ): Promise<string> {
-  const provider = (agent.llmProvider ?? "anthropic").toLowerCase();
-  const model = agent.llmModel ?? (provider === "openai" ? "gpt-4o-mini" : "claude-sonnet-4-20250514");
-  const apiKey = agent.llmApiKey ?? "";
-  if (!apiKey) throw new Error("No LLM API key configured for this agent");
+  const { provider, model, baseUrl, apiKey } = globalConfig;
+  if (!apiKey) throw new Error("No LLM API key configured. Add a provider in Settings (LLM) or set LLM_API_KEY in Convex env");
 
   const messages = history.map((m) => ({
     role: m.role === "assistant" ? "assistant" : "user",
     content: m.content,
   }));
 
-  if (provider === "openai") {
-    const base = (agent.llmBaseUrl ?? "https://api.openai.com/v1").replace(/\/$/, "");
+  if (provider === "openai" || provider === "openai-compatible") {
+    const base = baseUrl.replace(/\/$/, "");
     const res = await fetch(`${base}/chat/completions`, {
       method: "POST",
       headers: {
@@ -38,11 +69,37 @@ async function completeWithAgent(
       }),
     });
     if (!res.ok) throw new Error(`LLM request failed: ${res.status}`);
-    const data: any = await res.json();
-    return data.choices?.[0]?.message?.content ?? "";
+    const text = await res.text();
+    const normalized = text.replace(/(?:\r?\n)?data:\s*\[DONE\]\s*$/, "").trim();
+    if (!normalized) return "";
+    try {
+      const data: any = JSON.parse(normalized);
+      const c = data.choices?.[0]?.message?.content;
+      if (typeof c === "string" && c.trim()) return c;
+      // Some reasoning models put text in reasoning_content
+      const rc = data.choices?.[0]?.message?.reasoning_content;
+      if (typeof rc === "string" && rc.trim()) return rc;
+      return c ?? "";
+    } catch {
+      // SSE fallback: data: {...} lines
+      const parts: string[] = [];
+      for (const line of normalized.split(/\r?\n/)) {
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        try {
+          const d: any = JSON.parse(payload);
+          const delta = d.choices?.[0]?.delta?.content ?? d.choices?.[0]?.message?.content ?? "";
+          if (delta) parts.push(delta);
+        } catch {}
+      }
+      if (parts.length) return parts.join("");
+      throw new Error(`LLM returned non-JSON response`);
+    }
   }
 
-  const base = (agent.llmBaseUrl ?? "https://api.anthropic.com/v1").replace(/\/$/, "");
+  // anthropic
+  const base = baseUrl.replace(/\/$/, "");
   const res = await fetch(`${base}/messages`, {
     method: "POST",
     headers: {
@@ -60,6 +117,38 @@ async function completeWithAgent(
   if (!res.ok) throw new Error(`LLM request failed: ${res.status}`);
   const data: any = await res.json();
   return (data.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
+}
+
+function getGlobalLLMConfig(): { provider: string; model: string; baseUrl: string; apiKey: string } {
+  const env: Record<string, string | undefined> =
+    (globalThis as any).process?.env ?? {};
+  const provider = (env.LLM_PROVIDER ?? "anthropic").toLowerCase();
+  return {
+    provider,
+    model: env.LLM_MODEL ?? (provider === "openai" ? "gpt-4o-mini" : "claude-sonnet-4-20250514"),
+    baseUrl: provider === "openai"
+      ? (env.LLM_OPENAI_BASE_URL ?? env.LLM_BASE_URL ?? "https://api.openai.com/v1")
+      : (env.LLM_ANTHROPIC_BASE_URL ?? env.LLM_BASE_URL ?? "https://api.anthropic.com/v1"),
+    apiKey: env.LLM_API_KEY ?? env.OPENAI_API_KEY ?? "",
+  };
+}
+
+function resolveConfigFromProviders(
+  providers: Array<{ provider: string; model: string; baseUrl: string; apiKeyEnv: string; apiKey?: string }> | undefined,
+  fallback: { provider: string; model: string; baseUrl: string; apiKey: string }
+): { provider: string; model: string; baseUrl: string; apiKey: string } {
+  const env: Record<string, string | undefined> = (globalThis as any).process?.env ?? {};
+  if (providers && providers.length > 0) {
+    const p = providers[0];
+    const key = p.apiKey?.trim() || env[p.apiKeyEnv]?.trim() || "";
+    return {
+      provider: p.provider.toLowerCase(),
+      model: p.model,
+      baseUrl: p.baseUrl,
+      apiKey: key || fallback.apiKey,
+    };
+  }
+  return fallback;
 }
 
 export const replyToChat = internalAction({
@@ -84,16 +173,14 @@ export const replyToChat = internalAction({
         name: string;
         role: string;
         systemPrompt?: string;
-        llmProvider?: string;
-        llmModel?: string;
-        llmBaseUrl?: string;
-        llmApiKey?: string;
       }>;
       projectName: string;
       history: { authorType: string; content: string }[];
+      llmProviders?: Array<{ provider: string; model: string; baseUrl: string; apiKeyEnv: string }>;
     };
 
-    const { agents, projectName, history } = data;
+    const { agents, projectName, history, llmProviders } = data;
+    const globalConfig = resolveConfigFromProviders(llmProviders, getGlobalLLMConfig());
 
     if (agents.length === 0) {
       await ctx.runMutation(internal.chatContext.insertAgentMessage, {
@@ -109,6 +196,38 @@ export const replyToChat = internalAction({
       content: m.content,
     }));
 
+    // Mike (architect) acts as orchestrator/planner for implementation requests.
+    const orchestrator = agents.find((a) => /architect|lead|orchestrator|planner/i.test(a.role)) ?? agents[0];
+    const taskIntent = classifyChatIntent(history[history.length - 1]?.content ?? "");
+
+    // Auto-dispatch: if user sent a task intent, orchestrator creates task + delegates directly.
+    const lastUserContent = history[history.length - 1]?.content ?? "";
+    if (taskIntent.kind === "task") {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { api } = await import("./_generated/api.js") as any;
+        // create task (public mutation) — will be picked up by worker
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const taskId = await (ctx as any).runMutation(api.tasks.createFromCommand, {
+          projectId: args.projectId,
+          command: lastUserContent,
+          title: lastUserContent.slice(0, 80),
+        });
+        const targetAgents = agents.filter((a: any) => a._id !== orchestrator._id).map((a: any) => a.name).join(", ");
+        const delegationLine = targetAgents ? ` Delegasi ke: ${targetAgents}.` : "";
+        await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+          projectId: args.projectId,
+          agentId: orchestrator._id as any,
+          content: `Plan dibuat. Task ${taskId} dibuat untuk: "${lastUserContent.slice(0, 80)}".${delegationLine} Lihat Task thread untuk progres eksekusi.`,
+          replyToMessageId: args.userMessageId,
+        });
+        return; // skip normal chat reply loop
+      } catch (e: any) {
+        // fall back to chat reply if mutation fails (e.g. no auth in action)
+        // continue to normal reply below
+        console.error("Auto-dispatch failed:", e?.message ?? e);
+      }
+    }
     // Sequential multi-agent replies: each selected agent answers with its persona
     for (const agent of agents) {
       const multiNotice = agents.length > 1
@@ -117,19 +236,19 @@ export const replyToChat = internalAction({
       const system = [
         `You are ${agent.name}, a ${agent.role} on the agent team of project "${projectName}".${multiNotice}`,
         agent.systemPrompt ?? "",
-        "Answer the user's chat message helpfully and briefly from your perspective in the same language as the user. If the user asks for work to be done, tell them to use the Create task button. Do not pretend to have executed code. Respond in plain text.",
+        ...buildPlanningGuidance(agent, { isOrchestrator: agent._id === orchestrator._id, taskIntent }),
       ]
         .filter(Boolean)
         .join("\n");
 
       let content: string;
       try {
-        content = await completeWithAgent(agent, system, conversation);
+        content = await completeWithAgent(system, conversation, globalConfig);
       } catch (err: any) {
         await ctx.runMutation(internal.chatContext.insertAgentMessage, {
           projectId: args.projectId,
           agentId: agent._id as any,
-          content: `I couldn't reply (${err.message}). Check the agent's LLM settings.`,
+          content: `I couldn't reply (${err.message}). Check global LLM settings.`,
           replyToMessageId: args.userMessageId,
         });
         continue;

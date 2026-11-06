@@ -207,7 +207,6 @@ export default function Home() {
                   <p className="font-medium">{a.name}</p>
                   <p className="text-xs text-gray-500">{a.role} · {a.status}</p>
                 </div>
-                <span className="text-[11px] text-gray-400">{a.llmApiKeyConfigured ? "key ✓" : "key —"}</span>
                 <button
                   type="button"
                   onClick={() => handleRemoveAgent(a._id, a.name)}

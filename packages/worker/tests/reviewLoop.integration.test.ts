@@ -87,6 +87,12 @@ const POLICY: ExecutionPolicy = {
   verificationEnabled: false,
   verificationIncludeBuild: false,
   verificationTimeoutMs: 10_000,
+  maxAgentsPerTask: 3,
+  maxLLMCallsPerTask: 5,
+  maxDelegationDepth: 2,
+  maxDelegationChain: 2,
+  maxConcurrentLLMCalls: 1,
+  maxTokenBudgetPerTask: 50_000,
 };
 
 const PLAN: ExecutionPlan = {

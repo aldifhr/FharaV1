@@ -51,7 +51,7 @@ export const get = query({
     return {
       projects,
       perProject,
-      agents: agents.map(({ llmApiKey, ...a }) => ({ ...a, llmApiKeyConfigured: Boolean(llmApiKey) })),
+      agents,
       agentByStatus,
       approvals: approvals.map((a) => ({ ...enrich(a), taskTitle: taskTitleById.get(a.taskId as string) ?? null })),
       recentTasks,

@@ -39,12 +39,11 @@ export const createBranch = internalAction({
     const mainBranch = data.mainBranch ?? "main";
 
     try {
-      gitExec(data.workspacePath, ["worktree", "add", "--force", "--detach", worktreePath]);
-      gitExec(worktreePath, ["checkout", mainBranch]);
-      gitExec(worktreePath, ["checkout", "-b", branchName]);
+      // Create worktree directly on new branch from main (avoid checkout main in new wt)
+      gitExec(data.workspacePath, ["worktree", "add", "-b", branchName, worktreePath, mainBranch]);
     } catch (err: any) {
       const msg = (err.message ?? "").toLowerCase();
-      if (msg.includes("already exists")) {
+      if (msg.includes("already exists") || msg.includes("already checked out")) {
         return { branchName, worktreePath };
       }
       if (msg.includes("dirty")) {

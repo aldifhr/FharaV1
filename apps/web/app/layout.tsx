@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ToastProvider } from "@/components/Toasts";
 import { NewProjectProvider } from "@/components/NewProject";
 import { SettingsProvider } from "@/components/Settings";
+import { LlmSettingsProvider } from "@/components/LlmSettings";
 import { ShellBackground } from "@/components/ui/background-snippets";
 import Script from "next/script";
 import { ThemeProvider } from "@/components/ui/theme-provider";
@@ -26,18 +27,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning className={cn("font-sans", geist.variable, inter.variable, jetbrains.variable)} data-font="geist">
       <body>
         <ShellBackground />
-        <Script src="/font-init.js" strategy="beforeInteractive" />
         <ThemeProvider>
         <SkulletProvider mode="system">
         <TooltipProvider>
           <ToastProvider>
         <ConvexClientProvider>
-          <NewProjectProvider><SettingsProvider>{children}</SettingsProvider></NewProjectProvider>
+          <NewProjectProvider><SettingsProvider><LlmSettingsProvider>{children}</LlmSettingsProvider></SettingsProvider></NewProjectProvider>
         </ConvexClientProvider>
           </ToastProvider>
         </TooltipProvider>
         </SkulletProvider>
         </ThemeProvider>
+        <Script src="/font-init.js" strategy="beforeInteractive" />
       </body>
     </html>
   );

@@ -18,6 +18,13 @@ export interface ExecutionPolicy {
   verificationEnabled: boolean;
   verificationIncludeBuild: boolean;
   verificationTimeoutMs: number;
+  // Intelligent orchestrator budgets (configurable, not hardcoded assumptions)
+  maxAgentsPerTask: number;
+  maxLLMCallsPerTask: number;
+  maxDelegationDepth: number;
+  maxDelegationChain: number;
+  maxConcurrentLLMCalls: number;
+  maxTokenBudgetPerTask: number;
 }
 
 function boolFromEnv(name: string, fallback: boolean): boolean {
@@ -32,12 +39,19 @@ export function loadPolicy(): ExecutionPolicy {
     maxConcurrency: intFromEnv("ORCHESTRATOR_MAX_CONCURRENCY", 2, 1, 8),
     maxReplans: intFromEnv("ORCHESTRATOR_MAX_REPLANS", 1, 0, 3),
     maxReviewIterations: intFromEnv("ORCHESTRATOR_MAX_REVIEW_ITERATIONS", 2, 0, 5),
-    subtaskTimeoutMs: intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", 180_000, 5_000, 900_000),
+    subtaskTimeoutMs: intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", 300_000, 30_000, 300_000),
     subtaskRetries: intFromEnv("ORCHESTRATOR_SUBTASK_RETRIES", 1, 0, 3),
     approvalTimeoutMs: intFromEnv("ORCHESTRATOR_APPROVAL_TIMEOUT_MS", 30 * 60_000, 60_000, 24 * 60 * 60_000),
-    taskTimeoutMs: intFromEnv("ORCHESTRATOR_TASK_TIMEOUT_MS", 30 * 60_000, 60_000, 4 * 60 * 60_000),
+    taskTimeoutMs: intFromEnv("ORCHESTRATOR_TASK_TIMEOUT_MS", 5 * 60_000, 60_000, 5 * 60_000),
     verificationEnabled: boolFromEnv("ORCHESTRATOR_VERIFICATION_ENABLED", true),
     verificationIncludeBuild: boolFromEnv("ORCHESTRATOR_VERIFICATION_BUILD", true),
-    verificationTimeoutMs: intFromEnv("ORCHESTRATOR_VERIFICATION_TIMEOUT_MS", 180_000, 10_000, 900_000),
+    verificationTimeoutMs: intFromEnv("ORCHESTRATOR_VERIFICATION_TIMEOUT_MS", 300_000, 30_000, 300_000),
+    // Intelligent orchestrator defaults from spec, env-overridable
+    maxAgentsPerTask: intFromEnv("ORCHESTRATOR_MAX_AGENTS_PER_TASK", 3, 1, 10),
+    maxLLMCallsPerTask: intFromEnv("ORCHESTRATOR_MAX_LLM_CALLS_PER_TASK", 5, 1, 50),
+    maxDelegationDepth: intFromEnv("ORCHESTRATOR_MAX_DELEGATION_DEPTH", 2, 0, 10),
+    maxDelegationChain: intFromEnv("ORCHESTRATOR_MAX_DELEGATION_CHAIN", 2, 0, 10),
+    maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", 1, 1, 8),
+    maxTokenBudgetPerTask: intFromEnv("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK", 50_000, 1_000, 500_000),
   };
 }

@@ -1,5 +1,3 @@
-import type { AgentLLMConfig } from "../llm";
-
 export const CAPABILITY = {
   FRONTEND: "frontend-development",
   BACKEND: "backend-development",
@@ -21,7 +19,7 @@ export type SubtaskKind =
   | "research"
   | "audit";
 
-export interface AgentDefinition extends AgentLLMConfig {
+export interface AgentDefinition {
   _id: string;
   name: string;
   role: string;

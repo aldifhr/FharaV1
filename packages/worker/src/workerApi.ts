@@ -26,10 +26,6 @@ export interface WorkerAgent {
   name: string;
   role: string;
   systemPrompt?: string;
-  llmProvider?: string;
-  llmModel?: string;
-  llmBaseUrl?: string;
-  llmApiKey?: string;
   description?: string;
   capabilities?: string[];
   skills?: string[];
@@ -100,6 +96,16 @@ export interface RunContextData {
   plan: WorkerPlanRecord | null;
   subtasks: WorkerSubtask[];
   approvalMode: "ask" | "auto";
+  llmProviders?: Array<{
+    _id: string;
+    name: string;
+    provider: string;
+    model: string;
+    baseUrl: string;
+    apiKeyEnv: string;
+    apiKey?: string;
+    priority: number;
+  }>;
 }
 
 export class WorkerApi {
@@ -388,5 +394,42 @@ export class WorkerApi {
 
   async discardBranch(input: { taskId: string }): Promise<void> {
     await this.client.action(api.worker.discardBranch as any, this.args(input));
+  }
+
+  async getTaskContext(taskId: string): Promise<any> {
+    return (await this.client.action(api.worker.getTaskContext as any, this.args({ taskId }))) as any;
+  }
+
+  async upsertTaskContext(input: {
+    taskId: string;
+    projectId: string;
+    originalRequest: string;
+    objective: string;
+    status: "queued" | "running" | "needs_approval" | "done" | "rejected" | "failed";
+    decisions: unknown[];
+    artifacts: unknown[];
+    outstandingIssues: unknown[];
+  }): Promise<any> {
+    return (await this.client.action(api.worker.upsertTaskContext as any, this.args(input))) as any;
+  }
+
+  async recordDelegation(input: {
+    taskId: string;
+    projectId: string;
+    fromAgentId?: string;
+    toAgentId?: string;
+    decision: "APPROVE" | "REJECT" | "REVISE" | "COMPLETE" | "BLOCKED";
+    reason?: string;
+    capability?: string;
+  }): Promise<any> {
+    return (await this.client.action(api.worker.recordDelegation as any, this.args(input))) as any;
+  }
+
+  async recordLifecycle(input: { taskId: string; projectId: string; state: string; prevState?: string }): Promise<void> {
+    await this.client.action(api.worker.recordLifecycle as any, this.args(input));
+  }
+
+  async getTaskTokenUsage(taskId: string): Promise<{ calls: number; inputTokens: number; outputTokens: number }> {
+    return (await this.client.action(api.worker.getTaskTokenUsage as any, this.args({ taskId }))) as { calls: number; inputTokens: number; outputTokens: number };
   }
 }

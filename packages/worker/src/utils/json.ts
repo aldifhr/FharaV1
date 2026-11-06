@@ -108,6 +108,30 @@ export function parseReview(content: string): ReviewResult | null {
   return { verdict: candidate.verdict, findings };
 }
 
+export function parseDelegation(content: string): {
+  delegationRecommendation?: { targetCapability: string; reason: string; priority?: "high" | "medium" | "low" };
+  findings?: string[];
+} | null {
+  const parsed = extractJson(content);
+  if (!parsed || typeof parsed !== "object") return null;
+  const value = parsed as Record<string, unknown>;
+  const result: any = {};
+  if (value.delegationRecommendation && typeof value.delegationRecommendation === "object") {
+    const d = value.delegationRecommendation as Record<string, unknown>;
+    if (typeof d.targetCapability === "string" && typeof d.reason === "string") {
+      result.delegationRecommendation = {
+        targetCapability: d.targetCapability,
+        reason: d.reason,
+        priority: d.priority as any,
+      };
+    }
+  }
+  if (Array.isArray(value.findings)) {
+    result.findings = (value.findings as unknown[]).filter((f) => typeof f === "string");
+  }
+  return Object.keys(result).length ? result : null;
+}
+
 export function extractFileHint(command: string): string | null {
   const match = command.match(/[\w./-]+\.(tsx?|jsx?|css|html|json|md)/i);
   return match ? match[0] : null;

@@ -37,21 +37,45 @@ export const createFromCommand = mutation({
     projectId: v.id("projects"),
     command: v.string(),
     title: v.optional(v.string()),
+    assignedAgentIds: v.optional(v.array(v.id("agents"))),
   },
   handler: async (ctx, args) => {
     await assertProjectAccess(ctx, args.projectId);
-    const command = args.command.trim();
-    if (!command) throw new Error("Command is required");
-    if (command.length > 4000) throw new Error("Command is too long (max 4000 characters)");
+    const rawCommand = args.command.trim();
+    if (!rawCommand) throw new Error("Command is required");
+    if (rawCommand.length > 4000) throw new Error("Command is too long (max 4000 characters)");
     const title =
       args.title?.trim() ||
-      (command.length > 80 ? command.slice(0, 80) + "..." : command);
+      (rawCommand.length > 80 ? rawCommand.slice(0, 80) + "..." : rawCommand);
+
+    // Automatic conversation context: recent chat messages become part of the task command.
+    // Only conversation (task-less) messages are used, so agent reports from other
+    // tasks don't leak into this task's context.
+    const history = await ctx.db
+      .query("messages")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .take(30);
+    const historyLines = history
+      .filter((m) => !m.taskId)
+      .slice(0, 12)
+      .reverse()
+      .map((m) => `${m.authorType === "user" ? "User" : "Agent"}: ${m.content}`)
+      .join("\n\n");
+    const contextBlock = historyLines ? `\n\n--- Conversation context ---\n${historyLines}` : "";
+    let command = rawCommand + contextBlock;
+    if (command.length > 4000) {
+      const room = Math.max(0, 4000 - rawCommand.length - "\n\n--- Conversation context ---\n".length);
+      command = rawCommand + "\n\n--- Conversation context ---\n" + historyLines.slice(-room);
+    }
+
     const now = Date.now();
     const taskId = await ctx.db.insert("tasks", {
       projectId: args.projectId,
       title,
       command,
       status: "queued",
+      assignedAgentIds: args.assignedAgentIds,
       updatedAt: now,
     });
     await ctx.db.insert("messages", {

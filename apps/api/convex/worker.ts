@@ -409,7 +409,7 @@ export const createBranch = action({
   args: { ...tokenArg, taskId: v.id("tasks"), projectId: v.id("projects") },
   handler: async (ctx, args): Promise<any> => {
     assertServiceToken(args.workerToken);
-    return await ctx.runMutation(internal.orchestration.createBranch, {
+    return await ctx.runAction(internal.worktreeNode.createBranch, {
       taskId: args.taskId,
       projectId: args.projectId,
     });
@@ -420,7 +420,7 @@ export const getDiff = action({
   args: { ...tokenArg, taskId: v.id("tasks") },
   handler: async (ctx, args): Promise<any> => {
     assertServiceToken(args.workerToken);
-    return await ctx.runQuery(internal.orchestration.getDiff, { taskId: args.taskId });
+    return await ctx.runAction(internal.worktreeNode.getDiff, { taskId: args.taskId });
   },
 });
 
@@ -428,7 +428,7 @@ export const mergeBranch = action({
   args: { ...tokenArg, taskId: v.id("tasks") },
   handler: async (ctx, args): Promise<any> => {
     assertServiceToken(args.workerToken);
-    return await ctx.runMutation(internal.orchestration.mergeBranch, { taskId: args.taskId });
+    return await ctx.runAction(internal.worktreeNode.mergeBranch, { taskId: args.taskId });
   },
 });
 
@@ -436,6 +436,6 @@ export const discardBranch = action({
   args: { ...tokenArg, taskId: v.id("tasks") },
   handler: async (ctx, args): Promise<any> => {
     assertServiceToken(args.workerToken);
-    return await ctx.runMutation(internal.orchestration.discardBranch, { taskId: args.taskId });
+    return await ctx.runAction(internal.worktreeNode.discardBranch, { taskId: args.taskId });
   },
 });

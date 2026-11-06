@@ -1,6 +1,7 @@
-import { query, mutation } from "./_generated/server";
+import { query, action } from "./_generated/server";
 import { v } from "convex/values";
 import { assertProjectAccess, getVisibleTask } from "./authz";
+import { internal } from "./_generated/api";
 
 export const listByProject = query({
   args: { projectId: v.id("projects"), limit: v.optional(v.number()) },
@@ -27,17 +28,23 @@ export const listByTask = query({
   },
 });
 
-export const send = mutation({
-  args: { projectId: v.id("projects"), content: v.string() },
-  handler: async (ctx, args) => {
-    await assertProjectAccess(ctx, args.projectId);
-    const content = args.content.trim();
-    if (!content) throw new Error("Message is required");
-    if (content.length > 8000) throw new Error("Message is too long");
-    return await ctx.db.insert("messages", {
+export const send = action({
+  args: {
+    projectId: v.id("projects"),
+    content: v.string(),
+    preferredAgentId: v.optional(v.id("agents")),
+  },
+  handler: async (ctx, args): Promise<{ messageId: string }> => {
+    const messageId = await ctx.runMutation(internal.chatContext.insertUserMessage, {
       projectId: args.projectId,
-      authorType: "user",
-      content,
+      content: args.content,
     });
+    // Let the agent team answer the conversation asynchronously.
+    ctx.scheduler.runAfter(0, internal.chat.replyToChat, {
+      projectId: args.projectId,
+      preferredAgentId: args.preferredAgentId,
+      userMessageId: messageId,
+    });
+    return { messageId: messageId as string };
   },
 });

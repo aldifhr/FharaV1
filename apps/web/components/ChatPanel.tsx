@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../api/convex/_generated/api";
 import Link from "next/link";
 import AgentAvatar from "./AgentAvatar";
@@ -10,6 +10,7 @@ import { avatartionFor, deserializeAvatartion } from "./ui/avatartion";
 import DiffCard from "./DiffCard";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import Modal from "./Modal";
+import TaskBoard from "./TaskBoard";
 import ToolActivity from "./ToolActivity";
 import { useToast } from "./Toasts";
 import { Bell, Check, Copy, MoreHorizontal, Pencil, Send, Trash2 } from "lucide-react";
@@ -22,6 +23,19 @@ type Props = {
   onOpenAgent?: (agentId: string) => void;
   selectedTaskId: string | null;
 };
+
+function detectChatIntent(raw: string): "empty" | "conversation" | "task" {
+  const text = raw.trim().toLowerCase();
+  if (!text) return "empty";
+  if (text.startsWith("@") || text.startsWith("/")) return "task";
+  const jobWords =
+    /(\b(tolong|buatkan|buat|kerjakan|implementasikan|perbaiki|fix|audit|testing|uji|jalankan|refactor|tambah|hapus|update|deploy|merge|review|lengkapi|rapikan|optimasi|optimalkan)\b|\b(create|add|build|implement|fix|audit|test|run|refactor|deploy|merge|update|remove)\b|\btask\b|\btugas\b|\bbug\b|\bfitur\b|\bfeature\b)/;
+  if (jobWords.test(text)) return "task";
+  if (/[?？]$/.test(text) || /^(halo|hai|hi|hello|pagi|siang|sore|malam|apa kabar|bagaimana|kenapa|siapa|kapan|pendapat|opini|saran|ide|what|why|how|who|when|where|tell|explain|jelaskan)\b/.test(text)) {
+    return "conversation";
+  }
+  return "conversation";
+}
 
 function MessageText({ content }: { content: string }) {
   const parts = content.split(/(\n{2,})/g);
@@ -179,10 +193,18 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const selectedTask = (tasks ?? []).find((task) => task._id === selectedTaskId) ?? tasks?.[0];
   const fileChangesByTask = useQuery(api.fileChanges.listByTask, selectedTask ? { taskId: selectedTask._id } : "skip");
   const taskEvents = useQuery(api.taskEvents.listByTask, selectedTask ? { taskId: selectedTask._id } : "skip");
+  const projectFiles = useQuery(api.fileChanges.listByProject, { projectId: projectId as any });
+  const activeByAgent = useQuery(api.executionView.activeByAgent, {});
   const selectedTaskMessages = selectedTask
     ? (messages ?? []).filter((message: any) => message.taskId === selectedTask._id)
     : [];
-  const agentMessages = (messages ?? []).filter((message: any) => message.authorType === "agent");
+  const agentMessages = selectedTaskMessages.filter((message: any) => message.authorType === "agent");
+  const userMessages = selectedTaskMessages.filter((message: any) => message.authorType === "user");
+  const conversationMessages = (messages ?? [])
+    .filter((message: any) => !message.taskId)
+    .sort((a: any, b: any) => a._creationTime - b._creationTime);
+  const lastConversation = conversationMessages[conversationMessages.length - 1];
+  const conversationTyping = lastConversation?.authorType === "user";
   const latestAgentMessage = [...selectedTaskMessages].reverse().find((message: any) => message.authorType === "agent");
 
   const [manageName, setManageName] = useState("");
@@ -271,7 +293,80 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     }
   };
 
+  const sendMessage = useAction(api.messages.send);
+  const [chatCommand, setChatCommand] = useState("");
+  const [chatAgentIds, setChatAgentIds] = useState<string[]>([]);
+  const [chatError, setChatError] = useState("");
+  const [chatSending, setChatSending] = useState(false);
+  const [mention, setMention] = useState<string | null>(null);
+
+  const chatIntent = useMemo(() => detectChatIntent(chatCommand), [chatCommand]);
+
+  const mentionResults = useMemo(() => {
+    if (mention === null) return [];
+    const q = mention.toLowerCase();
+    return (projectFiles ?? [])
+      .map((f: any) => f.filePath as string)
+      .filter((p) => p.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [mention, projectFiles]);
+
+  const submitChatTask = async (forceTask = false) => {
+    const text = chatCommand.trim();
+    if (!text) return;
+    setChatError("");
+    setChatSending(true);
+    try {
+      const intent = forceTask ? "task" : detectChatIntent(text);
+      if (intent === "conversation") {
+        await sendMessage({ projectId: projectId as any, content: text });
+        setChatCommand("");
+        setMention(null);
+        return;
+      }
+      const taskId = await createTask({
+        projectId: projectId as any,
+        command: text,
+        assignedAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
+      });
+      setChatCommand("");
+      setMention(null);
+      onSelectTask(taskId as any);
+      setTab("tasks");
+    } catch (err) {
+      setChatError(err instanceof Error ? err.message : "Failed to create task");
+    } finally {
+      setChatSending(false);
+    }
+  };
+
+  const handleChatInput = (value: string) => {
+    setChatCommand(value);
+    const at = value.lastIndexOf("@");
+    const afterSpace = at >= 0 && (at === 0 || /\s/.test(value[at - 1]));
+    const token = afterSpace ? value.slice(at + 1) : null;
+    setMention(token !== null && !/\s/.test(token) ? token : null);
+  };
+
+  const insertMention = (path: string) => {
+    const at = chatCommand.lastIndexOf("@");
+    const before = chatCommand.slice(0, at);
+    setChatCommand(`${before}@${path} `);
+    setMention(null);
+  };
+
   const headerAgents = agents.slice(0, 6);
+  const activeForSelectedTask = useMemo(() => {
+    if (!selectedTask) return [];
+    return (agents as any[]).filter((a: any) => {
+      const active = (activeByAgent as any)?.[a._id];
+      return active && active.taskId === selectedTask._id;
+    }).map((a: any) => ({
+      agent: a,
+      stage: (activeByAgent as any)[a._id]?.status ?? "running",
+      subtaskKey: (activeByAgent as any)[a._id]?.subtaskKey,
+    }));
+  }, [agents, activeByAgent, selectedTask]);
   const workingAgents = agents.filter((agent: any) => agent.status === "working");
   const taskErrors = (taskEvents ?? []).filter((event: any) => event.type === "task.error");
   const diffStats = (fileChangesByTask ?? []).reduce(
@@ -470,6 +565,45 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         {tab === "chat" ? (
           <>
             <ToolActivity events={(taskEvents as any[]) ?? []} />
+            {conversationMessages.map((m: any) => (
+              <div key={m._id} className="flex gap-3">
+                {m.authorType === "agent" ? (
+                  <AgentAvatar
+                    name={(agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"}
+                    size={32}
+                    avatarParams={(agents as any)?.find((a: any) => a._id === m.agentId)?.avatarParams}
+                  />
+                ) : (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#eceaf3] text-[11px] font-bold text-[#5147b4] dark:bg-white/15 dark:text-white">
+                    You
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <p className="text-[13px] font-semibold text-[#34323d] dark:text-gray-100">
+                      {m.authorType === "agent"
+                        ? (agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"
+                        : "You"}
+                    </p>
+                    <span className="text-[11px] text-gray-400">{formatMessageTime(m._creationTime)}</span>
+                  </div>
+                  <MessageText content={m.content} />
+                </div>
+              </div>
+            ))}
+            {conversationMessages.length > 0 && (
+              <p className="text-center text-[11px] text-gray-400">— conversation —</p>
+            )}
+            {conversationTyping && (
+              <div className="flex items-center gap-2 text-xs text-gray-400">
+                <span>Team is thinking</span>
+                <span className="flex gap-0.5" aria-label="Agent is typing">
+                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
+                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
+                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:240ms]" />
+                </span>
+              </div>
+            )}
             {agentMessages.map((m: any, index: number) => (
                 <motion.div
                   key={m._id}
@@ -496,55 +630,73 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                         <span className="text-emerald-600">+{diffStats.added}</span>
                         <span className="text-rose-500">−{diffStats.removed}</span>
                       </p>
-                      {(fileChangesByTask as any).map((fc: any) => (
-                        <DiffCard key={fc._id} filePath={fc.filePath} diff={fc.diff} changeType={fc.changeType} />
-                      ))}
+                      {(fileChangesByTask as any).map((fc: any) => {
+                        const pendingApproval = pendingItems.find(
+                          (a: any) => a.taskId === m.taskId && a.status === "pending" && (a.payload?.filePaths ?? []).includes(fc.filePath),
+                        );
+                        return (
+                          <DiffCard
+                            key={fc._id}
+                            filePath={fc.filePath}
+                            diff={fc.diff}
+                            changeType={fc.changeType}
+                            applied={Boolean(fc.appliedAt)}
+                            approvalId={pendingApproval?._id as string}
+                            busy={sending}
+                            onApprove={(id) => approve({ approvalId: id as any })}
+                            onReject={(id) => reject({ approvalId: id as any })}
+                          />
+                        );
+                      })}
                     </div>
                   ) : null}
                 </div>
               </motion.div>
             ))}
             {!agentMessages.length && <p className="text-sm text-gray-400">No agent reports yet.</p>}
-            {workingAgents.length > 0 && (
-              <div className="flex items-center gap-2 text-xs text-gray-400">
-                <span>{workingAgents.map((agent: any) => agent.name).join(", ")} is thinking</span>
-                <span className="flex gap-0.5" aria-label="Agent is thinking">
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:240ms]" />
-                </span>
+            {activeForSelectedTask.length > 0 ? (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
+                <div className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative h-2 w-2 rounded-full bg-emerald-500" />
+                  </span>
+                  Working now
+                </div>
+                <div className="mt-1.5 space-y-1">
+                  {activeForSelectedTask.map(({ agent, stage, subtaskKey }: any) => (
+                    <div key={agent._id} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                      <AgentAvatar name={agent.name} size={18} status="working" avatarParams={agent.avatarParams} />
+                      <span className="font-medium">{agent.name}</span>
+                      <span className="text-gray-400">
+                        {stage === "waiting_approval" ? "waiting approval" : stage === "queued" ? "queued" : "thinking"}
+                        {subtaskKey ? ` · ${subtaskKey}` : ""}
+                      </span>
+                      <span className="flex gap-0.5" aria-label="Agent is typing">
+                        <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
+                        <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
+                        <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:240ms]" />
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
+            ) : (
+              workingAgents.length > 0 && (
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <span>{workingAgents.map((agent: any) => agent.name).join(", ")} is thinking</span>
+                  <span className="flex gap-0.5" aria-label="Agent is thinking">
+                    <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
+                    <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
+                    <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:240ms]" />
+                  </span>
+                </div>
+              )
             )}
           </>
         ) : (
-          <motion.div key="tasks" initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} className="space-y-2">
-            <AnimatePresence initial={false}>
-            {(tasks ?? []).map((t: any) => (
-              <motion.div key={t._id} layout initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96, height: 0, marginBottom: 0 }} className="group flex w-full items-center justify-between rounded-xl border border-gray-200 p-3 text-left hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800">
-                <button onClick={() => onSelectTask(t._id)} className="min-w-0 flex-1 text-left">
-                <div>
-                  <p className="text-sm font-medium dark:text-white">{t.title}</p>
-                  <p className="text-xs text-gray-500">{t.status}</p>
-                </div>
-                </button>
-                <div className="ml-3 flex shrink-0 items-center gap-2">
-                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${t.status === "done" ? "bg-emerald-100 text-emerald-700" : t.status === "needs_approval" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>
-                  {t.status}
-                </span>
-                <button
-                  type="button"
-                    onClick={() => deleteTask(t)}
-                  disabled={t.status === "running"}
-                  title={t.status === "running" ? "Running tasks cannot be deleted" : "Delete task"}
-                  aria-label={`Delete task ${t.title}`}
-                  className="rounded-md p-1 text-gray-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  <Trash2 size={14} />
-                </button>
-                </div>
-              </motion.div>
-            ))}
-            </AnimatePresence>
+          <motion.div key="tasks" initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }}>
+            <TaskBoard projectId={projectId} selectedTaskId={selectedTaskId} onSelectTask={onSelectTask} />
           </motion.div>
         )}
       </div>
@@ -615,6 +767,89 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             </button>
           </form>
         </Modal>
+      )}
+      {tab === "chat" && (
+        <div className="border-t border-[#ebe9f0] bg-white/70 p-3 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/70">
+          {agents.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {agents.map((a: any) => {
+                const selected = chatAgentIds.includes(a._id);
+                return (
+                  <button
+                    key={a._id}
+                    type="button"
+                    onClick={() =>
+                      setChatAgentIds((current) =>
+                        selected ? current.filter((id) => id !== a._id) : [...current, a._id],
+                      )
+                    }
+                    title={selected ? `Remove ${a.name}` : `Assign ${a.name}`}
+                    className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium transition ${
+                      selected
+                        ? "border-[#6252d8] bg-[#6252d8]/10 text-[#4d3fbe] dark:text-[#b9b2ff]"
+                        : "border-[#e5e3eb] text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                    }`}
+                  >
+                    <AgentAvatar name={a.name} size={16} status={a.status} avatarParams={a.avatarParams} />
+                    {a.name}
+                  </button>
+                );
+              })}
+              {chatAgentIds.length === 0 && (
+                <span className="self-center text-[11px] text-gray-400">Auto-assign</span>
+              )}
+            </div>
+          )}
+          {chatIntent === "conversation" && chatCommand.trim() && (
+            <p className="mb-2 text-[11px] text-gray-400">
+              Ini terdeteksi sebagai percakapan.{" "}
+              <button type="button" onClick={() => void submitChatTask(true)} className="font-semibold text-[#6252d8] hover:underline">
+                Jadikan task
+              </button>
+            </p>
+          )}
+          <div className="relative flex gap-2">
+            {mention !== null && mentionResults.length > 0 && (
+              <ul className="absolute bottom-full left-0 z-30 mb-2 max-h-52 w-full overflow-y-auto rounded-xl border border-[#e5e3eb] bg-white py-1 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+                {mentionResults.map((path) => (
+                  <li key={path}>
+                    <button
+                      type="button"
+                      onClick={() => insertMention(path)}
+                      className="block w-full truncate px-3 py-1.5 text-left font-mono text-xs hover:bg-gray-50 dark:hover:bg-gray-800"
+                    >
+                      @{path}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <input
+              value={chatCommand}
+              onChange={(e) => handleChatInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (mention !== null && mentionResults.length > 0) {
+                    insertMention(mentionResults[0]);
+                    return;
+                  }
+                  void submitChatTask();
+                }
+              }}
+              placeholder="Describe the job… use @ to attach a file"
+              className="flex-1 rounded-xl border border-[#e5e3eb] bg-[#fbfbfd] px-3 py-2.5 text-sm outline-none focus:border-[#a29ae8] focus:ring-2 focus:ring-[#e5e1ff]"
+            />
+            <button
+              onClick={() => void submitChatTask()}
+              disabled={chatSending || !chatCommand.trim()}
+              className="flex items-center gap-1 rounded-xl bg-[#6252d8] px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#5345c2] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Send size={16} /> {chatSending ? "Sending…" : chatIntent === "conversation" ? "Send" : "Create task"}
+            </button>
+          </div>
+          {chatError && <p className="mt-2 text-xs text-red-600">{chatError}</p>}
+        </div>
       )}
       {tab === "tasks" && <div className="border-t border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/70">
         <div className="flex gap-2">

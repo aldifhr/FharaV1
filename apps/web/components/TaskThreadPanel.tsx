@@ -1,4 +1,5 @@
 "use client";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "convex/react";
 import { motion } from "framer-motion";
 import { api } from "../../api/convex/_generated/api";
@@ -15,17 +16,59 @@ import {
   XCircle,
 } from "lucide-react";
 
+const MIN_WIDTH = 200;
+const MAX_WIDTH = 600;
+
 export default function TaskThreadPanel({
   taskId,
   collapsed,
+  panelWidth,
+  onPanelWidthChange,
   onToggle,
   onClose,
 }: {
   taskId: string | null;
   collapsed: boolean;
+  panelWidth: number;
+  onPanelWidthChange: (width: number) => void;
   onToggle: () => void;
   onClose: () => void;
 }) {
+  const [isResizing, setIsResizing] = useState(false);
+  const resizingRef = useRef(false);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    resizingRef.current = true;
+    setIsResizing(true);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, e.clientX));
+      onPanelWidthChange(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (!resizingRef.current) return;
+      resizingRef.current = false;
+      setIsResizing(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    if (isResizing) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isResizing, onPanelWidthChange]);
   const task = useQuery(api.tasks.get, taskId ? { taskId: taskId as any } : "skip");
   const taskExists = Boolean(task);
   const project = useQuery(api.projects.get, task?.projectId ? { projectId: task.projectId } : "skip");
@@ -79,13 +122,22 @@ export default function TaskThreadPanel({
             : "Queued";
 
   return (
-    <motion.aside
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0, transition: { duration: 0.15 } }}
-      transition={{ duration: 0.2, ease: "easeOut" }}
-      className="flex h-full w-[318px] shrink-0 flex-col border-l border-[#ebe9f0] bg-white/80 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-l-0 max-[979px]:border-t"
-    >
+    <div className="relative flex h-full shrink-0 flex-col border-l border-[#ebe9f0] bg-white/80 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-l-0 max-[979px]:border-t max-[979px]:flex-row">
+      <div
+        onMouseDown={handleMouseDown}
+        className="group absolute left-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-blue-400/50 active:bg-blue-400/70 z-10 max-[979px]:hidden"
+        title="Drag to resize"
+      >
+        <div className="absolute left-0 top-1/2 h-8 w-0.5 -translate-y-1/2 rounded-full bg-gray-300 opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-600" />
+      </div>
+      <motion.aside
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0, transition: { duration: 0.15 } }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
+        style={{ width: panelWidth, marginLeft: 6 }}
+        className="flex h-full flex-col max-[979px]:h-auto max-[979px]:w-full max-[979px]:flex-row"
+      >
       <header className="flex items-center justify-between border-b border-[#ebe9f0] px-4 py-3.5 dark:border-gray-800">
         <div>
           <h2 className="truncate text-sm font-semibold">{(task as any)?.title ?? "Task thread"}</h2>
@@ -244,6 +296,7 @@ export default function TaskThreadPanel({
           ))}
         </div>
       </div>
-    </motion.aside>
+      </motion.aside>
+    </div>
   );
 }

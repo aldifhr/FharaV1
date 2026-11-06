@@ -108,6 +108,7 @@ export default defineSchema({
     updatedAt: v.optional(v.number()),
     branchName: v.optional(v.string()),
     worktreePath: v.optional(v.string()),
+    assignedAgentIds: v.optional(v.array(v.id("agents"))),
   })
     .index("by_project", ["projectId"])
     .index("by_status", ["status"])
@@ -125,7 +126,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_task", ["taskId"])
-    .index("by_task_and_version", ["taskId", "version"]),
+    .index("by_task_and_version", ["taskId", "version"])
+    .index("by_project", ["projectId"]),
 
   subtasks: defineTable({
     taskId: v.id("tasks"),
@@ -148,7 +150,8 @@ export default defineSchema({
   })
     .index("by_task", ["taskId"])
     .index("by_task_and_key", ["taskId", "key"])
-    .index("by_task_and_status", ["taskId", "status"]),
+    .index("by_task_and_status", ["taskId", "status"])
+    .index("by_project", ["projectId"]),
 
   executions: defineTable({
     taskId: v.id("tasks"),

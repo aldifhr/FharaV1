@@ -27,8 +27,11 @@ export const getRunContext = internalQuery({
     if (!task) return null;
     const project = await ctx.db.get(task.projectId);
     const allAgents = await ctx.db.query("agents").collect();
-    const agents = project?.agentIds
-      ? allAgents.filter((agent) => project.agentIds?.includes(agent._id))
+    const assigned = task.assignedAgentIds?.length
+      ? task.assignedAgentIds
+      : project?.agentIds;
+    const agents = assigned
+      ? allAgents.filter((agent) => assigned.includes(agent._id))
       : allAgents;
     const plans = await ctx.db
       .query("plans")

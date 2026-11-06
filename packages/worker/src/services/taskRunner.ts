@@ -104,7 +104,8 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
   }
 
   const runAgents = agents.map(toAgentDefinition);
-  const classification = classifyCommand(task.command);
+  const command = await withFileContexts(deps.workspaceRoot, project.workspacePath, task.command);
+  const classification = classifyCommand(command);
   await deps.api.logEvent({
     taskId: task._id,
     projectId: project._id,
@@ -127,7 +128,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     planVersion = context.plan!.version;
   } else {
     const created = await createPlan({
-      command: task.command,
+      command,
       classification,
       agents: runAgents,
       policy: deps.policy,
@@ -221,7 +222,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           .map((check) => `${check.name}: ${check.details ?? ""}`)
           .join("; ")}`;
         const replanned = await createPlan({
-          command: task.command,
+          command,
           classification,
           agents: runAgents,
           policy: deps.policy,
@@ -260,7 +261,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       replans += 1;
       feedback = failureSummary;
       const replanned = await createPlan({
-        command: task.command,
+        command,
         classification,
         agents: runAgents,
         policy: deps.policy,
@@ -1268,6 +1269,45 @@ export function toAgentDefinition(agent: WorkerAgent): AgentDefinition {
 
 export function resolveWorkspacePath(workspaceRoot: string, configured: string): string {
   return path.isAbsolute(configured) ? configured : path.resolve(workspaceRoot, configured);
+}
+
+/**
+ * Inline the contents of @mentioned files into the command so the planner and
+ * code-change agent see the workspace context. Mentions are `@relative/path.ext`
+ * tokens in the command text.
+ */
+export async function withFileContexts(
+  workspaceRoot: string,
+  configuredWorkspacePath: string,
+  command: string
+): Promise<string> {
+  const normalized = command.replace(/\r\n/g, "\n");
+  const mentions = new Set<string>();
+  for (const match of normalized.matchAll(/@([\w./-]+\.[\w]{1,12})/g)) {
+    const rel = match[1].replace(/^\/+/, "").replace(/^\.\//, "");
+    if (!rel || rel.includes("..")) continue;
+    mentions.add(rel);
+  }
+  if (mentions.size === 0) return normalized;
+
+  const base = resolveWorkspacePath(workspaceRoot, configuredWorkspacePath);
+  const blocks: string[] = [];
+  for (const rel of mentions) {
+    const abs = path.resolve(base, rel);
+    if (!abs.startsWith(base)) continue;
+    try {
+      const stat = await fs.stat(abs);
+      if (!stat.isFile()) continue;
+      const content = await fs.readFile(abs, "utf-8");
+      blocks.push(`--- File: ${rel} ---\n${content.slice(0, 20000)}`);
+    } catch {
+      // unreadable file: skip the block and keep the mention text
+    }
+  }
+  if (blocks.length === 0) return normalized;
+
+  const mentionLine = `Attached file context:\n${[...mentions].map((rel) => `- @${rel}`).join("\n")}`;
+  return `${normalized}\n\n${mentionLine}\n\n${blocks.join("\n\n")}`;
 }
 
 export function heuristicPlanForTest(

@@ -23,6 +23,7 @@ function WorkspaceShell({
   const router = useRouter();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [threadCollapsed, setThreadCollapsed] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(318);
   const [highlightAgentId, setHighlightAgentId] = useState<string | null>(null);
   const userClosedRef = useRef(false);
 
@@ -67,6 +68,7 @@ function WorkspaceShell({
   useEffect(() => {
     setSelectedTaskId(null);
     setThreadCollapsed(false);
+    setPanelWidth(318);
     userClosedRef.current = false;
   }, [projectId]);
 
@@ -95,7 +97,7 @@ function WorkspaceShell({
         <Sidebar projectId={projectId} />
         {children}
         <motion.div
-          animate={{ width: selectedTaskId ? 318 : 0 }}
+          animate={{ width: selectedTaskId ? panelWidth : 0 }}
           transition={{ duration: 0.24, ease: [0.32, 0.72, 0, 1] }}
           className="shrink-0 overflow-hidden"
         >
@@ -105,6 +107,8 @@ function WorkspaceShell({
                 key={selectedTaskId}
                 taskId={selectedTaskId}
                 collapsed={threadCollapsed}
+                panelWidth={panelWidth}
+                onPanelWidthChange={setPanelWidth}
                 onToggle={() => setThreadCollapsed((collapsed) => !collapsed)}
                 onClose={() => { userClosedRef.current = true; setSelectedTaskId(null); }}
               />

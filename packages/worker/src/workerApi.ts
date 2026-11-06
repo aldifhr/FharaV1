@@ -85,7 +85,7 @@ export interface WorkerFileChange {
 export interface WorkerApproval {
   _id: string;
   taskId: string;
-  kind: "apply_changes" | "git_push" | "run_command";
+  kind: "apply_changes" | "git_push" | "run_command" | "merge_pr";
   summary: string;
   status: "pending" | "approved" | "rejected";
   subtaskKey?: string;
@@ -378,5 +378,15 @@ export class WorkerApi {
       branchName: string;
       worktreePath: string;
     };
+  }
+
+  async mergeBranch(input: { taskId: string }): Promise<{ success: boolean }> {
+    return (await this.client.action(api.worker.mergeBranch as any, this.args(input))) as {
+      success: boolean;
+    };
+  }
+
+  async discardBranch(input: { taskId: string }): Promise<void> {
+    await this.client.action(api.worker.discardBranch as any, this.args(input));
   }
 }

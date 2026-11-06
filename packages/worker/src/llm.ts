@@ -105,7 +105,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        throw new Error(`LLM request timed out after 120s at ${this.baseUrl}/chat/completions`);
+        throw new Error(`LLM request timed out after 300s at ${this.baseUrl}/chat/completions`);
       }
       throw error;
     } finally {
@@ -168,6 +168,11 @@ export function createGlobalLLMProvider(config?: GlobalLLMConfig): LLMProvider {
 }
 
 // Back-compat: agent identity no longer carries LLM config. All agents share global LLM.
-export function createProviderForAgent(_config?: unknown): LLMProvider {
-  return createGlobalLLMProvider();
+// Callers that resolved the provider for a specific task pass it explicitly
+// via `llmConfig` (no process.env mutation); omitted -> env-based default.
+export function createProviderForAgent(
+  _agent?: unknown,
+  llmConfig?: GlobalLLMConfig
+): LLMProvider {
+  return createGlobalLLMProvider(llmConfig);
 }

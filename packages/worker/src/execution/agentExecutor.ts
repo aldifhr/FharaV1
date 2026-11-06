@@ -1,6 +1,11 @@
-import { createProviderForAgent, getGlobalLLMConfig } from "@/llm";
+import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig } from "@/llm";
 import { runLlmCall } from "@/effects/llmCall";
 import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/orchestrator/types";
+import {
+  buildAgentExecutionContext,
+  formatAgentContextForPrompt,
+} from "@/orchestrator/agentContext";
+import type { SharedTaskContext } from "@/orchestrator/taskContext";
 import { extractFileHint, parseDelegation, parseDraft, parseReview } from "@/utils/json";
 import { validateFilePath } from "@/governance/tools";
 import { computeDiff, type FileDiff } from "@/tools/gitDiff";
@@ -15,6 +20,10 @@ export interface SubtaskExecutionInput {
   subtask: PlanSubtask;
   agent: AgentDefinition;
   browser?: WebClient;
+  /** Explicit per-task LLM config resolved by the runner (env fallback when absent). */
+  llmConfig?: GlobalLLMConfig;
+  /** Shared orchestrator context; when present it replaces the raw prior-output dump. */
+  taskContext?: SharedTaskContext;
   priorOutputs: Map<string, string>;
   fileChanges: FileDiff[];
   signal: AbortSignal;
@@ -29,8 +38,8 @@ export interface SubtaskExecutionInput {
   onTokenUsage?: (inputTokens: number, outputTokens: number, model: string) => Promise<void>;
 }
 
-function resolveModelForAgent(_agent?: AgentDefinition): string {
-  return getGlobalLLMConfig().model;
+function resolveModelForAgent(_agent?: AgentDefinition, llmConfig?: GlobalLLMConfig): string {
+  return llmConfig?.model ?? getGlobalLLMConfig().model;
 }
 
 export type SubtaskExecutionResult =
@@ -64,21 +73,31 @@ export async function executeSubtask(
 
 function baseMessages(input: SubtaskExecutionInput, userContent: string) {
   const { agent, priorOutputs } = input;
-  const prior = Array.from(priorOutputs.entries())
-    .map(([key, value]) => `### ${key}\n${value.slice(0, 4000)}`)
-    .join("\n\n");
+  // Prefer the curated shared context (relevant summaries, open issues,
+  // artifacts, recent decisions) over a raw dump of every previous output.
+  // Full outputs remain recorded in the executions table. The raw dump is
+  // only a fallback for callers without a shared context (e.g. resumeTask).
+  let prior = "";
+  if (input.taskContext) {
+    const curated = buildAgentExecutionContext({
+      taskContext: input.taskContext,
+      agent,
+      assignment: `${input.subtask.title} — ${input.subtask.description}`,
+    });
+    prior = `Shared task context:\n${formatAgentContextForPrompt(curated)}`;
+  } else if (priorOutputs.size > 0) {
+    const raw = Array.from(priorOutputs.entries())
+      .map(([key, value]) => `### ${key}\n${value.slice(0, 4000)}`)
+      .join("\n\n");
+    prior = `Previous subtask outputs:\n${raw}`;
+  }
   return [
     ...(agent.systemPrompt
       ? [{ role: "system" as const, content: agent.systemPrompt }]
       : []),
     {
       role: "user" as const,
-      content: [
-        prior ? `Previous subtask outputs:\n${prior}` : "",
-        userContent,
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
+      content: [prior, userContent].filter(Boolean).join("\n\n"),
     },
   ];
 }
@@ -96,7 +115,7 @@ async function executeCodeChange(
 
   if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
 
-  const provider = createProviderForAgent(agent);
+  const provider = createProviderForAgent(agent, input.llmConfig);
   const basePayload = [
     `Task: ${command}`,
     `Your role in the plan: ${subtask.title} — ${subtask.description}`,
@@ -104,6 +123,10 @@ async function executeCodeChange(
     "",
     "Return JSON only with the files you want to change:",
     '{"files":[{"filePath":"relative/path","newContent":"FULL file content"}]}',
+    "",
+    "You may add these optional top-level fields to the same JSON object:",
+    '- "delegationRecommendation":{"targetCapability":"...","reason":"..."} when another capability should take over after you (e.g. browser-testing for QA).',
+    '- "findings":["short description", ...] for concrete problems you noticed but did not fix.',
     "",
     "STRICT FORMAT RULES:",
     "- Use exactly the keys \"filePath\" and \"newContent\" (camelCase) on every entry.",
@@ -121,7 +144,7 @@ async function executeCodeChange(
 
   let response = await runLlmCall(provider, baseMessages(input, basePayload));
   if (input.onTokenUsage) {
-    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent));
+    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent, input.llmConfig));
   }
 
   let draft = parseDraft(response.content);
@@ -139,7 +162,7 @@ async function executeCodeChange(
       )
     );
     if (input.onTokenUsage) {
-      await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent));
+      await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent, input.llmConfig));
     }
     draft = parseDraft(response.content);
   }
@@ -150,11 +173,17 @@ async function executeCodeChange(
     };
   }
 
+  const delegation = parseDelegation(response.content);
+  const delegationMeta = {
+    ...(delegation?.delegationRecommendation ? { delegationRecommendation: delegation.delegationRecommendation } : {}),
+    ...(delegation?.findings ? { findings: delegation.findings } : {}),
+  };
+
   const prepared: FileDiff[] = [];
   if (draft.files.length === 0) {
     const output = "No file changes needed for this task.";
     await onMessage(output);
-    return { status: "completed", output, meta: { filePaths: [] } };
+    return { status: "completed", output, meta: { filePaths: [], ...delegationMeta } };
   }
   for (const file of draft.files.slice(0, 5)) {
     if (isForbiddenPath(file.filePath)) {
@@ -176,7 +205,6 @@ async function executeCodeChange(
     }
   }
 
-  const delegation = parseDelegation(response.content);
   const output = `Prepared ${prepared.length} file change(s): ${prepared
     .map((change) => change.filePath)
     .join(", ")}`;
@@ -185,8 +213,7 @@ async function executeCodeChange(
     output,
     meta: {
       filePaths: prepared.map((change) => change.filePath),
-      ...(delegation?.delegationRecommendation ? { delegationRecommendation: delegation.delegationRecommendation } : {}),
-      ...(delegation?.findings ? { findings: delegation.findings } : {}),
+      ...delegationMeta,
     },
   };
 }
@@ -209,7 +236,7 @@ async function executeReview(
     .replace(/\b(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9_]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)\b/g, "[REDACTED]");
 
   const response = await runLlmCall(
-    createProviderForAgent(agent),
+    createProviderForAgent(agent, input.llmConfig),
     baseMessages(
       input,
       [
@@ -224,7 +251,7 @@ async function executeReview(
     )
   );
   if (input.onTokenUsage) {
-    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent));
+    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent, input.llmConfig));
   }
 
   const review = parseReview(response.content);
@@ -315,7 +342,7 @@ async function executeReadOnly(
   if (mode === "audit") {
     instruction = [
       "Perform a read-only repository audit.",
-      "Do not modify files and do not return JSON.",
+      "Do not modify files and do not return file-change JSON.",
       "Report concrete findings with severity, file path, impact and a concise recommendation.",
       "If no issues are found, say so and summarize what you checked.",
       "Never claim a check passed unless the evidence is in the repository context.",
@@ -334,6 +361,8 @@ async function executeReadOnly(
       "If the user is greeting you, greet them and ask what change they want.",
     ].join("\n");
   }
+  instruction +=
+    '\nOptionally, end your reply with one single-line JSON object {"delegationRecommendation":{"targetCapability":"...","reason":"..."},"findings":["..."]} when another capability should follow up or you noticed concrete issues; omit it otherwise.';
 
   const webContext = await buildWebContext(
     input.browser,
@@ -347,7 +376,7 @@ async function executeReadOnly(
     });
   }
 
-  const provider = createProviderForAgent(agent);
+  const provider = createProviderForAgent(agent, input.llmConfig);
   const messages = baseMessages(
     input,
     `${instruction}\n\nRepository context:\n${context}${webContext.block ? `\n\n${webContext.block}` : ""}\n\nUser request: ${command}`
@@ -358,7 +387,7 @@ async function executeReadOnly(
       })
     : await runLlmCall(provider, messages);
   if (input.onTokenUsage) {
-    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent));
+    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, resolveModelForAgent(agent, input.llmConfig));
   }
 
   const content = response.content.trim();
@@ -366,7 +395,15 @@ async function executeReadOnly(
     return { status: "failed", error: `The ${mode} agent returned an empty response` };
   }
   await input.onMessage(content);
-  return { status: "completed", output: content };
+  const delegation = parseDelegation(content);
+  return {
+    status: "completed",
+    output: content,
+    meta: {
+      ...(delegation?.delegationRecommendation ? { delegationRecommendation: delegation.delegationRecommendation } : {}),
+      ...(delegation?.findings ? { findings: delegation.findings } : {}),
+    },
+  };
 }
 
 const FORBIDDEN_PATHS = [

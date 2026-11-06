@@ -172,8 +172,12 @@ export function evaluateDelegation(input: {
     }
   }
 
-  // Outstanding findings with severity critical/high -> REVISE back to implementer
-  const hasCriticalFindings = result.findings?.some((f) => f.toLowerCase().includes("critical") || f.toLowerCase().includes("fail"));
+  // Outstanding findings with severity critical/high -> REVISE back to implementer.
+  // Uses the structured severity (ReviewFinding), not substring matching on
+  // free text, so wording like "no failures found" can no longer trigger it.
+  const hasCriticalFindings = result.findings?.some(
+    (f) => f.severity === "critical" || f.severity === "high"
+  );
   if (hasCriticalFindings && result.capability === "browser-testing") {
     // Find original implementer
     const implementer = agents.find((a) =>

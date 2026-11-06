@@ -1,4 +1,4 @@
-import { createProviderForAgent, getGlobalLLMConfig } from "@/llm";
+import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig } from "@/llm";
 import { runLlmCall } from "@/effects/llmCall";
 import { CAPABILITY, type AgentDefinition, type Classification, type ExecutionPlan } from "./types";
 import { routeCapability, capabilitiesOf, describeCapabilities, isAgentEnabled } from "./capabilities";
@@ -12,6 +12,8 @@ export interface PlannerInput {
   agents: AgentDefinition[];
   policy: ExecutionPolicy;
   feedback?: string;
+  /** Explicit per-task LLM config (resolved by the runner); env is the fallback. */
+  llmConfig?: GlobalLLMConfig;
   onTokenUsage?: (inputTokens: number, outputTokens: number, model: string, agentName: string, agentId?: string) => Promise<void>;
 }
 
@@ -27,7 +29,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   const orchestrator = pickOrchestrator(input.agents);
   if (orchestrator) {
     try {
-      const provider = createProviderForAgent(orchestrator);
+      const provider = createProviderForAgent(orchestrator, input.llmConfig);
       const response = await runLlmCall(provider, [
         ...(orchestrator.systemPrompt
           ? [{ role: "system" as const, content: orchestrator.systemPrompt }]
@@ -35,7 +37,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         { role: "user", content: buildPlanningPrompt(input) },
       ]);
       if (input.onTokenUsage && response.inputTokens !== undefined) {
-        const model = getGlobalLLMConfig().model;
+        const model = input.llmConfig?.model ?? getGlobalLLMConfig().model;
         await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, model, orchestrator.name, orchestrator._id);
       }
       const parsed = extractJson(response.content);

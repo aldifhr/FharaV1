@@ -48,7 +48,10 @@ export function loadPolicy(): ExecutionPolicy {
     verificationTimeoutMs: intFromEnv("ORCHESTRATOR_VERIFICATION_TIMEOUT_MS", 300_000, 30_000, 300_000),
     // Intelligent orchestrator defaults from spec, env-overridable
     maxAgentsPerTask: intFromEnv("ORCHESTRATOR_MAX_AGENTS_PER_TASK", 3, 1, 10),
-    maxLLMCallsPerTask: intFromEnv("ORCHESTRATOR_MAX_LLM_CALLS_PER_TASK", 5, 1, 50),
+    // Default raised 5 -> 12: a healthy task spends calls on planning, one
+    // implementation attempt + retry, review, and possible fix rounds, so a
+    // limit of 5 killed normal tasks once the tracker was actually fed.
+    maxLLMCallsPerTask: intFromEnv("ORCHESTRATOR_MAX_LLM_CALLS_PER_TASK", 12, 1, 50),
     maxDelegationDepth: intFromEnv("ORCHESTRATOR_MAX_DELEGATION_DEPTH", 2, 0, 10),
     maxDelegationChain: intFromEnv("ORCHESTRATOR_MAX_DELEGATION_CHAIN", 2, 0, 10),
     maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", 1, 1, 8),

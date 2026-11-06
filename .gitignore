@@ -3,6 +3,9 @@ node_modules/
 convex/_generated/
 apps/api/convex/_generated/
 apps/api/convex/*.js
+# Convex local backend state — the local deployment database must never be committed
+apps/api/.convex-local.sqlite3
+apps/api/.convex/
 workspaces/
 *.log
 .next

@@ -22,7 +22,15 @@ import { validatePlan } from "@/orchestrator/planValidator";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
 import { BudgetTracker } from "@/orchestrator/budget";
 import { createOrchestratorPlan, evaluateAfterExecution } from "@/orchestrator/orchestrator";
-import { createSharedTaskContext, appendExecution } from "@/orchestrator/taskContext";
+import {
+  createSharedTaskContext,
+  appendExecution,
+  normalizeFindings,
+  type AgentResult,
+  type SharedTaskContext,
+} from "@/orchestrator/taskContext";
+import type { Classification } from "@/orchestrator/types";
+import { getGlobalLLMConfig, type GlobalLLMConfig } from "@/llm";
 import { routeCapability, capabilitiesOf } from "@/orchestrator/capabilities";
 import {
   buildReviewFixSubtask,
@@ -65,6 +73,72 @@ interface RunState {
   feedback: string[];
 }
 
+/**
+ * Resolve the per-task LLM config from the DB provider pool (Settings page).
+ * DB fields win; the API key falls back to the env var named by the
+ * provider's apiKeyEnv, then to the worker's env config. This replaces the
+ * old process.env mutation, which leaked one task's provider into the next
+ * when the worker ran tasks concurrently.
+ */
+function resolveTaskLlmConfig(
+  llmProviders:
+    | Array<{
+        provider: string;
+        model: string;
+        baseUrl: string;
+        apiKeyEnv: string;
+        apiKey?: string;
+      }>
+    | undefined
+): GlobalLLMConfig {
+  const envConfig = getGlobalLLMConfig();
+  const provider = llmProviders?.[0];
+  if (!provider) return envConfig;
+  return {
+    provider: provider.provider,
+    model: provider.model,
+    baseUrl: provider.baseUrl,
+    apiKey:
+      provider.apiKey ??
+      (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] ?? envConfig.apiKey : envConfig.apiKey),
+  };
+}
+
+/** Build the orchestrator's AgentResult view of a finished scheduler node. */
+function toAgentResult(input: {
+  subtask: PlanSubtask;
+  agent: AgentDefinition;
+  outcome: NodeOutcome;
+}): AgentResult {
+  const meta =
+    input.outcome.status === "completed"
+      ? (input.outcome.meta as
+          | {
+              delegationRecommendation?: AgentResult["delegationRecommendation"];
+              findings?: unknown;
+            }
+          | undefined)
+      : undefined;
+  return {
+    agentId: input.agent._id,
+    agentName: input.agent.name,
+    capability: input.subtask.capability,
+    success: input.outcome.status === "completed",
+    summary: (input.outcome.status === "completed"
+      ? input.outcome.output ?? ""
+      : input.outcome.status === "failed"
+        ? input.outcome.error
+        : ""
+    ).slice(0, 500),
+    findings: normalizeFindings(meta?.findings),
+    delegationRecommendation: meta?.delegationRecommendation,
+    meta:
+      input.outcome.status === "completed"
+        ? (input.outcome.meta as Record<string, unknown> | undefined)
+        : undefined,
+  };
+}
+
 export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<void> {
   const context = await deps.api.getContext({ taskId: task._id });
   if (!context?.project) {
@@ -84,15 +158,11 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     });
     return;
   }
-  // Inject DB provider key into env so llm.ts (process.env) picks it up.
-  // Worker has no separate env — global LLM lives in Settings (llmProviders).
-  if (llmProviders && llmProviders.length > 0) {
-    const p = llmProviders[0];
-    if (p.apiKey) process.env.LLM_API_KEY = p.apiKey;
-    process.env.LLM_PROVIDER = p.provider;
-    process.env.LLM_MODEL = p.model;
-    process.env.LLM_BASE_URL = p.baseUrl;
-  }
+  // Global LLM config lives in Settings (llmProviders). Resolve it once per
+  // task into an explicit config object threaded through the planner and the
+  // executors — never mutate process.env, which is shared across the
+  // worker's concurrent tasks.
+  const llmConfig = resolveTaskLlmConfig(llmProviders);
   // QA URL per project (Fase 1): qaUrl > devUrl > env fallback in qa.ts
   if (project.qaUrl) process.env.QA_BASE_URL = project.qaUrl;
   else if (project.devUrl) process.env.QA_BASE_URL = project.devUrl;
@@ -144,6 +214,36 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
 
   // Intelligent orchestrator: shared context + budget
   const budget = new BudgetTracker(deps.policy);
+  // Seed the tracker with usage already persisted for this task (e.g. calls
+  // made before a worker restart) so limits apply to the task as a whole.
+  try {
+    const priorUsage = await deps.api.getTaskTokenUsage?.({ taskId: task._id });
+    if (priorUsage && priorUsage.calls > 0) budget.seed(priorUsage);
+  } catch {
+    // Seeding is best-effort; a fresh tracker is the safe fallback.
+  }
+  // Single usage sink: feeds the budget tracker AND the persisted
+  // tokenUsage table, used by the planner and every subtask callback.
+  const recordUsage = async (
+    inputTokens: number,
+    outputTokens: number,
+    model: string,
+    agentName: string,
+    agentId?: string
+  ) => {
+    budget.recordLLMCall({ inputTokens, outputTokens, model, agentName, agentId });
+    if (inputTokens > 0 || outputTokens > 0) {
+      await deps.api.recordTokenUsage({
+        projectId: project._id,
+        taskId: task._id,
+        agentId: agentId as WorkerAgent["_id"] | undefined,
+        agentName,
+        model,
+        inputTokens,
+        outputTokens,
+      });
+    }
+  };
   const sharedContext = createSharedTaskContext({
     taskId: task._id,
     projectId: project._id,
@@ -198,19 +298,8 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       classification,
       agents: runAgents,
       policy: deps.policy,
-      onTokenUsage: async (inputTokens, outputTokens, model, agentName, agentId) => {
-        if (inputTokens > 0 || outputTokens > 0) {
-          await deps.api.recordTokenUsage({
-            projectId: project._id,
-            taskId: task._id,
-            agentId: agentId as WorkerAgent["_id"] | undefined,
-            agentName,
-            model,
-            inputTokens,
-            outputTokens,
-          });
-        }
-      },
+      llmConfig,
+      onTokenUsage: recordUsage,
     });
     plan = created.plan;
     createdBy = created.createdBy;
@@ -265,12 +354,16 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       feedback,
       approvalMode,
       completedKeys: new Set<string>(),
+      budget,
+      sharedContext,
+      classification,
+      llmConfig,
     });
 
     if (outcome === "waiting_approval") return;
 
     if (outcome === "completed") {
-      const after = await deps.api.getContext(task._id);
+      const after = await deps.api.getContext({ taskId: task._id });
       const verification = await finalize({
         deps,
         task,
@@ -293,6 +386,8 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           agents: runAgents,
           policy: deps.policy,
           feedback,
+          llmConfig,
+          onTokenUsage: recordUsage,
         });
         plan = replanned.plan;
         planVersion += 1;
@@ -317,6 +412,14 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         });
         continue;
       }
+      await deps.api
+        .recordLifecycle?.({
+          taskId: task._id,
+          projectId: project._id,
+          state: verification.verdict === "failed" ? "FAILED" : "COMPLETED",
+          prevState: "RUNNING",
+        })
+        ?.catch(() => undefined);
       return;
     }
 
@@ -332,6 +435,8 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         agents: runAgents,
         policy: deps.policy,
         feedback,
+        llmConfig,
+        onTokenUsage: recordUsage,
       });
       plan = replanned.plan;
       planVersion += 1;
@@ -364,6 +469,14 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       payload: { message: failureSummary.slice(0, 2000) },
       level: "error",
     });
+    await deps.api
+      .recordLifecycle?.({
+        taskId: task._id,
+        projectId: project._id,
+        state: "FAILED",
+        prevState: "RUNNING",
+      })
+      ?.catch(() => undefined);
     await deps.api.completeTask({
       taskId: task._id,
       status: "failed",
@@ -385,6 +498,11 @@ async function executePlan(input: {
   approvalResolved?: boolean;
   approvalMode: "ask" | "auto";
   completedKeys: Set<string>;
+  /** Orchestrator wiring (processTask only; resumeTask runs without it). */
+  budget?: BudgetTracker;
+  sharedContext?: SharedTaskContext;
+  classification?: Classification;
+  llmConfig?: GlobalLLMConfig;
 }): Promise<"completed" | "failed" | "waiting_approval"> {
   const { deps, task, project, plan, state } = input;
   const browser = new WebClient({ headless: true });
@@ -443,6 +561,8 @@ async function executePlan(input: {
         subtask,
         agent,
         browser,
+        llmConfig: input.llmConfig,
+        taskContext: input.sharedContext,
         priorOutputs: state.priorOutputs,
         fileChanges: Array.from(state.fileChanges.values()),
         signal,
@@ -495,6 +615,14 @@ async function executePlan(input: {
           });
         },
         onTokenUsage: async (inputTokens, outputTokens, model) => {
+          // Feed the shared budget tracker with every real LLM call.
+          input.budget?.recordLLMCall({
+            inputTokens,
+            outputTokens,
+            model,
+            agentName: agent.name,
+            agentId: agent._id,
+          });
           if (inputTokens > 0 || outputTokens > 0) {
             await deps.api.recordTokenUsage({
               projectId: project._id,
@@ -517,7 +645,7 @@ async function executePlan(input: {
         const now = Date.now();
         if (now - lastStatusCheck < 1500) return cancelled;
         lastStatusCheck = now;
-        const current = await deps.api.getContext(taskId);
+        const current = await deps.api.getContext({ taskId });
         cancelled =
           !current ||
           current.task.status === "failed" ||
@@ -588,6 +716,96 @@ async function executePlan(input: {
             meta?.verdict === "inconclusive")
         ) {
           state.qaVerdicts[node.id] = meta.verdict;
+        }
+        // Intelligent orchestrator: evaluate every finished subtask, keep
+        // the shared context current for the agents that run next, and
+        // persist the decision trail. Advisory only — the DAG, the review
+        // loop and the evaluator keep their existing behavior, and any
+        // orchestrator failure is logged, never propagated.
+        if (input.budget && input.sharedContext && input.classification && agent) {
+          try {
+            const subtaskDef = plan.subtasks.find((candidate) => candidate.key === node.id);
+            if (subtaskDef) {
+              const evaluation = evaluateAfterExecution({
+                result: toAgentResult({ subtask: subtaskDef, agent, outcome }),
+                classification: input.classification,
+                agents: input.agents,
+                budget: input.budget,
+                previousAgents: input.sharedContext.agentExecutions.map(
+                  (entry) => entry.agentName
+                ),
+                delegationDepth: input.budget.currentDelegationDepth,
+                alreadyDelegated: input.sharedContext.decisions
+                  .filter((decision) => decision.decision === "APPROVE")
+                  .map((decision) => decision.capability)
+                  .filter((capability): capability is string => Boolean(capability)),
+                taskContext: input.sharedContext,
+              });
+              input.sharedContext.decisions = evaluation.updatedContext.decisions;
+              input.sharedContext.artifacts = evaluation.updatedContext.artifacts;
+              input.sharedContext.outstandingIssues =
+                evaluation.updatedContext.outstandingIssues;
+              input.sharedContext.agentExecutions =
+                evaluation.updatedContext.agentExecutions;
+
+              if (evaluation.decision === "APPROVE" && evaluation.nextAgent) {
+                input.budget.incrementDelegation();
+                await deps.api
+                  .recordDelegation?.({
+                    taskId,
+                    projectId: project._id,
+                    fromAgentId: agent._id,
+                    toAgentId: evaluation.nextAgent._id,
+                    decision: "APPROVE",
+                    reason: evaluation.reason,
+                    capability: evaluation.nextCapability,
+                  })
+                  ?.catch(() => undefined);
+              }
+              await deps.api.logEvent({
+                taskId,
+                projectId: project._id,
+                type: "orchestrator.evaluation",
+                payload: {
+                  subtaskKey: node.id,
+                  decision: evaluation.decision,
+                  reason: evaluation.reason.slice(0, 500),
+                  nextAgent: evaluation.nextAgent?.name ?? null,
+                  nextCapability: evaluation.nextCapability ?? null,
+                },
+                executionId,
+                subtaskKey: node.id,
+                level: evaluation.decision === "BLOCKED" ? "warn" : "info",
+              });
+              await deps.api
+                .upsertTaskContext?.({
+                  taskId,
+                  projectId: project._id,
+                  originalRequest: input.sharedContext.originalRequest,
+                  objective: input.sharedContext.objective,
+                  status: (task.status as any) || "running",
+                  decisions: input.sharedContext.decisions,
+                  artifacts: input.sharedContext.artifacts,
+                  outstandingIssues: input.sharedContext.outstandingIssues,
+                })
+                ?.catch(() => undefined);
+            }
+          } catch (err) {
+            await deps.api
+              .logEvent({
+                taskId,
+                projectId: project._id,
+                type: "orchestrator.evaluation_failed",
+                payload: {
+                  subtaskKey: node.id,
+                  message: err instanceof Error ? err.message : String(err),
+                },
+                executionId,
+                subtaskKey: node.id,
+                level: "warn",
+              })
+              .catch(() => undefined);
+          }
         }
         if (outcome.status === "completed") {
           state.priorOutputs.set(node.id, outcome.output ?? "");
@@ -838,7 +1056,11 @@ async function executePlan(input: {
       }
     }
     if (appliedPaths.length > 0) {
-      await deps.api.markFilesApplied(taskId, appliedPaths, deps.workerId);
+      await deps.api.markFilesApplied({
+        taskId,
+        filePaths: appliedPaths,
+        workerId: deps.workerId,
+      });
       await deps.api.logEvent({
         taskId,
         projectId: project._id,
@@ -887,9 +1109,9 @@ async function executePlan(input: {
 }
 
 export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void> {
-  const context = await deps.api.getContext(taskId);
+  const context = await deps.api.getContext({ taskId });
   if (!context?.project || context.task.status !== "needs_approval") return;
-  const approvals = await deps.api.getApprovals(taskId);
+  const approvals = await deps.api.getApprovals({ taskId });
   const pending = approvals.filter((approval) => approval.status === "pending");
   if (pending.length > 0) return;
 
@@ -911,7 +1133,11 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
       action: "reject",
       decision: "denied",
     });
-    await deps.api.completeTask(taskId, "rejected", "Changes rejected by user");
+    await deps.api.completeTask({
+      taskId,
+      status: "rejected",
+      errorMessage: "Changes rejected by user",
+    });
     return;
   }
   if (!applyApprovals.some((approval) => approval.status === "approved")) return;
@@ -920,7 +1146,11 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
     ? validatePlan(context.plan.payload, deps.policy.maxSubtasks)
     : null;
   if (!planValidation?.ok || !planValidation.plan) {
-    await deps.api.completeTask(taskId, "failed", "Stored plan is missing or invalid");
+    await deps.api.completeTask({
+      taskId,
+      status: "failed",
+      errorMessage: "Stored plan is missing or invalid",
+    });
     return;
   }
   const plan = planValidation.plan;
@@ -928,7 +1158,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
   const workspacePath = resolveWorkspacePath(deps.workspaceRoot, context.project.workspacePath);
   await fs.mkdir(workspacePath, { recursive: true });
 
-  const changes = await deps.api.getFileChanges(taskId);
+  const changes = await deps.api.getFileChanges({ taskId });
 
   const agents = context.agents.map(toAgentDefinition);
   const completedKeys = new Set(
@@ -961,10 +1191,11 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
     approvalResolved: true,
     approvalMode: context.approvalMode,
     completedKeys,
+    llmConfig: resolveTaskLlmConfig(context.llmProviders),
   });
   if (outcome === "waiting_approval") return;
 
-  const after = await deps.api.getContext(taskId);
+  const after = await deps.api.getContext({ taskId });
   await finalize({
     deps,
     task: context.task,
@@ -987,7 +1218,7 @@ async function mergeApprovalResolved(
   let attempt = 0;
   const maxAttempts = 480; // ~12 min at 1.5s interval
   while (attempt < maxAttempts) {
-    const approvals = await deps.api.getApprovals(task._id);
+    const approvals = await deps.api.getApprovals({ taskId: task._id });
     const pending = approvals.filter(
       (a) => a.kind === "merge_pr" && a.status === "pending"
     );
@@ -1012,7 +1243,11 @@ async function mergeApprovalResolved(
               payload: { error: err.message },
               level: "error",
             });
-            await deps.api.completeTask(task._id, "failed", `Merge failed: ${err.message}`);
+            await deps.api.completeTask({
+              taskId: task._id,
+              status: "failed",
+              errorMessage: `Merge failed: ${err.message}`,
+            });
             return false;
           }
         }
@@ -1025,7 +1260,7 @@ async function mergeApprovalResolved(
           action: "approve",
           decision: "allowed",
         });
-        await deps.api.completeTask(task._id, "done");
+        await deps.api.completeTask({ taskId: task._id, status: "done" });
         return true;
       } else if (resolved?.status === "rejected") {
         if (branchName && worktreePath) {
@@ -1052,14 +1287,22 @@ async function mergeApprovalResolved(
           taskId: task._id,
           content: "Changes were rejected by the user. Branch has been discarded.",
         });
-        await deps.api.completeTask(task._id, "rejected", "Changes rejected by user");
+        await deps.api.completeTask({
+          taskId: task._id,
+          status: "rejected",
+          errorMessage: "Changes rejected by user",
+        });
         return false;
       }
     }
     await sleep(1500);
     attempt++;
   }
-  await deps.api.completeTask(task._id, "failed", "Approval timed out");
+  await deps.api.completeTask({
+    taskId: task._id,
+    status: "failed",
+    errorMessage: "Approval timed out",
+  });
   return false;
 }
 
@@ -1097,11 +1340,11 @@ async function finalize(input: {
   state: RunState;
 }): Promise<EvaluationResult> {
   const { deps, task, project, planVersion, state, plan } = input;
-  const applyApprovals = await deps.api.getApprovals(task._id);
+  const applyApprovals = await deps.api.getApprovals({ taskId: task._id });
   const hasApprovalPlan = applyApprovals.some(
     (approval) => approval.kind === "apply_changes" && approval.status === "approved"
   );
-  const changes = await deps.api.getFileChanges(task._id);
+  const changes = await deps.api.getFileChanges({ taskId: task._id });
 
   const appliedChanges = changes.filter((change) => change.appliedAt);
   const hasCodeChange = plan.subtasks.some((subtask) => subtask.kind === "code_change");
@@ -1179,7 +1422,11 @@ async function finalize(input: {
       payload: { message: details || "Evaluation failed" },
       level: "error",
     });
-    await deps.api.completeTask(task._id, "failed", details || "Evaluation failed");
+    await deps.api.completeTask({
+      taskId: task._id,
+      status: "failed",
+      errorMessage: details || "Evaluation failed",
+    });
     return evaluation;
   }
 
@@ -1192,7 +1439,7 @@ async function finalize(input: {
     taskId: task._id,
     content: message,
   });
-  await deps.api.completeTask(task._id, "done");
+  await deps.api.completeTask({ taskId: task._id, status: "done" });
   return evaluation;
 }
 

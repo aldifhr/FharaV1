@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSharedTaskContext, appendExecution } from "@/orchestrator/taskContext";
+import { createSharedTaskContext, appendExecution, normalizeFindings } from "@/orchestrator/taskContext";
 import { buildAgentExecutionContext } from "@/orchestrator/agentContext";
 import { classifyCommand } from "@/orchestrator/classifier";
 import type { AgentDefinition } from "@/orchestrator/types";
@@ -38,5 +38,25 @@ describe("agent context", () => {
     expect(qaCtx.previousResults[0].summary).toBe("Implemented auth");
     // Exclude irrelevant? QA does not get developer internal reasoning — only summary
     expect(qaCtx.previousResults.length).toBeLessThanOrEqual(3);
+  });
+});
+
+describe("normalizeFindings", () => {
+  it("converts plain strings to medium-severity structured findings", () => {
+    expect(normalizeFindings(["something is off"])).toEqual([
+      { severity: "medium", filePath: "", description: "something is off", suggestion: "" },
+    ]);
+  });
+
+  it("preserves structured review findings", () => {
+    const structured = [
+      { severity: "critical", filePath: "a.ts", description: "boom", suggestion: "fix it" },
+    ];
+    expect(normalizeFindings(structured)).toEqual(structured);
+  });
+
+  it("drops unusable entries and non-arrays", () => {
+    expect(normalizeFindings(undefined)).toEqual([]);
+    expect(normalizeFindings([42, null, { noDescription: true }])).toEqual([]);
   });
 });

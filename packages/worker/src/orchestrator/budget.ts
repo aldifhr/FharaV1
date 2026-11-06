@@ -43,6 +43,13 @@ export class BudgetTracker {
     return this.retries;
   }
 
+  /** Seed the tracker from persisted token usage (e.g. resumed tasks). */
+  seed(usage: { calls: number; inputTokens: number; outputTokens: number }): void {
+    this.llmCalls += Math.max(0, usage.calls);
+    this.inputTokens += Math.max(0, usage.inputTokens);
+    this.outputTokens += Math.max(0, usage.outputTokens);
+  }
+
   recordLLMCall(usage: TokenUsageInput): void {
     this.llmCalls += 1;
     this.inputTokens += usage.inputTokens ?? 0;

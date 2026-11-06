@@ -30,6 +30,48 @@ describe("llmCall (Effect)", () => {
     ).rejects.toThrowError();
   });
 
+  it("does not retry permanent 4xx errors", async () => {
+    let n = 0;
+    const provider: LLMProvider = {
+      complete: async () => {
+        n++;
+        throw Object.assign(new Error("bad request"), { status: 400 });
+      },
+    };
+    await expect(
+      runLlmCall(provider, [{ role: "user", content: "hi" }], undefined, { retries: 2, timeoutMs: 5000 })
+    ).rejects.toThrowError("bad request");
+    expect(n).toBe(1);
+  });
+
+  it("does not retry 4xx embedded in the error message", async () => {
+    let n = 0;
+    const provider: LLMProvider = {
+      complete: async () => {
+        n++;
+        throw new Error("LLM request failed (404): not found");
+      },
+    };
+    await expect(
+      runLlmCall(provider, [{ role: "user", content: "hi" }], undefined, { retries: 2, timeoutMs: 5000 })
+    ).rejects.toThrowError("404");
+    expect(n).toBe(1);
+  });
+
+  it("retries transient 5xx errors", async () => {
+    let n = 0;
+    const provider: LLMProvider = {
+      complete: async () => {
+        n++;
+        if (n < 2) throw Object.assign(new Error("unavailable"), { status: 503 });
+        return { content: "ok" };
+      },
+    };
+    const res = await runLlmCall(provider, [{ role: "user", content: "hi" }], undefined, { retries: 2, timeoutMs: 5000 });
+    expect(res.content).toBe("ok");
+    expect(n).toBe(2);
+  });
+
   it("times out", async () => {
     const provider: LLMProvider = {
       complete: () => new Promise(() => {}), // never resolves

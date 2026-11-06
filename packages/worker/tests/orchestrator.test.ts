@@ -132,7 +132,14 @@ describe("delegation", () => {
       capability: "browser-testing",
       success: true,
       summary: "failed",
-      findings: ["critical: invalid credentials accepted"],
+      findings: [
+        {
+          severity: "critical",
+          filePath: "src/auth.ts",
+          description: "invalid credentials accepted",
+          suggestion: "Validate credentials before creating a session",
+        },
+      ],
     };
     const evalRes = evaluateDelegation({
       result,
@@ -144,6 +151,34 @@ describe("delegation", () => {
       alreadyDelegatedCapabilities: [],
     });
     expect(evalRes.decision).toBe("REVISE");
+  });
+
+  it("does not revise on low-severity findings that merely mention failure", () => {
+    const budget = new BudgetTracker(policy);
+    const result: any = {
+      agentName: "QA",
+      capability: "browser-testing",
+      success: true,
+      summary: "checked",
+      findings: [
+        {
+          severity: "low",
+          filePath: "",
+          description: "no failures found on the happy path",
+          suggestion: "",
+        },
+      ],
+    };
+    const evalRes = evaluateDelegation({
+      result,
+      classification: classifyCommand("implement auth"),
+      agents: [developer, qa],
+      budget,
+      previousAgents: ["Developer", "QA"],
+      delegationDepth: 1,
+      alreadyDelegatedCapabilities: [],
+    });
+    expect(evalRes.decision).toBe("COMPLETE");
   });
 });
 

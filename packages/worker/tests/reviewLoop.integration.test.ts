@@ -255,9 +255,10 @@ function createDeps() {
       });
       return `change-${changes.size}`;
     },
-    markFilesApplied: async (_taskId: string, filePaths: string[]) => {
+    // Matches the real WorkerApi signature: a single object argument.
+    markFilesApplied: async (input: { taskId: string; filePaths: string[] }) => {
       const now = Date.now();
-      for (const filePath of filePaths) {
+      for (const filePath of input.filePaths) {
         const change = changes.get(filePath);
         if (change) change.appliedAt = now;
       }
@@ -268,8 +269,9 @@ function createDeps() {
     recordEvaluation: async () => {
       evaluations += 1;
     },
-    completeTask: async (_taskId: string, status: string, error?: string) => {
-      completed = { status, error };
+    // Matches the real WorkerApi signature: a single object argument.
+    completeTask: async (input: { taskId: string; status: string; errorMessage?: string }) => {
+      completed = { status: input.status, error: input.errorMessage };
     },
     appendAgentMessage: async (message: { content: string }) => {
       messages.push(message.content);

@@ -104,6 +104,10 @@ export default function TaskThreadPanel({
     );
   }
 
+  // ponytail: Checklist (QA/verification results) only renders when
+  // task.check events exist. Verification is disabled in dev
+  // (ORCHESTRATOR_VERIFICATION_ENABLED=false) so the section was always
+  // empty. Add when verification is re-enabled.
   const checks = (events ?? []).filter((e: any) => e.type === "task.check");
   const errors = (events ?? []).filter((e: any) => e.type === "task.error");
   const stages = (events ?? []).filter((e: any) => e.type === "task.stage");
@@ -283,18 +287,19 @@ export default function TaskThreadPanel({
             </div>
           </div>
         ))}
-        <div>
-          <h4 className="text-xs font-semibold uppercase text-gray-500">Checklist</h4>
-          {checks.length === 0 && <p className="mt-1 text-xs text-gray-400">No checks yet.</p>}
-          {checks.map((e: any, i: number) => (
-            <div key={i} className="mt-1 flex items-center justify-between text-xs dark:text-white">
-              <span>QA · {e.payload.label}</span>
-              <span className={`rounded-full px-2 py-0.5 font-semibold ${e.payload.status === "passed" || e.payload.status === "clean" ? "bg-emerald-100 text-emerald-700" : e.payload.status === "inconclusive" || e.payload.status === "running" ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"}`}>
-                {e.payload.status}
-              </span>
-            </div>
-          ))}
-        </div>
+        {checks.length > 0 && (
+          <div>
+            <h4 className="text-xs font-semibold uppercase text-gray-500">Checklist</h4>
+            {checks.map((e: any, i: number) => (
+              <div key={i} className="mt-1 flex items-center justify-between text-xs dark:text-white">
+                <span>QA · {e.payload.label}</span>
+                <span className={`rounded-full px-2 py-0.5 font-semibold ${e.payload.status === "passed" || e.payload.status === "clean" ? "bg-emerald-100 text-emerald-700" : e.payload.status === "inconclusive" || e.payload.status === "running" ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"}`}>
+                  {e.payload.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       </motion.aside>
     </div>

@@ -45,6 +45,8 @@ export interface PoolConnectionPayload {
   model: string;
   baseUrl: string;
   apiKeyEnv: string;
+  /** @deprecated Legacy plaintext key. Read only as fallback until migration. */
+  apiKey?: string;
   apiKeyCiphertext?: string;
   priority: number;
   weight: number;
@@ -95,6 +97,7 @@ export async function loadProviderPool(
       model: models.find((m) => m.isAvailable)?.modelId ?? p.model ?? "",
       baseUrl: p.baseUrl,
       apiKeyEnv: p.apiKeyEnv,
+      apiKey: p.apiKey,
       apiKeyCiphertext: p.apiKeyCiphertext,
       priority: p.priority,
       weight: p.weight,
@@ -125,14 +128,18 @@ export function pickPrimaryConnection(
  * Resolve the usable plaintext key for a connection, for TRUSTED
  * backend-side use only (chat completions, model discovery). Decrypts the
  * stored ciphertext — a decryption failure is a hard error naming the
- * provider — and falls back to the env var named by `apiKeyEnv` when no
- * key is stored. The result must never leave the backend.
+ * provider — then falls back to the legacy plaintext `apiKey` column, then
+ * to the env var named by `apiKeyEnv`. The result must never leave the
+ * backend.
  */
 export async function resolveConnectionKey(
-  connection: Pick<PoolConnectionPayload, "name" | "apiKeyEnv" | "apiKeyCiphertext">
+  connection: Pick<PoolConnectionPayload, "name" | "apiKey" | "apiKeyEnv" | "apiKeyCiphertext">
 ): Promise<string> {
   if (connection.apiKeyCiphertext) {
     return await decryptApiKey(connection.apiKeyCiphertext, connection.name);
+  }
+  if (connection.apiKey) {
+    return connection.apiKey.trim();
   }
   const env: Record<string, string | undefined> =
     (globalThis as any).process?.env ?? {};

@@ -31,9 +31,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: { op?: unknown; [key: string]: unknown };
+  let body: { op?: unknown } & Record<string, any>;
   try {
-    body = (await request.json()) as { op?: unknown };
+    body = (await request.json()) as { op?: unknown } & Record<string, any>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -41,46 +41,39 @@ export async function POST(request: NextRequest) {
 
   const client = new ConvexHttpClient(convexUrl);
   try {
+    // Proxy route: payload comes from the HTTP request body and Convex
+    // validators enforce the real args at runtime, so args pass through
+    // unchecked here (TS cannot prove them from an open object).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const callArgs = { ...payload, token } as any;
     switch (op) {
       case "create": {
-        const id = await client.mutation(api.llmProviders.create, {
-          ...payload,
-          token,
-        });
+        const id = await client.mutation(api.llmProviders.create, callArgs);
         return NextResponse.json({ id });
       }
       case "update": {
-        await client.mutation(api.llmProviders.updateProvider, {
-          ...payload,
-          token,
-        });
+        await client.mutation(api.llmProviders.updateProvider, callArgs);
         return NextResponse.json({ ok: true });
       }
       case "remove": {
-        await client.mutation(api.llmProviders.remove, { ...payload, token });
+        await client.mutation(api.llmProviders.remove, callArgs);
         return NextResponse.json({ ok: true });
       }
       case "fetchModels": {
-        const models = await client.action(api.llmProviders.fetchModels, {
-          ...payload,
-          token,
-        });
+        const models = await client.action(api.llmProviders.fetchModels, callArgs);
         return NextResponse.json({ models });
       }
       // Model Registry operations (Phase 2) — same token gate, backend-side.
       case "createModel": {
-        const id = await client.mutation(api.llmModels.create, {
-          ...payload,
-          token,
-        });
+        const id = await client.mutation(api.llmModels.create, callArgs);
         return NextResponse.json({ id });
       }
       case "updateModel": {
-        await client.mutation(api.llmModels.update, { ...payload, token });
+        await client.mutation(api.llmModels.update, callArgs);
         return NextResponse.json({ ok: true });
       }
       case "removeModel": {
-        await client.mutation(api.llmModels.remove, { ...payload, token });
+        await client.mutation(api.llmModels.remove, callArgs);
         return NextResponse.json({ ok: true });
       }
       default:

@@ -1012,7 +1012,10 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           deps,
           task,
           project,
-          workspacePath,
+          // Apply writes to the main workspace (line 2139); verify where
+          // the files actually landed. runVerification + evaluateTask both
+          // read input.workspacePath, so this single change aligns both.
+          workspacePath: resolveWorkspacePath(deps.workspaceRoot, project.workspacePath),
           plan,
           planVersion,
           subtasks: after?.subtasks ?? [],
@@ -2194,6 +2197,7 @@ async function executePlan(input: {
         await deps.api.appendAgentMessage({
           projectId: project._id,
           taskId,
+          agentId: implementerAgent(plan, input.agents)?._id,
           content: `Approved changes applied to ${appliedPaths.length} file(s). Running verification.`,
         });
       }

@@ -53,6 +53,8 @@ export interface PoolConnectionRow {
   model?: string;
   baseUrl: string;
   apiKeyEnv: string;
+  /** @deprecated Legacy plaintext key. Read only as fallback until migration. */
+  apiKey?: string;
   apiKeyCiphertext?: string;
   priority: number;
   weight: number;
@@ -157,6 +159,11 @@ export async function materializePool(
     let apiKey = "";
     if (row.apiKeyCiphertext) {
       apiKey = await decryptApiKey(row.apiKeyCiphertext, row.name);
+    } else if (row.apiKey) {
+      // Legacy plaintext fallback: providers saved before encryption was
+      // wired up keep their key in this column; the pool must keep serving
+      // them until the migration rotates the credential into ciphertext.
+      apiKey = row.apiKey.trim();
     } else if (row.apiKeyEnv) {
       apiKey = env[row.apiKeyEnv] ?? "";
     }

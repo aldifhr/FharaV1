@@ -1423,10 +1423,9 @@ async function executePlan(input: {
   /**
    * Durable dynamic DAG (Phase 4 hardening): persist a freshly spawned
    * subtask (and the plan payload containing it) at the moment it is
-   * added, so recovery after a worker restart sees the whole DAG. A
-   * persistence failure is surfaced as an event — never silently
-   * swallowed — but does not abort the run: the in-memory DAG is still
-   * correct for THIS worker; only restart-durability is degraded.
+   * added, so recovery after a worker restart sees the whole DAG.
+   * Fail-closed: if persistence fails we log then re-throw, so the
+   * scheduler never runs a node that isn't in the durable DAG.
    */
   const persistDynamic = async (
     added: PlanSubtask[],
@@ -1454,6 +1453,7 @@ async function executePlan(input: {
           level: "error",
         })
         .catch(() => undefined);
+      throw error;
     }
   };
 

@@ -128,6 +128,11 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     const taskId = m.taskId ?? taskFromPlan(m.content ?? "");
     if (m.replyToMessageId && taskId) replyToTask.set(m.replyToMessageId, taskId);
   }
+  // ponytail: evaluation and planning messages are summaries, not execution
+  // output. Detect by content prefix so the UI can show a badge.
+  const messageKind = (content: string): "evaluation" | "planning" | null =>
+    /^Task (completed|finished)/.test(content) ? "evaluation" :
+    /^Plan dibuat/.test(content) ? "planning" : null;
   const blockKey = (m: any) => m.taskId ?? replyToTask.get(m._id) ?? taskFromPlan(m.content ?? "") ?? "conversation";
 
   const [manageName, setManageName] = useState("");
@@ -530,6 +535,12 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                           {m.authorType === "agent"
                             ? (agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"
                             : "You"}
+                          {(() => {
+                            const kind = messageKind(m.content);
+                            if (kind === "evaluation") return <span className="ml-1.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">evaluated</span>;
+                            if (kind === "planning") return <span className="ml-1.5 rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900 dark:text-purple-300">planned</span>;
+                            return null;
+                          })()}
                         </p>
                         <span className="text-[11px] text-gray-400">{formatMessageTime(m._creationTime)}</span>
                       </div>

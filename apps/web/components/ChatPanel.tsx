@@ -537,7 +537,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                             : "You"}
                           {(() => {
                             const kind = messageKind(m.content);
-                            if (kind === "evaluation") return <span className="ml-1.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">evaluated</span>;
+                            if (kind === "evaluation") return (
+                              <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
+                                <svg className="animate-[spin_2.5s_linear_infinite]" xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <circle cx="12" cy="12" r="10" />
+                                  <path d="m16 9-5.5 5.5L8 12" />
+                                </svg>
+                                evaluated
+                              </span>
+                            );
                             if (kind === "planning") return <span className="ml-1.5 rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900 dark:text-purple-300">planned</span>;
                             return null;
                           })()}

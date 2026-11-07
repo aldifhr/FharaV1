@@ -8,6 +8,15 @@ import { Liveline } from "liveline";
 import type { LivelinePoint } from "liveline";
 import { TextMorph } from "torph/react";
 import { SkeletonBox } from "skullet/react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 function AnalyticsSkeleton() {
   return (
@@ -166,21 +175,63 @@ export default function AnalyticsPage() {
             <div className="mt-2 rounded-xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
               <div className="h-48">
                 {(() => {
-                  const timeline = (tokenUsage?.timeline ?? []) as LivelinePoint[];
-                  const last = timeline[timeline.length - 1]?.value ?? 0;
-                  const range = timeline.length > 1 ? timeline[timeline.length - 1].time - timeline[0].time : 0;
+                  const timeline = (tokenUsage?.timeline ?? []) as { time: number; value: number }[];
+                  const data = timeline.map((p) => ({
+                    date: new Date(p.time * 1000).toISOString().split("T")[0],
+                    tokens: p.value,
+                  }));
                   return (
-                    <Liveline
-                      data={timeline}
-                      value={last}
-                      color="#6252d8"
-                      theme="light"
-                      window={range > 0 ? range + 60 : 86400}
-                      exaggerate
-                      formatValue={(v) => v.toLocaleString()}
-                      formatTime={(t) => new Date(t * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
-                      loading={tokenUsage === undefined}
-                    />
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="fillTokens" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis
+                          dataKey="date"
+                          tickLine={false}
+                          axisLine={false}
+                          tickMargin={8}
+                          minTickGap={32}
+                          tickFormatter={(v) =>
+                            new Date(v).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                            })
+                          }
+                          className="text-[10px]"
+                        />
+                        <YAxis
+                          tickLine={false}
+                          axisLine={false}
+                          tickMargin={8}
+                          tickFormatter={(v) => v.toLocaleString()}
+                          className="text-[10px]"
+                        />
+                        <Tooltip
+                          content={({ label, payload }) =>
+                            payload && payload.length > 0 ? (
+                              <div className="rounded-lg border bg-background/95 px-2 py-1 text-xs shadow-sm">
+                                <p className="font-medium">{label}</p>
+                                <p className="text-muted-foreground">
+                                  {Number(payload[0].value).toLocaleString()} tokens
+                                </p>
+                              </div>
+                            ) : null
+                          }
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="tokens"
+                          stroke="var(--color-primary)"
+                          strokeWidth={2}
+                          fill="url(#fillTokens)"
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
                   );
                 })()}
               </div>

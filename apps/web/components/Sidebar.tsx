@@ -22,20 +22,14 @@ import { SkeletonBox } from "skullet/react";
 
 const AGENT_ROLES = [
   "cto",
-  "developer",
+  "frontend",
+  "backend",
+  "devops",
   "qa",
   "reviewer",
   "researcher",
-  "technical-writer",
-  "architect",
-  "devops",
-  "security",
-  "database",
-  "ui-ux",
   "product-analyst",
-  "frontend",
-  "backend",
-  "general",
+  "ui-ux",
 ] as const;
 
 export default function Sidebar({ projectId, onSelectProject }: { projectId?: string; onSelectProject?: (id: string) => void }) {

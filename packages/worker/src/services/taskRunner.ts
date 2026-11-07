@@ -64,6 +64,7 @@ import {
 import { decideWithLlm } from "@/orchestrator/decisionLlm";
 import type { ReviewFinding, ReviewResult } from "@/utils/json";
 import { executeSubtask } from "@/execution/agentExecutor";
+import { getMcpRegistry, type McpSession } from "@/mcp/registry";
 import { WebClient, type WebClientConfig } from "@/tools/webClient";
 import { runVerification } from "@/execution/verification";
 import {
@@ -662,6 +663,18 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
   let workspacePath = resolveWorkspacePath(deps.workspaceRoot, project.workspacePath);
   await fs.mkdir(workspacePath, { recursive: true });
 
+  // Plan 009: seed the shared MCP registry for this workspace. Status
+  // reports are best-effort; the task runs on regardless.
+  const mcp = mcpForTask(context.mcpServers, workspacePath, deps.policy, (serverId, status, errorMessage) =>
+    deps.api
+      .updateMcpServerStatus({
+        serverId: serverId as Parameters<WorkerApi["updateMcpServerStatus"]>[0]["serverId"],
+        status,
+        errorMessage,
+      })
+      .catch(() => undefined)
+  );
+
   // ponytail: worktree isolation is disabled for daily dev — the worktree is
   // created from HEAD while apply writes to the main workspace, so the diff
   // baseline (worktree) diverges from the apply target (dirty main workspace)
@@ -1042,6 +1055,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         llmResolver,
         llmTaskGate,
         qaBaseUrl,
+        mcp,
         onDynamicSubtasks: async ({ added, origin, plan: currentPlan, version }) => {
           await deps.api.saveDynamicSubtasks?.({
             taskId: task._id,
@@ -1387,6 +1401,12 @@ async function executePlan(input: {
   planVersion?: number;
   /** Per-task LLM gate (Phase 4 hardening), threaded into every subtask LLM call. */
   llmTaskGate?: LlmConcurrencyGate;
+  /** Plan 009: MCP tool provider for this run; absent means "no MCP tools". */
+  mcp?: {
+    sessions: McpSession[];
+    writeTools: boolean;
+    maxIterations: number;
+  };
   /**
    * Persist dynamically spawned subtasks (Phase 4 hardening): called
    * the moment a delegation/fix/review-fix subtask is added to the
@@ -1575,6 +1595,7 @@ async function executePlan(input: {
         llmHandles,
         llmTaskGate: input.llmTaskGate,
         qaBaseUrl: input.qaBaseUrl,
+        mcp: input.mcp,
         taskContext: input.sharedContext,
         priorOutputs: state.priorOutputs,
         fileChanges: Array.from(state.fileChanges.values()),
@@ -2796,6 +2817,85 @@ async function executePlan(input: {
     if (stepLimitHit) {
       return "step_limit";
     }
+
+    // Verify loop (oh-my-claudecode `team-verify → team-fix`): static
+    // verification failure spawns a targeted fix and re-verifies, bounded
+    // by maxReviewIterations. A task never completes on a failing check.
+    if (deps.policy.verificationEnabled && preparedChanges.length > 0) {
+      const maxVerifyIters = deps.policy.maxReviewIterations;
+      let verifyIteration = 0;
+      while (verifyIteration <= maxVerifyIters) {
+        const verification = await runVerification({
+          workspacePath: input.workspacePath,
+          changedFiles: Array.from(state.fileChanges.keys()),
+          includeBuild: deps.policy.verificationIncludeBuild,
+          timeoutMs: deps.policy.verificationTimeoutMs,
+          signal: input.signal,
+          onCheck: async (check) => {
+            await deps.api.logEvent({
+              taskId,
+              projectId: project._id,
+              type: "task.check",
+              payload: { label: `verify:${check.name}`, status: check.status, details: check.details },
+            });
+          },
+        });
+        const failedChecks = verification.checks.filter((c) => c.status === "failed");
+        const allPassed =
+          verification.checks.length > 0 &&
+          verification.checks.every((c) => c.status === "passed");
+        state.verification = {
+          status: failedChecks.length > 0 ? "failed" : allPassed ? "passed" : "skipped",
+          details: failedChecks.map((c) => `${c.name}: ${c.details ?? ""}`).join("; ") || undefined,
+        };
+        if (failedChecks.length === 0) break;
+        if (verifyIteration >= maxVerifyIters) {
+          state.feedback.push(
+            `Verification still failing after ${maxVerifyIters} fix attempt(s): ${failedChecks.map((c) => c.name).join(", ")}`
+          );
+          return taskCancelled() ? "cancelled" : "failed";
+        }
+        const findings: ReviewFinding[] = failedChecks.map((c) => ({
+          severity: "high" as const,
+          filePath: Array.from(state.fileChanges.keys())[0] ?? "",
+          description: `${c.name}: ${c.details ?? "check failed"}`,
+          suggestion: "Fix the failing check and retry verification.",
+        }));
+        const implementer = implementerAgent(plan, input.agents);
+        if (!implementer) return taskCancelled() ? "cancelled" : "failed";
+        const codeSubtask = plan.subtasks.find((c) => c.kind === "code_change");
+        const fixSubtask = buildFixSubtask({
+          key: `fix_verify_${verifyIteration + 1}`,
+          title: `Address verification failures (iteration ${verifyIteration + 1})`,
+          intro: "Static verification reported failures.",
+          findings,
+          capability: codeSubtask?.capability ?? CAPABILITY.GENERAL,
+          order: plan.subtasks.reduce((max, c) => Math.max(max, c.order), 0) + 1,
+        });
+        plan.subtasks.push(fixSubtask);
+        chainByKey.set(fixSubtask.key, [fixSubtask.capability]);
+        fixDepthByKey.set(fixSubtask.key, 1);
+        await persistDynamic([fixSubtask], "fix");
+        await deps.api.logEvent({
+          taskId,
+          projectId: project._id,
+          type: "verification.fix_started",
+          payload: { iteration: verifyIteration + 1, findings: findings.length },
+          level: "warn",
+        });
+        const fixRun = await runNodes([fixSubtask]);
+        if (fixRun.status !== "completed") return taskCancelled() ? "cancelled" : "failed";
+        if (input.approvalMode !== "ask") {
+          const fixPaths = state.appliedFilesBySubtask.get(fixSubtask.key) ?? [];
+          const fixChanges = fixPaths
+            .map((p) => state.fileChanges.get(p))
+            .filter((c): c is FileDiff => Boolean(c));
+          const applied = await applyStaged(fixChanges, "orchestrator");
+          if ("stop" in applied) return taskCancelled() ? "cancelled" : "failed";
+        }
+        verifyIteration += 1;
+      }
+    }
   }
   } finally {
     await browser.close().catch(() => undefined);
@@ -2859,6 +2959,17 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
   const taskAbort = armTaskAbort(deps.policy);
   const workspacePath = resolveWorkspacePath(deps.workspaceRoot, context.project.workspacePath);
   await fs.mkdir(workspacePath, { recursive: true });
+
+  // Plan 009: seed the shared MCP registry (see processTask).
+  const mcp = mcpForTask(context.mcpServers, workspacePath, deps.policy, (serverId, status, errorMessage) =>
+    deps.api
+      .updateMcpServerStatus({
+        serverId: serverId as Parameters<WorkerApi["updateMcpServerStatus"]>[0]["serverId"],
+        status,
+        errorMessage,
+      })
+      .catch(() => undefined)
+  );
 
   const changes = await deps.api.getFileChanges({ taskId });
 
@@ -2948,6 +3059,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
       llmResolver,
       llmTaskGate,
       qaBaseUrl: resolveQaBaseUrl(context.project),
+      mcp,
       onDynamicSubtasks: async ({ added, origin, plan: currentPlan, version }) => {
         await deps.api.saveDynamicSubtasks?.({
           taskId,
@@ -3489,6 +3601,48 @@ export function toAgentDefinition(agent: WorkerAgent): AgentDefinition {
 
 export function resolveWorkspacePath(workspaceRoot: string, configured: string): string {
   return path.isAbsolute(configured) ? configured : path.resolve(workspaceRoot, configured);
+}
+
+type McpConfigRow = {
+  _id: string;
+  name: string;
+  type: string;
+  url?: string;
+  command?: string;
+  args?: string;
+  enabled?: boolean;
+  autoConnect?: boolean;
+  transport?: string;
+  allowedDirectories?: string[];
+};
+
+/**
+ * Plan 009: build the MCP executor input for a task. Seeding is lazy
+ * (`autoConnect` pre-warms only), sessions are shared per workspace, and
+ * a server that fails to connect simply yields no tools — the registry
+ * never throws, so a dead MCP server can never fail the task.
+ */
+function mcpForTask(
+  configs: McpConfigRow[] | undefined,
+  workspacePath: string,
+  policy: ExecutionPolicy,
+  reportStatus: (serverId: string, status: "connected" | "disconnected" | "error", errorMessage?: string) => Promise<void> | void
+): { sessions: McpSession[]; writeTools: boolean; maxIterations: number } | undefined {
+  if (policy.mcpToolLoop === false) return undefined;
+  const sessions = getMcpRegistry().ensure(
+    configs ?? [],
+    workspacePath,
+    {
+      timeoutMs: policy.mcpTimeoutMs ?? 30_000,
+      maxResultChars: policy.mcpMaxResultChars ?? 8_000,
+    },
+    { onStatus: reportStatus }
+  );
+  return {
+    sessions,
+    writeTools: policy.mcpWriteTools ?? false,
+    maxIterations: policy.mcpMaxToolIterations ?? 6,
+  };
 }
 
 /**

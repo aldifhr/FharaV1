@@ -181,12 +181,13 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
 export function pickOrchestrator(agents: AgentDefinition[]): AgentDefinition | null {
   const enabled = agents.filter(isAgentEnabled);
   if (enabled.length === 0) return null;
+  // CTO authority comes from explicit role identity only — having the
+  // `architecture` capability does NOT grant orchestrator authority
+  // (a Frontend/Backend with architecture capability is not the CTO).
   const explicit = enabled.find((agent) =>
-    capabilitiesOf(agent).includes(CAPABILITY.ARCHITECTURE)
+    /^(cto|orchestrator)$/i.test(agent.role.trim())
   );
-  if (explicit) return explicit;
-  const byRole = enabled.find((agent) => /orchestrator|planner|manager|cto|lead/i.test(agent.role));
-  return byRole ?? enabled[0];
+  return explicit ?? null;
 }
 
 function buildPlanningPrompt(input: PlannerInput): string {

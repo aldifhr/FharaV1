@@ -69,6 +69,14 @@
 
 ## Selesai ✅
 
+- [x] **Program perbaikan arsitektur Phase 1–6** (2026-11-07, commit `db25342`…`0c39d95` + Phase 6) — per fase:
+  - [x] Phase 1 — race `QA_BASE_URL` dihapus (base URL eksplisit per task); mutation provider token-gated + route server-side; `getRunContext` tidak lagi mengirim field key legacy; validasi `assignedAgentIds`; perbandingan token timing-safe; retry scheduler tidak mengulang error permanen
+  - [x] Phase 2 — resolver LLM + provider pool (priority/weighted/`modelPatterns` dikonsumsi); tabel Model Registry `llmModels`; assignment provider/model per agent; enkripsi kredensial AES-256-GCM + migrasi plaintext (`migrations:migrateProvidersAndAgents` / `verifyMigration`)
+  - [x] Phase 3 — satu otoritas planning (orchestrator authoritative, planner jadi subrutin); delegasi actionable (APPROVE → subtask nyata, REVISE → fix subtask, BLOCKED → halt anggun); node dinamis scheduler
+  - [x] Phase 4 — concurrency per-agent + semaphore LLM; cancellation end-to-end (signal ke LLM/QA/command/verification); retry menghormati deadline & budget; recovery requeue bercheckpoint (batas 3×); hardening: gerbang LLM dua tingkat, persistensi DAG dinamis, guard status terminal di backend, deadline sebelum planning
+  - [x] Phase 5 — enforcement budget pra-panggilan (`budget.exhausted`, default mode `warn` satu siklus); usage per-agent/per-provider/per-model + `estimatedCost` dari pricing registry; metrik kesehatan provider di Settings + metrik delegasi di Analytics
+  - [x] Phase 6 — validasi penuh terdokumentasi; harness test backend `convex-test` (guard terminal, gerbang token provider, kebersihan kredensial `getRunContext`); `integrations.upsertGithubIntegration` diperbaiki menjadi `internalMutation` (sebelumnya mutation publik yang menyimpan token OAuth)
+  - Catatan: item **Auth provider** dan **Ownership enforcement** di atas sengaja tetap terbuka — owner memutuskan prototipe single-user lokal tanpa auth & tanpa rate limiting (accepted by owner); enforcement ownership tetap kondisional by design.
 - [x] Orchestrator Phase 1–6 (plan, DAG, lease, approval, QA) — 51 tests hijau
 - [x] Modal portal ke `document.body` (fix containing-block `backdrop-blur`)
 - [x] Modal Edit agent full-screen, konten centered `max-w-3xl`

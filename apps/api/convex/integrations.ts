@@ -1,4 +1,4 @@
-import { mutation, query, action, httpAction } from "./_generated/server";
+import { mutation, query, action, httpAction, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 
@@ -141,7 +141,7 @@ export const handleOAuthCallback = httpAction(async (ctx, request) => {
 /**
  * Internal mutation to upsert GitHub integration
  */
-export const upsertGithubIntegration = mutation({
+export const upsertGithubIntegration = internalMutation({
   args: {
     projectId: v.id("projects"),
     accessToken: v.string(),

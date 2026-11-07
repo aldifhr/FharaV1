@@ -452,7 +452,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                 {isWorking ? (
                   <>
                     <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                      {active!.status === "running" ? "working" : active!.status === "waiting_approval" ? "waiting approval" : "queued"}
+                      {active!.status === "running" ? "Working" : active!.status === "waiting_approval" ? "Waiting Approval" : active!.status === "queued" ? "Thinking" : active!.status}
                     </span>
                     {" · "}
                     {active!.taskTitle}

@@ -642,7 +642,9 @@ export const recoverStaleMessages = action({
   },
 });
 
-// Plan 007 Phase 1: MCP server config — UI only, no worker integration yet.
+// Plan 007 Phase 1: MCP server config. Plan 009 adds the worker-facing
+// fields (enabled/autoConnect/transport/allowedDirectories) and the
+// status report action.
 export const addMcpServer = action({
   args: {
     ...tokenArg,
@@ -652,6 +654,10 @@ export const addMcpServer = action({
     url: v.optional(v.string()),
     command: v.optional(v.string()),
     args: v.optional(v.string()),
+    enabled: v.optional(v.boolean()),
+    autoConnect: v.optional(v.boolean()),
+    transport: v.optional(v.string()),
+    allowedDirectories: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args): Promise<any> => {
     return await ctx.runMutation(internal.mcpServers.add, withoutToken(args));
@@ -663,6 +669,18 @@ export const removeMcpServer = action({
   handler: async (ctx, args): Promise<any> => {
     const { serverId } = withoutToken(args);
     return await ctx.runMutation(internal.mcpServers.remove, { serverId });
+  },
+});
+
+export const updateMcpServerStatus = action({
+  args: {
+    ...tokenArg,
+    serverId: v.id("mcpServers"),
+    status: v.union(v.literal("connected"), v.literal("disconnected"), v.literal("error")),
+    errorMessage: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.mcpServers.updateStatus, withoutToken(args));
   },
 });
 

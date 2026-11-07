@@ -103,6 +103,23 @@ export interface ExecutionPolicy {
    *    review node, if any, is kept — hints never remove plan nodes).
    */
   toolLoop?: boolean;
+  /**
+   * Plan 009: MCP filesystem tool loop.
+   *  - `mcpToolLoop`: when true, read-only agents may use discovered MCP
+   *    tools mid-task. Default true (an absent server just means no tools).
+   *  - `mcpWriteTools`: when false (default), write/edit/mkdir/move/delete
+   *    MCP tools are filtered for every role — `code_change` owns writes
+   *    through the approval-gated diff pipeline.
+   *  - `mcpMaxToolIterations`: bound on tool-loop rounds per subtask.
+   *  - `mcpTimeoutMs`: per-MCP-request timeout (a hung server is killed).
+   *  - `mcpMaxResultChars`: cap on a tool result before it reaches the LLM.
+   * All optional so hand-built policies (tests) keep working unchanged.
+   */
+  mcpToolLoop?: boolean;
+  mcpWriteTools?: boolean;
+  mcpMaxToolIterations?: number;
+  mcpTimeoutMs?: number;
+  mcpMaxResultChars?: number;
   reviewMode?: "always" | "auto" | "never";
   /**
    * Plan 005 Phase 3: when a QA node is added for a code change.
@@ -209,6 +226,11 @@ export function loadPolicy(): ExecutionPolicy {
           : "ambiguous",
     maxDecisionSteps: intFromEnv("ORCHESTRATOR_MAX_DECISION_STEPS", 20, 1, 200),
     toolLoop: boolFromEnv("ORCHESTRATOR_TOOL_LOOP", false),
+    mcpToolLoop: boolFromEnv("ORCHESTRATOR_MCP_TOOL_LOOP", true),
+    mcpWriteTools: boolFromEnv("ORCHESTRATOR_MCP_WRITE_TOOLS", false),
+    mcpMaxToolIterations: intFromEnv("ORCHESTRATOR_MCP_MAX_TOOL_ITERATIONS", 6, 1, 20),
+    mcpTimeoutMs: intFromEnv("ORCHESTRATOR_MCP_TIMEOUT_MS", 30_000, 1_000, 300_000),
+    mcpMaxResultChars: intFromEnv("ORCHESTRATOR_MCP_MAX_RESULT_CHARS", 8_000, 500, 200_000),
     reviewMode: planningModeFromEnv("ORCHESTRATOR_REVIEW_MODE"),
     qaMode: planningModeFromEnv("ORCHESTRATOR_QA_MODE"),
   };

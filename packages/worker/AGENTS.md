@@ -138,6 +138,11 @@ import backend internals.
 | `ORCHESTRATOR_DECISION_LLM` | `ambiguous` | `off` / `ambiguous` / `always` — when the LLM decision advisor is consulted |
 | `ORCHESTRATOR_MAX_DECISION_STEPS` | `20` | Decision-step bound per task run |
 | `ORCHESTRATOR_REVIEW_MODE` / `ORCHESTRATOR_QA_MODE` | `auto` | `always` / `auto` / `never` — when planning adds review/QA nodes |
+| `ORCHESTRATOR_MCP_TOOL_LOOP` | `true` | Read-only agents may use discovered MCP tools mid-task |
+| `ORCHESTRATOR_MCP_WRITE_TOOLS` | `false` | Expose write/move MCP tools to developers (delete stays denied) |
+| `ORCHESTRATOR_MCP_MAX_TOOL_ITERATIONS` | `6` | Bound on tool-loop rounds per subtask |
+| `ORCHESTRATOR_MCP_TIMEOUT_MS` | `30000` | Per-MCP-request timeout; a hung server is killed |
+| `ORCHESTRATOR_MCP_MAX_RESULT_CHARS` | `8000` | Cap on a tool result before it reaches the LLM |
 | `WORKER_LLM_MAX_CONCURRENCY` | from policy | Worker-wide LLM gate (set once) |
 
 The worker loads the root `.env` (`../../.env` from `packages/worker`).

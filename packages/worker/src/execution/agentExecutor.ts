@@ -23,6 +23,9 @@ import { isCommandAllowed, runCommand } from "@/tools/runCommand";
 import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
 import { runResponsiveQa } from "./qa";
+import { getMcpRegistry, type McpHooks, type McpSession } from "@/mcp/registry";
+import { runMcpToolLoop } from "@/mcp/toolLoop";
+import type { McpToolDefinition } from "@/mcp/types";
 
 export interface SubtaskExecutionInput {
   workspacePath: string;
@@ -76,6 +79,18 @@ export interface SubtaskExecutionInput {
    * call proceeds. Absent: no gate (legacy callers/tests).
    */
   assertBudgetForCall?: () => void;
+  /**
+   * Plan 009: MCP tool provider for this subtask. `sessions` are the
+   * registry sessions seeded by the runner for this task's workspace
+   * (shared across agents); absent or empty means "no MCP tools" and the
+   * subtask runs on its existing path. `writeTools` defaults to false:
+   * write-capable MCP tools are filtered for every role.
+   */
+  mcp?: {
+    sessions: McpSession[];
+    writeTools?: boolean;
+    maxIterations?: number;
+  };
 }
 
 /**
@@ -97,6 +112,87 @@ function handlesFor(input: SubtaskExecutionInput): FallbackHandle[] {
 
 function healthFor(input: SubtaskExecutionInput) {
   return input.llmHandles && input.llmHandles.length > 0 ? providerHealth : undefined;
+}
+
+/** The agent's MCP scope: role matrix + supportedTools + the write knob. */
+function mcpScope(input: SubtaskExecutionInput) {
+  return {
+    role: input.agent.role,
+    supportedTools: input.agent.supportedTools,
+    allowWrite: input.mcp?.writeTools === true,
+  };
+}
+
+/**
+ * Plan 009: run the bounded MCP tool loop for this subtask. Returns null
+ * when MCP is not configured for the task or the server yielded no
+ * permitted tools — the caller then uses its existing path unchanged.
+ *
+ * The loop runs one LLM step per iteration through the normal provider
+ * chain, so the pre-call budget gate and both LLM concurrency gates apply
+ * exactly as they do to a direct call.
+ */
+async function runMcpExploration(
+  input: SubtaskExecutionInput,
+  instruction: string,
+  context: string
+): Promise<{ answer: string; toolCalls: number; toolCount: number } | null> {
+  const sessions = input.mcp?.sessions ?? [];
+  if (sessions.length === 0) return null;
+
+  const scope = mcpScope(input);
+  const hooks: McpHooks = {
+    onEvent: async (type, payload) => {
+      // The runner's event sink takes a plain record; the payload is already
+      // free of file content and secret material (registry-side masking).
+      const flat: Record<string, unknown> = { ...payload };
+      await input.onEvent(type, flat, type === "mcp.server_error" || type === "mcp.tool_error" ? "warn" : "info");
+    },
+  };
+
+  const tools: McpToolDefinition[] = [];
+  for (const session of sessions) {
+    tools.push(...(await getMcpRegistry().toolsFor(session, scope, hooks)));
+  }
+  if (tools.length === 0) return null;
+
+  const handles = handlesFor(input);
+  const health = healthFor(input);
+  const messages = baseMessages(
+    input,
+    `${instruction}\n\nRepository context:\n${context}\n\nUser request: ${input.command}`
+  );
+
+  const result = await runMcpToolLoop({
+    tools,
+    maxIterations: input.mcp?.maxIterations ?? 6,
+    signal: input.signal,
+    messages,
+    runLlm: async (loopMessages) => {
+      input.assertBudgetForCall?.();
+      const { result: llmResult, servedBy } = await runLlmCallWithFallback(handles, loopMessages, {
+        health,
+        signal: input.signal,
+        taskGate: input.llmTaskGate,
+      });
+      if (input.onTokenUsage) {
+        await input.onTokenUsage(
+          llmResult.inputTokens ?? 0,
+          llmResult.outputTokens ?? 0,
+          servedBy.config.model,
+          usageMetaFor(servedBy, llmResult.inputTokens ?? 0, llmResult.outputTokens ?? 0)
+        );
+      }
+      return llmResult.content;
+    },
+    callTool: async ({ tool, args }) => {
+      const session =
+        sessions.find((candidate) => candidate.tools.some((entry) => entry.name === tool)) ?? sessions[0];
+      return await getMcpRegistry().callTool(session, scope, tool, args, input.agent._id, input.signal, hooks);
+    },
+  });
+
+  return { answer: result.answer, toolCalls: result.toolCalls, toolCount: tools.length };
 }
 
 export type SubtaskExecutionResult =
@@ -185,8 +281,27 @@ async function executeCodeChange(
 
   if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
 
+  // Plan 009: read-only MCP exploration before the diff call. Findings
+  // are appended to the payload; a failed exploration never blocks the
+  // diff call — it is caught, not propagated. Writes stay on the
+  // approval-gated diff pipeline below, never on MCP.
+  let mcpFindings = "";
+  try {
+    const explored = await runMcpExploration(
+      input,
+      `Explore the workspace with the available tools to gather context for this task: ${subtask.title} — ${subtask.description}`,
+      context
+    );
+    if (explored && explored.toolCalls > 0) {
+      mcpFindings = `\n\nWorkspace tool findings:\n${explored.answer.slice(0, 4000)}`;
+    }
+  } catch {
+    // Best-effort only.
+  }
+
   const handles = handlesFor(input);
-  const basePayload = [
+  const basePayload =
+    [
     `Task: ${command}`,
     `Your role in the plan: ${subtask.title} — ${subtask.description}`,
     `Repository context:\n${context}`,
@@ -210,7 +325,7 @@ async function executeCodeChange(
     "- Preserve unrelated behavior and code.",
     "- Do not touch lockfiles, secrets, .env files, or node_modules.",
     "- Keep the change minimal and focused on the task.",
-  ].join("\n");
+  ].join("\n") + mcpFindings;
 
   // Pre-call budget gate (Phase 5): no LLM call starts once the task's
   // call/token budget is spent (enforce mode throws here).
@@ -495,6 +610,32 @@ async function executeReadOnly(
   instruction +=
     '\nOptionally, end your reply with one single-line JSON object {"delegationRecommendation":{"targetCapability":"...","reason":"..."},"findings":["..."]} when another capability should follow up or you noticed concrete issues; omit it otherwise.';
   if (toolLoopSection) instruction += toolLoopSection;
+
+  // Plan 009: MCP filesystem tools. When the runner seeded sessions and
+  // the server yielded permitted tools, the agent uses them mid-task
+  // (bounded loop, budget gate before every LLM step) instead of the
+  // direct streaming path. A dead server or no permitted tools falls
+  // through to the existing path unchanged.
+  const mcpResult = await runMcpExploration(input, instruction, context);
+  if (mcpResult) {
+    const content = mcpResult.answer.trim() || "No findings from workspace tool exploration.";
+    if (content) await input.onChunk(content);
+    await input.onMessage(content);
+    await input.onEvent("agent.mcp_tools", {
+      capability: subtask.capability,
+      toolCount: mcpResult.toolCount,
+      toolCalls: mcpResult.toolCalls,
+    });
+    const delegation = parseDelegation(content);
+    return {
+      status: "completed",
+      output: content,
+      meta: {
+        ...(delegation?.delegationRecommendation ? { delegationRecommendation: delegation.delegationRecommendation } : {}),
+        ...(delegation?.findings ? { findings: delegation.findings } : {}),
+      },
+    };
+  }
 
   const webContext = await buildWebContext(
     input.browser,

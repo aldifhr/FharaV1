@@ -561,6 +561,12 @@ export default defineSchema({
     status: v.union(v.literal("connected"), v.literal("disconnected"), v.literal("error")),
     errorMessage: v.optional(v.string()),
     createdAt: v.number(),
+    // Plan 009: worker-facing MCP config. All optional — a row written
+    // before this plan has no value and is treated as enabled/lazy.
+    enabled: v.optional(v.boolean()),
+    autoConnect: v.optional(v.boolean()),
+    transport: v.optional(v.string()), // "stdio" (only supported today)
+    allowedDirectories: v.optional(v.array(v.string())),
   })
     .index("by_project", ["projectId"])
     .index("by_name", ["projectId", "name"]),

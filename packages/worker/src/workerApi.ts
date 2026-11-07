@@ -144,6 +144,13 @@ export class WorkerApi {
     return await this.client.action(api.worker.recordEvaluation, this.args(input));
   }
 
+  // Plan 009: MCP status reports from the worker (best-effort).
+  async updateMcpServerStatus(
+    input: Omit<FunctionArgs<typeof api.worker.updateMcpServerStatus>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.updateMcpServerStatus>> {
+    return await this.client.action(api.worker.updateMcpServerStatus, this.args(input));
+  }
+
   async logEvent(
     input: Omit<FunctionArgs<typeof api.worker.logEvent>, "workerToken">
   ): Promise<FunctionReturnType<typeof api.worker.logEvent>> {

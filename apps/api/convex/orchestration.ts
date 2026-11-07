@@ -82,6 +82,8 @@ export const getRunContext = internalQuery({
     subtasks: Doc<"subtasks">[];
     approvalMode: "ask" | "auto";
     llmProviders: PoolConnectionPayload[];
+    /** Enabled MCP server configs for this project (Plan 009). Config-only. */
+    mcpServers: Doc<"mcpServers">[];
   } | null> => {
     const task = await ctx.db.get(args.taskId);
     if (!task) return null;
@@ -110,6 +112,17 @@ export const getRunContext = internalQuery({
     const llmProviders: PoolConnectionPayload[] = project
       ? await loadProviderPool(ctx)
       : [];
+    // MCP config crosses to the worker: name/command/args/allowedDirectories
+    // only. There is no credential material in this row; a disabled server is
+    // not delivered at all.
+    const mcpServers = project
+      ? (
+          await ctx.db
+            .query("mcpServers")
+            .withIndex("by_project", (q) => q.eq("projectId", project._id))
+            .collect()
+        ).filter((row) => row.enabled !== false)
+      : [];
 
     return {
       task,
@@ -119,6 +132,7 @@ export const getRunContext = internalQuery({
       subtasks,
       approvalMode: project?.approvalMode === "auto" ? "auto" : "ask",
       llmProviders,
+      mcpServers,
     };
   },
 });

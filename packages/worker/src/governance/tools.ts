@@ -213,7 +213,12 @@ export function validateFilePath(filePath: string): { ok: true } | { ok: false; 
   if (/(^|\/)\.git(\/|$)/i.test(normalized) || /(^|\/)node_modules(\/|$)/i.test(normalized)) {
     return { ok: false, reason: REASON_FILE_PATH_FORBIDDEN };
   }
-  if (segments.some((segment) => segment.startsWith(".") && segment !== "." && segment.length > 1 && ["id_rsa", "id_ed25519"].includes(segment))) {
+  // SSH / crypto material (Plan 009): no .ssh/.gnupg directories and no
+  // PEM key files — protects native tools and MCP tool calls alike.
+  if (/(^|\/)\.(?:ssh|gnupg)(\/|$)/i.test(normalized)) {
+    return { ok: false, reason: REASON_FILE_PATH_FORBIDDEN };
+  }
+  if (/\.pem$/i.test(last) || segments.some((segment) => ["id_rsa", "id_ed25519", "id_ecdsa"].includes(segment))) {
     return { ok: false, reason: REASON_FILE_PATH_FORBIDDEN };
   }
   return { ok: true };

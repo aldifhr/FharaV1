@@ -6,6 +6,7 @@ import { WorkerApi, type WorkerTask } from "./workerApi";
 import { loadPolicy } from "./orchestrator/policy";
 import { setWorkerLlmConcurrencyLimit } from "./effects/llmCall";
 import { providerHealth } from "./llm/health";
+import { getMcpRegistry } from "./mcp/registry";
 import { processTask, resumeTask, type RunnerDeps } from "./services/taskRunner";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
@@ -125,6 +126,8 @@ async function main() {
     stopping = true;
     log(`received ${signal}, shutting down`);
     clearInterval(heartbeat);
+    // Plan 009: kill every MCP child process before the worker exits.
+    await getMcpRegistry().disposeAll().catch(() => undefined);
     await api.markOffline({ workerId }).catch(() => undefined);
     const deadline = Date.now() + 15_000;
     while (inFlight.size > 0 && Date.now() < deadline) {

@@ -68,27 +68,70 @@ export async function resolveSandboxPathAsync(
 ): Promise<string> {
   const lexical = resolveSandboxPath(workspaceRoot, requested);
   const realRoot = await realpathOrCurrent(path.resolve(workspaceRoot));
+  const result = await resolveRealWithinRoot(realRoot, lexical);
+  if (!result.ok) {
+    throw new SandboxError(
+      `Path escapes workspace via symlink: "${requested}" (root: ${realRoot})`
+    );
+  }
+  return result.path;
+}
 
+/**
+ * Walk up to the nearest existing ancestor, resolve it with realpath and
+ * verify containment. Shared by the single-root async sandbox path and
+ * the multi-root MCP path check so both mean exactly the same thing.
+ */
+async function resolveRealWithinRoot(
+  realRoot: string,
+  lexical: string
+): Promise<{ ok: true; path: string } | { ok: false; reason: "outside-roots" }> {
   let current = lexical;
   const missing: string[] = [];
   for (let depth = 0; depth < 64; depth += 1) {
     try {
       const realAncestor = await fs.realpath(current);
       const resolved = path.join(realAncestor, ...missing.slice().reverse());
-      if (!isWithinWorkspace(realRoot, resolved)) {
-        throw new SandboxError(
-          `Path escapes workspace via symlink: "${requested}" -> "${resolved}" (root: ${realRoot})`
-        );
-      }
-      return resolved;
-    } catch (error) {
-      if (error instanceof SandboxError) throw error;
+      if (!isWithinWorkspace(realRoot, resolved)) return { ok: false, reason: "outside-roots" };
+      return { ok: true, path: resolved };
+    } catch {
       const parent = path.dirname(current);
       if (samePath(parent, current)) break;
       missing.push(path.basename(current));
       current = parent;
     }
   }
+  return { ok: false, reason: "outside-roots" };
+}
 
-  throw new SandboxError(`Unable to resolve path safely: "${requested}"`);
+/**
+ * Multi-root containment check for MCP tool arguments.
+ *
+ * MCP filesystem servers take absolute paths (the server itself confines
+ * them to the directories it was launched with), so MOAgent validates
+ * before forwarding: the path must be absolute, must resolve inside one
+ * of `roots` (symlink-aware), and is then checked by the caller against
+ * the protected-name rules.
+ */
+export async function resolveWithinRootsAsync(
+  roots: string[],
+  requested: string
+): Promise<{ ok: true; path: string } | { ok: false; reason: "not-absolute" | "outside-roots" }> {
+  if (!path.isAbsolute(requested)) return { ok: false, reason: "not-absolute" };
+  const resolved = path.resolve(requested);
+  for (const root of roots) {
+    // Lexical pre-check against the unresolved root: comparing against
+    // the realpath'd root would fail on systems where tmpdir is a
+    // symlink (macOS `/var` → `/private/var`).
+    const lexicalRoot = path.resolve(root);
+    const rel = path.relative(lexicalRoot, resolved);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) continue;
+    const realRoot = await realpathOrCurrent(lexicalRoot);
+    const result = await resolveRealWithinRoot(realRoot, resolved);
+    if (result.ok) return result;
+    // Lexically inside this root but the real path escapes (symlink) or
+    // cannot be resolved — refuse. Fail closed, never try another root.
+    return { ok: false, reason: "outside-roots" };
+  }
+  return { ok: false, reason: "outside-roots" };
 }

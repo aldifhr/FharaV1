@@ -14,8 +14,8 @@ execution order and a definition of done.
 | 002 | [In-app notifications](002-in-app-notifications.md) | P2 | S | — | TODO |
 | 003 | [Integrations UI on the existing backend](003-integrations-ui.md) | P2 | M | — | TODO |
 | 004 | [Unify appearance (theme + font + system)](004-appearance-unification.md) | P3 | S | — | TODO |
-| 005 | [Decision-driven orchestrator](005-decision-driven-orchestrator.md) | P1 | L | — | TODO (superseded by 006) |
-| 006 | [Intelligent, context-aware, decision-driven multi-agent platform](006-intelligent-multi-agent-platform.md) | P1 | L | adopts 005 Phase 2–5 | TODO |
+| 005 | [Decision-driven orchestrator](005-decision-driven-orchestrator.md) | P1 | L | — | DONE (adopted as plan 006 Phase 2) |
+| 006 | [Intelligent, context-aware, decision-driven multi-agent platform](006-intelligent-multi-agent-platform.md) | P1 | L | adopts 005 Phase 2–5 | DONE |
 | 007 | [Project agent registry and conversation participation](007-agent-registry-and-participation.md) | P1 | M | — | DONE |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,

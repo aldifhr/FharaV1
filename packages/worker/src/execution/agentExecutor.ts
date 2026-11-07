@@ -101,7 +101,7 @@ function healthFor(input: SubtaskExecutionInput) {
 
 export type SubtaskExecutionResult =
   | { status: "completed"; output?: string; meta?: Record<string, unknown> }
-  | { status: "failed"; error: string };
+  | { status: "failed"; error: string; meta?: Record<string, unknown> };
 
 export async function executeSubtask(
   input: SubtaskExecutionInput
@@ -421,6 +421,9 @@ async function executeQa(
     return {
       status: "failed",
       error: `QA failed: ${report.failures.join("; ")}`,
+      // Plan 005 Step 5.2: keep the checks on the failure so the runner can
+      // record the QA verdict and synthesize fix findings from them.
+      meta: { verdict: report.verdict, checks: report.checks },
     };
   }
   return {
@@ -447,6 +450,25 @@ async function executeReadOnly(
 
   if (input.signal.aborted) return { status: "failed", error: "Execution cancelled" };
 
+  // Plan 006 Phase 5: dynamic tool discovery — wired for research/audit
+  // first behind ORCHESTRATOR_TOOL_LOOP (default false). When enabled,
+  // the agent's supportedTools scope is surfaced in the prompt; listing
+  // is governed (tool_search) and secret args remain redacted.
+  let toolLoopSection = "";
+  if (
+    (mode === "research" || mode === "audit") &&
+    process.env.ORCHESTRATOR_TOOL_LOOP === "true"
+  ) {
+    const { tool_search } = await import("../governance/registry");
+    const tools = tool_search({
+      supportedTools: (input.agent as { supportedTools?: string[] }).supportedTools,
+      query: "",
+    });
+    if (tools.length > 0) {
+      toolLoopSection = `\n\nAvailable tools (search scope is your supportedTools): ${tools.map((t) => t.name).join(", ")}`;
+    }
+  }
+
   let instruction: string;
   if (mode === "audit") {
     instruction = [
@@ -472,6 +494,7 @@ async function executeReadOnly(
   }
   instruction +=
     '\nOptionally, end your reply with one single-line JSON object {"delegationRecommendation":{"targetCapability":"...","reason":"..."},"findings":["..."]} when another capability should follow up or you noticed concrete issues; omit it otherwise.';
+  if (toolLoopSection) instruction += toolLoopSection;
 
   const webContext = await buildWebContext(
     input.browser,
@@ -610,9 +633,11 @@ async function executeShell(
     REGISTRY_LIST,
     "Rules:",
     "- Only run the command the user asked for. Prefer the narrowest variant.",
-    "- If the user request needs a command outside the allowlist, reply with",
-    '  {"delegationRecommendation":{"targetCapability":"shell-execution","reason":"command not allowlisted"}}',
-    '  and a one-line explanation; do NOT invent argv.',
+    "- If the user request needs a command outside the allowlist (including",
+    "  file creation / write / printf / redirect), do NOT invent argv and",
+    "  do NOT delegate to shell-execution (that is yourself — a loop).",
+    "  Reply with a plain one-line explanation; the orchestrator will replan",
+    "  as code_change.",
   ].join("\n");
 
   const handles = handlesFor(input);

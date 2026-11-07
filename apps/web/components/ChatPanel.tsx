@@ -15,7 +15,8 @@ import TaskBoard from "./TaskBoard";
 import TerminalPanel from "./TerminalPanel";
 
 import { useToast } from "./Toasts";
-import { Bell, Check, Copy, MoreHorizontal, Pencil, Send, ChevronUp, ChevronDown, Edit2, X } from "lucide-react";
+import { Bell, Check, Copy, MoreHorizontal, Pencil, Send, ChevronUp, ChevronDown, Edit2, X, Trash2 } from "lucide-react";
+import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 
 type Props = {
   projectId: string;
@@ -52,8 +53,11 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const updateProject = useMutation(api.projects.update);
   const updateTeam = useMutation(api.projects.updateTeam);
   const updateApprovalMode = useMutation(api.projects.updateApprovalMode);
+  const clearChat = useMutation(api.conversations.clearChat);
   const [isManageOpen, setIsManageOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+  const [clearPending, setClearPending] = useState(false);
+  const [clearConfirm, setClearConfirm] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const projectAgentIds = project?.agentIds;
   const agents = (projectAgentIds
     ? (allAgents ?? []).filter((agent: any) => (projectAgentIds as readonly string[]).includes(agent._id))
@@ -101,6 +105,23 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       setCopied(false);
     }
     setMoreOpen(false);
+  };
+
+  const confirmClearChat = async () => {
+    setClearPending(true);
+    setMoreOpen(false);
+    try {
+      await clearChat({ projectId: projectId as never });
+      setDraft("");
+      setMessageQueue([]);
+      setMention(null);
+      toast("success", "Chat cleared");
+      setClearConfirm(null);
+    } catch (err) {
+      toast("error", "Failed to clear chat", err instanceof Error ? err.message : "Failed to clear chat");
+    } finally {
+      setClearPending(false);
+    }
   };
 
   const selectedTask = (tasks ?? []).find((task) => task._id === selectedTaskId);
@@ -557,6 +578,21 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                   <Pencil size={15} />
                   Manage project
                 </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setClearConfirm({
+                      title: "Clear this chat?",
+                      message: "Every chat message in this project will be deleted, including task reports. Tasks themselves are kept.",
+                      confirmLabel: "Clear chat",
+                      onOk: () => { void confirmClearChat(); },
+                    })
+                  }
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50"
+                >
+                  <Trash2 size={15} />
+                  Clear chat
+                </button>
                 <Link
                   href="/activities"
                   onClick={() => setMoreOpen(false)}
@@ -754,6 +790,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       )}
 
 
+      <ConfirmDialog request={clearConfirm} pending={clearPending} onCancel={() => setClearConfirm(null)} onConfirm={() => clearConfirm?.onOk()} />
       {isTerminalOpen && (
         <Modal title={`Terminal · ${project?.name ?? ""}`} onClose={() => setIsTerminalOpen(false)} maxWidth="max-w-3xl">
           <div className="h-[420px] pt-4">
@@ -848,36 +885,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       )}
       {tab === "chat" && (
         <div className="border-t border-[#ebe9f0] bg-white/70 p-3 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/70">
-          {agents.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {agents.map((a: any) => {
-                const selected = chatAgentIds.includes(a._id);
-                return (
-                  <button
-                    key={a._id}
-                    type="button"
-                    onClick={() =>
-                      setChatAgentIds((current) =>
-                        selected ? current.filter((id) => id !== a._id) : [...current, a._id],
-                      )
-                    }
-                    title={selected ? `Remove ${a.name}` : `Assign ${a.name}`}
-                    className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium transition ${
-                      selected
-                        ? "border-[#6252d8] bg-[#6252d8]/10 text-[#4d3fbe] dark:text-[#b9b2ff]"
-                        : "border-[#e5e3eb] text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
-                    }`}
-                  >
-                    <AgentAvatar name={a.name} size={16} status={a.status} avatarParams={a.avatarParams} />
-                    {a.name}
-                  </button>
-                );
-              })}
-              {chatAgentIds.length === 0 && (
-                <span className="self-center text-[11px] text-gray-400">Auto-assign</span>
-              )}
-            </div>
-          )}
           <div className="relative flex flex-col gap-2">
             {mention !== null && mentionResults.length > 0 && (
               <ul className="absolute bottom-full left-0 z-30 mb-2 max-h-52 w-full overflow-y-auto rounded-xl border border-[#e5e3eb] bg-white py-1 shadow-xl dark:border-gray-700 dark:bg-gray-900">

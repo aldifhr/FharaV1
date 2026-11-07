@@ -97,7 +97,6 @@ export async function loadProviderPool(
       model: models.find((m) => m.isAvailable)?.modelId ?? p.model ?? "",
       baseUrl: p.baseUrl,
       apiKeyEnv: p.apiKeyEnv,
-      apiKey: p.apiKey,
       apiKeyCiphertext: p.apiKeyCiphertext,
       priority: p.priority,
       weight: p.weight,

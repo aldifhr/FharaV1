@@ -9,12 +9,40 @@ import {
   type PoolConnectionPayload,
 } from "./llmResolver";
 
-function classifyChatIntent(text: string): { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean } {
+// Mirrored from packages/worker/src/router/route.ts (Convex cannot import
+// worker code). The backend chat auto-dispatch must honor the same platform
+// rule: questions, advice and analysis never become tasks.
+const QUESTION_SHAPE =
+  /\b(how do i|how to|how can|how does|why|what is|what are|what's|what does|what do|where is|explain|describe|summari[sz]e|document|understand)\b/i;
+const ADVICE_SHAPE =
+  /\b(should i|recommend|best (practice|way)|suggest|advice|prefer)\b/i;
+const EXPLICIT_NEGATION =
+  /\b(do not|don't|dont|never)\b.*\b(create|make|start|run|execute|buat|bikin|jalankan)\b.*\btask\b|\b(jangan|tidak perlu)\b.*\btask\b/i;
+
+export function classifyChatIntent(text: string): { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean } {
   const t = text.toLowerCase();
   const frontend = /\b(frontend|ui|react|component|page|button|css|tailwind)\b/.test(t);
   const backend = /\b(backend|api|server|database|auth|endpoint|convex)\b/.test(t);
   const testing = /\b(test|qa|e2e|bug|error)\b/.test(t);
   const security = /\b(security|audit|vulnerab|secret)\b/.test(t);
+
+  // Explicit user instruction always wins: "do not create a task" must be
+  // honored as chat even when the text contains change verbs.
+  if (EXPLICIT_NEGATION.test(text)) {
+    return { kind: "chat", frontend, backend, testing, security };
+  }
+  // Boundary guard (same as worker router): question/advice shapes never
+  // become tasks, even when they contain a change verb.
+  if (QUESTION_SHAPE.test(text) || ADVICE_SHAPE.test(text)) {
+    return { kind: "chat", frontend, backend, testing, security };
+  }
+  // Read-only analysis without a change verb is chat (audit/research).
+  const hasChangeVerb = /\b(buat|tambah|implement|build|create|fix|perbaiki|refactor|update|change|add|remove)\b/i.test(t);
+  const isReadOnly = /\b(audit|review|research|investigate|analyze|analyse)\b/i.test(t);
+  if (isReadOnly && !hasChangeVerb) {
+    return { kind: "chat", frontend, backend, testing, security };
+  }
+
   // If command contains impl keywords, treat as task regardless
   const impl = /\b(buatin|buat|tambah|implement|build|create|fix|perbaiki|refactor|update|change|add|remove|git\s+pull|checkout|push|audit|cari\s+bug|bug|review|investigate|research|qa|test|security|desain|design)\b/.test(t);
   return { kind: impl ? "task" : "chat", frontend, backend, testing, security };
@@ -42,6 +70,8 @@ function buildPlanningGuidance(agent: { role: string }, opts: { isOrchestrator: 
   }
   return [
     "Answer the user's chat message helpfully and briefly from your perspective in the same language as the user.",
+    "You have NO workspace file access in this chat thread. Do not claim to have read files, run commands, or audited code here.",
+    "For anything that needs workspace access (audit, review, read files, run code), tell the user to Create task so the worker (which CAN read the workspace) can do it.",
     "Do not pretend to have executed code. Respond in plain text.",
   ];
 }
@@ -188,6 +218,7 @@ export const replyToChat = internalAction({
       }>;
       projectName: string;
       history: { authorType: string; content: string }[];
+      contextSummary?: string;
       llmProviders?: PoolConnectionPayload[];
     };
 
@@ -208,6 +239,14 @@ export const replyToChat = internalAction({
       role: m.authorType === "agent" ? "assistant" : "user",
       content: m.content,
     }));
+    // Plan 006 Phase 3: prompt builder uses summary + last 12. The summary
+    // carries the compacted tail so the LLM keeps bounded context.
+    if (data.contextSummary) {
+      conversation.unshift({
+        role: "system",
+        content: `Conversation summary: ${data.contextSummary}`,
+      });
+    }
 
     // Only an agent whose ROLE is architect/lead/orchestrator/planner may act as
     // the orchestrator. Falling back to agents[0] made any selected agent

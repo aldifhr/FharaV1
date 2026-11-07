@@ -357,3 +357,54 @@ export const closeConversation = mutation({
     return conversation._id;
   },
 });
+
+/**
+ * Clear the project's chat: delete every message in the project — the
+ * conversation messages (the same set `chatContext.getContext` feeds the
+ * LLM, so this also resets the model's memory of the chat) and the
+ * task-linked report messages, so the timeline is empty. Task rows and their
+ * non-message history (subtasks, approvals, file changes, …) are kept.
+ * The active conversation is closed and its participants soft-left, so the
+ * next send starts a fresh thread. Returns how many messages were deleted.
+ */
+export const clearChat = mutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args): Promise<{ deletedMessages: number }> => {
+    const project = await assertProjectAccess(ctx, args.projectId);
+
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_project", (q) => q.eq("projectId", project._id))
+      .collect();
+    for (const message of messages) {
+      await ctx.db.delete(message._id);
+    }
+
+    const now = Date.now();
+    const activeConversations = await ctx.db
+      .query("conversations")
+      .withIndex("by_project_and_status", (q) =>
+        q.eq("projectId", project._id).eq("status", "active")
+      )
+      .collect();
+    for (const conversation of activeConversations) {
+      await ctx.db.patch(conversation._id, {
+        status: "closed",
+        updatedAt: now,
+      });
+      const rows = await ctx.db
+        .query("conversationParticipants")
+        .withIndex("by_conversation", (q) =>
+          q.eq("conversationId", conversation._id)
+        )
+        .collect();
+      for (const row of rows) {
+        if (row.leftAt === undefined) {
+          await ctx.db.patch(row._id, { leftAt: now });
+        }
+      }
+    }
+
+    return { deletedMessages: messages.length };
+  },
+});

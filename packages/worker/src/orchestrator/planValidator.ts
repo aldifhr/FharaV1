@@ -66,6 +66,20 @@ export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResul
     const kind = (capability === "shell-execution"
       ? "shell"
       : (value.kind as SubtaskKind)) as SubtaskKind;
+    // Shell executor is git-only exact-argv (see isCommandAllowed). A shell
+    // subtask whose description asks for file creation / write (e.g.
+    // "Create hello.txt", "printf '...' > file") can never succeed — the
+    // shell agent replies with a self-delegation loop. Reject at validation
+    // so the planner falls back to the heuristic code_change plan instead
+    // of emitting a doomed shell DAG.
+    if (capability === "shell-execution") {
+      const desc = typeof value.description === "string" ? value.description : "";
+      if (/\b(create|write|touch|echo|printf|mkdir|cp|mv|rm)\b.*\bfile\b|\bfile\b.*\b(create|write)|>|printf|hello\.txt/i.test(desc)) {
+        errors.push(
+          `subtask ${key}: shell-execution cannot create/write files (git-only allowlist); use code_change`
+        );
+      }
+    }
     if (!SUBTASK_KINDS.includes(kind)) {
       errors.push(`subtask ${key}: kind must be one of ${SUBTASK_KINDS.join(", ")}`);
     }

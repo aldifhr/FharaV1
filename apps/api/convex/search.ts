@@ -1,5 +1,6 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
+import { projectAgentDoc } from "./agents";
 
 export const global = query({
   args: { q: v.string() },
@@ -21,7 +22,7 @@ export const global = query({
         .filter((t) => matches(t.title) || matches(t.command))
         .slice(0, 12)
         .map((t) => ({ ...t, projectName: nameById.get(t.projectId as string) ?? "—" })),
-      agents: agents.filter((a) => matches(a.name) || matches(a.role)).slice(0, 8),
+      agents: agents.filter((a) => matches(a.name) || matches(a.role)).slice(0, 8).map(projectAgentDoc),
     };
   },
 });

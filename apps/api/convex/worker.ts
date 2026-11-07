@@ -586,3 +586,84 @@ export const getTaskTokenUsage = action({
     });
   },
 });
+
+// Plan 006 Phase 4: durable queue — messages claimed with the task lease
+// pattern (worker-facing and token-gated like claimTask).
+export const claimNextMessage = action({
+  args: {
+    ...tokenArg,
+    workerId: v.string(),
+    leaseMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    const { workerId, leaseMs } = withoutToken(args);
+    return await ctx.runMutation(internal.messages.claimNextMessage, {
+      workerId,
+      leaseMs,
+    });
+  },
+});
+
+export const completeMessage = action({
+  args: { ...tokenArg, messageId: v.id("messages"), workerId: v.string() },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.messages.completeMessage, withoutToken(args));
+  },
+});
+
+export const failMessage = action({
+  args: { ...tokenArg, messageId: v.id("messages"), workerId: v.string(), error: v.string() },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.messages.failMessage, withoutToken(args));
+  },
+});
+
+export const retryMessage = action({
+  args: { ...tokenArg, messageId: v.id("messages") },
+  handler: async (ctx, args): Promise<any> => {
+    const { messageId } = withoutToken(args);
+    return await ctx.runMutation(internal.messages.retryMessage, { messageId });
+  },
+});
+
+export const cancelMessage = action({
+  args: { ...tokenArg, messageId: v.id("messages") },
+  handler: async (ctx, args): Promise<any> => {
+    const { messageId } = withoutToken(args);
+    return await ctx.runMutation(internal.messages.cancelMessage, { messageId });
+  },
+});
+
+export const recoverStaleMessages = action({
+  args: { ...tokenArg, workerId: v.string() },
+  handler: async (ctx, args): Promise<any> => {
+    const { workerId } = withoutToken(args);
+    return await ctx.runMutation(internal.messages.recoverStaleMessages, { workerId });
+  },
+});
+
+// Plan 007 Phase 1: MCP server config — UI only, no worker integration yet.
+export const addMcpServer = action({
+  args: {
+    ...tokenArg,
+    projectId: v.id("projects"),
+    name: v.string(),
+    type: v.union(v.literal("local"), v.literal("remote")),
+    url: v.optional(v.string()),
+    command: v.optional(v.string()),
+    args: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.mcpServers.add, withoutToken(args));
+  },
+});
+
+export const removeMcpServer = action({
+  args: { ...tokenArg, serverId: v.id("mcpServers") },
+  handler: async (ctx, args): Promise<any> => {
+    const { serverId } = withoutToken(args);
+    return await ctx.runMutation(internal.mcpServers.remove, { serverId });
+  },
+});
+
+

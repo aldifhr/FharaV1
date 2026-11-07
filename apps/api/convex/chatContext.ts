@@ -19,6 +19,8 @@ export const insertUserMessage = internalMutation({
       authorType: "user",
       content,
       conversationId: args.conversationId,
+      queueStatus: "pending",
+      attempts: 0,
     });
   },
 });
@@ -102,6 +104,19 @@ export const getContext = internalQuery({
       .reverse()
       .map((m) => ({ authorType: m.authorType, content: m.content }));
 
+    // Plan 006 Phase 3: conversation summary + last 12 replaces raw history
+    // for compaction. The latest summary for this conversation (if any)
+    // is included so the router path can carry bounded context.
+    let contextSummary: string | undefined;
+    if (args.conversationId) {
+      const summaries = await ctx.db
+        .query("contextSummaries")
+        .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId!))
+        .order("desc")
+        .take(1);
+      contextSummary = summaries[0]?.summary;
+    }
+
     const agentShape = (a: Doc<"agents">) => ({
       _id: a._id,
       name: a.name,
@@ -117,6 +132,7 @@ export const getContext = internalQuery({
       agents: selected.map(agentShape),
       projectName: project.name,
       history,
+      contextSummary,
       llmProviders,
     };
   },

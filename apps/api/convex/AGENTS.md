@@ -86,6 +86,12 @@ the terminal-status guard, the provider mutation token gate, and credential
 cleanliness of `getRunContext`. Extend it when you touch any of the three. Never
 delete a case to get a green run.
 
+- Plan 006 Phase 3 context compaction: `contextSummaries` table with
+  `by_conversation` (cursor on `lastCompactAt`, latest-first) and `by_project`
+  indexes; internal query `getContextSummaries` + `getLatestContextSummary`;
+  internal mutation `insertContextSummary`. `chatContext.getContext` returns
+  `contextSummary` so the router prompt builder uses summary + last 12.
+
 ## Style
 
 - Functions are object-form with explicit `args` validators and a `handler`.

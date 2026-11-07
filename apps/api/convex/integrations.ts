@@ -8,6 +8,7 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { assertProjectAccess } from "./authz";
 
 // GitHub OAuth configuration
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? "";
@@ -269,13 +270,18 @@ export const get = query({
   handler: async (ctx, args) => {
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) return null;
+    await assertProjectAccess(ctx, integration.projectId);
 
+    const {
+      accessToken: _a,
+      refreshToken: _r,
+      webhookSecret: _w,
+      config: _c,
+      ...rest
+    } = integration as any;
     return {
-      ...integration,
-      // Don't expose access tokens in plain text
-      accessToken: integration.accessToken
-        ? "***" + integration.accessToken.slice(-4)
-        : undefined,
+      ...rest,
+      hasAccessToken: !!integration.accessToken,
     };
   },
 });

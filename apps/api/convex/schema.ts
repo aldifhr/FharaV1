@@ -224,10 +224,28 @@ export default defineSchema({
     // so pre-conversation messages still validate; task-thread messages keep
     // taskId and need no conversation.
     conversationId: v.optional(v.id("conversations")),
+    // Plan 006 Phase 4: durable queue. Messages are claimed by the worker
+    // with the task lease pattern (leasedBy / leaseExpiresAt). Task-linked
+    // report messages never enter the queue (queueStatus undefined).
+    queueStatus: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("claimed"),
+        v.literal("done"),
+        v.literal("failed"),
+        v.literal("cancelled")
+      )
+    ),
+    toAgentId: v.optional(v.id("agents")),
+    leasedBy: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    attempts: v.optional(v.number()),
+    error: v.optional(v.string()),
   })
     .index("by_project", ["projectId"])
     .index("by_task", ["taskId"])
-    .index("by_reply_to", ["replyToMessageId"]),
+    .index("by_reply_to", ["replyToMessageId"])
+    .index("by_queue", ["queueStatus", "projectId"]),
 
   // Plan 007 (addendum §2): conversation participation is its own concept,
   // independent of project membership (projects.agentIds) and task assignment
@@ -453,6 +471,22 @@ export default defineSchema({
     .index("by_provider", ["providerId"])
     .index("by_provider_and_model", ["providerId", "modelId"]),
 
+  // Context summaries (plan 006 Phase 3): deterministic LLM summaries of a
+  // conversation's tail so prompts carry a bounded summary + last 12 instead
+  // of the full history. Scoped retrieval is served by `by_conversation` with
+  // a `beforeCreationTime` cursor in descending order; `by_project` serves
+  // admin listing.
+  contextSummaries: defineTable({
+    conversationId: v.id("conversations"),
+    projectId: v.id("projects"),
+    summary: v.string(),
+    lastCompactAt: v.number(),
+    summaryCharCount: v.number(),
+    messageCountBefore: v.number(),
+  })
+    .index("by_conversation", ["conversationId", "lastCompactAt"])
+    .index("by_project", ["projectId", "lastCompactAt"]),
+
   // Provider health snapshots (Phase 5 observability): the worker's
   // in-memory circuit registry (llm/health.ts) mirrored to the backend by
   // the worker itself, one row per provider connection, so the Settings
@@ -512,4 +546,19 @@ export default defineSchema({
     .index("by_integration", ["integrationId"])
     .index("by_status", ["status"])
     .index("by_project", ["projectId"]),
+
+  // MCP server connections (Plan 007 Phase 1 — UI config only)
+  mcpServers: defineTable({
+    projectId: v.id("projects"),
+    name: v.string(),
+    type: v.union(v.literal("local"), v.literal("remote")),
+    url: v.optional(v.string()), // for remote: HTTP endpoint
+    command: v.optional(v.string()), // for local: executable
+    args: v.optional(v.string()), // JSON-encoded string[] for local
+    status: v.union(v.literal("connected"), v.literal("disconnected"), v.literal("error")),
+    errorMessage: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_name", ["projectId", "name"]),
 });

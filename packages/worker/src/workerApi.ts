@@ -221,4 +221,41 @@ export class WorkerApi {
   ): Promise<FunctionReturnType<typeof api.worker.getTaskTokenUsage>> {
     return await this.client.action(api.worker.getTaskTokenUsage, this.args(input));
   }
+
+  // Plan 006 Phase 4: durable queue (messages claimed with the task lease pattern).
+  async claimNextMessage(
+    input: Omit<FunctionArgs<typeof api.worker.claimNextMessage>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.claimNextMessage> | null> {
+    return await this.client.action(api.worker.claimNextMessage, this.args(input));
+  }
+
+  async completeMessage(
+    input: Omit<FunctionArgs<typeof api.worker.completeMessage>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.completeMessage>> {
+    return await this.client.action(api.worker.completeMessage, this.args(input));
+  }
+
+  async failMessage(
+    input: Omit<FunctionArgs<typeof api.worker.failMessage>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.failMessage>> {
+    return await this.client.action(api.worker.failMessage, this.args(input));
+  }
+
+  async retryMessage(
+    input: Omit<FunctionArgs<typeof api.worker.retryMessage>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.retryMessage>> {
+    return await this.client.action(api.worker.retryMessage, this.args(input));
+  }
+
+  async cancelMessage(
+    input: Omit<FunctionArgs<typeof api.worker.cancelMessage>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.cancelMessage>> {
+    return await this.client.action(api.worker.cancelMessage, this.args(input));
+  }
+
+  async recoverStaleMessages(
+    input: Omit<FunctionArgs<typeof api.worker.recoverStaleMessages>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.recoverStaleMessages>> {
+    return await this.client.action(api.worker.recoverStaleMessages, this.args(input));
+  }
 }

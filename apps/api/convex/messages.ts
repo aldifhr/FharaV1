@@ -1,4 +1,4 @@
-import { query, action } from "./_generated/server";
+import { query, action, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { assertProjectAccess, getVisibleTask } from "./authz";
 import { internal } from "./_generated/api";
@@ -25,6 +25,234 @@ export const listByTask = query({
       .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
       .order("asc")
       .take(500);
+  },
+});
+
+/**
+ * Scoped retrieval of a conversation's context summaries: latest first,
+ * bounded by a `beforeCreationTime` cursor. The index `by_conversation`
+ * keeps reads indexed — no `.collect()` + JS filter — and the cursor
+ * supports incremental backward loading.
+ */
+export const getContextSummaries = internalQuery({
+  args: {
+    projectId: v.id("projects"),
+    conversationId: v.id("conversations"),
+    cursor: v.optional(v.number()), // last seen lastCompactAt
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
+    const base = ctx.db
+      .query("contextSummaries")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId));
+    let q = base;
+    if (args.cursor !== undefined) {
+      q = q.filter((q) => q.lt(q.field("lastCompactAt"), args.cursor!));
+    }
+    return await q.order("desc").take(args.limit ?? 10);
+  },
+});
+
+export const getLatestContextSummary = internalQuery({
+  args: {
+    projectId: v.id("projects"),
+    conversationId: v.id("conversations"),
+  },
+  handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
+    const rows = await ctx.db
+      .query("contextSummaries")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))
+      .order("desc")
+      .take(1);
+    return rows[0] ?? null;
+  },
+});
+
+export const insertContextSummary = internalMutation({
+  args: {
+    conversationId: v.id("conversations"),
+    projectId: v.id("projects"),
+    summary: v.string(),
+    lastCompactAt: v.number(),
+    summaryCharCount: v.number(),
+    messageCountBefore: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
+    return await ctx.db.insert("contextSummaries", args);
+  },
+});
+
+export const getConversationHistoryForCompaction = internalQuery({
+  args: {
+    projectId: v.id("projects"),
+    conversationId: v.id("conversations"),
+  },
+  handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
+    const rows = await ctx.db
+      .query("messages")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .take(200);
+    const eligible = rows
+      .filter((m) => !m.taskId && m.conversationId === args.conversationId)
+      .reverse()
+      .map((m) => ({ authorType: m.authorType, content: m.content }));
+    return eligible;
+  },
+});
+
+export const claimNextMessage = internalMutation({
+  args: {
+    workerId: v.string(),
+    leaseMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const leaseMs = args.leaseMs ?? 60000;
+    const candidates = await ctx.db
+      .query("messages")
+      .withIndex("by_queue", (q) => q.eq("queueStatus", "pending"))
+      .order("asc")
+      .take(25);
+    // Empty candidate set on a fresh deploy (no queueStatus rows yet) is
+    // normal: claim returns null and the worker keeps polling.
+    if (candidates.length === 0) return null;
+    // Claim ordering: projectId order (deterministic; the caller can
+    // assert `projectId` ascending), and within a project, oldest first.
+    candidates.sort((a, b) => {
+      if (a.projectId !== b.projectId) return a.projectId < b.projectId ? -1 : 1;
+      return a._creationTime - b._creationTime;
+    });
+    const candidate = candidates.find(
+      (c) => c.queueStatus === "pending" && (c.leaseExpiresAt === undefined || c.leaseExpiresAt < now)
+    );
+    if (!candidate) return null;
+    await ctx.db.patch(candidate._id, {
+      queueStatus: "claimed",
+      leasedBy: args.workerId,
+      leaseExpiresAt: now + leaseMs,
+      attempts: (candidate.attempts ?? 0) + 1,
+      error: undefined,
+    });
+    return await ctx.db.get(candidate._id);
+  },
+});
+
+export const completeMessage = internalMutation({
+  args: {
+    messageId: v.id("messages"),
+    workerId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const msg = await ctx.db.get(args.messageId);
+    if (!msg) return { applied: false as const };
+    // Only the claiming worker may complete; stale leases are reclaimed
+    // first by recoverStaleMessages.
+    if (msg.queueStatus !== "claimed" || msg.leasedBy !== args.workerId) {
+      return { applied: false as const };
+    }
+    await ctx.db.patch(msg._id, {
+      queueStatus: "done",
+      leasedBy: undefined,
+      leaseExpiresAt: undefined,
+    });
+    return { applied: true as const };
+  },
+});
+
+export const failMessage = internalMutation({
+  args: {
+    messageId: v.id("messages"),
+    workerId: v.string(),
+    error: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const msg = await ctx.db.get(args.messageId);
+    if (!msg) return { applied: false as const };
+    if (msg.queueStatus !== "claimed" || msg.leasedBy !== args.workerId) {
+      return { applied: false as const };
+    }
+    const attempts = msg.attempts ?? 0;
+    const next = attempts >= 3 ? "failed" : "pending";
+    await ctx.db.patch(msg._id, {
+      queueStatus: next as "failed" | "pending",
+      leasedBy: undefined,
+      leaseExpiresAt: undefined,
+      error: args.error,
+    } as any);
+    return { applied: true as const, next };
+  },
+});
+
+export const retryMessage = internalMutation({
+  args: { messageId: v.id("messages") },
+  handler: async (ctx, args) => {
+    const msg = await ctx.db.get(args.messageId);
+    if (!msg) return { applied: false as const };
+    if (msg.queueStatus !== "failed") return { applied: false as const };
+    await ctx.db.patch(msg._id, {
+      queueStatus: "pending",
+      leasedBy: undefined,
+      leaseExpiresAt: undefined,
+      error: undefined,
+    });
+    return { applied: true as const };
+  },
+});
+
+export const cancelMessage = internalMutation({
+  args: { messageId: v.id("messages") },
+  handler: async (ctx, args) => {
+    const msg = await ctx.db.get(args.messageId);
+    if (!msg) return { applied: false as const };
+    if (msg.queueStatus === "done" || msg.queueStatus === "cancelled") {
+      return { applied: false as const };
+    }
+    await ctx.db.patch(msg._id, {
+      queueStatus: "cancelled",
+      leasedBy: undefined,
+      leaseExpiresAt: undefined,
+    });
+    return { applied: true as const };
+  },
+});
+
+export const recoverStaleMessages = internalMutation({
+  args: { workerId: v.string() },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const stale = await ctx.db
+      .query("messages")
+      .withIndex("by_queue", (q) => q.eq("queueStatus", "claimed"))
+      .collect();
+    let requeued = 0;
+    let failed = 0;
+    for (const m of stale) {
+      if (m.leaseExpiresAt !== undefined && m.leaseExpiresAt < now) {
+        const attempts = m.attempts ?? 0;
+        if (attempts >= 3) {
+          await ctx.db.patch(m._id, {
+            queueStatus: "failed",
+            leasedBy: undefined,
+            leaseExpiresAt: undefined,
+            error: "stale lease exceeded retry bound",
+          } as any);
+          failed++;
+        } else {
+          await ctx.db.patch(m._id, {
+            queueStatus: "pending",
+            leasedBy: undefined,
+            leaseExpiresAt: undefined,
+          });
+          requeued++;
+        }
+      }
+    }
+    return { requeued, failed };
   },
 });
 

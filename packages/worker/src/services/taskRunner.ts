@@ -54,9 +54,15 @@ import {
   collectRequestedChanges,
   formatReviewFindings,
 } from "@/orchestrator/reviewLoop";
-import { decide, applyDecision, type DecisionObservation } from "@/orchestrator/decision";
+import {
+  decide,
+  applyDecision,
+  evaluateObjective,
+  type DecisionContext,
+  type DecisionObservation,
+} from "@/orchestrator/decision";
 import { decideWithLlm } from "@/orchestrator/decisionLlm";
-import type { ReviewResult } from "@/utils/json";
+import type { ReviewFinding, ReviewResult } from "@/utils/json";
 import { executeSubtask } from "@/execution/agentExecutor";
 import { WebClient, type WebClientConfig } from "@/tools/webClient";
 import { runVerification } from "@/execution/verification";
@@ -90,6 +96,10 @@ interface RunState {
   qaVerdicts: Record<string, "passed" | "failed" | "inconclusive">;
   reviewVerdicts: Record<string, ReviewResult>;
   fileChanges: Map<string, FileDiff>;
+  /** Applied file paths per producing subtask key (Phase 5 Step 5.1). */
+  appliedFilesBySubtask: Map<string, string[]>;
+  /** Last static verification result, once it has run (Phase 5 Step 5.1). */
+  verification?: { status: "passed" | "failed" | "skipped"; details?: string };
   feedback: string[];
 }
 
@@ -187,6 +197,13 @@ export function buildStateFromDb(input: {
       .filter((subtask) => subtask.status === "completed")
       .map((subtask) => subtask.key)
   );
+  const appliedFilesBySubtask = new Map<string, string[]>();
+  for (const change of input.fileChanges) {
+    if (!change.subtaskKey) continue;
+    const existing = appliedFilesBySubtask.get(change.subtaskKey) ?? [];
+    if (!existing.includes(change.filePath)) existing.push(change.filePath);
+    appliedFilesBySubtask.set(change.subtaskKey, existing);
+  }
   const state: RunState = {
     priorOutputs: new Map(
       input.subtasks
@@ -198,6 +215,7 @@ export function buildStateFromDb(input: {
     fileChanges: new Map(
       input.fileChanges.map((change) => [change.filePath, toFileDiff(change)])
     ),
+    appliedFilesBySubtask,
     feedback: [],
   };
   return { state, completedKeys };
@@ -977,6 +995,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     qaVerdicts: {},
     reviewVerdicts: {},
     fileChanges: new Map(),
+    appliedFilesBySubtask: new Map(),
     feedback: [],
   };
   let completedKeys: Set<string> = seeded?.completedKeys ?? new Set<string>();
@@ -1044,6 +1063,32 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       });
 
       if (outcome === "waiting_approval") return;
+
+      // Plan 005 Step 5.4: the decision step bound is terminal — fail
+      // the task explicitly, never mark it done or replan it.
+      if (outcome === "step_limit") {
+        await deps.api.logEvent({
+          taskId: task._id,
+          projectId: project._id,
+          type: "orchestrator.step_limit",
+          payload: { maxDecisionSteps: deps.policy.maxDecisionSteps },
+          level: "error",
+        });
+        await deps.api
+          .recordLifecycle?.({
+            taskId: task._id,
+            projectId: project._id,
+            state: "FAILED",
+            prevState: "RUNNING",
+          })
+          ?.catch(() => undefined);
+        await deps.api.completeTask({
+          taskId: task._id,
+          status: "failed",
+          errorMessage: "Decision step limit reached",
+        });
+        return;
+      }
 
       // Cancellation is terminal (Phase 4 hardening): a cancelled or
       // timed-out task ends here — it is never replanned, never
@@ -1354,7 +1399,7 @@ async function executePlan(input: {
     plan: ExecutionPlan;
     version: number;
   }) => Promise<void>;
-}): Promise<"completed" | "failed" | "waiting_approval" | "cancelled"> {
+}): Promise<"completed" | "failed" | "waiting_approval" | "cancelled" | "step_limit"> {
   const { deps, task, project, plan, state } = input;
   const browser = new WebClient({
     headless: true,
@@ -1428,6 +1473,8 @@ async function executePlan(input: {
     deps.policy.decisionEngine === true &&
     Boolean(input.budget && input.sharedContext && input.classification);
   let decisionStep = 0;
+  /** Plan 005 Step 5.4: latched when the decision step bound is hit. */
+  let stepLimitHit = false;
   // Per-branch capability chain per subtask key (root first, ending with
   // the subtask's own capability). Delegation depth and circularity are
   // derived from this chain — never from a task-global counter.
@@ -1577,6 +1624,12 @@ async function executePlan(input: {
             executionId,
           });
           state.fileChanges.set(change.filePath, change);
+          // Phase 5 Step 5.1: attribute the staged file to the subtask that
+          // produced it, so objective evaluation can check that every
+          // completed code_change actually landed a change.
+          const produced = state.appliedFilesBySubtask.get(node.id) ?? [];
+          if (!produced.includes(change.filePath)) produced.push(change.filePath);
+          state.appliedFilesBySubtask.set(node.id, produced);
           await deps.api.logEvent({
             taskId,
             projectId: project._id,
@@ -1626,7 +1679,7 @@ async function executePlan(input: {
       // to this same invocation, capped per invocation; a budget BLOCKED
       // decision latches the halt so no new nodes start afterwards.
       maxAddedNodes: deps.policy.maxSubtasks,
-      shouldHaltNewNodes: () => budgetHalt,
+      shouldHaltNewNodes: () => budgetHalt || stepLimitHit,
       shouldCancel: async () => {
         // The task deadline fired the shared abort controller (or a
         // cancel already propagated): the task is cancelled NOW. This
@@ -1800,23 +1853,24 @@ async function executePlan(input: {
                 retryable: false,
               };
 
-              const { decision, fallback } = await decide(
-                {
-                  taskId,
-                  objective: input.sharedContext.objective,
-                  classification: input.classification,
-                  planVersion: input.planVersion ?? plan.version,
-                  plan,
-                  results: input.sharedContext.agentExecutions,
-                  openIssues: input.sharedContext.outstandingIssues,
-                  budget: input.budget.snapshot(),
-                  policy: deps.policy,
-                  agents: input.agents,
-                  completedKeys: input.completedKeys,
-                  step: decisionStep,
-                  chainCapabilities: chain,
-                  activeByAgent,
-                },
+              const decisionContext: DecisionContext = {
+                taskId,
+                objective: input.sharedContext.objective,
+                classification: input.classification,
+                planVersion: input.planVersion ?? plan.version,
+                plan,
+                results: input.sharedContext.agentExecutions,
+                openIssues: input.sharedContext.outstandingIssues,
+                budget: input.budget.snapshot(),
+                policy: deps.policy,
+                agents: input.agents,
+                completedKeys: input.completedKeys,
+                step: decisionStep,
+                chainCapabilities: chain,
+                activeByAgent,
+              };
+              const { decision: decided, fallback } = await decide(
+                decisionContext,
                 observation,
                 {
                   llmMode: deps.policy.decisionLlmMode,
@@ -1829,6 +1883,84 @@ async function executePlan(input: {
                     }),
                 }
               );
+              // Plan 005 Step 5.4: the step bound is terminal — fail the
+              // task explicitly, never silently mark it done. `decide`
+              // already returned the `decision:step_limit` outcome; latch
+              // the halt so the scheduler drains instead of starting more.
+              if (decided.expectedOutcome === "decision:step_limit") {
+                stepLimitHit = true;
+                await deps.api.logEvent({
+                  taskId: task._id,
+                  projectId: project._id,
+                  type: "orchestrator.decision",
+                  payload: {
+                    subtaskKey: node.id,
+                    id: decided.id,
+                    action: decided.action,
+                    reasoning: decided.reasoning.slice(0, 500),
+                    target: null,
+                    decidedBy: decided.decidedBy,
+                    planVersion: decided.planVersion,
+                    step: decisionStep,
+                    expectedOutcome: decided.expectedOutcome,
+                  },
+                  executionId,
+                  subtaskKey: node.id,
+                  level: "warn",
+                });
+                return dynamicNodes;
+              }
+              // Plan 005 Step 5.1: `complete` is only emitted when the
+              // objective evidence says it is met; otherwise the request
+              // becomes replan (concrete gaps) or ask_user (no path).
+              let decision = decided;
+              if (decision.action === "complete") {
+                const objective = evaluateObjective({
+                  ...decisionContext,
+                  objectiveEvidence: {
+                    appliedFiles: Object.fromEntries(state.appliedFilesBySubtask),
+                    qaVerdicts: state.qaVerdicts,
+                    verification: state.verification,
+                    lastDecision: {
+                      action: decision.action,
+                      expectedOutcome: decision.expectedOutcome,
+                    },
+                  },
+                });
+                if (objective.satisfied) {
+                  await deps.api.logEvent({
+                    taskId: task._id,
+                    projectId: project._id,
+                    type: "orchestrator.completed",
+                    payload: {
+                      evidence: objective.evidence,
+                      rationale: decision.reasoning.slice(0, 500),
+                    },
+                    executionId,
+                    subtaskKey: node.id,
+                    level: "info",
+                  });
+                } else {
+                  await deps.api.logEvent({
+                    taskId: task._id,
+                    projectId: project._id,
+                    type: "orchestrator.objective_unmet",
+                    payload: {
+                      missing: objective.missing,
+                      evidence: objective.evidence,
+                    },
+                    executionId,
+                    subtaskKey: node.id,
+                    level: "warn",
+                  });
+                  decision = {
+                    ...decision,
+                    action: objective.missing.length > 0 ? "replan" : "ask_user",
+                    reasoning: `objective not satisfied: ${objective.missing.join("; ")}`.slice(0, 500),
+                    expectedOutcome: "recovery",
+                  };
+                }
+              }
               if (fallback) {
                 await deps.api.logEvent({
                   taskId: task._id,
@@ -2095,6 +2227,18 @@ async function executePlan(input: {
                     capability: evaluation.nextCapability,
                   })
                   ?.catch(() => undefined);
+                // Plan 006 Phase 4: delegation proposals write the addressed
+                // message row so the target agent sees the handoff.
+                await deps.api
+                  .appendAgentMessage({
+                    projectId: project._id,
+                    taskId: task._id as any,
+                    agentId: evaluation.nextAgent._id as any,
+                    content: `Delegation: ${agent.name} → ${evaluation.nextAgent.name} (${evaluation.nextCapability ?? "unknown"}): ${evaluation.reason.slice(0, 300)}`,
+                    subtaskKey: delegatedSubtaskKey ?? node.id,
+                    executionId,
+                  })
+                  .catch(() => undefined);
               }
               await deps.api.logEvent({
                 taskId,
@@ -2245,6 +2389,75 @@ async function executePlan(input: {
   };
 
   const reviewNodeKeys = reviewNodes.map((node) => node.key);
+
+  /**
+   * Plan 005 Step 5.2: the ONE place staged file changes reach the
+   * workspace. Shared by the main apply phase and the QA-fix loop so a QA
+   * correction actually lands before QA re-runs against the running app.
+   * A stop result maps to the caller's terminal outcome — a cancellation
+   * or an apply failure is never retried or replanned here.
+   */
+  const applyStaged = async (
+    changes: FileDiff[],
+    actor: "user" | "orchestrator"
+  ): Promise<{ applied: string[] } | { stop: "cancelled" | "failed" }> => {
+    if (changes.length === 0) return { applied: [] };
+    const wp = resolveWorkspacePath(deps.workspaceRoot, project.workspacePath);
+    const appliedPaths: string[] = [];
+    for (const change of changes) {
+      // A cancel/deadline that landed while the scheduler was running
+      // stops the apply phase too: no further files are written.
+      if (input.taskAbort?.signal.aborted) {
+        state.feedback.push("Apply aborted: the task was cancelled or timed out");
+        return { stop: "cancelled" };
+      }
+      try {
+        await applyFileChange(wp, change);
+        const verified = await fs.readFile(path.join(wp, change.filePath), "utf-8");
+        if (hashContent(verified) !== hashContent(change.newContent ?? "")) {
+          throw new Error(`${change.filePath}: content mismatch after apply`);
+        }
+        appliedPaths.push(change.filePath);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await deps.api.logEvent({
+          taskId,
+          projectId: project._id,
+          type: "fileChanges.apply_failed",
+          payload: { message },
+          level: "error",
+        });
+        state.feedback.push(`Apply failed: ${message}`);
+        return { stop: "failed" };
+      }
+    }
+    if (appliedPaths.length > 0) {
+      await deps.api.markFilesApplied({
+        taskId,
+        filePaths: appliedPaths,
+        workerId: deps.workerId,
+      });
+      await deps.api.logEvent({
+        taskId,
+        projectId: project._id,
+        type: "fileChanges.applied",
+        payload: { filePaths: appliedPaths },
+      });
+      await deps.api.recordAudit({
+        taskId,
+        projectId: project._id,
+        workerId: deps.workerId,
+        actor,
+        tool: "apply_changes",
+        action: "apply",
+        decision: "allowed",
+        target: appliedPaths.join(","),
+        details: { filePaths: appliedPaths, planVersion: plan.version },
+      });
+    }
+    return { applied: appliedPaths };
+  };
+
   const runReviewLoop = async (): Promise<boolean> => {
     if (reviewNodes.length === 0) return true;
 
@@ -2339,7 +2552,114 @@ async function executePlan(input: {
     return false;
   };
 
+  /**
+   * Plan 005 Step 5.2: targeted QA correction. A failing QA verdict spawns
+   * a fix subtask carrying the QA failure as findings (the checks, when
+   * present), and the same QA nodes re-run. Bounded by maxReviewIterations
+   * like the review loop. Returns false when QA still fails (or the fix
+   * itself failed) — the caller turns that into "failed" so the task is
+   * never silently marked done.
+   */
+  const runQaLoop = async (): Promise<boolean> => {
+    if (qaNodes.length === 0) return true;
+
+    const maxIterations = deps.policy.maxReviewIterations;
+
+    for (let iteration = 0; iteration <= maxIterations; iteration += 1) {
+      for (const node of qaNodes) delete state.qaVerdicts[node.key];
+
+      const qaRun = await runNodes(qaNodes);
+      if (qaRun.status === "cancelled") return false;
+
+      const failedNodes = qaNodes.filter((node) => state.qaVerdicts[node.key] === "failed");
+      if (failedNodes.length === 0) {
+        return true;
+      }
+
+      if (qaRun.status !== "completed" && failedNodes.length === 0) {
+        return false;
+      }
+
+      // Synthesize findings from the QA checks/failures on the outcomes.
+      const findings = qaFindings(qaRun, failedNodes);
+
+      if (iteration >= maxIterations) {
+        state.feedback.push(
+          `QA still failing after ${maxIterations} fix attempt(s): ${findings
+            .map((finding) => finding.description)
+            .join("; ")}`
+        );
+        return false;
+      }
+
+      const implementer = implementerAgent(plan, input.agents);
+      if (!implementer) {
+        state.feedback.push("No implementer agent is available to address QA failures");
+        return false;
+      }
+
+      const codeSubtask = plan.subtasks.find((candidate) => candidate.kind === "code_change");
+      const fixSubtask = buildFixSubtask({
+        key: `fix_qa_${iteration + 1}`,
+        title: `Address QA failures (iteration ${iteration + 1})`,
+        intro: "QA reported failures on the prepared work.",
+        findings,
+        capability: codeSubtask?.capability ?? CAPABILITY.GENERAL,
+        order: plan.subtasks.reduce((max, candidate) => Math.max(max, candidate.order), 0) + 1,
+      });
+      plan.subtasks.push(fixSubtask);
+      // The QA loop owns this fix: register it as a fix-depth-1 node on its
+      // own chain so an orchestrator evaluation of its outcome can never
+      // spawn a second, duplicate fix subtask (mirrors the review loop).
+      chainByKey.set(fixSubtask.key, [fixSubtask.capability]);
+      fixDepthByKey.set(fixSubtask.key, 1);
+      await persistDynamic([fixSubtask], "fix");
+      state.priorOutputs.set(`${fixSubtask.key}-findings`, formatReviewFindings(findings));
+
+      await deps.api.logEvent({
+        taskId,
+        projectId: project._id,
+        type: "qa.fix_started",
+        payload: {
+          iteration: iteration + 1,
+          findings: findings.length,
+          agent: implementer.name,
+        },
+        level: "warn",
+      });
+
+      const fixRun = await runNodes([fixSubtask]);
+      if (fixRun.status !== "completed") {
+        state.feedback.push(`QA fix attempt ${iteration + 1} failed`);
+        return false;
+      }
+      // The fix's staged changes must reach the workspace before QA
+      // re-runs, otherwise QA validates the pre-fix app and can never
+      // pass. In ask mode the approval gate stays authoritative: the
+      // fix is applied only after the user approved the plan's changes
+      // (the main apply phase above), never silently on its own.
+      if (input.approvalMode !== "ask") {
+        const fixPaths = state.appliedFilesBySubtask.get(fixSubtask.key) ?? [];
+        const fixChanges = fixPaths
+          .map((filePath) => state.fileChanges.get(filePath))
+          .filter((change): change is FileDiff => Boolean(change));
+        const applied = await applyStaged(fixChanges, "orchestrator");
+        if ("stop" in applied) {
+          state.feedback.push(`QA fix attempt ${iteration + 1} could not be applied`);
+          return false;
+        }
+      }
+    }
+
+    return false;
+  };
+
   const implementation = await runNodes(implementationNodes);
+  // Plan 005 Step 5.4: the decision step bound is terminal — fail the
+  // task explicitly upstream, never mark it done or replan it.
+  if (stepLimitHit) {
+    return "step_limit";
+  }
   if (implementation.status === "cancelled") {
     await deps.api
       .updateSubtask({
@@ -2442,68 +2762,20 @@ async function executePlan(input: {
   }
 
   if (preparedChanges.length > 0) {
-    const wp = resolveWorkspacePath(deps.workspaceRoot, project.workspacePath);
-    const appliedPaths: string[] = [];
-    for (const change of preparedChanges) {
-      // A cancel/deadline that landed while the scheduler was running
-      // stops the apply phase too: no further files are written.
-      if (input.taskAbort?.signal.aborted) {
-        state.feedback.push(
-          "Apply aborted: the task was cancelled or timed out"
-        );
-        return "cancelled";
-      }
-      try {
-        await applyFileChange(wp, change);
-        const verified = await fs.readFile(path.join(wp, change.filePath), "utf-8");
-        if (hashContent(verified) !== hashContent(change.newContent ?? "")) {
-          throw new Error(`${change.filePath}: content mismatch after apply`);
-        }
-        appliedPaths.push(change.filePath);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await deps.api.logEvent({
-          taskId,
-          projectId: project._id,
-          type: "fileChanges.apply_failed",
-          payload: { message },
-          level: "error",
-        });
-        state.feedback.push(`Apply failed: ${message}`);
-        return "failed";
-      }
+    const applied = await applyStaged(
+      preparedChanges,
+      input.approvalResolved ? "user" : "orchestrator"
+    );
+    if ("stop" in applied) {
+      return applied.stop;
     }
-    if (appliedPaths.length > 0) {
-      await deps.api.markFilesApplied({
-        taskId,
-        filePaths: appliedPaths,
-        workerId: deps.workerId,
-      });
-      await deps.api.logEvent({
-        taskId,
+    if (input.approvalResolved && applied.applied.length > 0) {
+      await deps.api.appendAgentMessage({
         projectId: project._id,
-        type: "fileChanges.applied",
-        payload: { filePaths: appliedPaths },
-      });
-      await deps.api.recordAudit({
         taskId,
-        projectId: project._id,
-        workerId: deps.workerId,
-        actor: input.approvalResolved ? "user" : "orchestrator",
-        tool: "apply_changes",
-        action: "apply",
-        decision: "allowed",
-        target: appliedPaths.join(","),
-        details: { filePaths: appliedPaths, planVersion: plan.version },
+        agentId: implementerAgent(plan, input.agents)?._id,
+        content: `Approved changes applied to ${applied.applied.length} file(s). Running verification.`,
       });
-      if (input.approvalResolved) {
-        await deps.api.appendAgentMessage({
-          projectId: project._id,
-          taskId,
-          agentId: implementerAgent(plan, input.agents)?._id,
-          content: `Approved changes applied to ${appliedPaths.length} file(s). Running verification.`,
-        });
-      }
     }
   }
 
@@ -2514,16 +2786,20 @@ async function executePlan(input: {
       type: "task.stage",
       payload: { stage: "verifying", files: preparedChanges.length },
     });
-    const qa = await runNodes(qaNodes);
-    if (qa.status === "cancelled") {
-      return "cancelled";
+    // Plan 005 Step 5.2: QA failures spawn targeted fix subtasks and the
+    // same QA nodes re-run; a still-failing QA after the last fix attempt
+    // fails the task instead of being silently marked done.
+    const qaApproved = await runQaLoop();
+    if (!qaApproved) {
+      return taskCancelled() ? "cancelled" : "failed";
     }
-    // QA failures are recorded on the subtasks; the evaluator decides the verdict.
+    if (stepLimitHit) {
+      return "step_limit";
     }
+  }
   } finally {
     await browser.close().catch(() => undefined);
   }
-
   return "completed";
 }
 
@@ -2944,6 +3220,19 @@ async function finalize(input: {
     });
 
     verificationChecks = verification.checks;
+    // Phase 5 Step 5.1: record the result on the run state so the
+    // objective evaluation sees it on later replans. A check with no
+    // failures is "passed"; inconclusive evidence is skipped, not failed.
+    const failedChecks = verification.checks.filter((check) => check.status === "failed");
+    const allPassed =
+      verification.checks.length > 0 &&
+      verification.checks.every((check) => check.status === "passed");
+    state.verification = {
+      status: failedChecks.length > 0 ? "failed" : allPassed ? "passed" : "skipped",
+      details: failedChecks
+        .map((check) => `${check.name}: ${check.details ?? ""}`)
+        .join("; ") || undefined,
+    };
   }
 
   const evaluation = await evaluateTask({
@@ -3116,6 +3405,41 @@ function isForbiddenFilePath(filePath: string): boolean {
     normalized.startsWith(".ssh/") ||
     normalized.includes("/.ssh/")
   );
+}
+
+/**
+ * Plan 005 Step 5.2: turn QA outcomes into review findings for the fix
+ * subtask. Prefers the QA checks carried on the node outcome; falls back
+ * to the failure text when the executor did not include them.
+ */
+function qaFindings(run: SchedulerResult, nodes: PlanSubtask[]): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+  for (const node of nodes) {
+    const outcome = run.outcomes.get(node.key);
+    const checks = (outcome?.meta as { checks?: { label: string; status: string; details?: string }[] } | undefined)
+      ?.checks;
+    const failedChecks = (checks ?? []).filter((check) => check.status === "failed");
+    if (failedChecks.length > 0) {
+      for (const check of failedChecks) {
+        findings.push({
+          severity: "high",
+          filePath: "",
+          description: `QA ${check.label}: ${check.details ?? "failed"}`,
+          suggestion: "Fix the reported QA failure and re-run QA.",
+        });
+      }
+      continue;
+    }
+    const failure =
+      outcome && outcome.status === "failed" ? outcome.error : "no details";
+    findings.push({
+      severity: "high",
+      filePath: "",
+      description: `QA failed for ${node.key}: ${failure}`,
+      suggestion: "Fix the reported QA failure and re-run QA.",
+    });
+  }
+  return findings;
 }
 
 function implementerAgent(

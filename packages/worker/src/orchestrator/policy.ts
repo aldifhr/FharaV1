@@ -102,6 +102,7 @@ export interface ExecutionPolicy {
    *  - "never": the orchestrator never adds a review node (the plan's own
    *    review node, if any, is kept — hints never remove plan nodes).
    */
+  toolLoop?: boolean;
   reviewMode?: "always" | "auto" | "never";
   /**
    * Plan 005 Phase 3: when a QA node is added for a code change.
@@ -193,7 +194,10 @@ export function loadPolicy(): ExecutionPolicy {
     chatMaxAgents: intFromEnv("ORCHESTRATOR_CHAT_MAX_AGENTS", 1, 1, 5),
     // Plan 006 Phase 2: default OFF — the legacy evaluation path is unchanged
     // until the engine is observed in the wild.
-    decisionEngine: boolFromEnv("ORCHESTRATOR_DECISION_ENGINE", false),
+    // Plan 005 Phase 6 Step 6.1: default ON after the whole worker suite
+    // went green with the engine forced on. Set the env var to "false" to
+    // revert; the flag stays documented for one release cycle.
+    decisionEngine: boolFromEnv("ORCHESTRATOR_DECISION_ENGINE", true),
     // Plan 005 Phase 4 Step 4.3 (enabled once Phase 4 tests went green):
     // the advisor is consulted only on ambiguous observations; the
     // deterministic policy decisions still win via validateDecision.
@@ -204,6 +208,7 @@ export function loadPolicy(): ExecutionPolicy {
           ? "off"
           : "ambiguous",
     maxDecisionSteps: intFromEnv("ORCHESTRATOR_MAX_DECISION_STEPS", 20, 1, 200),
+    toolLoop: boolFromEnv("ORCHESTRATOR_TOOL_LOOP", false),
     reviewMode: planningModeFromEnv("ORCHESTRATOR_REVIEW_MODE"),
     qaMode: planningModeFromEnv("ORCHESTRATOR_QA_MODE"),
   };

@@ -14,8 +14,7 @@ import type { LLMProvider } from "@/llm";
 // Cross-workspace import of the backend's public projection, purely to pin
 // the data-shape contract the Settings UI relies on (no backend test
 // harness exists; this is a shape check, not a backend test suite).
-// @ts-ignore - backend module outside the worker tsconfig project
-import { toPublicProvider } from "../../apps/api/convex/llmProviders";
+import { toPublicProvider } from "@/api/convex/llmProviders";
 
 /**
  * Provider Resolver scenarios (PLAN §C): per-agent assignment, pool

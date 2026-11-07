@@ -58,10 +58,112 @@ export interface DecisionContext {
   agents: AgentDefinition[];
   completedKeys: ReadonlySet<string>;
   step: number;
+  /** Plan 005 Phase 5 Step 5.1: objective evidence inputs from the runner. */
+  objectiveEvidence?: ObjectiveEvidence;
   /** Per-branch capability chain of the subtask that produced the observation. */
   chainCapabilities?: string[];
   /** Live per-agent execution counts for the concurrency gate. */
   activeByAgent?: ReadonlyMap<string, number>;
+}
+
+/**
+ * Plan 005 Phase 5 Step 5.1: the objective-evidence inputs the runner feeds
+ * `evaluateObjective`. Files are attributed per subtask (the runner records
+ * them with the producing subtask key); QA verdicts and the static
+ * verification result are the runner's own. `verification` is undefined
+ * until it runs — a criterion on evidence that has not been produced yet is
+ * skipped, not failed.
+ */
+export interface ObjectiveEvidence {
+  /** Applied file paths per completed subtask key (code_change nodes). */
+  appliedFiles?: Record<string, string[]>;
+  /** QA verdicts by subtask key. */
+  qaVerdicts?: Record<string, "passed" | "failed" | "inconclusive">;
+  /** Static verification result; undefined when it did not run. */
+  verification?: { status: "passed" | "failed" | "skipped"; details?: string };
+  /** The decision whose expectedOutcome is being checked for satisfaction. */
+  lastDecision?: { action: DecisionAction; expectedOutcome?: string };
+}
+
+export interface ObjectiveEvaluation {
+  satisfied: boolean;
+  evidence: string[];
+  missing: string[];
+}
+
+/** Outcomes that signal the objective is NOT yet met. */
+const UNMET_OUTCOMES = new Set(["retry", "recovery", "policy:budget", "decision:step_limit"]);
+
+/**
+ * Plan 005 Phase 5 Step 5.1: is the task objective satisfied? Pure: it reads
+ * the plan, completed keys, open issues, and the runner-supplied evidence.
+ * `complete` may only be emitted when this returns `satisfied`.
+ */
+export function evaluateObjective(ctx: DecisionContext): ObjectiveEvaluation {
+  const evidence: string[] = [];
+  const missing: string[] = [];
+  const ev = ctx.objectiveEvidence ?? {};
+
+  // Every executed code_change has an applied file change. Research/audit
+  // tasks have no code_change nodes and are exempt.
+  const codeChanges = ctx.plan.subtasks.filter(
+    (subtask) => subtask.kind === "code_change" && ctx.completedKeys.has(subtask.key)
+  );
+  if (codeChanges.length === 0) {
+    evidence.push("no code_change nodes in the executed graph (research/audit task)");
+  } else {
+    for (const subtask of codeChanges) {
+      const files = ev.appliedFiles?.[subtask.key] ?? [];
+      if (files.length > 0) {
+        evidence.push(`${subtask.key}: ${files.length} file change(s) applied`);
+      } else {
+        missing.push(`${subtask.key}: code_change completed with no applied file change`);
+      }
+    }
+  }
+
+  // Static verification ran and did not fail when a code_change was applied.
+  if (ev.verification) {
+    if (ev.verification.status === "failed") {
+      missing.push(`static verification failed: ${ev.verification.details ?? "no details"}`);
+    } else if (ev.verification.status === "passed") {
+      evidence.push("static verification passed");
+    }
+  }
+
+  // Required QA (if present in the plan) has a passed verdict.
+  for (const subtask of ctx.plan.subtasks) {
+    if (subtask.kind !== "qa") continue;
+    const verdict = ev.qaVerdicts?.[subtask.key];
+    if (verdict === "passed") {
+      evidence.push(`${subtask.key}: QA passed`);
+    } else {
+      missing.push(`${subtask.key}: QA verdict is ${verdict ?? "missing"}`);
+    }
+  }
+
+  // No open issue with critical/high severity.
+  const openSevere = ctx.openIssues.filter(
+    (issue) => issue.status === "open" && (issue.severity === "critical" || issue.severity === "high")
+  );
+  if (openSevere.length > 0) {
+    for (const issue of openSevere) {
+      missing.push(`open ${issue.severity} issue: ${issue.description}`);
+    }
+  } else {
+    evidence.push("no open critical/high issues");
+  }
+
+  // The last decision's expectedOutcome is met.
+  if (ev.lastDecision?.expectedOutcome) {
+    if (UNMET_OUTCOMES.has(ev.lastDecision.expectedOutcome)) {
+      missing.push(`last decision outcome "${ev.lastDecision.expectedOutcome}" is not met`);
+    } else {
+      evidence.push(`last decision outcome "${ev.lastDecision.expectedOutcome}" met`);
+    }
+  }
+
+  return { satisfied: missing.length === 0, evidence, missing };
 }
 
 export interface DecisionTask {

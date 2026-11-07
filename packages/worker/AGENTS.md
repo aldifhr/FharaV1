@@ -12,12 +12,13 @@ Read the root [`AGENTS.md`](../../AGENTS.md) first.
 index.ts            bootstrap: dotenv, policy, LLM concurrency, provider-health mirror
 services/taskRunner processTask / resumeTask — the single task lifecycle
 orchestrator/       classifier → planner → orchestrator plan → evaluator → delegation
+context/            compaction (deterministic trigger >40 msgs / >24k chars, budget-gated summarize, prompt builder summary+last12)
 scheduler/          dagScheduler — ready-set selection, per-agent gates
 execution/          agentExecutor, qa, verification, repositoryContext
 effects/llmCall     worker-wide + per-task LLM gates, one AbortController per task
 llm/                resolver (priority → weighted → modelPatterns), health (circuit breaker), crypto
 tools/              sandbox, runCommand, readFile, writeFile, gitDiff, github, liveBrowser, webClient
-governance/tools    tool policy and approval classification
+governance/         tools (policy + audit + redaction) + registry (tool_search/describe/call, supportedTools scope)
 ```
 
 Anything that changes task state goes through `WorkerApi` (`src/workerApi.ts`)
@@ -35,11 +36,18 @@ import backend internals.
 - Decisions are `APPROVE | REJECT | REVISE | COMPLETE | BLOCKED` in the
   evaluation layer, and `execute | delegate | parallel | replan | complete |
   ask_user` in the decision engine (`orchestrator/decision.ts`). The engine
-  (`ORCHESTRATOR_DECISION_ENGINE`, default **off**) maps each observation to a
-  validated request; `APPROVE` may spawn a delegation subtask, `REVISE` may
-  spawn a fix subtask with structured findings, `BLOCKED` halts new scheduling
-  without killing completed work. A refused request is a recorded
-  `orchestrator.decision_fallback`, never a bypass.
+  (`ORCHESTRATOR_DECISION_ENGINE`, default **on** since plan 005 Phase 6) maps
+  each observation to a validated request; `APPROVE` may spawn a delegation
+  subtask, `REVISE` may spawn a fix subtask with structured findings,
+  `BLOCKED` halts new scheduling without killing completed work. A refused
+  request is a recorded `orchestrator.decision_fallback`, never a bypass. The
+  engine terminates on `maxDecisionSteps` (`ORCHESTRATOR_MAX_DECISION_STEPS`,
+  default 20): a step-limit hit fails the task explicitly, never a replan. The LLM advisor (`ORCHESTRATOR_DECISION_LLM`,
+  default `ambiguous`) is consulted only on ambiguous proposals; deterministic
+  policy rejections always win. Completed work is judged by
+  `evaluateObjective` — a `complete` decision with unmet explicit outcomes
+  (`recovery` / `policy:budget` / `decision:step_limit`) is converted to a
+  replan or a question, never a silent done.
 - Dynamic subtasks must be persisted (`upsertDynamicSubtasks`) so recovery keeps
   them. In-memory-only plan mutation is a bug.
 - Review/QA nodes are conditional (plan 005 Phase 3): `reviewMode` / `qaMode`
@@ -50,6 +58,34 @@ import backend internals.
   restores the legacy mandate for one knob at a time.
 - Delegation is bounded: `maxDelegations` (task-wide count) and
   `maxDelegationDepth` (chain depth). Circular delegation must stay rejected.
+- A failing QA node is corrected by the runner itself, not by a full replan:
+  `runQaLoop` spawns a `fix_qa_<n>` subtask carrying the QA checks as findings,
+  applies its staged files (skipped in `ask` mode so the approval gate stays
+  authoritative), re-runs the same QA nodes, and is bounded by
+  `maxReviewIterations`. The same bound governs the review loop.
+- Replanning carries matching completed work forward (`carryForwardState`):
+  a completed `code_change` with the same kind/capability/description keeps its
+  `priorOutputs` and file changes and is not re-executed. Only `feedback` is
+  cleared.
+- Plan 006 Phase 3 context isolation: `context/compaction.ts` owns task vs
+  chat isolation (`buildTaskPrompt` / `buildChatPrompt`), the deterministic
+  compaction trigger (>40 messages or >24k chars), the budget-gated summary
+  LLM call (`compactIfNeeded`), and the bounded prompt builder
+  (summary + last 12). The worker persists summaries via the backend
+  `contextSummaries` table; the chat prompt builder replaces the raw
+  last-12 history in `chatContext.getContext`.
+- Plan 006 Phase 4 durable queue: worker claims pending messages with
+  `claimNextMessage` (same lease pattern as tasks: `leasedBy` /
+  `leaseExpiresAt`), `completeMessage` / `failMessage` transition,
+  `retryMessage` / `cancelMessage` / `recoverStaleMessages` bound retries
+  to 3 attempts. `agentExecutor` delegation proposals write the addressed
+  message row (`appendAgentMessage` + `recordDelegation`).
+- Plan 006 Phase 5 tool registry: `governance/registry.ts` exposes
+  `tool_search` / `tool_describe` / `tool_call`; the calling agent's
+  `supportedTools` is the search scope. Wired for `research`/`audit`
+  first behind `ORCHESTRATOR_TOOL_LOOP` (default `false`); `code_change`
+  unchanged. Every call audits, secret-shaped args are redacted, sandbox
+  and argv allowlist are unchanged.
 
 ## Budget and cancellation
 
@@ -98,8 +134,8 @@ import backend internals.
 | `WORKER_LEASE_MS` | 60000 | Claim lease |
 | `WORKER_STALE_GRACE_MS` | 30000 | Stale-task recovery grace |
 | `ORCHESTRATOR_*` | per `policy.ts` | Bounds, timeouts, budget mode, authority |
-| `ORCHESTRATOR_DECISION_ENGINE` | `false` | Enable the decision engine in `executePlan` (plan 005 Phase 2) |
-| `ORCHESTRATOR_DECISION_LLM` | `off` | `off` / `ambiguous` / `always` — when the LLM decision advisor is consulted |
+| `ORCHESTRATOR_DECISION_ENGINE` | `true` | Decision engine in `executePlan` (plan 005 Phase 6; set `false` to revert) |
+| `ORCHESTRATOR_DECISION_LLM` | `ambiguous` | `off` / `ambiguous` / `always` — when the LLM decision advisor is consulted |
 | `ORCHESTRATOR_MAX_DECISION_STEPS` | `20` | Decision-step bound per task run |
 | `ORCHESTRATOR_REVIEW_MODE` / `ORCHESTRATOR_QA_MODE` | `auto` | `always` / `auto` / `never` — when planning adds review/QA nodes |
 | `WORKER_LLM_MAX_CONCURRENCY` | from policy | Worker-wide LLM gate (set once) |

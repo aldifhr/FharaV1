@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
+import type { ExecutionPlan } from "@/orchestrator/types";
 import type {
   WorkerAgent,
   WorkerApi,
@@ -187,5 +188,125 @@ describe("processTask replan (Phase 3)", () => {
 
     expect(plannerMock.createPlanCalls).toHaveLength(1);
     expect(completions.at(-1)?.status).toBe("failed");
+  });
+});
+
+describe("processTask replan carry-forward (Phase 5 Step 5.3 — scenario F)", () => {
+  it("a completed code_change key is not re-executed after replan and its file change survives", async () => {
+    const { carryForwardState } = await import("@/services/taskRunner");
+    const previousState = {
+      priorOutputs: new Map([["implement", "done"]]),
+      qaVerdicts: { qa: "passed" as const },
+      reviewVerdicts: {},
+      fileChanges: new Map([
+        [
+          "feature.ts",
+          {
+            filePath: "feature.ts",
+            changeType: "new" as const,
+            newContent: "export const feature = 1;\n",
+            diff: "",
+          },
+        ],
+      ]),
+      appliedFilesBySubtask: new Map([["implement", ["feature.ts"]]]),
+      feedback: ["old failure"],
+    };
+    const previousPlan: ExecutionPlan = {
+      version: 1,
+      goal: "Implement the feature",
+      strategy: "dag",
+      requiresApproval: false,
+      maxConcurrency: 1,
+      subtasks: [
+        {
+          key: "implement",
+          title: "Implement",
+          description: "Write the code",
+          kind: "code_change",
+          capability: "frontend-development",
+          dependencies: [],
+          order: 0,
+        },
+      ],
+    };
+    // A replan that keeps the SAME work (same kind/capability/description)
+    // under a fresh key — the planner's own output shape.
+    const newPlan: ExecutionPlan = {
+      ...previousPlan,
+      subtasks: [
+        {
+          key: "implement_v2",
+          title: "Implement",
+          description: "Write the code",
+          kind: "code_change",
+          capability: "frontend-development",
+          dependencies: [],
+          order: 0,
+        },
+      ],
+    };
+
+    const carried = carryForwardState(previousPlan, previousState, newPlan);
+
+    expect(carried.completedKeys.has("implement_v2")).toBe(true);
+    expect(carried.state.priorOutputs.get("implement_v2")).toBe("done");
+    expect(carried.state.fileChanges.get("feature.ts")?.newContent).toBe(
+      "export const feature = 1;\n"
+    );
+    // feedback is cleared; qaVerdicts belong to the old key only.
+    expect(carried.state.feedback).toEqual([]);
+    expect(carried.state.qaVerdicts.qa).toBeUndefined();
+  });
+
+  it("drops everything when nothing matches the new plan", async () => {
+    const { carryForwardState } = await import("@/services/taskRunner");
+    const previousState = {
+      priorOutputs: new Map([["implement", "done"]]),
+      qaVerdicts: {},
+      reviewVerdicts: {},
+      fileChanges: new Map([
+        ["feature.ts", { filePath: "feature.ts", changeType: "new" as const, newContent: "x", diff: "" }],
+      ]),
+      appliedFilesBySubtask: new Map(),
+      feedback: ["boom"],
+    };
+    const previousPlan: ExecutionPlan = {
+      version: 1,
+      goal: "g",
+      strategy: "single",
+      requiresApproval: false,
+      maxConcurrency: 1,
+      subtasks: [
+        {
+          key: "implement",
+          title: "Implement",
+          description: "Write the code",
+          kind: "code_change",
+          capability: "frontend-development",
+          dependencies: [],
+          order: 0,
+        },
+      ],
+    };
+    const newPlan: ExecutionPlan = {
+      ...previousPlan,
+      subtasks: [
+        {
+          key: "other",
+          title: "Other",
+          description: "Completely different work",
+          kind: "code_change",
+          capability: "frontend-development",
+          dependencies: [],
+          order: 0,
+        },
+      ],
+    };
+    const carried = carryForwardState(previousPlan, previousState, newPlan);
+    expect(carried.completedKeys.size).toBe(0);
+    expect(carried.state.priorOutputs.size).toBe(0);
+    expect(carried.state.fileChanges.size).toBe(0);
+    expect(carried.state.feedback).toEqual([]);
   });
 });

@@ -5,6 +5,7 @@ import { CAPABILITY } from "@/orchestrator/types";
 import {
   validateDecision,
   decide,
+  evaluateObjective,
   nextDeterministicDecision,
   type DecisionContext,
   type DecisionObservation,
@@ -383,5 +384,113 @@ describe("decision: decide() advisor + fallback", () => {
     });
     expect(result.decision.decidedBy).toBe("deterministic");
     expect(result.fallback).toContain("no enabled agent serves");
+  });
+});
+
+describe("decision: evaluateObjective (step 5.1)", () => {
+  const satisfiedContext = (): DecisionContext =>
+    context({
+      objectiveEvidence: {
+        appliedFiles: { impl: ["file-impl.txt"] },
+        qaVerdicts: {},
+        lastDecision: { action: "complete", expectedOutcome: "objective:met" },
+      },
+    });
+
+  it("satisfied when every completed code_change has an applied file and the outcome is met", () => {
+    const result = evaluateObjective(satisfiedContext());
+    expect(result.satisfied).toBe(true);
+    expect(result.missing).toEqual([]);
+    expect(result.evidence.some((entry) => entry.includes("impl: 1 file change(s) applied"))).toBe(true);
+  });
+
+  it("not satisfied when a completed code_change has no applied file (complete without evidence)", () => {
+    const result = evaluateObjective(
+      context({
+        objectiveEvidence: {
+          appliedFiles: {},
+          lastDecision: { action: "complete", expectedOutcome: "objective:met" },
+        },
+      })
+    );
+    expect(result.satisfied).toBe(false);
+    expect(result.missing).toEqual([
+      "impl: code_change completed with no applied file change",
+    ]);
+  });
+
+  it("not satisfied when a QA node has no passing verdict", () => {
+    const withQa = context({
+      plan: {
+        version: 1,
+        goal: "g",
+        strategy: "single",
+        requiresApproval: false,
+        maxConcurrency: 1,
+        subtasks: [
+          { key: "impl", title: "Impl", description: "d", kind: "code_change", capability: CAPABILITY.FRONTEND, dependencies: [], order: 0 },
+          { key: "qa-1", title: "QA", description: "d", kind: "qa", capability: CAPABILITY.BROWSER_TESTING, dependencies: ["impl"], order: 1 },
+        ],
+      },
+      objectiveEvidence: {
+        appliedFiles: { impl: ["file-impl.txt"] },
+        qaVerdicts: { "qa-1": "failed" },
+        lastDecision: { action: "complete", expectedOutcome: "objective:met" },
+      },
+    });
+    const result = evaluateObjective(withQa);
+    expect(result.satisfied).toBe(false);
+    expect(result.missing).toEqual(["qa-1: QA verdict is failed"]);
+  });
+
+  it("not satisfied when the last decision outcome is unmet (recovery)", () => {
+    const result = evaluateObjective(
+      context({
+        objectiveEvidence: {
+          appliedFiles: { impl: ["file-impl.txt"] },
+          lastDecision: { action: "replan", expectedOutcome: "recovery" },
+        },
+      })
+    );
+    expect(result.satisfied).toBe(false);
+    expect(result.missing).toEqual(['last decision outcome "recovery" is not met']);
+  });
+
+  it("not satisfied when static verification failed", () => {
+    const result = evaluateObjective(
+      context({
+        objectiveEvidence: {
+          appliedFiles: { impl: ["file-impl.txt"] },
+          verification: { status: "failed", details: "tests: 2 failed" },
+          lastDecision: { action: "complete", expectedOutcome: "objective:met" },
+        },
+      })
+    );
+    expect(result.satisfied).toBe(false);
+    expect(result.missing).toEqual(["static verification failed: tests: 2 failed"]);
+  });
+
+  it("research/audit tasks are exempt from the file-change criterion", () => {
+    const result = evaluateObjective(
+      context({
+        completedKeys: new Set(["impl"]),
+        plan: {
+          version: 1,
+          goal: "g",
+          strategy: "single",
+          requiresApproval: false,
+          maxConcurrency: 1,
+          subtasks: [
+            { key: "impl", title: "Research", description: "d", kind: "research", capability: CAPABILITY.RESEARCH, dependencies: [], order: 0 },
+          ],
+        },
+        objectiveEvidence: {
+          appliedFiles: {},
+          lastDecision: { action: "complete", expectedOutcome: "objective:met" },
+        },
+      })
+    );
+    expect(result.satisfied).toBe(true);
+    expect(result.missing).toEqual([]);
   });
 });

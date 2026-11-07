@@ -1,5 +1,6 @@
 import { query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { projectAgentDoc } from "./agents";
 
 export const list = query({
   args: {},
@@ -62,7 +63,7 @@ export const list = query({
       tasks: tasks
         .filter((t) => !approvalTaskIds.has(t._id as string))
         .map((t) => ({ ...t, projectName: projectNameById.get(t.projectId as string) ?? "—" })),
-      agents,
+      agents: agents.map(projectAgentDoc),
     };
   },
 });

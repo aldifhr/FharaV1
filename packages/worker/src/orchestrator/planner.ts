@@ -208,6 +208,8 @@ function buildPlanningPrompt(input: PlannerInput): string {
     `- 1 to ${policy.maxSubtasks} subtasks.`,
     "- Each subtask: key (lowercase slug), title, description, kind, capability, dependencies (keys), order.",
     "- kind is one of: analysis, code_change, review, qa, research, audit, shell.",
+    "- kind shell is ONLY for git read-only commands. File creation/write and",
+    "  running tests/build must use code_change, never shell.",
     "- Dependencies must reference earlier subtasks and must not form cycles.",
     "- Add a review node only when the change is risky (auth, security, payments, migrations, cross-domain, concurrency); add QA only when the change is user-visible or the request asks for verification.",
     "- Do NOT invent capabilities that are not listed above.",

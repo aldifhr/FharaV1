@@ -266,6 +266,28 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     setMention(null);
   };
 
+  // Send immediately — clears draft and sends right away, bypassing the queue
+  const sendImmediately = async () => {
+    const text = draft.trim();
+    if (!text) return;
+    setChatError("");
+    setChatSending(true);
+    try {
+      const content = await attachMentionedFiles(text);
+      await sendMessage({
+        projectId: projectId as any,
+        content,
+        preferredAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
+      });
+      setDraft("");
+      setMention(null);
+    } catch (err) {
+      setChatError(err instanceof Error ? err.message : "Failed to send");
+    } finally {
+      setChatSending(false);
+    }
+  };
+
   const removeFromQueue = (id: string) => {
     setMessageQueue((q) => q.filter((m) => m.id !== id));
   };
@@ -935,17 +957,22 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                 value={draft}
                 onChange={(e) => handleDraftInput(e.target.value)}
                 onKeyDown={(e) => {
+                  if (mention !== null && mentionResults.length > 0 && e.key === "Enter") {
+                    e.preventDefault();
+                    insertMention(mentionResults[0]);
+                    return;
+                  }
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    if (mention !== null && mentionResults.length > 0) {
-                      insertMention(mentionResults[0]);
-                      return;
-                    }
+                    void sendImmediately();
+                  }
+                  if (e.key === "Enter" && e.shiftKey) {
+                    e.preventDefault();
                     void addToQueue();
                   }
                 }}
                 rows={1}
-                placeholder="Ask the team anything… Enter to queue, @ to reference a file"
+                placeholder="Ask the team anything… Enter sends, Shift+Enter queues, @ to reference a file"
                 className="flex-1 resize-none rounded-xl border border-[#e5e3eb] bg-[#fbfbfd] px-3 py-2.5 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-[#a29ae8] focus:ring-2 focus:ring-[#e5e1ff] dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:placeholder:text-gray-400 dark:focus:border-indigo-400 dark:focus:ring-indigo-900"
                 style={{ minHeight: "42px", maxHeight: "120px" }}
               />
@@ -959,7 +986,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                 </button>
               ) : (
                 <button
-                  onClick={() => void addToQueue()}
+                  onClick={() => void sendImmediately()}
                   disabled={chatSending || !draft.trim()}
                   className="flex items-center gap-1 rounded-xl bg-[#6252d8] px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#5345c2] disabled:cursor-not-allowed disabled:opacity-50"
                 >

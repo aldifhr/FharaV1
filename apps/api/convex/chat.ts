@@ -115,9 +115,26 @@ async function completeWithAgent(
     content: m.content,
   }));
 
+  const doFetch = async (url: string, init: RequestInit, timeoutMs = 30_000): Promise<Response> => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...init, signal: ctrl.signal });
+      if (!res.ok && res.status >= 500 && timeoutMs > 0) {
+        // One lightweight retry for transient 5xx (no backoff explosion).
+        const res2 = await fetch(url, { ...init, signal: ctrl.signal });
+        if (res2.ok) return res2;
+        return res2;
+      }
+      return res;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   if (provider === "openai" || provider === "openai-compatible") {
     const base = baseUrl.replace(/\/$/, "");
-    const res = await fetch(`${base}/chat/completions`, {
+    const res = await doFetch(`${base}/chat/completions`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -125,6 +142,7 @@ async function completeWithAgent(
       },
       body: JSON.stringify({
         model,
+        max_tokens: 4096,
         messages: [{ role: "system", content: system }, ...messages],
       }),
     });
@@ -135,13 +153,11 @@ async function completeWithAgent(
     try {
       const data: any = JSON.parse(normalized);
       const c = data.choices?.[0]?.message?.content;
+      // Never use reasoning trace as user-facing answer.
       if (typeof c === "string" && c.trim()) return c;
-      // Some reasoning models put text in reasoning_content
-      const rc = data.choices?.[0]?.message?.reasoning_content;
-      if (typeof rc === "string" && rc.trim()) return rc;
       return c ?? "";
     } catch {
-      // SSE fallback: data: {...} lines
+      // SSE fallback: data: {...} lines — only delta.content (not reasoning)
       const parts: string[] = [];
       for (const line of normalized.split(/\r?\n/)) {
         if (!line.startsWith("data:")) continue;
@@ -149,7 +165,7 @@ async function completeWithAgent(
         if (payload === "[DONE]") continue;
         try {
           const d: any = JSON.parse(payload);
-          const delta = d.choices?.[0]?.delta?.content ?? d.choices?.[0]?.message?.content ?? "";
+          const delta = d.choices?.[0]?.delta?.content ?? "";
           if (delta) parts.push(delta);
         } catch {}
       }
@@ -160,7 +176,7 @@ async function completeWithAgent(
 
   // anthropic
   const base = baseUrl.replace(/\/$/, "");
-  const res = await fetch(`${base}/messages`, {
+  const res = await doFetch(`${base}/messages`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -194,16 +210,37 @@ function getGlobalLLMConfig(): { provider: string; model: string; baseUrl: strin
 }
 
 /**
- * Resolve the chat LLM config from the shared provider pool (llmResolver):
- * the primary connection (lowest priority with an available model) and its
- * first available model. The key is decrypted here on the backend for the
- * backend's own call — a decryption failure is a hard error naming the
- * provider — with the connection's `apiKeyEnv` env var as fallback.
+ * Resolve the chat LLM config from the shared provider pool (llmResolver).
+ * Respects per-agent assignment when the agent carries one (llmProviderId +
+ * llmModelId): that connection+model wins; otherwise fall back to the primary
+ * connection (lowest priority with an available model). The key is decrypted
+ * here on the backend for the backend's own call — a decryption failure is a
+ * hard error naming the provider — with the connection's `apiKeyEnv` env var
+ * as fallback.
  */
 async function resolveConfigFromProviders(
   providers: PoolConnectionPayload[] | undefined,
-  fallback: { provider: string; model: string; baseUrl: string; apiKey: string }
+  fallback: { provider: string; model: string; baseUrl: string; apiKey: string },
+  agent?: { llmProviderId?: string; llmModelId?: string; llmFallbackProviderId?: string; llmFallbackModelId?: string; llmSelectionPolicy?: string }
 ): Promise<{ provider: string; model: string; baseUrl: string; apiKey: string }> {
+  if (providers && agent?.llmProviderId) {
+    const conn = providers.find((p) => String(p._id) === String(agent.llmProviderId));
+    if (conn) {
+      const model =
+        conn.models.find((m) => String(m._id) === String(agent.llmModelId)) ??
+        conn.models.find((m) => m.isAvailable) ??
+        conn.models[0];
+      if (model) {
+        const key = await resolveConnectionKey(conn);
+        return {
+          provider: conn.provider.toLowerCase(),
+          model: model.modelId,
+          baseUrl: conn.baseUrl,
+          apiKey: key || fallback.apiKey,
+        };
+      }
+    }
+  }
   const pick = providers ? pickPrimaryConnection(providers) : null;
   if (pick) {
     const key = await resolveConnectionKey(pick.connection);
@@ -326,9 +363,15 @@ export const replyToChat = internalAction({
         });
         return; // skip normal chat reply loop
       } catch (e: any) {
-        // fall back to chat reply if mutation fails (e.g. no auth in action)
-        // continue to normal reply below
         console.error("Auto-dispatch failed:", e?.message ?? e);
+        await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+          projectId: args.projectId,
+          agentId: dispatcher._id as any,
+          conversationId: args.conversationId,
+          content: `I couldn't create the task (${e?.message ?? "unknown error"}). Please try again or create the task manually.`,
+          replyToMessageId: args.userMessageId,
+        });
+        return; // do not pretend execution is running
       }
     }
     // Sequential multi-agent replies: each selected agent answers with its persona
@@ -349,7 +392,12 @@ export const replyToChat = internalAction({
 
       let content: string;
       try {
-        content = await completeWithAgent(system, conversation, globalConfig);
+        const perAgentConfig = await resolveConfigFromProviders(
+          llmProviders,
+          getGlobalLLMConfig(),
+          agent as any
+        );
+        content = await completeWithAgent(system, conversation, perAgentConfig);
       } catch (err: any) {
         await ctx.runMutation(internal.chatContext.insertAgentMessage, {
           projectId: args.projectId,

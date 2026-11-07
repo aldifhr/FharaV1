@@ -97,8 +97,15 @@ export const getContext = internalQuery({
       .query("messages")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .order("desc")
-      .collect();
-    const history = rows
+      .take(200);
+    // Context isolation: when a conversation is given, history must come
+    // ONLY from that conversation (never other conversations in the same
+    // project). Messages without conversationId are legacy pre-007 and
+    // are only included when no conversation is scoped.
+    const scoped = args.conversationId
+      ? rows.filter((m) => m.conversationId === args.conversationId)
+      : rows;
+    const history = scoped
       .filter((m) => !m.taskId)
       .slice(0, 12)
       .reverse()

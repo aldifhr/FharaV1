@@ -131,6 +131,26 @@ export function evaluateObjective(ctx: DecisionContext): ObjectiveEvaluation {
     }
   }
 
+  // Scaffold evidence (runTeam, from open-multi-agent): a React/Vite
+  // migration must leave a real project structure (package.json + entry +
+  // App), not a single CDN index.html.
+  const allFiles = Object.values(ev.appliedFiles ?? {}).flat();
+  const needsScaffold = /\b(react|vite|next)\b/i.test(ctx.plan.goal ?? "");
+  if (needsScaffold && allFiles.length > 0) {
+    const hasPkg = allFiles.some((f) => f === "package.json" || f.endsWith("/package.json"));
+    const hasApp = allFiles.some((f) => /(src\/(main|App)\.(jsx|tsx|js|ts))$$/.test(f));
+    if (!hasPkg || !hasApp) {
+      missing.push(
+        "React scaffold incomplete: missing " +
+          [!hasPkg ? "package.json" : null, !hasApp ? "src/main.jsx or src/App.jsx" : null]
+            .filter(Boolean)
+            .join(", ")
+      );
+    } else {
+      evidence.push("scaffold complete: package.json + entry App present");
+    }
+  }
+
   // Required QA (if present in the plan) has a passed verdict.
   for (const subtask of ctx.plan.subtasks) {
     if (subtask.kind !== "qa") continue;

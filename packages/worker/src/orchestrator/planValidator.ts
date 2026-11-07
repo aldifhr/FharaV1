@@ -8,6 +8,7 @@ export const SUBTASK_KINDS: SubtaskKind[] = [
   "qa",
   "research",
   "audit",
+  "shell",
 ];
 
 const KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;

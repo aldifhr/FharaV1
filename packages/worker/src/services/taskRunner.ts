@@ -473,6 +473,8 @@ function kindForCapability(capability: string): SubtaskKind {
       return "audit";
     case CAPABILITY.RESEARCH:
       return "research";
+    case CAPABILITY.SHELL_EXECUTION:
+      return "shell";
     default:
       return "analysis";
   }

@@ -183,7 +183,7 @@ function buildPlanningPrompt(input: PlannerInput): string {
     "Rules:",
     `- 1 to ${policy.maxSubtasks} subtasks.`,
     "- Each subtask: key (lowercase slug), title, description, kind, capability, dependencies (keys), order.",
-    "- kind is one of: analysis, code_change, review, qa, research, audit.",
+    "- kind is one of: analysis, code_change, review, qa, research, audit, shell.",
     "- Dependencies must reference earlier subtasks and must not form cycles.",
     "- code_change subtasks must be reviewed by a code-review capable agent when one exists.",
     "- qa must depend on the implementation and run AFTER approval/apply.",

@@ -23,7 +23,8 @@ export const subtaskKind = v.union(
   v.literal("review"),
   v.literal("qa"),
   v.literal("research"),
-  v.literal("audit")
+  v.literal("audit"),
+  v.literal("shell")
 );
 
 export const subtaskStatus = v.union(

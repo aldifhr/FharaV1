@@ -8,6 +8,7 @@ export const CAPABILITY = {
   RESEARCH: "research",
   WEB_BROWSING: "web-browsing",
   GITHUB: "github",
+  SHELL_EXECUTION: "shell-execution",
   GENERAL: "general",
 } as const;
 
@@ -19,7 +20,8 @@ export type SubtaskKind =
   | "review"
   | "qa"
   | "research"
-  | "audit";
+  | "audit"
+  | "shell";
 
 export interface AgentDefinition {
   _id: string;

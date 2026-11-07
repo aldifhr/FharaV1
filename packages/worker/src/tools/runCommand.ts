@@ -14,10 +14,16 @@ const ALLOWED_ARGV: Record<string, string[][]> = {
   git: [
     ["status"],
     ["status", "--short"],
+    ["status", "-sb"],
+    ["branch", "--show-current"],
     ["diff"],
     ["diff", "--no-color"],
     ["diff", "--stat"],
     ["log", "--oneline", "-n", "20"],
+    ["fetch"],
+    ["pull"],
+    ["pull", "--ff-only"],
+    ["pull", "--rebase"],
   ],
   node: [["--version"]],
 };

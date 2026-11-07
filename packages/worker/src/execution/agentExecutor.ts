@@ -19,6 +19,7 @@ import type { SharedTaskContext } from "@/orchestrator/taskContext";
 import { extractFileHint, parseDelegation, parseDraft, parseReview } from "@/utils/json";
 import { validateFilePath } from "@/governance/tools";
 import { computeDiff, type FileDiff } from "@/tools/gitDiff";
+import { isCommandAllowed, runCommand } from "@/tools/runCommand";
 import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
 import { runResponsiveQa } from "./qa";
@@ -122,6 +123,8 @@ export async function executeSubtask(
         return await executeReadOnly(input, "audit");
       case "research":
         return await executeReadOnly(input, "research");
+      case "shell":
+        return await executeShell(input);
       case "analysis":
       default:
         return await executeReadOnly(input, "analysis");
@@ -580,6 +583,107 @@ async function executeReadOnly(
       ...(delegation?.findings ? { findings: delegation.findings } : {}),
     },
   };
+}
+
+/**
+ * Shell subtask ("ponytail" scope): the agent does NOT run commands itself.
+ * It replies with {"command":"git","args":["pull"]} JSON and the worker
+ * executes the allowlisted argv from the task workspace, so the LLM never
+ * gets a free-form shell. Only `git pull` is wired — verify pass, then add
+ * argv entries to the allowlist (daily limit 500 calls across tasks).
+ */
+async function executeShell(
+  input: SubtaskExecutionInput
+): Promise<SubtaskExecutionResult> {
+  const { workspacePath, command, agent, subtask, signal, onEvent, onMessage } = input;
+  await onEvent("agent.context", {
+    capability: subtask.capability,
+    mode: "shell (allowlisted)",
+  });
+
+  if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
+
+  const instruction = [
+    "Reply with a single-line JSON object for the shell command to run:",
+    '{"command":"<binary>","args":[<exact argv>]}',
+    "",
+    REGISTRY_LIST,
+    "Rules:",
+    "- Only run the command the user asked for. Prefer the narrowest variant.",
+    "- If the user request needs a command outside the allowlist, reply with",
+    '  {"delegationRecommendation":{"targetCapability":"shell-execution","reason":"command not allowlisted"}}',
+    '  and a one-line explanation; do NOT invent argv.',
+  ].join("\n");
+
+  const handles = handlesFor(input);
+  const health = healthFor(input);
+  const messages = baseMessages(input, `${instruction}\n\nTask: ${command}`);
+  const { result: response } = await runLlmCallWithFallback(handles, messages, {
+    health,
+    signal,
+    taskGate: input.llmTaskGate,
+  });
+  await input.onMessage(response.content.trim());
+
+  const parsed = parseShellCommand(response.content);
+  if (!parsed) {
+    return {
+      status: "failed",
+      error: "Shell agent did not return a valid command JSON",
+    };
+  }
+  if (!isCommandAllowed(parsed.command, parsed.args)) {
+    return {
+      status: "failed",
+      error: `Command blocked (not allowlisted): ${parsed.command} ${parsed.args.join(" ")}`,
+    };
+  }
+
+  await onEvent("shell.command", {
+    command: parsed.command,
+    args: parsed.args,
+    cwd: workspacePath,
+  }, "info");
+  const result = await runCommand(workspacePath, parsed.command, parsed.args, {
+    signal,
+  });
+  const summary = [
+    `$ ${parsed.command} ${parsed.args.join(" ")}`,
+    result.stdout ? `\n${result.stdout.trimEnd()}` : "",
+    result.stderr ? `\n${result.stderr.trimEnd()}` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+  await onMessage(summary);
+
+  return {
+    status: "completed",
+    output: summary,
+  };
+}
+
+const REGISTRY_LIST = [
+  "Allowlisted commands:",
+  "git status, git status --short, git status -sb, git branch --show-current,",
+  "git diff, git diff --no-color, git diff --stat, git log --oneline -n 20,",
+  "git fetch, git pull, git pull --ff-only, git pull --rebase",
+].join("\n");
+
+function parseShellCommand(content: string): { command: string; args: string[] } | null {
+  const normalized = content.replace(/```json|```/g, "").trim();
+  const match = normalized.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[0]) as { command?: unknown; args?: unknown };
+    if (!Array.isArray(parsed.args)) return null;
+    const command = typeof parsed.command === "string" ? parsed.command.trim() : "";
+    const args = parsed.args.filter((a): a is string => typeof a === "string");
+    if (!command) return null;
+    if (args.length !== parsed.args.length) return null;
+    return { command, args };
+  } catch {
+    return null;
+  }
 }
 
 const FORBIDDEN_PATHS = [

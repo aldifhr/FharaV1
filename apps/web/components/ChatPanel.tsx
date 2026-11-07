@@ -119,9 +119,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const lastMessage = timeline[timeline.length - 1];
   const conversationTyping = lastMessage?.authorType === "user";
   const latestAgentMessage = [...selectedTaskMessages].reverse().find((message: any) => message.authorType === "agent");
-  // ponytail: task titles are not resolved here — the divider shows the task id
-  // prefix; upgrade path is a task lookup map from the tasks query.
   const taskTitle = (taskId: string) => (tasks ?? []).find((task) => task._id === taskId)?.title ?? "task";
+  // A task block starts at the user message that spawned it. The plan message
+  // replies to that user message, so the link is recoverable from
+  // replyToMessageId without tagging the user message itself.
+  const replyToTask = new Map<string, string>();
+  for (const m of selectedTaskMessages) {
+    if (m.replyToMessageId && m.taskId) replyToTask.set(m.replyToMessageId, m.taskId);
+  }
+  const blockKey = (m: any) => m.taskId ?? replyToTask.get(m._id) ?? "conversation";
 
   const [manageName, setManageName] = useState("");
   const [managePath, setManagePath] = useState("");
@@ -488,15 +494,16 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
           <>
             {timeline.map((m: any, index: number) => {
               const previous = timeline[index - 1];
-              // A task boundary is where the message switches between the
-              // project conversation (no taskId) and a task thread, or
-              // between two different tasks.
-              const boundary = previous && previous.taskId !== m.taskId;
+              const key = blockKey(m);
+              const prevKey = previous ? blockKey(previous) : null;
+              // Divider marks the start of a task block (at the user's message
+              // that spawned it), not a transition back to plain conversation.
+              const boundary = key !== prevKey && key !== "conversation";
               return (
                 <div key={m._id}>
                   {boundary && (
                     <p className="my-5 text-center text-[11px] text-gray-400">
-                      — {m.taskId ? taskTitle(m.taskId) : "conversation"} —
+                      — {taskTitle(key)} —
                     </p>
                   )}
                   <motion.div

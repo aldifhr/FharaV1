@@ -15,3 +15,4 @@ apps/web/.next
 .env
 apps/api/.env.local
 apps/web/.env.local
+TASKS.md

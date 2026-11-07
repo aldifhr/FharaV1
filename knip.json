@@ -1,0 +1,28 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignore": [
+    "**/.moagent-worktrees/**"
+  ],
+  "workspaces": {
+    ".": {
+      "entry": ["electron/main.cjs", "electron/preload.cjs"],
+      "project": ["electron/**/*.cjs"]
+    },
+    "apps/web": {
+      "entry": [
+        "app/**/{page,layout,route,loading,error,global-error,not-found,template,default}.{ts,tsx}"
+      ],
+      "project": ["**/*.{ts,tsx,mjs}"],
+      "ignoreDependencies": ["tailwindcss", "tw-animate-css"]
+    },
+    "apps/api": {
+      "entry": ["convex/**/*.ts"],
+      "project": ["convex/**/*.ts"],
+      "ignoreDependencies": ["vite"]
+    },
+    "packages/worker": {
+      "entry": ["tests/**/*.test.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    }
+  }
+}

@@ -15,7 +15,7 @@ import TaskBoard from "./TaskBoard";
 import TerminalPanel from "./TerminalPanel";
 
 import { useToast } from "./Toasts";
-import { Bell, Check, Copy, MoreHorizontal, Pencil, Send } from "lucide-react";
+import { Bell, Check, Copy, MoreHorizontal, Pencil, Send, ChevronUp, ChevronDown, Edit2, X } from "lucide-react";
 
 type Props = {
   projectId: string;
@@ -188,7 +188,11 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const toast = useToast();
 
   const sendMessage = useAction(api.messages.send);
-  const [chatCommand, setChatCommand] = useState("");
+  const [draft, setDraft] = useState("");
+  const [messageQueue, setMessageQueue] = useState<
+    Array<{ id: string; content: string; status: "queued" | "sending" | "sent" | "failed" }>
+  >([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [chatAgentIds, setChatAgentIds] = useState<string[]>([]);
   const [chatError, setChatError] = useState("");
   const [chatSending, setChatSending] = useState(false);
@@ -245,40 +249,76 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     return `${text}${contents.join("")}`.slice(0, 8000);
   };
 
-  const submitChat = async () => {
-    const text = chatCommand.trim();
-    if (!text) return;
-    setChatError("");
-    setChatSending(true);
-    try {
-      const content = await attachMentionedFiles(text);
-      await sendMessage({
-        projectId: projectId as any,
-        content,
-        preferredAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
-      });
-      setChatCommand("");
-      setMention(null);
-    } catch (err) {
-      setChatError(err instanceof Error ? err.message : "Failed to send");
-    } finally {
-      setChatSending(false);
-    }
+  const insertMention = (path: string) => {
+    const at = draft.lastIndexOf("@");
+    const before = draft.slice(0, at);
+    setDraft(`${before}@${path} `);
+    setMention(null);
   };
 
-  const handleChatInput = (value: string) => {
-    setChatCommand(value);
+  // Message queue helpers
+  const addToQueue = async () => {
+    const text = draft.trim();
+    if (!text) return;
+    const content = await attachMentionedFiles(text);
+    setMessageQueue((q) => [...q, { id: crypto.randomUUID(), content, status: "queued" }]);
+    setDraft("");
+    setMention(null);
+  };
+
+  const removeFromQueue = (id: string) => {
+    setMessageQueue((q) => q.filter((m) => m.id !== id));
+  };
+
+  const moveInQueue = (id: string, direction: -1 | 1) => {
+    setMessageQueue((q) => {
+      const idx = q.findIndex((m) => m.id === id);
+      if (idx < 0) return q;
+      const next = idx + direction;
+      if (next < 0 || next >= q.length) return q;
+      const nextq = [...q];
+      [nextq[idx], nextq[next]] = [nextq[next], nextq[idx]];
+      return nextq;
+    });
+  };
+
+  const updateQueueItem = (id: string, content: string) => {
+    setMessageQueue((q) => q.map((m) => (m.id === id ? { ...m, content } : m)));
+  };
+
+  const sendAllQueued = async () => {
+    const items = messageQueue.filter((m) => m.status === "queued");
+    if (items.length === 0) return;
+    setChatError("");
+    setChatSending(true);
+    for (const item of items) {
+      setMessageQueue((q) => q.map((m) => (m.id === item.id ? { ...m, status: "sending" } : m)));
+      try {
+        await sendMessage({
+          projectId: projectId as any,
+          content: item.content,
+          preferredAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
+        });
+        setMessageQueue((q) => q.map((m) => (m.id === item.id ? { ...m, status: "sent" } : m)));
+      } catch (err) {
+        setMessageQueue((q) => q.map((m) => (m.id === item.id ? { ...m, status: "failed" } : m)));
+        setChatError(err instanceof Error ? err.message : "Failed to send");
+        break;
+      }
+    }
+    setChatSending(false);
+    // Clear sent items after a short delay so the user sees the success state
+    setTimeout(() => {
+      setMessageQueue((q) => q.filter((m) => m.status !== "sent"));
+    }, 2000);
+  };
+
+  const handleDraftInput = (value: string) => {
+    setDraft(value);
     const at = value.lastIndexOf("@");
     const afterSpace = at >= 0 && (at === 0 || /\s/.test(value[at - 1]));
     const token = afterSpace ? value.slice(at + 1) : null;
     setMention(token !== null && !/\s/.test(token) ? token : null);
-  };
-
-  const insertMention = (path: string) => {
-    const at = chatCommand.lastIndexOf("@");
-    const before = chatCommand.slice(0, at);
-    setChatCommand(`${before}@${path} `);
-    setMention(null);
   };
 
   const headerAgents = agents.slice(0, 6);
@@ -626,6 +666,16 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             ) : (
               workingAgents.length > 0 && (
                 <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <div className="flex -space-x-1.5">
+                    {workingAgents.slice(0, 3).map((agent: any) => (
+                      <AgentAvatar
+                        key={agent._id}
+                        name={agent.name}
+                        size={20}
+                        avatarParams={agent.avatarParams}
+                      />
+                    ))}
+                  </div>
                   <span>{workingAgents.map((agent: any) => agent.name).join(", ")} is thinking</span>
                   <span className="flex gap-0.5" aria-label="Agent is thinking">
                     <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
@@ -779,7 +829,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               )}
             </div>
           )}
-          <div className="relative flex gap-2">
+          <div className="relative flex flex-col gap-2">
             {mention !== null && mentionResults.length > 0 && (
               <ul className="absolute bottom-full left-0 z-30 mb-2 max-h-52 w-full overflow-y-auto rounded-xl border border-[#e5e3eb] bg-white py-1 shadow-xl dark:border-gray-700 dark:bg-gray-900">
                 {mentionResults.map((path) => (
@@ -795,29 +845,128 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                 ))}
               </ul>
             )}
-            <input
-              value={chatCommand}
-              onChange={(e) => handleChatInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  if (mention !== null && mentionResults.length > 0) {
-                    insertMention(mentionResults[0]);
-                    return;
+
+            {messageQueue.length > 0 && (
+              <div className="space-y-1.5">
+                {messageQueue.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    className={`flex items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
+                      item.status === "sending"
+                        ? "border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/50"
+                        : item.status === "sent"
+                        ? "border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/50"
+                        : item.status === "failed"
+                        ? "border-red-300 bg-red-50 dark:border-red-700 dark:bg-red-950/50"
+                        : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
+                    }`}
+                  >
+                    <span className="shrink-0 pt-0.5 font-mono text-gray-400">{idx + 1}.</span>
+                    {editingId === item.id ? (
+                      <input
+                        autoFocus
+                        value={item.content}
+                        onChange={(e) => updateQueueItem(item.id, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); setEditingId(null); }
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                        className="min-w-0 flex-1 rounded border border-indigo-300 bg-white px-1.5 py-0.5 text-xs dark:border-indigo-700 dark:bg-gray-800"
+                      />
+                    ) : (
+                      <span className="min-w-0 flex-1 truncate text-gray-700 dark:text-gray-200">
+                        {item.content}
+                      </span>
+                    )}
+                    <span
+                      className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${
+                        item.status === "queued"
+                          ? "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                          : item.status === "sending"
+                          ? "bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300"
+                          : item.status === "sent"
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
+                          : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+                      }`}
+                    >
+                      {item.status}
+                    </span>
+                    {item.status === "queued" && (
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => moveInQueue(item.id, -1)}
+                          disabled={idx === 0}
+                          className="rounded p-0.5 text-gray-400 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-20 dark:hover:bg-gray-800"
+                        >
+                          <ChevronUp size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveInQueue(item.id, 1)}
+                          disabled={idx === messageQueue.length - 1}
+                          className="rounded p-0.5 text-gray-400 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-20 dark:hover:bg-gray-800"
+                        >
+                          <ChevronDown size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingId(item.id)}
+                          className="rounded p-0.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                        >
+                          <Edit2 size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeFromQueue(item.id)}
+                          className="rounded p-0.5 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <textarea
+                value={draft}
+                onChange={(e) => handleDraftInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (mention !== null && mentionResults.length > 0) {
+                      insertMention(mentionResults[0]);
+                      return;
+                    }
+                    void addToQueue();
                   }
-                  void submitChat();
-                }
-              }}
-              placeholder="Ask the team anything… use @ to reference a file"
-              className="flex-1 rounded-xl border border-[#e5e3eb] bg-[#fbfbfd] px-3 py-2.5 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-[#a29ae8] focus:ring-2 focus:ring-[#e5e1ff] dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:placeholder:text-gray-400 dark:focus:border-indigo-400 dark:focus:ring-indigo-900"
-            />
-            <button
-              onClick={() => void submitChat()}
-              disabled={chatSending || !chatCommand.trim()}
-              className="flex items-center gap-1 rounded-xl bg-[#6252d8] px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#5345c2] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Send size={16} /> {chatSending ? "Sending…" : "Send"}
-            </button>
+                }}
+                rows={1}
+                placeholder="Ask the team anything… Enter to queue, @ to reference a file"
+                className="flex-1 resize-none rounded-xl border border-[#e5e3eb] bg-[#fbfbfd] px-3 py-2.5 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-[#a29ae8] focus:ring-2 focus:ring-[#e5e1ff] dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:placeholder:text-gray-400 dark:focus:border-indigo-400 dark:focus:ring-indigo-900"
+                style={{ minHeight: "42px", maxHeight: "120px" }}
+              />
+              {messageQueue.length > 0 ? (
+                <button
+                  onClick={() => void sendAllQueued()}
+                  disabled={chatSending || !messageQueue.some((m) => m.status === "queued")}
+                  className="flex items-center gap-1 rounded-xl bg-[#6252d8] px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#5345c2] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Send size={15} /> Send all
+                </button>
+              ) : (
+                <button
+                  onClick={() => void addToQueue()}
+                  disabled={chatSending || !draft.trim()}
+                  className="flex items-center gap-1 rounded-xl bg-[#6252d8] px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#5345c2] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Send size={15} />
+                </button>
+              )}
+            </div>
           </div>
           {chatError && <p className="mt-2 text-xs text-red-600">{chatError}</p>}
         </div>

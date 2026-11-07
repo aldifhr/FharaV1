@@ -42,8 +42,8 @@
 
 ### File hook `useTheme` / `useFont`
 
-- [ ] **Sinkronisasi state** — `use-theme.ts` dan `use-font.ts` terpisah; ganti di satu tempat tidak update di tempat lain sampai remount. Gabung jadi `useAppearance`.
-- [ ] **Preferensi `system`** — tambah opsi System di Settings dan inline script (saat ini script awal pakai `prefers-color-scheme`, toggle hanya Light/Dark).
+- [ ] **Sinkronisasi state** — `use-theme.ts` dan `use-font.ts` terpisah; ganti di satu tempat tidak update di tempat lain sampai remount. Rencana: `plans/004-appearance-unification.md`.
+- [ ] **Preferensi `system`** — tambah opsi System di Settings dan inline script (saat ini script awal pakai `prefers-color-scheme`, toggle hanya Light/Dark). Termasuk dalam `plans/004-appearance-unification.md`.
 
 ### Komponen Aceternity (dead code)
 
@@ -56,9 +56,9 @@
 
 ### Feature product (butuh tabel & UI)
 
-- [ ] **Memory khusus** — tabel `memories` (projectId, kind, content) + UI pencarian; saat ini hanya derivasi dari `taskEvents` (`app/workspace/[projectId]/WorkspaceClient.tsx:279`).
-- [ ] **Notifikasi in-app** — tabel `notifications` + badge di `IconRail` (saat ini hanya ikon).
-- [ ] **Integrations / MCP / webhooks** — section integrations sendiri menyataka "not available in the backend yet" (`WorkspaceClient.tsx:263`). Mulai dari 1 connector (GitHub) + tabel `integrations`.
+- [ ] **Memory khusus** — tabel `memories` (projectId, kind, content) + UI pencarian; saat ini hanya derivasi dari `taskEvents` (`apps/web/app/WorkspaceClient.tsx`). Rencana: `plans/001-memory-store.md`.
+- [ ] **Notifikasi in-app** — tabel `notifications` + unread state + badge di `IconRail` (saat ini `api.inbox.list` hanya menghitung masalah live, tanpa status baca). Rencana: `plans/002-in-app-notifications.md`.
+- [ ] **Integrations UI** — backend GitHub **sudah ada** (`apps/api/convex/integrations.ts`: OAuth, webhook, list, refresh, `getMcpConfig`); yang belum ada hanya UI + route server-side. Rencana: `plans/003-integrations-ui.md`. Catatan: `getMcpConfig` sudah dijadikan `internalQuery` (2026-11-07) karena mengembalikan token plaintext.
 
 ### Security / Auth (paling sulit)
 
@@ -69,6 +69,9 @@
 
 ## Selesai ✅
 
+- [x] **Agent non-orchestrator tidak lagi mengaku orchestrator** (2026-11-07) — `apps/api/convex/chat.ts` memakai `agents.find(role ~= architect|lead|orchestrator|planner) ?? agents[0]`, sehingga agent pertama (mis. Faray, `frontend developer`) tetap menerima prompt "You are the orchestrator/planner." Fallback dihapus: hanya role yang cocok mendapat panduan planning, agent lain menjawab sesuai persona-nya. Pesan auto-dispatch juga diterjemahkan ke Inggris.
+- [x] **Redirect `/workspace/[projectId]` → `/chats/[id]`** (2026-11-07) — kedua halaman legacy mengarah ke `/chat/:id` yang tidak ada (404). Sekarang mengarah ke route nyata `/chats/:id`.
+- [x] **`integrations.getMcpConfig` bukan lagi query publik** (2026-11-07) — query tersebut mengembalikan `GITHUB_TOKEN` plaintext ke siapa pun yang bisa menjangkau deployment. Dijadikan `internalQuery`; belum ada pemanggil, jadi tidak ada perilaku yang berubah.
 - [x] **Program perbaikan arsitektur Phase 1–6** (2026-11-07, commit `db25342`…`0c39d95` + Phase 6) — per fase:
   - [x] Phase 1 — race `QA_BASE_URL` dihapus (base URL eksplisit per task); mutation provider token-gated + route server-side; `getRunContext` tidak lagi mengirim field key legacy; validasi `assignedAgentIds`; perbandingan token timing-safe; retry scheduler tidak mengulang error permanen
   - [x] Phase 2 — resolver LLM + provider pool (priority/weighted/`modelPatterns` dikonsumsi); tabel Model Registry `llmModels`; assignment provider/model per agent; enkripsi kredensial AES-256-GCM + migrasi plaintext (`migrations:migrateProvidersAndAgents` / `verifyMigration`)

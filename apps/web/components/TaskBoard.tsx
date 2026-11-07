@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { motion } from "framer-motion";
-import { CheckCircle2, ChevronDown, ChevronRight, Clock, Loader2, Plus, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, Clock, Loader2, Plus, RotateCcw, Trash2, XCircle } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
 import { useToast } from "./Toasts";
@@ -42,6 +42,7 @@ export default function TaskBoard({
   const pendingApprovals = useQuery(api.approvals.listPendingAll, {});
   const agents = useQuery(api.agents.list, {});
   const removeTask = useMutation(api.tasks.remove);
+  const retryTask = useMutation(api.tasks.retry);
   const createTask = useMutation(api.tasks.createFromCommand);
   const toast = useToast();
 
@@ -51,6 +52,7 @@ export default function TaskBoard({
   const [manual, setManual] = useState("");
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   const subtasksOf = useMemo(() => {
     const map = new Map<string, any[]>();

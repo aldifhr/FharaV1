@@ -1,4 +1,11 @@
-import { mutation, query, action, httpAction, internalMutation } from "./_generated/server";
+import {
+  mutation,
+  query,
+  action,
+  httpAction,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 
@@ -365,10 +372,13 @@ export const updateConfig = mutation({
 });
 
 /**
- * Create a GitHub MCP server configuration for the worker
- * This returns the config needed to spawn a github-mcp-server process
+ * Create a GitHub MCP server configuration for the worker.
+ *
+ * INTERNAL ONLY: the result carries the plaintext `GITHUB_TOKEN`. A public
+ * query must never return credential material (AGENTS.md rule 1). The worker
+ * reads this through a `workerToken`-gated action in `worker.ts`.
  */
-export const getMcpConfig = query({
+export const getMcpConfig = internalQuery({
   args: { integrationId: v.id("integrations") },
   handler: async (ctx, args) => {
     const integration = await ctx.db.get(args.integrationId);

@@ -6,5 +6,5 @@ export default async function WorkspacePage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = await params;
-  redirect(`/chat/${projectId}`);
+  redirect(`/chats/${projectId}`);
 }

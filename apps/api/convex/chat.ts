@@ -15,7 +15,6 @@ function classifyChatIntent(text: string): { kind: string; frontend: boolean; ba
   const backend = /\b(backend|api|server|database|auth|endpoint|convex)\b/.test(t);
   const testing = /\b(test|qa|e2e|bug|error)\b/.test(t);
   const security = /\b(security|audit|vulnerab|secret)\b/.test(t);
-  const isTask = /\b(buatin|buat|tambah|implement|build|create|fix|perbaiki|refactor|update|change|add|remove)\b/.test(t) && !(frontend || backend || testing || security || t.length < 15);
   // If command contains impl keywords, treat as task regardless
   const impl = /\b(buatin|buat|tambah|implement|build|create|fix|perbaiki|refactor|update|change|add|remove|git\s+pull|checkout|push|audit|cari\s+bug|bug|review|investigate|research|qa|test|security|desain|design)\b/.test(t);
   return { kind: impl ? "task" : "chat", frontend, backend, testing, security };
@@ -207,11 +206,19 @@ export const replyToChat = internalAction({
       content: m.content,
     }));
 
-    // Mike (architect) acts as orchestrator/planner for implementation requests.
-    const orchestrator = agents.find((a) => /architect|lead|orchestrator|planner/i.test(a.role)) ?? agents[0];
+    // Only an agent whose ROLE is architect/lead/orchestrator/planner may act as
+    // the orchestrator. Falling back to agents[0] made any selected agent
+    // introduce itself as "the orchestrator/planner" while still naming its own
+    // role (e.g. "frontend developer ... I'm the orchestrator/planner").
+    const orchestrator =
+      agents.find((a) => /architect|lead|orchestrator|planner/i.test(a.role)) ?? null;
+    // The dispatcher creates the task row. It may be the orchestrator, or the
+    // first agent when the project has no architect — but a non-orchestrator
+    // never receives planning guidance.
+    const dispatcher = orchestrator ?? agents[0];
     const taskIntent = classifyChatIntent(history[history.length - 1]?.content ?? "");
 
-    // Auto-dispatch: if user sent a task intent, orchestrator creates task + delegates directly.
+    // Auto-dispatch: a task intent creates the task row and skips the chat loop.
     const lastUserContent = history[history.length - 1]?.content ?? "";
     if (taskIntent.kind === "task") {
       try {
@@ -224,13 +231,13 @@ export const replyToChat = internalAction({
           command: lastUserContent,
           title: lastUserContent.slice(0, 80),
         });
-        const targetAgents = agents.filter((a: any) => a._id !== orchestrator._id).map((a: any) => a.name).join(", ");
-        const delegationLine = targetAgents ? ` Delegasi ke: ${targetAgents}.` : "";
+        const targetAgents = agents.filter((a: any) => a._id !== dispatcher._id).map((a: any) => a.name).join(", ");
+        const delegationLine = targetAgents ? ` Other agents on this project: ${targetAgents}.` : "";
         await ctx.runMutation(internal.chatContext.insertAgentMessage, {
           projectId: args.projectId,
-          agentId: orchestrator._id as any,
+          agentId: dispatcher._id as any,
           taskId: taskId as any,
-          content: `Plan dibuat. Task ${taskId} dibuat untuk: "${lastUserContent.slice(0, 80)}".${delegationLine} Lihat Task thread untuk progres eksekusi.`,
+          content: `Task ${taskId} created for: "${lastUserContent.slice(0, 80)}".${delegationLine} Open the task thread to follow execution.`,
           replyToMessageId: args.userMessageId,
         });
         return; // skip normal chat reply loop
@@ -248,7 +255,10 @@ export const replyToChat = internalAction({
       const system = [
         `You are ${agent.name}, a ${agent.role} on the agent team of project "${projectName}".${multiNotice}`,
         agent.systemPrompt ?? "",
-        ...buildPlanningGuidance(agent, { isOrchestrator: agent._id === orchestrator._id, taskIntent }),
+        ...buildPlanningGuidance(agent, {
+          isOrchestrator: orchestrator !== null && agent._id === orchestrator._id,
+          taskIntent,
+        }),
       ]
         .filter(Boolean)
         .join("\n");

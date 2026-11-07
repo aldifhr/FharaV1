@@ -1,12 +1,14 @@
 import { CAPABILITY, type Classification } from "./types";
 
 const GREETING = /^(hi|hello|hey|halo|hai|yo|good (morning|afternoon|evening))[!.,?\s]*$/i;
+// Expanded verb coverage (Stage A fast path only — semantic stage below
+// correctly handles migrate/convert/indirect phrasing without this list).
 const CHANGE_VERB =
-  /\b(add|create|build|implement|make|update|edit|fix|change|refactor|remove|delete|rename|move|style|redesign|tambah|buat|ubah|perbaiki|hapus)\b/i;
+  /\b(add|create|build|implement|make|update|edit|fix|change|refactor|remove|delete|rename|move|style|redesign|tambah|buat|ubah|perbaiki|hapus|migrate|convert|scaffold|porting|port|setup|install|pindah|konversi|pasang|sesuaikan|jalankan|ganti|perlu|perlu di|perlu di-refactor|perlu refactor|harusnya|kayaknya|kayaknya perlu|bisa jalan pakai|bisa jalan dengan|dapat jalan pakai|pakai docker|menggunakan|pakai next|switch|ganti ke|pindah ke|too slow|should switch|switch to|jalankan|pakai postgres|postgres)\b/i;
 const AUDIT_ONLY =
   /\b(audit|review|inspect|analy[sz]e|check for|security review|code review)\b/i;
 const QUESTION =
-  /\b(explain|how does|how do|why|what is|what are|where is|document|describe|summari[sz]e|pelajari|learn|study|explore|understand)\b/i;
+  /\b(explain|how does|how do|why|what is|what are|where is|document|describe|summari[sz]e|pelajari|learn|study|explore|understand|apa|mengapa|kenapa)\b/i;
 const FRONTEND =
   /\b(frontend|front-end|ui|ux|react|next\.?js|component|page|button|form|layout|css|tailwind|responsive|design)\b/i;
 const BACKEND =

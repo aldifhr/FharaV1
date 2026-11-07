@@ -44,8 +44,34 @@ export function classifyChatIntent(text: string): { kind: string; frontend: bool
   }
 
   // If command contains impl keywords, treat as task regardless
-  const impl = /\b(buatin|buat|tambah|implement|build|create|fix|perbaiki|refactor|update|change|add|remove|git\s+pull|checkout|push|audit|cari\s+bug|bug|review|investigate|research|qa|test|security|desain|design)\b/.test(t);
+  const impl = /\b(buatin|buat|tambah|implement|build|create|fix|perbaiki|refactor|update|change|add|remove|migrate|convert|scaffold|setup|install|pindah|konversi|pasang|sesuaikan)\b/.test(t);
   return { kind: impl ? "task" : "chat", frontend, backend, testing, security };
+}
+
+/**
+ * Stage B — Semantic fallback. Called only when Stage A (regex) is uncertain.
+ * Uses the shared provider pool (same infra as chat). Invalid output fails
+ * closed to chat.
+ */
+async function classifySemantically(
+  text: string,
+  config: { apiKey: string; provider: string; model: string; baseUrl: string }
+): Promise<{ kind: "task" | "chat"; summary: string } | null> {
+  const prompt = [
+    "Classify intent: reply ONLY JSON {\"intent\":\"execute_task\"|\"chat\"|\"clarify\",\"confidence\":0..1,\"summary\":\"...\"}",
+    "execute_task = user wants AI team to DO work in this project (migrate, refactor, create, setup Docker, add UI, switch stack). chat = pure question/discussion.",
+    `Text (${text.length > 500 ? text.slice(0, 500) + "..." : text})`,
+  ].join("\n");
+  const raw = await completeWithAgent("Classify intent. Return JSON only.", [{ role: "user", content: prompt }], config).catch(() => "");
+  const match = raw.trim().match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const o = JSON.parse(match[0]) as { intent?: string; summary?: string };
+    if (!o.intent) return null;
+    if (o.intent === "execute_task") return { kind: "task", summary: o.summary ?? "" };
+    if (o.intent === "chat" || o.intent === "clarify") return { kind: "chat", summary: o.summary ?? "" };
+  } catch {}
+  return null;
 }
 
 function buildPlanningGuidance(agent: { role: string }, opts: { isOrchestrator: boolean; taskIntent: { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean } }): string[] {
@@ -259,10 +285,24 @@ export const replyToChat = internalAction({
     // first agent when the project has no CTO — but a non-orchestrator
     // never receives planning guidance.
     const dispatcher = orchestrator ?? agents[0];
-    const taskIntent = classifyChatIntent(history[history.length - 1]?.content ?? "");
+    let taskIntent = classifyChatIntent(history[history.length - 1]?.content ?? "");
+
+    // Stage B: if regex says chat but the text is imperative/indirect
+    // (e.g. "Migrate this project to React", "Saya mau…"), let the LLM
+    // semantically upgrade to task. Invalid output stays chat (fail closed).
+    const lastUserContent = history[history.length - 1]?.content ?? "";
+    if (taskIntent.kind !== "task" && lastUserContent.length > 0) {
+      try {
+        const semantic = await classifySemantically(lastUserContent, globalConfig);
+        if (semantic?.kind === "task") {
+          taskIntent = { ...taskIntent, kind: "task" };
+        }
+      } catch {
+        // fall through to chat
+      }
+    }
 
     // Auto-dispatch: a task intent creates the task row and skips the chat loop.
-    const lastUserContent = history[history.length - 1]?.content ?? "";
     if (taskIntent.kind === "task") {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

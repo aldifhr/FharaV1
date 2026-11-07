@@ -19,16 +19,26 @@ export interface RouteResult {
   reasons: string[];
 }
 
+export interface IntentResult {
+  intent: "execute_task" | "chat" | "clarify";
+  confidence: number;
+  actionability: "explicit" | "implied" | "discussion" | "uncertain";
+  projectScope: "current_project" | "other_project" | "none";
+  requiresConfirmation: boolean;
+  clarificationQuestion?: string;
+  summary: string;
+}
+
 export interface RouterInput {
   text: string;
   agents: AgentDefinition[];
   chatMaxAgents?: number;
   /**
    * LLM advisor for `ambiguous` input only (plan 006 Phase 4 wires the real
-   * one behind the budget gate). Returns an intent string OR anything —
-   * invalid output falls back to `chat`, never to `task`.
+   * one behind the budget gate). Returns an intent string OR IntentResult JSON.
+   * Invalid output falls back to `chat`, never silently to `task`.
    */
-  advise?: (text: string, capabilities: string[]) => Promise<string>;
+  advise?: (text: string, capabilities: string[]) => Promise<IntentResult | string>;
 }
 
 const ALL_INTENTS: RouterIntent[] = [
@@ -99,10 +109,32 @@ export async function routeMessage(input: RouterInput): Promise<RouteResult> {
   if (intent === "ambiguous") {
     if (advise) {
       try {
-        const answer = await advise(text, classification.suggestedCapabilities);
-        if (ALL_INTENTS.includes(answer as RouterIntent)) {
-          intent = answer as RouterIntent;
-          reasons.push(`advisor: ${intent}`);
+        const raw = await advise(text, classification.suggestedCapabilities);
+        const parsed: IntentResult | null =
+          typeof raw === "string"
+            ? ALL_INTENTS.includes(raw as RouterIntent)
+              ? ({
+                  intent:
+                    raw === "task"
+                      ? "execute_task"
+                      : ["question", "advice", "research", "audit", "chat"].includes(raw)
+                        ? "chat"
+                        : "clarify",
+                  confidence: 0.85,
+                  actionability: raw === "task" ? "explicit" : "discussion",
+                  projectScope: "current_project",
+                  requiresConfirmation: false,
+                  summary: `advisor: ${raw}`,
+                } as IntentResult)
+              : null
+            : ((raw as IntentResult)?.intent ? (raw as IntentResult) : null);
+        if (parsed && ["execute_task", "chat", "clarify"].includes(parsed.intent)) {
+          // Only execute_task creates work; chat/clarify stay in chat.
+          intent = parsed.intent === "execute_task" ? "task" : "chat";
+          if (parsed.intent === "clarify" && parsed.clarificationQuestion) {
+            reasons.push(`clarify: ${parsed.clarificationQuestion}`);
+          }
+          reasons.push(`semantic: ${parsed.intent} (${parsed.confidence}) ${parsed.summary.slice(0, 80)}`);
         } else {
           intent = "chat";
           reasons.push("advisor returned an invalid intent; safe chat fallback");

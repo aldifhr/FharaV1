@@ -164,6 +164,7 @@ async function resolveConfigFromProviders(
 export const replyToChat = internalAction({
   args: {
     projectId: v.id("projects"),
+    conversationId: v.optional(v.id("conversations")),
     preferredAgentIds: v.optional(v.array(v.id("agents"))),
     userMessageId: v.id("messages"),
   },
@@ -176,6 +177,7 @@ export const replyToChat = internalAction({
 
     const data = (await ctx.runQuery(internal.chatContext.getContext, {
       projectId: args.projectId,
+      conversationId: args.conversationId,
       preferredAgentIds: args.preferredAgentIds,
     })) as {
       agents: Array<{
@@ -195,7 +197,8 @@ export const replyToChat = internalAction({
     if (agents.length === 0) {
       await ctx.runMutation(internal.chatContext.insertAgentMessage, {
         projectId: args.projectId,
-        content: "No enabled agents are assigned to this project team yet.",
+        conversationId: args.conversationId,
+        content: "No enabled agents are participating in this conversation. Add agents to the project team and select them for chat.",
         replyToMessageId: args.userMessageId,
       });
       return;
@@ -237,6 +240,7 @@ export const replyToChat = internalAction({
           projectId: args.projectId,
           agentId: dispatcher._id as any,
           taskId: taskId as any,
+          conversationId: args.conversationId,
           content: `Task ${taskId} created for: "${lastUserContent.slice(0, 80)}".${delegationLine} Open the task thread to follow execution.`,
           replyToMessageId: args.userMessageId,
         });
@@ -270,6 +274,7 @@ export const replyToChat = internalAction({
         await ctx.runMutation(internal.chatContext.insertAgentMessage, {
           projectId: args.projectId,
           agentId: agent._id as any,
+          conversationId: args.conversationId,
           content: `I couldn't reply (${err.message}). Check global LLM settings.`,
           replyToMessageId: args.userMessageId,
         });
@@ -280,6 +285,7 @@ export const replyToChat = internalAction({
         await ctx.runMutation(internal.chatContext.insertAgentMessage, {
           projectId: args.projectId,
           agentId: agent._id as any,
+          conversationId: args.conversationId,
           content: content.trim(),
           replyToMessageId: args.userMessageId,
         });

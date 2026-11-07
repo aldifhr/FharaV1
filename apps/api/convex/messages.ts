@@ -33,17 +33,27 @@ export const send = action({
     projectId: v.id("projects"),
     content: v.string(),
     preferredAgentIds: v.optional(v.array(v.id("agents"))),
+    conversationId: v.optional(v.id("conversations")),
   },
-  handler: async (ctx, args): Promise<{ messageId: string }> => {
+  handler: async (ctx, args): Promise<{ messageId: string; conversationId: string }> => {
+    // Plan 007: resolve (or create) the project's active conversation and sync
+    // the caller's participant selection into it before the reply runs, so
+    // participation is persisted rather than recomputed per message.
+    const conversationId = await ctx.runMutation(internal.conversations.ensureForChat, {
+      projectId: args.projectId,
+      conversationId: args.conversationId,
+      preferredAgentIds: args.preferredAgentIds,
+    });
     const messageId = await ctx.runMutation(internal.chatContext.insertUserMessage, {
       projectId: args.projectId,
       content: args.content,
+      conversationId,
     });
     ctx.scheduler.runAfter(0, internal.chat.replyToChat, {
       projectId: args.projectId,
-      preferredAgentIds: args.preferredAgentIds,
+      conversationId,
       userMessageId: messageId,
     });
-    return { messageId: messageId as string };
+    return { messageId: messageId as string, conversationId: conversationId as string };
   },
 });

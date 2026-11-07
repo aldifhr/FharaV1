@@ -1,9 +1,15 @@
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import type { Doc, Id } from "./_generated/dataModel";
 import { loadProviderPool } from "./llmResolver";
+import { activeParticipantRows, selectDefaultChatAgents } from "./conversations";
 
 export const insertUserMessage = internalMutation({
-  args: { projectId: v.id("projects"), content: v.string() },
+  args: {
+    projectId: v.id("projects"),
+    content: v.string(),
+    conversationId: v.optional(v.id("conversations")),
+  },
   handler: async (ctx, args) => {
     const content = args.content.trim();
     if (!content) throw new Error("Message is required");
@@ -12,6 +18,7 @@ export const insertUserMessage = internalMutation({
       projectId: args.projectId,
       authorType: "user",
       content,
+      conversationId: args.conversationId,
     });
   },
 });
@@ -23,6 +30,7 @@ export const insertAgentMessage = internalMutation({
     content: v.string(),
     replyToMessageId: v.optional(v.id("messages")),
     taskId: v.optional(v.id("tasks")),
+    conversationId: v.optional(v.id("conversations")),
   },
   handler: async (ctx, args) => {
     const content = args.content.trim();
@@ -34,6 +42,7 @@ export const insertAgentMessage = internalMutation({
       content,
       replyToMessageId: args.replyToMessageId,
       taskId: args.taskId,
+      conversationId: args.conversationId,
     });
   },
 });
@@ -52,33 +61,34 @@ export const checkAlreadyReplied = internalQuery({
 export const getContext = internalQuery({
   args: {
     projectId: v.id("projects"),
+    conversationId: v.optional(v.id("conversations")),
     preferredAgentIds: v.optional(v.array(v.id("agents"))),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
     if (!project) return { agents: [], projectName: "", history: [] };
 
-    const all = await ctx.db.query("agents").collect();
-    const hasTeam = project.agentIds && project.agentIds.length > 0;
-    const inProject = hasTeam
-      ? all.filter((a) => project.agentIds!.includes(a._id))
-      : [];
-    const enabled = inProject.filter((a) => a.isEnabled !== false);
-
-    const preferred = args.preferredAgentIds?.length
-      ? enabled.filter((a) => args.preferredAgentIds!.includes(a._id))
-      : [];
-
-    let selected: typeof enabled;
-    if (preferred.length > 0) {
-      selected = preferred;
-    } else if (enabled.length > 0) {
-      const lead = enabled.find((a) =>
-        /orchestrator|planner|manager|cto|lead|architect/i.test(a.role),
-      );
-      selected = [lead ?? enabled[0]];
+    // Plan 007: when a conversation is given, participation is read from the
+    // persisted participant rows (still gated on membership + enabled, since a
+    // participant may have been disabled or removed from the team since it
+    // joined). Without one, the historical selection runs as fallback.
+    let selected: Doc<"agents">[];
+    if (args.conversationId) {
+      const rows = await activeParticipantRows(ctx, args.conversationId);
+      const agents = await Promise.all(rows.map((row) => ctx.db.get(row.agentId)));
+      const team = project.agentIds ?? [];
+      selected = agents.filter((agent): agent is Doc<"agents"> => {
+        if (!agent) return false;
+        if (agent.isEnabled === false) return false;
+        return team.includes(agent._id);
+      });
     } else {
-      selected = [];
+      const all = await ctx.db.query("agents").collect();
+      selected = selectDefaultChatAgents(
+        project.agentIds,
+        all,
+        args.preferredAgentIds
+      );
     }
 
     const rows = await ctx.db
@@ -92,7 +102,7 @@ export const getContext = internalQuery({
       .reverse()
       .map((m) => ({ authorType: m.authorType, content: m.content }));
 
-    const agentShape = (a: typeof all[number]) => ({
+    const agentShape = (a: Doc<"agents">) => ({
       _id: a._id,
       name: a.name,
       role: a.role,

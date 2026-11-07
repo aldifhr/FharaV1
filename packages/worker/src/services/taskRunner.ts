@@ -47,13 +47,15 @@ import {
   type PoolConnectionRow,
 } from "@/llm/resolver";
 import { providerHealth } from "@/llm/health";
-import { routeCapability, capabilitiesOf } from "@/orchestrator/capabilities";
+import { routeCapability, capabilitiesOf, normalizeCapability } from "@/orchestrator/capabilities";
 import {
   buildFixSubtask,
   buildReviewFixSubtask,
   collectRequestedChanges,
   formatReviewFindings,
 } from "@/orchestrator/reviewLoop";
+import { decide, applyDecision, type DecisionObservation } from "@/orchestrator/decision";
+import { decideWithLlm } from "@/orchestrator/decisionLlm";
 import type { ReviewResult } from "@/utils/json";
 import { executeSubtask } from "@/execution/agentExecutor";
 import { WebClient, type WebClientConfig } from "@/tools/webClient";
@@ -199,6 +201,77 @@ export function buildStateFromDb(input: {
     feedback: [],
   };
   return { state, completedKeys };
+}
+
+/**
+ * Plan 005 Phase 5 Step 5.3: replan without rework.
+ *
+ * A replan replaces the REMAINING graph, but completed work must survive:
+ *  - `priorOutputs` and `fileChanges` carry over for a new subtask whose
+ *    `(kind, capability, normalized description)` matches a completed old
+ *    one (the plan builder reuses descriptions, so a carry-forward match
+ *    means "the same work, still done");
+ *  - `qaVerdicts` carry over only for subtasks that are literally the same
+ *    key (a re-run QA verdict belongs to the old node, not the new one);
+ *  - `completedKeys` is recomputed from the carried-over matches;
+ *  - only `feedback` is cleared.
+ *
+ * `previousState` is mutated in place for the caller's convenience and
+ * returned; `previousPlan`/`newPlan` are only read.
+ */
+export function carryForwardState(
+  previousPlan: ExecutionPlan,
+  previousState: RunState,
+  newPlan: ExecutionPlan
+): { state: RunState; completedKeys: Set<string> } {
+  const normalize = (value: string): string => value.trim().toLowerCase().replace(/\s+/g, " ");
+  const signature = (subtask: { kind: string; capability: string; description: string }): string =>
+    `${subtask.kind}|${normalizeCapability(subtask.capability)}|${normalize(subtask.description)}`;
+
+  // Work that already finished: key -> signature of the OLD node.
+  const completedOld = previousPlan.subtasks.filter((subtask) =>
+    previousState.priorOutputs.has(subtask.key)
+  );
+  const signatures = new Map<string, string>();
+  for (const subtask of completedOld) {
+    const sig = signature(subtask);
+    if (!signatures.has(sig)) signatures.set(sig, subtask.key);
+  }
+
+  const carriedOutputs = new Map<string, string>();
+  const carriedFiles = new Map<string, FileDiff>();
+  const completedKeys = new Set<string>();
+  const carriedQa: Record<string, "passed" | "failed" | "inconclusive"> = {};
+  let anyMatch = false;
+
+  for (const subtask of newPlan.subtasks) {
+    const match = signatures.get(signature(subtask));
+    if (match === undefined) continue;
+    anyMatch = true;
+    const output = previousState.priorOutputs.get(match);
+    if (output !== undefined) {
+      carriedOutputs.set(subtask.key, output);
+      completedKeys.add(subtask.key);
+    }
+    if (previousState.qaVerdicts[subtask.key]) {
+      carriedQa[subtask.key] = previousState.qaVerdicts[subtask.key];
+    }
+  }
+
+  // File changes are staged by file path (no per-node attribution in
+  // state): when a carried-over node exists, its staged work lands in the
+  // apply phase instead of being dropped with the old plan.
+  if (anyMatch) {
+    for (const [filePath, change] of previousState.fileChanges) {
+      carriedFiles.set(filePath, change);
+    }
+  }
+
+  previousState.priorOutputs = carriedOutputs;
+  previousState.fileChanges = carriedFiles;
+  previousState.qaVerdicts = carriedQa;
+  previousState.feedback = [];
+  return { state: previousState, completedKeys };
 }
 
 /**
@@ -828,6 +901,10 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           assertBudgetForCall,
           signal: taskAbort.controller.signal,
           llmTaskGate,
+          hasQaUrl: Boolean(
+            (project as { qaUrl?: string | null }).qaUrl ||
+              (project as { devUrl?: string | null }).devUrl
+          ),
         });
       } catch (error) {
         if (isBudgetExhaustedError(error)) {
@@ -861,6 +938,15 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           type: "plan.degraded",
           payload: { reason: created.degradedReason.slice(0, 1000) },
           level: "warn",
+        });
+      }
+      for (const key of created.droppedHintKeys ?? []) {
+        await deps.api.logEvent({
+          taskId: task._id,
+          projectId: project._id,
+          type: "plan.hint_dropped",
+          payload: { key, reason: "no enabled agent serves the capability" },
+          level: "info",
         });
       }
       await persistPlan(deps, {
@@ -1063,6 +1149,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
             }
             throw error;
           }
+          const previousPlan = plan;
           plan = replanned.plan;
           planVersion += 1;
           await persistPlan(deps, {
@@ -1073,12 +1160,11 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
             createdBy: replanned.createdBy,
             classification: classification.kind,
           });
-          state.priorOutputs.clear();
-          state.fileChanges.clear();
-          state.qaVerdicts = {};
-          state.feedback = [];
-          // A replan is a brand-new plan: nothing is pre-completed in it.
-          completedKeys = new Set<string>();
+          // Step 5.3: keep completed work that matches the new plan —
+          // the previous code cleared priorOutputs/fileChanges, which
+          // forced carried-over subtasks to re-execute.
+          const carried = carryForwardState(previousPlan, state, plan);
+          completedKeys = carried.completedKeys;
           await deps.api.logEvent({
             taskId: task._id,
             projectId: project._id,
@@ -1167,6 +1253,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           }
           throw error;
         }
+        const previousPlan = plan;
         plan = replanned.plan;
         planVersion += 1;
         await persistPlan(deps, {
@@ -1177,12 +1264,9 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           createdBy: replanned.createdBy,
           classification: classification.kind,
         });
-        state.priorOutputs.clear();
-        state.fileChanges.clear();
-        state.qaVerdicts = {};
-        state.feedback = [];
-        // A replan is a brand-new plan: nothing is pre-completed in it.
-        completedKeys = new Set<string>();
+        // Step 5.3: keep completed work that matches the new plan.
+        const carried = carryForwardState(previousPlan, state, plan);
+        completedKeys = carried.completedKeys;
         await deps.api.logEvent({
           taskId: task._id,
           projectId: project._id,
@@ -1337,6 +1421,13 @@ async function executePlan(input: {
   const authoritative =
     deps.policy.orchestratorAuthoritative === true &&
     Boolean(input.budget && input.sharedContext && input.classification);
+  // Plan 006 Phase 2: the decision engine replaces the advisory evaluation
+  // path when the flag is on. Default OFF — the legacy path is byte-identical
+  // until the engine is observed in the wild.
+  const decisionEngine =
+    deps.policy.decisionEngine === true &&
+    Boolean(input.budget && input.sharedContext && input.classification);
+  let decisionStep = 0;
   // Per-branch capability chain per subtask key (root first, ending with
   // the subtask's own capability). Delegation depth and circularity are
   // derived from this chain — never from a task-global counter.
@@ -1671,7 +1762,193 @@ async function executePlan(input: {
         if (input.budget && input.sharedContext && input.classification && agent) {
           try {
             const subtaskDef = plan.subtasks.find((candidate) => candidate.key === node.id);
-            if (subtaskDef) {
+            if (subtaskDef && decisionEngine) {
+              const agentResult = toAgentResult({ subtask: subtaskDef, agent, outcome });
+              const chain = chainByKey.get(node.id) ?? [subtaskDef.capability];
+              // The engine consumes the LIVE evaluation (the same verdict
+              // the legacy path records) as its observation, so Phase 2's
+              // deterministic mapping is observable without a second gate.
+              const live = evaluateAfterExecution({
+                result: agentResult,
+                classification: input.classification,
+                agents: input.agents,
+                budget: input.budget,
+                previousAgents: input.sharedContext.agentExecutions.map(
+                  (entry) => entry.agentName
+                ),
+                delegationDepth: Math.max(0, chain.length - 1),
+                alreadyDelegated: chain.slice(0, -1),
+                chainCapabilities: chain,
+                activeByAgent,
+                taskContext: input.sharedContext,
+                proposer: agent,
+              });
+              input.sharedContext.decisions = live.updatedContext.decisions;
+              input.sharedContext.artifacts = live.updatedContext.artifacts;
+              input.sharedContext.outstandingIssues = live.updatedContext.outstandingIssues;
+              input.sharedContext.agentExecutions = live.updatedContext.agentExecutions;
+
+              const observation: DecisionObservation = {
+                outcome: outcome.status === "completed" ? "completed" : "failed",
+                decision: live.decision,
+                nextAgent: live.nextAgent,
+                nextCapability: live.nextCapability,
+                reason: live.reason,
+                findings: agentResult.findings,
+                delegationRecommendation: agentResult.delegationRecommendation,
+                error: outcome.status === "failed" ? outcome.error : undefined,
+                retryable: false,
+              };
+
+              const { decision, fallback } = await decide(
+                {
+                  taskId,
+                  objective: input.sharedContext.objective,
+                  classification: input.classification,
+                  planVersion: input.planVersion ?? plan.version,
+                  plan,
+                  results: input.sharedContext.agentExecutions,
+                  openIssues: input.sharedContext.outstandingIssues,
+                  budget: input.budget.snapshot(),
+                  policy: deps.policy,
+                  agents: input.agents,
+                  completedKeys: input.completedKeys,
+                  step: decisionStep,
+                  chainCapabilities: chain,
+                  activeByAgent,
+                },
+                observation,
+                {
+                  llmMode: deps.policy.decisionLlmMode,
+                  advise: (ctx, obs) =>
+                    decideWithLlm({
+                      ctx,
+                      observation: obs,
+                      signal: input.taskAbort?.signal,
+                      assertBudgetForCall: () => input.budget!.assertLlmCallAllowed(),
+                    }),
+                }
+              );
+              if (fallback) {
+                await deps.api.logEvent({
+                  taskId: task._id,
+                  projectId: project._id,
+                  type: "orchestrator.decision_fallback",
+                  payload: { subtaskKey: node.id, reason: fallback.slice(0, 500) },
+                  executionId,
+                  subtaskKey: node.id,
+                  level: "warn",
+                });
+              }
+              await deps.api.logEvent({
+                taskId: task._id,
+                projectId: project._id,
+                type: "orchestrator.decision",
+                payload: {
+                  subtaskKey: node.id,
+                  id: decision.id,
+                  action: decision.action,
+                  reasoning: decision.reasoning.slice(0, 500),
+                  target: decision.target ?? null,
+                  decidedBy: decision.decidedBy,
+                  planVersion: decision.planVersion,
+                  step: decisionStep,
+                  expectedOutcome: decision.expectedOutcome ?? null,
+                },
+                executionId,
+                subtaskKey: node.id,
+                level: "info",
+              });
+              // Step 4.2: the engine's decision joins the shared trail so
+              // replan feedback and the persisted context see it. The
+              // evaluation-layer entry from evaluateAfterExecution is kept
+              // (the UI and legacy readers consume it).
+              input.sharedContext.decisions = [
+                ...input.sharedContext.decisions,
+                {
+                  decision: decision.action,
+                  reason: decision.reasoning,
+                  capability: decision.target?.capability,
+                  fromAgent: agent.name,
+                  createdAt: decision.createdAt,
+                  id: decision.id,
+                  target: decision.target,
+                  decidedBy: decision.decidedBy,
+                  planVersion: decision.planVersion,
+                  step: decisionStep,
+                },
+              ];
+              if (decision.action === "delegate" && budgetEnforced) {
+                // Count the delegation so the count gate stays honest; the
+                // depth/circularity gates were already checked in validate.
+                // (Delegation counting is budget bookkeeping only.)
+                input.budget.incrementDelegation();
+              }
+              const applied = applyDecision(
+                {
+                  taskId,
+                  objective: input.sharedContext.objective,
+                  classification: input.classification,
+                  planVersion: input.planVersion ?? plan.version,
+                  plan,
+                  results: input.sharedContext.agentExecutions,
+                  openIssues: input.sharedContext.outstandingIssues,
+                  budget: input.budget.snapshot(),
+                  policy: deps.policy,
+                  agents: input.agents,
+                  completedKeys: input.completedKeys,
+                  step: decisionStep,
+                  chainCapabilities: chain,
+                  activeByAgent,
+                },
+                decision,
+                (base) => uniqueSubtaskKey(`${base}_${decisionStep}`)
+              );
+              if (applied.nodes.length > 0) {
+                for (const dynamic of applied.nodes) {
+                  plan.subtasks.push(dynamic);
+                  chainByKey.set(dynamic.key, [...chain, dynamic.capability]);
+                  fixDepthByKey.set(dynamic.key, 0);
+                }
+                await persistDynamic(applied.nodes, decision.action === "execute" ? "fix" : "delegation");
+                dynamicNodes = applied.nodes.map((dynamic) => ({
+                  id: dynamic.key,
+                  dependencies: dynamic.dependencies,
+                }));
+              }
+              if (applied.halt && !budgetHalt) {
+                budgetHalt = true;
+                await deps.api.logEvent({
+                  taskId: task._id,
+                  projectId: project._id,
+                  type: "orchestrator.budget_blocked",
+                  payload: {
+                    subtaskKey: node.id,
+                    reason: applied.note.slice(0, 500),
+                    budget: input.budget.snapshot(),
+                  },
+                  executionId,
+                  subtaskKey: node.id,
+                  level: "warn",
+                });
+              }
+              decisionStep += 1;
+              await deps.api
+                .upsertTaskContext?.({
+                  taskId,
+                  projectId: project._id,
+                  originalRequest: input.sharedContext.originalRequest,
+                  objective: input.sharedContext.objective,
+                  status: (task.status as any) || "running",
+                  decisions: input.sharedContext.decisions,
+                  artifacts: input.sharedContext.artifacts,
+                  outstandingIssues: input.sharedContext.outstandingIssues,
+                  budgetSnapshot: input.budget.snapshot(),
+                })
+                ?.catch(() => undefined);
+              return dynamicNodes;
+            }
+            if (subtaskDef && !decisionEngine) {
               const agentResult = toAgentResult({ subtask: subtaskDef, agent, outcome });
               const chain = chainByKey.get(node.id) ?? [subtaskDef.capability];
               const evaluation = evaluateAfterExecution({
@@ -1687,6 +1964,7 @@ async function executePlan(input: {
                 chainCapabilities: chain,
                 activeByAgent,
                 taskContext: input.sharedContext,
+                proposer: agent,
               });
               input.sharedContext.decisions = evaluation.updatedContext.decisions;
               input.sharedContext.artifacts = evaluation.updatedContext.artifacts;
@@ -1830,6 +2108,46 @@ async function executePlan(input: {
                   nextCapability: evaluation.nextCapability ?? null,
                   delegatedSubtaskKey,
                   fixSubtaskKey,
+                },
+                executionId,
+                subtaskKey: node.id,
+                level: evaluation.decision === "BLOCKED" ? "warn" : "info",
+              });
+              // Step 4.2: one decision trail — the legacy path also
+              // records `orchestrator.decision` (the evaluation event above
+              // stays for the UI). Same vocabulary mapping as
+              // nextDeterministicDecision.
+              const legacyAction =
+                evaluation.decision === "APPROVE"
+                  ? "delegate"
+                  : evaluation.decision === "REVISE"
+                    ? "execute"
+                    : "complete";
+              await deps.api.logEvent({
+                taskId,
+                projectId: project._id,
+                type: "orchestrator.decision",
+                payload: {
+                  subtaskKey: node.id,
+                  id: `eval_${node.id}`,
+                  action: legacyAction,
+                  reasoning: evaluation.reason.slice(0, 500),
+                  target: evaluation.nextCapability
+                    ? { agentId: evaluation.nextAgent?._id, capability: evaluation.nextCapability }
+                    : null,
+                  decidedBy: "deterministic",
+                  planVersion: input.planVersion ?? plan.version,
+                  step: null,
+                  expectedOutcome:
+                    evaluation.decision === "BLOCKED"
+                      ? "policy:budget"
+                      : evaluation.decision === "REJECT"
+                        ? "proposal:rejected"
+                        : legacyAction === "delegate"
+                          ? "delegated"
+                          : legacyAction === "execute"
+                            ? "fixed"
+                            : "objective:met",
                 },
                 executionId,
                 subtaskKey: node.id,

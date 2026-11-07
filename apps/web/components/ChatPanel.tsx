@@ -46,6 +46,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const approve = useMutation(api.approvals.approve);
   const reject = useMutation(api.approvals.reject);
   const allAgents = useQuery(api.agents.list, {});
+  const activeConversation = useQuery(api.conversations.getActive, {
+    projectId: projectId as any,
+  });
   const updateProject = useMutation(api.projects.update);
   const updateTeam = useMutation(api.projects.updateTeam);
   const updateApprovalMode = useMutation(api.projects.updateApprovalMode);
@@ -115,7 +118,22 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     .filter((message: any) => !message.taskId || message.authorType === "agent")
     .sort((a: any, b: any) => a._creationTime - b._creationTime);
   const lastMessage = timeline[timeline.length - 1];
+  const wasAgentTypingRef = useRef(false);
+
   const conversationTyping = lastMessage?.authorType === "user";
+
+  // Auto-dispatch queue after agent finishes responding
+  useEffect(() => {
+    if (wasAgentTypingRef.current && !conversationTyping) {
+      // Agent just finished responding — dispatch queued messages after a short delay
+      const queued = messageQueue.some((m) => m.status === "queued");
+      if (queued && selectedTaskId) {
+        const timer = setTimeout(() => void sendAllQueued(), 300);
+        return () => clearTimeout(timer);
+      }
+    }
+    wasAgentTypingRef.current = conversationTyping;
+  }, [conversationTyping]);
   const latestAgentMessage = [...selectedTaskMessages].reverse().find((message: any) => message.authorType === "agent");
   const taskTitle = (taskId: string) => (tasks ?? []).find((task) => task._id === taskId)?.title ?? "task";
   // A task block starts at the user message that spawned it. The plan message
@@ -194,6 +212,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   >([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [chatAgentIds, setChatAgentIds] = useState<string[]>([]);
+
+  // Plan 007: participation is persisted server-side; mirror it into the chip
+  // selection so it survives reload. Re-runs only when the server state
+  // changes (e.g. after a send syncs the selection), so local toggles between
+  // sends are not fought.
+  useEffect(() => {
+    if (!activeConversation) return;
+    setChatAgentIds(activeConversation.participants.map((p: any) => p.agentId));
+  }, [activeConversation]);
   const [chatError, setChatError] = useState("");
   const [chatSending, setChatSending] = useState(false);
   const [mention, setMention] = useState<string | null>(null);

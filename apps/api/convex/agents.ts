@@ -1,6 +1,16 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { assertAgentAccess } from "./authz";
+import type { Doc } from "./_generated/dataModel";
+import { assertAgentAccess, assertProjectAccess } from "./authz";
+
+/**
+ * Plan 007: browser-safe agent projection — the same shape `list` has always
+ * returned. Credential fields never cross; the boolean flag does.
+ */
+export function projectAgentDoc(agent: Doc<"agents">) {
+  const { llmApiKey, llmApiKeyEnv, ...rest } = agent;
+  return { ...rest, llmApiKeyConfigured: Boolean(llmApiKey) };
+}
 
 function defaultAvatarParams(name: string) {
   const palettes = ["Black", "Brown", "Blonde", "Red", "PastelPink"];
@@ -40,10 +50,131 @@ export const list = query({
   args: {},
   handler: async (ctx) => {
     const docs = await ctx.db.query("agents").collect();
-    return docs.map(({ llmApiKey, llmApiKeyEnv, ...agent }) => ({
-      ...agent,
-      llmApiKeyConfigured: Boolean(llmApiKey),
-    }));
+    return docs.map(projectAgentDoc);
+  },
+});
+
+/**
+ * Plan 007 (addendum §1): project membership as a registry read model.
+ * Membership lives on `projects.agentIds`; point-read the members so a
+ * deleted agent drops out instead of failing the whole list.
+ */
+export const listByProject = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const project = await assertProjectAccess(ctx, args.projectId);
+    const docs = await Promise.all(
+      (project.agentIds ?? []).map((id) => ctx.db.get(id))
+    );
+    return docs
+      .filter((agent): agent is Doc<"agents"> => agent !== null)
+      .map(projectAgentDoc);
+  },
+});
+
+const OPEN_SUBTASK_STATUSES = new Set([
+  "pending",
+  "ready",
+  "running",
+  "waiting_approval",
+]);
+const OPEN_TASK_STATUSES = new Set(["queued", "running", "needs_approval"]);
+const OPEN_EXECUTION_STATUSES = new Set(["running", "queued", "waiting_approval"]);
+
+/**
+ * Plan 007 (addendum §1): the full registry view for a project's members —
+ * identity, enabled state, runtime availability (`agents.status`, maintained
+ * by the worker's execution lifecycle), current task/subtask/execution
+ * assignments, and active conversation participation. Membership and
+ * assignment stay where they are; this only reads them.
+ */
+export const getRegistryView = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const project = await assertProjectAccess(ctx, args.projectId);
+    const docs = await Promise.all(
+      (project.agentIds ?? []).map((id) => ctx.db.get(id))
+    );
+    const members = docs.filter((agent): agent is Doc<"agents"> => agent !== null);
+
+    const [subtasks, tasks] = await Promise.all([
+      ctx.db
+        .query("subtasks")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect(),
+      ctx.db
+        .query("tasks")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect(),
+    ]);
+
+    return Promise.all(
+      members.map(async (agent) => {
+        const [executions, participations] = await Promise.all([
+          ctx.db
+            .query("executions")
+            .withIndex("by_agent", (q) => q.eq("agentId", agent._id))
+            .collect(),
+          ctx.db
+            .query("conversationParticipants")
+            .withIndex("by_agent", (q) => q.eq("agentId", agent._id))
+            .collect(),
+        ]);
+
+        const activeConversations = (
+          await Promise.all(
+            participations.map(async (row) => {
+              if (row.leftAt !== undefined) return null;
+              const conversation = await ctx.db.get(row.conversationId);
+              if (
+                !conversation ||
+                conversation.projectId !== project._id ||
+                conversation.status !== "active"
+              ) {
+                return null;
+              }
+              return {
+                conversationId: conversation._id,
+                title: conversation.title ?? null,
+                joinedAt: row.joinedAt,
+              };
+            })
+          )
+        ).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+        return {
+          ...projectAgentDoc(agent),
+          availability: agent.status,
+          openExecutions: executions.filter((execution) =>
+            OPEN_EXECUTION_STATUSES.has(execution.status)
+          ).length,
+          assignedSubtasks: subtasks
+            .filter(
+              (subtask) =>
+                subtask.assignedAgentId === agent._id &&
+                OPEN_SUBTASK_STATUSES.has(subtask.status)
+            )
+            .map((subtask) => ({
+              subtaskId: subtask._id,
+              key: subtask.key,
+              title: subtask.title,
+              status: subtask.status,
+            })),
+          assignedTasks: tasks
+            .filter(
+              (task) =>
+                task.assignedAgentIds?.includes(agent._id) &&
+                OPEN_TASK_STATUSES.has(task.status)
+            )
+            .map((task) => ({
+              taskId: task._id,
+              title: task.title,
+              status: task.status,
+            })),
+          activeConversations,
+        };
+      })
+    );
   },
 });
 

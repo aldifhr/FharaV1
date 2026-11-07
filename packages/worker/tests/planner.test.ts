@@ -45,26 +45,76 @@ describe("planner", () => {
     expect(result.plan.requiresApproval).toBe(true);
   });
 
-  it("adds a QA subtask only when a capable agent exists", () => {
+  it("adds a QA subtask only when a QA signal fires and a capable agent exists", () => {
     const command = "update the dashboard page";
     const withoutQa = heuristicPlan({
-      command,
-      classification: classifyCommand(command),
-      agents: [frontend, reviewer],
-      policy,
-    });
-    const withQa = heuristicPlan({
       command,
       classification: classifyCommand(command),
       agents: [frontend, reviewer, qa],
       policy,
     });
+    // "update the dashboard page" has no risk signal, no verification
+    // request, and no QA URL: auto mode adds no QA node.
     expect(withoutQa.subtasks.some((subtask) => subtask.kind === "qa")).toBe(false);
+
+    const withQa = heuristicPlan({
+      command,
+      classification: classifyCommand(command),
+      agents: [frontend, reviewer, qa],
+      policy,
+      hasQaUrl: true,
+    });
     expect(withQa.subtasks.some((subtask) => subtask.kind === "qa")).toBe(true);
+
+    const noAgent = heuristicPlan({
+      command,
+      classification: classifyCommand(command),
+      agents: [frontend, reviewer],
+      policy,
+      hasQaUrl: true,
+    });
+    expect(noAgent.subtasks.some((subtask) => subtask.kind === "qa")).toBe(false);
     expect(withoutQa.requiresApproval).toBe(true);
   });
 
-  it("adds review and qa to an LLM plan that omits them for code changes", () => {
+  it("reviewMode/qaMode 'always' restore the legacy mandate", () => {
+    const command = "update the dashboard page";
+    const plan = heuristicPlan({
+      command,
+      classification: classifyCommand(command),
+      agents: [frontend, reviewer, qa],
+      policy: { ...policy, reviewMode: "always", qaMode: "always" },
+    });
+    expect(plan.subtasks.some((subtask) => subtask.kind === "review")).toBe(true);
+    expect(plan.subtasks.some((subtask) => subtask.kind === "qa")).toBe(true);
+  });
+
+  it("reviewMode/qaMode 'never' add neither hint even on a risk signal", () => {
+    const command = "add oauth login";
+    const plan = heuristicPlan({
+      command,
+      classification: classifyCommand(command),
+      agents: [frontend, reviewer, qa],
+      policy: { ...policy, reviewMode: "never", qaMode: "never" },
+      hasQaUrl: true,
+    });
+    expect(plan.subtasks.some((subtask) => subtask.kind === "review")).toBe(false);
+    expect(plan.subtasks.some((subtask) => subtask.kind === "qa")).toBe(false);
+  });
+
+  it("risk signal (auth) adds review and qa to an auto plan", () => {
+    const command = "add oauth login";
+    const plan = heuristicPlan({
+      command,
+      classification: classifyCommand(command),
+      agents: [frontend, reviewer, qa],
+      policy,
+    });
+    expect(plan.subtasks.some((subtask) => subtask.kind === "review")).toBe(true);
+    expect(plan.subtasks.some((subtask) => subtask.kind === "qa")).toBe(true);
+  });
+
+  it("adds review and qa to an LLM plan that omits them for code changes (legacy mandate)", () => {
     const plan: ExecutionPlan = {
       version: 1,
       goal: "create flow.txt",
@@ -154,6 +204,19 @@ describe("planner", () => {
     const enforced = ensureRequiredSubtasks(plan, [frontend]);
     expect(enforced.subtasks.some((subtask) => subtask.kind === "review")).toBe(true);
     expect(enforced.subtasks.some((subtask) => subtask.kind === "qa")).toBe(false);
+  });
+
+  it("single-domain change with no risk signal stays direct with one node", () => {
+    const command = "fix the dashboard button";
+    const plan = heuristicPlan({
+      command,
+      classification: classifyCommand(command),
+      agents: [frontend, reviewer, qa],
+      policy,
+    });
+    expect(plan.subtasks).toHaveLength(1);
+    expect(plan.subtasks[0].kind).toBe("code_change");
+    expect(plan.strategy).toBe("direct");
   });
 
   it("plans parallel frontend and backend work for multi-domain requests", () => {

@@ -199,6 +199,8 @@ export function evaluateAfterExecution(input: {
   chainCapabilities?: string[];
   /** Live per-agent execution counts for the delegation concurrency gate. */
   activeByAgent?: ReadonlyMap<string, number>;
+  /** The agent that produced `result` (Phase 4 Step 4.1 selfServe gate). */
+  proposer?: AgentDefinition;
 }): { decision: DelegationDecision; nextAgent?: AgentDefinition; nextCapability?: string; reason: string; updatedContext: SharedTaskContext } {
   const { result, classification, agents, budget, previousAgents, delegationDepth, alreadyDelegated, taskContext } = input;
 
@@ -252,6 +254,7 @@ export function evaluateAfterExecution(input: {
     alreadyDelegatedCapabilities: alreadyDelegated,
     chainCapabilities: input.chainCapabilities,
     activeByAgent: input.activeByAgent,
+    proposer: input.proposer,
   });
 
   updated = addDecision(updated, {

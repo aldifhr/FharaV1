@@ -32,11 +32,22 @@ import backend internals.
 - The orchestrator is authoritative by default (`ORCHESTRATOR_AUTHORITATIVE`).
   Its `ExecutionPlan` is the plan that runs; the planner is a subroutine. Do not
   add a second routing path or a second planner call.
-- Decisions are `APPROVE | REJECT | REVISE | COMPLETE | BLOCKED`. `APPROVE` may
-  spawn a delegation subtask; `REVISE` may spawn a fix subtask with structured
-  findings; `BLOCKED` halts new scheduling without killing completed work.
+- Decisions are `APPROVE | REJECT | REVISE | COMPLETE | BLOCKED` in the
+  evaluation layer, and `execute | delegate | parallel | replan | complete |
+  ask_user` in the decision engine (`orchestrator/decision.ts`). The engine
+  (`ORCHESTRATOR_DECISION_ENGINE`, default **off**) maps each observation to a
+  validated request; `APPROVE` may spawn a delegation subtask, `REVISE` may
+  spawn a fix subtask with structured findings, `BLOCKED` halts new scheduling
+  without killing completed work. A refused request is a recorded
+  `orchestrator.decision_fallback`, never a bypass.
 - Dynamic subtasks must be persisted (`upsertDynamicSubtasks`) so recovery keeps
   them. In-memory-only plan mutation is a bug.
+- Review/QA nodes are conditional (plan 005 Phase 3): `reviewMode` / `qaMode`
+  (`ORCHESTRATOR_REVIEW_MODE` / `ORCHESTRATOR_QA_MODE`, default `"auto"`) decide
+  when `applyPlanningHints` adds them — a risk signal (auth/security/payments/
+  migrations/concurrency, multi-domain, multi-capability) or a verification
+  request/URL. There is no always-review/always-QA pipeline anymore; `"always"`
+  restores the legacy mandate for one knob at a time.
 - Delegation is bounded: `maxDelegations` (task-wide count) and
   `maxDelegationDepth` (chain depth). Circular delegation must stay rejected.
 
@@ -87,6 +98,10 @@ import backend internals.
 | `WORKER_LEASE_MS` | 60000 | Claim lease |
 | `WORKER_STALE_GRACE_MS` | 30000 | Stale-task recovery grace |
 | `ORCHESTRATOR_*` | per `policy.ts` | Bounds, timeouts, budget mode, authority |
+| `ORCHESTRATOR_DECISION_ENGINE` | `false` | Enable the decision engine in `executePlan` (plan 005 Phase 2) |
+| `ORCHESTRATOR_DECISION_LLM` | `off` | `off` / `ambiguous` / `always` — when the LLM decision advisor is consulted |
+| `ORCHESTRATOR_MAX_DECISION_STEPS` | `20` | Decision-step bound per task run |
+| `ORCHESTRATOR_REVIEW_MODE` / `ORCHESTRATOR_QA_MODE` | `auto` | `always` / `auto` / `never` — when planning adds review/QA nodes |
 | `WORKER_LLM_MAX_CONCURRENCY` | from policy | Worker-wide LLM gate (set once) |
 
 The worker loads the root `.env` (`../../.env` from `packages/worker`).

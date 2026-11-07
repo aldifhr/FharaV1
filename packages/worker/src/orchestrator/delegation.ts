@@ -4,6 +4,7 @@ import { classifyCommand } from "./classifier";
 import {
   routeCapability,
   capabilitiesOf,
+  normalizeCapability,
   isAgentEnabled,
   isAgentAvailable,
 } from "./capabilities";
@@ -93,6 +94,14 @@ export function evaluateDelegation(input: {
   delegationDepth: number;
   alreadyDelegatedCapabilities: string[];
   /**
+   * The agent that is proposing the delegation (the one that just finished
+   * and reported `result`). Plan 005 Phase 4 Step 4.1: when its own
+   * normalized capabilities already include the proposed capability, the
+   * proposal is REJECTed — the proposer can serve it itself, so delegating
+   * is unnecessary work.
+   */
+  proposer?: AgentDefinition;
+  /**
    * Per-branch capability chain of the subtask that produced this result:
    * the capabilities of its delegation ancestry, root first, ending with
    * the subtask's own capability. When provided, this chain — not the
@@ -123,6 +132,18 @@ export function evaluateDelegation(input: {
     ? Math.max(0, input.chainCapabilities.length - 1)
     : input.delegationDepth;
   const maxDepth = policy.maxDelegationDepth;
+
+  /**
+   * Plan 005 Phase 4 Step 4.1: if the proposing agent can already serve the
+   * proposed capability, delegation is unnecessary work — reject before any
+   * other gate. `normalizeCapability` is the same normalization the
+   * `selfServe` check and `validateDecision`'s routing use.
+   */
+  const proposerCanServe = (capability: string): boolean => {
+    if (!input.proposer) return false;
+    const wanted = normalizeCapability(capability);
+    return capabilitiesOf(input.proposer).some((own) => normalizeCapability(own) === wanted);
+  };
 
   // If execution failed and no findings, retry same agent? orchestrator caller handles retry.
   if (!result.success) {
@@ -162,6 +183,16 @@ export function evaluateDelegation(input: {
   // Agent recommended delegation
   if (result.delegationRecommendation?.targetCapability) {
     const targetCap = result.delegationRecommendation.targetCapability;
+
+    // Phase 4 Step 4.1: the proposer can serve it itself → no delegation.
+    if (proposerCanServe(targetCap)) {
+      return {
+        decision: "REJECT",
+        reason: "proposing agent can serve this capability",
+        targetCapability: targetCap,
+        shouldCallLLM: false,
+      };
+    }
 
     // Depth is a property of this branch's chain, not a task-global counter.
     if (branchDepth >= maxDepth) {

@@ -46,6 +46,13 @@ export interface PlannerInput {
   signal?: AbortSignal;
   /** Per-task LLM gate (Phase 4 hardening), forwarded to the planner's call. */
   llmTaskGate?: LlmConcurrencyGate;
+  /**
+   * Progressive planning (plan 005 Phase 3): the project has a QA/dev URL
+   * (resolveQaBaseUrl(project) returned a value). Feeds the auto QA hint
+   * in applyPlanningHints. Optional: callers that do not thread project
+   * config behave as if the project had no URL.
+   */
+  hasQaUrl?: boolean;
 }
 
 export interface PlannerResult {
@@ -53,6 +60,11 @@ export interface PlannerResult {
   createdBy: "orchestrator" | "fallback";
   notes: string[];
   degradedReason?: string;
+  /**
+   * Hints dropped because no enabled agent serves their capability
+   * (plan.hint_dropped). The runner logs one event per key.
+   */
+  droppedHintKeys?: string[];
 }
 
 export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
@@ -117,9 +129,21 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         input.policy.maxSubtasks
       );
       if (validation.ok && validation.plan) {
-        const enforced = ensureRequiredSubtasks(validation.plan, input.agents);
-        const routed = ensureRoutable(enforced, input.agents);
-        if (routed) return { plan: routed, createdBy: "orchestrator", notes };
+        const hinted = applyPlanningHints(validation.plan, input.agents, {
+          command: input.command,
+          classification: input.classification,
+          policy: input.policy,
+          hasQaUrl: input.hasQaUrl,
+        });
+        const routed = ensureRoutable(hinted, input.agents);
+        if (routed) {
+          return {
+            plan: routed.plan,
+            createdBy: "orchestrator",
+            notes,
+            droppedHintKeys: routed.dropped,
+          };
+        }
         notes.push("planner output references capabilities that no enabled agent can serve");
       } else {
         notes.push(...validation.errors);
@@ -185,8 +209,7 @@ function buildPlanningPrompt(input: PlannerInput): string {
     "- Each subtask: key (lowercase slug), title, description, kind, capability, dependencies (keys), order.",
     "- kind is one of: analysis, code_change, review, qa, research, audit, shell.",
     "- Dependencies must reference earlier subtasks and must not form cycles.",
-    "- code_change subtasks must be reviewed by a code-review capable agent when one exists.",
-    "- qa must depend on the implementation and run AFTER approval/apply.",
+    "- Add a review node only when the change is risky (auth, security, payments, migrations, cross-domain, concurrency); add QA only when the change is user-visible or the request asks for verification.",
     "- Do NOT invent capabilities that are not listed above.",
     "- Keep the plan minimal; do not add decorative steps.",
     "",
@@ -196,46 +219,102 @@ function buildPlanningPrompt(input: PlannerInput): string {
     .join("\n");
 }
 
-export function ensureRequiredSubtasks(
+/**
+ * Plan 005 Phase 3 Step 3.1: hints instead of mandates.
+ *
+ * Review and QA are added by the orchestrator only when the policy says so
+ * (reviewMode/qaMode) AND a signal fires. "always" reproduces the legacy
+ * behaviour of ensureRequiredSubtasks; "never" adds nothing; "auto" (the
+ * default) adds the hint only on the risk/verification signals below.
+ *
+ * Hints never REMOVE plan nodes: an LLM plan that already carries a review
+ * or QA node keeps it.
+ */
+export function applyPlanningHints(
   plan: ExecutionPlan,
-  agents: AgentDefinition[]
+  agents: AgentDefinition[],
+  ctx: {
+    command: string;
+    classification: Classification;
+    policy: Pick<ExecutionPolicy, "reviewMode" | "qaMode">;
+    /** Project has a QA/dev URL (resolveQaBaseUrl). */
+    hasQaUrl?: boolean;
+  }
 ): ExecutionPlan {
-  const hasCodeChange = plan.subtasks.some((subtask) => subtask.kind === "code_change");
+  const subtasks = plan.subtasks.slice();
+  const hasCodeChange = subtasks.some((subtask) => subtask.kind === "code_change");
   if (!hasCodeChange) return plan;
 
-  const subtasks = plan.subtasks.slice();
   const codeChangeKeys = subtasks
     .filter((subtask) => subtask.kind === "code_change")
     .map((subtask) => subtask.key);
 
+  const riskSignal =
+    RISK_SIGNAL.test(ctx.command) ||
+    ctx.classification.kind === "multi" ||
+    (() => {
+      const capabilities = new Set(
+        subtasks
+          .filter((subtask) => subtask.kind === "code_change")
+          .map((subtask) => subtask.capability)
+      );
+      return capabilities.size >= 2;
+    })();
+
   let review = subtasks.find((subtask) => subtask.kind === "review");
   if (!review) {
-    review = {
-      key: uniqueKey("review", subtasks),
-      title: "Review the change",
-      description: "Review the prepared diff for correctness, regressions and missing cases.",
-      kind: "review",
-      capability: CAPABILITY.CODE_REVIEW,
-      dependencies: codeChangeKeys,
-      order: subtasks.length,
-    };
-    subtasks.push(review);
+    const hasReviewer = agents.some(
+      (agent) => isAgentEnabled(agent) && capabilitiesOf(agent).includes(CAPABILITY.CODE_REVIEW)
+    );
+    // An agent that EXPLICITLY offers review capability counts as a signal
+    // (it declared review as a capability it wants to perform), distinct
+    // from merely having it in the capability list.
+    const explicitReviewOffer = agents.some(
+      (agent) =>
+        isAgentEnabled(agent) &&
+        agent.skills?.some((skill) => /review/i.test(skill))
+    );
+    const addReview =
+      ctx.policy.reviewMode === "always" ||
+      (ctx.policy.reviewMode !== "never" && (riskSignal || explicitReviewOffer));
+    // "always" is the legacy mandate: review is added even when no enabled
+    // agent serves code-review (ensureRoutable drops it afterwards if
+    // unroutable). "auto" only adds when a reviewer actually exists.
+    if (addReview && (hasReviewer || ctx.policy.reviewMode === "always")) {
+      review = {
+        key: uniqueKey("review", subtasks),
+        title: "Review the change",
+        description: "Review the prepared diff for correctness, regressions and missing cases.",
+        kind: "review",
+        capability: CAPABILITY.CODE_REVIEW,
+        dependencies: codeChangeKeys,
+        order: subtasks.length,
+      };
+      subtasks.push(review);
+    }
   }
 
   const hasQaAgent = agents.some(
     (agent) => isAgentEnabled(agent) && capabilitiesOf(agent).includes(CAPABILITY.BROWSER_TESTING)
   );
   if (hasQaAgent && !subtasks.some((subtask) => subtask.kind === "qa")) {
-    subtasks.push({
-      key: uniqueKey("qa", subtasks),
-      title: "Verify in a browser",
-      description:
-        "Run the app after changes are applied and verify responsiveness, console errors and network failures.",
-      kind: "qa",
-      capability: CAPABILITY.BROWSER_TESTING,
-      dependencies: [review.key],
-      order: subtasks.length,
-    });
+    const verificationAsked = VERIFICATION_REQUESTED.test(ctx.command);
+    const addQa =
+      ctx.policy.qaMode === "always" ||
+      (ctx.policy.qaMode !== "never" &&
+        (riskSignal || verificationAsked || ctx.hasQaUrl === true));
+    if (addQa) {
+      subtasks.push({
+        key: uniqueKey("qa", subtasks),
+        title: "Verify in a browser",
+        description:
+          "Run the app after changes are applied and verify responsiveness, console errors and network failures.",
+        kind: "qa",
+        capability: CAPABILITY.BROWSER_TESTING,
+        dependencies: [review?.key ?? codeChangeKeys.at(-1) ?? ""].filter(Boolean),
+        order: subtasks.length,
+      });
+    }
   }
 
   return {
@@ -243,6 +322,32 @@ export function ensureRequiredSubtasks(
     strategy: subtasks.length > 1 ? "dag" : plan.strategy,
     subtasks: subtasks.map((subtask, index) => ({ ...subtask, order: index })),
   };
+}
+
+const RISK_SIGNAL =
+  /\b(auth(?:entication|orization|entication)?|login|sign-?in|password|token|session|oauth|jwt|permission|rbac|acl|security|vulnerab|xss|csrf|injection|secret|payment|billing|checkout|stripe|invoice|migrat(?:e|ion)|schema|concurr(?:ent|ency)|race|lock|transaction|balance)\b/i;
+
+const VERIFICATION_REQUESTED =
+  /\b(test|tests|qa|e2e|playwright|vitest|coverage|verify|verification|verify in browser|manual check|smoke)\b/i;
+
+/**
+ * Legacy entry point: every code change gets a review node, and QA when a
+ * QA agent exists. Kept for the callers/tests that still express the old
+ * mandate; createPlan now goes through applyPlanningHints instead.
+ */
+export function ensureRequiredSubtasks(
+  plan: ExecutionPlan,
+  agents: AgentDefinition[]
+): ExecutionPlan {
+  const policy: Pick<ExecutionPolicy, "reviewMode" | "qaMode"> = {
+    reviewMode: "always",
+    qaMode: "always",
+  };
+  return applyPlanningHints(plan, agents, {
+    command: "",
+    classification: { kind: "code_change", strategy: "single", reasons: [], suggestedCapabilities: [] },
+    policy,
+  });
 }
 
 function uniqueKey(base: string, subtasks: ExecutionPlan["subtasks"]): string {
@@ -253,14 +358,32 @@ function uniqueKey(base: string, subtasks: ExecutionPlan["subtasks"]): string {
   return `${base}_${index}`;
 }
 
-function ensureRoutable(plan: ExecutionPlan, agents: AgentDefinition[]): ExecutionPlan | null {
-  const missing: string[] = [];
+/**
+ * Plan 005 Phase 3 Step 3.2: drop unroutable nodes instead of discarding
+ * the whole LLM plan. The returned `dropped` keys are logged by the caller
+ * as `plan.hint_dropped` events. Degrades (null) only when NO subtask
+ * routes to an enabled agent.
+ */
+function ensureRoutable(
+  plan: ExecutionPlan,
+  agents: AgentDefinition[]
+): { plan: ExecutionPlan; dropped: string[] } | null {
+  const kept: ExecutionPlan["subtasks"] = [];
+  const dropped: string[] = [];
   for (const subtask of plan.subtasks) {
-    const agent = routeCapability(subtask.capability, agents);
-    if (!agent) missing.push(subtask.capability);
+    if (routeCapability(subtask.capability, agents)) kept.push(subtask);
+    else dropped.push(subtask.key);
   }
-  if (missing.length > 0) return null;
-  return plan;
+  if (kept.length === 0) return null;
+  if (kept.length === plan.subtasks.length) return { plan, dropped: [] };
+  return {
+    plan: {
+      ...plan,
+      strategy: kept.length > 1 ? "dag" : plan.strategy,
+      subtasks: kept.map((subtask, index) => ({ ...subtask, order: index })),
+    },
+    dropped,
+  };
 }
 
 export function heuristicPlan(input: PlannerInput): ExecutionPlan {
@@ -367,9 +490,8 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
     };
   }
 
-  const subtasks: ExecutionPlan["subtasks"] = [];
   if (classification.kind === "multi") {
-    subtasks.push({
+    const frontendTask: ExecutionPlan["subtasks"][number] = {
       key: "implement_frontend",
       title: "Implement frontend changes",
       description: `Implement the frontend portion of: ${command}`,
@@ -377,8 +499,8 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
       capability: CAPABILITY.FRONTEND,
       dependencies: [],
       order: 0,
-    });
-    subtasks.push({
+    };
+    const backendTask: ExecutionPlan["subtasks"][number] = {
       key: "implement_backend",
       title: "Implement backend changes",
       description: `Implement the backend portion of: ${command}`,
@@ -386,56 +508,49 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
       capability: CAPABILITY.BACKEND,
       dependencies: [],
       order: 1,
-    });
-    subtasks.push({
-      key: "review",
-      title: "Review the implementation",
-      description: "Review all prepared diffs for correctness, regressions and missing cases.",
-      kind: "review",
-      capability: CAPABILITY.CODE_REVIEW,
-      dependencies: ["implement_frontend", "implement_backend"],
-      order: 2,
-    });
-  } else {
-    subtasks.push({
-      key: "implement",
-      title: "Implement the change",
-      description: command,
-      kind: "code_change",
-      capability: classification.suggestedCapabilities[0] ?? CAPABILITY.FRONTEND,
-      dependencies: [],
-      order: 0,
-    });
-    subtasks.push({
-      key: "review",
-      title: "Review the change",
-      description: "Review the prepared diff for correctness, regressions and missing cases.",
-      kind: "review",
-      capability: CAPABILITY.CODE_REVIEW,
-      dependencies: ["implement"],
-      order: 1,
-    });
+    };
+    // Multi-domain: the two implementation lanes only, plus the hints
+    // applyPlanningHints adds from the policy (review on the risk signal,
+    // QA when a QA agent exists and a signal fires).
+    const multiSubtasks = [frontendTask, backendTask];
+    const hinted = applyPlanningHints(
+      { version: 1, goal, strategy: "dag", requiresApproval: true, maxConcurrency: 2, subtasks: multiSubtasks },
+      agents,
+      {
+        command,
+        classification,
+        policy: input.policy,
+        hasQaUrl: input.hasQaUrl,
+      }
+    );
+    return hinted;
   }
 
-  if (hasCapability(CAPABILITY.BROWSER_TESTING)) {
-    subtasks.push({
-      key: "qa",
-      title: "Verify in a browser",
-      description:
-        "Run the app after changes are applied and verify responsiveness, console errors and network failures.",
-      kind: "qa",
-      capability: CAPABILITY.BROWSER_TESTING,
-      dependencies: ["review"],
-      order: subtasks.length,
-    });
-  }
-
-  return {
+  const single: ExecutionPlan = {
     version: 1,
     goal,
-    strategy: subtasks.length > 1 ? "dag" : "single",
+    // Single-domain code change: one code_change node, direct strategy.
+    // Hints (review/QA) are added only on the risk signal or when the
+    // policy says "always".
+    strategy: "direct",
     requiresApproval: true,
-    maxConcurrency: 2,
-    subtasks,
+    maxConcurrency: 1,
+    subtasks: [
+      {
+        key: "implement",
+        title: "Implement the change",
+        description: command,
+        kind: "code_change",
+        capability: classification.suggestedCapabilities[0] ?? CAPABILITY.FRONTEND,
+        dependencies: [],
+        order: 0,
+      },
+    ],
   };
+  return applyPlanningHints(single, agents, {
+    command,
+    classification,
+    policy: input.policy,
+    hasQaUrl: input.hasQaUrl,
+  });
 }

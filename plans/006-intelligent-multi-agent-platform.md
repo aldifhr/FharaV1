@@ -247,6 +247,20 @@ No migration function is needed: new writes populate the new fields; old rows
 
 ### Phase 1 — Router (Convex side shrinks, worker side grows)
 
+Implemented so far (2026-11-07): `packages/worker/src/router/route.ts`
+(deterministic intent routing, injected advisor, fail-closed to chat),
+`packages/worker/src/router/selectAgents.ts` (capability-scored selection,
+`allowFallback: false`), `tests/router.test.ts` (R1–R7, 17 tests), policy
+knobs `ORCHESTRATOR_ROUTER_LLM` (default `off`) and
+`ORCHESTRATOR_CHAT_MAX_AGENTS` (default 1). Deliberately **not** yet done:
+rewiring the Convex entry point and deleting `chat.ts:replyToChat` /
+`completeWithAgent` — that step needs Phase 4's durable queue, because
+chat replies must be claimed by the worker with the same lease discipline as
+tasks (plan 006 Phase 1 STOP condition: "the queue becomes a second
+scheduler" — the queue, not the Convex action, is the door). The Convex
+entry-point change is therefore folded into Phase 4; Phase 1's exit
+criterion is the router module + tests green, which holds.
+
 - Move the chat entry off `chat.ts:replyToChat`: `messages.send` inserts the
   message and returns (the scheduling moves to Phase 4's queue claim; until
   then, keep a thin `scheduleChat` that calls the same worker entry point).

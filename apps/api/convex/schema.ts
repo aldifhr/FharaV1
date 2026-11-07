@@ -220,10 +220,45 @@ export default defineSchema({
     subtaskKey: v.optional(v.string()),
     executionId: v.optional(v.id("executions")),
     replyToMessageId: v.optional(v.id("messages")),
+    // Plan 007 (additive): the conversation this message belongs to. Optional
+    // so pre-conversation messages still validate; task-thread messages keep
+    // taskId and need no conversation.
+    conversationId: v.optional(v.id("conversations")),
   })
     .index("by_project", ["projectId"])
     .index("by_task", ["taskId"])
     .index("by_reply_to", ["replyToMessageId"]),
+
+  // Plan 007 (addendum §2): conversation participation is its own concept,
+  // independent of project membership (projects.agentIds) and task assignment
+  // (tasks.assignedAgentIds / subtasks.assignedAgentId). A conversation is the
+  // persisted chat thread; participants are the agents currently in it.
+  conversations: defineTable({
+    projectId: v.id("projects"),
+    taskId: v.optional(v.id("tasks")),
+    title: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("closed")),
+    createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
+    lastMessageAt: v.optional(v.number()),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_project_and_status", ["projectId", "status"])
+    .index("by_task", ["taskId"]),
+
+  // Leaving is a soft delete (leftAt): participation history is kept and
+  // queries filter leftAt === undefined. projectId is denormalized so
+  // per-project participation reads do not join through conversations.
+  conversationParticipants: defineTable({
+    conversationId: v.id("conversations"),
+    projectId: v.id("projects"),
+    agentId: v.id("agents"),
+    joinedAt: v.number(),
+    leftAt: v.optional(v.number()),
+  })
+    .index("by_conversation", ["conversationId"])
+    .index("by_agent", ["agentId"])
+    .index("by_project", ["projectId"]),
 
   approvals: defineTable({
     taskId: v.id("tasks"),

@@ -69,12 +69,60 @@ export interface ExecutionPolicy {
    * planner plan directly, orchestrator decisions recorded only.
    */
   orchestratorAuthoritative?: boolean;
+  /**
+   * Plan 006 Phase 1: when the intent router is unsure, who decides.
+   *  - "off": ambiguous input always becomes a chat answer (fails closed).
+   *  - "ambiguous": only the ambiguous case consults the LLM advisor.
+   *  - "always": the advisor is consulted on every message.
+   */
+  routerLlmMode?: "off" | "ambiguous" | "always";
+  /** Plan 006 Phase 1: cap on agents answering one chat message. */
+  chatMaxAgents?: number;
+  /**
+   * Plan 006 Phase 2: the decision engine behind `executePlan`. When false
+   * the legacy evaluation path (record-only decisions) runs unchanged.
+   */
+  decisionEngine?: boolean;
+  /**
+   * Plan 006 Phase 2: when the decision advisor is consulted.
+   *  - "off": never (pure deterministic engine).
+   *  - "ambiguous": only when the deterministic engine returns "ambiguous".
+   *  - "always": on every observation (A/B comparison).
+   */
+  decisionLlmMode?: "off" | "ambiguous" | "always";
+  /** Plan 006 Phase 2: bound on decision steps per task run. */
+  maxDecisionSteps?: number;
+  /**
+   * Plan 005 Phase 3 (progressive planning): when a review node is added
+   * for a code change.
+   *  - "always": every code change gets a review node (legacy behaviour).
+   *  - "auto": only on a risk signal (auth/security/payments/migrations/
+   *    concurrency, multi-capability, multi-domain, or an agent explicitly
+   *    offering review capability).
+   *  - "never": the orchestrator never adds a review node (the plan's own
+   *    review node, if any, is kept — hints never remove plan nodes).
+   */
+  reviewMode?: "always" | "auto" | "never";
+  /**
+   * Plan 005 Phase 3: when a QA node is added for a code change.
+   *  - "always": every code change gets a QA node when a QA agent exists.
+   *  - "auto": only with a QA agent, a code change, and a risk signal, a
+   *    verification request, or a project QA/dev URL.
+   *  - "never": the orchestrator never adds a QA node.
+   */
+  qaMode?: "always" | "auto" | "never";
 }
 
 function boolFromEnv(name: string, fallback: boolean): boolean {
   const raw = process.env[name];
   if (raw === undefined) return fallback;
   return !["0", "false", "off", "no"].includes(raw.trim().toLowerCase());
+}
+
+/** "always" | "auto" | "never" from env, defaulting to "auto". */
+function planningModeFromEnv(name: string): "always" | "auto" | "never" {
+  const raw = (process.env[name] ?? "").trim().toLowerCase();
+  return raw === "always" || raw === "auto" || raw === "never" ? raw : "auto";
 }
 
 export function loadPolicy(): ExecutionPolicy {
@@ -132,5 +180,31 @@ export function loadPolicy(): ExecutionPolicy {
     maxTokenBudgetPerTask: intFromEnv("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK", 50_000, 1_000, 500_000),
     allowFallback: boolFromEnv("ORCHESTRATOR_ALLOW_FALLBACK", true),
     orchestratorAuthoritative: boolFromEnv("ORCHESTRATOR_AUTHORITATIVE", true),
+    // Plan 006 Phase 1: the router is deterministic by default; the advisor
+    // turns on only when the flag is set (Phase 4 wires the real call).
+    routerLlmMode:
+      (process.env.ORCHESTRATOR_ROUTER_LLM ?? "").trim().toLowerCase() ===
+      "always"
+        ? "always"
+        : (process.env.ORCHESTRATOR_ROUTER_LLM ?? "").trim().toLowerCase() ===
+            "ambiguous"
+          ? "ambiguous"
+          : "off",
+    chatMaxAgents: intFromEnv("ORCHESTRATOR_CHAT_MAX_AGENTS", 1, 1, 5),
+    // Plan 006 Phase 2: default OFF — the legacy evaluation path is unchanged
+    // until the engine is observed in the wild.
+    decisionEngine: boolFromEnv("ORCHESTRATOR_DECISION_ENGINE", false),
+    // Plan 005 Phase 4 Step 4.3 (enabled once Phase 4 tests went green):
+    // the advisor is consulted only on ambiguous observations; the
+    // deterministic policy decisions still win via validateDecision.
+    decisionLlmMode:
+      (process.env.ORCHESTRATOR_DECISION_LLM ?? "").trim().toLowerCase() === "always"
+        ? "always"
+        : (process.env.ORCHESTRATOR_DECISION_LLM ?? "").trim().toLowerCase() === "off"
+          ? "off"
+          : "ambiguous",
+    maxDecisionSteps: intFromEnv("ORCHESTRATOR_MAX_DECISION_STEPS", 20, 1, 200),
+    reviewMode: planningModeFromEnv("ORCHESTRATOR_REVIEW_MODE"),
+    qaMode: planningModeFromEnv("ORCHESTRATOR_QA_MODE"),
   };
 }

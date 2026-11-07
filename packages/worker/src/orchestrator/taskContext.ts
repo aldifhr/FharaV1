@@ -4,6 +4,20 @@ import { routeCapability, capabilitiesOf, isAgentEnabled } from "./capabilities"
 import type { ReviewFinding } from "../utils/json";
 
 export type DelegationDecision = "APPROVE" | "REJECT" | "REVISE" | "COMPLETE" | "BLOCKED";
+/**
+ * Plan 005 Phase 4 Step 4.2: the decision trail must show the engine's
+ * actions too, not only the evaluation layer's. `TaskDecision.decision`
+ * therefore carries either vocabulary; replan feedback
+ * (`buildReplanFeedback`) prints it verbatim.
+ */
+export type TaskDecisionValue =
+  | DelegationDecision
+  | "execute"
+  | "delegate"
+  | "parallel"
+  | "replan"
+  | "complete"
+  | "ask_user";
 
 export interface AgentResult {
   agentId?: string;
@@ -37,12 +51,18 @@ export interface ExecutionHistoryEntry {
 }
 
 export interface TaskDecision {
-  decision: DelegationDecision;
+  decision: TaskDecisionValue;
   reason: string;
   capability?: string;
   fromAgent?: string;
   toAgent?: string;
   createdAt: number;
+  /** Engine payload (plan 005 Phase 4 Step 4.2): id/action/target/decidedBy/planVersion/step. */
+  id?: string;
+  target?: { agentId?: string; capability?: string };
+  decidedBy?: "deterministic" | "llm";
+  planVersion?: number;
+  step?: number;
 }
 
 export interface TaskArtifact {

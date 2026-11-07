@@ -57,13 +57,18 @@ export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResul
     }
     seen.add(key);
 
-    const kind = value.kind as SubtaskKind;
-    if (!SUBTASK_KINDS.includes(kind)) {
-      errors.push(`subtask ${key}: kind must be one of ${SUBTASK_KINDS.join(", ")}`);
-    }
     const capability =
       typeof value.capability === "string" ? normalizeCapability(value.capability) : "";
     if (!capability) errors.push(`subtask ${key}: capability is required`);
+    // ponytail: shell-execution always runs the "shell" executor. Planner
+    // sometimes emits kind "audit"/"analysis" for it, which routes to the
+    // read-only executor (no shell access). Coerce at validation.
+    const kind = (capability === "shell-execution"
+      ? "shell"
+      : (value.kind as SubtaskKind)) as SubtaskKind;
+    if (!SUBTASK_KINDS.includes(kind)) {
+      errors.push(`subtask ${key}: kind must be one of ${SUBTASK_KINDS.join(", ")}`);
+    }
 
     const dependencies = Array.isArray(value.dependencies)
       ? (value.dependencies as unknown[])

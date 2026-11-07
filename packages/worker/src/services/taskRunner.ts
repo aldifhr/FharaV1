@@ -2804,7 +2804,9 @@ function implementerAgent(
   plan: ExecutionPlan,
   agents: AgentDefinition[]
 ): AgentDefinition | null {
-  const codeSubtask = plan.subtasks.find((subtask) => subtask.kind === "code_change");
+  const codeSubtask = plan.subtasks.find(
+    (subtask) => subtask.kind === "code_change" || subtask.kind === "shell"
+  );
   if (codeSubtask) return routeCapability(codeSubtask.capability, agents);
   return routeCapability(CAPABILITY.GENERAL, agents);
 }

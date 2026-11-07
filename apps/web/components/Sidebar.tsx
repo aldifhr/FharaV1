@@ -11,7 +11,8 @@ import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import { Check, Plus, Settings2, Trash2, X, Dices } from "lucide-react";
+import { Check, Plus, Settings2, Trash2, X, Dices, Pencil, ChevronDown } from "lucide-react";
+import AgentDetailPanel, { statusFromActive } from "./AgentDetailPanel";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
 import { Card, CardContent } from "./ui/card";
@@ -67,7 +68,9 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   const [isTeamOpen, setIsTeamOpen] = useState(false);
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [teamProjectId, setTeamProjectId] = useState<string | null>(null);
-  const [openSections, setOpenSections] = useState({ needsYou: true, projects: true, team: true });
+  const [openSections, setOpenSections] = useState({ needsYou: true, projects: true, team: false });
+  const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
+  const [detailAgent, setDetailAgent] = useState<any>(null);
   const updateTeam = useMutation(api.projects.updateTeam);
   const removeProject = useMutation(api.projects.remove);
   const router = useRouter();
@@ -442,46 +445,96 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
         <AnimatePresence initial={false}>
         {openSections.team && visibleAgents.map((a: any) => {
           const active = (activeByAgent as any)?.[a._id as string] as { taskId: string; taskTitle: string; subtaskKey?: string; status: string } | undefined;
-          const isWorking = Boolean(active);
+          // Status is derived from the backend execution lease, not the
+          // persisted `agents.status` (which lumps idle agents as "working").
+          const status = statusFromActive(active);
+          const isDisabled = a.isEnabled === false;
+          const expanded = expandedAgentId === a._id;
+          const projectCount = (projects ?? []).filter((p: any) => p.agentIds?.includes(a._id)).length;
           return (
-          <motion.div key={a._id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} role="button" tabIndex={0} onClick={() => openAgentEditor(a)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") openAgentEditor(a); }} className="group mt-1 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 dark:text-white hover:bg-[#f0eff7]">
-            <AgentAvatar name={a.name} size={28} status={isWorking ? "working" : a.status} avatarParams={a.avatarParams} />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm">{a.name}</span>
-              <span className="block truncate text-[11px] capitalize text-gray-400">
-                {isWorking ? (
-                  <>
-                    <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                      {active!.status === "running" ? "Working" : active!.status === "waiting_approval" ? "Waiting Approval" : active!.status === "queued" ? "Thinking" : active!.status}
-                    </span>
-                    {" · "}
-                    {active!.taskTitle}
-                    {active!.subtaskKey ? ` · ${active!.subtaskKey}` : ""}
-                  </>
-                ) : (
-                  a.role
-                )}
+          <motion.div key={a._id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} className="mt-1 rounded-lg hover:bg-[#f0eff7] dark:hover:bg-gray-800">
+            <div role="button" tabIndex={0} onClick={() => setDetailAgent(a)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setDetailAgent(a); }} className="group flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 dark:text-white">
+              <AgentAvatar name={a.name} size={28} status={isDisabled ? undefined : (status.avatar === "idle" ? undefined : status.avatar)} avatarParams={a.avatarParams} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm">{a.name}</span>
+                <span className="block truncate text-[11px] capitalize text-gray-400">
+                  {active ? (
+                    <>
+                      <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                        {status.label}
+                      </span>
+                      {" · "}
+                      {active.taskTitle}
+                      {active.subtaskKey ? ` · ${active.subtaskKey}` : ""}
+                    </>
+                  ) : isDisabled ? (
+                    "Disabled"
+                  ) : (
+                    a.role
+                  )}
+                </span>
               </span>
-            </span>
-            <span className={`text-xs ${isWorking ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-gray-400"}`}>{isWorking ? "busy" : a.status}</span>
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                handleRemoveAgent(a._id, a.name);
-              }}
-              disabled={removingAgentId === a._id}
-              className="hidden rounded px-1 text-xs text-gray-400 hover:bg-red-50 hover:text-red-600 group-hover:block disabled:opacity-50"
-              title={`Remove ${a.name}`}
-              aria-label={`Remove ${a.name}`}
-            >
-              ×
-            </button>
+              <span className={`text-xs ${active ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-gray-400"}`}>{isDisabled ? "disabled" : status.label === "Idle" ? "idle" : status.label}</span>
+              <button
+                type="button"
+                onClick={(event) => { event.stopPropagation(); setExpandedAgentId(expanded ? null : a._id); }}
+                className="rounded px-1 text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4]"
+                title={expanded ? `Collapse ${a.name}` : `Expand ${a.name}`}
+                aria-label={expanded ? `Collapse ${a.name}` : `Expand ${a.name}`}
+                aria-expanded={expanded}
+              >
+                <ChevronDown size={14} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+              </button>
+              <button
+                type="button"
+                onClick={(event) => { event.stopPropagation(); openAgentEditor(a); }}
+                className="hidden rounded px-1 text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4] group-hover:block"
+                title={`Edit ${a.name}`}
+                aria-label={`Edit ${a.name}`}
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleRemoveAgent(a._id, a.name);
+                }}
+                disabled={removingAgentId === a._id}
+                className="hidden rounded px-1 text-xs text-gray-400 hover:bg-red-50 hover:text-red-600 group-hover:block disabled:opacity-50"
+                title={`Remove ${a.name}`}
+                aria-label={`Remove ${a.name}`}
+              >
+                ×
+              </button>
+            </div>
+            {expanded && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                <button type="button" onClick={() => setDetailAgent(a)} className="block w-full px-2 pb-2 pl-12 text-left text-[11px] text-gray-500 hover:text-[#5147b4] dark:text-gray-400">
+                  <span className="block capitalize">{a.role} · {status.label}</span>
+                  {active && <span className="block truncate">On: {active.taskTitle}{active.subtaskKey ? ` · ${active.subtaskKey}` : ""}</span>}
+                  <span className="block">
+                    {projectCount} project{projectCount === 1 ? "" : "s"} · {(a.supportedTools ?? a.capabilities ?? []).length} tool/capability entries · click for full detail
+                  </span>
+                </button>
+              </motion.div>
+            )}
           </motion.div>
           );
         })}
         </AnimatePresence>
+        {openSections.team && (agents ?? []).length === 0 && agents !== undefined && (
+          <p className="px-1 pt-2 text-xs text-gray-400">No agents yet.</p>
+        )}
       </div>
+
+      {detailAgent && (
+        <AgentDetailPanel
+          agent={detailAgent}
+          onClose={() => setDetailAgent(null)}
+          onEdit={(a: any) => { setDetailAgent(null); openAgentEditor(a); }}
+        />
+      )}
 
       {isCreateAgentOpen && (
         <Modal title="Create agent" onClose={() => setIsCreateAgentOpen(false)} maxWidth="max-w-lg">

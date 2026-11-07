@@ -1,14 +1,15 @@
 "use client";
 
-import { useTheme as useNextThemes } from "next-themes";
+import { useTheme as useCtx } from "./theme-provider";
 
 export type Theme = "light" | "dark";
 
 export function useTheme() {
-  const { theme, setTheme, resolvedTheme } = useNextThemes();
+  const { theme, toggle } = useCtx();
+  const isDark = theme === "dark";
   return {
-    theme: (theme ?? "light") as Theme,
-    setTheme,
-    toggleTheme: () => setTheme(resolvedTheme === "dark" ? "light" : "dark"),
+    theme: (isDark ? "dark" : "light") as Theme,
+    setTheme: (t: Theme) => toggle(),
+    toggleTheme: toggle,
   };
 }

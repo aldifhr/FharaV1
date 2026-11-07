@@ -321,3 +321,105 @@ export const remove = mutation({
     await ctx.db.delete(args.agentId);
   },
 });
+
+/**
+ * Team panel detail: one agent joined with its role definition, assigned
+ * projects (via `projects.agentIds`), project assignments (`projectAgents`
+ * incl. allowed tools), open assigned tasks, and effective capabilities.
+ * Status/assigned-task display still comes from `executionView.activeByAgent`
+ * on the client — this query is the registry side of the panel.
+ */
+export const getDetail = query({
+  args: { agentId: v.id("agents") },
+  handler: async (ctx, args) => {
+    const agent = await assertAgentAccess(ctx, args.agentId);
+
+    const roleDefinition = agent.roleId
+      ? await ctx.db.get(agent.roleId)
+      : (
+          await ctx.db
+            .query("roleDefinitions")
+            .withIndex("by_key", (q) => q.eq("key", agent.role.trim().toLowerCase()))
+            .take(1)
+        )[0] ?? null;
+
+    const projects = await ctx.db.query("projects").collect();
+    const assignedProjects = projects
+      .filter((project) => project.agentIds?.includes(agent._id))
+      .map((project) => ({ projectId: project._id, name: project.name }));
+
+    const assignments = await ctx.db
+      .query("projectAgents")
+      .withIndex("by_agent", (q) => q.eq("agentId", agent._id))
+      .collect();
+    const projectAssignments = assignments.map((row) => ({
+      projectId: row.projectId,
+      enabled: row.enabled,
+      allowedTools: row.allowedTools ?? null,
+      customInstructions: row.customInstructions ?? null,
+    }));
+
+    const allOpenTasks = (
+      await Promise.all(
+        (["queued", "running", "needs_approval"] as const).map((status) =>
+          ctx.db.query("tasks").withIndex("by_status", (q) => q.eq("status", status)).collect()
+        )
+      )
+    ).flat();
+    const assignedTasks = allOpenTasks
+      .filter((task) => task.assignedAgentIds?.includes(agent._id))
+      .map((task) => ({ taskId: task._id, title: task.title, status: task.status, projectId: task.projectId }));
+
+    const effectiveCapabilities = Array.from(
+      new Set([...(agent.capabilities ?? []), ...(roleDefinition?.capabilities ?? [])])
+    );
+    const effectiveTools = agent.supportedTools ?? roleDefinition?.defaultTools ?? [];
+    const toolsAreCustom = agent.supportedTools !== undefined;
+
+    return {
+      agent: projectAgentDoc(agent),
+      roleDefinition,
+      assignedProjects,
+      projectAssignments,
+      assignedTasks,
+      effectiveCapabilities,
+      effectiveTools,
+      toolsAreCustom,
+    };
+  },
+});
+
+/**
+ * Recent executions for one agent, newest first, with the task title
+ * resolved. Used by the team detail panel's history section.
+ */
+export const getExecutionHistory = query({
+  args: { agentId: v.id("agents"), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    await assertAgentAccess(ctx, args.agentId);
+    const limit = Math.min(Math.max(Math.floor(args.limit ?? 20), 1), 100);
+    const rows = await ctx.db
+      .query("executions")
+      .withIndex("by_agent", (q) => q.eq("agentId", args.agentId))
+      .order("desc")
+      .take(limit);
+    return Promise.all(
+      rows.map(async (row) => {
+        const task = await ctx.db.get(row.taskId);
+        return {
+          executionId: row._id,
+          taskId: row.taskId,
+          taskTitle: task?.title ?? null,
+          subtaskKey: row.subtaskKey ?? null,
+          capability: row.capability,
+          status: row.status,
+          attempt: row.attempt,
+          startedAt: row.startedAt ?? null,
+          completedAt: row.completedAt ?? null,
+          createdAt: row.createdAt,
+          error: row.error ?? null,
+        };
+      })
+    );
+  },
+});

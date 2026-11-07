@@ -12,7 +12,8 @@ import { avatartionFor, deserializeAvatartion } from "./ui/avatartion";
 import DiffCard from "./DiffCard";
 import Modal from "./Modal";
 import TaskBoard from "./TaskBoard";
-import ToolActivity from "./ToolActivity";
+import TerminalPanel from "./TerminalPanel";
+
 import { useToast } from "./Toasts";
 import { Bell, Check, Copy, MoreHorizontal, Pencil, Send } from "lucide-react";
 
@@ -49,6 +50,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const updateTeam = useMutation(api.projects.updateTeam);
   const updateApprovalMode = useMutation(api.projects.updateApprovalMode);
   const [isManageOpen, setIsManageOpen] = useState(false);
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const projectAgentIds = project?.agentIds;
   const agents = (projectAgentIds
     ? (allAgents ?? []).filter((agent: any) => (projectAgentIds as readonly string[]).includes(agent._id))
@@ -98,7 +100,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     setMoreOpen(false);
   };
 
-  const selectedTask = (tasks ?? []).find((task) => task._id === selectedTaskId) ?? tasks?.[0];
+  const selectedTask = (tasks ?? []).find((task) => task._id === selectedTaskId);
   const fileChangesByTask = useQuery(api.fileChanges.listByTask, selectedTask ? { taskId: selectedTask._id } : "skip");
   const taskEvents = useQuery(api.taskEvents.listByTask, selectedTask ? { taskId: selectedTask._id } : "skip");
   const projectFiles = useQuery(api.fileChanges.listByProject, { projectId: projectId as any });
@@ -107,12 +109,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     ? (messages ?? []).filter((message: any) => message.taskId === selectedTask._id)
     : [];
   const agentMessages = selectedTaskMessages.filter((message: any) => message.authorType === "agent");
-  const userMessages = selectedTaskMessages.filter((message: any) => message.authorType === "user");
-  const conversationMessages = (messages ?? [])
-    .filter((message: any) => !message.taskId)
-    .sort((a: any, b: any) => a._creationTime - b._creationTime);
-  const lastConversation = conversationMessages[conversationMessages.length - 1];
-  const conversationTyping = lastConversation?.authorType === "user";
+  // One chronological timeline: project conversation + the selected task's
+  // agent reports. Rendering them as two separate blocks (conversation first,
+  // then task) put older task messages below newer conversation messages.
+  const timeline = [
+    ...(messages ?? []).filter((message: any) => !message.taskId),
+    ...agentMessages,
+  ].sort((a: any, b: any) => a._creationTime - b._creationTime);
+  const lastMessage = timeline[timeline.length - 1];
+  const conversationTyping = lastMessage?.authorType === "user";
   const latestAgentMessage = [...selectedTaskMessages].reverse().find((message: any) => message.authorType === "agent");
 
   const [manageName, setManageName] = useState("");
@@ -357,6 +362,14 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               )}
             </div>
             <span className="text-xs text-gray-500">{agents.length} {agents.length === 1 ? "agent" : "agents"}</span>
+            <button
+              type="button"
+              onClick={() => setIsTerminalOpen(true)}
+              className="ml-2 flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+              title="Open terminal"
+            >
+              ▸ Terminal
+            </button>
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1">
@@ -470,9 +483,14 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         ))}
         {tab === "chat" ? (
           <>
-            <ToolActivity events={(taskEvents as any[]) ?? []} />
-            {conversationMessages.map((m: any) => (
-              <div key={m._id} className="flex gap-3">
+            {timeline.map((m: any, index: number) => (
+              <motion.div
+                key={m._id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
+                className="flex gap-3"
+              >
                 {m.authorType === "agent" ? (
                   <AgentAvatar
                     name={(agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"}
@@ -494,42 +512,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                     <span className="text-[11px] text-gray-400">{formatMessageTime(m._creationTime)}</span>
                   </div>
                   <MessageText content={m.content} />
-                </div>
-              </div>
-            ))}
-            {conversationMessages.length > 0 && (
-              <p className="text-center text-[11px] text-gray-400">— conversation —</p>
-            )}
-            {conversationTyping && (
-              <div className="flex items-center gap-2 text-xs text-gray-400">
-                <span>Team is thinking</span>
-                <span className="flex gap-0.5" aria-label="Agent is typing">
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:240ms]" />
-                </span>
-              </div>
-            )}
-            {agentMessages.map((m: any, index: number) => (
-                <motion.div
-                  key={m._id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
-                  className="flex gap-3"
-                >
-                <AgentAvatar
-                  name={(agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"}
-                  size={32}
-                  avatarParams={(agents as any)?.find((a: any) => a._id === m.agentId)?.avatarParams}
-                />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline gap-2">
-                      <p className="text-[13px] font-semibold text-[#34323d] dark:text-gray-100">{(agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"}</p>
-                      <span className="text-[11px] text-gray-400">{formatMessageTime(m._creationTime)}</span>
-                    </div>
-                    <MessageText content={m.content} />
-                  {fileChangesByTask?.length && m.taskId === selectedTask?._id && m._id === latestAgentMessage?._id ? (
+                  {m.taskId && fileChangesByTask?.length && m._id === latestAgentMessage?._id ? (
                     <div className="mt-2">
                       <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-600">
                         Changed {(fileChangesByTask as any).length} files
@@ -559,7 +542,17 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                 </div>
               </motion.div>
             ))}
-            {!agentMessages.length && <p className="text-sm text-gray-400">No agent reports yet.</p>}
+            {conversationTyping && (
+              <div className="flex items-center gap-2 text-xs text-gray-400">
+                <span>Team is thinking</span>
+                <span className="flex gap-0.5" aria-label="Agent is typing">
+                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
+                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
+                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:240ms]" />
+                </span>
+              </div>
+            )}
+            {!timeline.length && <p className="text-sm text-gray-400">No messages yet.</p>}
             {activeForSelectedTask.length > 0 ? (
               <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
                 <div className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">
@@ -618,6 +611,14 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         </button>
       )}
 
+
+      {isTerminalOpen && (
+        <Modal title={`Terminal · ${project?.name ?? ""}`} onClose={() => setIsTerminalOpen(false)} maxWidth="max-w-3xl">
+          <div className="h-[420px] pt-4">
+            <TerminalPanel workspacePath={project?.workspacePath ?? ""} />
+          </div>
+        </Modal>
+      )}
 
       {isManageOpen && (
         <Modal title={`Manage project · ${manageName}`} onClose={() => setIsManageOpen(false)} maxWidth="max-w-lg">

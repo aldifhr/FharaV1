@@ -14,6 +14,7 @@ export interface EvaluationCheck {
 export interface EvaluationFileChange {
   filePath: string;
   changeType: "new" | "modified" | "deleted";
+  oldContentHash?: string;
   newContentHash?: string;
   newContent?: string;
   appliedAt?: number;
@@ -159,6 +160,14 @@ async function verifyOnDisk(
       const expected = change.newContentHash;
       if (expected && hashContent(content) !== expected) {
         problems.push(`${change.filePath} content does not match the approved diff`);
+      }
+      // Baseline check: a "modified" file whose on-disk content is identical
+      // to its pre-task state is a no-op — the agent claimed a change but
+      // nothing actually changed. Without this, verification is tautological
+      // (disk always matches the diff that was read from disk).
+      const baseline = change.oldContentHash;
+      if (change.changeType === "modified" && baseline && hashContent(content) === baseline) {
+        problems.push(`${change.filePath} is unchanged from its pre-task state`);
       }
     } catch (error) {
       problems.push(

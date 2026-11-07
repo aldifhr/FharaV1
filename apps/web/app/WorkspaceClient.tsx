@@ -72,10 +72,6 @@ function WorkspaceShell({
     userClosedRef.current = false;
   }, [projectId]);
 
-  useEffect(() => {
-    if (!userClosedRef.current && !selectedTaskId && tasks?.[0]) setSelectedTaskId(tasks[0]._id);
-  }, [selectedTaskId, tasks]);
-
   const value = {
     projectId,
     agents: agents as Agent[] | undefined,

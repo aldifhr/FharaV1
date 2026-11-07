@@ -569,33 +569,15 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
   let workspacePath = resolveWorkspacePath(deps.workspaceRoot, project.workspacePath);
   await fs.mkdir(workspacePath, { recursive: true });
 
+  // ponytail: worktree isolation is disabled for daily dev — the worktree is
+  // created from HEAD while apply writes to the main workspace, so the diff
+  // baseline (worktree) diverges from the apply target (dirty main workspace)
+  // and apply fails with "created after approval". Working directly in the
+  // main workspace keeps staging/apply/verify on one baseline. Upgrade path:
+  // re-enable worktree + wire merge (worktreeNode.mergeBranch) so the
+  // worktree branch is integrated instead of overwriting the main workspace.
   let branchName: string | undefined;
   let worktreePath: string | undefined;
-
-  // Create isolated git worktree for this task (if repo is a git directory)
-  try {
-    const branch = await deps.api.createBranch({ taskId: task._id, projectId: project._id });
-    branchName = branch.branchName;
-    worktreePath = branch.worktreePath;
-    if (worktreePath) workspacePath = worktreePath;
-    await fs.mkdir(workspacePath, { recursive: true });
-    await deps.api.logEvent({
-      taskId: task._id,
-      projectId: project._id,
-      type: "branch.created",
-      payload: { branchName, worktreePath },
-      level: "info",
-    });
-  } catch (err: any) {
-    // If worktree creation fails (not a git repo, etc.), fall back to main workspace
-    await deps.api.logEvent({
-      taskId: task._id,
-      projectId: project._id,
-      type: "branch.creation_skipped",
-      payload: { reason: err.message },
-      level: "warn",
-    });
-  }
 
   const runAgents = agents.map(toAgentDefinition);
   const command = await withFileContexts(deps.workspaceRoot, project.workspacePath, task.command);
@@ -1018,6 +1000,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           workspacePath: resolveWorkspacePath(deps.workspaceRoot, project.workspacePath),
           plan,
           planVersion,
+          agents: runAgents,
           subtasks: after?.subtasks ?? [],
           state,
           signal: taskAbort.controller.signal,
@@ -2454,6 +2437,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
           workspacePath,
           plan,
           planVersion,
+          agents: context.agents,
           subtasks: after?.subtasks ?? [],
           state,
           signal: taskAbort.controller.signal,
@@ -2594,6 +2578,7 @@ async function finalize(input: {
   workspacePath: string;
   plan: ExecutionPlan;
   planVersion: number;
+  agents: AgentDefinition[];
   subtasks: WorkerSubtask[];
   state: RunState;
   /** Per-task abort signal (Phase 4): verification steps die with the task. */
@@ -2652,6 +2637,7 @@ async function finalize(input: {
     fileChanges: changes.map((change) => ({
       filePath: change.filePath,
       changeType: change.changeType,
+      oldContentHash: change.oldContentHash,
       newContentHash: change.newContentHash,
       newContent: change.newContent,
       appliedAt: change.appliedAt,
@@ -2699,6 +2685,7 @@ async function finalize(input: {
     projectId: project._id,
     taskId: task._id,
     content: message,
+    agentId: implementerAgent(plan, input.agents)?._id as any,
   });
   await deps.api.completeTask({ taskId: task._id, status: "done" });
   return evaluation;

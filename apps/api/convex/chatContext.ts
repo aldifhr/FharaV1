@@ -22,6 +22,7 @@ export const insertAgentMessage = internalMutation({
     agentId: v.optional(v.id("agents")),
     content: v.string(),
     replyToMessageId: v.optional(v.id("messages")),
+    taskId: v.optional(v.id("tasks")),
   },
   handler: async (ctx, args) => {
     const content = args.content.trim();
@@ -32,6 +33,7 @@ export const insertAgentMessage = internalMutation({
       authorType: "agent",
       content,
       replyToMessageId: args.replyToMessageId,
+      taskId: args.taskId,
     });
   },
 });

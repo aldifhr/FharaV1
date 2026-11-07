@@ -229,6 +229,7 @@ export const replyToChat = internalAction({
         await ctx.runMutation(internal.chatContext.insertAgentMessage, {
           projectId: args.projectId,
           agentId: orchestrator._id as any,
+          taskId: taskId as any,
           content: `Plan dibuat. Task ${taskId} dibuat untuk: "${lastUserContent.slice(0, 80)}".${delegationLine} Lihat Task thread untuk progres eksekusi.`,
           replyToMessageId: args.userMessageId,
         });

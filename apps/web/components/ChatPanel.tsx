@@ -108,26 +108,27 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const selectedTaskMessages = selectedTask
     ? (messages ?? []).filter((message: any) => message.taskId === selectedTask._id)
     : [];
-  const agentMessages = selectedTaskMessages.filter((message: any) => message.authorType === "agent");
-  // One chronological timeline: project conversation + the selected task's
-  // agent reports. Rendering them as two separate blocks (conversation first,
-  // then task) put older task messages below newer conversation messages.
-  const timeline = [
-    ...(messages ?? []).filter((message: any) => !message.taskId),
-    ...agentMessages,
-  ].sort((a: any, b: any) => a._creationTime - b._creationTime);
+  // One chronological timeline: every project message, with task agent
+  // reports inline. Task user copies (same content as the conversation
+  // message) are skipped to avoid duplicates.
+  const timeline = (messages ?? [])
+    .filter((message: any) => !message.taskId || message.authorType === "agent")
+    .sort((a: any, b: any) => a._creationTime - b._creationTime);
   const lastMessage = timeline[timeline.length - 1];
   const conversationTyping = lastMessage?.authorType === "user";
   const latestAgentMessage = [...selectedTaskMessages].reverse().find((message: any) => message.authorType === "agent");
   const taskTitle = (taskId: string) => (tasks ?? []).find((task) => task._id === taskId)?.title ?? "task";
   // A task block starts at the user message that spawned it. The plan message
   // replies to that user message, so the link is recoverable from
-  // replyToMessageId without tagging the user message itself.
+  // replyToMessageId. Older plan messages predate taskId tagging, so the task
+  // id is parsed from their content as a fallback.
+  const taskFromPlan = (content: string) => content.match(/^Plan dibuat\. Task (\S+)/)?.[1];
   const replyToTask = new Map<string, string>();
-  for (const m of selectedTaskMessages) {
-    if (m.replyToMessageId && m.taskId) replyToTask.set(m.replyToMessageId, m.taskId);
+  for (const m of messages ?? []) {
+    const taskId = m.taskId ?? taskFromPlan(m.content ?? "");
+    if (m.replyToMessageId && taskId) replyToTask.set(m.replyToMessageId, taskId);
   }
-  const blockKey = (m: any) => m.taskId ?? replyToTask.get(m._id) ?? "conversation";
+  const blockKey = (m: any) => m.taskId ?? replyToTask.get(m._id) ?? taskFromPlan(m.content ?? "") ?? "conversation";
 
   const [manageName, setManageName] = useState("");
   const [managePath, setManagePath] = useState("");

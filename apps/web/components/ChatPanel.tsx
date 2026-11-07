@@ -119,6 +119,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const lastMessage = timeline[timeline.length - 1];
   const conversationTyping = lastMessage?.authorType === "user";
   const latestAgentMessage = [...selectedTaskMessages].reverse().find((message: any) => message.authorType === "agent");
+  // ponytail: task titles are not resolved here — the divider shows the task id
+  // prefix; upgrade path is a task lookup map from the tasks query.
+  const taskTitle = (taskId: string) => (tasks ?? []).find((task) => task._id === taskId)?.title ?? "task";
 
   const [manageName, setManageName] = useState("");
   const [managePath, setManagePath] = useState("");
@@ -483,65 +486,78 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         ))}
         {tab === "chat" ? (
           <>
-            {timeline.map((m: any, index: number) => (
-              <motion.div
-                key={m._id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
-                className="flex gap-3"
-              >
-                {m.authorType === "agent" ? (
-                  <AgentAvatar
-                    name={(agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"}
-                    size={32}
-                    avatarParams={(agents as any)?.find((a: any) => a._id === m.agentId)?.avatarParams}
-                  />
-                ) : (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#eceaf3] text-[11px] font-bold text-[#5147b4] dark:bg-white/15 dark:text-white">
-                    You
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2">
-                    <p className="text-[13px] font-semibold text-[#34323d] dark:text-gray-100">
-                      {m.authorType === "agent"
-                        ? (agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"
-                        : "You"}
+            {timeline.map((m: any, index: number) => {
+              const previous = timeline[index - 1];
+              // A task boundary is where the message switches between the
+              // project conversation (no taskId) and a task thread, or
+              // between two different tasks.
+              const boundary = previous && previous.taskId !== m.taskId;
+              return (
+                <div key={m._id}>
+                  {boundary && (
+                    <p className="my-5 text-center text-[11px] text-gray-400">
+                      — {m.taskId ? taskTitle(m.taskId) : "conversation"} —
                     </p>
-                    <span className="text-[11px] text-gray-400">{formatMessageTime(m._creationTime)}</span>
-                  </div>
-                  <MessageText content={m.content} />
-                  {m.taskId && fileChangesByTask?.length && m._id === latestAgentMessage?._id ? (
-                    <div className="mt-2">
-                      <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-600">
-                        Changed {(fileChangesByTask as any).length} files
-                        <span className="text-emerald-600">+{diffStats.added}</span>
-                        <span className="text-rose-500">−{diffStats.removed}</span>
-                      </p>
-                      {(fileChangesByTask as any).map((fc: any) => {
-                        const pendingApproval = pendingItems.find(
-                          (a: any) => a.taskId === m.taskId && a.status === "pending" && (a.payload?.filePaths ?? []).includes(fc.filePath),
-                        );
-                        return (
-                          <DiffCard
-                            key={fc._id}
-                            filePath={fc.filePath}
-                            diff={fc.diff}
-                            changeType={fc.changeType}
-                            applied={Boolean(fc.appliedAt)}
-                            approvalId={pendingApproval?._id as string}
-                            busy={false}
-                            onApprove={(id) => approve({ approvalId: id as any })}
-                            onReject={(id) => reject({ approvalId: id as any })}
-                          />
-                        );
-                      })}
+                  )}
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
+                    className="flex gap-3"
+                  >
+                    {m.authorType === "agent" ? (
+                      <AgentAvatar
+                        name={(agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"}
+                        size={32}
+                        avatarParams={(agents as any)?.find((a: any) => a._id === m.agentId)?.avatarParams}
+                      />
+                    ) : (
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#eceaf3] text-[11px] font-bold text-[#5147b4] dark:bg-white/15 dark:text-white">
+                        You
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2">
+                        <p className="text-[13px] font-semibold text-[#34323d] dark:text-gray-100">
+                          {m.authorType === "agent"
+                            ? (agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"
+                            : "You"}
+                        </p>
+                        <span className="text-[11px] text-gray-400">{formatMessageTime(m._creationTime)}</span>
+                      </div>
+                      <MessageText content={m.content} />
+                      {m.taskId && fileChangesByTask?.length && m._id === latestAgentMessage?._id ? (
+                        <div className="mt-2">
+                          <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-600">
+                            Changed {(fileChangesByTask as any).length} files
+                            <span className="text-emerald-600">+{diffStats.added}</span>
+                            <span className="text-rose-500">−{diffStats.removed}</span>
+                          </p>
+                          {(fileChangesByTask as any).map((fc: any) => {
+                            const pendingApproval = pendingItems.find(
+                              (a: any) => a.taskId === m.taskId && a.status === "pending" && (a.payload?.filePaths ?? []).includes(fc.filePath),
+                            );
+                            return (
+                              <DiffCard
+                                key={fc._id}
+                                filePath={fc.filePath}
+                                diff={fc.diff}
+                                changeType={fc.changeType}
+                                applied={Boolean(fc.appliedAt)}
+                                approvalId={pendingApproval?._id as string}
+                                busy={false}
+                                onApprove={(id) => approve({ approvalId: id as any })}
+                                onReject={(id) => reject({ approvalId: id as any })}
+                              />
+                            );
+                          })}
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
+                  </motion.div>
                 </div>
-              </motion.div>
-            ))}
+              );
+            })}
             {conversationTyping && (
               <div className="flex items-center gap-2 text-xs text-gray-400">
                 <span>Team is thinking</span>

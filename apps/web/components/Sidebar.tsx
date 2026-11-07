@@ -21,12 +21,20 @@ import { randomAvatartion, type AvatartionAvatar } from "./ui/avatartion";
 import { SkeletonBox } from "skullet/react";
 
 const AGENT_ROLES = [
+  "cto",
+  "developer",
+  "qa",
+  "reviewer",
+  "researcher",
+  "technical-writer",
+  "architect",
+  "devops",
+  "security",
+  "database",
+  "ui-ux",
+  "product-analyst",
   "frontend",
   "backend",
-  "qa",
-  "architect",
-  "security",
-  "researcher",
   "general",
 ] as const;
 

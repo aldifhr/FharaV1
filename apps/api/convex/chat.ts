@@ -51,7 +51,7 @@ export function classifyChatIntent(text: string): { kind: string; frontend: bool
 function buildPlanningGuidance(agent: { role: string }, opts: { isOrchestrator: boolean; taskIntent: { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean } }): string[] {
   if (opts.isOrchestrator && opts.taskIntent.kind === "task") {
     return [
-      "You are the orchestrator/planner (architect).",
+      "You are the orchestrator/planner (CTO).",
       "Do NOT just chat. Produce a concise execution PLAN for this request:",
       "1) 2-4 concrete subtasks: name + owner agent (role) + files/routes to inspect + expected finding/output.",
       "2) Order & dependencies (what blocks what).",
@@ -248,14 +248,15 @@ export const replyToChat = internalAction({
       });
     }
 
-    // Only an agent whose ROLE is architect/lead/orchestrator/planner may act as
-    // the orchestrator. Falling back to agents[0] made any selected agent
+    // Only an agent whose ROLE is cto/lead/orchestrator/planner may act as
+    // the orchestrator (legacy "architect" accepted for backward compat).
+    // Falling back to agents[0] made any selected agent
     // introduce itself as "the orchestrator/planner" while still naming its own
     // role (e.g. "frontend developer ... I'm the orchestrator/planner").
     const orchestrator =
-      agents.find((a) => /architect|lead|orchestrator|planner/i.test(a.role)) ?? null;
+      agents.find((a) => /cto|architect|lead|orchestrator|planner/i.test(a.role)) ?? null;
     // The dispatcher creates the task row. It may be the orchestrator, or the
-    // first agent when the project has no architect — but a non-orchestrator
+    // first agent when the project has no CTO — but a non-orchestrator
     // never receives planning guidance.
     const dispatcher = orchestrator ?? agents[0];
     const taskIntent = classifyChatIntent(history[history.length - 1]?.content ?? "");

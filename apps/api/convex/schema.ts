@@ -77,6 +77,9 @@ export default defineSchema({
   agents: defineTable({
     name: v.string(),
     role: v.string(),
+    // Plan 008: membership in the organization role registry (optional,
+    // backfilled by key when the member is created; legacy rows keep only `role`).
+    roleId: v.optional(v.id("roleDefinitions")),
     systemPrompt: v.optional(v.string()),
     // Legacy fields from pre-global-LLM era. Kept optional so old docs
     // (e.g. llmProvider) still pass validation. New code does not write these.
@@ -561,4 +564,39 @@ export default defineSchema({
   })
     .index("by_project", ["projectId"])
     .index("by_name", ["projectId", "name"]),
+
+  // Organization: reusable role templates (Plan 008 Phase 1).
+  // Role Definition is separate from Agent Member and Project Assignment.
+  roleDefinitions: defineTable({
+    key: v.string(),
+    name: v.string(),
+    category: v.string(),
+    description: v.string(),
+    systemPrompt: v.optional(v.string()),
+    capabilities: v.array(v.string()),
+    defaultTools: v.array(v.string()),
+    defaultPermissions: v.optional(v.string()),
+    enabled: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_key", ["key"])
+    .index("by_category", ["category"])
+    .index("by_enabled", ["enabled"]),
+
+  // Project team: logical assignment of an organization member to a project.
+  // Adding an agent here never creates a separate LLM credential.
+  projectAgents: defineTable({
+    projectId: v.id("projects"),
+    agentId: v.id("agents"),
+    enabled: v.boolean(),
+    customInstructions: v.optional(v.string()),
+    allowedTools: v.optional(v.array(v.string())),
+    permissionOverrides: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_agent", ["agentId"])
+    .index("by_project_and_agent", ["projectId", "agentId"]),
 });

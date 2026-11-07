@@ -295,6 +295,8 @@ export interface AuthoritativePlanInput {
   llmConfig?: GlobalLLMConfig;
   llmResolver?: TaskLlmResolver;
   onTokenUsage?: PlannerInput["onTokenUsage"];
+  /** Pre-call budget gate (Phase 5), forwarded to the planner subroutine. */
+  assertBudgetForCall?: PlannerInput["assertBudgetForCall"];
   /**
    * Task cancellation/deadline signal (Phase 4 hardening): forwarded to
    * the planner subroutine. When aborted, planning throws instead of
@@ -370,6 +372,7 @@ export async function createAuthoritativePlan(
       llmConfig: input.llmConfig,
       llmResolver: input.llmResolver,
       onTokenUsage: input.onTokenUsage,
+      assertBudgetForCall: input.assertBudgetForCall,
       signal: input.signal,
       llmTaskGate: input.llmTaskGate,
     });

@@ -168,6 +168,12 @@ export class WorkerApi {
     return await this.client.action(api.worker.recordTokenUsage, this.args(input));
   }
 
+  async reportProviderHealth(
+    input: Omit<FunctionArgs<typeof api.worker.reportProviderHealth>, "workerToken">
+  ): Promise<FunctionReturnType<typeof api.worker.reportProviderHealth>> {
+    return await this.client.action(api.worker.reportProviderHealth, this.args(input));
+  }
+
   async createBranch(
     input: Omit<FunctionArgs<typeof api.worker.createBranch>, "workerToken">
   ): Promise<FunctionReturnType<typeof api.worker.createBranch>> {

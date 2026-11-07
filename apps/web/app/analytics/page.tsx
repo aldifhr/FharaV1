@@ -151,7 +151,11 @@ export default function AnalyticsPage() {
                 <div className="rounded-xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
                   <p className="text-sm font-medium text-gray-500">Total tokens</p>
                   <p className="mt-1 text-2xl font-bold"><TextMorph>{tokensTotal}</TextMorph></p>
-                  <p className="mt-0.5 text-[11px] text-gray-400">{tokenUsage?.totalCalls ?? 0} LLM call(s)</p>
+                  <p className="mt-0.5 text-[11px] text-gray-400">
+                    {tokenUsage?.totalCalls ?? 0} LLM call(s)
+                    {(tokenUsage?.totalEstimatedCost ?? 0) > 0 &&
+                      ` · est. cost ${(tokenUsage?.totalEstimatedCost ?? 0).toFixed(4)}`}
+                  </p>
                 </div>
               </BlurFade>
             </div>
@@ -200,6 +204,74 @@ export default function AnalyticsPage() {
                   </div>
                 </BlurFade>
               ))}
+            </div>
+          </section>
+
+          <section className="mt-6">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Tokens by provider</h2>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {tokenUsage && Object.keys(tokenUsage.byProvider ?? {}).length === 0 && (
+                <p className="text-sm text-gray-400">No token usage recorded yet.</p>
+              )}
+              {tokenUsage && Object.entries(tokenUsage.byProvider ?? {}).map(([name, stats]) => (
+                <BlurFade key={name} inView>
+                  <div className="rounded-xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
+                    <p className="text-sm font-medium">{name}</p>
+                    <p className="mt-1 text-2xl font-bold"><TextMorph>{stats.inputTokens + stats.outputTokens}</TextMorph></p>
+                    <p className="mt-0.5 text-[11px] text-gray-400">
+                      {stats.calls} call(s) · in {stats.inputTokens.toLocaleString()} / out {stats.outputTokens.toLocaleString()}
+                      {stats.estimatedCost > 0 && ` · est. cost ${stats.estimatedCost.toFixed(4)}`}
+                    </p>
+                  </div>
+                </BlurFade>
+              ))}
+            </div>
+          </section>
+
+          <section className="mt-6">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Tokens by model</h2>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {tokenUsage && Object.entries(tokenUsage.byModel ?? {}).map(([name, stats]) => (
+                <BlurFade key={name} inView>
+                  <div className="rounded-xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
+                    <p className="text-sm font-medium">{name}</p>
+                    <p className="mt-1 text-2xl font-bold"><TextMorph>{stats.inputTokens + stats.outputTokens}</TextMorph></p>
+                    <p className="mt-0.5 text-[11px] text-gray-400">
+                      {stats.calls} call(s) · in {stats.inputTokens.toLocaleString()} / out {stats.outputTokens.toLocaleString()}
+                      {stats.estimatedCost > 0 && ` · est. cost ${stats.estimatedCost.toFixed(4)}`}
+                    </p>
+                  </div>
+                </BlurFade>
+              ))}
+            </div>
+          </section>
+
+          <section className="mt-6">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Delegations</h2>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <BlurFade inView>
+                <div className="rounded-xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
+                  <p className="text-sm font-medium text-gray-500">Total decisions</p>
+                  <p className="mt-1 text-2xl font-bold"><TextMorph>{tokenUsage?.delegations?.total ?? 0}</TextMorph></p>
+                </div>
+              </BlurFade>
+              <BlurFade inView delay={0.05}>
+                <div className="rounded-xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
+                  <p className="text-sm font-medium text-gray-500">Approved rate</p>
+                  <p className="mt-1 text-2xl font-bold"><TextMorph>{Math.round((tokenUsage?.delegations?.approvedRate ?? 0) * 100)}%</TextMorph></p>
+                </div>
+              </BlurFade>
+              <BlurFade inView delay={0.1}>
+                <div className="rounded-xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
+                  <p className="text-sm font-medium text-gray-500">By decision</p>
+                  <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                    {tokenUsage && Object.entries(tokenUsage.delegations?.byDecision ?? {}).length === 0 && "—"}
+                    {tokenUsage && Object.entries(tokenUsage.delegations?.byDecision ?? {})
+                      .map(([decision, count]) => `${decision} ${count}`)
+                      .join(" · ")}
+                  </p>
+                </div>
+              </BlurFade>
             </div>
           </section>
 

@@ -33,6 +33,26 @@ export interface ExecutionPolicy {
   maxAgentsPerTask: number;
   maxLLMCallsPerTask: number;
   maxDelegationDepth: number;
+  /**
+   * Spec §7 vocabulary: the maximum number of APPROVED delegations in one
+   * task (a task-wide COUNT, distinct from maxDelegationDepth, which is
+   * the per-branch chain depth enforced from the subtask chain since
+   * Phase 3). Read by the delegation gate (delegation.ts) and by
+   * BudgetTracker.isBudgetExhausted. Optional: hand-built policies that
+   * omit it disable the count gate.
+   */
+  maxDelegations?: number;
+  /**
+   * Phase 5 budget enforcement mode:
+   *  - "enforce": a pre-call gate throws BudgetExhaustedError when the
+   *    task's LLM call / token budget is spent; the runner ends the task
+   *    with an explicit budget.exhausted status.
+   *  - "warn": the same exhaustion only emits a budget.warning event and
+   *    the task runs on.
+   * Default is "warn" for this release cycle (see loadPolicy) so the new
+   * hard stop is observed in the wild before it becomes the default.
+   */
+  budgetMode?: "warn" | "enforce";
   maxConcurrentLLMCalls: number;
   maxTokenBudgetPerTask: number;
   /**
@@ -87,6 +107,16 @@ export function loadPolicy(): ExecutionPolicy {
     // limit of 5 killed normal tasks once the tracker was actually fed.
     maxLLMCallsPerTask: intFromEnv("ORCHESTRATOR_MAX_LLM_CALLS_PER_TASK", 12, 1, 50),
     maxDelegationDepth: intFromEnv("ORCHESTRATOR_MAX_DELEGATION_DEPTH", 2, 0, 10),
+    maxDelegations: intFromEnv("ORCHESTRATOR_MAX_DELEGATIONS", 10, 0, 100),
+    // Phase 5: warn-only by default for ONE release cycle — the pre-call
+    // gate logs budget.warning events instead of stopping tasks, so the
+    // calibrated limits (12 calls / 50k tokens) can be observed against
+    // real workloads before hard-stop enforcement becomes the default.
+    // Set ORCHESTRATOR_BUDGET_MODE=enforce to opt into the hard stop now.
+    budgetMode:
+      (process.env.ORCHESTRATOR_BUDGET_MODE ?? "").trim().toLowerCase() === "enforce"
+        ? "enforce"
+        : "warn",
     // Phase 4: this field is LIVE. Phase 4 hardening: it sizes the
     // PER-TASK LLM gate — the runner creates one LlmConcurrencyGate per
     // task run from this value, so concurrent tasks each honor their

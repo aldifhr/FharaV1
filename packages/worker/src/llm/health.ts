@@ -39,16 +39,57 @@ export interface ProviderHealthOptions {
 const DEFAULT_FAILURE_THRESHOLD = 3;
 const DEFAULT_COOLDOWN_MS = 60_000;
 
+export type ProviderHealthChangeListener = (
+  connectionId: string,
+  snapshot: ProviderHealthSnapshot
+) => void;
+
 export class ProviderHealthRegistry {
   private readonly connections = new Map<string, ConnectionHealth>();
+  private readonly connectionNames = new Map<string, string>();
   private readonly failureThreshold: number;
   private readonly cooldownMs: number;
   private readonly now: () => number;
+  private changeListener: ProviderHealthChangeListener | undefined;
 
   constructor(options: ProviderHealthOptions = {}) {
     this.failureThreshold = options.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
     this.cooldownMs = options.cooldownMs ?? DEFAULT_COOLDOWN_MS;
     this.now = options.now ?? (() => Date.now());
+  }
+
+  /**
+   * Observe every recorded outcome (Phase 5 observability): the runner
+   * installs a reporter that mirrors snapshots to the backend so the
+   * Settings UI can show circuit state per connection. One listener —
+   * installing a new one replaces the previous.
+   */
+  setChangeListener(listener: ProviderHealthChangeListener | undefined): void {
+    this.changeListener = listener;
+  }
+
+  /**
+   * Remember a pool connection's display name (Phase 5 mirror): the
+   * runner registers names as it materializes each task's provider
+   * pool, and the backend reporter uses them to key snapshots the way
+   * the Settings panel expects. Connections never registered (e.g.
+   * env-fallback pseudo-connections) have no backend row to mirror to.
+   */
+  registerConnectionName(connectionId: string, name: string): void {
+    this.connectionNames.set(connectionId, name);
+  }
+
+  connectionName(connectionId: string): string | undefined {
+    return this.connectionNames.get(connectionId);
+  }
+
+  private notifyChange(connectionId: string): void {
+    if (!this.changeListener) return;
+    try {
+      this.changeListener(connectionId, this.snapshot(connectionId));
+    } catch {
+      // A broken observer must never break a provider call path.
+    }
   }
 
   private entry(connectionId: string): ConnectionHealth {
@@ -71,6 +112,7 @@ export class ProviderHealthRegistry {
     health.lastSuccessAt = this.now();
     health.consecutiveTransientFailures = 0;
     health.circuitOpenUntil = null;
+    this.notifyChange(connectionId);
   }
 
   /**
@@ -87,6 +129,7 @@ export class ProviderHealthRegistry {
     if (health.consecutiveTransientFailures >= this.failureThreshold) {
       health.circuitOpenUntil = this.now() + this.cooldownMs;
     }
+    this.notifyChange(connectionId);
   }
 
   /**
@@ -115,6 +158,20 @@ export class ProviderHealthRegistry {
       };
     }
     return { ...health };
+  }
+
+  /**
+   * Every tracked connection's snapshot (Phase 5 observability): the
+   * Settings panel renders one circuit row per entry. Connections with
+   * no recorded outcome yet are absent — the UI treats "no row" as
+   * "no data", not as healthy.
+   */
+  snapshots(): Map<string, ProviderHealthSnapshot> {
+    const out = new Map<string, ProviderHealthSnapshot>();
+    for (const connectionId of this.connections.keys()) {
+      out.set(connectionId, this.snapshot(connectionId));
+    }
+    return out;
   }
 
   reset(): void {

@@ -436,10 +436,36 @@ export const recordTokenUsage = action({
     model: v.string(),
     inputTokens: v.number(),
     outputTokens: v.number(),
+    // Phase 5: serving connection + registry model + estimated cost.
+    providerId: v.optional(v.id("llmProviders")),
+    modelId: v.optional(v.id("llmModels")),
+    estimatedCost: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<any> => {
     await ctx.runMutation(
       internal.orchestration.recordTokenUsage,
+      withoutToken(args)
+    );
+  },
+});
+
+export const reportProviderHealth = action({
+  args: {
+    ...tokenArg,
+    // Phase 5: one circuit snapshot per provider connection, mirrored
+    // by the worker's health registry reporter (Settings UI panel).
+    providerId: v.id("llmProviders"),
+    providerName: v.string(),
+    consecutiveTransientFailures: v.number(),
+    totalSuccesses: v.number(),
+    totalTransientFailures: v.number(),
+    circuitOpenUntil: v.optional(v.number()),
+    lastSuccessAt: v.optional(v.number()),
+    lastFailureAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    await ctx.runMutation(
+      internal.orchestration.reportProviderHealth,
       withoutToken(args)
     );
   },
@@ -499,6 +525,8 @@ export const upsertTaskContext = action({
     decisions: v.array(v.any()),
     artifacts: v.array(v.any()),
     outstandingIssues: v.array(v.any()),
+    // Phase 5 (additive): persisted budget snapshot.
+    budgetSnapshot: v.optional(v.any()),
   },
   handler: async (ctx, args): Promise<any> => {
     return await ctx.runMutation(

@@ -1176,6 +1176,13 @@ export const recordTokenUsage = internalMutation({
     model: v.string(),
     inputTokens: v.number(),
     outputTokens: v.number(),
+    // Phase 5: which connection + registry model actually served the
+    // call, and the estimated cost from that model's pricing. Absent
+    // when the serving handle had no registry identity / no pricing —
+    // never guessed (see worker effects/llmCall usageMetaFor).
+    providerId: v.optional(v.id("llmProviders")),
+    modelId: v.optional(v.id("llmModels")),
+    estimatedCost: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("tokenUsage", {
@@ -1184,6 +1191,9 @@ export const recordTokenUsage = internalMutation({
       agentId: args.agentId,
       agentName: args.agentName,
       model: args.model,
+      providerId: args.providerId,
+      modelId: args.modelId,
+      estimatedCost: args.estimatedCost,
       inputTokens: args.inputTokens,
       outputTokens: args.outputTokens,
       createdAt: Date.now(),
@@ -1196,10 +1206,32 @@ export const tokenUsageStats = query({
   handler: async (ctx) => {
     const records = await ctx.db.query("tokenUsage").collect();
     const byAgent: Record<string, { inputTokens: number; outputTokens: number; calls: number }> = {};
+    // Phase 5: usage per serving provider connection / registry model.
+    // Attribution columns exist only on calls recorded after Phase 5;
+    // older rows aggregate under the "(unattributed)" bucket instead of
+    // being guessed into a provider.
+    const byProvider: Record<
+      string,
+      { inputTokens: number; outputTokens: number; calls: number; estimatedCost: number }
+    > = {};
+    const byModel: Record<
+      string,
+      { inputTokens: number; outputTokens: number; calls: number; estimatedCost: number }
+    > = {};
     let totalInput = 0;
     let totalOutput = 0;
+    let totalEstimatedCost = 0;
     // Bucket by hour: { hourStartUnixSec: tokens }
     const byHour: Record<number, number> = {};
+    // Resolve display names for the attribution ids in one pass.
+    const providerNames = new Map<string, string>();
+    for (const provider of await ctx.db.query("llmProviders").collect()) {
+      providerNames.set(provider._id, provider.name);
+    }
+    const modelNames = new Map<string, string>();
+    for (const model of await ctx.db.query("llmModels").collect()) {
+      modelNames.set(model._id, model.modelId);
+    }
     for (const r of records) {
       if (!byAgent[r.agentName]) {
         byAgent[r.agentName] = { inputTokens: 0, outputTokens: 0, calls: 0 };
@@ -1209,6 +1241,39 @@ export const tokenUsageStats = query({
       byAgent[r.agentName].calls += 1;
       totalInput += r.inputTokens;
       totalOutput += r.outputTokens;
+      const providerKey = r.providerId
+        ? (providerNames.get(r.providerId) ?? r.providerId)
+        : "(unattributed)";
+      if (!byProvider[providerKey]) {
+        byProvider[providerKey] = {
+          inputTokens: 0,
+          outputTokens: 0,
+          calls: 0,
+          estimatedCost: 0,
+        };
+      }
+      byProvider[providerKey].inputTokens += r.inputTokens;
+      byProvider[providerKey].outputTokens += r.outputTokens;
+      byProvider[providerKey].calls += 1;
+      const modelKey = r.modelId
+        ? (modelNames.get(r.modelId) ?? r.model)
+        : "(unattributed)";
+      if (!byModel[modelKey]) {
+        byModel[modelKey] = {
+          inputTokens: 0,
+          outputTokens: 0,
+          calls: 0,
+          estimatedCost: 0,
+        };
+      }
+      byModel[modelKey].inputTokens += r.inputTokens;
+      byModel[modelKey].outputTokens += r.outputTokens;
+      byModel[modelKey].calls += 1;
+      if (r.estimatedCost !== undefined) {
+        byProvider[providerKey].estimatedCost += r.estimatedCost;
+        byModel[modelKey].estimatedCost += r.estimatedCost;
+        totalEstimatedCost += r.estimatedCost;
+      }
       const hourStart = Math.floor(r.createdAt / 1000 / 3600) * 3600; // unix seconds, start of hour UTC
       byHour[hourStart] = (byHour[hourStart] ?? 0) + r.inputTokens + r.outputTokens;
     }
@@ -1228,7 +1293,108 @@ export const tokenUsageStats = query({
     if (timeline[timeline.length - 1].time < nowSec) {
       timeline.push({ time: nowSec, value: totalInput + totalOutput });
     }
-    return { byAgent, totalInput, totalOutput, totalCalls: records.length, timeline };
+    // Delegation metrics from the delegations table — real subtask-
+    // producing decisions since Phase 3 (count per decision outcome).
+    const delegationRows = await ctx.db.query("delegations").collect();
+    const byDecision: Record<string, number> = {};
+    for (const row of delegationRows) {
+      byDecision[row.decision] = (byDecision[row.decision] ?? 0) + 1;
+    }
+    const delegations = {
+      total: delegationRows.length,
+      byDecision,
+      approvedRate:
+        delegationRows.length > 0
+          ? (byDecision.APPROVE ?? 0) / delegationRows.length
+          : 0,
+    };
+    return {
+      byAgent,
+      byProvider,
+      byModel,
+      totalInput,
+      totalOutput,
+      totalCalls: records.length,
+      totalEstimatedCost,
+      delegations,
+      timeline,
+    };
+  },
+});
+
+/**
+ * Provider health snapshots for the Settings UI (Phase 5 observability):
+ * the worker-mirrored circuit state per connection, keyed by provider
+ * name. Public read — the values are operational counters only (no
+ * credentials, no request data). Rows exist only after a provisioned
+ * worker reported; the UI renders the absence honestly.
+ */
+export const providerHealthStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("providerHealth").collect();
+    const snapshots: Record<
+      string,
+      {
+        providerId: string;
+        consecutiveTransientFailures: number;
+        totalSuccesses: number;
+        totalTransientFailures: number;
+        circuitOpenUntil: number | null;
+        lastSuccessAt?: number;
+        lastFailureAt?: number;
+        reportedAt: number;
+      }
+    > = {};
+    for (const row of rows) {
+      const name =
+        (await ctx.db.get(row.providerId))?.name ?? row.providerName;
+      snapshots[name] = {
+        providerId: row.providerId,
+        consecutiveTransientFailures: row.consecutiveTransientFailures,
+        totalSuccesses: row.totalSuccesses,
+        totalTransientFailures: row.totalTransientFailures,
+        circuitOpenUntil: row.circuitOpenUntil ?? null,
+        lastSuccessAt: row.lastSuccessAt,
+        lastFailureAt: row.lastFailureAt,
+        reportedAt: row.reportedAt,
+      };
+    }
+    return { snapshots, updatedAt: Date.now() };
+  },
+});
+
+/**
+ * Mirror one provider-health snapshot from a worker (Phase 5). INTERNAL
+ * and deliberately not exposed through the token-gated worker action
+ * surface: the worker's service token must not reach a client, and a
+ * client-callable mirror would let anyone forge circuit state. The
+ * worker reaches this only through its deployment-provisioned internal
+ * channel — same provisioning model as the encryption key (operator
+ * sets it up once); unprovisioned deployments simply never write here.
+ */
+export const reportProviderHealth = internalMutation({
+  args: {
+    providerId: v.id("llmProviders"),
+    providerName: v.string(),
+    consecutiveTransientFailures: v.number(),
+    totalSuccesses: v.number(),
+    totalTransientFailures: v.number(),
+    circuitOpenUntil: v.optional(v.number()),
+    lastSuccessAt: v.optional(v.number()),
+    lastFailureAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("providerHealth")
+      .withIndex("by_provider", (q) => q.eq("providerId", args.providerId))
+      .first();
+    const doc = { ...args, reportedAt: Date.now() };
+    if (existing) {
+      await ctx.db.patch(existing._id, doc);
+      return existing._id;
+    }
+    return await ctx.db.insert("providerHealth", doc);
   },
 });
 
@@ -1415,6 +1581,9 @@ export const upsertTaskContext = internalMutation({
     decisions: v.array(v.any()),
     artifacts: v.array(v.any()),
     outstandingIssues: v.array(v.any()),
+    // Phase 5 (additive): persisted budget snapshot. Callers that do
+    // not supply one leave the stored snapshot untouched (see handler).
+    budgetSnapshot: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -1422,11 +1591,18 @@ export const upsertTaskContext = internalMutation({
       .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
       .first();
     const now = Date.now();
+    // An omitted budgetSnapshot means "no new snapshot this write" —
+    // keep the stored one instead of patching it away.
+    const { budgetSnapshot, ...rest } = args;
+    const patch =
+      budgetSnapshot === undefined
+        ? { ...rest, updatedAt: now }
+        : { ...rest, budgetSnapshot, updatedAt: now };
     if (existing) {
-      await ctx.db.patch(existing._id, { ...args, updatedAt: now });
+      await ctx.db.patch(existing._id, patch);
       return existing._id;
     }
-    return await ctx.db.insert("taskContexts", { ...args, updatedAt: now });
+    return await ctx.db.insert("taskContexts", patch);
   },
 });
 

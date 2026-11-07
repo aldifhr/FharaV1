@@ -20,7 +20,12 @@ import { classifyCommand } from "@/orchestrator/classifier";
 import { createPlan, heuristicPlan } from "@/orchestrator/planner";
 import { validatePlan } from "@/orchestrator/planValidator";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
-import { BudgetTracker } from "@/orchestrator/budget";
+import {
+  BudgetTracker,
+  isBudgetExhaustedError,
+  type BudgetSnapshot,
+} from "@/orchestrator/budget";
+import type { TokenUsageMeta } from "@/effects/llmCall";
 import {
   createAuthoritativePlan,
   createOrchestratorPlan,
@@ -101,6 +106,13 @@ interface RunState {
 async function buildTaskLlmResolver(
   llmProviders: PoolConnectionRow[] | undefined
 ): Promise<TaskLlmResolver> {
+  // Phase 5 observability: register each pool connection's display
+  // name on the shared health registry, so the worker's health
+  // reporter can key mirrored snapshots by the name the Settings
+  // panel renders.
+  for (const row of llmProviders ?? []) {
+    providerHealth.registerConnectionName(row._id, row.name);
+  }
   const pool = await materializePool(llmProviders);
   return new TaskLlmResolver(pool, providerHealth);
 }
@@ -239,6 +251,132 @@ function combineSignals(
 /** Terminal task statuses: a task in one of these is finished for good. */
 function isTerminalTaskStatus(status: string | undefined): boolean {
   return status === "done" || status === "failed" || status === "rejected";
+}
+
+/**
+ * End a task run as BUDGET EXHAUSTED (Phase 5). The backend has no
+ * dedicated budget status — like cancellation, the task row lands on
+ * "failed" — so the distinction lives in the dedicated
+ * `budget.exhausted` event (with the final tracker snapshot) and the
+ * error message. Completed subtask outputs are untouched: they were
+ * persisted as they finished and remain visible in the task timeline.
+ * The backend completeTask terminal guard makes this a no-op if the
+ * task already reached a terminal status by another path.
+ */
+export async function finishBudgetExhaustedTask(input: {
+  deps: RunnerDeps;
+  task: WorkerTask;
+  project: WorkerProject;
+  budget: BudgetTracker;
+  reason: string;
+}): Promise<void> {
+  const { deps, task, project, budget, reason } = input;
+  await deps.api.logEvent({
+    taskId: task._id,
+    projectId: project._id,
+    type: "budget.exhausted",
+    payload: { reason, budget: budget.snapshot() },
+    level: "error",
+  });
+  await deps.api
+    .recordLifecycle?.({
+      taskId: task._id,
+      projectId: project._id,
+      state: "FAILED",
+      prevState: "RUNNING",
+    })
+    ?.catch(() => undefined);
+  await deps.api.completeTask({
+    taskId: task._id,
+    status: "failed",
+    errorMessage: `Budget exhausted: ${reason}`,
+  });
+}
+
+/**
+ * Whether a failure summary is a budget-exhaustion stop. Budget exits
+ * carry the typed error's message ("Budget exhausted: <reason>") —
+ * subtask outcomes flatten the error class to a string at the executor
+ * boundary, so the prefix IS the recognition contract (Phase 5).
+ */
+function isBudgetFailureText(text: string): boolean {
+  return text.startsWith("Budget exhausted:");
+}
+
+/**
+ * Whether a failure SUMMARY carries a budget stop. Failure summaries
+ * are the per-subtask feedback entries joined with "; ", each entry
+ * prefixed with its subtask key ("s3 (attempt 1): Budget exhausted:
+ * ..."), so the raw summary never STARTS with the prefix — the
+ * recognition scans for it at any entry boundary (Phase 5).
+ */
+function summaryHasBudgetFailure(summary: string): boolean {
+  return summary
+    .split("; ")
+    .some((entry) => entry.includes("Budget exhausted:"));
+}
+
+/** The budget reason carried by a failure summary (prefix stripped). */
+function budgetReasonFromSummary(summary: string): string {
+  const entry = summary
+    .split("; ")
+    .find((candidate) => candidate.includes("Budget exhausted:"));
+  if (!entry) return summary;
+  return entry.slice(entry.indexOf("Budget exhausted: ") + "Budget exhausted: ".length);
+}
+
+/**
+ * Seed a task's budget tracker from persisted state (Phase 5): call and
+ * token totals from the tokenUsage table (source of truth for usage)
+ * PLUS the non-usage state — agents, delegation count, retries — from
+ * the budget snapshot stored on the task context. A seeding failure is
+ * VISIBLE: it emits a `budget.seed_failed` warning event and the run
+ * continues on a visibly-partial tracker — never the old silent catch
+ * that quietly reset every limit (PLAN §7.4).
+ */
+export async function seedBudgetFromPersisted(input: {
+  deps: RunnerDeps;
+  taskId: WorkerTask["_id"];
+  projectId: WorkerProject["_id"];
+  budget: BudgetTracker;
+}): Promise<void> {
+  const { deps, taskId, projectId, budget } = input;
+  try {
+    const priorUsage = await deps.api.getTaskTokenUsage?.({ taskId });
+    const snapshot = (
+      await deps.api.getTaskContext?.({ taskId }).catch(() => null)
+    )?.budgetSnapshot as BudgetSnapshot | undefined;
+    if (snapshot) {
+      budget.restoreExtras({
+        agents: snapshot.agents,
+        delegationDepth: snapshot.delegationDepth,
+        retries: snapshot.retries,
+      });
+    }
+    if (priorUsage && priorUsage.calls > 0) {
+      budget.seed(priorUsage);
+    } else if (snapshot && snapshot.llmCalls > 0) {
+      // Fallback when the usage aggregate is unavailable: the snapshot
+      // still carries the totals it recorded.
+      budget.seed({
+        calls: snapshot.llmCalls,
+        inputTokens: snapshot.inputTokens,
+        outputTokens: snapshot.outputTokens,
+      });
+    }
+  } catch (error) {
+    await deps.api
+      .logEvent({
+        taskId,
+        projectId,
+        type: "budget.seed_failed",
+        payload: {
+          message: error instanceof Error ? error.message : String(error),
+        },
+        level: "warn",
+      })
+      .catch(() => undefined);
+  }
 }
 
 /**
@@ -476,13 +614,30 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
   // Intelligent orchestrator: shared context + budget
   const budget = new BudgetTracker(deps.policy);
   // Seed the tracker with usage already persisted for this task (e.g. calls
-  // made before a worker restart) so limits apply to the task as a whole.
-  try {
-    const priorUsage = await deps.api.getTaskTokenUsage?.({ taskId: task._id });
-    if (priorUsage && priorUsage.calls > 0) budget.seed(priorUsage);
-  } catch {
-    // Seeding is best-effort; a fresh tracker is the safe fallback.
-  }
+  // made before a worker restart) so limits apply to the task as a whole —
+  // the FULL state (agents/delegations/retries from the budget snapshot),
+  // with failures surfaced as events (Phase 5; see seedBudgetFromPersisted).
+  await seedBudgetFromPersisted({
+    deps,
+    taskId: task._id,
+    projectId: project._id,
+    budget,
+  });
+  // Pre-call budget gate closure (Phase 5): warn mode emits ONE
+  // budget.warning event per distinct exhaustion reason (the tracker
+  // dedupes); enforce mode throws out of this closure.
+  const assertBudgetForCall = () =>
+    budget.assertLlmCallAllowed((reason) => {
+      void deps.api
+        .logEvent({
+          taskId: task._id,
+          projectId: project._id,
+          type: "budget.warning",
+          payload: { reason, budget: budget.snapshot() },
+          level: "warn",
+        })
+        .catch(() => undefined);
+    });
   // Single usage sink: feeds the budget tracker AND the persisted
   // tokenUsage table, used by the planner and every subtask callback.
   const recordUsage = async (
@@ -490,7 +645,8 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     outputTokens: number,
     model: string,
     agentName: string,
-    agentId?: string
+    agentId?: string,
+    meta?: TokenUsageMeta
   ) => {
     budget.recordLLMCall({ inputTokens, outputTokens, model, agentName, agentId });
     if (inputTokens > 0 || outputTokens > 0) {
@@ -502,6 +658,15 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         model,
         inputTokens,
         outputTokens,
+        // Phase 5 attribution: serving connection + registry model +
+        // estimated cost, when the serving handle carried them.
+        providerId: meta?.providerId as
+          | Parameters<WorkerApi["recordTokenUsage"]>[0]["providerId"]
+          | undefined,
+        modelId: meta?.modelRowId as
+          | Parameters<WorkerApi["recordTokenUsage"]>[0]["modelId"]
+          | undefined,
+        estimatedCost: meta?.estimatedCost,
       });
     }
   };
@@ -522,6 +687,9 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       decisions: [],
       artifacts: [],
       outstandingIssues: [],
+      // Phase 5: persist the seeded budget state alongside the context
+      // so the next resume/recovery restores the full tracker.
+      budgetSnapshot: budget.snapshot(),
     })
     ?.catch(() => undefined);
   await deps.api.recordLifecycle?.({ taskId: task._id, projectId: project._id, state: "RUNNING" })?.catch(() => undefined);
@@ -568,10 +736,23 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         llmConfig,
         llmResolver,
         onTokenUsage: recordUsage,
+        assertBudgetForCall,
         signal: taskAbort.controller.signal,
         llmTaskGate,
       });
     } catch (error) {
+      // Budget exhausted before planning (Phase 5): the task ends with
+      // the explicit budget.exhausted status; no plan is executed.
+      if (isBudgetExhaustedError(error)) {
+        await finishBudgetExhaustedTask({
+          deps,
+          task,
+          project,
+          budget,
+          reason: error.reason,
+        });
+        return;
+      }
       // Planning aborted (cancel/deadline): the task ends as cancelled
       // and NO plan is executed. Any other planning failure keeps the
       // historical behavior — it propagates to the worker loop, which
@@ -660,10 +841,21 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           llmConfig,
           llmResolver,
           onTokenUsage: recordUsage,
+          assertBudgetForCall,
           signal: taskAbort.controller.signal,
           llmTaskGate,
         });
       } catch (error) {
+        if (isBudgetExhaustedError(error)) {
+          await finishBudgetExhaustedTask({
+            deps,
+            task,
+            project,
+            budget,
+            reason: error.reason,
+          });
+          return;
+        }
         if (taskAbort.controller.signal.aborted) {
           await finishCancelledTask({
             deps,
@@ -754,6 +946,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         completedKeys,
         taskAbort: taskAbort.controller,
         budget,
+        assertBudgetForCall,
         sharedContext,
         classification,
         llmConfig,
@@ -856,10 +1049,21 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
               llmConfig,
               llmResolver,
               onTokenUsage: recordUsage,
+              assertBudgetForCall,
               signal: taskAbort.controller.signal,
               llmTaskGate,
             });
           } catch (error) {
+            if (isBudgetExhaustedError(error)) {
+              await finishBudgetExhaustedTask({
+                deps,
+                task,
+                project,
+                budget,
+                reason: error.reason,
+              });
+              return;
+            }
             if (taskAbort.controller.signal.aborted) {
               await finishCancelledTask({
                 deps,
@@ -922,6 +1126,19 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       }
       const failureSummary =
         state.feedback.join("; ") || "Execution failed without a detailed error";
+      // Budget exhausted mid-execution (Phase 5): a budget stop is
+      // terminal — it is never replanned (a replan would spend even
+      // more calls) and never reported as a generic failure.
+      if (summaryHasBudgetFailure(failureSummary)) {
+        await finishBudgetExhaustedTask({
+          deps,
+          task,
+          project,
+          budget,
+          reason: budgetReasonFromSummary(failureSummary),
+        });
+        return;
+      }
       if (replans < maxPlanningIterations) {
         replans += 1;
         feedback = buildReplanFeedback(failureSummary, sharedContext);
@@ -936,10 +1153,21 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
             llmConfig,
             llmResolver,
             onTokenUsage: recordUsage,
+            assertBudgetForCall,
             signal: taskAbort.controller.signal,
             llmTaskGate,
           });
         } catch (error) {
+          if (isBudgetExhaustedError(error)) {
+            await finishBudgetExhaustedTask({
+              deps,
+              task,
+              project,
+              budget,
+              reason: error.reason,
+            });
+            return;
+          }
           if (taskAbort.controller.signal.aborted) {
             await finishCancelledTask({
               deps,
@@ -1025,6 +1253,12 @@ async function executePlan(input: {
   taskAbort?: AbortController;
   /** Orchestrator wiring: budget + shared context + classification (both processTask and resumeTask pass them since Phase 4). */
   budget?: BudgetTracker;
+  /**
+   * Pre-call budget gate closure (Phase 5): forwarded into every
+   * subtask execution; enforce mode throws BudgetExhaustedError before
+   * the call, warn mode emits the runner's budget.warning event.
+   */
+  assertBudgetForCall?: () => void;
   sharedContext?: SharedTaskContext;
   classification?: Classification;
   llmConfig?: GlobalLLMConfig;
@@ -1128,8 +1362,15 @@ async function executePlan(input: {
   // and to the scheduler's per-agent start gate (Phase 4), which defers
   // a node whose agent is at AgentDefinition.maxConcurrency.
   const activeByAgent = new Map<string, number>();
-  // Latched when an evaluation returns BLOCKED (budget): the scheduler
-  // stops starting new nodes and blocks the pending ones gracefully.
+  // Latched when an evaluation returns BLOCKED (budget), unless the
+  // policy is in warn mode: the scheduler stops starting new nodes and
+  // blocks the pending ones gracefully. Warn mode (the Phase 5
+  // default from loadPolicy) is the explicit opt-out for this release
+  // cycle: a BLOCKED evaluation is advisory only — it never halts
+  // scheduling; the budget.warning event from the pre-call gate is the
+  // visible signal and the run continues to completion. Policies that
+  // predate budgetMode (field unset) keep the historical halt.
+  const budgetEnforced = deps.policy.budgetMode !== "warn";
   let budgetHalt = false;
   let delegationSeq = 0;
   let fixSeq = 0;
@@ -1215,6 +1456,9 @@ async function executePlan(input: {
         // per-node signal (subtask timeout / scheduler cancel) and the
         // per-task signal (task deadline / task-level cancel).
         signal: combineSignals(signal, input.taskAbort?.signal),
+        // Pre-call budget gate (Phase 5): the executor checks it before
+        // every LLM call this subtask makes.
+        assertBudgetForCall: input.assertBudgetForCall,
         onEvent: async (type, payload, level) => {
           await deps.api.logEvent({
             taskId,
@@ -1263,7 +1507,7 @@ async function executePlan(input: {
             subtaskKey: node.id,
           });
         },
-        onTokenUsage: async (inputTokens, outputTokens, model) => {
+        onTokenUsage: async (inputTokens, outputTokens, model, meta) => {
           // Feed the shared budget tracker with every real LLM call.
           input.budget?.recordLLMCall({
             inputTokens,
@@ -1281,6 +1525,15 @@ async function executePlan(input: {
               model,
               inputTokens,
               outputTokens,
+              // Phase 5 attribution: serving connection + registry
+              // model + estimated cost (absent when unknown).
+              providerId: meta?.providerId as
+                | Parameters<WorkerApi["recordTokenUsage"]>[0]["providerId"]
+                | undefined,
+              modelId: meta?.modelRowId as
+                | Parameters<WorkerApi["recordTokenUsage"]>[0]["modelId"]
+                | undefined,
+              estimatedCost: meta?.estimatedCost,
             });
           }
         },
@@ -1337,7 +1590,11 @@ async function executePlan(input: {
       // runs before this veto, unchanged.)
       shouldRetryNode: () => {
         if (input.taskAbort?.signal.aborted) return false;
-        if (input.budget && !input.budget.canCallLLM()) return false;
+        // A retry re-runs the node and spends another LLM call: veto it
+        // whenever the budget gate would stop that call (Phase 5 — in
+        // warn mode the gate does not throw, so the check is made on
+        // the tracker's LLM exhaustion state directly).
+        if (input.budget && input.budget.isLlmBudgetExhausted().exhausted) return false;
         return true;
       },
       onStart: async (node, attempt) => {
@@ -1458,12 +1715,18 @@ async function executePlan(input: {
               let fixSubtaskKey: string | null = null;
               if (authoritative && !input.taskAbort?.signal.aborted) {
                 if (evaluation.decision === "BLOCKED") {
-                  // Budget exhausted: stop scheduling new work in this
-                  // invocation (the scheduler blocks what is still
-                  // pending once running nodes drain) and mark the task
-                  // with an explicit budget event. Completed outputs are
-                  // preserved; full hard-stop enforcement is Phase 5.
-                  if (!budgetHalt) {
+                  // Budget exhausted. Enforce mode: stop scheduling new
+                  // work in this invocation (the scheduler blocks what
+                  // is still pending once running nodes drain) and mark
+                  // the task with an explicit budget event; the next
+                  // LLM call attempt then throws BudgetExhaustedError
+                  // at the pre-call gate, and the runner's budget
+                  // ending closes the task with completed outputs
+                  // preserved. Warn mode (Phase 5 default): the
+                  // evaluation stays a recorded decision only — no
+                  // halt, no event here; the pre-call gate's
+                  // budget.warning is the signal and the run continues.
+                  if (budgetEnforced && !budgetHalt) {
                     budgetHalt = true;
                     await deps.api.logEvent({
                       taskId,
@@ -1594,6 +1857,10 @@ async function executePlan(input: {
                   decisions: input.sharedContext.decisions,
                   artifacts: input.sharedContext.artifacts,
                   outstandingIssues: input.sharedContext.outstandingIssues,
+                  // Phase 5: keep the persisted budget snapshot current
+                  // after every evaluation, so recovery restores the
+                  // tracker as of the last finished subtask.
+                  budgetSnapshot: input.budget.snapshot(),
                 })
                 ?.catch(() => undefined);
             }
@@ -1634,6 +1901,19 @@ async function executePlan(input: {
         return dynamicNodes;
       },
       onBlocked: async (node, reason) => {
+        // A node blocked while the budget halt is latched (Phase 5):
+        // record the budget failure in the run feedback so the runner
+        // ends the task as budget.exhausted — a halted node never
+        // reaches the pre-call gate, so without this entry its stop
+        // would surface only as a generic execution failure.
+        if (budgetHalt && input.budget) {
+          const llmBudget = input.budget.isLlmBudgetExhausted();
+          if (llmBudget.exhausted) {
+            state.feedback.push(
+              `${node.id}: Budget exhausted: ${llmBudget.reason}`
+            );
+          }
+        }
         // Dynamic subtasks (Phase 3 delegation/fix) have no persisted
         // subtask row; a failed status write for them must not take the
         // scheduler down — the event below still records the block.
@@ -2033,12 +2313,28 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
   );
   const classification = classifyCommand(command);
   const budget = new BudgetTracker(deps.policy);
-  try {
-    const priorUsage = await deps.api.getTaskTokenUsage?.({ taskId });
-    if (priorUsage && priorUsage.calls > 0) budget.seed(priorUsage);
-  } catch {
-    // Seeding is best-effort; a fresh tracker is the safe fallback.
-  }
+  // Phase 5: resume seeds the FULL persisted budget state (usage totals
+  // + snapshot extras) with visible failure — replacing the old silent
+  // best-effort catch that reset every non-usage limit on resume.
+  await seedBudgetFromPersisted({
+    deps,
+    taskId,
+    projectId: context.project._id,
+    budget,
+  });
+  // Pre-call budget gate closure (Phase 5), same contract as processTask.
+  const assertBudgetForCall = () =>
+    budget.assertLlmCallAllowed((reason) => {
+      void deps.api
+        .logEvent({
+          taskId,
+          projectId: context.project._id,
+          type: "budget.warning",
+          payload: { reason, budget: budget.snapshot() },
+          level: "warn",
+        })
+        .catch(() => undefined);
+    });
   const sharedContext = createSharedTaskContext({
     taskId,
     projectId: context.project._id,
@@ -2062,6 +2358,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
       completedKeys,
       taskAbort: taskAbort.controller,
       budget,
+      assertBudgetForCall,
       sharedContext,
       classification,
       llmConfig,
@@ -2106,6 +2403,19 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
       case "failed": {
         const failureSummary =
           state.feedback.join("; ") || "Execution failed after approval";
+        // Budget exhausted during the resumed execution (Phase 5):
+        // ends with the explicit budget.exhausted status, not a
+        // generic post-approval failure.
+        if (summaryHasBudgetFailure(failureSummary)) {
+          await finishBudgetExhaustedTask({
+            deps,
+            task: context.task,
+            project: context.project,
+            budget,
+            reason: budgetReasonFromSummary(failureSummary),
+          });
+          return;
+        }
         await deps.api.logEvent({
           taskId,
           projectId: context.project._id,

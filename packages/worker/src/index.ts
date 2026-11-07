@@ -5,6 +5,7 @@ import { createConvexClient } from "./convexClient";
 import { WorkerApi, type WorkerTask } from "./workerApi";
 import { loadPolicy } from "./orchestrator/policy";
 import { setWorkerLlmConcurrencyLimit } from "./effects/llmCall";
+import { providerHealth } from "./llm/health";
 import { processTask, resumeTask, type RunnerDeps } from "./services/taskRunner";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
@@ -36,6 +37,30 @@ async function main() {
   // limits live on per-run gates inside the runner — no task ever
   // resizes this gate (Phase 4 hardening).
   setWorkerLlmConcurrencyLimit(policy.maxConcurrentLLMCalls);
+  // Provider health mirror (Phase 5): every circuit outcome the shared
+  // registry records is reported to the backend, so the Settings UI
+  // can render per-connection circuit state. Connections without a
+  // registered backend name (env-fallback pseudo-connections) have no
+  // provider row to attach a snapshot to and are skipped. Reporting is
+  // best-effort — a failed report never affects a provider call.
+  providerHealth.setChangeListener((connectionId, snapshot) => {
+    const providerName = providerHealth.connectionName(connectionId);
+    if (!providerName) return;
+    void api
+      .reportProviderHealth({
+        providerId: connectionId as Parameters<
+          WorkerApi["reportProviderHealth"]
+        >[0]["providerId"],
+        providerName,
+        consecutiveTransientFailures: snapshot.consecutiveTransientFailures,
+        totalSuccesses: snapshot.totalSuccesses,
+        totalTransientFailures: snapshot.totalTransientFailures,
+        circuitOpenUntil: snapshot.circuitOpenUntil ?? undefined,
+        lastSuccessAt: snapshot.lastSuccessAt,
+        lastFailureAt: snapshot.lastFailureAt,
+      })
+      .catch(() => undefined);
+  });
   const workspaceRoot = process.env.WORKSPACE_ROOT ?? "./workspaces";
   const inFlight = new Map<string, Promise<void>>();
 

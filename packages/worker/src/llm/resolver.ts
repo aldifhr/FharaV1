@@ -84,6 +84,9 @@ export interface ResolvedLlm {
   model: string;
   /** llmModels registry row id, when the model came from the registry. */
   modelRowId?: string;
+  /** Registry pricing for the model (Phase 5 cost attribution). */
+  inputPricePer1k?: number;
+  outputPricePer1k?: number;
   apiKey: string;
   /** Ready-to-use config for createGlobalLLMProvider. */
   config: GlobalLLMConfig;
@@ -189,6 +192,8 @@ function toResolved(pair: CandidatePair): ResolvedLlm {
     baseUrl: connection.baseUrl,
     model: model.modelId,
     modelRowId: model._id,
+    inputPricePer1k: model.inputPricePer1k,
+    outputPricePer1k: model.outputPricePer1k,
     apiKey: connection.apiKey,
     config: {
       provider: connection.provider,
@@ -374,6 +379,10 @@ export interface ResolvedProviderHandle {
   connectionName: string;
   config: GlobalLLMConfig;
   provider: LLMProvider;
+  /** llmModels registry row id + pricing of the served model (Phase 5). */
+  modelRowId?: string;
+  inputPricePer1k?: number;
+  outputPricePer1k?: number;
 }
 
 /**
@@ -433,6 +442,9 @@ export class TaskLlmResolver {
       connectionName: entry.connectionName,
       config: entry.config,
       provider: lazyProvider(entry.config),
+      modelRowId: entry.modelRowId,
+      inputPricePer1k: entry.inputPricePer1k,
+      outputPricePer1k: entry.outputPricePer1k,
     }));
   }
 

@@ -172,6 +172,20 @@ export function evaluateDelegation(input: {
         shouldCallLLM: false,
       };
     }
+    // Task-wide delegation COUNT (spec §7 maxDelegations, Phase 5): a
+    // separate bound from branch depth — a task may stay shallow yet
+    // still delegate unboundedly often without it.
+    if (
+      policy.maxDelegations !== undefined &&
+      budget.delegationCount >= policy.maxDelegations
+    ) {
+      return {
+        decision: "REJECT",
+        reason: `Delegation budget exhausted (${budget.delegationCount}/${policy.maxDelegations})`,
+        targetCapability: targetCap,
+        shouldCallLLM: false,
+      };
+    }
     if (!budget.canAddAgent()) {
       return {
         decision: "REJECT",
@@ -249,6 +263,8 @@ export function evaluateDelegation(input: {
     hasQaAgent &&
     !hasRunQa &&
     branchDepth < maxDepth &&
+    (policy.maxDelegations === undefined ||
+      budget.delegationCount < policy.maxDelegations) &&
     budget.canAddAgent() &&
     !preventCircularDelegation(chain, "browser-testing")
   ) {

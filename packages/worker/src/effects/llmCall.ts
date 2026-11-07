@@ -278,6 +278,55 @@ export interface FallbackHandle {
   connectionName: string;
   config: GlobalLLMConfig;
   provider: LLMProvider;
+  /** llmModels registry row id of the model this handle serves (Phase 5 usage attribution). */
+  modelRowId?: string;
+  /** Registry pricing for the served model, when the operator filled it in. */
+  inputPricePer1k?: number;
+  outputPricePer1k?: number;
+}
+
+/**
+ * Per-call usage attribution (Phase 5): which provider connection and
+ * registry model actually served a call, and its estimated cost. Fields
+ * are absent — never guessed — when the serving handle has no registry
+ * identity (env fallback) or no pricing.
+ */
+export interface TokenUsageMeta {
+  providerId?: string;
+  modelRowId?: string;
+  estimatedCost?: number;
+}
+
+/**
+ * Estimated cost of one call from registry pricing. Returns undefined
+ * unless BOTH sides are priced: a half-known price would understate the
+ * cost, and an invented number is worse than an absent one (PLAN Phase 5).
+ */
+export function estimateUsageCost(
+  handle: Pick<FallbackHandle, "inputPricePer1k" | "outputPricePer1k">,
+  inputTokens: number,
+  outputTokens: number
+): number | undefined {
+  if (handle.inputPricePer1k === undefined || handle.outputPricePer1k === undefined) {
+    return undefined;
+  }
+  return (
+    (Math.max(0, inputTokens) / 1000) * handle.inputPricePer1k +
+    (Math.max(0, outputTokens) / 1000) * handle.outputPricePer1k
+  );
+}
+
+/** The TokenUsageMeta for a call served by `handle` with the given usage. */
+export function usageMetaFor(
+  handle: FallbackHandle,
+  inputTokens: number,
+  outputTokens: number
+): TokenUsageMeta {
+  return {
+    providerId: handle.connectionId ? handle.connectionId : undefined,
+    modelRowId: handle.modelRowId,
+    estimatedCost: estimateUsageCost(handle, inputTokens, outputTokens),
+  };
 }
 
 /**

@@ -314,6 +314,12 @@ export default defineSchema({
     // Provider connection that served the call (filled from Phase 5;
     // column created in Phase 2 so the schema changes only once).
     providerId: v.optional(v.id("llmProviders")),
+    // Phase 5 (additive): the llmModels registry row that served the
+    // call, and the estimated cost computed from that row's pricing at
+    // call time. Both absent — never guessed — when the serving handle
+    // had no registry identity or no complete pricing.
+    modelId: v.optional(v.id("llmModels")),
+    estimatedCost: v.optional(v.number()),
     inputTokens: v.number(),
     outputTokens: v.number(),
     createdAt: v.number(),
@@ -333,6 +339,11 @@ export default defineSchema({
     decisions: v.array(v.any()),
     artifacts: v.array(v.any()),
     outstandingIssues: v.array(v.any()),
+    // Phase 5 (additive): the task's persisted budget snapshot
+    // (BudgetTracker.snapshot shape) so a resumed/recovered run restores
+    // the FULL tracker state — agents, delegation count, retries — not
+    // just the call/token totals the tokenUsage table carries.
+    budgetSnapshot: v.optional(v.any()),
     updatedAt: v.number(),
   }).index("by_task", ["taskId"]),
 
@@ -405,6 +416,25 @@ export default defineSchema({
   })
     .index("by_provider", ["providerId"])
     .index("by_provider_and_model", ["providerId", "modelId"]),
+
+  // Provider health snapshots (Phase 5 observability): the worker's
+  // in-memory circuit registry (llm/health.ts) mirrored to the backend by
+  // the worker itself, one row per provider connection, so the Settings
+  // UI can render per-connection circuit state. Written ONLY by the
+  // worker through its token-gated action, and only when the deployment
+  // was provisioned with the mirror token (see orchestration.ts); the
+  // table stays empty otherwise and the UI says so honestly.
+  providerHealth: defineTable({
+    providerId: v.id("llmProviders"),
+    providerName: v.string(),
+    consecutiveTransientFailures: v.number(),
+    totalSuccesses: v.number(),
+    totalTransientFailures: v.number(),
+    circuitOpenUntil: v.optional(v.number()),
+    lastSuccessAt: v.optional(v.number()),
+    lastFailureAt: v.optional(v.number()),
+    reportedAt: v.number(),
+  }).index("by_provider", ["providerId"]),
 
   // Integrations (e.g. GitHub MCP connector)
   integrations: defineTable({

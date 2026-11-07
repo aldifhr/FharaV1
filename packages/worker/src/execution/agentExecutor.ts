@@ -3,10 +3,13 @@ import {
   isTransientLlmError,
   runLlmCallWithFallback,
   runWithLlmGates,
+  usageMetaFor,
   type FallbackHandle,
   type LlmConcurrencyGate,
+  type TokenUsageMeta,
 } from "@/effects/llmCall";
 import { providerHealth } from "@/llm/health";
+import { isBudgetExhaustedError } from "@/orchestrator/budget";
 import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/orchestrator/types";
 import {
   buildAgentExecutionContext,
@@ -62,7 +65,16 @@ export interface SubtaskExecutionInput {
   onMessage: (content: string) => Promise<void>;
   onChunk: (delta: string) => Promise<void>;
   saveFileChange: (change: FileDiff) => Promise<void>;
-  onTokenUsage?: (inputTokens: number, outputTokens: number, model: string) => Promise<void>;
+  onTokenUsage?: (inputTokens: number, outputTokens: number, model: string, meta?: TokenUsageMeta) => Promise<void>;
+  /**
+   * Pre-call budget gate (Phase 5): invoked BEFORE every LLM call this
+   * subtask makes. In "enforce" mode it throws BudgetExhaustedError —
+   * executeSubtask converts that into a failed outcome carrying the
+   * budget reason, and the runner ends the task as budget.exhausted.
+   * In "warn" mode it reports via the runner's warning callback and the
+   * call proceeds. Absent: no gate (legacy callers/tests).
+   */
+  assertBudgetForCall?: () => void;
 }
 
 /**
@@ -98,20 +110,31 @@ export async function executeSubtask(
     return { status: "failed", error: "Execution cancelled" };
   }
 
-  switch (subtask.kind) {
-    case "code_change":
-      return await executeCodeChange(input);
-    case "review":
-      return await executeReview(input);
-    case "qa":
-      return await executeQa(input);
-    case "audit":
-      return await executeReadOnly(input, "audit");
-    case "research":
-      return await executeReadOnly(input, "research");
-    case "analysis":
-    default:
-      return await executeReadOnly(input, "analysis");
+  try {
+    switch (subtask.kind) {
+      case "code_change":
+        return await executeCodeChange(input);
+      case "review":
+        return await executeReview(input);
+      case "qa":
+        return await executeQa(input);
+      case "audit":
+        return await executeReadOnly(input, "audit");
+      case "research":
+        return await executeReadOnly(input, "research");
+      case "analysis":
+      default:
+        return await executeReadOnly(input, "analysis");
+    }
+  } catch (error) {
+    // Budget enforcement (Phase 5): a pre-call gate throw becomes a
+    // normal failed outcome whose error carries the exhaustion reason —
+    // the runner recognizes it and ends the task as budget.exhausted
+    // instead of replanning it away like a generic failure.
+    if (isBudgetExhaustedError(error)) {
+      return { status: "failed", error: error.message };
+    }
+    throw error;
   }
 }
 
@@ -186,13 +209,21 @@ async function executeCodeChange(
     "- Keep the change minimal and focused on the task.",
   ].join("\n");
 
+  // Pre-call budget gate (Phase 5): no LLM call starts once the task's
+  // call/token budget is spent (enforce mode throws here).
+  input.assertBudgetForCall?.();
   let { result: response, servedBy } = await runLlmCallWithFallback(
     handles,
     baseMessages(input, basePayload),
     { health: healthFor(input), signal: input.signal, taskGate: input.llmTaskGate }
   );
   if (input.onTokenUsage) {
-    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedBy.config.model);
+    await input.onTokenUsage(
+      response.inputTokens ?? 0,
+      response.outputTokens ?? 0,
+      servedBy.config.model,
+      usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0)
+    );
   }
 
   let draft = parseDraft(response.content);
@@ -204,6 +235,8 @@ async function executeCodeChange(
     });
     // Retry on the connection that served the first call (stickiness);
     // the single-handle chain still applies local retries + health.
+    // The retry is a second LLM call: the budget gate applies again.
+    input.assertBudgetForCall?.();
     ({ result: response, servedBy } = await runLlmCallWithFallback(
       [servedBy],
       baseMessages(
@@ -213,7 +246,12 @@ async function executeCodeChange(
       { health: healthFor(input), signal: input.signal, taskGate: input.llmTaskGate }
     ));
     if (input.onTokenUsage) {
-      await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedBy.config.model);
+      await input.onTokenUsage(
+        response.inputTokens ?? 0,
+        response.outputTokens ?? 0,
+        servedBy.config.model,
+        usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0)
+      );
     }
     draft = parseDraft(response.content);
   }
@@ -293,6 +331,8 @@ async function executeReview(
     .slice(0, 40_000)
     .replace(/\b(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9_]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)\b/g, "[REDACTED]");
 
+  // Pre-call budget gate (Phase 5).
+  input.assertBudgetForCall?.();
   const { result: response, servedBy } = await runLlmCallWithFallback(
     handlesFor(input),
     baseMessages(
@@ -310,7 +350,12 @@ async function executeReview(
     { health: healthFor(input), signal: input.signal, taskGate: input.llmTaskGate }
   );
   if (input.onTokenUsage) {
-    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedBy.config.model);
+    await input.onTokenUsage(
+      response.inputTokens ?? 0,
+      response.outputTokens ?? 0,
+      servedBy.config.model,
+      usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0)
+    );
   }
 
   const review = parseReview(response.content);
@@ -443,8 +488,15 @@ async function executeReadOnly(
     input,
     `${instruction}\n\nRepository context:\n${context}${webContext.block ? `\n\n${webContext.block}` : ""}\n\nUser request: ${command}`
   );
+  // Pre-call budget gate (Phase 5): applies to the streaming path and
+  // the fallback path alike — both make exactly one logical LLM call
+  // from this point.
+  input.assertBudgetForCall?.();
   let response: LLMResult;
   let servedModel = handles[0].config.model;
+  // The handle that actually served the call (fallback can switch it);
+  // its registry identity/pricing attributes the usage (Phase 5).
+  let servedHandle: FallbackHandle = handles[0];
   const primary = handles[0];
   if (primary.provider.stream) {
     let chunkEmitted = false;
@@ -492,6 +544,7 @@ async function executeReadOnly(
       });
       response = fallback.result;
       servedModel = fallback.servedBy.config.model;
+      servedHandle = fallback.servedBy;
       if (response.content) await input.onChunk(response.content);
     }
   } else {
@@ -502,9 +555,15 @@ async function executeReadOnly(
     });
     response = result;
     servedModel = servedBy.config.model;
+    servedHandle = servedBy;
   }
   if (input.onTokenUsage) {
-    await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedModel);
+    await input.onTokenUsage(
+      response.inputTokens ?? 0,
+      response.outputTokens ?? 0,
+      servedModel,
+      usageMetaFor(servedHandle, response.inputTokens ?? 0, response.outputTokens ?? 0)
+    );
   }
 
   const content = response.content.trim();

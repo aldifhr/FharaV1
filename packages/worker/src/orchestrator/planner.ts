@@ -1,8 +1,10 @@
 import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig } from "@/llm";
 import {
   runLlmCallWithFallback,
+  usageMetaFor,
   type FallbackHandle,
   type LlmConcurrencyGate,
+  type TokenUsageMeta,
 } from "@/effects/llmCall";
 import { providerHealth } from "@/llm/health";
 import type { TaskLlmResolver } from "@/llm/resolver";
@@ -26,7 +28,15 @@ export interface PlannerInput {
    * fallback across its chain. Takes precedence over `llmConfig`.
    */
   llmResolver?: TaskLlmResolver;
-  onTokenUsage?: (inputTokens: number, outputTokens: number, model: string, agentName: string, agentId?: string) => Promise<void>;
+  onTokenUsage?: (inputTokens: number, outputTokens: number, model: string, agentName: string, agentId?: string, meta?: TokenUsageMeta) => Promise<void>;
+  /**
+   * Pre-call budget gate (Phase 5): invoked BEFORE the planner's LLM
+   * call. Enforce mode throws BudgetExhaustedError — deliberately NOT
+   * swallowed by createPlan's planner-unavailable catch (a budget stop
+   * is not planner unavailability, and degrading to the heuristic plan
+   * would still be wrong when replans would spend more calls).
+   */
+  assertBudgetForCall?: () => void;
   /**
    * Task cancellation/deadline signal (Phase 4 hardening): forwarded to
    * the planner's LLM call. When it fires, planning ABORTS by throwing —
@@ -56,6 +66,10 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   }
   const orchestrator = pickOrchestrator(input.agents);
   if (orchestrator) {
+    // Pre-call budget gate (Phase 5) — OUTSIDE the try below on purpose:
+    // the catch treats call errors as planner unavailability and degrades
+    // to the heuristic plan, which would hide a budget stop.
+    input.assertBudgetForCall?.();
     try {
       // The planner is an agent like any other: its LLM comes from its own
       // resolver chain (assignment → fallback assignment → pool), not from
@@ -80,7 +94,14 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
       });
       if (input.onTokenUsage && response.inputTokens !== undefined) {
         const model = servedBy.config.model;
-        await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, model, orchestrator.name, orchestrator._id);
+        await input.onTokenUsage(
+          response.inputTokens ?? 0,
+          response.outputTokens ?? 0,
+          model,
+          orchestrator.name,
+          orchestrator._id,
+          usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0)
+        );
       }
       const parsed = extractJson(response.content);
       const validation = validatePlan(

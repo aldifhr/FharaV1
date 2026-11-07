@@ -125,6 +125,9 @@ function LlmSettingsModal({
   const projects = useQuery(api.projects.list, open ? {} : "skip");
   const providers = useQuery(api.llmProviders.list, open ? {} : "skip");
   const models = useQuery(api.llmModels.list, open ? {} : "skip");
+  // Provider health (Phase 5): circuit snapshots mirrored to the backend
+  // by the worker. Keyed by provider NAME, like the usage stats.
+  const healthStats = useQuery(api.orchestration.providerHealthStats, open ? {} : "skip");
   const toast = useToast();
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -551,7 +554,14 @@ function LlmSettingsModal({
                 </p>
               )}
               <div className="mt-3 grid gap-2">
-                {(sorted ?? []).map((p) => (
+                {(sorted ?? []).map((p) => {
+                  // Circuit state for this connection (Phase 5): a row
+                  // renders only when the worker has reported one.
+                  const health = healthStats?.snapshots?.[p.name];
+                  const circuitOpen =
+                    health?.circuitOpenUntil != null &&
+                    health.circuitOpenUntil > Date.now();
+                  return (
                   <div
                     key={p._id}
                     className="flex items-center gap-3 rounded-xl border border-[#e5e3eb] px-3 py-2.5 text-sm dark:border-gray-700"
@@ -579,11 +589,34 @@ function LlmSettingsModal({
                             no key stored
                           </span>
                         )}
+                        {health &&
+                          (circuitOpen ? (
+                            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                              circuit open s/d{" "}
+                              {new Date(health.circuitOpenUntil!).toLocaleTimeString()}
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                              circuit closed
+                            </span>
+                          ))}
                       </div>
                       <div className="mt-0.5 truncate text-xs text-gray-500">
                         {p.provider} · {p.model} · {p.baseUrl} · {p.apiKeyEnv}
                         {(p.modelPatterns?.length ?? 0) > 0 && ` · patterns: ${p.modelPatterns!.join(", ")}`}
                       </div>
+                      {health && (
+                        <div className="mt-0.5 truncate text-xs text-gray-500">
+                          Health: {health.totalSuccesses} sukses ·{" "}
+                          {health.totalTransientFailures} gagal transien
+                          {health.consecutiveTransientFailures > 0 &&
+                            ` · ${health.consecutiveTransientFailures} beruntun`}
+                          {health.lastSuccessAt &&
+                            ` · sukses terakhir ${new Date(health.lastSuccessAt).toLocaleTimeString()}`}
+                          {health.lastFailureAt &&
+                            ` · gagal terakhir ${new Date(health.lastFailureAt).toLocaleTimeString()}`}
+                        </div>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -609,8 +642,20 @@ function LlmSettingsModal({
                       <Trash2 size={14} />
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
+              {healthStats !== undefined &&
+                Object.keys(healthStats.snapshots).length === 0 && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    Status circuit belum ada data: worker melaporkan
+                    snapshot kesehatan provider ke backend setiap kali
+                    ada hasil panggilan (sukses/gagal), jadi panel ini
+                    terisi setelah worker menjalankan panggilan LLM
+                    pertama. Data di atas tetap akurat untuk konfigurasi
+                    koneksi.
+                  </p>
+                )}
             </section>
 
           <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">

@@ -335,6 +335,46 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     .filter((message: any) => !message.taskId || message.authorType === "agent")
     .sort((a: any, b: any) => a._creationTime - b._creationTime);
   const lastMessage = timeline[timeline.length - 1];
+
+  // "• New" divider: marks the first message newer than the newest one
+  // the user has seen (persisted per project). It used to be rendered
+  // unconditionally at the top of the timeline, so an hour-old thread
+  // still read "New" at the top. It now sits at the boundary between seen
+  // and unseen messages and advances as the user reads to the bottom.
+  const lastSeenKey = `moagent-chat-lastseen-${projectId}`;
+  const [lastSeenAt, setLastSeenAt] = useState(0);
+  useEffect(() => {
+    try {
+      setLastSeenAt(Number(localStorage.getItem(lastSeenKey)) || 0);
+    } catch {
+      setLastSeenAt(0);
+    }
+  }, [lastSeenKey]);
+  const markSeen = () => {
+    const seen = lastMessage?._creationTime ?? 0;
+    if (!seen) return;
+    setLastSeenAt((prev) => {
+      const next = Math.max(prev, seen);
+      if (next !== prev) {
+        try {
+          localStorage.setItem(lastSeenKey, String(next));
+        } catch {
+          /* private-window storage denied — keep it in memory */
+        }
+      }
+      return next;
+    });
+  };
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight <= 120) {
+      markSeen();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeline, lastSeenKey]);
+  const firstNewIndex = timeline.findIndex(
+    (m: any) => m._creationTime > lastSeenAt
+  );
   const wasAgentTypingRef = useRef(false);
 
   const conversationTyping = lastMessage?.authorType === "user";
@@ -822,7 +862,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         </div>
       </header>
 
-      <div ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (el) setShowScrollDown(el.scrollHeight - el.scrollTop - el.clientHeight > 120); }} className="flex-1 space-y-5 overflow-y-auto bg-transparent px-5 py-6">
+      <div ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (!el) return; const dist = el.scrollHeight - el.scrollTop - el.clientHeight; setShowScrollDown(dist > 120); if (dist <= 120) markSeen(); }} className="flex-1 space-y-5 overflow-y-auto bg-transparent px-5 py-6">
         {taskErrors.map((event: any, index: number) => (
           <div key={`task-error-${index}`} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             <span className="font-semibold">Agent error:</span> {event.payload?.message ?? "Task failed to process."}
@@ -830,13 +870,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         ))}
         {tab === "chat" ? (
           <>
-            {timeline.length > 0 && (
-              <div className="flex items-center gap-3 text-[11px] font-medium text-[#635bff]">
-                 <span className="h-px flex-1 bg-[#e5e3eb] dark:bg-gray-700" />
-                <span className="h-1.5 w-1.5 rounded-full bg-[#635bff]" />
-                New
-              </div>
-            )}
             {timeline.map((m: any, index: number) => {
               const previous = timeline[index - 1];
               const key = blockKey(m);
@@ -847,6 +880,13 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                const showTaskCard = key !== "conversation" && m.authorType === "agent" && previous?.authorType === "user";
               return (
                 <div key={m._id}>
+                  {index === firstNewIndex && (
+                    <div className="flex items-center gap-3 text-[11px] font-medium text-[#635bff]">
+                      <span className="h-px flex-1 bg-[#e5e3eb] dark:bg-gray-700" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#635bff]" />
+                      New
+                    </div>
+                  )}
                   {boundary && (
                     <p className="my-5 text-center text-[11px] text-gray-400">
                       — {taskTitle(key)} —

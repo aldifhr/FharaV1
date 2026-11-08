@@ -81,6 +81,53 @@ export interface OutstandingIssue {
   relatedFiles?: string[];
 }
 
+/**
+ * Issue lifecycle (plan 013 step 2): issues resolve only when later
+ * APPROVED work actually covers them — never silently. Conservative
+ * matching:
+ * - an issue WITH relatedFiles resolves once every related file is in
+ *   the approved-applied evidence set;
+ * - an issue WITHOUT relatedFiles resolves only on an approving review
+ *   by the same agent that raised it (same capability domain);
+ * - "ignored" is user-driven and never written here.
+ * Open critical/high issues therefore stay open (and block completion)
+ * until real work covers them — recovery cannot loop forever.
+ */
+export function resolveIssuesForApproval(
+  issues: OutstandingIssue[],
+  opts: { approvedFiles: ReadonlySet<string>; approvingAgent?: string }
+): OutstandingIssue[] {
+  return issues.map((issue) => {
+    if (issue.status !== "open") return issue;
+    if (issue.relatedFiles && issue.relatedFiles.length > 0) {
+      return issue.relatedFiles.every((file) => opts.approvedFiles.has(file))
+        ? { ...issue, status: "resolved" }
+        : issue;
+    }
+    if (opts.approvingAgent && issue.raisedBy === opts.approvingAgent) {
+      return { ...issue, status: "resolved" };
+    }
+    return issue;
+  });
+}
+
+/** A planned QA pass resolves issues whose relatedFiles are all covered
+ *  by applied, already-approved work. */
+export function resolveIssuesForQaPass(
+  issues: OutstandingIssue[],
+  approvedFiles: ReadonlySet<string>
+): OutstandingIssue[] {
+  return issues.map((issue) => {
+    if (issue.status !== "open") return issue;
+    if (issue.relatedFiles && issue.relatedFiles.length > 0) {
+      return issue.relatedFiles.every((file) => approvedFiles.has(file))
+        ? { ...issue, status: "resolved" }
+        : issue;
+    }
+    return issue;
+  });
+}
+
 export interface SharedTaskContext {
   taskId: string;
   projectId: string;

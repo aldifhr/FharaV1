@@ -126,4 +126,24 @@ describe("evaluator", () => {
     });
     expect(result.verdict).toBe("failed");
   });
+
+  it("blocks completion on open critical/high issues even with inconclusive verification (plan 013)", async () => {
+    const result = await evaluateTask({
+      workspacePath: root,
+      subtasks: [{ key: "implement", kind: "code_change", status: "completed" }],
+      fileChanges: [],
+      hasApprovalPlan: true,
+      qaVerdicts: {},
+      openIssues: [
+        { severity: "critical", description: "auth bypass", status: "open" },
+        { severity: "medium", description: "cosmetic", status: "open" },
+        { severity: "high", description: "ignored one", status: "ignored" },
+      ],
+      verificationChecks: [{ name: "verify", status: "inconclusive", details: "no data" }],
+    });
+    expect(result.verdict).toBe("failed");
+    const check = result.checks.find((c) => c.name === "open-issues");
+    expect(check?.details).toContain("auth bypass");
+    expect(check?.details).not.toContain("cosmetic");
+  });
 });

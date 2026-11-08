@@ -34,6 +34,12 @@ export interface EvaluationInput {
   hasApprovalPlan: boolean;
   qaVerdicts: Record<string, EvaluationVerdict>;
   verificationChecks?: EvaluationCheck[];
+  /**
+   * Shared-context outstanding issues at finalize time (plan 013 step 2).
+   * Open critical/high issues block completion: no task may be `done`
+   * with unresolved severe findings. Resolved/ignored issues are fine.
+   */
+  openIssues?: Array<{ severity: string; description: string; status: string }>;
 }
 
 export interface EvaluationResult {
@@ -127,6 +133,22 @@ export async function evaluateTask(input: EvaluationInput): Promise<EvaluationRe
         details: "QA was planned but did not run",
       });
     }
+  }
+
+  // Open critical/high issues block completion (plan 013 step 2): no
+  // task may be `done` with unresolved severe findings, even when the
+  // final verification is inconclusive. Resolved/ignored issues are fine.
+  const openSevere = (input.openIssues ?? []).filter(
+    (issue) => issue.status === "open" && (issue.severity === "critical" || issue.severity === "high")
+  );
+  if (openSevere.length > 0) {
+    checks.push({
+      name: "open-issues",
+      status: "failed",
+      details: openSevere
+        .map((issue) => `${issue.description}`)
+        .join("; "),
+    });
   }
 
   const verdict: EvaluationVerdict = checks.some((check) => check.status === "failed")

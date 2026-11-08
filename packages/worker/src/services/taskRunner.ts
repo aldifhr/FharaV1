@@ -27,6 +27,8 @@ import {
 } from "@/orchestrator/orchestrator";
 import {
   createSharedTaskContext,
+  resolveIssuesForApproval,
+  resolveIssuesForQaPass,
   type SharedTaskContext,
 } from "@/orchestrator/taskContext";
 import type { Classification } from "@/orchestrator/types";
@@ -652,6 +654,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           agents: runAgents,
           subtasks: after?.subtasks ?? [],
           state,
+          openIssues: sharedContext.outstandingIssues,
           signal: taskAbort.controller.signal,
         });
         if (verification.verdict === "failed" && replans < maxPlanningIterations) {
@@ -1415,6 +1418,31 @@ async function executePlan(input: {
               ...(state.qaChecks ?? {}),
               [node.id]: checks as NonNullable<RunState["qaChecks"]>[string],
             };
+          }
+        }
+        // Issue lifecycle (plan 013 step 2): an approving review or a
+        // passing planned QA resolves open issues whose related work is
+        // actually covered by completed, attributed file changes. Applied
+        // BEFORE the decision block re-assigns sharedContext.outstandingIssues
+        // (its merge preserves resolutions) so the objective evaluation
+        // below no longer reads freshly-fixed findings as open blockers.
+        if (outcome.status === "completed" && input.sharedContext) {
+          const approvedFiles = new Set(
+            [...state.appliedFilesBySubtask.entries()]
+              .filter(([key]) => runCompleted.has(key) || key === node.id)
+              .flatMap(([, files]) => files)
+          );
+          if (subtaskKind === "review" && meta?.verdict === "approved") {
+            input.sharedContext.outstandingIssues = resolveIssuesForApproval(
+              input.sharedContext.outstandingIssues,
+              { approvedFiles, approvingAgent: agent?.name }
+            );
+          }
+          if (subtaskKind === "qa" && meta?.verdict === "passed") {
+            input.sharedContext.outstandingIssues = resolveIssuesForQaPass(
+              input.sharedContext.outstandingIssues,
+              approvedFiles
+            );
           }
         }
         // Intelligent orchestrator: evaluate every finished subtask, keep
@@ -2951,6 +2979,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
           agents: context.agents,
           subtasks: after?.subtasks ?? [],
           state,
+          openIssues: sharedContext.outstandingIssues,
           signal: taskAbort.controller.signal,
         });
         return;

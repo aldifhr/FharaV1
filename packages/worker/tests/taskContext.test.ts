@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createSharedTaskContext, appendExecution, normalizeFindings } from "@/orchestrator/taskContext";
+import {
+  createSharedTaskContext,
+  appendExecution,
+  normalizeFindings,
+  resolveIssuesForApproval,
+  resolveIssuesForQaPass,
+  type OutstandingIssue,
+} from "@/orchestrator/taskContext";
 import { buildAgentExecutionContext } from "@/orchestrator/agentContext";
 import { classifyCommand } from "@/orchestrator/classifier";
 import type { AgentDefinition } from "@/orchestrator/types";
@@ -58,5 +65,51 @@ describe("normalizeFindings", () => {
   it("drops unusable entries and non-arrays", () => {
     expect(normalizeFindings(undefined)).toEqual([]);
     expect(normalizeFindings([42, null, { noDescription: true }])).toEqual([]);
+  });
+});
+
+describe("issue lifecycle (plan 013 step 2)", () => {
+  const issue = (over: Partial<OutstandingIssue> = {}): OutstandingIssue => ({
+    id: "i1",
+    description: "auth bypass in login",
+    severity: "critical",
+    status: "open",
+    ...over,
+  });
+
+  it("a file-scoped issue resolves only when every related file is covered by approved work", () => {
+    const scoped = issue({ relatedFiles: ["a.ts", "b.ts"] });
+    expect(
+      resolveIssuesForApproval([scoped], { approvedFiles: new Set(["a.ts"]) })[0].status
+    ).toBe("open");
+    expect(
+      resolveIssuesForApproval([scoped], { approvedFiles: new Set(["a.ts", "b.ts"]) })[0]
+        .status
+    ).toBe("resolved");
+  });
+
+  it("an unscoped issue resolves only on a same-agent approving review, never silently", () => {
+    const unscoped = issue({ raisedBy: "Developer" });
+    expect(resolveIssuesForApproval([unscoped], { approvedFiles: new Set() })[0].status).toBe(
+      "open"
+    );
+    expect(
+      resolveIssuesForApproval([unscoped], { approvedFiles: new Set(), approvingAgent: "QA" })[0]
+        .status
+    ).toBe("open");
+    expect(
+      resolveIssuesForApproval([unscoped], {
+        approvedFiles: new Set(),
+        approvingAgent: "Developer",
+      })[0].status
+    ).toBe("resolved");
+  });
+
+  it("QA pass never resolves unscoped issues; resolved/ignored issues are untouched", () => {
+    const unscoped = issue();
+    const done = issue({ id: "i2", status: "resolved" });
+    const ignored = issue({ id: "i3", status: "ignored" });
+    const result = resolveIssuesForQaPass([unscoped, done, ignored], new Set(["a.ts"]));
+    expect(result.map((i) => i.status)).toEqual(["open", "resolved", "ignored"]);
   });
 });

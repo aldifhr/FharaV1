@@ -17,7 +17,7 @@ import Modal from "./Modal";
 import TaskBoard from "./TaskBoard";
 
 import { useToast } from "./Toasts";
-import { AtSign, Bell, Check, CheckCircle2, Clock, Copy, ExternalLink, Loader2, MoreHorizontal, Pencil, Send, ChevronUp, ChevronDown, Edit2, X, Trash2, Paperclip, Mic, SquareTerminal, Type } from "lucide-react";
+import { AtSign, Bell, Check, CheckCircle2, Clock, Copy, ExternalLink, Loader2, MoreHorizontal, Pencil, Send, ChevronUp, ChevronDown, Edit2, X, XCircle, Trash2, Paperclip, Mic, SquareTerminal, Type } from "lucide-react";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { roleLabel } from "@/lib/agentRoles";
 
@@ -135,24 +135,15 @@ function TaskCard({
   pending,
   onApprove,
   onOpen,
+  agents,
 }: {
   task: any;
   subtasks: any[];
   pending: any[];
   onApprove: (approvalId: string) => void;
   onOpen: (taskId: string) => void;
+  agents: any[];
 }) {
-  const files = useQuery(api.fileChanges.listByTask, { taskId: task._id });
-  const stats = useMemo(() => {
-    let added = 0;
-    let removed = 0;
-    for (const f of files ?? []) {
-      const c = countLines(f.diff ?? "");
-      added += c.added;
-      removed += c.removed;
-    }
-    return { added, removed };
-  }, [files]);
   const doneSubs = subtasks.filter((s) => s.status === "completed").length;
   const needsYou = task.status === "needs_approval" || pending.length > 0;
   const badge =
@@ -166,68 +157,73 @@ function TaskCard({
   const badgeLabel =
     task.status === "done" ? "Done" : task.status === "failed" ? "Failed" : needsYou ? "Needs you" : "In progress";
   const progress = subtasks.length ? Math.round((doneSubs / subtasks.length) * 100) : task.status === "done" ? 100 : 0;
+  // Compact card: like the reference, the meta line names the agent
+  // currently working the task (first running subtask, else first).
+  const primarySubtask = subtasks.find((s) => s.status === "running") ?? subtasks[0];
+  const primaryAgent = agents.find((a) => a._id === (primarySubtask as any)?.assignedAgentId);
+  const statusIcon = needsYou
+    ? <Bell size={15} className="shrink-0 text-orange-500" />
+    : task.status === "done"
+      ? <CheckCircle2 size={15} className="shrink-0 text-emerald-600" />
+      : task.status === "failed" || task.status === "rejected"
+        ? <XCircle size={15} className="shrink-0 text-red-500" />
+        : <Loader2 size={15} className="shrink-0 animate-spin text-[#635bff]" />;
 
   return (
-    <div className="mt-1 overflow-hidden rounded-2xl border border-[#e5e3eb] bg-white shadow-[0_1px_2px_rgba(30,25,60,.04)] dark:border-gray-800 dark:bg-gray-900">
-      <div className="flex items-center gap-3 px-4 pt-3.5">
-        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${needsYou ? "bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400" : "bg-sky-100 text-sky-600 dark:bg-sky-950 dark:text-sky-400"}`}>
-          {needsYou ? <Bell size={16} /> : task.status === "done" ? <CheckCircle2 size={16} /> : <Loader2 size={16} />}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold dark:text-white">{task.title}</p>
-          <p className="truncate text-xs text-gray-500">
-            {task.branchName ? `branch ${task.branchName}` : task.status === "done" ? "completed" : "working in the box"}
-          </p>
+    <div className="space-y-1.5">
+      <div
+        onClick={() => onOpen(task._id)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onOpen(task._id);
+          }
+        }}
+        className="cursor-pointer overflow-hidden rounded-2xl border border-[#e5e3eb] bg-white shadow-[0_1px_2px_rgba(30,25,60,.04)] transition hover:border-[#cfc9f5] dark:border-gray-800 dark:bg-gray-900 dark:hover:border-indigo-800"
+      >
+        <div className="flex items-center gap-2 px-3.5 pt-3">
+          {statusIcon}
+          <p className="min-w-0 flex-1 truncate text-[13px] font-semibold dark:text-white">{task.title}</p>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge}`}>{badgeLabel}</span>
+          <ExternalLink size={13} className="shrink-0 text-gray-300 dark:text-gray-600" />
         </div>
-        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${badge}`}>{badgeLabel}</span>
-        <button type="button" onClick={() => onOpen(task._id)} aria-label="Open task thread" className="shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
-          <ExternalLink size={14} />
-        </button>
-      </div>
-      <div className="mt-3 grid grid-cols-2 divide-x divide-y divide-[#eeeef3] border-y border-[#eeeef3] dark:divide-gray-800 dark:border-gray-800 sm:grid-cols-4 sm:divide-y-0">
-        <div className="px-4 py-2.5">
-          <p className="text-[11px] text-gray-400">Files</p>
-          <p className="mt-0.5 text-sm font-semibold tabular-nums dark:text-white">
-            {(files ?? []).length}{" "}
-            <span className="text-emerald-600">+{stats.added}</span>{" "}
-            <span className="text-rose-500">−{stats.removed}</span>
-          </p>
+        <div className="flex items-center gap-1.5 px-3.5 pb-3 pt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+          {primaryAgent && (
+            <>
+              <AgentAvatar name={roleLabel(primaryAgent.role)} size={16} avatarParams={primaryAgent.avatarParams} />
+              <span>{roleLabel(primaryAgent.role)}</span>
+            </>
+          )}
+          {task.branchName && (
+            <span className="rounded-md bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+              {task.branchName}
+            </span>
+          )}
+          {subtasks.length > 0 && (
+            <span>· {doneSubs} of {subtasks.length} subtasks</span>
+          )}
         </div>
-        <div className="px-4 py-2.5">
-          <p className="text-[11px] text-gray-400">Build</p>
-           <p className="mt-0.5 flex items-center gap-1.5 text-sm font-semibold text-emerald-600"><CheckCircle2 size={14} /> Passed</p>
-         </div>
-         <div className="px-4 py-2.5"><p className="text-[11px] text-gray-400">Subtasks</p>
-          <p className="mt-0.5 text-sm font-semibold tabular-nums dark:text-white">
-            {subtasks.length ? `${doneSubs} of ${subtasks.length}` : "—"}
-          </p>
-        </div>
-        <div className="px-4 py-2.5">
-          <p className="text-[11px] text-gray-400">Status</p>
-          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-semibold dark:text-white">
-            {task.status === "done" ? <CheckCircle2 size={14} className="text-emerald-600" /> : task.status === "running" ? <Loader2 size={14} className="animate-spin text-sky-600" /> : <Clock size={14} className="text-gray-400" />}
-            {badgeLabel}
-          </p>
-        </div>
-      </div>
-      {(task.status === "running" || task.status === "queued") && (
         <div className="h-1 bg-gray-100 dark:bg-gray-800" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
           <div className="h-full bg-[#635bff] transition-all" style={{ width: `${progress}%` }} />
         </div>
-      )}
-      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-        {pending.length > 0 && (
-          <button type="button" onClick={() => onApprove(pending[0]._id)} className="flex items-center gap-1.5 rounded-xl bg-[#635bff] px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-[#5346d8]">
-            <Check size={14} /> Approve
-          </button>
-        )}
-        <button type="button" onClick={() => onOpen(task._id)} className="rounded-xl border border-[#e5e3eb] px-3.5 py-2 text-[13px] font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
-          Open thread
-        </button>
-        {pending.length === 0 && task.status !== "done" && (
-          <span className="ml-auto text-[11px] text-gray-400">Waits for approval before push</span>
-        )}
       </div>
+      {(pending.length > 0 || task.status !== "done") && (
+        <div className="flex items-center gap-2">
+          {pending.length > 0 && (
+            <button type="button" onClick={() => onApprove(pending[0]._id)} className="flex items-center gap-1.5 rounded-xl bg-[#635bff] px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-[#5346d8]">
+              <Check size={14} /> Approve
+            </button>
+          )}
+          <button type="button" onClick={() => onOpen(task._id)} className="rounded-xl border border-[#e5e3eb] px-3.5 py-2 text-[13px] font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
+            Open thread
+          </button>
+          {pending.length === 0 && task.status !== "done" && (
+            <span className="ml-auto text-[11px] text-gray-400">Waits for approval before push</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -869,6 +865,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                           pending={pending}
                           onApprove={(approvalId) => approve({ approvalId: approvalId as any })}
                           onOpen={onSelectTask}
+                          agents={agents}
                         />
                         {pending.map((a: any) => (
                           <ApprovalCard

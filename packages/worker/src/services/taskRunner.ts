@@ -84,14 +84,12 @@ import {
   implementerAgent,
   isForbiddenFilePath,
   isTerminalTaskStatus,
-  kindForCapability,
   mcpForTask,
   normalizeFileChangePath,
   qaFindings,
   resolveQaBaseUrl,
   resolveWorkspacePath,
   seedBudgetFromPersisted,
-  slugifyKeyPart,
   stagehandConfigFrom,
   summaryHasBudgetFailure,
   toAgentDefinition,
@@ -99,6 +97,13 @@ import {
   withFileContexts,
 } from "./runner/setup";
 import { finalize, persistPlan } from "./runner/finalize";
+import { handleNodeOutcome } from "./runner/decision";
+import { runNodes as runNodesImpl } from "./runner/runNodes";
+import { runReviewLoop as runReviewLoopImpl } from "./runner/reviewLoop";
+import { runQaLoop as runQaLoopImpl } from "./runner/qaLoop";
+import { runVerificationLoop } from "./runner/verifyLoop";
+import type { RunContext } from "./runner/types";
+
 
 // Re-exports keep the public surface of `@/services/taskRunner` stable:
 // tests import `buildStateFromDb`, `carryForwardState`, and
@@ -1183,12 +1188,9 @@ async function executePlan(input: {
   const authoritative =
     deps.policy.orchestratorAuthoritative === true &&
     Boolean(input.budget && input.sharedContext && input.classification);
-  // Plan 006 Phase 2: the decision engine replaces the advisory evaluation
-  // path when the flag is on. Default OFF — the legacy path is byte-identical
-  // until the engine is observed in the wild.
-  const decisionEngine =
-    deps.policy.decisionEngine === true &&
-    Boolean(input.budget && input.sharedContext && input.classification);
+  // (Plan 006 Phase 2: the decision engine is the only orchestrator
+  // path — the advisory legacy branch and its flag were deleted in
+  // plan 013 step 7; the suite is green forced-on.)
   let decisionStep = 0;
   /** Plan 005 Step 5.4: latched when the decision step bound is hit. */
   let stepLimitHit = false;
@@ -1231,12 +1233,16 @@ async function executePlan(input: {
   // The objective missing list carried by the first `replan` outcome of
   // this invocation; processTask turns it into bounded re-plan feedback.
   let replanFeedback: string | null = null;
+  // True while a review/QA staged loop owns the remaining work: its open
+  // findings are EXPECTED and the objective is not judgeable until the
+  // loop returns a final verdict (plan 013 step 5). The loop spans its
+  // own fix runs too, so a fix's settle never judges the objective
+  // mid-fix.
+  let inStageLoop = false;
   // The question this invocation paused for (plan 013 step 4). Set only
   // when the backend pause was applied; the re-queued run continues with
   // the user's answer threaded into the shared context.
   let waitingForInput: string | null = null;
-  let delegationSeq = 0;
-  let fixSeq = 0;
   for (const subtask of plan.subtasks) {
     chainByKey.set(subtask.key, [subtask.capability]);
     fixDepthByKey.set(subtask.key, 0);
@@ -1287,1039 +1293,10 @@ async function executePlan(input: {
     return null;
   };
 
-  const runNodes = (nodes: PlanSubtask[]): Promise<SchedulerResult> => {
-    const subsetKeys = new Set(nodes.map((node) => node.key));
-    // Subset runs (the review/QA loops re-run their own nodes) filter out
-    // dependencies that live outside the subset, because the scheduler can
-    // only order nodes it was given. Review/QA nodes are stage-managed by
-    // the runner itself, so their ordering never has to be enforced here.
-    // Any other unmet prerequisite (an implementation/analysis node that
-    // never completed) fails the subset closed instead of letting the node
-    // run on incomplete work.
-    const stageManaged = new Set(
-      plan.subtasks
-        .filter((subtask) => subtask.kind === "review" || subtask.kind === "qa")
-        .map((subtask) => subtask.key)
-    );
-    const unmet = nodes.filter((node) =>
-      node.dependencies.some(
-        (dependency) =>
-          !subsetKeys.has(dependency) &&
-          !stageManaged.has(dependency) &&
-          !runCompleted.has(dependency)
-      )
-    );
-    if (unmet.length > 0) {
-      const outcomes = new Map<string, NodeOutcome>(
-        unmet.map((node) => [
-          node.key,
-          {
-            status: "failed" as const,
-            error: `Prerequisite for "${node.key}" has not completed`,
-          },
-        ])
-      );
-      return Promise.resolve({
-        status: "failed",
-        outcomes,
-        failed: unmet.map((node) => node.key),
-      });
-    }
-    return runScheduler(
-      nodes.map((subtask) => ({
-        id: subtask.key,
-        dependencies: subtask.dependencies.filter((dependency) => subsetKeys.has(dependency)),
-      })),
-    async (node, signal): Promise<NodeOutcome> => {
-      const subtask = plan.subtasks.find((candidate) => candidate.key === node.id)!;
-      const agent = assign(node.id);
-      if (!agent) {
-        return {
-          status: "failed",
-          error: `No enabled agent can serve capability "${subtask.capability}"`,
-        };
-      }
-      if (runCompleted.has(node.id)) {
-        return { status: "completed", output: "Previously completed" };
-      }
-      const executionId = executionIds.get(node.id);
-      // Resolve this agent's provider chain (assignment → fallback → pool).
-      // A resolution failure (e.g. no provider can serve the agent, or a
-      // provider cannot be constructed) fails the subtask explicitly.
-      let llmHandles: FallbackHandle[] | undefined;
-      try {
-        llmHandles = input.llmResolver?.handlesFor(agent);
-      } catch (error) {
-        return {
-          status: "failed",
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
-      return await executeSubtask({
-        workspacePath: input.workspacePath,
-        command: task.command,
-        plan,
-        subtask,
-        agent,
-        browser,
-        llmConfig: input.llmConfig,
-        llmHandles,
-        llmTaskGate: input.llmTaskGate,
-        qaBaseUrl: input.qaBaseUrl,
-        mcp: input.mcp,
-        taskContext: input.sharedContext,
-        priorOutputs: state.priorOutputs,
-        fileChanges: Array.from(state.fileChanges.values()),
-        // The executor observes BOTH abort sources: the scheduler's
-        // per-node signal (subtask timeout / scheduler cancel) and the
-        // per-task signal (task deadline / task-level cancel).
-        signal: combineSignals(signal, input.taskAbort?.signal),
-        // Pre-call budget gate (Phase 5): the executor checks it before
-        // every LLM call this subtask makes.
-        assertBudgetForCall: input.assertBudgetForCall,
-        onEvent: async (type, payload, level) => {
-          await deps.api.logEvent({
-            taskId,
-            projectId: project._id,
-            type,
-            payload,
-            executionId,
-            subtaskKey: node.id,
-            level,
-          });
-        },
-        onMessage: async (content) => {
-          // Suppress exact-duplicate consecutive postings per agent+subtask
-          // (QA loops and fix loops re-execute identical summary text — the
-          // conversation showed the same QA verdict 4x in a row).
-          const dedupeKey = `${agent._id}|${node.id}`;
-          const previous = lastPostedMessage.get(dedupeKey);
-          if (previous === content) return;
-          lastPostedMessage.set(dedupeKey, content);
-          await deps.api.appendAgentMessage({
-            projectId: project._id,
-            taskId,
-            agentId: agent._id,
-            content,
-            subtaskKey: node.id,
-            executionId,
-          });
-        },
-        onChunk: async () => {
-          // Chunks are buffered by the provider; the final message is stored once.
-        },
-        saveFileChange: async (change) => {
-          await deps.api.saveFileChange({
-            taskId,
-            projectId: project._id,
-            filePath: change.filePath,
-            changeType: change.changeType,
-            oldContent: change.oldContent,
-            newContent: change.newContent,
-            oldContentHash: change.oldContentHash,
-            newContentHash: change.newContentHash,
-            diff: change.diff,
-            subtaskKey: node.id,
-            executionId,
-          });
-          state.fileChanges.set(change.filePath, change);
-          // Phase 5 Step 5.1: attribute the staged file to the subtask that
-          // produced it, so objective evaluation can check that every
-          // completed code_change actually landed a change.
-          const produced = state.appliedFilesBySubtask.get(node.id) ?? [];
-          if (!produced.includes(change.filePath)) produced.push(change.filePath);
-          state.appliedFilesBySubtask.set(node.id, produced);
-          await deps.api.logEvent({
-            taskId,
-            projectId: project._id,
-            type: "fileChanges.updated",
-            payload: { filePaths: [change.filePath] },
-            executionId,
-            subtaskKey: node.id,
-          });
-        },
-        onTokenUsage: async (inputTokens, outputTokens, model, meta) => {
-          // Feed the shared budget tracker with every real LLM call.
-          input.budget?.recordLLMCall({
-            inputTokens,
-            outputTokens,
-            model,
-            agentName: agent.name,
-            agentId: agent._id,
-          });
-          if (inputTokens > 0 || outputTokens > 0) {
-            await deps.api.recordTokenUsage({
-              projectId: project._id,
-              taskId,
-              agentId: agent._id,
-              agentName: agent.name,
-              model,
-              inputTokens,
-              outputTokens,
-              // Phase 5 attribution: serving connection + registry
-              // model + estimated cost (absent when unknown).
-              providerId: meta?.providerId as
-                | Parameters<WorkerApi["recordTokenUsage"]>[0]["providerId"]
-                | undefined,
-              modelId: meta?.modelRowId as
-                | Parameters<WorkerApi["recordTokenUsage"]>[0]["modelId"]
-                | undefined,
-              estimatedCost: meta?.estimatedCost,
-            });
-          }
-        },
-      });
-    },
-    {
-      maxConcurrency: Math.min(plan.maxConcurrency, deps.policy.maxConcurrency),
-      timeoutMs: deps.policy.subtaskTimeoutMs,
-      retries: deps.policy.subtaskRetries,
-      // Phase 3 dynamic work: onOutcome may add delegation/fix subtasks
-      // to this same invocation, capped per invocation; a budget BLOCKED
-      // decision latches the halt so no new nodes start afterwards.
-      maxAddedNodes: deps.policy.maxSubtasks,
-      shouldHaltNewNodes: () => budgetHalt || stepLimitHit || decisionTerminal,
-      shouldCancel: async () => {
-        // The task deadline fired the shared abort controller (or a
-        // cancel already propagated): the task is cancelled NOW. This
-        // check bypasses the status-poll throttle below so a deadline
-        // is honored within one scheduler pass, not up to 1.5s later.
-        if (input.taskAbort?.signal.aborted) {
-          cancelled = true;
-          return true;
-        }
-        const now = Date.now();
-        if (now - lastStatusCheck < 1500) return cancelled;
-        lastStatusCheck = now;
-        const current = await deps.api.getContext({ taskId });
-        cancelled =
-          !current ||
-          current.task.status === "failed" ||
-          current.task.status === "done" ||
-          current.task.status === "rejected";
-        if (cancelled) {
-          // Propagate beyond this scheduler: in-flight LLM calls, QA
-          // and verification observe the same per-task signal.
-          input.taskAbort?.abort();
-        }
-        return cancelled;
-      },
-      // Per-agent concurrency (Phase 4): a node whose agent is already
-      // running maxConcurrency subtasks is deferred by the scheduler
-      // until one of them settles and frees a slot. The limit mirrors
-      // the delegation gate's semantics (orchestrator/delegation.ts):
-      // an unset maxConcurrency means 1.
-      canStartNode: (node) => {
-        const agent = assign(node.id);
-        if (!agent) return true;
-        const limit = agent.maxConcurrency ?? 1;
-        return (activeByAgent.get(agent._id) ?? 0) < limit;
-      },
-      // Retries respect the task's bounds (Phase 4): no retry once the
-      // deadline/cancel has fired, and no retry the LLM call budget
-      // cannot pay for. (The Phase 1 permanent/transient classification
-      // runs before this veto, unchanged.)
-      shouldRetryNode: () => {
-        if (input.taskAbort?.signal.aborted) return false;
-        // A retry re-runs the node and spends another LLM call: veto it
-        // whenever the budget gate would stop that call (Phase 5 — in
-        // warn mode the gate does not throw, so the check is made on
-        // the tracker's LLM exhaustion state directly).
-        if (input.budget && input.budget.isLlmBudgetExhausted().exhausted) return false;
-        return true;
-      },
-      onStart: async (node, attempt) => {
-        if (runCompleted.has(node.id)) return;
-        const subtask = plan.subtasks.find((candidate) => candidate.key === node.id)!;
-        const agent = assign(node.id);
-        if (!agent) throw new Error(`No enabled agent for capability ${subtask.capability}`);
-        activeByAgent.set(agent._id, (activeByAgent.get(agent._id) ?? 0) + 1);
-        await deps.api.logEvent({
-          taskId,
-          projectId: project._id,
-          type: "subtask.routed",
-          payload: {
-            subtaskKey: node.id,
-            capability: subtask.capability,
-            agent: agent.name,
-            capabilities: capabilitiesOf(agent),
-          },
-        });
-        const executionId = await deps.api.startExecution({
-          taskId,
-          projectId: project._id,
-          subtaskKey: node.id,
-          agentId: agent._id,
-          agentName: agent.name,
-          capability: subtask.capability,
-          workerId: deps.workerId,
-          attempt,
-          leaseMs: 60_000,
-        });
-        executionIds.set(node.id, executionId);
-      },
-      onOutcome: async (node, outcome, attempt) => {
-        const agent = agentByKey.get(node.id);
-        const executionId = executionIds.get(node.id);
-        // The node has settled: it no longer counts as active work for
-        // its agent (a scheduler retry re-enters via onStart).
-        if (agent && !runCompleted.has(node.id)) {
-          activeByAgent.set(
-            agent._id,
-            Math.max(0, (activeByAgent.get(agent._id) ?? 1) - 1)
-          );
-        }
-        let dynamicNodes: SchedulerNode[] | undefined;
-        if (!runCompleted.has(node.id) && executionId) {
-          await deps.api.updateExecution({
-            executionId,
-            subtaskKey: node.id,
-            status: outcome.status === "completed" ? "completed" : "failed",
-            output: outcome.status === "failed" ? undefined : outcome.output,
-            error: outcome.status === "failed" ? outcome.error : undefined,
-            meta: outcome.status === "failed" ? undefined : outcome.meta,
-          });
-        }
-        // A node that settles completed joins this run's completion set
-        // BEFORE the decision engine reads it below, so a finished node is
-        // never treated as pending work.
-        if (outcome.status === "completed") runCompleted.add(node.id);
-        const subtaskKind = plan.subtasks.find((candidate) => candidate.key === node.id)?.kind;
-        const meta = outcome.meta as
-          | { verdict?: string; findings?: ReviewResult["findings"] }
-          | undefined;
-        if (
-          subtaskKind === "review" &&
-          outcome.status === "completed" &&
-          (meta?.verdict === "approved" || meta?.verdict === "changes_requested")
-        ) {
-          state.reviewVerdicts[node.id] = {
-            verdict: meta.verdict,
-            findings: Array.isArray(meta.findings) ? meta.findings : [],
-          };
-        }
-        if (
-          subtaskKind === "qa" &&
-          (meta?.verdict === "passed" ||
-            meta?.verdict === "failed" ||
-            meta?.verdict === "inconclusive")
-        ) {
-          state.qaVerdicts[node.id] = meta.verdict;
-          // Keep the actual checks so the pass message can name the URL
-          // and the checks that ran instead of a generic template.
-          const checks = (meta as { checks?: unknown })?.checks;
-          if (Array.isArray(checks)) {
-            state.qaChecks = {
-              ...(state.qaChecks ?? {}),
-              [node.id]: checks as NonNullable<RunState["qaChecks"]>[string],
-            };
-          }
-        }
-        // Issue lifecycle (plan 013 step 2): an approving review or a
-        // passing planned QA resolves open issues whose related work is
-        // actually covered by completed, attributed file changes. Applied
-        // BEFORE the decision block re-assigns sharedContext.outstandingIssues
-        // (its merge preserves resolutions) so the objective evaluation
-        // below no longer reads freshly-fixed findings as open blockers.
-        if (outcome.status === "completed" && input.sharedContext) {
-          const approvedFiles = new Set(
-            [...state.appliedFilesBySubtask.entries()]
-              .filter(([key]) => runCompleted.has(key) || key === node.id)
-              .flatMap(([, files]) => files)
-          );
-          if (subtaskKind === "review" && meta?.verdict === "approved") {
-            input.sharedContext.outstandingIssues = resolveIssuesForApproval(
-              input.sharedContext.outstandingIssues,
-              { approvedFiles, approvingAgent: agent?.name }
-            );
-          }
-          if (subtaskKind === "qa" && meta?.verdict === "passed") {
-            input.sharedContext.outstandingIssues = resolveIssuesForQaPass(
-              input.sharedContext.outstandingIssues,
-              approvedFiles
-            );
-          }
-        }
-        // Intelligent orchestrator: evaluate every finished subtask, keep
-        // the shared context current for the agents that run next, and
-        // persist the decision trail. In authoritative mode (Phase 3) the
-        // decision is also ACTED on inside this scheduler invocation:
-        // APPROVE with an agent recommendation spawns a real delegation
-        // subtask, REVISE with structured findings spawns a fix subtask,
-        // and BLOCKED (budget) halts new scheduling. With the flag off
-        // the behavior is the legacy record-only one. Any orchestrator
-        // failure is logged, never propagated.
-        if (input.budget && input.sharedContext && input.classification && agent) {
-          try {
-            const subtaskDef = plan.subtasks.find((candidate) => candidate.key === node.id);
-            if (subtaskDef && decisionEngine) {
-              const agentResult = toAgentResult({ subtask: subtaskDef, agent, outcome });
-              const chain = chainByKey.get(node.id) ?? [subtaskDef.capability];
-              // The engine consumes the LIVE evaluation (the same verdict
-              // the legacy path records) as its observation, so Phase 2's
-              // deterministic mapping is observable without a second gate.
-              const live = evaluateAfterExecution({
-                result: agentResult,
-                classification: input.classification,
-                agents: input.agents,
-                budget: input.budget,
-                previousAgents: input.sharedContext.agentExecutions.map(
-                  (entry) => entry.agentName
-                ),
-                delegationDepth: Math.max(0, chain.length - 1),
-                alreadyDelegated: chain.slice(0, -1),
-                chainCapabilities: chain,
-                activeByAgent,
-                plannedCapabilities,
-                taskContext: input.sharedContext,
-                proposer: agent,
-              });
-              input.sharedContext.decisions = live.updatedContext.decisions;
-              input.sharedContext.artifacts = live.updatedContext.artifacts;
-              input.sharedContext.outstandingIssues = live.updatedContext.outstandingIssues;
-              input.sharedContext.agentExecutions = live.updatedContext.agentExecutions;
-
-              const observation: DecisionObservation = {
-                outcome: outcome.status === "completed" ? "completed" : "failed",
-                decision: live.decision,
-                nextAgent: live.nextAgent,
-                nextCapability: live.nextCapability,
-                reason: live.reason,
-                findings: agentResult.findings,
-                delegationRecommendation: agentResult.delegationRecommendation,
-                error: outcome.status === "failed" ? outcome.error : undefined,
-                retryable: false,
-              };
-
-              const decisionContext: DecisionContext = {
-                taskId,
-                objective: input.sharedContext.objective,
-                classification: input.classification,
-                planVersion: input.planVersion ?? plan.version,
-                plan,
-                results: input.sharedContext.agentExecutions,
-                openIssues: input.sharedContext.outstandingIssues,
-                budget: input.budget.snapshot(),
-                policy: deps.policy,
-                agents: input.agents,
-                completedKeys: runCompleted,
-                step: decisionStep,
-                chainCapabilities: chain,
-                activeByAgent,
-              };
-              // Plan 013 step 5: the objective state travels with the
-              // observation. decide() consults the advisor where the
-              // objective is unmet and, without one, applies the recovery
-              // rule (missing work → replan, no path → ask_user); the
-              // retired post-hoc downgrade used to reclassify here.
-              //
-              // Only a node that EXECUTED in this run may be judged.
-              // A node skipped as "Previously completed" on resume /
-              // recovery has no executionId this run; evaluating its
-              // objective here compares against rebuilt in-memory
-              // evidence, which is incomplete for that node, so any
-              // verdict would be fabricated. The previous run already
-              // decided these nodes. While a review or QA loop is in
-              // flight its open findings are EXPECTED (the loop owns
-              // them), so the objective is not judgeable either. All
-              // three non-judgeable cases defer as met with evidence.
-              const reviewQaInFlight = plan.subtasks.some(
-                (candidate) =>
-                  (candidate.kind === "review" || candidate.kind === "qa") &&
-                  !dynamicKeys.has(candidate.key) &&
-                  !runCompleted.has(candidate.key)
-              );
-              let objectiveState: DecisionObservation["objective"];
-              if (!executionId || reviewQaInFlight) {
-                objectiveState = {
-                  met: true,
-                  missing: [],
-                  evidence: ["objective evaluation deferred (skipped node or review/QA loop in flight)"],
-                };
-              } else {
-                const objective = evaluateObjective({
-                  ...decisionContext,
-                  dynamicKeys,
-                  objectiveEvidence: {
-                    appliedFiles: Object.fromEntries(state.appliedFilesBySubtask),
-                    qaVerdicts: state.qaVerdicts,
-                    verification: state.verification,
-                  },
-                });
-                objectiveState = {
-                  met: objective.satisfied,
-                  missing: objective.missing,
-                  evidence: objective.evidence,
-                };
-                if (!objective.satisfied) {
-                  await deps.api.logEvent({
-                    taskId: task._id,
-                    projectId: project._id,
-                    type: "orchestrator.objective_unmet",
-                    payload: {
-                      missing: objective.missing,
-                      evidence: objective.evidence,
-                    },
-                    executionId,
-                    subtaskKey: node.id,
-                    level: "warn",
-                  });
-                }
-              }
-              observation.objective = objectiveState;
-              const { decision: decided, fallback } = await decide(
-                decisionContext,
-                observation,
-                {
-                  llmMode: deps.policy.decisionLlmMode,
-                  advise: (ctx, obs) =>
-                    decideWithLlm({
-                      ctx,
-                      observation: obs,
-                      llmResolver: input.llmResolver,
-                      llmConfig: input.llmConfig,
-                      llmTaskGate: input.llmTaskGate,
-                      onTokenUsage: input.onTokenUsage,
-                      signal: input.taskAbort?.signal,
-                      assertBudgetForCall: () => input.budget!.assertLlmCallAllowed(),
-                    }),
-                }
-              );
-              // Plan 005 Step 5.4: the step bound is terminal — fail the
-              // task explicitly, never silently mark it done. `decide`
-              // already returned the `decision:step_limit` outcome; latch
-              // the halt so the scheduler drains instead of starting more.
-              if (decided.expectedOutcome === "decision:step_limit") {
-                stepLimitHit = true;
-                await deps.api.logEvent({
-                  taskId: task._id,
-                  projectId: project._id,
-                  type: "orchestrator.decision",
-                  payload: {
-                    subtaskKey: node.id,
-                    id: decided.id,
-                    action: decided.action,
-                    reasoning: decided.reasoning.slice(0, 500),
-                    target: null,
-                    decidedBy: decided.decidedBy,
-                    planVersion: decided.planVersion,
-                    step: decisionStep,
-                    expectedOutcome: decided.expectedOutcome,
-                  },
-                  executionId,
-                  subtaskKey: node.id,
-                  level: "warn",
-                });
-                return dynamicNodes;
-              }
-              let decision = decided;
-              if (fallback) {
-                await deps.api.logEvent({
-                  taskId: task._id,
-                  projectId: project._id,
-                  type: "orchestrator.decision_fallback",
-                  payload: { subtaskKey: node.id, reason: fallback.slice(0, 500) },
-                  executionId,
-                  subtaskKey: node.id,
-                  level: "warn",
-                });
-              }
-              await deps.api.logEvent({
-                taskId: task._id,
-                projectId: project._id,
-                type: "orchestrator.decision",
-                payload: {
-                  subtaskKey: node.id,
-                  id: decision.id,
-                  action: decision.action,
-                  reasoning: decision.reasoning.slice(0, 500),
-                  target: decision.target ?? null,
-                  decidedBy: decision.decidedBy,
-                  planVersion: decision.planVersion,
-                  step: decisionStep,
-                  expectedOutcome: decision.expectedOutcome ?? null,
-                },
-                executionId,
-                subtaskKey: node.id,
-                level: "info",
-              });
-              // Step 4.2: the engine's decision joins the shared trail so
-              // replan feedback and the persisted context see it. The
-              // evaluation-layer entry from evaluateAfterExecution is kept
-              // (the UI and legacy readers consume it).
-              input.sharedContext.decisions = [
-                ...input.sharedContext.decisions,
-                {
-                  decision: decision.action,
-                  reason: decision.reasoning,
-                  capability: decision.target?.capability,
-                  fromAgent: agent.name,
-                  createdAt: decision.createdAt,
-                  id: decision.id,
-                  target: decision.target,
-                  decidedBy: decision.decidedBy,
-                  planVersion: decision.planVersion,
-                  step: decisionStep,
-                },
-              ];
-              if (decision.action === "delegate" && budgetEnforced) {
-                // Count the delegation so the count gate stays honest; the
-                // depth/circularity gates were already checked in validate.
-                // (Delegation counting is budget bookkeeping only.)
-                input.budget.incrementDelegation();
-              }
-              // Decision narration stays in events only: the chat gets
-              // ONE CTO summary at completion. A "Please handle X" /
-              // "Please revise" chat line per decision was the remaining
-              // spam source (the delegation/revise itself, via applyDecision,
-              // is unaffected).
-              const applied = applyDecision(
-                {
-                  taskId,
-                  objective: input.sharedContext.objective,
-                  classification: input.classification,
-                  planVersion: input.planVersion ?? plan.version,
-                  plan,
-                  results: input.sharedContext.agentExecutions,
-                  openIssues: input.sharedContext.outstandingIssues,
-                  budget: input.budget.snapshot(),
-                  policy: deps.policy,
-                  agents: input.agents,
-                  completedKeys: runCompleted,
-                  step: decisionStep,
-                  chainCapabilities: chain,
-                  activeByAgent,
-                },
-                decision,
-                (base) => uniqueSubtaskKey(`${base}_${decisionStep}`)
-              );
-              // Plan 013 step 3: the applied outcome is real. `nodes`
-              // spawns dynamic subtasks; `halt` is a budget BLOCKED and
-              // stops scheduling on the budget-exhausted path; `complete`
-              // latches the terminal flag ONLY when no planned node
-              // remains pending (otherwise completion is deferred and
-              // recorded — the remaining stages own the objective);
-              // `replan` latches too and `replanFeedback` carries the
-              // objective missing list back to processTask's bounded
-              // re-plan; `ask_user` is a recorded no-op until step 4.
-              switch (applied.kind) {
-                case "nodes": {
-                  if (applied.nodes.length > 0) {
-                    for (const dynamic of applied.nodes) {
-                      plan.subtasks.push(dynamic);
-                      dynamicKeys.add(dynamic.key);
-                      chainByKey.set(dynamic.key, [...chain, dynamic.capability]);
-                      fixDepthByKey.set(dynamic.key, 0);
-                    }
-                    await persistDynamic(applied.nodes, decision.action === "execute" ? "fix" : "delegation");
-                    dynamicNodes = applied.nodes.map((dynamic) => ({
-                      id: dynamic.key,
-                      dependencies: dynamic.dependencies,
-                    }));
-                  }
-                  break;
-                }
-                case "halt": {
-                  // Warn mode: the BLOCKED evaluation is advisory only
-                  // (same rule as the legacy evaluation branch — the
-                  // budget.warning event from the pre-call gate is the
-                  // visible signal and the run continues). Only enforce
-                  // mode latches the halt.
-                  if (budgetEnforced && !budgetHalt) {
-                    budgetHalt = true;
-                    await deps.api.logEvent({
-                      taskId: task._id,
-                      projectId: project._id,
-                      type: "orchestrator.budget_blocked",
-                      payload: {
-                        subtaskKey: node.id,
-                        reason: applied.reason.slice(0, 500),
-                        budget: input.budget.snapshot(),
-                      },
-                      executionId,
-                      subtaskKey: node.id,
-                      level: "warn",
-                    });
-                  }
-                  break;
-                }
-                case "complete": {
-                  const noPlannedPending = plan.subtasks.every(
-                    (candidate) => candidate.key === node.id || runCompleted.has(candidate.key)
-                  );
-                  if (applied.expectedOutcome === "objective:met" && noPlannedPending) {
-                    decisionTerminal = true;
-                    await deps.api.logEvent({
-                      taskId: task._id,
-                      projectId: project._id,
-                      type: "orchestrator.completed",
-                      payload: { expectedOutcome: applied.expectedOutcome },
-                      executionId,
-                      subtaskKey: node.id,
-                      level: "info",
-                    });
-                  }
-                  break;
-                }
-                case "replan": {
-                  decisionTerminal = true;
-                  // First request wins: the earliest missing list is the
-                  // feedback the bounded re-plan will address.
-                  if (replanFeedback === null) {
-                    replanFeedback = applied.reason;
-                  }
-                  break;
-                }
-                case "ask_user": {
-                  // Plan 013 step 4: pause the task in `waiting_input`
-                  // with the question visible. The first applied pause
-                  // wins; a refused pause (lease lost / task already
-                  // terminal) is recorded and the run continues.
-                  if (waitingForInput === null) {
-                    const paused = await deps.api
-                      .pauseForInput({
-                        taskId,
-                        question: applied.question,
-                        workerId: deps.workerId,
-                      })
-                      .catch(() => null);
-                    if (paused?.applied) {
-                      waitingForInput = applied.question;
-                      decisionTerminal = true;
-                    }
-                  }
-                  break;
-                }
-              }
-              decisionStep += 1;
-              await deps.api
-                .upsertTaskContext?.({
-                  taskId,
-                  projectId: project._id,
-                  originalRequest: input.sharedContext.originalRequest,
-                  objective: input.sharedContext.objective,
-                  status: (task.status as any) || "running",
-                  decisions: input.sharedContext.decisions,
-                  artifacts: input.sharedContext.artifacts,
-                  outstandingIssues: input.sharedContext.outstandingIssues,
-                  budgetSnapshot: input.budget.snapshot(),
-                })
-                ?.catch(() => undefined);
-              return dynamicNodes;
-            }
-            if (subtaskDef && !decisionEngine) {
-              const agentResult = toAgentResult({ subtask: subtaskDef, agent, outcome });
-              const chain = chainByKey.get(node.id) ?? [subtaskDef.capability];
-              const evaluation = evaluateAfterExecution({
-                result: agentResult,
-                classification: input.classification,
-                agents: input.agents,
-                budget: input.budget,
-                previousAgents: input.sharedContext.agentExecutions.map(
-                  (entry) => entry.agentName
-                ),
-                delegationDepth: Math.max(0, chain.length - 1),
-                alreadyDelegated: chain.slice(0, -1),
-                chainCapabilities: chain,
-                activeByAgent,
-                plannedCapabilities,
-                taskContext: input.sharedContext,
-                proposer: agent,
-              });
-              input.sharedContext.decisions = evaluation.updatedContext.decisions;
-              input.sharedContext.artifacts = evaluation.updatedContext.artifacts;
-              input.sharedContext.outstandingIssues =
-                evaluation.updatedContext.outstandingIssues;
-              input.sharedContext.agentExecutions =
-                evaluation.updatedContext.agentExecutions;
-
-              // --- Decision -> action (authoritative mode only) --------
-              // Cancellation gates decisions too (Phase 4 hardening):
-              // once the task is cancelled/timed out, an outcome that
-              // settles late is recorded but spawns NO new work.
-              let delegatedSubtaskKey: string | null = null;
-              let fixSubtaskKey: string | null = null;
-              if (authoritative && !input.taskAbort?.signal.aborted) {
-                if (evaluation.decision === "BLOCKED") {
-                  // Budget exhausted. Enforce mode: stop scheduling new
-                  // work in this invocation (the scheduler blocks what
-                  // is still pending once running nodes drain) and mark
-                  // the task with an explicit budget event; the next
-                  // LLM call attempt then throws BudgetExhaustedError
-                  // at the pre-call gate, and the runner's budget
-                  // ending closes the task with completed outputs
-                  // preserved. Warn mode (Phase 5 default): the
-                  // evaluation stays a recorded decision only — no
-                  // halt, no event here; the pre-call gate's
-                  // budget.warning is the signal and the run continues.
-                  if (budgetEnforced && !budgetHalt) {
-                    budgetHalt = true;
-                    await deps.api.logEvent({
-                      taskId,
-                      projectId: project._id,
-                      type: "orchestrator.budget_blocked",
-                      payload: {
-                        subtaskKey: node.id,
-                        reason: evaluation.reason.slice(0, 500),
-                        budget: input.budget.snapshot(),
-                      },
-                      executionId,
-                      subtaskKey: node.id,
-                      level: "warn",
-                    });
-                  }
-                } else if (
-                  evaluation.decision === "APPROVE" &&
-                  evaluation.nextAgent &&
-                  evaluation.nextCapability &&
-                  outcome.status === "completed" &&
-                  agentResult.delegationRecommendation?.targetCapability ===
-                    evaluation.nextCapability
-                ) {
-                  // Only recommendation-driven approvals spawn work: the
-                  // agent explicitly asked for another capability. (The
-                  // deterministic QA heuristic stays a recorded decision —
-                  // the plan's own QA subtask already covers it, and a
-                  // second QA node mid-implementation would test code
-                  // that has not been applied yet.)
-                  delegationSeq += 1;
-                  const key = uniqueSubtaskKey(
-                    `delegate_${slugifyKeyPart(evaluation.nextCapability)}_${delegationSeq}`
-                  );
-                  const delegationSubtask: PlanSubtask = {
-                    key,
-                    title: `Delegated work: ${evaluation.nextCapability}`,
-                    description: [
-                      `Delegated by agent ${agent.name} after completing subtask "${subtaskDef.title}" (${subtaskDef.key}).`,
-                      `Reason: ${agentResult.delegationRecommendation.reason}`,
-                      `Task goal: ${plan.goal}`,
-                      "Use the shared task context (previous results, decisions and open issues) and do only the work this capability is responsible for.",
-                    ].join("\n"),
-                    kind: kindForCapability(evaluation.nextCapability),
-                    capability: evaluation.nextCapability,
-                    dependencies: [node.id],
-                    order: nextOrder(),
-                  };
-                  plan.subtasks.push(delegationSubtask);
-                  dynamicKeys.add(key);
-                  chainByKey.set(key, [...chain, evaluation.nextCapability]);
-                  fixDepthByKey.set(key, 0);
-                  delegatedSubtaskKey = key;
-                  await persistDynamic([delegationSubtask], "delegation");
-                  dynamicNodes = [{ id: key, dependencies: [node.id] }];
-                } else if (
-                  evaluation.decision === "REVISE" &&
-                  outcome.status === "completed" &&
-                  subtaskDef.kind !== "review" &&
-                  (fixDepthByKey.get(node.id) ?? 0) < 1 &&
-                  agentResult.findings &&
-                  agentResult.findings.length > 0 &&
-                  evaluation.nextCapability
-                ) {
-                  // REVISE for a review subtask is owned by the review
-                  // loop (it builds its own fix subtasks) — spawning one
-                  // here too would double the fix work, so review kinds
-                  // never reach this branch. Fix subtasks themselves
-                  // (fixDepth 1) do not spawn further fixes.
-                  fixSeq += 1;
-                  const key = uniqueSubtaskKey(
-                    `fix_${slugifyKeyPart(node.id)}_${fixSeq}`
-                  );
-                  const fixSubtask = buildFixSubtask({
-                    key,
-                    title: `Address findings from "${subtaskDef.title}"`,
-                    intro: `The orchestrator evaluated subtask "${subtaskDef.title}" (${subtaskDef.key}) and requested changes.`,
-                    findings: agentResult.findings,
-                    capability: evaluation.nextCapability,
-                    order: nextOrder(),
-                    dependencies: [node.id],
-                  });
-                  plan.subtasks.push(fixSubtask);
-                  dynamicKeys.add(key);
-                  chainByKey.set(key, chain);
-                  fixDepthByKey.set(key, (fixDepthByKey.get(node.id) ?? 0) + 1);
-                  fixSubtaskKey = key;
-                  await persistDynamic([fixSubtask], "fix");
-                  dynamicNodes = [{ id: key, dependencies: [node.id] }];
-                }
-              }
-
-              if (evaluation.decision === "APPROVE" && evaluation.nextAgent) {
-                input.budget.incrementDelegation();
-                await deps.api
-                  .recordDelegation?.({
-                    taskId,
-                    projectId: project._id,
-                    fromAgentId: agent._id,
-                    toAgentId: evaluation.nextAgent._id,
-                    decision: "APPROVE",
-                    reason: evaluation.reason,
-                    capability: evaluation.nextCapability,
-                  })
-                  ?.catch(() => undefined);
-                // Plan 006 Phase 4: delegation proposals write the addressed
-                // message row so the target agent sees the handoff.
-                await deps.api
-                  .appendAgentMessage({
-                    projectId: project._id,
-                    taskId: task._id as any,
-                    // Keep the handoff visible in the shared chat as a CTO/lead
-                    // instruction. The delegated agent's executor will follow
-                    // with its own progress/result message.
-                    agentId: agent._id as any,
-                    content: `@${evaluation.nextAgent.name} ${evaluation.reason.slice(0, 300)}`,
-                    subtaskKey: delegatedSubtaskKey ?? node.id,
-                    executionId,
-                  })
-                  .catch(() => undefined);
-              }
-              await deps.api.logEvent({
-                taskId,
-                projectId: project._id,
-                type: "orchestrator.evaluation",
-                payload: {
-                  subtaskKey: node.id,
-                  decision: evaluation.decision,
-                  reason: evaluation.reason.slice(0, 500),
-                  nextAgent: evaluation.nextAgent?.name ?? null,
-                  nextCapability: evaluation.nextCapability ?? null,
-                  delegatedSubtaskKey,
-                  fixSubtaskKey,
-                },
-                executionId,
-                subtaskKey: node.id,
-                level: evaluation.decision === "BLOCKED" ? "warn" : "info",
-              });
-              // Step 4.2: one decision trail — the legacy path also
-              // records `orchestrator.decision` (the evaluation event above
-              // stays for the UI). Same vocabulary mapping as
-              // nextDeterministicDecision.
-              const legacyAction =
-                evaluation.decision === "APPROVE"
-                  ? "delegate"
-                  : evaluation.decision === "REVISE"
-                    ? "execute"
-                    : "complete";
-              await deps.api.logEvent({
-                taskId,
-                projectId: project._id,
-                type: "orchestrator.decision",
-                payload: {
-                  subtaskKey: node.id,
-                  id: `eval_${node.id}`,
-                  action: legacyAction,
-                  reasoning: evaluation.reason.slice(0, 500),
-                  target: evaluation.nextCapability
-                    ? { agentId: evaluation.nextAgent?._id, capability: evaluation.nextCapability }
-                    : null,
-                  decidedBy: "deterministic",
-                  planVersion: input.planVersion ?? plan.version,
-                  step: null,
-                  expectedOutcome:
-                    evaluation.decision === "BLOCKED"
-                      ? "policy:budget"
-                      : evaluation.decision === "REJECT"
-                        ? "proposal:rejected"
-                        : legacyAction === "delegate"
-                          ? "delegated"
-                          : legacyAction === "execute"
-                            ? "fixed"
-                            : "objective:met",
-                },
-                executionId,
-                subtaskKey: node.id,
-                level: evaluation.decision === "BLOCKED" ? "warn" : "info",
-              });
-              await deps.api
-                .upsertTaskContext?.({
-                  taskId,
-                  projectId: project._id,
-                  originalRequest: input.sharedContext.originalRequest,
-                  objective: input.sharedContext.objective,
-                  status: (task.status as any) || "running",
-                  decisions: input.sharedContext.decisions,
-                  artifacts: input.sharedContext.artifacts,
-                  outstandingIssues: input.sharedContext.outstandingIssues,
-                  // Phase 5: keep the persisted budget snapshot current
-                  // after every evaluation, so recovery restores the
-                  // tracker as of the last finished subtask.
-                  budgetSnapshot: input.budget.snapshot(),
-                })
-                ?.catch(() => undefined);
-            }
-          } catch (err) {
-            await deps.api
-              .logEvent({
-                taskId,
-                projectId: project._id,
-                type: "orchestrator.evaluation_failed",
-                payload: {
-                  subtaskKey: node.id,
-                  message: err instanceof Error ? err.message : String(err),
-                },
-                executionId,
-                subtaskKey: node.id,
-                level: "warn",
-              })
-              .catch(() => undefined);
-          }
-        }
-        if (outcome.status === "completed") {
-          state.priorOutputs.set(node.id, outcome.output ?? "");
-          return dynamicNodes;
-        }
-        if (outcome.status === "failed") {
-          state.feedback.push(`${node.id} (attempt ${attempt}): ${outcome.error}`);
-          if (agent) {
-            await deps.api.appendAgentMessage({
-              projectId: project._id,
-              taskId,
-              agentId: agent._id,
-              content: `Subtask ${node.id} failed: ${outcome.error}`,
-              subtaskKey: node.id,
-              executionId,
-            });
-          }
-        }
-        return dynamicNodes;
-      },
-      onBlocked: async (node, reason) => {
-        // A node blocked while the budget halt is latched (Phase 5):
-        // record the budget failure in the run feedback so the runner
-        // ends the task as budget.exhausted — a halted node never
-        // reaches the pre-call gate, so without this entry its stop
-        // would surface only as a generic execution failure.
-        if (budgetHalt && input.budget) {
-          const llmBudget = input.budget.isLlmBudgetExhausted();
-          if (llmBudget.exhausted) {
-            state.feedback.push(
-              `${node.id}: Budget exhausted: ${llmBudget.reason}`
-            );
-          }
-        }
-        // Dynamic subtasks (Phase 3 delegation/fix) have no persisted
-        // subtask row; a failed status write for them must not take the
-        // scheduler down — the event below still records the block.
-        await deps.api
-          .updateSubtask({
-            taskId,
-            key: node.id,
-            status: "blocked",
-            error: reason,
-          })
-          .catch(() => undefined);
-        await deps.api.logEvent({
-          taskId,
-          projectId: project._id,
-          type: "subtask.blocked",
-          payload: { subtaskKey: node.id, reason },
-          subtaskKey: node.id,
-          level: "warn",
-        });
-      },
-    }
-    );
-  };
+  // Extracted (plan 012 step 2) into services/runner/runNodes.ts; the
+  // adapter keeps the stage-driver call sites unchanged.
+  const runNodes = (nodes: PlanSubtask[]): Promise<SchedulerResult> =>
+    runNodesImpl(ctx, nodes);
 
   const reviewNodeKeys = reviewNodes.map((node) => node.key);
 
@@ -2391,121 +1368,84 @@ async function executePlan(input: {
     return { applied: appliedPaths };
   };
 
-  const runReviewLoop = async (): Promise<boolean> => {
-    if (reviewNodes.length === 0) return true;
-
-    // Resume/recovery: a review that already approved before the
-    // interruption has its verdict seeded into state by buildStateFromDb.
-    // Re-running it would re-post the same CTO messages and burn a whole
-    // extra review cycle, so the stage counts as satisfied without
-    // running any review node.
-    if (
-      reviewNodeKeys.every(
-        (key) => state.reviewVerdicts[key]?.verdict === "approved"
-      )
-    ) {
-      return true;
-    }
-
-    const maxIterations = deps.policy.maxReviewIterations;
-
-    for (let iteration = 0; iteration <= maxIterations; iteration += 1) {
-      for (const key of reviewNodeKeys) {
-        delete state.reviewVerdicts[key];
-        // The loop deliberately re-runs its own nodes: clear this run's
-        // completion mark so the scheduler executes them again.
-        runCompleted.delete(key);
-      }
-
-      await deps.api.logEvent({
-        taskId,
-        projectId: project._id,
-        type: "task.stage",
-        payload: { stage: "reviewing", iteration, planVersion: plan.version },
-      });
-
-      const reviewRun = await runNodes(reviewNodes);
-      if (reviewRun.status !== "completed") return false;
-
-      const changesRequested = reviewNodeKeys.some(
-        (key) => state.reviewVerdicts[key]?.verdict === "changes_requested"
-      );
-      if (!changesRequested) {
-        await deps.api.logEvent({
-          taskId,
-          projectId: project._id,
-          type: "review.approved",
-          payload: { iteration },
-        });
-        // No chat narration: the CTO's one consolidated summary at
-        // completion reports the review outcome. The approval itself is
-        // recorded in events.
-        return true;
-      }
-
-      const findings = collectRequestedChanges(state.reviewVerdicts, reviewNodeKeys);
-      await deps.api.logEvent({
-        taskId,
-        projectId: project._id,
-        type: "review.requested_changes",
-        payload: { iteration, findings },
-        level: "warn",
-      });
-
-      if (iteration >= maxIterations) {
-        state.feedback.push(
-          `Review still requested changes after ${maxIterations} fix attempt(s): ${findings
-            .map((finding) => finding.description)
-            .join("; ")}`
-        );
-        return false;
-      }
-
-      const implementer = implementerAgent(plan, input.agents);
-      if (!implementer) {
-        state.feedback.push("No implementer agent is available to address review findings");
-        return false;
-      }
-
-      const codeSubtask = plan.subtasks.find((candidate) => candidate.kind === "code_change");
-      const fixSubtask = buildReviewFixSubtask({
-        iteration: iteration + 1,
-        findings,
-        capability: codeSubtask?.capability ?? CAPABILITY.GENERAL,
-        order: plan.subtasks.reduce((max, candidate) => Math.max(max, candidate.order), 0) + 1,
-      });
-      plan.subtasks.push(fixSubtask);
-      dynamicKeys.add(fixSubtask.key);
-      // The review loop owns this fix: register it as a fix-depth-1 node
-      // on its own chain so an orchestrator evaluation of its outcome can
-      // never spawn a second, duplicate fix subtask (Phase 3).
-      chainByKey.set(fixSubtask.key, [fixSubtask.capability]);
-      fixDepthByKey.set(fixSubtask.key, 1);
-      // The review loop's fix subtask is dynamic work too: persist it
-      // like the orchestrator's (Phase 4 hardening).
-      await persistDynamic([fixSubtask], "review_fix");
-      state.priorOutputs.set(`${fixSubtask.key}-findings`, formatReviewFindings(findings));
-
-      await deps.api.logEvent({
-        taskId,
-        projectId: project._id,
-        type: "review.fix_started",
-        payload: {
-          iteration: iteration + 1,
-          findings: findings.length,
-          agent: implementer.name,
-        },
-      });
-
-      const fixRun = await runNodes([fixSubtask]);
-      if (fixRun.status !== "completed") {
-        state.feedback.push(`Review fix attempt ${iteration + 1} failed`);
-        return false;
-      }
-    }
-
-    return false;
+  // RunContext (plan 012 step 3): built once per executePlan so the
+  // extracted handleNodeOutcome shares the run's state. Reference-type
+  // containers are shared by reference; scalar latches live in the
+  // closure `let`s below and stay synced onto ctx via accessors, so
+  // executePlan's stage driver (which reads the closure locals) and the
+  // extracted outcome handler (which reads/writes ctx.*) always observe
+  // the same latch values.
+  const ctx: RunContext = {
+    input,
+    deps,
+    task,
+    project,
+    plan,
+    state,
+    agents: input.agents,
+    browser,
+    taskId,
+    implementationNodes,
+    reviewNodes,
+    qaNodes,
+    reviewNodeKeys,
+    plannedCapabilities,
+    budgetEnforced,
+    authoritative,
+    decisionEngine: true,
+    decisionStep: 0,
+    stepLimitHit: false,
+    budgetHalt: false,
+    cancelled: false,
+    decisionTerminal: false,
+    replanFeedback: null,
+    waitingForInput: null,
+    delegationSeq: 0,
+    fixSeq: 0,
+    lastStatusCheck: 0,
+    inStageLoop: false,
+    runCompleted,
+    dynamicKeys,
+    chainByKey,
+    fixDepthByKey,
+    activeByAgent,
+    executionIds,
+    lastPostedMessage,
+    agentByKey,
+    assign,
+    nextOrder,
+    uniqueSubtaskKey,
+    persistDynamic,
+    taskCancelled,
+    applyStaged,
+    runNodes,
   };
+  // Scalars stay synced onto ctx via accessors over the closure `let`s,
+  // so the stage driver and the extracted outcome handler observe one
+  // latch state.
+  const syncScalar = <K extends keyof RunContext>(
+    key: K,
+    get: () => RunContext[K],
+    set: (value: RunContext[K]) => void
+  ) => {
+    Object.defineProperty(ctx, key, {
+      get,
+      set,
+      enumerable: true,
+      configurable: true,
+    });
+  };
+  syncScalar("decisionStep", () => decisionStep, (value: number) => { decisionStep = value; });
+  syncScalar("stepLimitHit", () => stepLimitHit, (value: boolean) => { stepLimitHit = value; });
+  syncScalar("budgetHalt", () => budgetHalt, (value: boolean) => { budgetHalt = value; });
+  syncScalar("cancelled", () => cancelled, (value: boolean) => { cancelled = value; });
+  syncScalar("decisionTerminal", () => decisionTerminal, (value: boolean) => { decisionTerminal = value; });
+  syncScalar("replanFeedback", () => replanFeedback, (value: string | null) => { replanFeedback = value; });
+  syncScalar("waitingForInput", () => waitingForInput, (value: string | null) => { waitingForInput = value; });
+  syncScalar("lastStatusCheck", () => lastStatusCheck, (value: number) => { lastStatusCheck = value; });
+  syncScalar("inStageLoop", () => inStageLoop, (value: boolean) => { inStageLoop = value; });
+
+  const runReviewLoop = (): Promise<boolean> => runReviewLoopImpl(ctx);
 
   /**
    * Plan 005 Step 5.2: targeted QA correction. A failing QA verdict spawns
@@ -2515,166 +1455,7 @@ async function executePlan(input: {
    * itself failed) — the caller turns that into "failed" so the task is
    * never silently marked done.
    */
-  const runQaLoop = async (): Promise<boolean> => {
-    if (qaNodes.length === 0) return true;
-
-    // Resume/recovery: when QA already passed pre-interruption, its
-    // verdict is seeded by buildStateFromDb. Re-running it would
-    // duplicate the QA messages and burn another full pass, so the
-    // stage is satisfied without re-running.
-    if (qaNodes.every((node) => state.qaVerdicts[node.key] === "passed")) {
-      return true;
-    }
-
-    const maxIterations = deps.policy.maxReviewIterations;
-
-    for (let iteration = 0; iteration <= maxIterations; iteration += 1) {
-      for (const node of qaNodes) {
-        delete state.qaVerdicts[node.key];
-        // The loop deliberately re-runs its own QA nodes: clear this run's
-        // completion mark so the scheduler executes them again.
-        runCompleted.delete(node.key);
-      }
-
-      const qaRun = await runNodes(qaNodes);
-      if (qaRun.status === "cancelled") return false;
-
-      const failedNodes = qaNodes.filter((node) => state.qaVerdicts[node.key] !== "passed");
-      if (qaRun.status === "completed" && failedNodes.length === 0) {
-        await deps.api.logEvent({
-          taskId,
-          projectId: project._id,
-          type: "qa.passed",
-          payload: { iteration },
-          message: "QA verification passed: all checks and assertions satisfied.",
-        });
-        const qaAgent =
-          input.agents.find((a) => a.role === "qa") ||
-          input.agents.find((a) => capabilitiesOf(a).includes(CAPABILITY.BROWSER_TESTING));
-        if (qaAgent) {
-          // Describe what actually ran, not a boilerplate list: the URL
-          // that was checked and the checks that executed. The plan-level
-          // intent is authoritative (a prohibition like "no screenshots"
-          // must never be read as a request for visual checks just
-          // because the word appears). No @QA mention here: the message
-          // is authored by the QA agent itself, so a leading self-tag
-          // reads as QA talking about itself.
-          const visualQa = plan.visualQa ?? wantsVisualQa(input.task.command);
-          const ranChecks = qaNodes.flatMap((node) => state.qaChecks?.[node.key] ?? []);
-          const passedCount = ranChecks.filter((check) => check.status === "passed").length;
-          // Same source as executeQa: the resolved URL recorded in the
-          // "application reachable" check (the threaded qaBaseUrl may be
-          // unset when the project has no qaUrl/devUrl configured).
-          const checked =
-            ranChecks.find((check) => check.label === "application reachable")?.details ??
-            input.qaBaseUrl ??
-            "the app";
-          const detail =
-            ranChecks.length > 0
-              ? `Checked ${checked} — ${passedCount}/${ranChecks.length} checks ok: ${ranChecks
-                  .map((check) => check.label)
-                  .join(", ")}.`
-              : "";
-          await deps.api.appendAgentMessage({
-            projectId: project._id,
-            taskId,
-            agentId: qaAgent._id as any,
-            content: `QA validation passed. ${detail}${
-              visualQa
-                ? " Visual checks completed as requested."
-                : " Structural checks only — no visual comparison."
-            }`,
-          });
-        }
-        return true;
-      }
-
-      if (qaRun.status !== "completed" && failedNodes.length === 0) {
-        return false;
-      }
-
-      // Synthesize findings from the QA checks/failures on the outcomes.
-      const findings = qaFindings(qaRun, failedNodes);
-      await deps.api.logEvent({
-        taskId,
-        projectId: project._id,
-        type: "qa.failed",
-        payload: { iteration, findings },
-        message: `QA reported ${findings.length} issue(s) requiring revision.`,
-        level: "warn",
-      });
-
-      if (iteration >= maxIterations) {
-        state.feedback.push(
-          `QA still failing after ${maxIterations} fix attempt(s): ${findings
-            .map((finding) => finding.description)
-            .join("; ")}`
-        );
-        return false;
-      }
-
-      const implementer = implementerAgent(plan, input.agents);
-      if (!implementer) {
-        state.feedback.push("No implementer agent is available to address QA failures");
-        return false;
-      }
-
-      const codeSubtask = plan.subtasks.find((candidate) => candidate.kind === "code_change");
-      const fixSubtask = buildFixSubtask({
-        key: `fix_qa_${iteration + 1}`,
-        title: `Address QA failures (iteration ${iteration + 1})`,
-        intro: "QA reported failures on the prepared work.",
-        findings,
-        capability: codeSubtask?.capability ?? CAPABILITY.GENERAL,
-        order: plan.subtasks.reduce((max, candidate) => Math.max(max, candidate.order), 0) + 1,
-      });
-      plan.subtasks.push(fixSubtask);
-      dynamicKeys.add(fixSubtask.key);
-      // The QA loop owns this fix: register it as a fix-depth-1 node on its
-      // own chain so an orchestrator evaluation of its outcome can never
-      // spawn a second, duplicate fix subtask (mirrors the review loop).
-      chainByKey.set(fixSubtask.key, [fixSubtask.capability]);
-      fixDepthByKey.set(fixSubtask.key, 1);
-      await persistDynamic([fixSubtask], "fix");
-      state.priorOutputs.set(`${fixSubtask.key}-findings`, formatReviewFindings(findings));
-
-      await deps.api.logEvent({
-        taskId,
-        projectId: project._id,
-        type: "qa.fix_started",
-        payload: {
-          iteration: iteration + 1,
-          findings: findings.length,
-          agent: implementer.name,
-        },
-        level: "warn",
-      });
-
-      const fixRun = await runNodes([fixSubtask]);
-      if (fixRun.status !== "completed") {
-        state.feedback.push(`QA fix attempt ${iteration + 1} failed`);
-        return false;
-      }
-      // The fix's staged changes must reach the workspace before QA
-      // re-runs, otherwise QA validates the pre-fix app and can never
-      // pass. In ask mode the approval gate stays authoritative: the
-      // fix is applied only after the user approved the plan's changes
-      // (the main apply phase above), never silently on its own.
-      if (input.approvalMode !== "ask") {
-        const fixPaths = state.appliedFilesBySubtask.get(fixSubtask.key) ?? [];
-        const fixChanges = fixPaths
-          .map((filePath) => state.fileChanges.get(filePath))
-          .filter((change): change is FileDiff => Boolean(change));
-        const applied = await applyStaged(fixChanges, "orchestrator");
-        if ("stop" in applied) {
-          state.feedback.push(`QA fix attempt ${iteration + 1} could not be applied`);
-          return false;
-        }
-      }
-    }
-
-    return false;
-  };
+  const runQaLoop = (): Promise<boolean> => runQaLoopImpl(ctx);
 
   const implementation = await runNodes(implementationNodes);
   // Plan 005 Step 5.4: the decision step bound is terminal — fail the
@@ -2847,83 +1628,11 @@ async function executePlan(input: {
       if (exit) return exit;
     }
 
-    // Verify loop (oh-my-claudecode `team-verify → team-fix`): static
-    // verification failure spawns a targeted fix and re-verifies, bounded
-    // by maxReviewIterations. A task never completes on a failing check.
-    if (deps.policy.verificationEnabled && preparedChanges.length > 0) {
-      const maxVerifyIters = deps.policy.maxReviewIterations;
-      let verifyIteration = 0;
-      while (verifyIteration <= maxVerifyIters) {
-        const verification = await runVerification({
-          workspacePath: input.workspacePath,
-          changedFiles: Array.from(state.fileChanges.keys()),
-          includeBuild: deps.policy.verificationIncludeBuild,
-          timeoutMs: deps.policy.verificationTimeoutMs,
-          signal: input.taskAbort?.signal,
-          onCheck: async (check) => {
-            await deps.api.logEvent({
-              taskId,
-              projectId: project._id,
-              type: "task.check",
-              payload: { label: `verify:${check.name}`, status: check.status, details: check.details },
-            });
-          },
-        });
-        const failedChecks = verification.checks.filter((c) => c.status === "failed");
-        const allPassed =
-          verification.checks.length > 0 &&
-          verification.checks.every((c) => c.status === "passed");
-        state.verification = {
-          status: failedChecks.length > 0 ? "failed" : allPassed ? "passed" : "skipped",
-          details: failedChecks.map((c) => `${c.name}: ${c.details ?? ""}`).join("; ") || undefined,
-        };
-        if (failedChecks.length === 0) break;
-        if (verifyIteration >= maxVerifyIters) {
-          state.feedback.push(
-            `Verification still failing after ${maxVerifyIters} fix attempt(s): ${failedChecks.map((c) => c.name).join(", ")}`
-          );
-          return { status: taskCancelled() ? "cancelled" : "failed" };
-        }
-        const findings: ReviewFinding[] = failedChecks.map((c) => ({
-          severity: "high" as const,
-          filePath: Array.from(state.fileChanges.keys())[0] ?? "",
-          description: `${c.name}: ${c.details ?? "check failed"}`,
-          suggestion: "Fix the failing check and retry verification.",
-        }));
-        const implementer = implementerAgent(plan, input.agents);
-        if (!implementer) return { status: taskCancelled() ? "cancelled" : "failed" };
-        const codeSubtask = plan.subtasks.find((c) => c.kind === "code_change");
-        const fixSubtask = buildFixSubtask({
-          key: `fix_verify_${verifyIteration + 1}`,
-          title: `Address verification failures (iteration ${verifyIteration + 1})`,
-          intro: "Static verification reported failures.",
-          findings,
-          capability: codeSubtask?.capability ?? CAPABILITY.GENERAL,
-          order: plan.subtasks.reduce((max, c) => Math.max(max, c.order), 0) + 1,
-        });
-        plan.subtasks.push(fixSubtask);
-        dynamicKeys.add(fixSubtask.key);
-        chainByKey.set(fixSubtask.key, [fixSubtask.capability]);
-        fixDepthByKey.set(fixSubtask.key, 1);
-        await persistDynamic([fixSubtask], "fix");
-        await deps.api.logEvent({
-          taskId,
-          projectId: project._id,
-          type: "verification.fix_started",
-          payload: { iteration: verifyIteration + 1, findings: findings.length },
-          level: "warn",
-        });
-        const fixRun = await runNodes([fixSubtask]);
-        if (fixRun.status !== "completed") return { status: taskCancelled() ? "cancelled" : "failed" };
-        if (input.approvalMode !== "ask") {
-          const fixPaths = state.appliedFilesBySubtask.get(fixSubtask.key) ?? [];
-          const fixChanges = fixPaths
-            .map((p) => state.fileChanges.get(p))
-            .filter((c): c is FileDiff => Boolean(c));
-          const applied = await applyStaged(fixChanges, "orchestrator");
-          if ("stop" in applied) return { status: taskCancelled() ? "cancelled" : "failed" };
-        }
-        verifyIteration += 1;
+    // Verify loop (plan 012 step 2): extracted to services/runner/verifyLoop.ts.
+    if (preparedChanges.length > 0) {
+      const stop = await runVerificationLoop(ctx);
+      if (stop) {
+        return { status: taskCancelled() ? "cancelled" : stop };
       }
     }
     // Final boundary before completing (plan 013 step 3): a replan

@@ -350,27 +350,10 @@ export function toAgentResult(input: {
   };
 }
 
-/** Map a delegation target capability to the subtask kind that executes it. */
-export function kindForCapability(capability: string): SubtaskKind {
-  switch (capability) {
-    case CAPABILITY.BROWSER_TESTING:
-      return "qa";
-    case CAPABILITY.CODE_REVIEW:
-      return "review";
-    case CAPABILITY.FRONTEND:
-    case CAPABILITY.BACKEND:
-    case CAPABILITY.GITHUB:
-      return "code_change";
-    case CAPABILITY.SECURITY:
-      return "audit";
-    case CAPABILITY.RESEARCH:
-      return "research";
-    case CAPABILITY.SHELL_EXECUTION:
-      return "shell";
-    default:
-      return "analysis";
-  }
-}
+/** Map a delegation target capability to the subtask kind that executes it.
+ * One implementation (plan 013 step 7): orchestrator/decision.ts, which
+ * additionally normalizes capability aliases. */
+export { kindForCapability } from "@/orchestrator/decision";
 
 export function slugifyKeyPart(value: string): string {
   const slug = value

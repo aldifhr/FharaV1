@@ -205,6 +205,14 @@ export interface RunContext {
   budgetHalt: boolean;
   /** True once this run is cancelled — by the status poll or the deadline signal. */
   cancelled: boolean;
+  /** Latched when a decision-terminal outcome ends scheduling (plan 013 step 3). */
+  decisionTerminal: boolean;
+  /** Objective missing list carried by the first replan outcome. */
+  replanFeedback: string | null;
+  /** True while a review/QA staged loop owns the remaining work. */
+  inStageLoop: boolean;
+  /** The question this invocation paused for (plan 013 step 4). */
+  waitingForInput: string | null;
   delegationSeq: number;
   fixSeq: number;
   lastStatusCheck: number;

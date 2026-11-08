@@ -1,10 +1,9 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { WorkerApi } from "@/workerApi";
 import type {
   WorkerAgent,
+  WorkerApi,
   WorkerExecutionId,
-  WorkerFileChange,
   WorkerProject,
   WorkerSubtask,
   WorkerTask,
@@ -17,14 +16,9 @@ import {
   type SubtaskKind,
 } from "@/orchestrator/types";
 import { classifyCommand } from "@/orchestrator/classifier";
-import { createPlan, heuristicPlan, wantsVisualQa } from "@/orchestrator/planner";
+import { createPlan, wantsVisualQa } from "@/orchestrator/planner";
 import { validatePlan } from "@/orchestrator/planValidator";
-import type { ExecutionPolicy } from "@/orchestrator/policy";
-import {
-  BudgetTracker,
-  isBudgetExhaustedError,
-  type BudgetSnapshot,
-} from "@/orchestrator/budget";
+import { BudgetTracker, isBudgetExhaustedError } from "@/orchestrator/budget";
 import type { TokenUsageMeta } from "@/effects/llmCall";
 import {
   createAuthoritativePlan,
@@ -33,21 +27,13 @@ import {
 } from "@/orchestrator/orchestrator";
 import {
   createSharedTaskContext,
-  appendExecution,
-  normalizeFindings,
-  type AgentResult,
   type SharedTaskContext,
 } from "@/orchestrator/taskContext";
 import type { Classification } from "@/orchestrator/types";
 import type { GlobalLLMConfig } from "@/llm";
 import { LlmConcurrencyGate, type FallbackHandle } from "@/effects/llmCall";
-import {
-  materializePool,
-  TaskLlmResolver,
-  type PoolConnectionRow,
-} from "@/llm/resolver";
-import { providerHealth } from "@/llm/health";
-import { routeCapability, capabilitiesOf, normalizeCapability } from "@/orchestrator/capabilities";
+import { TaskLlmResolver } from "@/llm/resolver";
+import { routeCapability, capabilitiesOf } from "@/orchestrator/capabilities";
 import {
   buildFixSubtask,
   buildReviewFixSubtask,
@@ -64,8 +50,8 @@ import {
 import { decideWithLlm } from "@/orchestrator/decisionLlm";
 import type { ReviewFinding, ReviewResult } from "@/utils/json";
 import { executeSubtask } from "@/execution/agentExecutor";
-import { getMcpRegistry, type McpSession } from "@/mcp/registry";
-import { WebClient, type WebClientConfig } from "@/tools/webClient";
+import type { McpSession } from "@/mcp/registry";
+import { WebClient } from "@/tools/webClient";
 import { runVerification } from "@/execution/verification";
 import {
   runScheduler,
@@ -73,624 +59,53 @@ import {
   type SchedulerNode,
   type SchedulerResult,
 } from "@/scheduler/dagScheduler";
-import {
-  evaluateTask,
-  type EvaluationCheck,
-  type EvaluationResult,
-} from "@/orchestrator/evaluator";
+import { evaluateTask } from "@/orchestrator/evaluator";
 import {
   applyFileChange,
   hashContent,
   type FileDiff,
 } from "@/tools/gitDiff";
+import type { RunnerDeps, RunState } from "./runner/types";
+import {
+  buildStateFromDb,
+  carryForwardState,
+} from "./runner/state";
+import {
+  armTaskAbort,
+  buildReplanFeedback,
+  buildTaskLlmResolver,
+  budgetReasonFromSummary,
+  combineSignals,
+  dryRunPolicy,
+  finishBudgetExhaustedTask,
+  finishCancelledTask,
+  implementerAgent,
+  isForbiddenFilePath,
+  isTerminalTaskStatus,
+  kindForCapability,
+  mcpForTask,
+  normalizeFileChangePath,
+  qaFindings,
+  resolveQaBaseUrl,
+  resolveWorkspacePath,
+  seedBudgetFromPersisted,
+  slugifyKeyPart,
+  stagehandConfigFrom,
+  summaryHasBudgetFailure,
+  toAgentDefinition,
+  toAgentResult,
+  withFileContexts,
+} from "./runner/setup";
+import { finalize, persistPlan } from "./runner/finalize";
 
-export interface RunnerDeps {
-  api: WorkerApi;
-  workerId: string;
-  policy: ExecutionPolicy;
-  workspaceRoot: string;
-  log: (...args: unknown[]) => void;
-}
-
-interface RunState {
-  priorOutputs: Map<string, string>;
-  qaVerdicts: Record<string, "passed" | "failed" | "inconclusive">;
-  /** The exact checks each QA node ran (labels + statuses). Feeds the
-   * specific pass message instead of a generic template. */
-  qaChecks?: Record<
-    string,
-    Array<{ label: string; status: string; details?: string }>
-  >;
-  reviewVerdicts: Record<string, ReviewResult>;
-  fileChanges: Map<string, FileDiff>;
-  /** Applied file paths per producing subtask key (Phase 5 Step 5.1). */
-  appliedFilesBySubtask: Map<string, string[]>;
-  /** Last static verification result, once it has run (Phase 5 Step 5.1). */
-  verification?: { status: "passed" | "failed" | "skipped"; details?: string };
-  feedback: string[];
-}
-
-/**
- * Build the per-task LLM resolver from the DB provider pool (Settings
- * page). The pool rows carry only ENCRYPTED keys; materializePool decrypts
- * them with the worker's PROVIDER_ENCRYPTION_KEY (or reads the env var a
- * connection names via apiKeyEnv). A decryption failure is a hard error
- * naming the provider — the caller fails the task with it rather than
- * silently calling an LLM with the wrong credential.
- *
- * Each agent then resolves independently (assignment → fallback
- * assignment → pool by priority/weight, circuit-open connections
- * excluded) — replacing the old single `llmProviders[0]` task config.
- */
-async function buildTaskLlmResolver(
-  llmProviders: PoolConnectionRow[] | undefined
-): Promise<TaskLlmResolver> {
-  // Phase 5 observability: register each pool connection's display
-  // name on the shared health registry, so the worker's health
-  // reporter can key mirrored snapshots by the name the Settings
-  // panel renders.
-  for (const row of llmProviders ?? []) {
-    providerHealth.registerConnectionName(row._id, row.name);
-  }
-  const pool = await materializePool(llmProviders);
-  return new TaskLlmResolver(pool, providerHealth);
-}
-
-/**
- * Stagehand (live browser) model + key, derived from the task's resolved
- * default LLM config — threaded explicitly into WebClient so the browser
- * tool follows the same provider resolution as every other LLM consumer
- * instead of reading shared process.env values.
- */
-function stagehandConfigFrom(
-  llmConfig: GlobalLLMConfig | undefined
-): { stagehandModelName?: WebClientConfig["stagehandModelName"]; stagehandApiKey?: string } {
-  if (!llmConfig?.apiKey) return {};
-  const family = llmConfig.provider.toLowerCase() === "anthropic" ? "anthropic" : "openai";
-  return {
-    stagehandModelName: `${family}/${llmConfig.model}` as WebClientConfig["stagehandModelName"],
-    stagehandApiKey: llmConfig.apiKey,
-  };
-}
-
-/**
- * QA base URL fallback captured ONCE per worker process (memoized on first
- * task, after dotenv has loaded). Per-task URLs come from the project; this
- * is only the fallback for projects without qaUrl/devUrl. Reading it once —
- * and never writing process.env.QA_BASE_URL — is what removes the race where
- * concurrent tasks overwrote each other's QA target (spec §8).
- */
-let qaEnvFallbackCache: string | undefined | null = null;
-function qaEnvFallback(): string | undefined {
-  if (qaEnvFallbackCache === null) {
-    qaEnvFallbackCache = process.env.QA_BASE_URL;
-  }
-  return qaEnvFallbackCache;
-}
-
-/**
- * Resolve the QA base URL for one task: project.qaUrl > project.devUrl >
- * worker-start env fallback. Returns undefined when none is configured, in
- * which case qa.ts applies its own default.
- */
-export function resolveQaBaseUrl(
-  project: { qaUrl?: string | null; devUrl?: string | null },
-  envFallback: string | undefined = qaEnvFallback()
-): string | undefined {
-  return project.qaUrl ?? project.devUrl ?? envFallback;
-}
-
-/**
- * Build the executable state for a task from what the DB already holds:
- * subtask rows marked completed become completedKeys (with their
- * recorded outputs as priorOutputs), and the persisted file changes are
- * the staged work those subtasks produced. ONE builder is shared by
- * processTask (recovery of a re-claimed task whose stored plan was
- * adopted) and resumeTask (post-approval continuation), so a completed
- * subtask is never re-executed on either path (Phase 4). Since Phase 4
- * hardening, dynamic subtasks (delegation/fix/review-fix) are persisted
- * too — their rows are in `subtasks` and their definitions in the
- * stored plan payload — so the builder recovers the WHOLE DAG, not
- * just the initial plan. (Runtime derivations that are not persisted —
- * the per-branch capability chain and fix depth — are rebuilt from the
- * plan alone; see the Phase 4H report's limitations.)
- */
-export function buildStateFromDb(input: {
-  subtasks: WorkerSubtask[];
-  fileChanges: WorkerFileChange[];
-  /** Execution rows (for per-subtask file attribution, see below). */
-  executions?: Array<{
-    subtaskKey?: string;
-    status?: string;
-    meta?: unknown;
-  }>;
-}): { state: RunState; completedKeys: Set<string> } {
-  // `waiting_approval` is a finished execution: requestApproval only moves
-  // a subtask there after its work was produced. Counting it as done keeps
-  // a resumed run (or a crash recovery) from executing that work again.
-  const finished = input.subtasks.filter(
-    (subtask) =>
-      subtask.status === "completed" || subtask.status === "waiting_approval"
-  );
-  const completedKeys = new Set(finished.map((subtask) => subtask.key));
-  const appliedFilesBySubtask = new Map<string, string[]>();
-  for (const change of input.fileChanges) {
-    if (!change.subtaskKey) continue;
-    const existing = appliedFilesBySubtask.get(change.subtaskKey) ?? [];
-    if (!existing.includes(change.filePath)) existing.push(change.filePath);
-    appliedFilesBySubtask.set(change.subtaskKey, existing);
-  }
-  // The fileChanges table holds ONE row per file path: when several
-  // code_change subtasks edit the same file (implement, then review-fix),
-  // each save upserts the row and only the LAST writer's subtaskKey
-  // survives. Rebuilding attribution from those rows alone collapses —
-  // earlier writers look like they produced nothing, and the objective
-  // evaluation then reports them as completed-without-changes. The
-  // executions table keeps each subtask's own meta.filePaths, so union
-  // it in: every subtask that really produced a change keeps its
-  // attribution even when a later fix rewrote the same file.
-  for (const execution of input.executions ?? []) {
-    if (execution.status !== "completed" || !execution.subtaskKey) continue;
-    const filePaths = (execution.meta as { filePaths?: unknown } | null | undefined)
-      ?.filePaths;
-    if (!Array.isArray(filePaths)) continue;
-    const existing = appliedFilesBySubtask.get(execution.subtaskKey) ?? [];
-    for (const filePath of filePaths) {
-      if (typeof filePath === "string" && !existing.includes(filePath)) {
-        existing.push(filePath);
-      }
-    }
-    appliedFilesBySubtask.set(execution.subtaskKey, existing);
-  }
-  // Review/QA verdicts are not persisted as their own columns; they are
-  // recoverable from the deterministic output the executor recorded on the
-  // subtask. Seeding them lets a resumed run honour a pass that already
-  // happened instead of re-running (and re-messaging) the same review.
-  const reviewVerdicts: RunState["reviewVerdicts"] = {};
-  const qaVerdicts: RunState["qaVerdicts"] = {};
-  for (const subtask of finished) {
-    const output = subtask.output ?? "";
-    if (subtask.kind === "review") {
-      const verdict = persistedReviewVerdict(output);
-      if (verdict) reviewVerdicts[subtask.key] = { verdict, findings: [] };
-    }
-    if (subtask.kind === "qa") {
-      const verdict = persistedQaVerdict(output);
-      if (verdict) qaVerdicts[subtask.key] = verdict;
-    }
-  }
-  const state: RunState = {
-    priorOutputs: new Map(
-      finished
-        .filter((subtask) => subtask.output)
-        .map((subtask) => [subtask.key, subtask.output as string])
-    ),
-    qaVerdicts,
-    reviewVerdicts,
-    fileChanges: new Map(
-      input.fileChanges.map((change) => [change.filePath, toFileDiff(change)])
-    ),
-    appliedFilesBySubtask,
-    feedback: [],
-  };
-  return { state, completedKeys };
-}
-
-/** Read a review verdict back from the output executeReview persisted. */
-function persistedReviewVerdict(
-  output: string
-): ReviewResult["verdict"] | null {
-  const text = output.trim();
-  if (text.startsWith("Review approved")) return "approved";
-  if (text.startsWith("Review requested changes")) return "changes_requested";
-  return null;
-}
-
-/** Read a QA verdict back from the summary executeQa persisted. */
-function persistedQaVerdict(
-  output: string
-): "passed" | "failed" | "inconclusive" | null {
-  const match = /QA verdict:\s*(passed|failed|inconclusive)/i.exec(output);
-  if (!match) return null;
-  const verdict = match[1].toLowerCase();
-  return verdict === "passed" || verdict === "failed" || verdict === "inconclusive"
-    ? verdict
-    : null;
-}
-
-/**
- * Plan 005 Phase 5 Step 5.3: replan without rework.
- *
- * A replan replaces the REMAINING graph, but completed work must survive:
- *  - `priorOutputs` and `fileChanges` carry over for a new subtask whose
- *    `(kind, capability, normalized description)` matches a completed old
- *    one (the plan builder reuses descriptions, so a carry-forward match
- *    means "the same work, still done");
- *  - `qaVerdicts` carry over only for subtasks that are literally the same
- *    key (a re-run QA verdict belongs to the old node, not the new one);
- *  - `completedKeys` is recomputed from the carried-over matches;
- *  - only `feedback` is cleared.
- *
- * `previousState` is mutated in place for the caller's convenience and
- * returned; `previousPlan`/`newPlan` are only read.
- */
-export function carryForwardState(
-  previousPlan: ExecutionPlan,
-  previousState: RunState,
-  newPlan: ExecutionPlan
-): { state: RunState; completedKeys: Set<string> } {
-  const normalize = (value: string): string => value.trim().toLowerCase().replace(/\s+/g, " ");
-  const signature = (subtask: { kind: string; capability: string; description: string }): string =>
-    `${subtask.kind}|${normalizeCapability(subtask.capability)}|${normalize(subtask.description)}`;
-
-  // Work that already finished: key -> signature of the OLD node.
-  const completedOld = previousPlan.subtasks.filter((subtask) =>
-    previousState.priorOutputs.has(subtask.key)
-  );
-  const signatures = new Map<string, string>();
-  for (const subtask of completedOld) {
-    const sig = signature(subtask);
-    if (!signatures.has(sig)) signatures.set(sig, subtask.key);
-  }
-
-  const carriedOutputs = new Map<string, string>();
-  const carriedFiles = new Map<string, FileDiff>();
-  const completedKeys = new Set<string>();
-  const carriedQa: Record<string, "passed" | "failed" | "inconclusive"> = {};
-  let anyMatch = false;
-
-  for (const subtask of newPlan.subtasks) {
-    const match = signatures.get(signature(subtask));
-    if (match === undefined) continue;
-    anyMatch = true;
-    const output = previousState.priorOutputs.get(match);
-    if (output !== undefined) {
-      carriedOutputs.set(subtask.key, output);
-      completedKeys.add(subtask.key);
-    }
-    if (previousState.qaVerdicts[subtask.key]) {
-      carriedQa[subtask.key] = previousState.qaVerdicts[subtask.key];
-    }
-  }
-
-  // File changes are staged by file path (no per-node attribution in
-  // state): when a carried-over node exists, its staged work lands in the
-  // apply phase instead of being dropped with the old plan.
-  if (anyMatch) {
-    for (const [filePath, change] of previousState.fileChanges) {
-      carriedFiles.set(filePath, change);
-    }
-  }
-
-  previousState.priorOutputs = carriedOutputs;
-  previousState.fileChanges = carriedFiles;
-  previousState.qaVerdicts = carriedQa;
-  previousState.feedback = [];
-  return { state: previousState, completedKeys };
-}
-
-/**
- * One AbortController per task run (Phase 4): fired by the runner's
- * cancel polling when the task row turns terminal, and by the
- * policy.taskTimeoutMs deadline armed here. Every consumer — scheduler
- * node signals, LLM calls, QA, verification — observes this one signal,
- * so a cancel or a timeout stops the whole task, not just whichever
- * node happens to be scheduled. dispose() disarms the deadline.
- */
-function armTaskAbort(policy: ExecutionPolicy): {
-  controller: AbortController;
-  dispose: () => void;
-} {
-  const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort(
-      new Error(`Task deadline exceeded (${policy.taskTimeoutMs}ms)`)
-    );
-  }, policy.taskTimeoutMs);
-  timer.unref?.();
-  return { controller, dispose: () => clearTimeout(timer) };
-}
-
-/** A signal that fires when ANY of the given signals fires. */
-function combineSignals(
-  ...signals: Array<AbortSignal | undefined>
-): AbortSignal {
-  const present = signals.filter(
-    (signal): signal is AbortSignal => signal !== undefined
-  );
-  if (present.length === 0) return new AbortController().signal;
-  if (present.length === 1) return present[0];
-  if (typeof AbortSignal.any === "function") {
-    return AbortSignal.any(present);
-  }
-  const controller = new AbortController();
-  for (const signal of present) {
-    if (signal.aborted) {
-      controller.abort(signal.reason);
-      break;
-    }
-    signal.addEventListener("abort", () => controller.abort(signal.reason), {
-      once: true,
-    });
-  }
-  return controller.signal;
-}
-
-/** Terminal task statuses: a task in one of these is finished for good. */
-function isTerminalTaskStatus(status: string | undefined): boolean {
-  return status === "done" || status === "failed" || status === "rejected";
-}
-
-/**
- * End a task run as BUDGET EXHAUSTED (Phase 5). The backend has no
- * dedicated budget status — like cancellation, the task row lands on
- * "failed" — so the distinction lives in the dedicated
- * `budget.exhausted` event (with the final tracker snapshot) and the
- * error message. Completed subtask outputs are untouched: they were
- * persisted as they finished and remain visible in the task timeline.
- * The backend completeTask terminal guard makes this a no-op if the
- * task already reached a terminal status by another path.
- */
-export async function finishBudgetExhaustedTask(input: {
-  deps: RunnerDeps;
-  task: WorkerTask;
-  project: WorkerProject;
-  budget: BudgetTracker;
-  reason: string;
-}): Promise<void> {
-  const { deps, task, project, budget, reason } = input;
-  await deps.api.logEvent({
-    taskId: task._id,
-    projectId: project._id,
-    type: "budget.exhausted",
-    payload: { reason, budget: budget.snapshot() },
-    level: "error",
-  });
-  await deps.api
-    .recordLifecycle?.({
-      taskId: task._id,
-      projectId: project._id,
-      state: "FAILED",
-      prevState: "RUNNING",
-    })
-    ?.catch(() => undefined);
-  await deps.api.completeTask({
-    taskId: task._id,
-    status: "failed",
-    errorMessage: `Budget exhausted: ${reason}`,
-  });
-}
-
-/**
- * Whether a failure summary is a budget-exhaustion stop. Budget exits
- * carry the typed error's message ("Budget exhausted: <reason>") —
- * subtask outcomes flatten the error class to a string at the executor
- * boundary, so the prefix IS the recognition contract (Phase 5).
- */
-function isBudgetFailureText(text: string): boolean {
-  return text.startsWith("Budget exhausted:");
-}
-
-/**
- * Whether a failure SUMMARY carries a budget stop. Failure summaries
- * are the per-subtask feedback entries joined with "; ", each entry
- * prefixed with its subtask key ("s3 (attempt 1): Budget exhausted:
- * ..."), so the raw summary never STARTS with the prefix — the
- * recognition scans for it at any entry boundary (Phase 5).
- */
-function summaryHasBudgetFailure(summary: string): boolean {
-  return summary
-    .split("; ")
-    .some((entry) => entry.includes("Budget exhausted:"));
-}
-
-/** The budget reason carried by a failure summary (prefix stripped). */
-function budgetReasonFromSummary(summary: string): string {
-  const entry = summary
-    .split("; ")
-    .find((candidate) => candidate.includes("Budget exhausted:"));
-  if (!entry) return summary;
-  return entry.slice(entry.indexOf("Budget exhausted: ") + "Budget exhausted: ".length);
-}
-
-/**
- * Seed a task's budget tracker from persisted state (Phase 5): call and
- * token totals from the tokenUsage table (source of truth for usage)
- * PLUS the non-usage state — agents, delegation count, retries — from
- * the budget snapshot stored on the task context. A seeding failure is
- * VISIBLE: it emits a `budget.seed_failed` warning event and the run
- * continues on a visibly-partial tracker — never the old silent catch
- * that quietly reset every limit (PLAN §7.4).
- */
-export async function seedBudgetFromPersisted(input: {
-  deps: RunnerDeps;
-  taskId: WorkerTask["_id"] | string;
-  projectId: WorkerProject["_id"] | string;
-  budget: BudgetTracker;
-}): Promise<void> {
-  const { deps, taskId, projectId, budget } = input;
-  try {
-    const priorUsage = await deps.api.getTaskTokenUsage?.({ taskId });
-    const snapshot = (
-      await deps.api.getTaskContext?.({ taskId }).catch(() => null)
-    )?.budgetSnapshot as BudgetSnapshot | undefined;
-    if (snapshot) {
-      budget.restoreExtras({
-        agents: snapshot.agents,
-        delegationDepth: snapshot.delegationDepth,
-        retries: snapshot.retries,
-      });
-    }
-    if (priorUsage && priorUsage.calls > 0) {
-      budget.seed(priorUsage);
-    } else if (snapshot && snapshot.llmCalls > 0) {
-      // Fallback when the usage aggregate is unavailable: the snapshot
-      // still carries the totals it recorded.
-      budget.seed({
-        calls: snapshot.llmCalls,
-        inputTokens: snapshot.inputTokens,
-        outputTokens: snapshot.outputTokens,
-      });
-    }
-  } catch (error) {
-    await deps.api
-      .logEvent({
-        taskId,
-        projectId,
-        type: "budget.seed_failed",
-        payload: {
-          message: error instanceof Error ? error.message : String(error),
-        },
-        level: "warn",
-      })
-      .catch(() => undefined);
-  }
-}
-
-/**
- * End a task run as cancelled (Phase 4 hardening). The backend has no
- * "cancelled" task status — tasks.cancel itself stores a user
- * cancellation as status "failed" + "Cancelled by user" — so the
- * outcome maps to completeTask("failed") with a cancellation message,
- * while the dedicated `task.cancelled` event preserves the distinction
- * (user cancel vs deadline) in the task timeline. The backend
- * completeTask guard makes this call a no-op when the task already
- * reached a terminal status by another path, so a late cancel ending
- * can never overwrite a real completion either.
- */
-async function finishCancelledTask(input: {
-  deps: RunnerDeps;
-  task: WorkerTask;
-  project: WorkerProject;
-  signal: AbortSignal;
-}): Promise<void> {
-  const { deps, task, project, signal } = input;
-  const reasonText =
-    signal.reason instanceof Error ? signal.reason.message : "";
-  const timedOut = reasonText.startsWith("Task deadline exceeded");
-  const errorMessage = timedOut ? reasonText : "Task cancelled";
-  await deps.api.logEvent({
-    taskId: task._id,
-    projectId: project._id,
-    type: "task.cancelled",
-    payload: { reason: errorMessage, timedOut },
-    level: "warn",
-  });
-  await deps.api
-    .recordLifecycle?.({
-      taskId: task._id,
-      projectId: project._id,
-      state: "FAILED",
-      prevState: "RUNNING",
-    })
-    ?.catch(() => undefined);
-  await deps.api.completeTask({
-    taskId: task._id,
-    status: "failed",
-    errorMessage,
-  });
-}
-
-/** Build the orchestrator's AgentResult view of a finished scheduler node. */
-function toAgentResult(input: {
-  subtask: PlanSubtask;
-  agent: AgentDefinition;
-  outcome: NodeOutcome;
-}): AgentResult {
-  const meta =
-    input.outcome.status === "completed"
-      ? (input.outcome.meta as
-          | {
-              delegationRecommendation?: AgentResult["delegationRecommendation"];
-              findings?: unknown;
-            }
-          | undefined)
-      : undefined;
-  return {
-    agentId: input.agent._id,
-    agentName: input.agent.name,
-    capability: input.subtask.capability,
-    success: input.outcome.status === "completed",
-    summary: (input.outcome.status === "completed"
-      ? input.outcome.output ?? ""
-      : input.outcome.status === "failed"
-        ? input.outcome.error
-        : ""
-    ).slice(0, 500),
-    findings: normalizeFindings(meta?.findings),
-    delegationRecommendation: meta?.delegationRecommendation,
-    meta:
-      input.outcome.status === "completed"
-        ? (input.outcome.meta as Record<string, unknown> | undefined)
-        : undefined,
-  };
-}
-
-/** Map a delegation target capability to the subtask kind that executes it. */
-function kindForCapability(capability: string): SubtaskKind {
-  switch (capability) {
-    case CAPABILITY.BROWSER_TESTING:
-      return "qa";
-    case CAPABILITY.CODE_REVIEW:
-      return "review";
-    case CAPABILITY.FRONTEND:
-    case CAPABILITY.BACKEND:
-    case CAPABILITY.GITHUB:
-      return "code_change";
-    case CAPABILITY.SECURITY:
-      return "audit";
-    case CAPABILITY.RESEARCH:
-      return "research";
-    case CAPABILITY.SHELL_EXECUTION:
-      return "shell";
-    default:
-      return "analysis";
-  }
-}
-
-function slugifyKeyPart(value: string): string {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return slug || "task";
-}
-
-/**
- * Replan feedback (Phase 3): the deterministic evaluator's summary plus
- * what the orchestrator itself decided and found along the way — the
- * decisions and open findings accumulated in the shared task context —
- * so the next plan is built with the orchestrator's evaluations as
- * input, not just the final verdict.
- */
-export function buildReplanFeedback(
-  base: string,
-  sharedContext: SharedTaskContext
-): string {
-  const parts = [base];
-  const decisions = sharedContext.decisions.slice(-6);
-  if (decisions.length > 0) {
-    parts.push(
-      `Orchestrator evaluations: ${decisions
-        .map(
-          (decision) =>
-            `${decision.decision}${decision.capability ? ` (${decision.capability})` : ""}: ${decision.reason}`
-        )
-        .join("; ")}`
-    );
-  }
-  const openIssues = sharedContext.outstandingIssues
-    .filter((issue) => issue.status === "open")
-    .slice(-6);
-  if (openIssues.length > 0) {
-    parts.push(
-      `Open findings: ${openIssues
-        .map((issue) => `[${issue.severity}] ${issue.description}`)
-        .join("; ")}`
-    );
-  }
-  return parts.filter((part) => part.length > 0).join("\n");
-}
+// Re-exports keep the public surface of `@/services/taskRunner` stable:
+// tests import `buildStateFromDb`, `carryForwardState`, and
+// `resolveQaBaseUrl`, and `src/index.ts` imports the `RunnerDeps` type.
+// The implementations live in `./runner/*`; this module is the lifecycle
+// entry point (processTask / resumeTask) plus executePlan's orchestration.
+export { buildStateFromDb, carryForwardState } from "./runner/state";
+export { resolveQaBaseUrl } from "./runner/setup";
+export type { RunnerDeps, RunState } from "./runner/types";
 
 export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<void> {
   const context = await deps.api.getContext({ taskId: task._id });
@@ -1140,6 +555,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         llmConfig,
         llmResolver,
         llmTaskGate,
+        onTokenUsage: recordUsage,
         qaBaseUrl,
         mcp,
         onDynamicSubtasks: async ({ added, origin, plan: currentPlan, version }) => {
@@ -1494,6 +910,19 @@ async function executePlan(input: {
     writeTools: boolean;
     maxIterations: number;
   };
+  /**
+   * Usage sink for plan-level LLM calls (the decision advisor). Threaded
+   * from the caller's recorder so advisor spend is metered in the same
+   * BudgetTracker and tokenUsage table as subtask calls.
+   */
+  onTokenUsage?: (
+    inputTokens: number,
+    outputTokens: number,
+    model: string,
+    agentName: string,
+    agentId?: string,
+    meta?: TokenUsageMeta
+  ) => Promise<void>;
   /**
    * Persist dynamically spawned subtasks (Phase 4 hardening): called
    * the moment a delegation/fix/review-fix subtask is added to the
@@ -2064,6 +1493,10 @@ async function executePlan(input: {
                     decideWithLlm({
                       ctx,
                       observation: obs,
+                      llmResolver: input.llmResolver,
+                      llmConfig: input.llmConfig,
+                      llmTaskGate: input.llmTaskGate,
+                      onTokenUsage: input.onTokenUsage,
                       signal: input.taskAbort?.signal,
                       assertBudgetForCall: () => input.budget!.assertLlmCallAllowed(),
                     }),
@@ -3368,6 +2801,36 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
         })
         .catch(() => undefined);
     });
+  // Usage sink for the resumed run: same BudgetTracker + persisted
+  // tokenUsage table contract as processTask's recordUsage.
+  const recordUsage = async (
+    inputTokens: number,
+    outputTokens: number,
+    model: string,
+    agentName: string,
+    agentId?: string,
+    meta?: TokenUsageMeta
+  ) => {
+    budget.recordLLMCall({ inputTokens, outputTokens, model, agentName, agentId });
+    if (inputTokens > 0 || outputTokens > 0) {
+      await deps.api.recordTokenUsage({
+        projectId: context.project._id,
+        taskId,
+        agentId: agentId as WorkerAgent["_id"] | undefined,
+        agentName,
+        model,
+        inputTokens,
+        outputTokens,
+        providerId: meta?.providerId as
+          | Parameters<WorkerApi["recordTokenUsage"]>[0]["providerId"]
+          | undefined,
+        modelId: meta?.modelRowId as
+          | Parameters<WorkerApi["recordTokenUsage"]>[0]["modelId"]
+          | undefined,
+        estimatedCost: meta?.estimatedCost,
+      });
+    }
+  };
   const sharedContext = createSharedTaskContext({
     taskId,
     projectId: context.project._id,
@@ -3397,6 +2860,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
       llmConfig,
       llmResolver,
       llmTaskGate,
+      onTokenUsage: recordUsage,
       qaBaseUrl: resolveQaBaseUrl(context.project),
       mcp,
       onDynamicSubtasks: async ({ added, origin, plan: currentPlan, version }) => {
@@ -3497,477 +2961,5 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
   }
 }
 
-async function finalizeRecordEval(
-  deps: RunnerDeps,
-  input: {
-    taskId: string;
-    projectId: string;
-    planVersion: number;
-    evaluation: EvaluationResult;
-  }
-): Promise<void> {
-  await deps.api.recordEvaluation({
-    taskId: input.taskId,
-    projectId: input.projectId,
-    planVersion: input.planVersion,
-    verdict: input.evaluation.verdict,
-    checks: input.evaluation.checks,
-    notes: input.evaluation.notes.join("; ") || undefined,
-  });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function finalize(input: {
-  deps: RunnerDeps;
-  task: WorkerTask;
-  project: WorkerProject;
-  workspacePath: string;
-  plan: ExecutionPlan;
-  planVersion: number;
-  agents: AgentDefinition[];
-  subtasks: WorkerSubtask[];
-  state: RunState;
-  /** Per-task abort signal (Phase 4): verification steps die with the task. */
-  signal?: AbortSignal;
-}): Promise<EvaluationResult> {
-  const { deps, task, project, planVersion, state, plan } = input;
-  const applyApprovals = await deps.api.getApprovals({ taskId: task._id });
-  const hasApprovalPlan = applyApprovals.some(
-    (approval) => approval.kind === "apply_changes" && approval.status === "approved"
-  );
-  const changes = await deps.api.getFileChanges({ taskId: task._id });
-
-  const appliedChanges = changes.filter((change) => change.appliedAt);
-  const hasCodeChange = plan.subtasks.some((subtask) => subtask.kind === "code_change");
-  let verificationChecks: EvaluationCheck[] | undefined;
-
-  if (deps.policy.verificationEnabled && hasCodeChange && appliedChanges.length > 0) {
-    await deps.api.logEvent({
-      taskId: task._id,
-      projectId: project._id,
-      type: "task.stage",
-      payload: { stage: "static-verification", files: appliedChanges.length },
-    });
-
-    const verification = await runVerification({
-      workspacePath: input.workspacePath,
-      changedFiles: appliedChanges.map((change) => change.filePath),
-      includeBuild: deps.policy.verificationIncludeBuild,
-      timeoutMs: deps.policy.verificationTimeoutMs,
-      signal: input.signal,
-      onCheck: async (check) => {
-        await deps.api.logEvent({
-          taskId: task._id,
-          projectId: project._id,
-          type: "task.check",
-          payload: {
-            label: `verify:${check.name}`,
-            status: check.status,
-            details: check.details,
-          },
-        });
-      },
-    });
-
-    verificationChecks = verification.checks;
-    // Phase 5 Step 5.1: record the result on the run state so the
-    // objective evaluation sees it on later replans. A check with no
-    // failures is "passed"; inconclusive evidence is skipped, not failed.
-    const failedChecks = verification.checks.filter((check) => check.status === "failed");
-    const allPassed =
-      verification.checks.length > 0 &&
-      verification.checks.every((check) => check.status === "passed");
-    state.verification = {
-      status: failedChecks.length > 0 ? "failed" : allPassed ? "passed" : "skipped",
-      details: failedChecks
-        .map((check) => `${check.name}: ${check.details ?? ""}`)
-        .join("; ") || undefined,
-    };
-  }
-
-  const evaluation = await evaluateTask({
-    workspacePath: input.workspacePath,
-    subtasks: input.subtasks.map((subtask) => ({
-      key: subtask.key,
-      kind: subtask.kind,
-      status: subtask.status,
-      error: subtask.error,
-    })),
-    fileChanges: changes.map((change) => ({
-      filePath: change.filePath,
-      changeType: change.changeType,
-      oldContentHash: change.oldContentHash,
-      newContentHash: change.newContentHash,
-      newContent: change.newContent,
-      appliedAt: change.appliedAt,
-    })),
-    hasApprovalPlan: hasApprovalPlan || plan.requiresApproval,
-    qaVerdicts: state.qaVerdicts,
-    verificationChecks,
-  });
-
-  await deps.api.recordEvaluation({
-    taskId: task._id,
-    projectId: project._id,
-    planVersion,
-    verdict: evaluation.verdict,
-    checks: evaluation.checks,
-    notes: evaluation.notes.join("; ") || undefined,
-  });
-
-  const details = evaluation.checks
-    .filter((check) => check.status !== "passed")
-    .map((check) => `${check.name} (${check.status}): ${check.details ?? ""}`)
-    .join("; ");
-
-  if (evaluation.verdict === "failed") {
-    await deps.api.logEvent({
-      taskId: task._id,
-      projectId: project._id,
-      type: "task.error",
-      payload: { message: details || "Evaluation failed" },
-      level: "error",
-    });
-    await deps.api.completeTask({
-      taskId: task._id,
-      status: "failed",
-      errorMessage: details || "Evaluation failed",
-    });
-    return evaluation;
-  }
-
-  // The ONE CTO chat message for the whole task: the outcome summary
-  // (plan details live in events, not repeated here).
-  const reviewVerdicts = Object.values(state.reviewVerdicts);
-  const reviewedFiles = reviewVerdicts.length > 0 ? state.fileChanges.size : 0;
-  const reviewLine =
-    reviewVerdicts.length === 0
-      ? ""
-      : reviewVerdicts.every((r) => r.verdict === "approved")
-        ? `Review: approved${reviewedFiles > 0 ? ` (${reviewedFiles} file${reviewedFiles === 1 ? "" : "s"} reviewed, no blocking findings)` : ""}.`
-        : `Review: changes requested.`;
-  const message = [
-    evaluation.verdict === "inconclusive"
-      ? `Finished, but verification is inconclusive: ${details || "not all checks were performed"}.`
-      : "Done.",
-    reviewLine,
-    `Verification: ${evaluation.verdict}.`,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-  const ctoAgent = input.agents.find((candidate) => /^cto$/i.test(candidate.role));
-  await deps.api.appendAgentMessage({
-    projectId: project._id,
-    taskId: task._id,
-    content: message,
-    agentId: ctoAgent?._id as any,
-  });
-  await deps.api.completeTask({ taskId: task._id, status: "done" });
-  return evaluation;
-}
-
-async function persistPlan(
-  deps: RunnerDeps,
-  input: {
-    taskId: string;
-    projectId: string;
-    plan: ExecutionPlan;
-    version: number;
-    createdBy: "orchestrator" | "fallback";
-    classification: string;
-  }
-): Promise<void> {
-  await deps.api.setPlanning({
-    taskId: input.taskId,
-    classification: input.classification,
-    strategy: input.plan.strategy,
-    planVersion: input.version,
-  });
-  await deps.api.savePlan({
-    taskId: input.taskId,
-    projectId: input.projectId,
-    version: input.version,
-    strategy: input.plan.strategy,
-    createdBy: input.createdBy,
-    goal: input.plan.goal,
-    payload: input.plan,
-    subtasks: input.plan.subtasks,
-  });
-}
-
-async function dryRunPolicy(
-  changes: FileDiff[],
-  deps: RunnerDeps,
-  task: WorkerTask,
-  project: WorkerProject,
-  plan: ExecutionPlan,
-  planVersion: number,
-  state: RunState
-): Promise<{ allowed: boolean; summary: { filePaths: string[]; count: number; changes: string[] } }> {
-  const normalized = changes.map((change) => normalizeFileChangePath(change.filePath)).filter(Boolean);
-  const forbidden = normalized.filter((filePath) => isForbiddenFilePath(filePath));
-  const filePaths = changes.map((change) => change.filePath);
-  const summary = {
-    filePaths,
-    count: changes.length,
-    changes: changes.map((change) => `${change.changeType}:${change.filePath}`),
-  };
-
-  if (forbidden.length > 0) {
-    state.feedback.push(`Policy denied protected paths: ${forbidden.join(", ")}`);
-    await deps.api.recordAudit({
-      taskId: task._id,
-      projectId: project._id,
-      workerId: deps.workerId,
-      actor: "orchestrator",
-      tool: "apply_changes",
-      action: "dry-run",
-      decision: "denied",
-      target: forbidden.join(","),
-      details: { reason: "file-path-forbidden", planVersion },
-    });
-    return { allowed: false, summary };
-  }
-
-  await deps.api.recordAudit({
-    taskId: task._id,
-    projectId: project._id,
-    workerId: deps.workerId,
-    actor: "orchestrator",
-    tool: "apply_changes",
-    action: "dry-run",
-    decision: "allowed",
-    target: filePaths.join(","),
-    details: { count: changes.length, planVersion },
-  });
-  await deps.api.logEvent({
-    taskId: task._id,
-    projectId: project._id,
-    type: "task.policy_dry_run",
-    payload: { allowed: true, files: changes.length },
-  });
-  return { allowed: true, summary };
-}
-
-function normalizeFileChangePath(filePath: string): string {
-  return filePath.replace(/\\\\/g, "/").replace(/^\/+/, "");
-}
-
-function isForbiddenFilePath(filePath: string): boolean {
-  const normalized = normalizeFileChangePath(filePath).toLowerCase();
-  return (
-    normalized === ".env" ||
-    normalized.startsWith(".env.") ||
-    normalized.startsWith(".git/") ||
-    normalized.includes("/.git/") ||
-    normalized.startsWith("node_modules/") ||
-    normalized.includes("/node_modules/") ||
-    normalized === "package-lock.json" ||
-    normalized.endsWith("/package-lock.json") ||
-    normalized === "pnpm-lock.yaml" ||
-    normalized.endsWith("/pnpm-lock.yaml") ||
-    normalized === "yarn.lock" ||
-    normalized.endsWith("/yarn.lock") ||
-    normalized.startsWith(".ssh/") ||
-    normalized.includes("/.ssh/")
-  );
-}
-
-/**
- * Plan 005 Step 5.2: turn QA outcomes into review findings for the fix
- * subtask. Prefers the QA checks carried on the node outcome; falls back
- * to the failure text when the executor did not include them.
- */
-function qaFindings(run: SchedulerResult, nodes: PlanSubtask[]): ReviewFinding[] {
-  const findings: ReviewFinding[] = [];
-  for (const node of nodes) {
-    const outcome = run.outcomes.get(node.key);
-    const checks = (outcome?.meta as { checks?: { label: string; status: string; details?: string }[] } | undefined)
-      ?.checks;
-    const failedChecks = (checks ?? []).filter((check) => check.status === "failed");
-    if (failedChecks.length > 0) {
-      for (const check of failedChecks) {
-        findings.push({
-          severity: "high",
-          filePath: "",
-          description: `QA ${check.label}: ${check.details ?? "failed"}`,
-          suggestion: "Fix the reported QA failure and re-run QA.",
-        });
-      }
-      continue;
-    }
-    const failure =
-      outcome && outcome.status === "failed" ? outcome.error : "no details";
-    findings.push({
-      severity: "high",
-      filePath: "",
-      description: `QA failed for ${node.key}: ${failure}`,
-      suggestion: "Fix the reported QA failure and re-run QA.",
-    });
-  }
-  return findings;
-}
-
-function implementerAgent(
-  plan: ExecutionPlan,
-  agents: AgentDefinition[]
-): AgentDefinition | null {
-  const codeSubtask = plan.subtasks.find(
-    (subtask) => subtask.kind === "code_change" || subtask.kind === "shell"
-  );
-  if (codeSubtask) return routeCapability(codeSubtask.capability, agents);
-  return routeCapability(CAPABILITY.GENERAL, agents);
-}
-
-function toFileDiff(change: WorkerFileChange): FileDiff {
-  return {
-    filePath: change.filePath,
-    changeType: change.changeType,
-    oldContent: change.oldContent,
-    newContent: change.newContent,
-    oldContentHash: change.oldContentHash,
-    newContentHash: change.newContentHash,
-    diff: change.diff,
-  };
-}
-
-export function toAgentDefinition(agent: WorkerAgent): AgentDefinition {
-  return {
-    _id: agent._id,
-    name: agent.name,
-    role: agent.role,
-    systemPrompt: agent.systemPrompt,
-    description: agent.description,
-    capabilities: agent.capabilities,
-    supportedTools: agent.supportedTools,
-    isEnabled: agent.isEnabled,
-    priority: agent.priority,
-    maxConcurrency: agent.maxConcurrency,
-    status: agent.status,
-    // LLM assignment for the Phase 2 resolver (ids only — never key material).
-    llmProviderId: agent.llmProviderId,
-    llmModelId: agent.llmModelId,
-    llmFallbackProviderId: agent.llmFallbackProviderId,
-    llmFallbackModelId: agent.llmFallbackModelId,
-    llmSelectionPolicy: agent.llmSelectionPolicy,
-  };
-}
-
-export function resolveWorkspacePath(workspaceRoot: string, configured: string): string {
-  return path.isAbsolute(configured) ? configured : path.resolve(workspaceRoot, configured);
-}
-
-type McpConfigRow = {
-  _id: string;
-  name: string;
-  type: string;
-  url?: string;
-  command?: string;
-  args?: string;
-  enabled?: boolean;
-  autoConnect?: boolean;
-  transport?: string;
-  allowedDirectories?: string[];
-};
-
-/**
- * Plan 009: build the MCP executor input for a task. Seeding is lazy
- * (`autoConnect` pre-warms only), sessions are shared per workspace, and
- * a server that fails to connect simply yields no tools — the registry
- * never throws, so a dead MCP server can never fail the task.
- */
-function mcpForTask(
-  configs: McpConfigRow[] | undefined,
-  workspacePath: string,
-  policy: ExecutionPolicy,
-  reportStatus: (serverId: string, status: "connected" | "disconnected" | "error", errorMessage?: string) => Promise<void> | void
-): { sessions: McpSession[]; writeTools: boolean; maxIterations: number } | undefined {
-  if (policy.mcpToolLoop === false) return undefined;
-  const sessions = getMcpRegistry().ensure(
-    configs ?? [],
-    workspacePath,
-    {
-      timeoutMs: policy.mcpTimeoutMs ?? 30_000,
-      maxResultChars: policy.mcpMaxResultChars ?? 8_000,
-    },
-    { onStatus: reportStatus }
-  );
-  return {
-    sessions,
-    writeTools: policy.mcpWriteTools ?? false,
-    maxIterations: policy.mcpMaxToolIterations ?? 6,
-  };
-}
-
-/**
- * Inline the contents of @mentioned files into the command so the planner and
- * code-change agent see the workspace context. Mentions are `@relative/path.ext`
- * tokens in the command text.
- */
-export async function withFileContexts(
-  workspaceRoot: string,
-  configuredWorkspacePath: string,
-  command: string
-): Promise<string> {
-  const normalized = command.replace(/\r\n/g, "\n");
-  const mentions = new Set<string>();
-  for (const match of normalized.matchAll(/@([\w./-]+\.[\w]{1,12})/g)) {
-    const rel = match[1].replace(/^\/+/, "").replace(/^\.\//, "");
-    if (!rel || rel.includes("..")) continue;
-    mentions.add(rel);
-  }
-  if (mentions.size === 0) return normalized;
-
-  const base = resolveWorkspacePath(workspaceRoot, configuredWorkspacePath);
-  const blocks: string[] = [];
-  for (const rel of mentions) {
-    const abs = path.resolve(base, rel);
-    if (!abs.startsWith(base)) continue;
-    try {
-      const stat = await fs.stat(abs);
-      if (!stat.isFile()) continue;
-      const content = await fs.readFile(abs, "utf-8");
-      blocks.push(`--- File: ${rel} ---\n${content.slice(0, 20000)}`);
-    } catch {
-      // unreadable file: skip the block and keep the mention text
-    }
-  }
-  if (blocks.length === 0) return normalized;
-
-  const mentionLine = `Attached file context:\n${[...mentions].map((rel) => `- @${rel}`).join("\n")}`;
-  return `${normalized}\n\n${mentionLine}\n\n${blocks.join("\n\n")}`;
-}
-
-export function heuristicPlanForTest(
-  command: string,
-  agents: AgentDefinition[]
-): ExecutionPlan {
-  return heuristicPlan({
-    command,
-    classification: classifyCommand(command),
-    agents,
-    policy: {
-      maxSubtasks: 8,
-      maxConcurrency: 2,
-      maxReplans: 1,
-      maxReviewIterations: 2,
-      subtaskTimeoutMs: 180_000,
-      subtaskRetries: 1,
-      approvalTimeoutMs: 30 * 60_000,
-      taskTimeoutMs: 30 * 60_000,
-      verificationEnabled: true,
-      verificationIncludeBuild: true,
-      verificationTimeoutMs: 180_000,
-      maxAgentsPerTask: 3,
-      maxLLMCallsPerTask: 5,
-      maxDelegationDepth: 2,
-      maxConcurrentLLMCalls: 1,
-      maxTokenBudgetPerTask: 50_000,
-    },
-  });
-}
 
 export type { SubtaskKind };

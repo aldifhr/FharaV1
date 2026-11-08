@@ -338,6 +338,27 @@ describe("decision: decide() advisor + fallback", () => {
     expect(result.fallback).toContain("provider down");
   });
 
+  it("advisor without a task LLM chain fails closed with an explicit reason (plan 013)", async () => {
+    const { decideWithLlm } = await import("../src/orchestrator/decisionLlm");
+    const cto: AgentDefinition = {
+      _id: "cto1",
+      name: "CTO",
+      role: "cto",
+      capabilities: [CAPABILITY.ARCHITECTURE, CAPABILITY.CODE_REVIEW],
+    };
+    const result = await decide(context({ agents: [cto, dev, qa] }), observation({ decision: "APPROVE" }), {
+      llmMode: "always",
+      advise: (ctx, obs) =>
+        decideWithLlm({
+          ctx: ctx as never,
+          observation: obs as never,
+        }),
+    });
+    expect(result.decision.action).toBe("complete");
+    expect(result.decision.decidedBy).toBe("deterministic");
+    expect(result.fallback).toContain("decision advisor has no task LLM chain");
+  });
+
   it("step limit returns a complete decision without consulting the advisor", async () => {
     const ask = vi.fn(async () => validDelegate);
     const result = await decide(context({ step: 20 }), observation(), {

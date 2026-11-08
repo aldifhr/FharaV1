@@ -30,7 +30,8 @@ import type { DecisionContext, DecisionObservation } from "./decision";
 export interface DecisionAdvisorInput {
   ctx: DecisionContext;
   observation: DecisionObservation;
-  /** Explicit per-task LLM config (resolved by the runner); env is the fallback. */
+  /** Explicit per-task LLM config (resolved by the runner). Part of the
+   *  task chain; never falls back to environment config. */
   llmConfig?: GlobalLLMConfig;
   llmResolver?: TaskLlmResolver;
   /** Pre-call budget gate. Runs BEFORE the request, never after. */
@@ -133,16 +134,24 @@ async function runRealCall(input: DecisionAdvisorInput, prompt: string): Promise
   if (!orchestrator) {
     throw new Error("no orchestrator-capable agent available for the decision advisor");
   }
+  // The advisor runs on the task's own chain ONLY (plan 013): an
+  // env-only config with a hardcoded model would spend quota on a
+  // provider/model the user never picked, unmetered. `decide()` turns
+  // this throw into a recorded deterministic fallback.
   const handles: FallbackHandle[] = input.llmResolver
     ? input.llmResolver.handlesFor(orchestrator)
-    : [
-        {
-          connectionId: "",
-          connectionName: "(task config)",
-          config: input.llmConfig ?? getGlobalLLMConfig(),
-          provider: createProviderForAgent(orchestrator, input.llmConfig),
-        },
-      ];
+    : input.llmConfig
+      ? [
+          {
+            connectionId: "",
+            connectionName: "(task config)",
+            config: input.llmConfig,
+            provider: createProviderForAgent(orchestrator, input.llmConfig),
+          },
+        ]
+      : (() => {
+          throw new Error("decision advisor has no task LLM chain");
+        })();
   const { result: response, servedBy } = await runLlmCallWithFallback(
     handles,
     [

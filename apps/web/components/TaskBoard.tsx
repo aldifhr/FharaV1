@@ -196,7 +196,6 @@ export default function TaskBoard({
                 <p className="truncate text-sm font-medium dark:text-white">{t.title}</p>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
                   <span className={`rounded-full px-2 py-0.5 font-semibold ${STATUS_PILL[t.status] ?? "bg-gray-100 text-gray-600"}`}>{t.status}</span>
-                  {plan && <span className="rounded-full bg-gray-100 px-2 py-0.5 font-medium dark:bg-gray-800">{plan.strategy}</span>}
                   {subtasks.length > 0 && (
                     <span className="rounded-full bg-gray-100 px-2 py-0.5 font-medium dark:bg-gray-800">
                       {done}/{subtasks.length} subtasks

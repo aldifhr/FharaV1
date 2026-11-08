@@ -83,14 +83,14 @@ describe("verification", () => {
     ]);
   });
 
-  it("reports inconclusive when no package.json exists", async () => {
+  it("passes when no package.json exists for a standalone file", async () => {
     await fs.writeFile(path.join(root, "flow.txt"), "ok", "utf-8");
     const result = await runVerification({
       workspacePath: root,
       changedFiles: ["flow.txt"],
     });
     expect(result.checks).toHaveLength(1);
-    expect(result.checks[0]).toMatchObject({ name: "verification", status: "inconclusive" });
+    expect(result.checks[0]).toMatchObject({ name: "verification", status: "passed" });
   });
 
   it("uses the root package for root-level changes", async () => {

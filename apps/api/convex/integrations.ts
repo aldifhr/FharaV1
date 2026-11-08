@@ -211,7 +211,7 @@ export const handleWebhook = httpAction(async (ctx, request) => {
   // TODO: Verify webhook signature using webhook secret stored per integration
   // For now, we'll handle this in a follow-up with per-integration secrets
 
-  const body = await request.json();
+  const body = (await request.json()) as Record<string, any>;
 
   // Find integration by repository info in the webhook payload
   // This is a simplified version - in production you'd use the delivery ID

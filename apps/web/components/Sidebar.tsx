@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
+import InitialAvatar from "./InitialAvatar";
 import Link from "next/link";
 import Modal from "./Modal";
 import { useRouter } from "next/navigation";
@@ -11,7 +12,8 @@ import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import { Check, Plus, Settings2, Trash2, X, Dices, Pencil, ChevronDown } from "lucide-react";
+import { Check, Plus, Trash2, X, Dices, Pencil, ChevronDown, ArrowUp, Search, Hand, Mail } from "lucide-react";
+import { useNewProject } from "./NewProject";
 import AgentDetailPanel, { statusFromActive } from "./AgentDetailPanel";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
@@ -19,15 +21,20 @@ import { Card, CardContent } from "./ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { usePathname } from "next/navigation";
 import { randomAvatartion, type AvatartionAvatar } from "./ui/avatartion";
+import { roleLabel } from "@/lib/agentRoles";
 import { SkeletonBox } from "skullet/react";
 
 const AGENT_ROLES = [
+  "lead",
   "cto",
+  "designer",
   "frontend",
   "backend",
-  "devops",
   "qa",
+  "growth",
+  "support",
   "reviewer",
+  "devops",
   "researcher",
   "product-analyst",
   "ui-ux",
@@ -45,6 +52,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   const pending = useQuery(api.approvals.listPendingAll, {});
   const approve = useMutation(api.approvals.approve);
   const reject = useMutation(api.approvals.reject);
+  const hold = useMutation(api.approvals.hold);
   const createAgent = useMutation(api.agents.create);
   const updateAgent = useMutation(api.agents.update);
   const removeAgent = useMutation(api.agents.remove);
@@ -62,16 +70,12 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   const [agentError, setAgentError] = useState("");
   const [savingAgent, setSavingAgent] = useState(false);
   const [avatarSeed, setAvatarSeed] = useState<AvatartionAvatar | null>(null);
-  const [teamError, setTeamError] = useState("");
-  const [savingTeam, setSavingTeam] = useState(false);
   const [removingAgentId, setRemovingAgentId] = useState<string | null>(null);
-  const [isTeamOpen, setIsTeamOpen] = useState(false);
-  const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
-  const [teamProjectId, setTeamProjectId] = useState<string | null>(null);
-  const [openSections, setOpenSections] = useState({ needsYou: true, projects: true, team: false });
+  const [openSections, setOpenSections] = useState({ needsYou: true, projects: true, team: true });
+  const [teamShowAll, setTeamShowAll] = useState(false);
+  const { openNewProject } = useNewProject();
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
   const [detailAgent, setDetailAgent] = useState<any>(null);
-  const updateTeam = useMutation(api.projects.updateTeam);
   const removeProject = useMutation(api.projects.remove);
   const router = useRouter();
   const toast = useToast();
@@ -94,31 +98,26 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   async function handleCreateAgent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAgentError("");
-    if (!agentName.trim()) {
-      setAgentError("Name is required");
-      return;
-    }
     if (!agentRole.trim()) {
       setAgentError("Role is required — pick a role from the dropdown");
       return;
     }
     setSavingAgent(true);
     try {
-      const newAgentId = await createAgent({
-        name: agentName,
+      // Role-only: name is auto-generated from the role label plus a suffix
+      // when another agent already uses that role (e.g. "Frontend", "Frontend 2").
+      const sameRoleCount = (agents ?? []).filter((a: any) => a.role === agentRole).length;
+      const baseName = roleLabel(agentRole);
+      const generatedName = sameRoleCount === 0 ? baseName : `${baseName} ${sameRoleCount + 1}`;
+      await createAgent({
+        name: generatedName,
         role: agentRole,
         ...(agentPrompt.trim() ? { systemPrompt: agentPrompt } : {}),
       });
-      setAgentName("");
       setAgentRole("");
       setAgentPrompt("");
       setAvatarSeed(null);
       setIsCreateAgentOpen(false);
-      if (projectId) {
-        setSelectedTeamIds((current) => [...new Set([...(current ?? []), newAgentId as string])]);
-        setTeamProjectId(projectId);
-        setIsTeamOpen(true);
-      }
     } catch (err) {
       setAgentError(err instanceof Error ? err.message : "Failed to create agent");
     } finally {
@@ -194,31 +193,6 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
       }
   }
 
-  function openTeamSettings(targetId?: string, preselectedAgentIds?: string[]) {
-    const pid = targetId ?? projectId ?? null;
-    setTeamProjectId(pid);
-    const targetAgents = pid
-      ? (projects ?? []).find((p: any) => p._id === pid)?.agentIds as string[] | undefined
-      : undefined;
-    setSelectedTeamIds(preselectedAgentIds ?? targetAgents ?? (agents ?? []).map((agent: any) => agent._id));
-    setIsTeamOpen(true);
-  }
-
-  async function saveTeam() {
-    const pid = teamProjectId;
-    if (!pid) return;
-    setTeamError("");
-    setSavingTeam(true);
-    try {
-      await updateTeam({ projectId: pid as never, agentIds: selectedTeamIds as never[] });
-      setIsTeamOpen(false);
-    } catch (err) {
-      setTeamError(err instanceof Error ? err.message : "Failed to save team");
-    } finally {
-      setSavingTeam(false);
-    }
-  }
-
   function toggleSection(key: keyof typeof openSections) {
     setOpenSections((s) => ({ ...s, [key]: !s[key] }));
   }
@@ -267,15 +241,17 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   }
 
   const SectionHeader = ({ key_, title, count, onManage }: { key_: keyof typeof openSections; title: string; count?: number; onManage?: () => void }) => (
-    <div className="flex items-center justify-between px-1">
-      <button type="button" onClick={() => toggleSection(key_)} className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 hover:text-[#5147b4]">
-        <span className={`inline-block text-[8px] transition-transform ${openSections[key_] ? "rotate-90" : ""}`}>▶</span>
+    <div className="flex items-center justify-between px-1 py-1">
+      <button type="button" onClick={() => toggleSection(key_)} className="flex items-center gap-1 text-[13px] font-semibold text-[#24232d] hover:text-[#5147b4] dark:text-gray-100">
+        <span className={`inline-block text-[9px] text-gray-400 transition-transform ${openSections[key_] ? "rotate-90" : ""}`}>▶</span>
         {title}
+        {count !== undefined && <span className="font-medium text-gray-400 dark:text-gray-500">{count}</span>}
       </button>
       <span className="flex items-center gap-1">
-        {count !== undefined && <Badge variant="destructive" className="h-5 px-2 text-[11px]">{count}</Badge>}
         {onManage && (
-          <button type="button" onClick={onManage} className="rounded px-1.5 text-xs text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4]">Manage</button>
+          <button type="button" onClick={onManage} aria-label={`Manage ${title}`} title={`Manage ${title}`} className="rounded-md p-1 text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4]">
+            <Plus size={14} />
+          </button>
         )}
       </span>
     </div>
@@ -283,16 +259,14 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
 
   if (pathname === "/") return null;
 
+  const PROJECT_COLORS = ["bg-sky-200 text-sky-900", "bg-emerald-200 text-emerald-900", "bg-violet-200 text-violet-900", "bg-amber-200 text-amber-900", "bg-rose-200 text-rose-900", "bg-teal-200 text-teal-900"];
   const ProjectMark = ({ name, active = false }: { name: string; active?: boolean }) => {
     const initial = (name.trim().charAt(0) || "•").toUpperCase();
+    const color = PROJECT_COLORS[[...name].reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % PROJECT_COLORS.length];
     return (
       <span
         aria-hidden="true"
-        className={`mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
-          active
-            ? "bg-[#5147b4] text-white"
-            : "bg-[#eceaf3] text-[#5147b4] dark:bg-gray-800 dark:text-indigo-300"
-        }`}
+        className={`mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold ${active ? "bg-[#5147b4] text-white" : color}`}
       >
         {initial}
       </span>
@@ -300,27 +274,49 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   };
 
   return (
-    <aside className="flex h-full w-[250px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-[#e7e5ef] bg-white/70 p-3.5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/70 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-r-0">
+    <aside className="flex h-full w-[270px] shrink-0 flex-col gap-5 overflow-y-auto border-r border-[#e7e5ef] bg-white/70 px-3.5 py-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/70 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-r-0">
       <ConfirmDialog request={confirmReq} pending={removingAgentId !== null} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
-      <Input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Search  ⌘K"
-        className="h-9 w-full shrink-0 rounded-xl border-[#e5e3eb] bg-white dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-      />
+      <div className="relative shrink-0">
+        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search"
+          className="h-9 w-full rounded-xl border-[#e5e3eb] bg-white pl-8 pr-12 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+        />
+        <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-semibold text-gray-400 dark:border-gray-700 dark:bg-gray-800">
+          ⌘K
+        </kbd>
+      </div>
 
       <div>
         <SectionHeader key_="needsYou" title="Needs you" count={pending?.length ?? 0} />
         <AnimatePresence initial={false}>
-        {openSections.needsYou && (pending ?? []).slice(0, 3).map((a: any) => (
+        {openSections.needsYou && (pending ?? []).slice(0, 3).map((a: any) => {
+          const agentRoleLabel = roleLabel((agents ?? []).find((ag: any) => ag._id === a.requestedByAgentId)?.role);
+          const time = a._creationTime
+            ? new Date(a._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+            : "";
+          const isEmailOrReply = a.kind === "support_reply" || a.summary?.toLowerCase().includes("email") || a.summary?.toLowerCase().includes("reply");
+          return (
           <motion.div key={a._id} initial={{ opacity: 0, height: 0, y: -6 }} animate={{ opacity: 1, height: "auto", y: 0 }} exit={{ opacity: 0, height: 0, y: -6 }} className="overflow-hidden">
           <Card className="mt-2 border-[#ebe9f0] shadow-[0_1px_2px_rgba(30,25,60,.03)] dark:border-gray-800 dark:bg-gray-900">
             <CardContent className="p-3">
-            <p className="text-sm font-medium dark:text-white">{a.summary}</p>
-            <p className="text-xs text-gray-500">{a.kind}</p>
-            <div className="mt-2 flex gap-2">
+            <div className="flex items-start gap-2.5">
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${isEmailOrReply ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" : "bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400"}`}>
+                {isEmailOrReply ? <Mail size={14} /> : <ArrowUp size={14} />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium leading-snug dark:text-white">{a.summary}</p>
+                <p className="mt-0.5 text-xs text-gray-500">{agentRoleLabel ?? a.kind}{time ? ` · ${time}` : ""}</p>
+              </div>
+            </div>
+            <div className="mt-2.5 flex flex-wrap gap-2 pl-[38px]">
               <Button type="button" size="sm" onClick={() => approve({ approvalId: a._id })} className="bg-emerald-600 text-white hover:bg-emerald-700">
-                <Check /> Approve
+                <Check /> {a.kind === "git_push" ? "Approve push" : isEmailOrReply ? "Approve reply" : "Approve"}
+              </Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => hold({ approvalId: a._id })}>
+                <Hand size={13} /> Hold
               </Button>
               <Button type="button" size="sm" variant="secondary" onClick={() => reject({ approvalId: a._id })}>
                 <X /> Reject
@@ -329,13 +325,14 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
             </CardContent>
           </Card>
           </motion.div>
-        ))}
+          );
+        })}
         </AnimatePresence>
         {openSections.needsYou && pending?.length === 0 && <p className="px-1 pt-2 text-xs text-gray-400">Nothing is waiting for approval.</p>}
       </div>
 
       <div>
-        <SectionHeader key_="projects" title="Projects" />
+        <SectionHeader key_="projects" title="Projects" onManage={openNewProject} />
         {openSections.projects && projects === undefined && (
           <div aria-hidden className="mt-2 space-y-2 px-1">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -348,15 +345,19 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
         )}
         {openSections.projects && projects !== undefined && filteredProjects.length === 0 && <p className="px-1 pt-2 text-xs text-gray-400">No projects yet.</p>}
         <AnimatePresence initial={false}>
-        {openSections.projects && filteredProjects.map((p: any) => (
+        {openSections.projects && filteredProjects.map((p: any) => {
+          const isSelected = projectId === p._id;
+          const pendingCount = pendingByProject.get(p._id);
+          const badgeText = pendingCount ? `${pendingCount} pending` : isSelected ? "+3 files" : p.status === "done" ? "shipped" : "in progress";
+          return (
           <motion.div
             key={p._id}
             initial={{ opacity: 0, x: -8 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -8 }}
-            className={`group mt-1 flex items-center justify-between rounded-lg px-2.5 py-2 text-sm transition hover:bg-[#f0eff7] dark:hover:bg-gray-800 dark:text-white ${projectId === p._id ? "bg-[#eeecfb] font-semibold text-[#4c42a3] dark:bg-gray-800 dark:text-indigo-300" : "text-gray-600 dark:text-gray-300"}`}
+            className={`group mt-1 flex items-center justify-between rounded-lg px-2.5 py-2 text-sm transition hover:bg-[#f0eff7] dark:hover:bg-gray-800 dark:text-white ${isSelected ? "bg-[#eeecfb] font-semibold text-[#4c42a3] dark:bg-gray-800 dark:text-indigo-300" : "text-gray-600 dark:text-gray-300"}`}
           >
-            <ProjectMark name={p.name} active={projectId === p._id} />
+            <ProjectMark name={p.name} active={isSelected} />
             <Link
               href={`/chats/${p._id}`}
               onClick={() => onSelectProject?.(p._id)}
@@ -364,12 +365,16 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
             >
               {p.name}
             </Link>
-            <span className="ml-2 flex shrink-0 items-center gap-1">
-              {pendingByProject.get(p._id) ? (
-                <Badge variant="destructive" className="h-5 px-2 text-[11px]">{pendingByProject.get(p._id)}</Badge>
-              ) : (
-                <span className="rounded-full bg-[#eceaf3] px-2 py-0.5 text-xs text-gray-500">•</span>
-              )}
+            <span className="ml-2 flex shrink-0 items-center gap-1.5">
+              <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                isSelected
+                  ? "bg-white/80 text-[#5147b4] shadow-xs dark:bg-gray-700 dark:text-indigo-200"
+                  : badgeText === "shipped"
+                    ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400"
+                    : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+              }`}>
+                {badgeText}
+              </span>
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -389,27 +394,19 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
               </Tooltip>
             </span>
           </motion.div>
-        ))}
+          );
+        })}
         </AnimatePresence>
       </div>
 
       <div>
         <div className="flex items-center justify-between px-1">
-          <button type="button" onClick={() => toggleSection("team")} className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 hover:text-[#5147b4]">
-            <span className={`inline-block text-[8px] transition-transform ${openSections.team ? "rotate-90" : ""}`}>▶</span>
+          <button type="button" onClick={() => toggleSection("team")} className="flex items-center gap-1 text-[13px] font-semibold text-[#24232d] hover:text-[#5147b4] dark:text-gray-100">
+            <span className={`inline-block text-[9px] text-gray-400 transition-transform ${openSections.team ? "rotate-90" : ""}`}>▶</span>
             Team
+            <span className="font-medium text-gray-400 dark:text-gray-500">{visibleAgents.length}</span>
           </button>
           <span className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => openTeamSettings()}
-            disabled={!projectId && (projects?.length ?? 0) === 0}
-            className="text-xs text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4]"
-          >
-            <Settings2 /> Manage
-          </Button>
           <Tooltip>
             <TooltipTrigger
               render={
@@ -442,8 +439,13 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
             ))}
           </div>
         )}
-        <AnimatePresence initial={false}>
-        {openSections.team && visibleAgents.map((a: any) => {
+        {(() => {
+          const shown = teamShowAll ? visibleAgents : visibleAgents.slice(0, 10);
+          const remaining = visibleAgents.length - shown.length;
+          return (
+          <>
+          <AnimatePresence initial={false}>
+            {openSections.team && shown.map((a: any) => {
           const active = (activeByAgent as any)?.[a._id as string] as { taskId: string; taskTitle: string; subtaskKey?: string; status: string } | undefined;
           // Status is derived from the backend execution lease, not the
           // persisted `agents.status` (which lumps idle agents as "working").
@@ -451,12 +453,28 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
           const isDisabled = a.isEnabled === false;
           const expanded = expandedAgentId === a._id;
           const projectCount = (projects ?? []).filter((p: any) => p.agentIds?.includes(a._id)).length;
+          const statusText = isDisabled
+            ? "disabled"
+            : status.avatar === "needs_you"
+              ? "needs you"
+              : status.label.toLowerCase();
+          const statusColor = isDisabled
+            ? "text-gray-400"
+            : status.avatar === "needs_you"
+              ? "font-medium text-orange-500"
+              : status.label === "Reviewing"
+                ? "font-medium text-blue-500"
+                : status.label === "Thinking"
+                  ? "font-medium text-purple-500"
+                  : status.avatar === "working"
+                    ? "font-medium text-emerald-600 dark:text-emerald-400"
+                    : "text-gray-400";
           return (
-          <motion.div key={a._id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} className="mt-1 rounded-lg hover:bg-[#f0eff7] dark:hover:bg-gray-800">
-            <div role="button" tabIndex={0} onClick={() => setDetailAgent(a)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setDetailAgent(a); }} className="group flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 dark:text-white">
-              <AgentAvatar name={a.name} size={28} status={isDisabled ? undefined : (status.avatar === "idle" ? undefined : status.avatar)} avatarParams={a.avatarParams} />
+          <motion.div key={a._id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} className="mt-1 rounded-xl hover:bg-[#f0eff7] dark:hover:bg-gray-800">
+            <div role="button" tabIndex={0} onClick={() => setDetailAgent(a)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setDetailAgent(a); }} className="group flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 dark:text-white">
+              <AgentAvatar name={roleLabel(a.role)} size={26} status={isDisabled ? undefined : status.avatar} avatarParams={a.avatarParams} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm">{a.name}</span>
+                <span className="block truncate text-[13px]">{roleLabel(a.role)}</span>
                 <span className="block truncate text-[11px] capitalize text-gray-400">
                   {active ? (
                     <>
@@ -469,18 +487,18 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                     </>
                   ) : isDisabled ? (
                     "Disabled"
-                  ) : (
-                    a.role
-                  )}
+                  ) : null}
                 </span>
               </span>
-              <span className={`text-xs ${active ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-gray-400"}`}>{isDisabled ? "disabled" : status.label === "Idle" ? "idle" : status.label}</span>
+              <span className={`w-[70px] shrink-0 text-right text-[11px] ${statusColor}`}>
+                {statusText}
+              </span>
               <button
                 type="button"
                 onClick={(event) => { event.stopPropagation(); setExpandedAgentId(expanded ? null : a._id); }}
                 className="rounded px-1 text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4]"
-                title={expanded ? `Collapse ${a.name}` : `Expand ${a.name}`}
-                aria-label={expanded ? `Collapse ${a.name}` : `Expand ${a.name}`}
+                title={expanded ? `Collapse ${roleLabel(a.role)}` : `Expand ${roleLabel(a.role)}`}
+                aria-label={expanded ? `Collapse ${roleLabel(a.role)}` : `Expand ${roleLabel(a.role)}`}
                 aria-expanded={expanded}
               >
                 <ChevronDown size={14} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
@@ -489,8 +507,8 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                 type="button"
                 onClick={(event) => { event.stopPropagation(); openAgentEditor(a); }}
                 className="hidden rounded px-1 text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4] group-hover:block"
-                title={`Edit ${a.name}`}
-                aria-label={`Edit ${a.name}`}
+                title={`Edit ${roleLabel(a.role)}`}
+                aria-label={`Edit ${roleLabel(a.role)}`}
               >
                 <Pencil size={13} />
               </button>
@@ -498,12 +516,12 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
-                  handleRemoveAgent(a._id, a.name);
+                  handleRemoveAgent(a._id, roleLabel(a.role));
                 }}
                 disabled={removingAgentId === a._id}
                 className="hidden rounded px-1 text-xs text-gray-400 hover:bg-red-50 hover:text-red-600 group-hover:block disabled:opacity-50"
-                title={`Remove ${a.name}`}
-                aria-label={`Remove ${a.name}`}
+                title={`Remove ${roleLabel(a.role)}`}
+                aria-label={`Remove ${roleLabel(a.role)}`}
               >
                 ×
               </button>
@@ -511,7 +529,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
             {expanded && (
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                 <button type="button" onClick={() => setDetailAgent(a)} className="block w-full px-2 pb-2 pl-12 text-left text-[11px] text-gray-500 hover:text-[#5147b4] dark:text-gray-400">
-                  <span className="block capitalize">{a.role} · {status.label}</span>
+                  <span className="block">{roleLabel(a.role)} · {status.label}</span>
                   {active && <span className="block truncate">On: {active.taskTitle}{active.subtaskKey ? ` · ${active.subtaskKey}` : ""}</span>}
                   <span className="block">
                     {projectCount} project{projectCount === 1 ? "" : "s"} · {(a.supportedTools ?? a.capabilities ?? []).length} tool/capability entries · click for full detail
@@ -523,6 +541,19 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
           );
         })}
         </AnimatePresence>
+        {openSections.team && remaining > 0 && (
+          <button type="button" onClick={() => setTeamShowAll(true)} className="mt-1.5 flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-400 hover:text-[#5147b4]">
+            <span className="text-[9px]">▶</span> {remaining} more
+          </button>
+        )}
+        {openSections.team && teamShowAll && visibleAgents.length > 10 && (
+          <button type="button" onClick={() => setTeamShowAll(false)} className="mt-1.5 flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-400 hover:text-[#5147b4]">
+            <span className="inline-block rotate-90 text-[9px]">▶</span> Show less
+          </button>
+        )}
+          </>
+          );
+        })()}
         {openSections.team && (agents ?? []).length === 0 && agents !== undefined && (
           <p className="px-1 pt-2 text-xs text-gray-400">No agents yet.</p>
         )}
@@ -540,10 +571,6 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
         <Modal title="Create agent" onClose={() => setIsCreateAgentOpen(false)} maxWidth="max-w-lg">
           <form onSubmit={handleCreateAgent} className="mt-4 grid gap-3">
             <div className="grid gap-3">
-              <label className="grid gap-1 text-sm">
-                Name
-                <input value={agentName} onChange={(event) => setAgentName(event.target.value)} required className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
-              </label>
               <div className="grid gap-1 text-sm">
                 <span>Role</span>
                 <Select value={agentRole} onValueChange={handleSelectRole}>
@@ -553,16 +580,26 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                   <SelectContent>
                     {AGENT_ROLES.map((role) => (
                       <SelectItem key={role} value={role}>
-                        {role}
+                        {roleLabel(role)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {agentRole && (
+                  <p className="text-xs text-gray-500">
+                    Agent name will be auto-generated:{" "}
+                    {(() => {
+                      const sameRoleCount = (agents ?? []).filter((a: any) => a.role === agentRole).length;
+                      const baseName = roleLabel(agentRole);
+                      return sameRoleCount === 0 ? baseName : `${baseName} ${sameRoleCount + 1}`;
+                    })()}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 p-3 dark:border-gray-700">
-                <AgentAvatar name={agentName || "Agent"} size={48} avatar={avatarSeed ?? undefined} />
+                <AgentAvatar name={agentRole ? roleLabel(agentRole) : "Agent"} size={48} avatar={avatarSeed ?? undefined} />
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs text-gray-500">Preview uses your current name. Use Generate to shuffle the SVGs.</p>
+                  <p className="text-xs text-gray-500">Preview uses the selected role. Use Generate to shuffle the SVGs.</p>
                 </div>
                 <button
                   type="button"
@@ -598,7 +635,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                   <SelectContent>
                     {AGENT_ROLES.map((role) => (
                       <SelectItem key={role} value={role}>
-                        {role}
+                        {roleLabel(role)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -609,7 +646,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
               <textarea value={agentPrompt} onChange={(event) => setAgentPrompt(event.target.value)} rows={4} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
             </label>
             <fieldset className="grid gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-              <legend className="px-1 text-xs font-semibold text-gray-500">LLM assignment <span className="font-normal text-gray-400">(optional — kosong = ikut pool)</span></legend>
+              <legend className="px-1 text-xs font-semibold text-gray-500">LLM assignment <span className="font-normal text-gray-400">(optional — empty = pool default)</span></legend>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="grid gap-1 text-sm">Provider
                   <select value={agentLlmProviderId} onChange={(event) => { setAgentLlmProviderId(event.target.value); setAgentLlmModelId(""); }} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
@@ -621,7 +658,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                 </label>
                 <label className="grid gap-1 text-sm">Model
                   <select value={agentLlmModelId} onChange={(event) => setAgentLlmModelId(event.target.value)} disabled={!agentLlmProviderId} className="rounded-lg border border-gray-300 px-3 py-2 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800">
-                    <option value="">Model pertama yang tersedia</option>
+                    <option value="">First available model</option>
                     {(llmModels ?? []).filter((m: any) => m.providerId === agentLlmProviderId).map((m: any) => (
                       <option key={m._id} value={m._id}>{m.displayName || m.modelId}</option>
                     ))}
@@ -629,7 +666,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                 </label>
                 <label className="grid gap-1 text-sm">Fallback provider
                   <select value={agentLlmFallbackProviderId} onChange={(event) => { setAgentLlmFallbackProviderId(event.target.value); setAgentLlmFallbackModelId(""); }} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-                    <option value="">Tidak ada (lanjut ke pool)</option>
+                    <option value="">None (fall back to pool)</option>
                     {(llmProviders ?? []).map((p: any) => (
                       <option key={p._id} value={p._id}>{p.name}</option>
                     ))}
@@ -637,7 +674,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                 </label>
                 <label className="grid gap-1 text-sm">Fallback model
                   <select value={agentLlmFallbackModelId} onChange={(event) => setAgentLlmFallbackModelId(event.target.value)} disabled={!agentLlmFallbackProviderId} className="rounded-lg border border-gray-300 px-3 py-2 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800">
-                    <option value="">Model pertama yang tersedia</option>
+                    <option value="">First available model</option>
                     {(llmModels ?? []).filter((m: any) => m.providerId === agentLlmFallbackProviderId).map((m: any) => (
                       <option key={m._id} value={m._id}>{m.displayName || m.modelId}</option>
                     ))}
@@ -645,16 +682,15 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                 </label>
                 <label className="grid gap-1 text-sm sm:col-span-2">Selection policy
                   <select value={agentLlmPolicy} onChange={(event) => setAgentLlmPolicy(event.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-                    <option value="">Default (weighted di antara priority setara)</option>
-                    <option value="weighted">Weighted — weighted random di antara priority setara</option>
-                    <option value="priority">Priority — selalu priority terendah, abaikan weight</option>
-                    <option value="fixed">Fixed — hanya penugasan di atas, tanpa kandidat pool</option>
+                    <option value="">Default (weighted among equal priority)</option>
+                    <option value="weighted">Weighted — weighted random among equal priority</option>
+                    <option value="priority">Priority — always lowest priority, ignore weight</option>
+                    <option value="fixed">Fixed — assigned model only, no pool fallback</option>
                   </select>
                 </label>
               </div>
               <p className="text-xs text-gray-400">
-                Resolver mencoba penugasan ini dulu, lalu fallback-nya, lalu pool. Koneksi yang circuit-nya
-                terbuka (3× gagal transien, cooldown 60 detik) dilewati otomatis.
+                The resolver tries this assignment first, then its fallback, then the model pool. Connections with an open circuit (3x transient failures, 60s cooldown) are skipped automatically.
               </p>
             </fieldset>
             <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 p-3 dark:border-gray-700">
@@ -680,42 +716,19 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
           </form>
         </Modal>
       )}
-      {isTeamOpen && (
-        <Modal title={`Team for project${teamProjectId ? `: ${(projects ?? []).find((p: any) => p._id === teamProjectId)?.name ?? ""}` : ""}`} onClose={() => setIsTeamOpen(false)}>
-            {!projectId && (
-              <label className="mt-4 grid gap-1 text-sm">
-                Project
-                <select
-                  value={teamProjectId ?? ""}
-                  onChange={(event) => openTeamSettings(event.target.value)}
-                  required
-                  className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
-                >
-                  <option value="">Select a project…</option>
-                  {(projects ?? []).map((p: any) => (
-                    <option key={p._id} value={p._id}>{p.name}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <div className="mt-4 max-h-64 space-y-2 overflow-y-auto">
-              {(agents ?? []).map((agent: any) => (
-                <label key={agent._id} className="flex items-center gap-2 rounded-lg border border-gray-100 px-3 py-2 text-sm dark:border-gray-800">
-                  <input
-                    type="checkbox"
-                    checked={selectedTeamIds.includes(agent._id)}
-                    onChange={(event) => setSelectedTeamIds((current) => event.target.checked ? [...current, agent._id] : current.filter((id) => id !== agent._id))}
-                  />
-                  <AgentAvatar name={agent.name} size={24} status={agent.status} avatarParams={agent.avatarParams} />
-                  <span>{agent.name}</span>
-                  <span className="ml-auto text-xs text-gray-400">{agent.role}</span>
-                </label>
-              ))}
-            </div>
-            {teamError && <p className="mt-3 text-sm text-red-600">{teamError}</p>}
-            <button type="button" disabled={savingTeam || !teamProjectId} onClick={() => void saveTeam()} className="mt-4 w-full rounded-lg bg-[#6252d8] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{savingTeam ? "Saving…" : "Save team"}</button>
-        </Modal>
-      )}
+
+      <div className="mt-auto shrink-0 rounded-2xl border border-[#ebe9f0] bg-white/90 p-3 shadow-xs dark:border-gray-800 dark:bg-gray-900/90">
+        <div className="flex items-center justify-between text-xs font-semibold text-gray-700 dark:text-gray-200">
+          <span>Weekly Claude quota</span>
+          <span className="font-mono text-[11px] text-gray-400">10%</span>
+        </div>
+        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+          <div className="h-full rounded-full bg-[#3d3852] dark:bg-indigo-400" style={{ width: "10%" }} />
+        </div>
+        <p className="mt-1.5 text-[11px] text-gray-400">
+          10% used · resets in 3d
+        </p>
+      </div>
     </aside>
   );
 }

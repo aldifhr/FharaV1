@@ -1,9 +1,15 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { motion } from "framer-motion";
 import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
+import InitialAvatar from "./InitialAvatar";
+import { roleLabel } from "@/lib/agentRoles";
+import QaPanel from "./QaPanel";
+import ApprovalCard from "./ApprovalCard";
+import DiffCard from "./DiffCard";
+import { Send, Loader2 as SendLoader } from "lucide-react";
 import {
   CheckCircle2,
   ChevronLeft,
@@ -74,6 +80,7 @@ export default function TaskThreadPanel({
   const project = useQuery(api.projects.get, task?.projectId ? { projectId: task.projectId } : "skip");
   const messages = useQuery(api.messages.listByTask, taskExists ? { taskId: taskId as any } : "skip");
   const events = useQuery(api.taskEvents.listByTask, taskExists ? { taskId: taskId as any } : "skip");
+  const fileChanges = useQuery(api.fileChanges.listByTask, taskExists ? { taskId: taskId as any } : "skip");
   const agents = useQuery(api.agents.list, {});
   const execution = useQuery(
     api.executionView.getForTask,
@@ -113,6 +120,25 @@ export default function TaskThreadPanel({
   const stages = (events ?? []).filter((e: any) => e.type === "task.stage");
   const workingAgent = (agents ?? []).find((agent: any) => agent.status === "working");
   const taskStatus = (task as any)?.status;
+  const sendThreadMessage = useMutation(api.messages.insertThreadMessage);
+  const approve = useMutation(api.approvals.approve);
+  const reject = useMutation(api.approvals.reject);
+  const hold = useMutation(api.approvals.hold);
+  const [reply, setReply] = useState("");
+  const [alsoSendToChat, setAlsoSendToChat] = useState(false);
+  const [sendingReply, setSendingReply] = useState(false);
+
+  const submitReply = async () => {
+    const text = reply.trim();
+    if (!text || !task) return;
+    setSendingReply(true);
+    try {
+      await sendThreadMessage({ projectId: task.projectId, taskId: task._id, content: text, alsoSendToChat });
+      setReply("");
+    } finally {
+      setSendingReply(false);
+    }
+  };
   const statusLabel = taskStatus === "done"
     ? "Completed"
     : taskStatus === "needs_approval"
@@ -124,9 +150,29 @@ export default function TaskThreadPanel({
           : taskStatus === "running"
             ? "Running"
             : "Queued";
+  const pendingApprovals = ((execution as any)?.approvals ?? []).filter((a: any) => a.status === "pending");
+  const agentById = (id: string | undefined) => ((agents as any) ?? []).find((a: any) => a._id === id);
+  const ctoMessages = (messages ?? []).filter((m: any) => {
+    const role = agentById(m.agentId)?.role;
+    return role === "cto" || role === "reviewer";
+  });
+  const otherMessages = (messages ?? []).filter((m: any) => !ctoMessages.includes(m));
+  const timelineEvents = [...(events ?? [])].sort((a: any, b: any) => a._creationTime - b._creationTime);
+  const eventLabel = (event: any): string => {
+    const type = event.type as string;
+    if (type.startsWith("approval.")) return type.replace("approval.", "Approval ");
+    if (type === "task.stage") return `Stage: ${event.payload?.stage ?? ""}`;
+    if (type === "task.check") return `${event.payload?.label ?? "Check"} · ${event.payload?.status ?? ""}`;
+    if (type === "task.error") return `Error: ${event.payload?.message ?? ""}`;
+    if (type.startsWith("orchestrator.")) return type.replace("orchestrator.", "Orchestrator ");
+    if (type.startsWith("qa.")) return type.replace("qa.", "QA ");
+    if (type.startsWith("review.")) return type.replace("review.", "Review ");
+    if (type.startsWith("verification.")) return type.replace("verification.", "Verification ");
+    return type;
+  };
 
   return (
-    <div className="relative flex h-full shrink-0 flex-col border-l border-[#ebe9f0] bg-white/80 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-l-0 max-[979px]:border-t max-[979px]:flex-row">
+    <div className="relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-[#ebe9f0] bg-white/90 shadow-[-8px_0_24px_rgba(40,35,80,0.04)] backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-l-0 max-[979px]:border-t max-[979px]:flex-row">
       <div
         onMouseDown={handleMouseDown}
         className="group absolute left-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-blue-400/50 active:bg-blue-400/70 z-10 max-[979px]:hidden"
@@ -140,22 +186,22 @@ export default function TaskThreadPanel({
         exit={{ opacity: 0, transition: { duration: 0.15 } }}
         transition={{ duration: 0.2, ease: "easeOut" }}
         style={{ width: panelWidth, marginLeft: 6 }}
-        className="flex h-full flex-col max-[979px]:h-auto max-[979px]:w-full max-[979px]:flex-row"
+        className="flex h-full min-h-0 flex-col overflow-hidden max-[979px]:h-auto max-[979px]:w-full max-[979px]:flex-row"
       >
-      <header className="flex items-center justify-between border-b border-[#ebe9f0] px-4 py-3.5 dark:border-gray-800">
+      <header className="flex min-h-[66px] items-center justify-between border-b border-[#ebe9f0] bg-white/50 px-4 py-3.5 dark:border-gray-800 dark:bg-gray-950/20">
         <div>
           <h2 className="truncate text-sm font-semibold">{(task as any)?.title ?? "Task thread"}</h2>
           <p className="mt-0.5 text-[11px] text-gray-400">Task thread · {(project as any)?.name ?? "Workspace"}</p>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${taskStatus === "done" ? "bg-[#e6f5ec] text-[#348d5c]" : taskStatus === "failed" || taskStatus === "rejected" ? "bg-red-100 text-red-700" : "bg-[#fff0df] text-[#bd6c23]"}`}>
+            {statusLabel}
+          </span>
           <button type="button" onClick={onClose} title="Close task thread" aria-label="Close task thread" className="rounded-lg p-1 hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} /></button>
         </div>
       </header>
 
-      <div className="flex gap-2 px-4 pt-3">
-        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${taskStatus === "done" ? "bg-[#e6f5ec] text-[#348d5c]" : taskStatus === "failed" || taskStatus === "rejected" ? "bg-red-100 text-red-700" : "bg-[#fff0df] text-[#bd6c23]"}`}>
-          {statusLabel}
-        </span>
+      <div className="flex items-center gap-1.5 px-4 pt-3">
         {(agents as any)?.find((a: any) => a.role === "cto") && (
           <span className="flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-700 dark:text-white">
             <AgentAvatar name="CTO" size={16} avatarParams={(agents as any)?.find((a: any) => a.role === "cto")?.avatarParams} /> CTO · review
@@ -164,7 +210,7 @@ export default function TaskThreadPanel({
       </div>
       {workingAgent && (
         <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-700">
-          <span>{workingAgent.name} is thinking</span>
+          <span>{roleLabel(workingAgent.role)} is thinking</span>
           <span className="flex gap-0.5">
             <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-500" />
             <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-500 [animation-delay:120ms]" />
@@ -173,9 +219,23 @@ export default function TaskThreadPanel({
         </div>
       )}
 
-      <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        {execution && ((execution as any).subtasks?.length ?? 0) > 0 && (
-          <section className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900">
+      {execution && ((execution as any).subtasks?.length ?? 0) > 0 && (
+        <section className="mx-4 mt-3 rounded-xl border border-[#ebe9f0] bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
+          <h3 className="text-xs font-semibold text-gray-700 dark:text-gray-200">Engineering Team Status</h3>
+          <div className="mt-2 space-y-2">
+            {Array.from(new Map(((execution as any).subtasks ?? []).map((subtask: any) => [subtask.assignedAgentId ?? subtask.capability, subtask])).values()).map((subtask: any) => {
+              const role = agentById(subtask.assignedAgentId)?.role ?? subtask.capability;
+              const state = subtask.status as string;
+              const label = state === "completed" ? "Completed" : state === "failed" ? "Needs review" : state === "running" ? "Testing" : "On track";
+              const tone = state === "completed" ? "text-emerald-600" : state === "failed" ? "text-rose-600" : state === "running" ? "text-sky-600" : "text-amber-600";
+              return <div key={subtask._id} className="rounded-lg bg-gray-50 px-2.5 py-2 dark:bg-gray-950"><div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold dark:text-white">{roleLabel(role)}</span><span className={`text-[11px] font-semibold ${tone}`}>{label}</span></div><p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">{subtask.error ?? subtask.title}</p></div>;
+            })}
+          </div>
+        </section>
+      )}
+      <div className="h-0 min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-[#fcfcfe] p-4 dark:bg-gray-950/40">
+        {false && execution && ((execution as any).subtasks?.length ?? 0) > 0 && (
+          <section className="rounded-xl border border-[#ebe9f0] bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <div className="flex items-center justify-between">
               <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase text-gray-500">
                 <ListTree size={13} /> Execution plan
@@ -220,7 +280,7 @@ export default function TaskThreadPanel({
                     </div>
                     <div className="mt-0.5 flex items-center gap-2 pl-[19px] text-[10px] text-gray-400">
                       <span className="truncate">{subtask.capability}</span>
-                      {subtask.assignedAgentName && <span>· {subtask.assignedAgentName}</span>}
+                      {subtask.assignedAgentName && <span>· {roleLabel(agentById(subtask.assignedAgentId)?.role)}</span>}
                       {subtask.dependencies?.length > 0 && (
                         <span className="flex items-center gap-0.5">
                           <GitBranch size={10} /> {subtask.dependencies.join(", ")}
@@ -258,49 +318,170 @@ export default function TaskThreadPanel({
             <p className="mt-1 break-words">{(task as any).errorMessage}</p>
           </div>
         )}
-        {errors.map((event: any, index: number) => (
-          <div key={`error-${index}`} className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+        {errors.length > 0 && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
             <p className="font-semibold">Agent error</p>
-            <p className="mt-1 break-words">{event.payload?.message ?? "Task failed to process."}</p>
+            <p className="mt-1 break-words">{errors[errors.length - 1].payload?.message ?? "Task failed to process."}</p>
           </div>
-        ))}
+        )}
         {stages.length > 0 && (
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
             {stages[stages.length - 1].payload?.message ?? `Stage: ${stages[stages.length - 1].payload?.stage}`}
           </div>
         )}
-        {(messages ?? []).map((m: any) => (
+        {pendingApprovals.map((a: any) => (
+          <ApprovalCard
+            key={a._id}
+            approval={a}
+            taskTitle={(task as any)?.title}
+            onApprove={(approvalId) => approve({ approvalId: approvalId as any })}
+            onReject={(approvalId) => reject({ approvalId: approvalId as any })}
+            onHold={(approvalId) => hold({ approvalId: approvalId as any })}
+          />
+        ))}
+        {fileChanges && fileChanges.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-semibold uppercase text-gray-500">File changes</h4>
+              <span className="text-[11px] font-mono text-gray-400">
+                {fileChanges.length} file{fileChanges.length > 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="mt-2 space-y-2">
+              {fileChanges.map((fc: any) => (
+                <DiffCard
+                  key={fc._id}
+                  filePath={fc.filePath}
+                  diff={fc.diff}
+                  changeType={fc.changeType}
+                  oldContent={fc.oldContent}
+                  newContent={fc.newContent}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+        {checks.length > 0 && (
+          <section className="border-t border-gray-200 pt-3 dark:border-gray-800">
+            <div className="flex items-center gap-2 text-[11px] text-gray-400">
+              <span>{Math.max(1, otherMessages.length)} replies</span><span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
+            </div>
+            <div className="mt-3 space-y-2">
+              {Array.from(new Map(checks.map((event: any) => [event.payload?.label, event])).values()).map((event: any) => {
+                const passed = event.payload?.status === "passed" || event.payload?.status === "clean";
+                return <div key={event._id} className="flex items-center gap-2 text-sm"><span className={passed ? "text-emerald-600" : "text-amber-600"}>{passed ? "✓" : "◔"}</span><span className="flex-1">{event.payload?.label ?? "QA check"}</span><span className="text-xs text-gray-400">{passed ? "clean" : event.payload?.status}</span></div>;
+              })}
+            </div>
+          </section>
+        )}
+        {ctoMessages.map((m: any) => {
+          const msgAgent = agentById(m.agentId);
+          return (
+            <div key={m._id} className="flex gap-2">
+              <AgentAvatar name={roleLabel(msgAgent?.role)} size={28} avatarParams={msgAgent?.avatarParams} />
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-700 dark:text-gray-200">
+                  {roleLabel(msgAgent?.role)}
+                  <span className="rounded-full border border-gray-200 px-1.5 py-px text-[10px] font-medium text-gray-400 dark:border-gray-700">review</span>
+                  <span className="font-normal text-gray-400">{m._creationTime ? new Date(m._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                </p>
+                <p className="mt-0.5 text-sm dark:text-white">{m.content}</p>
+              </div>
+            </div>
+          );
+        })}
+        {(otherMessages ?? []).length > 1 && (
+          <div className="flex items-center gap-3 pt-1">
+            <span className="text-[11px] font-medium text-gray-400">{(otherMessages ?? []).length - 1} replies</span>
+            <span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
+          </div>
+        )}
+        {(otherMessages ?? []).map((m: any) => {
+          const msgAgent = (agents as any)?.find((a: any) => a._id === m.agentId);
+          return (
           <div key={m._id} className="flex gap-2">
             {m.authorType === "agent" ? (
-              <AgentAvatar name={(agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"} size={28} avatarParams={(agents as any)?.find((a: any) => a._id === m.agentId)?.avatarParams} />
+              <InitialAvatar name={roleLabel(msgAgent?.role)} size={28} />
             ) : (
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-900 text-[10px] font-bold text-white">U</div>
             )}
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold text-gray-500">{m.authorType === "agent" ? ((agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent") : "You"}</p>
+              <p className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500">
+                {m.authorType === "agent" ? roleLabel(msgAgent?.role) : "You"}
+                {msgAgent?.role === "cto" || msgAgent?.role === "reviewer" ? (
+                  <span className="rounded-full border border-gray-200 px-1.5 py-px text-[10px] font-medium text-gray-400 dark:border-gray-700">review</span>
+                ) : null}
+              </p>
               <div className="flex items-center gap-2">
                 <p className="text-sm dark:text-white">{m.content}</p>
                 <span className="shrink-0 text-[10px] text-gray-400">
-                  {m._creationTime ? new Date(m._creationTime).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : ""}
+                  {m._creationTime ? new Date(m._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""}
                 </span>
               </div>
             </div>
           </div>
-        ))}
-        {checks.length > 0 && (
+          );
+        })}
+        {false && checks.length > 0 && (
           <div>
             <h4 className="text-xs font-semibold uppercase text-gray-500">Checklist</h4>
-            {checks.map((e: any, i: number) => (
-              <div key={i} className="mt-1 flex items-center justify-between text-xs dark:text-white">
-                <span>QA · {e.payload.label}</span>
-                <span className={`rounded-full px-2 py-0.5 font-semibold ${e.payload.status === "passed" || e.payload.status === "clean" ? "bg-emerald-100 text-emerald-700" : e.payload.status === "inconclusive" || e.payload.status === "running" ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"}`}>
-                  {e.payload.status}
-                </span>
-              </div>
-            ))}
+            <div className="mt-1.5 space-y-1">
+              {checks.map((e: any, i: number) => {
+                const passed = e.payload.status === "passed" || e.payload.status === "clean";
+                return (
+                  <div key={i} className="flex items-center gap-2 text-xs dark:text-white">
+                    <span className={passed ? "text-emerald-600" : "text-amber-500"}>
+                      {passed ? <CheckCircle2 size={13} /> : <Loader2 size={13} className={e.payload.status === "running" ? "animate-spin" : ""} />}
+                    </span>
+                    <span className="min-w-0 flex-1">QA · {e.payload.label}</span>
+                    <span className="shrink-0 text-gray-400">{e.payload.status}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
+
+      <form
+        className="shrink-0 border-t border-[#ebe9f0] bg-white/80 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80"
+        onSubmit={(event) => { event.preventDefault(); void submitReply(); }}
+      >
+        <div className="rounded-2xl border border-[#e5e3eb] bg-white px-4 pb-3 pt-3.5 shadow-sm transition focus-within:border-[#a29ae8] focus-within:ring-2 focus-within:ring-[#e5e1ff] dark:border-gray-700 dark:bg-gray-900 dark:focus-within:border-indigo-400 dark:focus-within:ring-indigo-900">
+          <textarea
+            value={reply}
+            onChange={(event) => setReply(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void submitReply();
+              }
+            }}
+            rows={2}
+            placeholder="Reply to the thread"
+            className="w-full resize-none bg-transparent px-0.5 text-[15px] leading-6 text-gray-900 outline-none placeholder:text-gray-400 dark:text-white"
+          />
+          <div className="mt-1 flex items-center gap-2">
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <input
+                type="checkbox"
+                checked={alsoSendToChat}
+                onChange={(event) => setAlsoSendToChat(event.target.checked)}
+                className="rounded"
+              />
+              Also send to chat
+            </label>
+            <button
+              type="submit"
+              disabled={sendingReply || !reply.trim()}
+              aria-label="Send reply"
+              className="ml-auto flex h-8 w-8 items-center justify-center rounded-xl bg-[#635bff] text-white shadow-sm transition hover:bg-[#5346d8] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {sendingReply ? <SendLoader size={14} className="animate-spin" /> : <Send size={14} />}
+            </button>
+          </div>
+        </div>
+      </form>
       </motion.aside>
     </div>
   );

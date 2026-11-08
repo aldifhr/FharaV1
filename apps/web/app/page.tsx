@@ -8,6 +8,7 @@ import { Trash2 } from "lucide-react";
 import { useToast } from "@/components/Toasts";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import IconRail from "@/components/IconRail";
+import { roleLabel } from "@/lib/agentRoles";
 import AgentAvatar from "@/components/AgentAvatar";
 import { useNewProject } from "@/components/NewProject";
 import { BlurFade } from "@/components/ui/blur-fade";
@@ -182,7 +183,7 @@ export default function Home() {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <section>
-          <h2 className="text-sm font-semibold">Task terbaru</h2>
+          <h2 className="text-sm font-semibold">Recent tasks</h2>
           <div className="mt-2 grid gap-2">
             {data.recentTasks.slice(0, 3).map((t) => (
               <Link key={t._id} href={`/chats/${t.projectId}`} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-gray-200 p-3 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900">
@@ -197,23 +198,23 @@ export default function Home() {
           </div>
         </section>
 
-        <section>
-          <h2 className="text-sm font-semibold">Agent ({data.agents.length})</h2>
+        <section id="team">
+          <h2 className="text-sm font-semibold">Team ({data.agents.length})</h2>
           <div className="mt-2 grid gap-2">
             {data.agents.map((a) => (
               <div key={a._id} className="group flex items-center gap-3 rounded-xl border border-gray-200 p-3 dark:border-gray-800">
-                <AgentAvatar name={a.name} size={32} status={a.status} avatarParams={a.avatarParams} />
+                <AgentAvatar name={roleLabel(a.role)} size={32} status={a.status} avatarParams={a.avatarParams} />
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium">{a.name}</p>
-                  <p className="text-xs text-gray-500">{a.role} · {a.status}</p>
+                  <p className="font-medium">{roleLabel(a.role)}</p>
+                  <p className="text-xs text-gray-500">{a.status}</p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => handleRemoveAgent(a._id, a.name)}
+                  onClick={() => handleRemoveAgent(a._id, roleLabel(a.role))}
                   disabled={removingAgentId === a._id}
                   className="rounded-lg p-1.5 text-gray-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 max-[979px]:opacity-100 disabled:opacity-50"
-                  title={`Delete ${a.name}`}
-                  aria-label={`Delete ${a.name}`}
+                  title={`Delete ${roleLabel(a.role)}`}
+                  aria-label={`Delete ${roleLabel(a.role)}`}
                 >
                   <Trash2 size={15} />
                 </button>

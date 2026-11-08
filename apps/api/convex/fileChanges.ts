@@ -23,11 +23,11 @@ export const listByProject = query({
       .query("fileChanges")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .collect();
-    const byPath = new Map<string, { _id: string; filePath: string; changeType: string }>();
+    const byPath = new Map<string, { _id: string; filePath: string; changeType: string; taskId: string }>();
     for (const row of rows) {
       const existing = byPath.get(row.filePath);
       if (!existing || row.changeType === "new" || row.changeType === "modified") {
-        byPath.set(row.filePath, { _id: row._id, filePath: row.filePath, changeType: row.changeType });
+        byPath.set(row.filePath, { _id: row._id, filePath: row.filePath, changeType: row.changeType, taskId: row.taskId });
       }
     }
     return [...byPath.values()];

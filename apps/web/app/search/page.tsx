@@ -6,6 +6,7 @@ import { api } from "@/api/convex/_generated/api";
 import Link from "next/link";
 import IconRail from "@/components/IconRail";
 import AgentAvatar from "@/components/AgentAvatar";
+import { roleLabel } from "@/lib/agentRoles";
 
 export default function SearchPage() {
   const [q, setQ] = useState("");
@@ -68,10 +69,10 @@ export default function SearchPage() {
               <div className="mt-2 grid gap-2">
                 {results.agents.map((a) => (
                   <div key={a._id} className="flex items-center gap-3 rounded-xl border border-gray-200 p-3 dark:border-gray-800">
-                    <AgentAvatar name={a.name} size={32} status={a.status} avatarParams={a.avatarParams} />
+                    <AgentAvatar name={roleLabel(a.role)} size={32} status={a.status} avatarParams={a.avatarParams} />
                     <div className="min-w-0">
-                      <p className="font-medium">{a.name}</p>
-                      <p className="text-xs text-gray-500">{a.role} · {a.status}</p>
+                      <p className="font-medium">{roleLabel(a.role)}</p>
+                      <p className="text-xs text-gray-500">{a.status}</p>
                     </div>
                   </div>
                 ))}

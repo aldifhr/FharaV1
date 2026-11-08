@@ -18,6 +18,8 @@ execution order and a definition of done.
 | 006 | [Intelligent, context-aware, decision-driven multi-agent platform](006-intelligent-multi-agent-platform.md) | P1 | L | adopts 005 Phase 2–5 | DONE |
 | 007 | [Project agent registry and conversation participation](007-agent-registry-and-participation.md) | P1 | M | — | DONE |
 | 009 | [Filesystem MCP integration](009-filesystem-mcp-integration.md) | P1 | L | 007 | DONE |
+| 010 | [CTO agent delegation](010-cto-agent-delegation.md) | P1 | L | 006, 007 | TODO |
+| 011 | [Orchestrator lifecycle correctness](011-orchestrator-lifecycle-correctness.md) | P1 | L | 005, 006, 010 | IN PROGRESS |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

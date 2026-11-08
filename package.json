@@ -10,7 +10,7 @@
     "dev": "npm run --workspace=@moagent/web dev",
     "build": "npm run --workspace=@moagent/web build",
     "worker": "npm run --workspace=@moagent/worker start",
-    "convex": "npm run --workspace=@moagent/api codegen --silent && concurrently -k \"npm run --workspace=@moagent/api dev\" \"npm run worker\"",
+    "convex": "PATH=\"$HOME/.nvm/versions/node/v24.14.1/bin:$PATH\" npm run --workspace=@moagent/api codegen --silent && PATH=\"$HOME/.nvm/versions/node/v24.14.1/bin:$PATH\" concurrently -k \"npm run --workspace=@moagent/api dev\" \"npm run worker\"", 
     "electron:dev": "concurrently -k \"npm run --workspace=@moagent/web dev\" \"wait-on http://localhost:3000 && electron electron/main.cjs\"",
     "typecheck": "npm run --workspace=@moagent/web typecheck && npm run --workspace=@moagent/api typecheck && npm run --workspace=@moagent/worker typecheck",
     "test": "npm run --workspace=@moagent/worker test",

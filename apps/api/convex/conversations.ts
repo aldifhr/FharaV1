@@ -18,13 +18,13 @@ type Ctx = QueryCtx | MutationCtx;
 type WriteCtx = MutationCtx;
 type AgentDoc = Doc<"agents">;
 
-const LEAD_ROLE = /orchestrator|planner|manager|cto|lead|architect/i;
+const LEAD_ROLE = /cto|lead|manager|planner|architect/i;
 
 /**
  * Default chat selection, preserved verbatim from the pre-Plan-007
  * `chatContext.getContext` (and mirrored by
  * `packages/worker/tests/chatAndTasks.test.ts`): explicit selection first,
- * then the lead by role, then the first enabled member. An empty team never
+ * then the CTO/lead by role, then the first enabled member. An empty team never
  * falls back to global agents.
  */
 export function selectDefaultChatAgents(

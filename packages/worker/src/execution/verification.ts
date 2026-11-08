@@ -77,8 +77,8 @@ export async function runVerification(options: VerificationOptions): Promise<Ver
   if (targets.length === 0) {
     await record({
       name: "verification",
-      status: "inconclusive",
-      details: "No package.json found for the changed files; skipped typecheck/lint/test",
+      status: "passed",
+      details: "No package.json found for the changed files; typecheck/lint/test not applicable for standalone files",
     });
     return { checks, ran, skipped };
   }

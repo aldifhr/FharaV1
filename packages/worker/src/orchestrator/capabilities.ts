@@ -2,20 +2,36 @@ import { CAPABILITY, type AgentDefinition } from "./types";
 
 const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   {
+    pattern: /\b(lead|coordinator|project lead|orchestrator|planner|manager)\b/i,
+    capabilities: [CAPABILITY.COORDINATION, CAPABILITY.RESEARCH, CAPABILITY.GENERAL],
+  },
+  {
+    pattern: /\b(designer|design|wireframe|ui-ux|figma)\b/i,
+    capabilities: [CAPABILITY.DESIGN, CAPABILITY.FRONTEND],
+  },
+  {
     pattern: /\b(frontend|front-end|ui|ux|react|web)\b/i,
     capabilities: [CAPABILITY.FRONTEND],
   },
   {
     pattern: /\b(backend|back-end|api|server|database|db)\b/i,
-    capabilities: [CAPABILITY.BACKEND],
+    capabilities: [CAPABILITY.BACKEND, CAPABILITY.SHELL_EXECUTION],
   },
   {
     pattern: /\b(qa|test|testing|quality|e2e)\b/i,
-    capabilities: [CAPABILITY.BROWSER_TESTING],
+    capabilities: [CAPABILITY.BROWSER_TESTING, CAPABILITY.CODE_REVIEW],
   },
   {
-    pattern: /\b(cto|architect|architecture|tech lead|lead|principal)\b/i,
-    capabilities: [CAPABILITY.ARCHITECTURE, CAPABILITY.CODE_REVIEW],
+    pattern: /\b(cto|architect|architecture|tech lead|principal)\b/i,
+    capabilities: [CAPABILITY.ARCHITECTURE, CAPABILITY.CODE_REVIEW, CAPABILITY.SECURITY],
+  },
+  {
+    pattern: /\b(growth|seo|marketing|analytics)\b/i,
+    capabilities: [CAPABILITY.GROWTH, CAPABILITY.RESEARCH],
+  },
+  {
+    pattern: /\b(support|documentation|docs|technical-writer|writer)\b/i,
+    capabilities: [CAPABILITY.DOCUMENTATION, CAPABILITY.RESEARCH, CAPABILITY.GENERAL],
   },
   {
     pattern: /\b(security|audit|pentest|appsec)\b/i,
@@ -32,10 +48,6 @@ const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   {
     pattern: /\b(shell|terminal|exec|command|run|bash)\b/i,
     capabilities: [CAPABILITY.SHELL_EXECUTION],
-  },
-  {
-    pattern: /\b(orchestrator|planner|manager|coordinator)\b/i,
-    capabilities: [CAPABILITY.ARCHITECTURE, CAPABILITY.RESEARCH, CAPABILITY.GENERAL],
   },
 ];
 

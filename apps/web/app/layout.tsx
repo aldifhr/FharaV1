@@ -9,7 +9,6 @@ import { NewProjectProvider } from "@/components/NewProject";
 import { SettingsProvider } from "@/components/Settings";
 import { LlmSettingsProvider } from "@/components/LlmSettings";
 import { ShellBackground } from "@/components/ui/background-snippets";
-import Script from "next/script";
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import { SkulletProvider } from "skullet/react";
 
@@ -38,7 +37,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </TooltipProvider>
         </SkulletProvider>
         </ThemeProvider>
-        <Script src="/font-init.js" strategy="beforeInteractive" />
       </body>
     </html>
   );

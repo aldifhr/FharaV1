@@ -14,7 +14,13 @@ export const agentStatus = v.union(
   v.literal("idle"),
   v.literal("working"),
   v.literal("queued"),
-  v.literal("needs_you")
+  v.literal("needs_you"),
+  v.literal("thinking"),
+  v.literal("reviewing"),
+  v.literal("waiting"),
+  v.literal("blocked"),
+  v.literal("completed"),
+  v.literal("failed")
 );
 
 export const subtaskKind = v.union(
@@ -327,6 +333,10 @@ export default defineSchema({
     executionId: v.optional(v.id("executions")),
     subtaskKey: v.optional(v.string()),
     level: v.optional(v.union(v.literal("info"), v.literal("warn"), v.literal("error"))),
+    agentId: v.optional(v.id("agents")),
+    message: v.optional(v.string()),
+    metadata: v.optional(v.any()),
+    createdAt: v.optional(v.number()),
   })
     .index("by_task", ["taskId"])
     .index("by_project", ["projectId"]),

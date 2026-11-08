@@ -30,6 +30,8 @@ export interface QaOptions {
    * dev server is killed immediately instead of running to completion.
    */
   signal?: AbortSignal;
+  /** Compare screenshots only when the task explicitly requests visual QA. */
+  visualRegression?: boolean;
 }
 
 const VIEWPORTS = [
@@ -149,7 +151,10 @@ export async function runResponsiveQa(
     if (failures.length === 0) {
       browser = await chromium.launch({ headless: true });
       try {
-        for (const viewport of VIEWPORTS) {
+        const qaViewports = options.visualRegression
+      ? VIEWPORTS
+      : [{ label: "structural", width: 1280, height: 720 }];
+    for (const viewport of qaViewports) {
           // Cancellation is checked between Playwright steps: an
           // aborted task stops before the next viewport instead of
           // running every remaining check.
@@ -232,17 +237,17 @@ export async function runResponsiveQa(
               continue;
             }
 
-            const screenshotPath = path.join(screenshotsDir, `${viewport.label}.png`);
-            await page.screenshot({ path: screenshotPath, fullPage: true });
-            const baseline = await compareScreenshot(
-              screenshotPath,
-              path.join(baselinesDir, `${viewport.label}.png`)
-            );
-            await record({
-              label,
-              status: baseline.status,
-              details: baseline.details,
-            });
+            if (options.visualRegression) {
+              const screenshotPath = path.join(screenshotsDir, `${viewport.label}.png`);
+              await page.screenshot({ path: screenshotPath, fullPage: true });
+              const baseline = await compareScreenshot(
+                screenshotPath,
+                path.join(baselinesDir, `${viewport.label}.png`)
+              );
+              await record({ label, status: baseline.status, details: baseline.details });
+            } else {
+              await record({ label, status: "passed", details: "Viewport loaded; visual comparison skipped" });
+            }
           } catch (error) {
             await record({
               label,

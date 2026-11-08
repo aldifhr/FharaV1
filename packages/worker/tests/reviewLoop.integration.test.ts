@@ -122,7 +122,7 @@ const PLAN: ExecutionPlan = {
   ],
 };
 
-const AGENTS: WorkerAgent[] = [
+const AGENTS: any[] = [
   {
     _id: "agent-implementer",
     name: "Implementer",
@@ -169,7 +169,7 @@ function createDeps() {
     approvalMode: "auto" as const,
   };
 
-  const subtasks: WorkerSubtask[] = PLAN.subtasks.map((subtask, index) => ({
+  const subtasks: any[] = PLAN.subtasks.map((subtask, index) => ({
     _id: `sub-${index}`,
     key: subtask.key,
     title: subtask.title,
@@ -220,7 +220,7 @@ function createDeps() {
       if (!input.subtaskKey) return;
       const subtask = subtasks.find((candidate) => candidate.key === input.subtaskKey);
       if (!subtask) return;
-      subtask.status = input.status;
+      subtask.status = input.status as any;
       if (input.output) subtask.output = input.output;
       if (input.error) subtask.error = input.error;
     },
@@ -232,7 +232,7 @@ function createDeps() {
     }) => {
       const subtask = subtasks.find((candidate) => candidate.key === input.key);
       if (!subtask) return false;
-      subtask.status = input.status;
+      subtask.status = input.status as any;
       if (input.output) subtask.output = input.output;
       if (input.error) subtask.error = input.error;
       return true;
@@ -251,7 +251,7 @@ function createDeps() {
         taskId: task._id,
         ...change,
         diff: change.diff ?? "",
-      });
+      } as any);
       return `change-${changes.size}`;
     },
     // Matches the real WorkerApi signature: a single object argument.
@@ -301,8 +301,9 @@ describe("review -> fix -> re-review loop", () => {
     const harness = createDeps();
     await processTask(
       {
-        _id: "task-1",
-        projectId: "project-1",
+        _id: "task-1" as any,
+        _creationTime: 0,
+        projectId: "project-1" as any,
         title: "Write check.txt",
         command: "Write check.txt",
         status: "running",
@@ -331,8 +332,9 @@ describe("review -> fix -> re-review loop", () => {
     const harness = createDeps();
     await processTask(
       {
-        _id: "task-1",
-        projectId: "project-1",
+        _id: "task-1" as any,
+        _creationTime: 0,
+        projectId: "project-1" as any,
         title: "Write check.txt",
         command: "Write check.txt",
         status: "running",

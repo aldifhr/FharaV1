@@ -1,15 +1,20 @@
 import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
-// Org chart §2 (9 roles): cto + frontend/backend/devops + qa/reviewer +
-// researcher + product-analyst/ui-ux. Kept in sync with
-// packages/worker/src/orchestrator/roles.ts ROLE_DEFINITIONS.
+// Org chart: Fixed 8-agent team (Lead, CTO, Designer, Frontend, Backend, QA, Growth, Support)
+// plus legacy roles for backwards compatibility.
+// Kept in sync with packages/worker/src/orchestrator/roles.ts ROLE_DEFINITIONS.
 export const DEFAULT_ROLES = [
-  { key: "cto", name: "CTO", category: "Leadership", description: "Central task controller.", capabilities: ["architecture", "research", "general"], defaultTools: ["read_file"], enabled: true },
-  { key: "frontend", name: "Frontend Developer", category: "Engineering", description: "React and Next.js development.", capabilities: ["frontend-development"], defaultTools: ["read_file", "write_file", "run_command"], enabled: true },
-  { key: "backend", name: "Backend Developer", category: "Engineering", description: "API development and server-side logic.", capabilities: ["backend-development"], defaultTools: ["read_file", "write_file", "run_command"], enabled: true },
+  { key: "lead", name: "Lead", category: "Leadership", description: "Project coordination, task analysis, delegation, collaboration tracking.", capabilities: ["project-coordination", "architecture", "research", "general"], defaultTools: ["read_file"], enabled: true },
+  { key: "cto", name: "CTO", category: "Leadership", description: "Technical architecture, technical decisions, code review.", capabilities: ["architecture", "code-review", "security-audit", "research"], defaultTools: ["read_file"], enabled: true },
+  { key: "designer", name: "Designer", category: "Product", description: "UI/UX, wireframes, design system, component specifications.", capabilities: ["ui-ux-design", "frontend-development"], defaultTools: ["read_file", "write_file"], enabled: true },
+  { key: "frontend", name: "Frontend Developer", category: "Engineering", description: "Frontend implementation, React, Next.js, responsive UI.", capabilities: ["frontend-development"], defaultTools: ["read_file", "write_file", "run_command"], enabled: true },
+  { key: "backend", name: "Backend Developer", category: "Engineering", description: "Backend, API, database, server-side logic.", capabilities: ["backend-development", "shell-execution"], defaultTools: ["read_file", "write_file", "run_command"], enabled: true },
+  { key: "qa", name: "QA Engineer", category: "Quality", description: "Testing, bug detection, quality assurance, verification.", capabilities: ["browser-testing", "code-review"], defaultTools: ["read_file", "run_command"], enabled: true },
+  { key: "growth", name: "Growth Specialist", category: "Growth", description: "SEO, product growth, analytics, metrics, user engagement.", capabilities: ["growth-marketing", "research"], defaultTools: ["read_file"], enabled: true },
+  { key: "support", name: "Support Specialist", category: "Operations", description: "Documentation, user support, operational assistance, troubleshooting.", capabilities: ["documentation-support", "research", "general"], defaultTools: ["read_file", "write_file"], enabled: true },
+  // Legacy role definitions
   { key: "devops", name: "DevOps Engineer", category: "Engineering", description: "Docker, CI/CD, deployment, infrastructure.", capabilities: ["shell-execution", "backend-development"], defaultTools: ["read_file", "run_command"], enabled: true },
-  { key: "qa", name: "QA Engineer", category: "Quality", description: "Testing and quality verification.", capabilities: ["browser-testing"], defaultTools: ["read_file", "run_command"], enabled: true },
   { key: "reviewer", name: "Reviewer", category: "Quality", description: "Independent code review.", capabilities: ["code-review"], defaultTools: ["read_file"], enabled: true },
   { key: "researcher", name: "Researcher", category: "Research", description: "Technical research.", capabilities: ["research"], defaultTools: ["read_file"], enabled: true },
   { key: "product-analyst", name: "Product Analyst", category: "Product", description: "Requirement analysis.", capabilities: ["research"], defaultTools: ["read_file"], enabled: true },

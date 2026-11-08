@@ -375,12 +375,16 @@ export const logEvent = action({
     executionId: v.optional(v.id("executions")),
     subtaskKey: v.optional(v.string()),
     level: v.optional(v.union(v.literal("info"), v.literal("warn"), v.literal("error"))),
+    agentId: v.optional(v.id("agents")),
+    message: v.optional(v.string()),
+    metadata: v.optional(v.any()),
   },
   handler: async (ctx, args): Promise<any> => {
-    await ctx.runMutation(
-      internal.orchestration.logEvent,
-      withoutToken(args)
-    );
+    const input = withoutToken(args);
+    // Raw event payload for local flow debugging. The service token is removed
+    // by withoutToken(args) and is intentionally never logged.
+    console.info("[worker.logEvent.raw]", JSON.stringify(input));
+    await ctx.runMutation(internal.orchestration.logEvent, input);
   },
 });
 
@@ -395,10 +399,11 @@ export const appendAgentMessage = action({
     executionId: v.optional(v.id("executions")),
   },
   handler: async (ctx, args): Promise<any> => {
-    return await ctx.runMutation(
-      internal.orchestration.appendAgentMessage,
-      withoutToken(args)
-    );
+    const input = withoutToken(args);
+    // Raw message payload for local flow debugging. The service token is
+    // removed by withoutToken(args) and is intentionally never logged.
+    console.info("[worker.appendAgentMessage.raw]", JSON.stringify(input));
+    return await ctx.runMutation(internal.orchestration.appendAgentMessage, input);
   },
 });
 

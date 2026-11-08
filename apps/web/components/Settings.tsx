@@ -86,7 +86,7 @@ function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }
           <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
             <h2 className="text-sm font-semibold">Font</h2>
             <p className="mt-1 text-xs text-gray-500">Interface typeface, saved on this device.</p>
-            <div className="mt-3 grid gap-2">
+            <div className="mt-2 grid gap-1.5">
               {FONT_OPTIONS.map((option) => {
                 const active = font === option.value;
                 return (
@@ -95,7 +95,7 @@ function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }
                     type="button"
                     onClick={() => setFont(option.value)}
                     aria-pressed={active}
-                    className={`rounded-xl border px-3 py-3 text-left transition ${
+                    className={`rounded-lg border px-2.5 py-2 text-left transition ${
                       active
                         ? "border-[#6252d8] bg-[#6252d8]/10 dark:bg-[#6252d8]/15"
                         : "border-[#e5e3eb] hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
@@ -106,7 +106,7 @@ function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }
                       {active && <Check size={14} className="text-[#6252d8]" />}
                     </span>
                     <span className="mt-0.5 block text-xs text-gray-500">{option.description}</span>
-                    <span className="mt-2 block truncate text-sm" style={option.style}>
+                    <span className="mt-1 block truncate text-xs" style={option.style}>
                       The quick brown fox 0123
                     </span>
                   </button>

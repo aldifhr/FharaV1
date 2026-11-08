@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
+import { roleLabel } from "@/lib/agentRoles";
 import {
   CommandDialog,
   CommandEmpty,
@@ -84,14 +85,14 @@ export default function CommandMenu({ open, onClose }: { open: boolean; onClose:
               {results.agents.map((a) => (
                 <CommandItem
                   key={a._id}
-                  value={`${a.name} ${a.role} ${a.status}`}
+                  value={`${roleLabel(a.role)} ${a.status}`}
                   className={itemClass}
                   onSelect={() => { onClose(); router.push("/"); }}
                 >
-                  <AgentAvatar name={a.name} size={20} status={a.status} avatarParams={a.avatarParams} />
+                  <AgentAvatar name={roleLabel(a.role)} size={20} status={a.status} avatarParams={a.avatarParams} />
                   <span className={textClass}>
-                    <span className={titleClass}>{a.name}</span>
-                    <span className={subClass}>{a.role} · {a.status}</span>
+                    <span className={titleClass}>{roleLabel(a.role)}</span>
+                    <span className={subClass}>{a.status}</span>
                   </span>
                 </CommandItem>
               ))}

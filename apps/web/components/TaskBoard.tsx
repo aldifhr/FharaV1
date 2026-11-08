@@ -5,8 +5,8 @@ import { useMutation, useQuery } from "convex/react";
 import { motion } from "framer-motion";
 import { CheckCircle2, ChevronDown, ChevronRight, Clock, Loader2, Plus, RotateCcw, Trash2, XCircle } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
-import AgentAvatar from "./AgentAvatar";
 import { useToast } from "./Toasts";
+import { roleLabel } from "@/lib/agentRoles";
 
 type TaskRow = any;
 
@@ -66,6 +66,12 @@ export default function TaskBoard({
     return map;
   }, [plansByTask]);
 
+  const agentNameById = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const a of agents ?? []) map.set(a._id, a);
+    return map;
+  }, [agents]);
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (tasks ?? []).filter((t: TaskRow) => {
@@ -77,7 +83,7 @@ export default function TaskBoard({
         t.title,
         t.status,
         plan?.strategy ?? "",
-        ...subtasks.map((s) => `${s.title} ${s.capability} ${s.assignedAgentName ?? ""}`),
+        ...subtasks.map((s) => `${s.title} ${s.capability} ${s.assignedAgentId ? (agentNameById.get(s.assignedAgentId)?.role ?? "") : ""}`),
       ]
         .join(" ")
         .toLowerCase();
@@ -90,12 +96,6 @@ export default function TaskBoard({
     for (const t of tasks ?? []) c[t.status] = (c[t.status] ?? 0) + 1;
     return c;
   }, [tasks]);
-
-  const agentNameById = useMemo(() => {
-    const map = new Map<string, any>();
-    for (const a of agents ?? []) map.set(a._id, a);
-    return map;
-  }, [agents]);
 
   const handleDelete = async (task: TaskRow) => {
     setDeletingId(task._id);
@@ -177,7 +177,8 @@ export default function TaskBoard({
         const isOpen = !!expanded[t._id] || selectedTaskId === t._id;
         const assigned = new Map<string, string>();
         for (const s of subtasks) {
-          if (s.assignedAgentName) assigned.set(s.assignedAgentName, s.assignedAgentId ?? "");
+          const role = agentNameById.get(s.assignedAgentId ?? "")?.role;
+          if (role) assigned.set(roleLabel(role), s.assignedAgentId ?? "");
         }
 
         return (
@@ -211,7 +212,9 @@ export default function TaskBoard({
               <div className="flex shrink-0 items-center gap-2">
                 <div className="flex -space-x-1.5">
                   {[...assigned.entries()].slice(0, 4).map(([name, id]) => (
-                    <AgentAvatar key={name} name={name} size={20} avatarParams={agentNameById.get(id)?.avatarParams} />
+                    <span key={name} title={name} className="flex h-5 w-5 items-center justify-center rounded-full bg-[#eeecfb] text-[9px] font-semibold text-[#4c42a3] dark:bg-gray-800 dark:text-gray-300">
+                      {name.slice(0, 2).toUpperCase()}
+                    </span>
                   ))}
                 </div>
                 <button
@@ -260,8 +263,7 @@ export default function TaskBoard({
                       </span>
                       {s.assignedAgentName && (
                         <span className="flex shrink-0 items-center gap-1 text-[11px] text-gray-500">
-                          {agent && <AgentAvatar name={s.assignedAgentName} size={16} avatarParams={agent.avatarParams} />}
-                          {s.assignedAgentName}
+                          {roleLabel(agent?.role)}
                         </span>
                       )}
                       <span className={`shrink-0 text-[10px] font-semibold ${meta.cls}`}>{meta.label}</span>

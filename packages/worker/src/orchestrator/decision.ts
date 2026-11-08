@@ -154,6 +154,11 @@ export function evaluateObjective(ctx: DecisionContext): ObjectiveEvaluation {
   // Required QA (if present in the plan) has a passed verdict.
   for (const subtask of ctx.plan.subtasks) {
     if (subtask.kind !== "qa") continue;
+    // Dynamic delegation/recovery nodes are execution details, not new
+    // objective requirements. The original planned QA node is authoritative;
+    // otherwise every retry creates another required verdict and the CTO can
+    // never complete the task.
+    if (/^(?:decision_delegate|fix_qa|delegate_)/i.test(subtask.key)) continue;
     const verdict = ev.qaVerdicts?.[subtask.key];
     if (verdict === "passed") {
       evidence.push(`${subtask.key}: QA passed`);

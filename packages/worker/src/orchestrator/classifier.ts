@@ -11,6 +11,8 @@ const QUESTION =
   /\b(explain|how does|how do|why|what is|what are|where is|document|describe|summari[sz]e|pelajari|learn|study|explore|understand|apa|mengapa|kenapa)\b/i;
 const FRONTEND =
   /\b(frontend|front-end|ui|ux|react|next\.?js|component|page|button|form|layout|css|tailwind|responsive|design)\b/i;
+const DESIGN =
+  /\b(design|ui\/ux|wireframe|mockup|layout direction|pricing direction|pricing layout|pricing tier|proposal)\b/i;
 const BACKEND =
   /\b(backend|back-end|api|server|endpoint|database|db|schema|convex|query|mutation|auth|webhook)\b/i;
 const TESTING = /\b(test|tests|qa|e2e|playwright|vitest|coverage)\b/i;
@@ -30,6 +32,7 @@ export function classifyCommand(command: string): Classification {
 
   const hasChangeVerb = CHANGE_VERB.test(text);
   const hasFrontend = FRONTEND.test(text);
+  const hasDesign = DESIGN.test(text);
   const hasBackend = BACKEND.test(text);
   const hasTesting = TESTING.test(text);
   const hasSecurity = SECURITY.test(text);
@@ -54,24 +57,29 @@ export function classifyCommand(command: string): Classification {
     };
   }
 
-  const domains = [hasFrontend, hasBackend].filter(Boolean).length;
+  const domains = [hasFrontend, hasBackend, hasDesign].filter(Boolean).length;
   if (domains >= 2) {
+    const suggested: string[] = [];
+    if (hasDesign) suggested.push(CAPABILITY.DESIGN);
+    if (hasFrontend) suggested.push(CAPABILITY.FRONTEND);
+    if (hasBackend) suggested.push(CAPABILITY.BACKEND);
+    suggested.push(CAPABILITY.CODE_REVIEW, CAPABILITY.BROWSER_TESTING);
+
     return {
       kind: "multi",
       strategy: "dag",
-      reasons: ["request spans frontend and backend", "requires coordinated changes"],
-      suggestedCapabilities: [
-        CAPABILITY.FRONTEND,
-        CAPABILITY.BACKEND,
-        CAPABILITY.CODE_REVIEW,
-        CAPABILITY.BROWSER_TESTING,
-      ],
+      reasons: ["request spans multiple domains", "requires coordinated changes"],
+      suggestedCapabilities: Array.from(new Set(suggested)),
     };
   }
 
   if (hasChangeVerb) {
     const suggested: string[] = [
-      hasFrontend || !hasBackend ? CAPABILITY.FRONTEND : CAPABILITY.BACKEND,
+      hasDesign
+        ? CAPABILITY.DESIGN
+        : hasFrontend || !hasBackend
+          ? CAPABILITY.FRONTEND
+          : CAPABILITY.BACKEND,
     ];
     if (hasTesting) suggested.push(CAPABILITY.BROWSER_TESTING);
     suggested.push(CAPABILITY.CODE_REVIEW);

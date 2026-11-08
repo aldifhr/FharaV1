@@ -69,6 +69,32 @@ export const reject = mutation({
   },
 });
 
+/**
+ * Hold: keep the approval pending but record the user's decision to
+ * postpone it. The approval stays actionable (approve/reject later);
+ * the hold is visible in the task timeline as `approval.held`.
+ */
+export const hold = mutation({
+  args: { approvalId: v.id("approvals") },
+  handler: async (ctx, args) => {
+    const approval = await ctx.db.get(args.approvalId);
+    if (!approval) throw new Error("Approval not found");
+    await assertProjectAccess(ctx, approval.projectId);
+    if (approval.status !== "pending") {
+      throw new Error(`Approval already ${approval.status}`);
+    }
+    await ctx.db.insert("taskEvents", {
+      taskId: approval.taskId,
+      projectId: approval.projectId,
+      type: "approval.held",
+      payload: { kind: approval.kind, summary: approval.summary },
+      subtaskKey: approval.subtaskKey,
+      level: "warn",
+    });
+    return true;
+  },
+});
+
 export const getById = query({
   args: { approvalId: v.id("approvals") },
   handler: async (ctx, args) => {

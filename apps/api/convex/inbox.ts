@@ -43,10 +43,10 @@ export const list = query({
     }
 
     const agentIds = [...new Set<string>(approvals.map((a) => a.requestedByAgentId).filter(Boolean) as string[])] as Id<"agents">[];
-    const agentNameById = new Map<string, string>();
+    const agentRoleById = new Map<string, string>();
     for (const id of agentIds) {
       const a = await ctx.db.get(id);
-      if (a) agentNameById.set(a._id as string, a.name);
+      if (a) agentRoleById.set(a._id as string, a.role);
     }
 
     const approvalTaskIds = new Set(approvals.map((a) => a.taskId as string));
@@ -57,7 +57,7 @@ export const list = query({
         projectName: projectNameById.get(a.projectId as string) ?? "—",
         taskTitle: taskById.get(a.taskId as string)?.title ?? null,
         requestedByAgentName: a.requestedByAgentId
-          ? (agentNameById.get(a.requestedByAgentId as string) ?? null)
+          ? (agentRoleById.get(a.requestedByAgentId as string) ?? null)
           : null,
       })),
       tasks: tasks

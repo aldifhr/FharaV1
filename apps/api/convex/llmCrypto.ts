@@ -19,6 +19,9 @@ const FORMAT_VERSION = "v1";
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
 
+type KeyUsage = "encrypt" | "decrypt" | "sign" | "verify" | "deriveKey" | "deriveBits" | "wrapKey" | "unwrapKey";
+type BufferSource = ArrayBufferView | ArrayBuffer;
+
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);

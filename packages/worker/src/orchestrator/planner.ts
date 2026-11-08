@@ -170,8 +170,18 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
     throw new Error("Planning aborted: the task was cancelled or timed out");
   }
 
+  // Apply the same CTO review/QA policy to fallback plans. Previously the
+  // deterministic fallback bypassed applyPlanningHints, so a provider response
+  // with empty/non-JSON content silently removed requested review and QA nodes.
+  const fallback = applyPlanningHints(heuristicPlan(input), input.agents, {
+    command: input.command,
+    classification: input.classification,
+    policy: input.policy,
+    hasQaUrl: input.hasQaUrl,
+  });
+  const routedFallback = ensureRoutable(fallback, input.agents);
   return {
-    plan: heuristicPlan(input),
+    plan: routedFallback?.plan ?? fallback,
     createdBy: "fallback",
     notes,
     degradedReason: notes.join("; "),
@@ -181,20 +191,36 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
 export function pickOrchestrator(agents: AgentDefinition[]): AgentDefinition | null {
   const enabled = agents.filter(isAgentEnabled);
   if (enabled.length === 0) return null;
-  // CTO authority comes from explicit role identity only — having the
-  // `architecture` capability does NOT grant orchestrator authority
-  // (a Frontend/Backend with architecture capability is not the CTO).
-  const explicit = enabled.find((agent) =>
-    /^(cto|orchestrator)$/i.test(agent.role.trim())
-  );
-  return explicit ?? null;
+  // CTO is the decision authority. Lead is only the fallback when no CTO exists.
+  const cto = enabled.find((agent) => /^cto$/i.test(agent.role.trim()));
+  if (cto) return cto;
+  const lead = enabled.find((agent) => /^lead$/i.test(agent.role.trim()));
+  if (lead) return lead;
+  return enabled.find((agent) => /^orchestrator$/i.test(agent.role.trim())) ?? null;
 }
 
 function buildPlanningPrompt(input: PlannerInput): string {
   const { command, classification, agents, policy } = input;
   return [
-    "You are the orchestrator of a multi-agent software engineering system.",
-    "Produce an execution plan as STRICT JSON and nothing else.",
+    "You are the CTO decision-maker for the multi-agent software engineering workspace.",
+    "Your team consists of specialized agents: Lead, CTO, Designer, Frontend, Backend, QA, Growth, Support.",
+    "Analyze the user task, identify which agents are strictly relevant, and produce an execution plan as STRICT JSON.",
+    "Do NOT force all agents into every task. Only assign agents whose capabilities match the requirements.",
+    "For simple or single-discipline tasks, use strategy 'single' with 1 subtask and empty dependencies [].",
+    "For multi-agent work, independent subtasks must have empty dependencies [] so they can run concurrently in parallel.",
+    "Dependent subtasks must declare dependencies on the earlier subtask keys they wait for.",
+    "Role collaboration patterns:",
+    "- When design, visual layout, or pricing directions are needed:",
+    "  Designer (ui-ux-design) drafts layout options / proposals (Option A vs Option B).",
+    "- CTO (architecture, code-review): technical architecture review, task decomposition, and code review.",
+    "- CTO must verify before approval: frontend/backend boundaries are sensible; project-standard technologies are used consistently; database and API designs are correct; service-to-service communication is explicit; no duplicate implementation is introduced; the solution is scalable and maintainable; and architectural changes are justified, minimal, and reversible.",
+    "- CTO must reject or request revision when any of those checks fail or when the plan lacks enough evidence to decide. Do not approve by default just because an agent completed.",
+    "- Technical-debt findings must include evidence, root cause, impact, and a durable remediation owner. The CTO directs the Lead to coordinate cross-agent fixes; do not hide debt behind a local patch or add a second orchestration path.",
+    "- Frontend (frontend-development): UI components, tokens, styling, and client implementation.",
+    "- Backend (backend-development, shell-execution): APIs, schema, integration, server logic.",
+    "- QA (browser-testing): perform only the verification explicitly requested. Structural QA checks HTML, browser reachability, console, and network errors. Responsive viewport and screenshot-baseline checks are opt-in only; never add them when the user says not to.",
+    "- Growth (growth-marketing, research): analytics, funnels, SEO, conversion copy.",
+    "- Support (documentation-support, general): documentation, customer communication, release notes.",
     "Agents available (only use capabilities listed here):",
     describeCapabilities(agents),
     "",
@@ -215,7 +241,7 @@ function buildPlanningPrompt(input: PlannerInput): string {
     "  package.json, vite/next config, index.html, src/main + src/App (or equivalent).",
     "  Never return a single index.html with CDN <script> tags as a 'migration'.",
     "- Dependencies must reference earlier subtasks and must not form cycles.",
-    "- Add a review node only when the change is risky (auth, security, payments, migrations, cross-domain, concurrency); add QA only when the change is user-visible or the request asks for verification.",
+    "- Add a review node assigned to CTO for every code change. The CTO is the final technical quality gate; add QA separately only when the change is user-visible or the request asks for verification.",
     "- Do NOT invent capabilities that are not listed above.",
     "- Keep the plan minimal; do not add decorative steps.",
     "",
@@ -280,6 +306,8 @@ export function applyPlanningHints(
         isAgentEnabled(agent) &&
         agent.skills?.some((skill) => /review/i.test(skill))
     );
+    // CTO decides when a review is needed. Risky or explicitly reviewable work
+    // gets the quality gate; trivial changes stay minimal.
     const addReview =
       ctx.policy.reviewMode === "always" ||
       (ctx.policy.reviewMode !== "never" && (riskSignal || explicitReviewOffer));
@@ -289,8 +317,8 @@ export function applyPlanningHints(
     if (addReview && (hasReviewer || ctx.policy.reviewMode === "always")) {
       review = {
         key: uniqueKey("review", subtasks),
-        title: "Review the change",
-        description: "Review the prepared diff for correctness, regressions and missing cases.",
+        title: "CTO quality, architecture, and technical-debt review",
+        description: "CTO must inspect the completed implementation and either approve it or request revision. Check code quality, security, regression risk, performance, API/database contract compatibility, project conventions, duplication, scalability, maintainability, and whether architectural changes are justified. Also identify technical debt and architecture failures: duplicated code, frontend/backend contract drift, dependencies scheduled before prerequisites complete, repeated worker retries, inconsistent cross-agent context, and regressions in existing features. For every finding, identify the root cause, define the smallest durable fix, and direct the Lead to coordinate the remediation when it spans agents or subsystems.",
         kind: "review",
         capability: CAPABILITY.CODE_REVIEW,
         dependencies: codeChangeKeys,
@@ -310,11 +338,13 @@ export function applyPlanningHints(
       (ctx.policy.qaMode !== "never" &&
         (riskSignal || verificationAsked || ctx.hasQaUrl === true));
     if (addQa) {
+      const visualQa = !/\b(?:no|not|without|don't|do\s+not|jangan)\b[\s\S]{0,160}\b(?:visual|screenshot|baseline|pixel|responsive|viewport)/i.test(ctx.command) && /\b(?:visual\s+regression|screenshot(?:s)?|baseline|pixel(?:-diff)?|responsive\s+(?:layout|viewports?)|desktop\s+and\s+(?:tablet|mobile)|tablet\s+and\s+mobile)\b/i.test(ctx.command);
       subtasks.push({
         key: uniqueKey("qa", subtasks),
-        title: "Verify in a browser",
-        description:
-          "Run the app after changes are applied and verify responsiveness, console errors and network failures.",
+        title: visualQa ? "Verify responsive visuals" : "Validate HTML and browser reachability",
+        description: visualQa
+          ? "Run the app after changes are applied and verify responsive visuals, console errors and network failures."
+          : "Validate the HTML structure, open the page in a browser, and check console and network errors; do not compare visual baselines.", 
         kind: "qa",
         capability: CAPABILITY.BROWSER_TESTING,
         dependencies: [review?.key ?? codeChangeKeys.at(-1) ?? ""].filter(Boolean),
@@ -377,7 +407,10 @@ function ensureRoutable(
   const kept: ExecutionPlan["subtasks"] = [];
   const dropped: string[] = [];
   for (const subtask of plan.subtasks) {
-    if (routeCapability(subtask.capability, agents)) kept.push(subtask);
+    const routable = routeCapability(subtask.capability, agents, {
+      allowFallback: subtask.kind !== "qa" && subtask.capability !== CAPABILITY.BROWSER_TESTING,
+    });
+    if (routable) kept.push(subtask);
     else dropped.push(subtask.key);
   }
   if (kept.length === 0) return null;
@@ -497,9 +530,10 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
   }
 
   if (classification.kind === "multi") {
+    const isPricingOrDesign = /\b(pricing|tier|grid|layout|redesign)\b/i.test(command);
     const frontendTask: ExecutionPlan["subtasks"][number] = {
       key: "implement_frontend",
-      title: "Implement frontend changes",
+      title: isPricingOrDesign ? "Design token sync & responsive layout" : "Implement frontend changes",
       description: `Implement the frontend portion of: ${command}`,
       kind: "code_change",
       capability: CAPABILITY.FRONTEND,
@@ -508,7 +542,7 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
     };
     const backendTask: ExecutionPlan["subtasks"][number] = {
       key: "implement_backend",
-      title: "Implement backend changes",
+      title: isPricingOrDesign ? "Integrate Stripe checkout links" : "Implement backend changes",
       description: `Implement the backend portion of: ${command}`,
       kind: "code_change",
       capability: CAPABILITY.BACKEND,

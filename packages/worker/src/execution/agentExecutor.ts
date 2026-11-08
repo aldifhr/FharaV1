@@ -518,6 +518,7 @@ async function executeQa(
   const report = await runResponsiveQa(input.workspacePath, {
     baseUrl: input.qaBaseUrl,
     signal: input.signal,
+    visualRegression: !/\b(?:no|not|without|don't|do\s+not|jangan)\b[\s\S]{0,160}\b(?:visual|screenshot|baseline|pixel|responsive|viewport)/i.test(input.command) && /\b(?:visual\s+regression|screenshot(?:s)?|baseline|pixel(?:-diff)?|responsive\s+(?:layout|viewports?)|desktop\s+and\s+(?:tablet|mobile)|tablet\s+and\s+mobile)\b/i.test(input.command),
     onCheck: async (check) => {
       await input.onEvent(
         "task.check",
@@ -527,7 +528,7 @@ async function executeQa(
     },
   });
 
-  const summary = `QA verdict: ${report.verdict}. Checks: ${report.checks
+  const summary = `@QA QA verdict: ${report.verdict}. Checks: ${report.checks
     .map((check) => `${check.label}=${check.status}`)
     .join(", ")}`;
   await input.onMessage(summary);

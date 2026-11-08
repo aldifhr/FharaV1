@@ -351,14 +351,12 @@ export const replyToChat = internalAction({
           command: lastUserContent,
           title: lastUserContent.slice(0, 80),
         });
-        const targetAgents = agents.filter((a: any) => a._id !== dispatcher._id).map((a: any) => a.name).join(", ");
-        const delegationLine = targetAgents ? ` Other agents on this project: ${targetAgents}.` : "";
         await ctx.runMutation(internal.chatContext.insertAgentMessage, {
           projectId: args.projectId,
           agentId: dispatcher._id as any,
           taskId: taskId as any,
           conversationId: args.conversationId,
-          content: `Task ${taskId} created for: "${lastUserContent.slice(0, 80)}".${delegationLine} Open the task thread to follow execution.`,
+          content: `Task created. Open the task thread to follow execution.`,
           replyToMessageId: args.userMessageId,
         });
         return; // skip normal chat reply loop

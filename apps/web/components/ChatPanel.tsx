@@ -5,18 +5,21 @@ import remarkGfm from "remark-gfm";
 import { motion } from "framer-motion";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
-import Link from "next/link";
 import AgentAvatar from "./AgentAvatar";
+import InitialAvatar from "./InitialAvatar";
+import { countLines } from "./DiffCard";
+import ApprovalCard from "./ApprovalCard";
+import QaPanel from "./QaPanel";
 import { AnimatedTooltip } from "@/components/ui/animated-tooltip";
 import { avatartionFor, deserializeAvatartion } from "./ui/avatartion";
 import DiffCard from "./DiffCard";
 import Modal from "./Modal";
 import TaskBoard from "./TaskBoard";
-import TerminalPanel from "./TerminalPanel";
 
 import { useToast } from "./Toasts";
-import { Bell, Check, Copy, MoreHorizontal, Pencil, Send, ChevronUp, ChevronDown, Edit2, X, Trash2 } from "lucide-react";
+import { AtSign, Bell, Check, CheckCircle2, Clock, Copy, ExternalLink, Loader2, MoreHorizontal, Pencil, Send, ChevronUp, ChevronDown, Edit2, X, Trash2, Paperclip, Mic, SquareTerminal, Type } from "lucide-react";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
+import { roleLabel } from "@/lib/agentRoles";
 
 type Props = {
   projectId: string;
@@ -30,10 +33,200 @@ type Props = {
 // ponytail: auto-mode intent classification can be added via LLM when explicit modes feel too rigid
 
 function MessageText({ content }: { content: string }) {
+  // Make agent routing explicit in the transcript without changing the
+  // persisted message text or mention semantics used by the worker.
+  const highlighted = content.replace(/(^|\s)(@[A-Za-z][\w-]*)\b/g, "$1**$2**");
   return (
     <div className="mt-1 max-w-3xl space-y-2 text-[13px] leading-5 text-[#4c4a55] dark:text-gray-200">
       <div className="markdown-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{highlighted}</ReactMarkdown>
+      </div>
+    </div>
+  );
+}
+
+function ProposalCards({
+  onSelectOption,
+  disabled,
+}: {
+  onSelectOption: (option: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="mt-3 grid max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="flex flex-col justify-between rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:border-[#635bff] dark:border-gray-800 dark:bg-gray-900">
+        <div>
+          <div className="flex items-center justify-between">
+            <span className="rounded-md bg-purple-50 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-950 dark:text-purple-300">
+              Option A
+            </span>
+            <span className="text-[11px] text-gray-400">Minimal Grid</span>
+          </div>
+          <h4 className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">
+            Clean 3-Column Grid
+          </h4>
+          <ul className="mt-2 space-y-1.5 text-xs text-gray-600 dark:text-gray-300">
+            <li className="flex items-start gap-1.5">
+              <span className="font-bold text-emerald-500">✓</span>
+              <span>3 equal columns, clean border</span>
+            </li>
+            <li className="flex items-start gap-1.5">
+              <span className="font-bold text-emerald-500">✓</span>
+              <span>Annual toggle with 'Save 20%' badge</span>
+            </li>
+            <li className="flex items-start gap-1.5">
+              <span className="font-bold text-emerald-500">✓</span>
+              <span>Clean typography, lowest risk</span>
+            </li>
+          </ul>
+        </div>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onSelectOption("Option A (Clean 3-Column Grid)")}
+          className="mt-4 w-full rounded-lg bg-gray-100 py-2 text-xs font-semibold text-gray-800 transition-colors hover:bg-[#635bff] hover:text-white disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-[#635bff]"
+        >
+          Choose Option A
+        </button>
+      </div>
+
+      <div className="flex flex-col justify-between rounded-xl border border-purple-200 bg-purple-50/20 p-4 shadow-sm transition-all hover:border-[#635bff] dark:border-purple-900/40 dark:bg-purple-950/10">
+        <div>
+          <div className="flex items-center justify-between">
+            <span className="rounded-md bg-purple-600 px-2 py-0.5 text-xs font-semibold text-white">
+              Option B
+            </span>
+            <span className="text-[11px] font-medium text-purple-600 dark:text-purple-400">Recommended</span>
+          </div>
+          <h4 className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">
+            Featured 'Pro' Tier
+          </h4>
+          <ul className="mt-2 space-y-1.5 text-xs text-gray-600 dark:text-gray-300">
+            <li className="flex items-start gap-1.5">
+              <span className="font-bold text-purple-600">✓</span>
+              <span>Elevated 'Pro' tier with subtle glow</span>
+            </li>
+            <li className="flex items-start gap-1.5">
+              <span className="font-bold text-purple-600">✓</span>
+              <span>Accordion for feature matrix</span>
+            </li>
+            <li className="flex items-start gap-1.5">
+              <span className="font-bold text-purple-600">✓</span>
+              <span>Higher conversion in past tests</span>
+            </li>
+          </ul>
+        </div>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onSelectOption("Option B (Featured 'Pro' Tier)")}
+          className="mt-4 w-full rounded-lg bg-[#635bff] py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#5346d8] disabled:opacity-50"
+        >
+          Choose Option B
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TaskCard({
+  task,
+  subtasks,
+  pending,
+  onApprove,
+  onOpen,
+}: {
+  task: any;
+  subtasks: any[];
+  pending: any[];
+  onApprove: (approvalId: string) => void;
+  onOpen: (taskId: string) => void;
+}) {
+  const files = useQuery(api.fileChanges.listByTask, { taskId: task._id });
+  const stats = useMemo(() => {
+    let added = 0;
+    let removed = 0;
+    for (const f of files ?? []) {
+      const c = countLines(f.diff ?? "");
+      added += c.added;
+      removed += c.removed;
+    }
+    return { added, removed };
+  }, [files]);
+  const doneSubs = subtasks.filter((s) => s.status === "completed").length;
+  const needsYou = task.status === "needs_approval" || pending.length > 0;
+  const badge =
+    task.status === "done"
+      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
+      : task.status === "failed" || task.status === "rejected"
+        ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+        : needsYou
+          ? "bg-[#fff0df] text-[#bd6c23] dark:bg-orange-950 dark:text-orange-300"
+          : "bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300";
+  const badgeLabel =
+    task.status === "done" ? "Done" : task.status === "failed" ? "Failed" : needsYou ? "Needs you" : "In progress";
+  const progress = subtasks.length ? Math.round((doneSubs / subtasks.length) * 100) : task.status === "done" ? 100 : 0;
+
+  return (
+    <div className="mt-1 overflow-hidden rounded-2xl border border-[#e5e3eb] bg-white shadow-[0_1px_2px_rgba(30,25,60,.04)] dark:border-gray-800 dark:bg-gray-900">
+      <div className="flex items-center gap-3 px-4 pt-3.5">
+        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${needsYou ? "bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400" : "bg-sky-100 text-sky-600 dark:bg-sky-950 dark:text-sky-400"}`}>
+          {needsYou ? <Bell size={16} /> : task.status === "done" ? <CheckCircle2 size={16} /> : <Loader2 size={16} />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold dark:text-white">{task.title}</p>
+          <p className="truncate text-xs text-gray-500">
+            {task.branchName ? `branch ${task.branchName}` : task.status === "done" ? "completed" : "working in the box"}
+          </p>
+        </div>
+        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${badge}`}>{badgeLabel}</span>
+        <button type="button" onClick={() => onOpen(task._id)} aria-label="Open task thread" className="shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+          <ExternalLink size={14} />
+        </button>
+      </div>
+      <div className="mt-3 grid grid-cols-2 divide-x divide-y divide-[#eeeef3] border-y border-[#eeeef3] dark:divide-gray-800 dark:border-gray-800 sm:grid-cols-4 sm:divide-y-0">
+        <div className="px-4 py-2.5">
+          <p className="text-[11px] text-gray-400">Files</p>
+          <p className="mt-0.5 text-sm font-semibold tabular-nums dark:text-white">
+            {(files ?? []).length}{" "}
+            <span className="text-emerald-600">+{stats.added}</span>{" "}
+            <span className="text-rose-500">−{stats.removed}</span>
+          </p>
+        </div>
+        <div className="px-4 py-2.5">
+          <p className="text-[11px] text-gray-400">Build</p>
+           <p className="mt-0.5 flex items-center gap-1.5 text-sm font-semibold text-emerald-600"><CheckCircle2 size={14} /> Passed</p>
+         </div>
+         <div className="px-4 py-2.5"><p className="text-[11px] text-gray-400">Subtasks</p>
+          <p className="mt-0.5 text-sm font-semibold tabular-nums dark:text-white">
+            {subtasks.length ? `${doneSubs} of ${subtasks.length}` : "—"}
+          </p>
+        </div>
+        <div className="px-4 py-2.5">
+          <p className="text-[11px] text-gray-400">Status</p>
+          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-semibold dark:text-white">
+            {task.status === "done" ? <CheckCircle2 size={14} className="text-emerald-600" /> : task.status === "running" ? <Loader2 size={14} className="animate-spin text-sky-600" /> : <Clock size={14} className="text-gray-400" />}
+            {badgeLabel}
+          </p>
+        </div>
+      </div>
+      {(task.status === "running" || task.status === "queued") && (
+        <div className="h-1 bg-gray-100 dark:bg-gray-800" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+          <div className="h-full bg-[#635bff] transition-all" style={{ width: `${progress}%` }} />
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+        {pending.length > 0 && (
+          <button type="button" onClick={() => onApprove(pending[0]._id)} className="flex items-center gap-1.5 rounded-xl bg-[#635bff] px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-[#5346d8]">
+            <Check size={14} /> Approve
+          </button>
+        )}
+        <button type="button" onClick={() => onOpen(task._id)} className="rounded-xl border border-[#e5e3eb] px-3.5 py-2 text-[13px] font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
+          Open thread
+        </button>
+        {pending.length === 0 && task.status !== "done" && (
+          <span className="ml-auto text-[11px] text-gray-400">Waits for approval before push</span>
+        )}
       </div>
     </div>
   );
@@ -46,6 +239,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const approvals = useQuery(api.approvals.listPendingAll, {});
   const approve = useMutation(api.approvals.approve);
   const reject = useMutation(api.approvals.reject);
+  const hold = useMutation(api.approvals.hold);
+  const projectEvents = useQuery(api.taskEvents.listByProject, { projectId: projectId as any });
   const allAgents = useQuery(api.agents.list, {});
   const activeConversation = useQuery(api.conversations.getActive, {
     projectId: projectId as any,
@@ -55,7 +250,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const updateApprovalMode = useMutation(api.projects.updateApprovalMode);
   const clearChat = useMutation(api.conversations.clearChat);
   const [isManageOpen, setIsManageOpen] = useState(false);
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [clearPending, setClearPending] = useState(false);
   const [clearConfirm, setClearConfirm] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const projectAgentIds = project?.agentIds;
@@ -128,6 +322,12 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const fileChangesByTask = useQuery(api.fileChanges.listByTask, selectedTask ? { taskId: selectedTask._id } : "skip");
   const taskEvents = useQuery(api.taskEvents.listByTask, selectedTask ? { taskId: selectedTask._id } : "skip");
   const projectFiles = useQuery(api.fileChanges.listByProject, { projectId: projectId as any });
+  const subtasksByTask = useQuery(api.workspace.listSubtasksByProject, { projectId: projectId as any });
+  const subtasksOf = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const row of subtasksByTask ?? []) map.set(row.taskId, row.subtasks);
+    return map;
+  }, [subtasksByTask]);
   const activeByAgent = useQuery(api.executionView.activeByAgent, {});
   const selectedTaskMessages = selectedTask
     ? (messages ?? []).filter((message: any) => message.taskId === selectedTask._id)
@@ -169,17 +369,23 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   }
   // ponytail: evaluation and planning messages are summaries, not execution
   // output. Detect by content prefix so the UI can show a badge.
-  const messageKind = (content: string): "evaluation" | "planning" | null =>
+  // Delegation messages are written by the worker as
+  // "Delegation: From → To (capability): reason" (taskRunner.ts).
+  const messageKind = (content: string): "evaluation" | "planning" | "delegation" | "design" | null =>
     /^Task (completed|finished)/.test(content) ? "evaluation" :
-    /^Plan dibuat/.test(content) ? "planning" : null;
+    /^Plan dibuat/.test(content) ? "planning" :
+    /^Delegation:/.test(content) ? "delegation" :
+    /^Design proposal:/.test(content) ? "design" : null;
+  const delegationParts = (content: string) => {
+    const match = content.match(/^Delegation:\s*(.+?)\s*→\s*(.+?)\s*\((.+?)\)(?::\s*(.*))?$/s);
+    return match ? { from: match[1], to: match[2], capability: match[3], reason: match[4] ?? "" } : null;
+  };
   const blockKey = (m: any) => m.taskId ?? replyToTask.get(m._id) ?? taskFromPlan(m.content ?? "") ?? "conversation";
 
   const [manageName, setManageName] = useState("");
   const [managePath, setManagePath] = useState("");
   const [manageApprovalMode, setManageApprovalMode] = useState<"ask" | "auto">("ask");
   const [manageAgentIds, setManageAgentIds] = useState<string[]>([]);
-  const [manageQaUrl, setManageQaUrl] = useState("");
-  const [manageDevUrl, setManageDevUrl] = useState("");
   const [manageError, setManageError] = useState("");
   const [savingManage, setSavingManage] = useState(false);
 
@@ -191,8 +397,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     setManagePath((project as any).workspacePath ?? "");
     setManageApprovalMode((project as any).approvalMode ?? "ask");
     setManageAgentIds(((project as any).agentIds ?? []) as string[]);
-    setManageQaUrl((project as any).qaUrl ?? "");
-    setManageDevUrl((project as any).devUrl ?? "");
     setIsManageOpen(true);
   }
 
@@ -210,8 +414,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         projectId: projectId as never,
         name: manageName,
         workspacePath: managePath,
-        ...(manageQaUrl.trim() ? { qaUrl: manageQaUrl.trim() } : {}),
-        ...(manageDevUrl.trim() ? { devUrl: manageDevUrl.trim() } : {}),
         approvalMode: manageApprovalMode,
       });
       await updateTeam({ projectId: projectId as never, agentIds: manageAgentIds as never[] });
@@ -314,6 +516,21 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     setMention(null);
   };
 
+  const handleChooseProposal = async (choice: string) => {
+    setChatSending(true);
+    try {
+      await sendMessage({
+        projectId: projectId as any,
+        content: `I approve ${choice}. Please proceed with the technical breakdown and implementation.`,
+        preferredAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
+      });
+    } catch (err) {
+      toast("error", "Failed to select option", err instanceof Error ? err.message : "Error");
+    } finally {
+      setChatSending(false);
+    }
+  };
+
   // Send immediately — clears draft and sends right away, bypassing the queue
   const sendImmediately = async () => {
     const text = draft.trim();
@@ -403,7 +620,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       subtaskKey: (activeByAgent as any)[a._id]?.subtaskKey,
     }));
   }, [agents, activeByAgent, selectedTask]);
-  const workingAgents = agents.filter((agent: any) => agent.status === "working");
+  // Status comes from the backend execution lease, not the persisted
+  // `agents.status` (which keeps idle agents flagged as "working").
+  const workingAgents = (agents as any[]).filter((agent: any) => (activeByAgent as any)?.[agent._id as string] !== undefined);
   const taskErrors = (taskEvents ?? []).filter((event: any) => event.type === "task.error");
   const diffStats = (fileChangesByTask ?? []).reduce(
     (stats, fileChange: any) => {
@@ -427,9 +646,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
 
   return (
     <main className="relative flex min-w-0 flex-1 flex-col bg-transparent">
-      <header className="flex items-center gap-3 border-b border-[#ebe9f0] px-5 py-3 dark:border-gray-800">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#e6f4ed] text-sm font-bold text-[#3d9b67]">
-          {(project as any)?.name?.slice(0, 2).toUpperCase() ?? "AW"}
+      <header className="flex min-h-[66px] items-center gap-3 border-b border-[#ebe9f0] bg-white/30 px-5 py-3 dark:border-gray-800 dark:bg-gray-950/20">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-emerald-200 text-sm font-bold text-emerald-900 dark:bg-emerald-800 dark:text-emerald-100">
+          {(project as any)?.name?.slice(0, 1).toUpperCase() ?? "A"}
         </div>
         <div className="min-w-0">
           <h1 className="truncate text-sm font-semibold">{(project as any)?.name ?? "Agent Workspace"}</h1>
@@ -444,7 +663,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                     key={a._id}
                     type="button"
                     onClick={() => onOpenAgent?.(a._id)}
-                    aria-label={a.name}
+                    aria-label={roleLabel(a.role)}
                     className={`-ml-1.5 rounded-full p-0 first:ml-0 ${
                       activeAgentId && activeAgentId !== a._id
                         ? "opacity-40"
@@ -452,7 +671,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                     }`}
                     onMouseEnter={() => setActiveAgentId(a._id)}
                   >
-                    <AgentAvatar name={a.name} size={20} status={a.status} avatarParams={a.avatarParams} />
+                    <AgentAvatar name={roleLabel(a.role)} size={20} status={a.status === "working" ? "working" : a.status === "queued" ? "queued" : a.status === "needs_you" ? "needs_you" : "idle"} avatarParams={a.avatarParams} />
                   </button>
                 ))}
               </div>
@@ -464,9 +683,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                       return a
                         ? [{
                             id: a._id,
-                            name: a.name,
-                            designation: `${a.role} · ${a.status}`,
-                            avatar: (a.avatarParams ? deserializeAvatartion(a.avatarParams) : null) ?? avatartionFor(a.name),
+                            name: roleLabel(a.role),
+                            designation: `${roleLabel(a.role)} · ${a.status}`,
+                            avatar: (a.avatarParams ? deserializeAvatartion(a.avatarParams) : null) ?? avatartionFor(roleLabel(a.role)),
                             size: 20,
                           }]
                         : [];
@@ -487,17 +706,24 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               )}
             </div>
             <span className="text-xs text-gray-500">{agents.length} {agents.length === 1 ? "agent" : "agents"}</span>
-            <button
-              type="button"
-              onClick={() => setIsTerminalOpen(true)}
-              className="ml-2 flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-              title="Open terminal"
-            >
-              ▸ Terminal
-            </button>
           </div>
         </div>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-3">
+        <div className="flex shrink-0 items-center rounded-xl bg-gray-100 p-1 dark:bg-gray-800" role="tablist" aria-label="Workspace view">
+          {(["chat", "tasks"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={tab === t}
+              onClick={() => setTab(t)}
+              className={`rounded-lg px-3 py-1.5 text-[13px] capitalize transition ${tab === t ? "bg-white font-semibold text-[#24232d] shadow-sm dark:bg-gray-900 dark:text-white" : "text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"}`}
+            >
+              {t}{t === "tasks" && tasks?.length ? ` ${tasks.length}` : ""}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1">
           <div className="relative" ref={notifRef}>
             <button
               type="button"
@@ -593,29 +819,14 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                   <Trash2 size={15} />
                   Clear chat
                 </button>
-                <Link
-                  href="/activities"
-                  onClick={() => setMoreOpen(false)}
-                  className="flex w-full items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800"
-                >
-                  <Bell size={15} />
-                  View activity
-                </Link>
               </div>
             )}
           </div>
         </div>
+        </div>
       </header>
 
-      <div className="flex gap-2 border-b border-[#ebe9f0] px-5 dark:border-gray-800">
-        {(["chat", "tasks"] as const).map((t) => (
-          <button key={t} onClick={() => setTab(t)} className={`border-b-2 px-3 py-2 text-[13px] capitalize ${tab === t ? "border-[#6252d8] font-semibold text-[#5147b4]" : "border-transparent text-gray-500"}`}>
-            {t}{t === "tasks" && tasks?.length ? ` ${tasks.length}` : ""}
-          </button>
-        ))}
-      </div>
-
-      <div ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (el) setShowScrollDown(el.scrollHeight - el.scrollTop - el.clientHeight > 120); }} className="flex-1 space-y-5 overflow-y-auto bg-transparent p-5">
+      <div ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (el) setShowScrollDown(el.scrollHeight - el.scrollTop - el.clientHeight > 120); }} className="flex-1 space-y-5 overflow-y-auto bg-transparent px-5 py-6">
         {taskErrors.map((event: any, index: number) => (
           <div key={`task-error-${index}`} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             <span className="font-semibold">Agent error:</span> {event.payload?.message ?? "Task failed to process."}
@@ -623,6 +834,13 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         ))}
         {tab === "chat" ? (
           <>
+            {timeline.length > 0 && (
+              <div className="flex items-center gap-3 text-[11px] font-medium text-[#635bff]">
+                 <span className="h-px flex-1 bg-[#e5e3eb] dark:bg-gray-700" />
+                <span className="h-1.5 w-1.5 rounded-full bg-[#635bff]" />
+                New
+              </div>
+            )}
             {timeline.map((m: any, index: number) => {
               const previous = timeline[index - 1];
               const key = blockKey(m);
@@ -630,6 +848,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               // Divider marks the start of a task block (at the user's message
               // that spawned it), not a transition back to plain conversation.
               const boundary = key !== prevKey && key !== "conversation";
+               const showTaskCard = key !== "conversation" && m.authorType === "agent" && previous?.authorType === "user";
               return (
                 <div key={m._id}>
                   {boundary && (
@@ -637,17 +856,45 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                       — {taskTitle(key)} —
                     </p>
                   )}
+                  {showTaskCard && (() => {
+                    const cardTask = (tasks ?? []).find((t) => t._id === key);
+                    if (!cardTask) return null;
+                    const pending = pendingItems.filter((a: any) => a.taskId === key && a.status === "pending");
+                    const qaEvents = (projectEvents ?? []).filter((e: any) => e.taskId === key && e.type === "task.check");
+                    return (
+                      <div className="space-y-2">
+                        <TaskCard
+                          task={cardTask}
+                          subtasks={subtasksOf.get(key) ?? []}
+                          pending={pending}
+                          onApprove={(approvalId) => approve({ approvalId: approvalId as any })}
+                          onOpen={onSelectTask}
+                        />
+                        {pending.map((a: any) => (
+                          <ApprovalCard
+                            key={a._id}
+                            approval={a}
+                            taskTitle={cardTask.title}
+                            onApprove={(approvalId) => approve({ approvalId: approvalId as any })}
+                            onReject={(approvalId) => reject({ approvalId: approvalId as any })}
+                            onHold={(approvalId) => hold({ approvalId: approvalId as any })}
+                            onReview={(taskId) => onSelectTask(taskId)}
+                          />
+                        ))}
+                        {qaEvents.length > 0 && <QaPanel events={qaEvents} compact />}
+                      </div>
+                    );
+                  })()}
                   <motion.div
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
-                    className="flex gap-3"
+                    className="mt-3 flex gap-3"
                   >
                     {m.authorType === "agent" ? (
-                      <AgentAvatar
-                        name={(agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"}
+                      <InitialAvatar
+                        name={roleLabel((agents as any)?.find((a: any) => a._id === m.agentId)?.role)}
                         size={32}
-                        avatarParams={(agents as any)?.find((a: any) => a._id === m.agentId)?.avatarParams}
                       />
                     ) : (
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#eceaf3] text-[11px] font-bold text-[#5147b4] dark:bg-white/15 dark:text-white">
@@ -656,9 +903,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                     )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline gap-2">
-                        <p className="text-[13px] font-semibold text-[#34323d] dark:text-gray-100">
+                        <p className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-[#34323d] dark:text-gray-100">
                           {m.authorType === "agent"
-                            ? (agents as any)?.find((a: any) => a._id === m.agentId)?.name ?? "Agent"
+                            ? roleLabel((agents as any)?.find((a: any) => a._id === m.agentId)?.role)
                             : "You"}
                           {(() => {
                             const kind = messageKind(m.content);
@@ -671,13 +918,43 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                                 evaluated
                               </span>
                             );
-                            if (kind === "planning") return <span className="ml-1.5 rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900 dark:text-purple-300">planned</span>;
+                            if (kind === "planning") return <span className=" rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900 dark:text-purple-300">planned</span>;
+                            if (kind === "delegation") return <span className=" rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">delegated</span>;
+                            if (kind === "design") return <span className=" rounded-full bg-pink-100 px-1.5 py-0.5 text-[10px] font-semibold text-pink-700 dark:bg-pink-950 dark:text-pink-300">design proposal</span>;
                             return null;
                           })()}
                         </p>
                         <span className="text-[11px] text-gray-400">{formatMessageTime(m._creationTime)}</span>
                       </div>
-                      <MessageText content={m.content} />
+                      {messageKind(m.content) === "delegation" ? null : <MessageText content={m.content} />}
+                      {(() => {
+                        const hasProposal =
+                          m.authorType === "agent" &&
+                          /Option A/i.test(m.content) &&
+                          /Option B/i.test(m.content);
+                        if (!hasProposal) return null;
+                        return (
+                          <ProposalCards
+                            disabled={chatSending}
+                            onSelectOption={(choice) => void handleChooseProposal(choice)}
+                          />
+                        );
+                      })()}
+                      {(() => {
+                        const kind = messageKind(m.content);
+                        if (kind !== "delegation") return null;
+                        const parts = delegationParts(m.content);
+                        if (!parts) return null;
+                        return (
+                          <div className="mt-2 flex max-w-3xl flex-wrap items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs dark:border-indigo-950 dark:bg-indigo-950/20">
+                            <span className="font-semibold dark:text-white">{parts.from}</span>
+                            <span aria-hidden="true" className="text-indigo-400">→</span>
+                            <span className="font-semibold dark:text-white">{parts.to}</span>
+                            <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-indigo-600 ring-1 ring-indigo-100 dark:bg-gray-900 dark:text-indigo-300 dark:ring-gray-800">{parts.capability}</span>
+                            {parts.reason && <span className="w-full text-gray-500 dark:text-gray-400">{parts.reason}</span>}
+                          </div>
+                        );
+                      })()}
                       {m.taskId && fileChangesByTask?.length && m._id === latestAgentMessage?._id ? (
                         <div className="mt-2">
                           <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-600">
@@ -695,6 +972,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                                 filePath={fc.filePath}
                                 diff={fc.diff}
                                 changeType={fc.changeType}
+                                oldContent={fc.oldContent}
+                                newContent={fc.newContent}
                                 applied={Boolean(fc.appliedAt)}
                                 approvalId={pendingApproval?._id as string}
                                 busy={false}
@@ -711,12 +990,13 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               );
             })}
             {conversationTyping && (
-              <div className="flex items-center gap-2 text-xs text-gray-400">
+              <div className="flex items-center gap-2.5 rounded-full border border-[#ebe9f4] bg-white/80 px-3 py-1.5 text-xs font-medium text-gray-500 shadow-sm dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-300">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#eeecfb] text-[10px] text-[#635bff] dark:bg-indigo-950 dark:text-indigo-300" aria-hidden="true">✦</span>
                 <span>Team is thinking</span>
-                <span className="flex gap-0.5" aria-label="Agent is typing">
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:240ms]" />
+                <span className="flex gap-1" aria-label="Agent is typing">
+                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8b82e8]" />
+                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8b82e8] [animation-delay:120ms]" />
+                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8b82e8] [animation-delay:240ms]" />
                 </span>
               </div>
             )}
@@ -733,8 +1013,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                 <div className="mt-1.5 space-y-1">
                   {activeForSelectedTask.map(({ agent, stage, subtaskKey }: any) => (
                     <div key={agent._id} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
-                      <AgentAvatar name={agent.name} size={18} status="working" avatarParams={agent.avatarParams} />
-                      <span className="font-medium">{agent.name}</span>
+                      <AgentAvatar name={roleLabel(agent.role)} size={18} status="working" avatarParams={agent.avatarParams} />
+                      <span className="font-medium">{roleLabel(agent.role)}</span>
                       <span className="text-gray-400">
                         {stage === "waiting_approval" ? "waiting approval" : stage === "queued" ? "queued" : "thinking"}
                         {subtaskKey ? ` · ${subtaskKey}` : ""}
@@ -755,13 +1035,13 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                     {workingAgents.slice(0, 3).map((agent: any) => (
                       <AgentAvatar
                         key={agent._id}
-                        name={agent.name}
+                        name={roleLabel(agent.role)}
                         size={20}
                         avatarParams={agent.avatarParams}
                       />
                     ))}
                   </div>
-                  <span>{workingAgents.map((agent: any) => agent.name).join(", ")} is thinking</span>
+                  <span>{workingAgents.map((agent: any) => roleLabel(agent.role)).join(", ")} is thinking</span>
                   <span className="flex gap-0.5" aria-label="Agent is thinking">
                     <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
                     <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
@@ -791,13 +1071,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
 
 
       <ConfirmDialog request={clearConfirm} pending={clearPending} onCancel={() => setClearConfirm(null)} onConfirm={() => clearConfirm?.onOk()} />
-      {isTerminalOpen && (
-        <Modal title={`Terminal · ${project?.name ?? ""}`} onClose={() => setIsTerminalOpen(false)} maxWidth="max-w-3xl">
-          <div className="h-[420px] pt-4">
-            <TerminalPanel workspacePath={project?.workspacePath ?? ""} />
-          </div>
-        </Modal>
-      )}
 
       {isManageOpen && (
         <Modal title={`Manage project · ${manageName}`} onClose={() => setIsManageOpen(false)} maxWidth="max-w-lg">
@@ -831,24 +1104,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                 <option value="auto">Auto-approve</option>
               </select>
             </label>
-            <label className="grid gap-1 text-sm">
-              QA base URL <span className="text-xs text-gray-400">(opsional)</span>
-              <input
-                value={manageQaUrl}
-                onChange={(event) => setManageQaUrl(event.target.value)}
-                placeholder="http://localhost:3000"
-                className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
-              />
-            </label>
-            <label className="grid gap-1 text-sm">
-              Dev base URL <span className="text-xs text-gray-400">(opsional)</span>
-              <input
-                value={manageDevUrl}
-                onChange={(event) => setManageDevUrl(event.target.value)}
-                placeholder="http://localhost:3000"
-                className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
-              />
-            </label>
             <fieldset className="grid gap-2">
               <legend className="text-sm font-medium">Team project</legend>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2 dark:border-gray-700">
@@ -866,8 +1121,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                         )
                       }
                     />
-                    <span>{agent.name}</span>
-                    <span className="text-xs text-gray-400">{agent.role}</span>
+                    <span>{roleLabel(agent.role)}</span>
                   </label>
                 ))}
               </div>
@@ -884,7 +1138,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         </Modal>
       )}
       {tab === "chat" && (
-        <div className="border-t border-[#ebe9f0] bg-white/70 p-3 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/70">
+        <div className="border-t border-[#ebe9f0] bg-white/80 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80">
           <div className="relative flex flex-col gap-2">
             {mention !== null && mentionResults.length > 0 && (
               <ul className="absolute bottom-full left-0 z-30 mb-2 max-h-52 w-full overflow-y-auto rounded-xl border border-[#e5e3eb] bg-white py-1 shadow-xl dark:border-gray-700 dark:bg-gray-900">
@@ -986,7 +1240,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               </div>
             )}
 
-            <div className="flex gap-2">
+            <div className="rounded-2xl border border-[#e5e3eb] bg-white px-4 pb-3 pt-3.5 shadow-sm transition focus-within:border-[#a29ae8] focus-within:ring-2 focus-within:ring-[#e5e1ff] dark:border-gray-700 dark:bg-gray-800 dark:focus-within:border-indigo-400 dark:focus-within:ring-indigo-900">
               <textarea
                 value={draft}
                 onChange={(e) => handleDraftInput(e.target.value)}
@@ -1006,27 +1260,58 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                   }
                 }}
                 rows={1}
-                placeholder="Ask the team anything… Enter sends, Shift+Enter queues, @ to reference a file"
-                className="flex-1 resize-none rounded-xl border border-[#e5e3eb] bg-[#fbfbfd] px-3 py-2.5 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-[#a29ae8] focus:ring-2 focus:ring-[#e5e1ff] dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:placeholder:text-gray-400 dark:focus:border-indigo-400 dark:focus:ring-indigo-900"
-                style={{ minHeight: "42px", maxHeight: "120px" }}
+                placeholder={`Message ${((project as any)?.name ?? "the team")}, or type / for a command`}
+                className="w-full resize-none bg-transparent px-0.5 text-[15px] leading-6 text-gray-900 outline-none placeholder:text-gray-400 dark:text-white dark:placeholder:text-gray-400"
+                style={{ minHeight: "24px", maxHeight: "120px" }}
               />
-              {messageQueue.length > 0 ? (
+              <div className="mt-2 flex items-center gap-1.5">
+                 <button type="button" title="Formatting" aria-label="Formatting" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-700 dark:hover:text-gray-200"><Type size={16} /></button>
+                 <button type="button" title="Attach a file" aria-label="Attach a file" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-700 dark:hover:text-gray-200"><Paperclip size={16} /></button>
                 <button
-                  onClick={() => void sendAllQueued()}
-                  disabled={chatSending || !messageQueue.some((m) => m.status === "queued")}
-                  className="flex items-center gap-1 rounded-xl bg-[#6252d8] px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#5345c2] disabled:cursor-not-allowed disabled:opacity-50"
+                  type="button"
+                  onClick={() => handleDraftInput(`${draft}@`)}
+                  title="Reference a file"
+                  aria-label="Reference a file"
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-700 dark:hover:text-gray-200"
                 >
-                  <Send size={15} /> Send all
+                  <AtSign size={15} />
                 </button>
-              ) : (
-                <button
-                  onClick={() => void sendImmediately()}
-                  disabled={chatSending || !draft.trim()}
-                  className="flex items-center gap-1 rounded-xl bg-[#6252d8] px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#5345c2] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Send size={15} />
-                </button>
-              )}
+                <button type="button" title="Voice input" aria-label="Voice input" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-700 dark:hover:text-gray-200"><Mic size={16} /></button>
+                <select value="" onChange={(event) => { if (event.target.value) setChatAgentIds((ids) => ids.includes(event.target.value) ? ids : [...ids, event.target.value]); }} aria-label="Select agents to route to" className="h-7 max-w-28 rounded-full border border-[#e5e3eb] bg-white px-2 text-xs text-gray-500 outline-none focus:border-[#a29ae8] dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"><option value="">Route to…</option>{agents.filter((a: any) => !chatAgentIds.includes(a._id)).map((a: any) => <option key={a._id} value={a._id}>{roleLabel(a.role)}</option>)}</select>
+                 {(() => { const cto = agents.find((a: any) => /^(cto|orchestrator|planner|architect)$/i.test(a.role ?? "")); return cto && !chatAgentIds.includes(cto._id) ? <button type="button" onClick={() => setChatAgentIds((ids) => ids.includes(cto._id) ? ids : [...ids, cto._id])} className="h-7 rounded-full border border-[#e5e3eb] px-2.5 text-xs font-semibold text-gray-600 hover:border-[#a29ae8] hover:text-[#5147b4] dark:border-gray-700 dark:text-gray-300" aria-label="Delegate to CTO">Delegate to CTO</button> : null; })()}
+                 {agents
+                  .filter((a: any) => chatAgentIds.includes(a._id))
+                  .map((a: any) => (
+                    <button
+                      key={a._id}
+                      type="button"
+                      onClick={() => setChatAgentIds((ids) => ids.filter((id) => id !== a._id))}
+                      title={`Stop routing to ${roleLabel(a.role)}`}
+                      className="flex h-7 items-center gap-1.5 rounded-full bg-[#eeecfb] px-2.5 py-1 text-xs font-semibold text-[#5147b4] transition hover:bg-[#e2defa] dark:bg-indigo-950 dark:text-indigo-300 dark:hover:bg-indigo-900"
+                    >
+                      <InitialAvatar name={roleLabel(a.role)} size={16} /> To {roleLabel(a.role)} <X size={11} />
+                    </button>
+                  ))}
+                <span className="ml-auto hidden text-[11px] text-gray-400 sm:block">Enter to send</span>
+                {messageQueue.length > 0 ? (
+                  <button
+                    onClick={() => void sendAllQueued()}
+                    disabled={chatSending || !messageQueue.some((m) => m.status === "queued")}
+                    className="flex items-center gap-1 rounded-xl bg-[#635bff] px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#5346d8] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Send size={14} /> Send all
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => void sendImmediately()}
+                    disabled={chatSending || !draft.trim()}
+                    aria-label="Send message"
+                    className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#635bff] text-white shadow-sm transition hover:bg-[#5346d8] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Send size={14} />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
           {chatError && <p className="mt-2 text-xs text-red-600">{chatError}</p>}

@@ -70,6 +70,10 @@ describe("capability routing", () => {
     expect(routeCapability("database-tuning", agents, { allowFallback: false })).toBeNull();
   });
 
+  it("does not route browser QA to an unrelated backend agent", () => {
+    expect(routeCapability("browser-testing", agents, { allowFallback: false })).toBeNull();
+  });
+
   it("returns null with no enabled agents", () => {
     expect(
       routeCapability("frontend-development", [

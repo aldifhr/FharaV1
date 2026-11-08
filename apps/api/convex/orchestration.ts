@@ -1129,9 +1129,15 @@ export const logEvent = internalMutation({
     executionId: v.optional(v.id("executions")),
     subtaskKey: v.optional(v.string()),
     level: v.optional(v.union(v.literal("info"), v.literal("warn"), v.literal("error"))),
+    agentId: v.optional(v.id("agents")),
+    message: v.optional(v.string()),
+    metadata: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    await ctx.db.insert("taskEvents", args);
+    await ctx.db.insert("taskEvents", {
+      ...args,
+      createdAt: Date.now(),
+    });
   },
 });
 

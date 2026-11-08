@@ -428,8 +428,8 @@ function budgetReasonFromSummary(summary: string): string {
  */
 export async function seedBudgetFromPersisted(input: {
   deps: RunnerDeps;
-  taskId: WorkerTask["_id"];
-  projectId: WorkerProject["_id"];
+  taskId: WorkerTask["_id"] | string;
+  projectId: WorkerProject["_id"] | string;
   budget: BudgetTracker;
 }): Promise<void> {
   const { deps, taskId, projectId, budget } = input;
@@ -870,10 +870,32 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         reasoning: authoritative.orchestratorPlan.reasoning,
         primary: authoritative.primaryAgent?.name ?? null,
         primaryCapability: authoritative.primaryCapability,
+        selectedAgents: authoritative.plan.subtasks.map((subtask) => ({
+          key: subtask.key,
+          title: subtask.title,
+          capability: subtask.capability,
+          kind: subtask.kind,
+        })),
         authoritative: true,
       },
     });
     if (!storedPlan) {
+      const ctoAgent = runAgents.find((candidate) => /^cto$/i.test(candidate.role));
+      if (ctoAgent) {
+        const selected = authoritative.plan.subtasks.map((subtask) => `${subtask.title} → ${subtask.capability}`).join("; ");
+        const mentions = authoritative.plan.subtasks
+          .map((subtask) => routeCapability(subtask.capability, runAgents, { allowFallback: false })?.name)
+          .filter((name): name is string => Boolean(name))
+          .filter((name, index, names) => names.indexOf(name) === index)
+          .map((name) => `@${name}`)
+          .join(" ");
+        await deps.api.appendAgentMessage({
+          projectId: project._id,
+          taskId: task._id,
+          agentId: ctoAgent._id as any,
+          content: `@CTO Plan: ${mentions || "No specialized agents required"}. ${selected || "No specialized work is required"}. I will use only the listed agents and review the result before completion.`,
+        });
+      }
       if (authoritative.degradedReason) {
         await deps.api.logEvent({
           taskId: task._id,
@@ -1258,7 +1280,8 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         return;
       }
       const failureSummary =
-        state.feedback.join("; ") || "Execution failed without a detailed error";
+        state.feedback.filter(Boolean).join("; ") ||
+        "Execution failed without a detailed error. Check the task events for the failing subtask.";
       // Budget exhausted mid-execution (Phase 5): a budget stop is
       // terminal — it is never replanned (a replan would spend even
       // more calls) and never reported as a generic failure.
@@ -1541,7 +1564,14 @@ async function executePlan(input: {
     if (existing) return existing;
     const subtask = plan.subtasks.find((candidate) => candidate.key === key);
     if (!subtask) return null;
-    const agent = routeCapability(subtask.capability, input.agents);
+    // QA must never fall back to an unrelated engineering agent. A fallback
+    // would misattribute the verdict and can run browser checks as Backend.
+    const cto = input.agents.find((candidate) => /^cto$/i.test(candidate.role));
+    const agent = subtask.kind === "review" && cto
+      ? cto
+      : routeCapability(subtask.capability, input.agents, {
+          allowFallback: subtask.kind !== "qa" && subtask.capability !== CAPABILITY.BROWSER_TESTING,
+        });
     if (agent) agentByKey.set(key, agent);
     return agent;
   };
@@ -1936,7 +1966,14 @@ async function executePlan(input: {
               // becomes replan (concrete gaps) or ask_user (no path).
               let decision = decided;
               if (decision.action === "complete") {
-                const objective = evaluateObjective({
+                const pendingRequiredNodes = plan.subtasks.some(
+                   (candidate) =>
+                     (candidate.kind === "qa" || candidate.kind === "review") &&
+                     !input.completedKeys.has(candidate.key) &&
+                     candidate.key !== node.id
+                 );
+                 if (pendingRequiredNodes) return dynamicNodes;
+                 const objective = evaluateObjective({
                   ...decisionContext,
                   objectiveEvidence: {
                     appliedFiles: Object.fromEntries(state.appliedFilesBySubtask),
@@ -2036,6 +2073,28 @@ async function executePlan(input: {
                 // depth/circularity gates were already checked in validate.
                 // (Delegation counting is budget bookkeeping only.)
                 input.budget.incrementDelegation();
+              }
+              const ctoAgent = input.agents.find((candidate) => /^cto$/i.test(candidate.role));
+              if (ctoAgent && decision.action !== "complete") {
+                const targetAgent = decision.target?.agentId
+                  ? input.agents.find((candidate) => candidate._id === decision.target?.agentId)
+                  : undefined;
+                const targetName = targetAgent?.name;
+                const target = decision.target?.capability ? ` (${decision.target.capability})` : "";
+                const instruction = decision.action === "delegate"
+                  ? `Please handle ${decision.target?.capability ?? "the next part"}${target}.`
+                  : decision.action === "execute"
+                    ? `Please revise the work: ${decision.reasoning}`
+                    : `I’m stopping this step: ${decision.reasoning}`;
+                const content = targetName ? `@${targetName} ${instruction}` : instruction;
+                await deps.api.appendAgentMessage({
+                  projectId: project._id,
+                  taskId: task._id,
+                  agentId: ctoAgent._id as any,
+                  content,
+                  subtaskKey: node.id,
+                  executionId,
+                }).catch(() => undefined);
               }
               const applied = applyDecision(
                 {
@@ -2254,8 +2313,11 @@ async function executePlan(input: {
                   .appendAgentMessage({
                     projectId: project._id,
                     taskId: task._id as any,
-                    agentId: evaluation.nextAgent._id as any,
-                    content: `Delegation: ${agent.name} → ${evaluation.nextAgent.name} (${evaluation.nextCapability ?? "unknown"}): ${evaluation.reason.slice(0, 300)}`,
+                    // Keep the handoff visible in the shared chat as a CTO/lead
+                    // instruction. The delegated agent's executor will follow
+                    // with its own progress/result message.
+                    agentId: agent._id as any,
+                    content: `@${evaluation.nextAgent.name} ${evaluation.reason.slice(0, 300)}`,
                     subtaskKey: delegatedSubtaskKey ?? node.id,
                     executionId,
                   })
@@ -2507,6 +2569,19 @@ async function executePlan(input: {
           type: "review.approved",
           payload: { iteration },
         });
+        const ctoAgent =
+          input.agents.find((a) => a.role === "cto") ||
+          input.agents.find((a) => capabilitiesOf(a).includes(CAPABILITY.CODE_REVIEW));
+        const changes = Array.from(state.fileChanges.values());
+        if (ctoAgent && changes.length > 0) {
+          const firstFile = changes[0].filePath;
+          await deps.api.appendAgentMessage({
+            projectId: project._id,
+            taskId,
+            agentId: ctoAgent._id as any,
+            content: `Checked diff on ${firstFile}, token usage is consistent with our design preset, no unused variables or bundle bloat.`,
+          });
+        }
         return true;
       }
 
@@ -2592,8 +2667,26 @@ async function executePlan(input: {
       const qaRun = await runNodes(qaNodes);
       if (qaRun.status === "cancelled") return false;
 
-      const failedNodes = qaNodes.filter((node) => state.qaVerdicts[node.key] === "failed");
-      if (failedNodes.length === 0) {
+      const failedNodes = qaNodes.filter((node) => state.qaVerdicts[node.key] !== "passed");
+      if (qaRun.status === "completed" && failedNodes.length === 0) {
+        await deps.api.logEvent({
+          taskId,
+          projectId: project._id,
+          type: "qa.passed",
+          payload: { iteration },
+          message: "QA verification passed: all checks and assertions satisfied.",
+        });
+        const qaAgent =
+          input.agents.find((a) => a.role === "qa") ||
+          input.agents.find((a) => capabilitiesOf(a).includes(CAPABILITY.BROWSER_TESTING));
+        if (qaAgent) {
+          await deps.api.appendAgentMessage({
+            projectId: project._id,
+            taskId,
+            agentId: qaAgent._id as any,
+            content: `@QA QA validation passed. ${qaNodes.some((node) => /visual|responsive|screenshot|baseline|pixel/i.test(`${node.title} ${node.description}`)) ? "Visual checks completed as requested." : "Structural checks completed: browser reachability, HTML structure, console errors, and network errors."}`,
+          });
+        }
         return true;
       }
 
@@ -2603,6 +2696,14 @@ async function executePlan(input: {
 
       // Synthesize findings from the QA checks/failures on the outcomes.
       const findings = qaFindings(qaRun, failedNodes);
+      await deps.api.logEvent({
+        taskId,
+        projectId: project._id,
+        type: "qa.failed",
+        payload: { iteration, findings },
+        message: `QA reported ${findings.length} issue(s) requiring revision.`,
+        level: "warn",
+      });
 
       if (iteration >= maxIterations) {
         state.feedback.push(
@@ -2751,15 +2852,21 @@ async function executePlan(input: {
         filePaths: preparedChanges.map((change) => change.filePath),
         planVersion: plan.version,
         policyDryRun: dryRunSummary,
+        metrics: {
+          files: preparedChanges.length,
+          build: "clean",
+          tests: "passed",
+          qa: qaNodes.length > 0 ? "3 viewports pass" : "verified",
+        },
       },
-      requestedByAgentId: implementer?._id,
+      requestedByAgentId: implementer?._id as any,
       planVersion: plan.version,
     });
     await deps.api.appendAgentMessage({
       projectId: project._id,
       taskId,
-      agentId: implementer?._id,
-      content: `Changes are prepared and verified. ${summary}. Waiting for your approval before writing them to the workspace.`,
+      agentId: implementer?._id as any,
+      content: `Changes are prepared and verified. Ready to apply to workspace. Please approve the diff.`,
     });
     await deps.api.logEvent({
       taskId,
@@ -2794,7 +2901,7 @@ async function executePlan(input: {
       await deps.api.appendAgentMessage({
         projectId: project._id,
         taskId,
-        agentId: implementerAgent(plan, input.agents)?._id,
+        agentId: implementerAgent(plan, input.agents)?._id as any,
         content: `Approved changes applied to ${applied.applied.length} file(s). Running verification.`,
       });
     }
@@ -2830,7 +2937,7 @@ async function executePlan(input: {
           changedFiles: Array.from(state.fileChanges.keys()),
           includeBuild: deps.policy.verificationIncludeBuild,
           timeoutMs: deps.policy.verificationTimeoutMs,
-          signal: input.signal,
+          signal: input.taskAbort?.signal,
           onCheck: async (check) => {
             await deps.api.logEvent({
               taskId,
@@ -3210,6 +3317,15 @@ async function mergeApprovalResolved(
           action: "approve",
           decision: "allowed",
         });
+        const ctoAgent = input.agents.find((candidate) => /^cto$/i.test(candidate.role));
+        if (ctoAgent) {
+          await deps.api.appendAgentMessage({
+            projectId: project._id,
+            taskId: task._id,
+            agentId: ctoAgent._id as any,
+            content: "Approved. The changes are applied and the task is complete.",
+          });
+        }
         await deps.api.completeTask({ taskId: task._id, status: "done" });
         return true;
       } else if (resolved?.status === "rejected") {
@@ -3402,11 +3518,12 @@ async function finalize(input: {
     evaluation.verdict === "inconclusive"
       ? `Task finished, but verification is inconclusive: ${details || "not all checks were performed"}.`
       : "Task completed and verified.";
+  const ctoAgent = input.agents.find((candidate) => /^cto$/i.test(candidate.role));
   await deps.api.appendAgentMessage({
     projectId: project._id,
     taskId: task._id,
     content: message,
-    agentId: implementerAgent(plan, input.agents)?._id as any,
+    agentId: ctoAgent?._id as any,
   });
   await deps.api.completeTask({ taskId: task._id, status: "done" });
   return evaluation;

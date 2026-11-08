@@ -5,16 +5,20 @@ import type { AvatarParams } from "@/lib/avatar";
 type Props = {
   name: string;
   size?: number;
-  status?: "idle" | "working" | "queued" | "needs_you";
+  status?: "idle" | "working" | "queued" | "needs_you" | "thinking" | "reviewing" | "waiting" | "blocked" | "completed" | "failed" | string;
   avatar?: AvatartionAvatar;
   avatarParams?: AvatarParams;
 };
 
 const STATUS_DOT: Record<string, string> = {
   working: "bg-emerald-500",
-  idle: "bg-gray-400",
+  thinking: "bg-emerald-500",
+  reviewing: "bg-purple-500",
+  waiting: "bg-amber-400",
   queued: "bg-amber-400",
   needs_you: "bg-rose-500",
+  failed: "bg-rose-500",
+  idle: "bg-gray-400",
 };
 
 export default function AgentAvatar({ name, size = 32, status, avatar, avatarParams }: Props) {

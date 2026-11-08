@@ -1,4 +1,4 @@
-import { query, action, internalMutation, internalQuery } from "./_generated/server";
+import { query, mutation, action, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { assertProjectAccess, getVisibleTask } from "./authz";
 import { internal } from "./_generated/api";
@@ -283,5 +283,42 @@ export const send = action({
       userMessageId: messageId,
     });
     return { messageId: messageId as string, conversationId: conversationId as string };
+  },
+});
+
+/**
+ * Thread reply: posts a plain user message to a task thread without going
+ * through the LLM send pipeline. No `queueStatus` is set, so the worker
+ * never claims it. When `alsoSendToChat` is set, a second copy lands in the
+ * project chat (no taskId).
+ */
+export const insertThreadMessage = mutation({
+  args: {
+    projectId: v.id("projects"),
+    taskId: v.id("tasks"),
+    content: v.string(),
+    alsoSendToChat: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const content = args.content.trim();
+    if (!content) throw new Error("Message is required");
+    if (content.length > 4000) throw new Error("Message is too long (max 4000 characters)");
+    const task = await getVisibleTask(ctx, args.taskId);
+    if (!task) throw new Error("Task not found");
+    if (task.projectId !== args.projectId) throw new Error("Task does not belong to this project");
+    const messageId = await ctx.db.insert("messages", {
+      projectId: args.projectId,
+      taskId: args.taskId,
+      authorType: "user",
+      content,
+    });
+    if (args.alsoSendToChat) {
+      await ctx.db.insert("messages", {
+        projectId: args.projectId,
+        authorType: "user",
+        content,
+      });
+    }
+    return messageId;
   },
 });

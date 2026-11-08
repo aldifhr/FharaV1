@@ -423,3 +423,151 @@ export const getExecutionHistory = query({
     );
   },
 });
+
+export const FIXED_AGENTS = [
+  {
+    key: "lead",
+    name: "Lead",
+    role: "lead",
+    description: "Project coordination, task analysis, delegation, collaboration tracking.",
+    systemPrompt:
+      "You are the Lead Coordinator of the multi-agent team. Analyze user requests, break them into clear requirements and actionable tasks, identify the relevant agents needed based on their capabilities, coordinate task assignments, track collaboration progress, and summarize results. Do not execute code changes directly; coordinate the team.",
+    capabilities: ["project-coordination", "architecture", "research", "general"],
+    supportedTools: ["read_file"],
+    priority: 10,
+    maxConcurrency: 2,
+  },
+  {
+    key: "cto",
+    name: "CTO",
+    role: "cto",
+    description: "Technical architecture, technical decisions, code review, risk evaluation.",
+    systemPrompt:
+      "You are the CTO. Review technical requirements, evaluate system architecture decisions, identify technical risks, and perform thorough code reviews. Approve sound solutions, request specific revisions when necessary, and ensure architectural consistency across the project.",
+    capabilities: ["architecture", "code-review", "security-audit", "research"],
+    supportedTools: ["read_file"],
+    priority: 9,
+    maxConcurrency: 2,
+  },
+  {
+    key: "designer",
+    name: "Designer",
+    role: "designer",
+    description: "UI/UX, wireframes, design system, component specifications.",
+    systemPrompt:
+      "You are the UI/UX Designer. Create user interface specifications, wireframe concepts, component hierarchies, interaction patterns, and design system tokens. Ensure accessibility, responsive layout harmony, and modern visual aesthetics. Output design proposals that Frontend developers can implement directly.",
+    capabilities: ["ui-ux-design", "frontend-development"],
+    supportedTools: ["read_file", "write_file"],
+    priority: 8,
+    maxConcurrency: 1,
+  },
+  {
+    key: "frontend",
+    name: "Frontend",
+    role: "frontend",
+    description: "Frontend implementation, React, Next.js, responsive UI, design fidelity.",
+    systemPrompt:
+      "You are the Frontend Developer. Implement user interfaces, React components, Next.js pages, state management, and styling according to design specifications. Maintain component modularity, proper TypeScript typing, and accessible markup. Report changed files accurately.",
+    capabilities: ["frontend-development"],
+    supportedTools: ["read_file", "write_file", "run_command"],
+    priority: 8,
+    maxConcurrency: 2,
+  },
+  {
+    key: "backend",
+    name: "Backend",
+    role: "backend",
+    description: "Backend, API, database implementation, server-side business logic.",
+    systemPrompt:
+      "You are the Backend Developer. Implement server-side logic, API endpoints, database schemas, queries, mutations, data validations, and integrations. Write secure, efficient, and well-structured code. Verify schema invariants and database constraints.",
+    capabilities: ["backend-development", "shell-execution"],
+    supportedTools: ["read_file", "write_file", "run_command"],
+    priority: 8,
+    maxConcurrency: 2,
+  },
+  {
+    key: "qa",
+    name: "QA",
+    role: "qa",
+    description: "Testing, bug detection, quality assurance, verification.",
+    systemPrompt:
+      "You are the QA Engineer. Design and execute test plans, identify edge cases, verify functional behavior, and detect bugs or regressions. When a defect is discovered, provide clear reproduction steps, expected vs actual behavior, and concrete evidence so implementation agents can fix it.",
+    capabilities: ["browser-testing", "code-review"],
+    supportedTools: ["read_file", "run_command"],
+    priority: 7,
+    maxConcurrency: 2,
+  },
+  {
+    key: "growth",
+    name: "Growth",
+    role: "growth",
+    description: "SEO, product growth, analytics, metrics, user engagement.",
+    systemPrompt:
+      "You are the Growth Specialist. Optimize user flows for conversion, analyze SEO and metadata, craft telemetry/analytics requirements, and identify product opportunities to enhance user engagement and retention.",
+    capabilities: ["growth-marketing", "research"],
+    supportedTools: ["read_file"],
+    priority: 6,
+    maxConcurrency: 1,
+  },
+  {
+    key: "support",
+    name: "Support",
+    role: "support",
+    description: "Documentation, user support, operational assistance, troubleshooting.",
+    systemPrompt:
+      "You are the Support Specialist. Produce user documentation, API references, troubleshooting guides, operational runbooks, and changelogs. Help resolve user queries with clear explanations and step-by-step guidance.",
+    capabilities: ["documentation-support", "research", "general"],
+    supportedTools: ["read_file", "write_file"],
+    priority: 6,
+    maxConcurrency: 1,
+  },
+];
+
+export const ensureFixedTeam = mutation({
+  args: { projectId: v.optional(v.id("projects")) },
+  handler: async (ctx, args) => {
+    const existingAgents = await ctx.db.query("agents").collect();
+    const createdAgentIds: string[] = [];
+
+    for (const def of FIXED_AGENTS) {
+      const match = existingAgents.find((a) => a.role === def.role);
+      if (!match) {
+        const id = await ctx.db.insert("agents", {
+          name: def.name,
+          role: def.role,
+          description: def.description,
+          systemPrompt: def.systemPrompt,
+          capabilities: def.capabilities,
+          supportedTools: def.supportedTools,
+          status: "idle",
+          avatarParams: defaultAvatarParams(def.name),
+          isEnabled: true,
+          priority: def.priority,
+          maxConcurrency: def.maxConcurrency,
+        });
+        createdAgentIds.push(id);
+      } else {
+        createdAgentIds.push(match._id);
+        // Ensure capabilities and instructions are kept up-to-date
+        if (!match.capabilities || match.capabilities.length === 0) {
+          await ctx.db.patch(match._id, {
+            capabilities: def.capabilities,
+            description: def.description,
+            systemPrompt: def.systemPrompt,
+          });
+        }
+      }
+    }
+
+    if (args.projectId) {
+      const project = await ctx.db.get(args.projectId);
+      if (project) {
+        const combined = Array.from(new Set([...(project.agentIds ?? []), ...createdAgentIds]));
+        await ctx.db.patch(project._id, { agentIds: combined as any });
+      }
+    }
+
+    return { total: FIXED_AGENTS.length, agentIds: createdAgentIds };
+  },
+});
+

@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import Link from "next/link";
 import IconRail from "@/components/IconRail";
+import { roleLabel } from "@/lib/agentRoles";
 import AgentAvatar from "@/components/AgentAvatar";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { ShimmerButton } from "@/components/ui/shimmer-button";
@@ -97,7 +98,7 @@ export default function InboxPage() {
                             <p className="mt-1 text-xs text-gray-500">
                               {a.projectName}
                               {a.taskTitle ? ` · ${a.taskTitle}` : ""}
-                              {a.requestedByAgentName ? ` · requested by ${a.requestedByAgentName}` : ""}
+                              {a.requestedByAgentName ? ` · requested by ${roleLabel(a.requestedByAgentName)}` : ""}
                             </p>
                             <span className="mt-2 inline-block rounded-full bg-[#eeecfb] px-2 py-0.5 text-[11px] font-semibold text-[#4c42a3] dark:bg-gray-800">
                               {KIND_LABEL[a.kind] ?? a.kind}
@@ -167,10 +168,10 @@ export default function InboxPage() {
                 <div className="mt-2 grid gap-2">
                   {inbox.agents.map((a) => (
                     <div key={a._id} className="flex items-center gap-3 rounded-xl border border-[#ebe9f0] bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
-                      <AgentAvatar name={a.name} size={32} status={a.status} avatarParams={a.avatarParams} />
+                      <AgentAvatar name={roleLabel(a.role)} size={32} status={a.status} avatarParams={a.avatarParams} />
                       <div className="min-w-0">
-                        <p className="font-medium">{a.name}</p>
-                        <p className="text-xs text-gray-500">{a.role} · needs_you</p>
+                        <p className="font-medium">{roleLabel(a.role)}</p>
+                        <p className="text-xs text-gray-500">needs_you</p>
                       </div>
                     </div>
                   ))}

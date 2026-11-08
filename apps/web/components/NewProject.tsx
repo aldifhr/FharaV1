@@ -6,6 +6,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { api } from "@/api/convex/_generated/api";
 import Modal from "./Modal";
+import { roleLabel } from "@/lib/agentRoles";
 
 interface NewProjectContextValue {
   open: boolean;
@@ -47,8 +48,6 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
   const [selectingFolder, setSelectingFolder] = useState(false);
   const [desktopReady, setDesktopReady] = useState(false);
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
-  const [qaUrl, setQaUrl] = useState("");
-  const [devUrl, setDevUrl] = useState("");
 
   useEffect(() => {
     setDesktopReady(Boolean(window.moagentDesktop));
@@ -61,8 +60,6 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
       setWorkspacePath("");
       setError("");
       setSelectedAgentIds([]);
-      setQaUrl("");
-      setDevUrl("");
     }
   }, [open]);
 
@@ -87,8 +84,6 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
         name,
         workspacePath,
         agentIds: selectedAgentIds as never[],
-        ...(qaUrl.trim() ? { qaUrl: qaUrl.trim() } : {}),
-        ...(devUrl.trim() ? { devUrl: devUrl.trim() } : {}),
       })) as unknown as string;
       setStep("project");
       setName("");
@@ -163,24 +158,6 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
                 )}
               </div>
             </label>
-            <label className="grid gap-1 text-sm">
-              QA base URL <span className="text-xs text-gray-400">(opsional)</span>
-              <input
-                value={qaUrl}
-                onChange={(event) => setQaUrl(event.target.value)}
-                placeholder="http://localhost:3000"
-                className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
-              />
-            </label>
-            <label className="grid gap-1 text-sm">
-              Dev base URL <span className="text-xs text-gray-400">(opsional)</span>
-              <input
-                value={devUrl}
-                onChange={(event) => setDevUrl(event.target.value)}
-                placeholder="http://localhost:3000"
-                className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
-              />
-            </label>
           </>
         ) : (
           <>
@@ -189,7 +166,12 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
               <legend className="text-sm font-medium">Team project</legend>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2 dark:border-gray-700">
                 {(agents ?? []).length === 0 && <p className="text-xs text-gray-400">Belum ada agent. Buat agent dulu dari halaman Teams.</p>}
-                {(agents ?? []).map((agent) => (
+                {(agents ?? []).map((agent, index) => {
+                  const agentList = agents ?? [];
+                  const sameRoleBefore = agentList.slice(0, index).filter((a) => a.role === agent.role).length;
+                  const label = roleLabel(agent.role);
+                  const displayLabel = sameRoleBefore === 0 ? label : `${label} ${sameRoleBefore + 1}`;
+                  return (
                   <label key={agent._id} className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
@@ -202,10 +184,10 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
                         )
                       }
                     />
-                    <span>{agent.name}</span>
-                    <span className="text-xs text-gray-400">{agent.role}</span>
+                    <span>{displayLabel}</span>
                   </label>
-                ))}
+                  );
+                })}
               </div>
             </fieldset>
             <button

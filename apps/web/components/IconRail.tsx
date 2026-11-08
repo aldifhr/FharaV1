@@ -1,12 +1,11 @@
 "use client";
 import Link from "next/link";
-import { Home, Inbox, MessageSquare, Activity, BarChart3, Plus, Settings, Cpu, Search, Moon, Sun, Share2 } from "lucide-react";
+import { Home, Inbox, MessageSquare, Plus, Settings, Cpu, Search, Share2 } from "lucide-react";
 import { useEffect, useState, type MouseEvent } from "react";
 import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useQuery } from "convex/react";
 import { motion } from "framer-motion";
-import { useTheme } from "./ui/theme-provider";
 import { useNewProject } from "./NewProject";
 import { useSettings } from "./Settings";
 import { useLlmSettings } from "./LlmSettings";
@@ -15,9 +14,7 @@ import CommandMenu from "./CommandMenu";
 const MENU = [
   { icon: Home, label: "Home", href: "/" },
   { icon: Inbox, label: "Inbox", href: "/inbox", badge: true },
-  { icon: MessageSquare, label: "Chats", href: "/chats" },
-  { icon: BarChart3, label: "Analytics", href: "/analytics" },
-  { icon: Activity, label: "Activities", href: "/activities" },
+  { icon: MessageSquare, label: "Chat", href: "/chats" },
 ];export type WorkspaceSection = never;
 
 export default function IconRail({
@@ -30,9 +27,7 @@ export default function IconRail({
   const { openNewProject } = useNewProject();
   const { openSettings } = useSettings();
   const { openLlmSettings } = useLlmSettings();
-  const { theme, toggle } = useTheme();
   const pathname = usePathname();
-  const isDark = theme === "dark";
   const inbox = useQuery(api.inbox.list, {});
   const inboxCount = inbox ? inbox.approvals.length + inbox.tasks.length + inbox.agents.length : 0;
   const [commandOpen, setCommandOpen] = useState(false);
@@ -102,11 +97,16 @@ export default function IconRail({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  const isMenuActive = (href: string) => {
+    if (href === "/") return pathname === "/";
+    return pathname === href;
+  };
+
   return (
-    <nav className="flex h-full w-[58px] shrink-0 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto border-r border-[#e7e5ef] bg-white py-3 pt-9 shadow-[inset_-1px_0_rgba(30,25,60,.04)] dark:border-white/5 dark:to-[#0e0b20] dark:from-[#1b1833] dark:via-[#141127] dark:bg-gradient-to-b max-[979px]:h-14 max-[979px]:w-full max-[979px]:flex-row max-[979px]:justify-between max-[979px]:overflow-x-auto max-[979px]:overflow-y-hidden max-[979px]:border-r-0 max-[979px]:border-b max-[979px]:px-3 max-[979px]:pt-3">
+    <nav className="flex h-full w-[64px] shrink-0 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto border-r border-[#e7e5ef] bg-white py-3 pt-9 shadow-[inset_-1px_0_rgba(30,25,60,.04)] dark:border-white/5 dark:bg-[#0e0b20] max-[979px]:h-14 max-[979px]:w-full max-[979px]:flex-row max-[979px]:justify-between max-[979px]:overflow-x-auto max-[979px]:overflow-y-hidden max-[979px]:border-r-0 max-[979px]:border-b max-[979px]:px-3 max-[979px]:pt-3">
       <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} />
       <div className="flex shrink-0 flex-col items-center gap-2">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#6b4fd8] text-white shadow-sm">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#635bff] text-white shadow-sm">
           <Share2 size={18} />
         </div>
         <button
@@ -131,7 +131,7 @@ export default function IconRail({
           <RailBtn
             key={m.label}
             {...m}
-            active={m.href === "/chats" ? pathname?.startsWith("/chats") ?? false : pathname === m.href}
+            active={isMenuActive(m.href)}
             count={m.label === "Inbox" ? inboxCount : 0}
           />
         ))}
@@ -139,11 +139,9 @@ export default function IconRail({
       <div className="mt-auto flex shrink-0 flex-col items-center gap-1 pt-2 max-[979px]:mt-0 max-[979px]:flex-row max-[979px]:pt-0">
         <RailBtn icon={Cpu} label="LLM Settings" onClick={() => openLlmSettings(projectId)} />
         <RailBtn icon={Settings} label="Settings" onClick={openSettings} />
-        <RailBtn
-          icon={isDark ? Sun : Moon}
-          label={isDark ? "Light mode" : "Dark mode"}
-          onClick={() => toggle()}
-        />
+        <div className="mt-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#1e1b2e] text-[11px] font-bold text-white shadow-xs ring-2 ring-white dark:ring-gray-900" title="User account">
+          AF
+        </div>
       </div>
     </nav>
   );

@@ -162,6 +162,7 @@ function createDeps(projectExtras: Record<string, unknown>) {
     attempts: 0,
   })) as WorkerSubtask[];
   const changes = new Map<string, WorkerFileChange>();
+  const messages: Array<{ agentId?: string; content: string }> = [];
 
   const api = {
     getContext: async () => ({
@@ -238,7 +239,9 @@ function createDeps(projectExtras: Record<string, unknown>) {
     recordAudit: async () => undefined,
     recordEvaluation: async () => undefined,
     completeTask: async () => undefined,
-    appendAgentMessage: async () => undefined,
+    appendAgentMessage: async (input: { agentId?: string; content: string }) => {
+      messages.push(input);
+    },
     recordTokenUsage: async () => undefined,
     setPlanning: async () => undefined,
     savePlan: async () => 1,
@@ -251,6 +254,7 @@ function createDeps(projectExtras: Record<string, unknown>) {
     policy: POLICY,
     workspaceRoot: workspace,
     log: () => undefined,
+    messages,
   };
 }
 
@@ -284,5 +288,18 @@ describe("processTask QA URL threading", () => {
     const deps = createDeps({ qaUrl: "http://127.0.0.1:9001" });
     await processTask(TASK, deps);
     expect(process.env.QA_BASE_URL).toBe(before);
+  });
+
+  it("QA's pass message does not mention itself", async () => {
+    const deps = createDeps({ qaUrl: "http://127.0.0.1:9001" });
+    await processTask(TASK, deps);
+    // The message is authored by the QA agent, so it must read in first
+    // person — "@QA QA validation passed" talks about QA in third person.
+    const qaMessages = deps.messages.filter((m) => m.agentId === "agent-qa");
+    expect(qaMessages.length).toBeGreaterThan(0);
+    for (const message of qaMessages) {
+      expect(message.content).not.toMatch(/^@QA\b/);
+    }
+    expect(qaMessages.some((m) => m.content.startsWith("QA validation passed"))).toBe(true);
   });
 });

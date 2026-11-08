@@ -535,7 +535,9 @@ async function executeQa(
     },
   });
 
-  const summary = `@QA QA verdict: ${report.verdict}. Checks: ${report.checks
+  // No @QA mention: this summary is authored by the QA agent itself, so a
+  // leading self-tag reads as QA talking about itself in third person.
+  const summary = `QA verdict: ${report.verdict}. Checks: ${report.checks
     .map((check) => `${check.label}=${check.status}`)
     .join(", ")}`;
   await input.onMessage(summary);

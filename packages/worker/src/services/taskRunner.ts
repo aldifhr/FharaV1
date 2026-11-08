@@ -193,11 +193,14 @@ export function buildStateFromDb(input: {
   subtasks: WorkerSubtask[];
   fileChanges: WorkerFileChange[];
 }): { state: RunState; completedKeys: Set<string> } {
-  const completedKeys = new Set(
-    input.subtasks
-      .filter((subtask) => subtask.status === "completed")
-      .map((subtask) => subtask.key)
+  // `waiting_approval` is a finished execution: requestApproval only moves
+  // a subtask there after its work was produced. Counting it as done keeps
+  // a resumed run (or a crash recovery) from executing that work again.
+  const finished = input.subtasks.filter(
+    (subtask) =>
+      subtask.status === "completed" || subtask.status === "waiting_approval"
   );
+  const completedKeys = new Set(finished.map((subtask) => subtask.key));
   const appliedFilesBySubtask = new Map<string, string[]>();
   for (const change of input.fileChanges) {
     if (!change.subtaskKey) continue;
@@ -205,14 +208,31 @@ export function buildStateFromDb(input: {
     if (!existing.includes(change.filePath)) existing.push(change.filePath);
     appliedFilesBySubtask.set(change.subtaskKey, existing);
   }
+  // Review/QA verdicts are not persisted as their own columns; they are
+  // recoverable from the deterministic output the executor recorded on the
+  // subtask. Seeding them lets a resumed run honour a pass that already
+  // happened instead of re-running (and re-messaging) the same review.
+  const reviewVerdicts: RunState["reviewVerdicts"] = {};
+  const qaVerdicts: RunState["qaVerdicts"] = {};
+  for (const subtask of finished) {
+    const output = subtask.output ?? "";
+    if (subtask.kind === "review") {
+      const verdict = persistedReviewVerdict(output);
+      if (verdict) reviewVerdicts[subtask.key] = { verdict, findings: [] };
+    }
+    if (subtask.kind === "qa") {
+      const verdict = persistedQaVerdict(output);
+      if (verdict) qaVerdicts[subtask.key] = verdict;
+    }
+  }
   const state: RunState = {
     priorOutputs: new Map(
-      input.subtasks
-        .filter((subtask) => subtask.status === "completed" && subtask.output)
+      finished
+        .filter((subtask) => subtask.output)
         .map((subtask) => [subtask.key, subtask.output as string])
     ),
-    qaVerdicts: {},
-    reviewVerdicts: {},
+    qaVerdicts,
+    reviewVerdicts,
     fileChanges: new Map(
       input.fileChanges.map((change) => [change.filePath, toFileDiff(change)])
     ),
@@ -220,6 +240,28 @@ export function buildStateFromDb(input: {
     feedback: [],
   };
   return { state, completedKeys };
+}
+
+/** Read a review verdict back from the output executeReview persisted. */
+function persistedReviewVerdict(
+  output: string
+): ReviewResult["verdict"] | null {
+  const text = output.trim();
+  if (text.startsWith("Review approved")) return "approved";
+  if (text.startsWith("Review requested changes")) return "changes_requested";
+  return null;
+}
+
+/** Read a QA verdict back from the summary executeQa persisted. */
+function persistedQaVerdict(
+  output: string
+): "passed" | "failed" | "inconclusive" | null {
+  const match = /QA verdict:\s*(passed|failed|inconclusive)/i.exec(output);
+  if (!match) return null;
+  const verdict = match[1].toLowerCase();
+  return verdict === "passed" || verdict === "failed" || verdict === "inconclusive"
+    ? verdict
+    : null;
 }
 
 /**
@@ -2603,6 +2645,19 @@ async function executePlan(input: {
   const runReviewLoop = async (): Promise<boolean> => {
     if (reviewNodes.length === 0) return true;
 
+    // Resume/recovery: a review that already approved before the
+    // interruption has its verdict seeded into state by buildStateFromDb.
+    // Re-running it would re-post the same CTO messages and burn a whole
+    // extra review cycle, so the stage counts as satisfied without
+    // running any review node.
+    if (
+      reviewNodeKeys.every(
+        (key) => state.reviewVerdicts[key]?.verdict === "approved"
+      )
+    ) {
+      return true;
+    }
+
     const maxIterations = deps.policy.maxReviewIterations;
 
     for (let iteration = 0; iteration <= maxIterations; iteration += 1) {
@@ -2724,6 +2779,14 @@ async function executePlan(input: {
   const runQaLoop = async (): Promise<boolean> => {
     if (qaNodes.length === 0) return true;
 
+    // Resume/recovery: when QA already passed pre-interruption, its
+    // verdict is seeded by buildStateFromDb. Re-running it would
+    // duplicate the QA messages and burn another full pass, so the
+    // stage is satisfied without re-running.
+    if (qaNodes.every((node) => state.qaVerdicts[node.key] === "passed")) {
+      return true;
+    }
+
     const maxIterations = deps.policy.maxReviewIterations;
 
     for (let iteration = 0; iteration <= maxIterations; iteration += 1) {
@@ -2753,12 +2816,14 @@ async function executePlan(input: {
           // Describe what actually ran. The plan-level intent is authoritative
           // (a prohibition like "no screenshots" must never be read as a
           // request for visual checks just because the word appears).
+          // No @QA mention here: the message is authored by the QA agent
+          // itself, so a leading self-tag reads as QA talking about itself.
           const visualQa = plan.visualQa ?? wantsVisualQa(input.task.command);
           await deps.api.appendAgentMessage({
             projectId: project._id,
             taskId,
             agentId: qaAgent._id as any,
-            content: `@QA QA validation passed. ${
+            content: `QA validation passed. ${
               visualQa
                 ? "Visual checks completed as requested."
                 : "Structural checks completed: browser reachability, HTML structure, console errors, and network errors."
@@ -3142,6 +3207,10 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
   }
   const plan = planValidation.plan;
   const planVersion = context.plan?.version ?? context.task.planVersion ?? 1;
+  // The approval was resolved, so the task is no longer waiting on the user.
+  // Leaving it at `needs_approval` made the UI advertise an approval button
+  // that no longer exists while the resumed run is in flight.
+  await deps.api.setTaskStatus({ taskId, status: "running" });
   // Phase 4 hardening: the resumed run gets its OWN per-task LLM gate
   // and its deadline is armed before execution setup begins (the
   // timer is disposed on every exit path below — the resolver-failure
@@ -3191,6 +3260,21 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
   const { state, completedKeys } = buildStateFromDb({
     subtasks: context.subtasks,
     fileChanges: changes,
+  });
+  // Resumed runs must not redo finished nodes. Log what the DB reported so a
+  // regression (completed rows read as pending) is visible in task events.
+  await deps.api.logEvent({
+    taskId,
+    projectId: context.project._id,
+    type: "task.stage",
+    payload: {
+      stage: "resuming",
+      completed: [...completedKeys],
+      subtasks: context.subtasks.map(
+        (subtask: { key: string; status: string }) => `${subtask.key}:${subtask.status}`
+      ),
+    },
+    level: "info",
   });
   const command = await withFileContexts(
     deps.workspaceRoot,

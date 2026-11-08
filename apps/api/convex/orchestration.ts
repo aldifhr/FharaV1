@@ -900,7 +900,16 @@ export const requestApproval = internalMutation({
           q.eq("taskId", args.taskId).eq("key", args.subtaskKey as string)
         )
         .unique();
-      if (subtask) await ctx.db.patch(subtask._id, { status: "waiting_approval" });
+      if (subtask) {
+        // The approval is about applying the subtask's OUTPUT; it must not
+        // demote a finished subtask back to waiting_approval. Doing so made
+        // a resumed run read the row as unfinished and execute it again.
+        const nextStatus = monotonicSubtaskStatus(
+          subtask.status,
+          "waiting_approval"
+        ) as typeof subtask.status;
+        await ctx.db.patch(subtask._id, { status: nextStatus });
+      }
     }
 
     await ctx.db.insert("taskEvents", {

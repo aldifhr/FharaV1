@@ -411,23 +411,75 @@ const SINGLE_IMPL_PLAN: ExecutionPlan = {
   ],
 };
 
+/**
+ * Approval-flow plan: implement + CTO review + QA all completed before the
+ * run was interrupted (approval). After resume none of them may execute
+ * again — re-running the review would re-post the same CTO messages.
+ */
+const FULL_PLAN: ExecutionPlan = {
+  version: 1,
+  goal: "Phase 4 hardening resume skip test",
+  strategy: "dag",
+  requiresApproval: true,
+  maxConcurrency: 2,
+  subtasks: [
+    {
+      key: "implement",
+      title: "Implement",
+      description: "Write the code",
+      kind: "code_change",
+      capability: "frontend-development",
+      dependencies: [],
+      order: 0,
+    },
+    {
+      key: "review",
+      title: "CTO technical review",
+      description: "Review the change",
+      kind: "review",
+      capability: "code-review",
+      dependencies: ["implement"],
+      order: 1,
+    },
+    {
+      key: "qa",
+      title: "QA validation",
+      description: "Validate the change",
+      kind: "qa",
+      capability: "browser-testing",
+      dependencies: ["review"],
+      order: 2,
+    },
+  ],
+};
+
 interface RunnerCapture {
   completions: Array<Record<string, unknown>>;
   evaluations: number;
   savePlanCalls: number;
   eventTypes: string[];
+  statuses: string[];
 }
 
 function createRunnerDeps(options: {
   policy: ExecutionPolicy;
   taskStatus: string;
   approvals?: unknown[];
+  completedSubtasks?: string[];
+  plan?: ExecutionPlan;
+  completedSubtaskOutputs?: Record<string, string>;
+  preparedFileChanges?: Array<{
+    filePath: string;
+    subtaskKey?: string;
+    newContent: string;
+  }>;
 }) {
   const captured: RunnerCapture = {
     completions: [],
     evaluations: 0,
     savePlanCalls: 0,
     eventTypes: [],
+    statuses: [],
   };
   const task = {
     _id: "task-1",
@@ -443,7 +495,7 @@ function createRunnerDeps(options: {
     workspacePath: workspace,
     approvalMode: "auto" as const,
   };
-  const subtasks: WorkerSubtask[] = SINGLE_IMPL_PLAN.subtasks.map(
+  const subtasks: WorkerSubtask[] = (options.plan ?? SINGLE_IMPL_PLAN).subtasks.map(
     (subtask, index) =>
       ({
         _id: `sub-${index}`,
@@ -454,11 +506,27 @@ function createRunnerDeps(options: {
         capability: subtask.capability,
         dependencies: subtask.dependencies,
         order: subtask.order,
-        status: "pending",
+        status: options.completedSubtasks?.includes(subtask.key)
+          ? "completed"
+          : "pending",
+        output: options.completedSubtaskOutputs?.[subtask.key],
         attempts: 0,
       }) as WorkerSubtask
   );
   const changes = new Map<string, WorkerFileChange>();
+  // Changes persisted by the implementation in the previous run; on
+  // resume the apply phase consumes them from the DB.
+  for (const change of options.preparedFileChanges ?? []) {
+    changes.set(change.filePath, {
+      _id: `change-${change.filePath}`,
+      taskId: task._id,
+      filePath: change.filePath,
+      changeType: "new",
+      newContent: change.newContent,
+      diff: "",
+      subtaskKey: change.subtaskKey,
+    } as WorkerFileChange);
+  }
   const context = {
     task,
     project,
@@ -470,7 +538,7 @@ function createRunnerDeps(options: {
       strategy: SINGLE_IMPL_PLAN.strategy,
       createdBy: "orchestrator" as const,
       goal: SINGLE_IMPL_PLAN.goal,
-      payload: SINGLE_IMPL_PLAN,
+      payload: options.plan ?? SINGLE_IMPL_PLAN,
       createdAt: 0,
     },
     subtasks,
@@ -546,6 +614,10 @@ function createRunnerDeps(options: {
     completeTask: async (input: Record<string, unknown>) => {
       captured.completions.push(input);
       return { applied: true, status: input.status };
+    },
+    setTaskStatus: async (input: { status: string }) => {
+      captured.statuses.push(input.status);
+      return true;
     },
     appendAgentMessage: async () => undefined,
     recordTokenUsage: async () => undefined,
@@ -674,6 +746,62 @@ describe("resume outcome handling (mandatory test 7)", () => {
       expect(captured.completions).toHaveLength(1);
       expect(captured.completions[0].status).toBe("done");
       expect(captured.evaluations).toBe(1);
+    },
+    15_000
+  );
+
+  it(
+    "resume leaves needs_approval and does not re-run completed subtasks",
+    async () => {
+      mockState.mode = "track";
+      const { deps, captured } = createRunnerDeps({
+        policy: BASE_POLICY,
+        taskStatus: "needs_approval",
+        approvals: approvedContext.approvals,
+        completedSubtasks: ["implement"],
+      });
+
+      await resumeTask("task-1", deps);
+
+      // The user already approved: the task must report "running" while the
+      // resumed run executes, not keep the stale needs_approval status that
+      // makes the UI advertise an approval button with nothing to approve.
+      expect(captured.statuses).toContain("running");
+      // A subtask the DB reports completed must not execute again after an
+      // approval: that would duplicate the work and its messages.
+      expect(mockState.executed).not.toContain("implement");
+    },
+    15_000
+  );
+
+  it(
+    "resume does not re-run review/QA stages that already passed before approval",
+    async () => {
+      mockState.mode = "track";
+      const { deps, captured } = createRunnerDeps({
+        policy: BASE_POLICY,
+        taskStatus: "needs_approval",
+        approvals: approvedContext.approvals,
+        plan: FULL_PLAN,
+        completedSubtasks: ["implement", "review", "qa"],
+        completedSubtaskOutputs: {
+          review: "Review approved.",
+          qa: "QA verdict: passed. Checks: application reachable=passed",
+        },
+        preparedFileChanges: [
+          { filePath: "index.html", subtaskKey: "implement", newContent: "content\n" },
+        ],
+      });
+
+      await resumeTask("task-1", deps);
+
+      // The verdicts were seeded from the recorded outputs, so the
+      // review and QA stages are satisfied without executing them again:
+      // re-running the review would re-post the same CTO approval
+      // messages and "Checked diff" note.
+      expect(mockState.executed).not.toContain("review");
+      expect(mockState.executed).not.toContain("qa");
+      expect(captured.completions.some((c) => c.status === "done")).toBe(true);
     },
     15_000
   );

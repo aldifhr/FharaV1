@@ -1528,6 +1528,8 @@ async function executePlan(input: {
   }
 
   const executionIds = new Map<string, WorkerExecutionId>();
+  // Last posted chat text per agent+subtask (for duplicate suppression).
+  const lastPostedMessage = new Map<string, string>();
   const agentByKey = new Map<string, AgentDefinition>();
   const taskId = task._id;
 
@@ -1760,6 +1762,13 @@ async function executePlan(input: {
           });
         },
         onMessage: async (content) => {
+          // Suppress exact-duplicate consecutive postings per agent+subtask
+          // (QA loops and fix loops re-execute identical summary text — the
+          // conversation showed the same QA verdict 4x in a row).
+          const dedupeKey = `${agent._id}|${node.id}`;
+          const previous = lastPostedMessage.get(dedupeKey);
+          if (previous === content) return;
+          lastPostedMessage.set(dedupeKey, content);
           await deps.api.appendAgentMessage({
             projectId: project._id,
             taskId,

@@ -8,11 +8,11 @@ import { useWorkspace } from "@/app/WorkspaceContext";
 function ChatSection() {
   const { projectId, openAgent, selectTask, selectedTaskId } = useWorkspace();
   const searchParams = useSearchParams();
-  const [tab, setTab] = useState<"chat" | "tasks">("chat");
+  const [tab, setTab] = useState<"chat" | "tasks" | "files">("chat");
 
   useEffect(() => {
     const requested = searchParams.get("tab");
-    setTab(requested === "tasks" ? requested : "chat");
+    setTab(requested === "tasks" || requested === "files" ? requested : "chat");
   }, [projectId, searchParams]);
 
   return (

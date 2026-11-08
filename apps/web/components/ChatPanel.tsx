@@ -17,14 +17,14 @@ import Modal from "./Modal";
 import TaskBoard from "./TaskBoard";
 
 import { useToast } from "./Toasts";
-import { AtSign, Bell, Check, CheckCircle2, Clock, Copy, ExternalLink, Loader2, MoreHorizontal, Pencil, Send, ChevronUp, ChevronDown, Edit2, X, XCircle, Trash2, Paperclip, Mic, SquareTerminal, Type } from "lucide-react";
+import { AtSign, Bell, Check, CheckCircle2, Clock, Copy, ExternalLink, FileText, GitBranch, Loader2, MoreHorizontal, Pencil, Pin, Send, ChevronUp, ChevronDown, Edit2, X, XCircle, Trash2, Paperclip, Mic, SquareTerminal, Type } from "lucide-react";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { roleLabel } from "@/lib/agentRoles";
 
 type Props = {
   projectId: string;
-  tab: "chat" | "tasks";
-  setTab: (t: "chat" | "tasks") => void;
+  tab: "chat" | "tasks" | "files";
+  setTab: (t: "chat" | "tasks" | "files") => void;
   onSelectTask: (taskId: string) => void;
   onOpenAgent?: (agentId: string) => void;
   selectedTaskId: string | null;
@@ -226,6 +226,96 @@ function TaskCard({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function FilesView({ project }: { project: any }) {
+  const workspacePath = (project as any)?.workspacePath as string | undefined;
+  const [files, setFiles] = useState<string[] | null>(null);
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [content, setContent] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!workspacePath) return;
+    setFiles(null);
+    setError("");
+    setSelected(null);
+    setContent(null);
+    fetch(`/api/project-files?workspacePath=${encodeURIComponent(workspacePath)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if ((data as any)?.error) setError((data as any).error);
+        else setFiles((data as any)?.files ?? []);
+      })
+      .catch(() => setError("Failed to load workspace files"));
+  }, [workspacePath]);
+
+  const openFile = (filePath: string) => {
+    if (!workspacePath) return;
+    setSelected(filePath);
+    setContent(null);
+    fetch(
+      `/api/project-files?workspacePath=${encodeURIComponent(workspacePath)}&filePath=${encodeURIComponent(filePath)}`
+    )
+      .then((res) => res.json())
+      .then((data) => setContent((data as any)?.content ?? ""))
+      .catch(() => setContent("Failed to load file"));
+  };
+
+  const visible = (files ?? []).filter(
+    (file) => !query || file.toLowerCase().includes(query.toLowerCase())
+  );
+
+  return (
+    <div className="flex min-h-0 flex-1 gap-4 p-5">
+      <div className="flex w-72 shrink-0 flex-col gap-2">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search files…"
+          aria-label="Search files"
+          className="rounded-xl border border-[#e5e3eb] bg-white px-3 py-2 text-sm outline-none focus:border-[#a29ae8] dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+        />
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-[#e5e3eb] bg-white p-1 dark:border-gray-800 dark:bg-gray-900">
+          {error && <p className="px-2 py-2 text-xs text-rose-600">{error}</p>}
+          {!error && !files && <p className="px-2 py-2 text-xs text-gray-400">Loading files…</p>}
+          {files && visible.length === 0 && (
+            <p className="px-2 py-2 text-xs text-gray-400">No files found.</p>
+          )}
+          {visible.map((file) => (
+            <button
+              key={file}
+              type="button"
+              onClick={() => openFile(file)}
+              className={`flex w-full items-center gap-2 truncate rounded-lg px-2 py-1.5 text-left text-[13px] transition hover:bg-gray-100 dark:hover:bg-gray-800 ${
+                selected === file ? "bg-gray-100 font-semibold dark:bg-gray-800" : ""
+              }`}
+            >
+              <FileText size={13} className="shrink-0 text-gray-400" />
+              <span className="min-w-0 flex-1 truncate">{file}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="min-w-0 flex-1 overflow-hidden rounded-xl border border-[#e5e3eb] bg-white dark:border-gray-800 dark:bg-gray-900">
+        {selected ? (
+          <>
+            <p className="border-b border-[#e5e3eb] px-4 py-2.5 font-mono text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
+              {selected}
+            </p>
+            <pre className="h-[calc(100%-37px)] overflow-auto p-4 font-mono text-xs leading-5 dark:text-gray-200">
+              {content ?? "Loading…"}
+            </pre>
+          </>
+        ) : (
+          <p className="flex h-full items-center justify-center text-sm text-gray-400">
+            Select a file to preview it.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -684,7 +774,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
 
   return (
     <main className="relative flex min-w-0 flex-1 flex-col bg-transparent">
-      <header className="flex min-h-[66px] items-center gap-3 border-b border-[#ebe9f0] bg-white/30 px-5 py-3 dark:border-gray-800 dark:bg-gray-950/20">
+      <header className="border-b border-[#ebe9f0] bg-white/30 dark:border-gray-800 dark:bg-gray-950/20">
+      <div className="flex min-h-[56px] items-center gap-3 px-5 py-2.5">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-emerald-200 text-sm font-bold text-emerald-900 dark:bg-emerald-800 dark:text-emerald-100">
           {(project as any)?.name?.slice(0, 1).toUpperCase() ?? "A"}
         </div>
@@ -746,9 +837,11 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             <span className="text-xs text-gray-500">{agents.length} {agents.length === 1 ? "agent" : "agents"}</span>
           </div>
         </div>
-        <div className="ml-auto flex items-center gap-3">
+      </div>
+      {/* Tab bar row: workspace tabs (left) + version/pin/bell/more (right) */}
+      <div className="flex items-center gap-3 border-t border-[#f0eef4] px-5 py-2 dark:border-gray-800/60">
         <div className="flex shrink-0 items-center rounded-xl bg-gray-100 p-1 dark:bg-gray-800" role="tablist" aria-label="Workspace view">
-          {(["chat", "tasks"] as const).map((t) => (
+          {(["chat", "tasks", "files"] as const).map((t) => (
             <button
               key={t}
               type="button"
@@ -761,6 +854,24 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             </button>
           ))}
         </div>
+        <div className="ml-auto flex items-center gap-1.5">
+          <span
+            title="Plan version of the selected task"
+            className="flex items-center gap-1 rounded-lg border border-[#e5e3eb] px-2 py-1 font-mono text-[11px] font-semibold text-gray-500 dark:border-gray-700 dark:text-gray-400"
+          >
+            <GitBranch size={12} />
+            v{((selectedTask as any)?.planVersion ?? (tasks ?? [])[0]?.planVersion ?? 1)}
+          </span>
+          <button
+            type="button"
+            onClick={() => setNotifOpen((open) => !open)}
+            title={`${pendingForProject} pending approval${pendingForProject === 1 ? "" : "s"} — open notifications`}
+            aria-label={`${pendingForProject} pending approvals`}
+            className="flex items-center gap-1 rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+          >
+            <Pin size={13} />
+            <span className="text-[11px] font-semibold tabular-nums">{pendingForProject > 9 ? "9+" : pendingForProject}</span>
+          </button>
         <div className="flex items-center gap-1">
           <div className="relative" ref={notifRef}>
             <button
@@ -860,6 +971,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               </div>
             )}
           </div>
+        </div>
         </div>
         </div>
       </header>
@@ -1093,7 +1205,11 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
           </>
         ) : (
           <motion.div key="tasks" initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }}>
-            <TaskBoard projectId={projectId} selectedTaskId={selectedTaskId} onSelectTask={onSelectTask} />
+            {tab === "files" ? (
+              <FilesView project={project} />
+            ) : (
+              <TaskBoard projectId={projectId} selectedTaskId={selectedTaskId} onSelectTask={onSelectTask} />
+            )}
           </motion.div>
         )}
       </div>

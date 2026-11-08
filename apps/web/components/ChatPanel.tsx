@@ -16,7 +16,7 @@ import Modal from "./Modal";
 import TaskBoard from "./TaskBoard";
 
 import { useToast } from "./Toasts";
-import { AtSign, Bell, Check, CheckCircle2, Clock, Copy, ExternalLink, FileText, GitBranch, Loader2, MoreHorizontal, Pencil, Pin, Send, ChevronUp, ChevronDown, Edit2, X, XCircle, Trash2, Paperclip, Mic, SquareTerminal, Type } from "lucide-react";
+import { AtSign, Bell, Check, CheckCircle2, Clock, Copy, ExternalLink, FileText, GitBranch, Loader2, MoreHorizontal, Pencil, Pin, PinOff, Send, ChevronUp, ChevronDown, Edit2, X, XCircle, Trash2, Paperclip, Mic, SquareTerminal, Type } from "lucide-react";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { roleLabel } from "@/lib/agentRoles";
 
@@ -353,6 +353,10 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const [showScrollDown, setShowScrollDown] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
+  const pinsRef = useRef<HTMLDivElement>(null);
+  const [pinsOpen, setPinsOpen] = useState(false);
+  const pinnedMessages = useQuery(api.messages.listPinned, { projectId: projectId as any });
+  const togglePin = useMutation(api.messages.togglePin);
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -375,6 +379,17 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [notifOpen]);
+
+  useEffect(() => {
+    if (!pinsOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (pinsRef.current && !pinsRef.current.contains(event.target as Node)) {
+        setPinsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [pinsOpen]);
 
   const copyProjectLink = async () => {
     const url = `${window.location.origin}/chats/${projectId}`;
@@ -872,6 +887,53 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             <span className="text-[11px] font-semibold tabular-nums">{pendingForProject > 9 ? "9+" : pendingForProject}</span>
           </button>
         <div className="flex items-center gap-1">
+          <div className="relative" ref={pinsRef}>
+            <button
+              type="button"
+              onClick={() => setPinsOpen((open) => !open)}
+              title={`${(pinnedMessages ?? []).length} pinned message${(pinnedMessages ?? []).length === 1 ? "" : "s"}`}
+              aria-label={`${(pinnedMessages ?? []).length} pinned messages`}
+              aria-expanded={pinsOpen}
+              className="flex items-center gap-1 rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+            >
+              <Pin size={13} />
+              <span className="text-[11px] font-semibold tabular-nums">{(pinnedMessages ?? []).length > 9 ? "9+" : (pinnedMessages ?? []).length}</span>
+            </button>
+            {pinsOpen && (
+              <div className="absolute right-0 z-40 mt-2 w-80 overflow-hidden rounded-xl border border-[#ebe9f0] bg-white py-1 text-sm shadow-xl dark:border-gray-800 dark:bg-gray-900">
+                <p className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  Pinned ({(pinnedMessages ?? []).length})
+                </p>
+                <div className="max-h-64 overflow-y-auto">
+                  {(pinnedMessages ?? []).length === 0 && (
+                    <p className="px-3 py-3 text-sm text-gray-400">No pinned messages yet. Hover a message and click the pin icon to keep it here.</p>
+                  )}
+                  {(pinnedMessages ?? []).map((m: any) => (
+                    <div key={m._id} className="flex items-start gap-2 border-t border-gray-100 px-3 py-2 dark:border-gray-800">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-semibold text-gray-500">
+                          {m.authorType === "agent"
+                            ? roleLabel((agents as any)?.find((a: any) => a._id === m.agentId)?.role)
+                            : "You"}
+                          <span className="ml-1 font-normal text-gray-400">{formatMessageTime(m._creationTime)}</span>
+                        </p>
+                        <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap break-words text-[13px] text-gray-700 dark:text-gray-200">{m.content}</p>
+                      </div>
+                      <button
+                        type="button"
+                        title="Unpin message"
+                        aria-label="Unpin message"
+                        onClick={() => void togglePin({ messageId: m._id, pinned: false })}
+                        className="shrink-0 rounded p-1 text-gray-400 transition hover:bg-gray-100 hover:text-[#635bff] dark:hover:bg-gray-800"
+                      >
+                        <PinOff size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <div className="relative" ref={notifRef}>
             <button
               type="button"
@@ -1040,7 +1102,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
-                    className="mt-3 flex gap-3"
+                    className="group mt-3 flex gap-3"
                   >
                     {m.authorType === "agent" ? (
                       <InitialAvatar
@@ -1076,6 +1138,20 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                           })()}
                         </p>
                         <span className="text-[11px] text-gray-400">{formatMessageTime(m._creationTime)}</span>
+                        <button
+                          type="button"
+                          title={m.pinned ? "Unpin message" : "Pin message"}
+                          aria-label={m.pinned ? "Unpin message" : "Pin message"}
+                          aria-pressed={Boolean(m.pinned)}
+                          onClick={() => void togglePin({ messageId: m._id, pinned: !m.pinned })}
+                          className={`rounded p-0.5 transition ${
+                            m.pinned
+                              ? "text-[#635bff]"
+                              : "text-gray-300 opacity-0 group-hover:opacity-100 hover:text-[#635bff]"
+                          }`}
+                        >
+                          <Pin size={11} />
+                        </button>
                       </div>
                       {messageKind(m.content) === "delegation" ? null : <MessageText content={m.content} />}
                       {(() => {

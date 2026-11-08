@@ -28,6 +28,43 @@ export const listByTask = query({
   },
 });
 
+/** Pin/unpin one message. Pins are project-scoped; the header chip count
+ *  reads listPinned for the active conversation (or the project). */
+export const togglePin = mutation({
+  args: { messageId: v.id("messages"), pinned: v.boolean() },
+  handler: async (ctx, args) => {
+    const message = await ctx.db.get(args.messageId);
+    if (!message) throw new Error("Message not found");
+    await assertProjectAccess(ctx, message.projectId);
+    await ctx.db.patch(message._id, { pinned: args.pinned });
+    return true;
+  },
+});
+
+/** Pinned messages for one project (optionally scoped to a conversation),
+ *  newest first, for the header pin chip. */
+export const listPinned = query({
+  args: {
+    projectId: v.id("projects"),
+    conversationId: v.optional(v.id("conversations")),
+  },
+  handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
+    const rows = await ctx.db
+      .query("messages")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .take(1000);
+    return rows
+      .filter(
+        (row) =>
+          row.pinned === true &&
+          (!args.conversationId || row.conversationId === args.conversationId)
+      )
+      .slice(0, 100);
+  },
+});
+
 /**
  * Scoped retrieval of a conversation's context summaries: latest first,
  * bounded by a `beforeCreationTime` cursor. The index `by_conversation`

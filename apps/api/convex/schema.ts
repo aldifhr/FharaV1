@@ -233,6 +233,9 @@ export default defineSchema({
     // so pre-conversation messages still validate; task-thread messages keep
     // taskId and need no conversation.
     conversationId: v.optional(v.id("conversations")),
+    // Pinned by the user for quick access from the header chip. Optional so
+    // pre-pin messages still validate.
+    pinned: v.optional(v.boolean()),
     // Plan 006 Phase 4: durable queue. Messages are claimed by the worker
     // with the task lease pattern (leasedBy / leaseExpiresAt). Task-linked
     // report messages never enter the queue (queueStatus undefined).

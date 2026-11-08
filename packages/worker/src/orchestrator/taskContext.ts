@@ -252,15 +252,5 @@ export function extractDecisionsAndArtifactsFromResult(
     }
   }
 
-  if (result.delegationRecommendation) {
-    decisions.push({
-      decision: "APPROVE",
-      reason: result.delegationRecommendation.reason,
-      capability: result.delegationRecommendation.targetCapability,
-      fromAgent: result.agentName,
-      createdAt: Date.now(),
-    });
-  }
-
   return { decisions, artifacts, issues };
 }

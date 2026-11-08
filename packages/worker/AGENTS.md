@@ -36,14 +36,14 @@ import backend internals.
 - Decisions are `APPROVE | REJECT | REVISE | COMPLETE | BLOCKED` in the
   evaluation layer, and `execute | delegate | parallel | replan | complete |
   ask_user` in the decision engine (`orchestrator/decision.ts`). The engine
-  (`ORCHESTRATOR_DECISION_ENGINE`, default **on** since plan 005 Phase 6) maps
+  is the only orchestrator path (since plan 013 step 7; flag deleted), maps
   each observation to a validated request; `APPROVE` may spawn a delegation
   subtask, `REVISE` may spawn a fix subtask with structured findings,
   `BLOCKED` halts new scheduling without killing completed work. A refused
   request is a recorded `orchestrator.decision_fallback`, never a bypass. The
   engine terminates on `maxDecisionSteps` (`ORCHESTRATOR_MAX_DECISION_STEPS`,
   default 20): a step-limit hit fails the task explicitly, never a replan. The LLM advisor (`ORCHESTRATOR_DECISION_LLM`,
-  default `ambiguous`) is consulted only on ambiguous proposals; deterministic
+  default `ambiguous`) is consulted on ambiguous proposals and unmet objectives; deterministic
   policy rejections always win. Completed work is judged by
   `evaluateObjective` — a `complete` decision with unmet explicit outcomes
   (`recovery` / `policy:budget` / `decision:step_limit`) is converted to a
@@ -134,7 +134,7 @@ import backend internals.
 | `WORKER_LEASE_MS` | 60000 | Claim lease |
 | `WORKER_STALE_GRACE_MS` | 30000 | Stale-task recovery grace |
 | `ORCHESTRATOR_*` | per `policy.ts` | Bounds, timeouts, budget mode, authority |
-| `ORCHESTRATOR_DECISION_ENGINE` | `true` | Decision engine in `executePlan` (plan 005 Phase 6; set `false` to revert) |
+| `ORCHESTRATOR_DECISION_ENGINE` | — | **Deleted** (plan 013 step 7): the decision engine is the only path; the env var is no longer read. |
 | `ORCHESTRATOR_DECISION_LLM` | `ambiguous` | `off` / `ambiguous` / `always` — when the LLM decision advisor is consulted |
 | `ORCHESTRATOR_MAX_DECISION_STEPS` | `20` | Decision-step bound per task run |
 | `ORCHESTRATOR_REVIEW_MODE` / `ORCHESTRATOR_QA_MODE` | `auto` | `always` / `auto` / `never` — when planning adds review/QA nodes |

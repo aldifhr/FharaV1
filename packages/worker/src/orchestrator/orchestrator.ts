@@ -16,7 +16,6 @@ import {
   type AgentResult,
   type ExecutionHistoryEntry,
 } from "./taskContext";
-import { buildAgentExecutionContext, formatAgentContextForPrompt } from "./agentContext";
 import { routePrimaryAgent, evaluateDelegation, type DelegationDecision } from "./delegation";
 
 export interface OrchestratorInput {
@@ -37,22 +36,10 @@ export interface OrchestratorInput {
   sharedContext?: SharedTaskContext;
 }
 
-export interface OrchestratorDecision {
-  step: number;
-  action: "EXECUTE_PRIMARY" | "DELEGATE" | "REVISE" | "COMPLETE" | "BLOCKED" | "BUDGET_EXHAUSTED";
-  agent?: AgentDefinition;
-  capability?: string;
-  reason: string;
-  sharedContext: SharedTaskContext;
-  agentContextPrompt?: string;
-  budgetSnapshot: ReturnType<BudgetTracker["snapshot"]>;
-}
-
 export interface OrchestratorPlan {
   primary: AgentDefinition | null;
   primaryCapability: string;
   strategy: "single" | "dag";
-  steps: OrchestratorDecision[];
   sharedContext: SharedTaskContext;
   reasoning: string[];
   budgetLimitations?: string;
@@ -74,7 +61,6 @@ export interface OrchestratorPlan {
 export function createOrchestratorPlan(input: OrchestratorInput): OrchestratorPlan {
   const classification = input.classification ?? classifyCommand(input.command);
   const policy = loadPolicy();
-  const budget = input.budget ?? new BudgetTracker(policy);
 
   const routing = routePrimaryAgent(input.command, classification, input.agents, {
     allowFallback: policy.allowFallback,
@@ -88,96 +74,21 @@ export function createOrchestratorPlan(input: OrchestratorInput): OrchestratorPl
     priorExecutions: input.priorExecutions ?? [],
   });
 
-  const steps: OrchestratorDecision[] = [];
-
   if (!routing.primaryAgent) {
-    steps.push({
-      step: 1,
-      action: "BLOCKED",
-      reason: routing.unavailableReason ?? "No agent available",
-      sharedContext,
-      budgetSnapshot: budget.snapshot(),
-    });
     return {
       primary: null,
       primaryCapability: routing.primaryCapability,
       strategy: routing.strategy === "direct" ? "single" : routing.strategy,
-      steps,
       sharedContext,
       reasoning: routing.reasoning,
       budgetLimitations: routing.unavailableReason,
     };
   }
 
-  // Primary execution step
-  const primaryCtx = buildAgentExecutionContext({
-    taskContext: sharedContext,
-    agent: routing.primaryAgent,
-    assignment: input.command,
-  });
-
-  steps.push({
-    step: 1,
-    action: "EXECUTE_PRIMARY",
-    agent: routing.primaryAgent,
-    capability: routing.primaryCapability,
-    reason: `Selected ${routing.primaryAgent.name} for ${routing.primaryCapability} — ${classification.kind}`,
-    sharedContext,
-    agentContextPrompt: formatAgentContextForPrompt(primaryCtx),
-    budgetSnapshot: budget.snapshot(),
-  });
-
-  // Determine if additional agents needed (orchestrator evaluates after primary)
-  const needsAdditional = routing.needsAdditionalAgents;
-  if (needsAdditional) {
-    const budgetCheck = budget.isBudgetExhausted();
-    if (budgetCheck.exhausted) {
-      steps.push({
-        step: 2,
-        action: "BUDGET_EXHAUSTED",
-        reason: budgetCheck.reason ?? "Budget exhausted",
-        sharedContext,
-        budgetSnapshot: budget.snapshot(),
-      });
-    } else {
-      // Suggest delegations based on classification
-      const extraCaps = classification.suggestedCapabilities.slice(1);
-      for (const cap of extraCaps) {
-        const extraAgent = routeCapability(cap, input.agents.filter(isAgentEnabled));
-        if (extraAgent && extraAgent._id !== routing.primaryAgent._id) {
-          const extraCtx = buildAgentExecutionContext({
-            taskContext: sharedContext,
-            agent: extraAgent,
-            assignment: `Validate ${cap} for ${input.command}`,
-          });
-          steps.push({
-            step: steps.length + 1,
-            action: "DELEGATE",
-            agent: extraAgent,
-            capability: cap,
-            reason: `Additional agent needed for ${cap} after primary`,
-            sharedContext,
-            agentContextPrompt: formatAgentContextForPrompt(extraCtx),
-            budgetSnapshot: budget.snapshot(),
-          });
-        }
-      }
-    }
-  } else {
-    steps.push({
-      step: 2,
-      action: "COMPLETE",
-      reason: "Single-agent task, no delegation needed",
-      sharedContext,
-      budgetSnapshot: budget.snapshot(),
-    });
-  }
-
   return {
     primary: routing.primaryAgent,
     primaryCapability: routing.primaryCapability,
     strategy: routing.strategy === "direct" ? "single" : routing.strategy,
-    steps,
     sharedContext,
     reasoning: routing.reasoning,
   };

@@ -8,10 +8,12 @@ import {
   isAgentEnabled,
   isAgentAvailable,
 } from "./capabilities";
-import type { AgentResult } from "./taskContext";
+import type { AgentResult, DelegationDecision } from "./taskContext";
 import type { BudgetTracker } from "./budget";
 
-export type DelegationDecision = "APPROVE" | "REJECT" | "REVISE" | "COMPLETE" | "BLOCKED";
+/** DelegationDecision is defined once in taskContext.ts (plan 013 step 7
+ *  dedupe) and re-exported here for the engine/evaluation layers. */
+export type { DelegationDecision };
 
 export interface DelegationEvaluation {
   decision: DelegationDecision;

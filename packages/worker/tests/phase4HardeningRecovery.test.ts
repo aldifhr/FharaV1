@@ -120,7 +120,11 @@ const AGENTS = [
   },
 ] as WorkerAgent[];
 
-const DELEGATE_KEY = "delegate_security_audit_1";
+// The delegation node's key is decided by the engine at its first
+// decision step (decisionStep 0): applyDecision keys delegate nodes via
+// `decision_delegate_<step>`. The legacy advisory path keyed nodes
+// `delegate_<slug>_<n>` — plan 013 step 7 deleted that branch.
+const DELEGATE_KEY = "decision_delegate_0";
 
 interface StoreRow {
   key: string;

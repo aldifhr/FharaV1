@@ -274,27 +274,3 @@ export class BudgetTracker {
     };
   }
 }
-
-export function resolveModelConfig(agent: {
-  llmModel?: string;
-  llmProvider?: string;
-  llmBaseUrl?: string;
-  llmApiKey?: string;
-}, defaults = { provider: "anthropic", model: "claude-sonnet-4-20250514" }): { provider: string; model: string; baseUrl?: string } {
-  // Precedence: agent-specific > project/global defaults (currently agent-only, but kept for future project-level)
-  const provider = agent.llmProvider ?? defaults.provider;
-  const model = agent.llmModel ?? (provider === "openai-compatible" ? "gpt-4o-mini" : defaults.model);
-  return { provider, model, baseUrl: agent.llmBaseUrl };
-}
-
-export function shouldUseLLMEvaluation(
-  deterministic: { verdict: string; pendingItems: number },
-  tokenBudgetRemaining: number,
-  llmBudgetRemaining: number
-): boolean {
-  if (deterministic.pendingItems > 0) return false; // deterministic already found failures
-  if (deterministic.verdict === "passed") return false;
-  if (llmBudgetRemaining <= 0) return false;
-  if (tokenBudgetRemaining <= 0) return false;
-  return true;
-}

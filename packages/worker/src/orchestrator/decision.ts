@@ -622,7 +622,18 @@ export function nextDeterministicDecision(
         task: {
           key: "",
           title: "Address findings",
-          description: "Address the reported findings and return the updated file content.",
+          description: [
+            "Address the reported findings and return the updated file content.",
+            // Parity with the legacy fix subtask (buildFixSubtask): the
+            // SPAWNED node carries the structured findings so the fix
+            // agent addresses them (the legacy path embedded them via
+            // formatReviewFindings; the engine path must too — otherwise
+            // the fix executes without knowing what it fixes).
+            ...(observation.findings ?? []).map(
+              (finding) =>
+                `- [${finding.severity}] ${finding.filePath ? `${finding.filePath}: ` : ""}${finding.description}${finding.suggestion ? ` — ${finding.suggestion}` : ""}`
+            ),
+          ].join("\n"),
           kind: "code_change",
           capability,
         },

@@ -33,7 +33,6 @@ function policy(overrides: Partial<ExecutionPolicy> = {}): ExecutionPolicy {
     maxDelegationDepth: 2,
     maxDelegations: 10,
     maxAgentsPerTask: 3,
-    decisionEngine: true,
     decisionLlmMode: "off",
     maxDecisionSteps: 20,
     ...overrides,

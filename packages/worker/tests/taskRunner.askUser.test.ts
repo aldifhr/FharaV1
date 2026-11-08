@@ -180,7 +180,6 @@ function createDeps() {
     maxConcurrentLLMCalls: 1,
     maxTokenBudgetPerTask: 50_000,
     orchestratorAuthoritative: false,
-    decisionEngine: true,
     decisionLlmMode: "off",
   };
   return {

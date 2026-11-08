@@ -21,7 +21,8 @@ import type {
  *    structured findings.
  *  - REVISE on a review subtask stays with the review loop — no second,
  *    duplicate fix subtask.
- *  - With the flag OFF the legacy record-only behavior is preserved.
+ *  (The legacy record-only path behind ORCHESTRATOR_DECISION_ENGINE was
+ *  deleted in plan 013 step 7: the decision engine is the only path.)
  */
 
 const mockState = vi.hoisted(() => ({
@@ -346,7 +347,7 @@ describe("orchestrator live decisions (Phase 3)", () => {
     await processTask(task, deps);
 
     const delegateCall = mockState.inputs.find((input) =>
-      input.key.startsWith("delegate_")
+      input.key.startsWith("decision_delegate_")
     );
     expect(delegateCall).toBeDefined();
     expect(delegateCall?.capability).toBe("security-audit");
@@ -356,13 +357,13 @@ describe("orchestrator live decisions (Phase 3)", () => {
     expect(captured.delegations[0].toAgentId).toBe("agent-security");
     expect(captured.delegations[0].capability).toBe("security-audit");
 
-    const evaluation = captured.events.find(
+    const decision = captured.events.find(
       (event) =>
-        event.type === "orchestrator.evaluation" &&
+        event.type === "orchestrator.decision" &&
         event.payload.subtaskKey === "implement"
     );
-    expect(evaluation?.payload.decision).toBe("APPROVE");
-    expect(evaluation?.payload.delegatedSubtaskKey).toBe(delegateCall?.key);
+    expect(decision?.payload.action).toBe("delegate");
+    expect(decision?.payload.decidedBy).toBe("deterministic");
   });
 
   it("REVISE on a non-review subtask spawns a fix subtask carrying the structured findings", async () => {
@@ -405,20 +406,19 @@ describe("orchestrator live decisions (Phase 3)", () => {
     await processTask(task, deps);
 
     const fixCall = mockState.inputs.find((input) =>
-      input.key.startsWith("fix_")
+      input.key.startsWith("decision_execute_")
     );
     expect(fixCall).toBeDefined();
     expect(fixCall?.kind).toBe("code_change");
     expect(fixCall?.capability).toBe("frontend-development");
     expect(fixCall?.description).toContain("Auth bypass via missing check");
 
-    const evaluation = captured.events.find(
+    const decision = captured.events.find(
       (event) =>
-        event.type === "orchestrator.evaluation" &&
+        event.type === "orchestrator.decision" &&
         event.payload.subtaskKey === "audit"
     );
-    expect(evaluation?.payload.decision).toBe("REVISE");
-    expect(evaluation?.payload.fixSubtaskKey).toBe(fixCall?.key);
+    expect(decision?.payload.action).toBe("execute");
   });
 
   it("REVISE on the review subtask stays with the review loop — exactly one fix subtask", async () => {
@@ -476,7 +476,7 @@ describe("orchestrator live decisions (Phase 3)", () => {
     expect(keys.filter((key) => key === "review")).toHaveLength(2);
   });
 
-  it("flag OFF keeps legacy record-only behavior: delegation recorded, never executed", async () => {
+  it("advisory planning flag no longer gates execution: the engine spawns work (plan 013 step 7)", async () => {
     mockState.implementRecommendation = {
       targetCapability: "security-audit",
       reason: "needs a security pass",
@@ -518,8 +518,8 @@ describe("orchestrator live decisions (Phase 3)", () => {
     await processTask(task, deps);
 
     expect(
-      mockState.inputs.some((input) => input.key.startsWith("delegate_"))
-    ).toBe(false);
+      mockState.inputs.some((input) => input.key.startsWith("decision_delegate_"))
+    ).toBe(true);
     expect(captured.delegations).toHaveLength(1);
     expect(captured.delegations[0].toAgentId).toBe("agent-security");
   });

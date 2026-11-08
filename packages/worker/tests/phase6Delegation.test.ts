@@ -73,7 +73,6 @@ const BASE_POLICY: ExecutionPolicy = {
   maxTokenBudgetPerTask: 50_000,
   allowFallback: true,
   orchestratorAuthoritative: true,
-  decisionEngine: true,
   decisionLlmMode: "off",
   maxDecisionSteps: 20,
   reviewMode: "auto",

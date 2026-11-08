@@ -79,11 +79,6 @@ export interface ExecutionPolicy {
   /** Plan 006 Phase 1: cap on agents answering one chat message. */
   chatMaxAgents?: number;
   /**
-   * Plan 006 Phase 2: the decision engine behind `executePlan`. When false
-   * the legacy evaluation path (record-only decisions) runs unchanged.
-   */
-  decisionEngine?: boolean;
-  /**
    * Plan 006 Phase 2: when the decision advisor is consulted.
    *  - "off": never (pure deterministic engine).
    *  - "ambiguous": only when the deterministic engine returns "ambiguous".
@@ -209,12 +204,8 @@ export function loadPolicy(): ExecutionPolicy {
           ? "ambiguous"
           : "off",
     chatMaxAgents: intFromEnv("ORCHESTRATOR_CHAT_MAX_AGENTS", 1, 1, 5),
-    // Plan 006 Phase 2: default OFF — the legacy evaluation path is unchanged
-    // until the engine is observed in the wild.
-    // Plan 005 Phase 6 Step 6.1: default ON after the whole worker suite
-    // went green with the engine forced on. Set the env var to "false" to
-    // revert; the flag stays documented for one release cycle.
-    decisionEngine: boolFromEnv("ORCHESTRATOR_DECISION_ENGINE", true),
+    // Plan 013 step 7: the decision engine is the only orchestrator path
+    // (flag deleted; default is irrevocably on).
     // Plan 005 Phase 4 Step 4.3 (enabled once Phase 4 tests went green):
     // the advisor is consulted only on ambiguous observations; the
     // deterministic policy decisions still win via validateDecision.

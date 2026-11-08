@@ -377,11 +377,18 @@ vi.mock("../src/execution/agentExecutor", () => ({
         meta: { filePaths: [filePath] },
       };
     }
+    if (input.subtask.kind === "qa") {
+      return {
+        status: "completed",
+        output: "QA verdict: passed",
+        meta: { verdict: "passed", checks: [] },
+      };
+    }
     return { status: "completed", output: "ok" };
   },
 }));
 
-import { processTask, resumeTask } from "@/services/taskRunner";
+import { processTask, resumeTask, buildStateFromDb } from "@/services/taskRunner";
 
 const IMPLEMENTER = {
   _id: "agent-implementer",
@@ -407,6 +414,58 @@ const SINGLE_IMPL_PLAN: ExecutionPlan = {
       capability: "frontend-development",
       dependencies: [],
       order: 0,
+    },
+  ],
+};
+
+/**
+ * Incident plan (plan-tone-check smoke): the review loop spawned a fix
+ * subtask mid-run, so TWO code_change subtasks edited the same file.
+ * The fileChanges table holds one row per path, attributed to the last
+ * writer — the earlier implementer would look like it produced nothing.
+ */
+const INCIDENT_PLAN: ExecutionPlan = {
+  version: 1,
+  goal: "Phase 4 hardening resume attribution test",
+  strategy: "dag",
+  requiresApproval: true,
+  maxConcurrency: 2,
+  subtasks: [
+    {
+      key: "implement",
+      title: "Implement",
+      description: "Write the code",
+      kind: "code_change",
+      capability: "frontend-development",
+      dependencies: [],
+      order: 0,
+    },
+    {
+      key: "review_fix",
+      title: "Fix review findings",
+      description: "Address review findings",
+      kind: "code_change",
+      capability: "frontend-development",
+      dependencies: ["implement"],
+      order: 1,
+    },
+    {
+      key: "review",
+      title: "CTO technical review",
+      description: "Review the change",
+      kind: "review",
+      capability: "code-review",
+      dependencies: ["review_fix"],
+      order: 2,
+    },
+    {
+      key: "qa",
+      title: "QA validation",
+      description: "Validate the change",
+      kind: "qa",
+      capability: "browser-testing",
+      dependencies: ["review"],
+      order: 3,
     },
   ],
 };
@@ -459,6 +518,7 @@ interface RunnerCapture {
   savePlanCalls: number;
   eventTypes: string[];
   statuses: string[];
+  messages: string[];
 }
 
 function createRunnerDeps(options: {
@@ -473,6 +533,12 @@ function createRunnerDeps(options: {
     subtaskKey?: string;
     newContent: string;
   }>;
+  executions?: Array<{
+    subtaskKey: string;
+    status: string;
+    meta?: unknown;
+  }>;
+  extraAgents?: Array<Record<string, unknown>>;
 }) {
   const captured: RunnerCapture = {
     completions: [],
@@ -480,6 +546,7 @@ function createRunnerDeps(options: {
     savePlanCalls: 0,
     eventTypes: [],
     statuses: [],
+    messages: [],
   };
   const task = {
     _id: "task-1",
@@ -530,7 +597,7 @@ function createRunnerDeps(options: {
   const context = {
     task,
     project,
-    agents: [IMPLEMENTER],
+    agents: [IMPLEMENTER, ...((options.extraAgents ?? []) as unknown as WorkerAgent[])],
     plan: {
       _id: "plan-1",
       taskId: task._id,
@@ -542,6 +609,7 @@ function createRunnerDeps(options: {
       createdAt: 0,
     },
     subtasks,
+    executions: options.executions ?? [],
     approvals: options.approvals ?? [],
     approvalMode: "auto" as const,
   };
@@ -619,7 +687,9 @@ function createRunnerDeps(options: {
       captured.statuses.push(input.status);
       return true;
     },
-    appendAgentMessage: async () => undefined,
+    appendAgentMessage: async (input: { content?: string }) => {
+      captured.messages.push(input.content ?? "");
+    },
     recordTokenUsage: async () => undefined,
     setPlanning: async () => undefined,
     savePlan: async () => {
@@ -805,4 +875,102 @@ describe("resume outcome handling (mandatory test 7)", () => {
     },
     15_000
   );
+
+  it(
+    "resume does not spam objective-unmet messages when the file row is attributed to the last writer",
+    async () => {
+      // Regression (plan-tone-check smoke): implement and review_fix both
+      // edited index.html; the fileChanges row keeps only the last
+      // writer's subtaskKey (review_fix), so the rebuilt evidence
+      // dropped implement. The runner then downgraded every skipped
+      // node and posted one "I'm stopping this step" message per node,
+      // even though the task completed fine. Executions restore the
+      // attribution, and skipped nodes no longer downgrade at all.
+      mockState.mode = "track";
+      const { deps, captured } = createRunnerDeps({
+        policy: BASE_POLICY,
+        taskStatus: "needs_approval",
+        approvals: approvedContext.approvals,
+        plan: INCIDENT_PLAN,
+        completedSubtasks: ["implement", "review_fix", "review"],
+        completedSubtaskOutputs: {
+          review: "Review approved.",
+        },
+        preparedFileChanges: [
+          { filePath: "index.html", subtaskKey: "review_fix", newContent: "content\n" },
+        ],
+        executions: [
+          { subtaskKey: "implement", status: "completed", meta: { filePaths: ["index.html"] } },
+          { subtaskKey: "review_fix", status: "completed", meta: { filePaths: ["index.html"] } },
+        ],
+        extraAgents: [
+          {
+            _id: "agent-qa",
+            name: "QA",
+            role: "qa",
+            capabilities: ["browser-testing"],
+            isEnabled: true,
+            priority: 1,
+          },
+        ],
+      });
+
+      await resumeTask("task-1", deps);
+
+      expect(mockState.executed).not.toContain("implement");
+      expect(mockState.executed).not.toContain("review_fix");
+      expect(mockState.executed).not.toContain("review");
+      expect(captured.completions.some((c) => c.status === "done")).toBe(true);
+      expect(
+        captured.messages.filter((m) => m.includes("stopping this step"))
+      ).toHaveLength(0);
+      expect(captured.eventTypes).not.toContain("orchestrator.objective_unmet");
+    },
+    15_000
+  );
+});
+
+describe("buildStateFromDb file attribution", () => {
+  it("attributes the file to every writer, not only the last one", () => {
+    // fileChanges holds one row per path; when implement and review_fix
+    // both edited the same file the row keeps only the last writer.
+    // Executions restore the earlier writers' attribution.
+    const { state } = buildStateFromDb({
+      subtasks: [
+        { key: "implement", kind: "code_change", status: "completed" },
+        { key: "review_fix", kind: "code_change", status: "completed" },
+        { key: "review", kind: "review", status: "completed", output: "Review approved." },
+      ] as any,
+      fileChanges: [
+        { filePath: "index.html", subtaskKey: "review_fix" },
+      ] as any,
+      executions: [
+        { subtaskKey: "implement", status: "completed", meta: { filePaths: ["index.html"] } },
+        { subtaskKey: "review_fix", status: "completed", meta: { filePaths: ["index.html"] } },
+      ] as any,
+    });
+    expect(state.appliedFilesBySubtask.get("implement")).toEqual(["index.html"]);
+    expect(state.appliedFilesBySubtask.get("review_fix")).toEqual(["index.html"]);
+    expect(state.reviewVerdicts["review"]?.verdict).toBe("approved");
+  });
+
+  it("without execution evidence, attribution falls back to the file row", () => {
+    const { state } = buildStateFromDb({
+      subtasks: [
+        { key: "implement", kind: "code_change", status: "completed" },
+      ] as any,
+      fileChanges: [{ filePath: "index.html", subtaskKey: "implement" }] as any,
+    });
+    expect(state.appliedFilesBySubtask.get("implement")).toEqual(["index.html"]);
+  });
+
+  it("waiting_approval counts as finished for attribution", () => {
+    const { completedKeys } = buildStateFromDb({
+      subtasks: [
+        { key: "implement", kind: "code_change", status: "waiting_approval" },
+      ] as any,
+      fileChanges: [] as any,
+    });
+    expect([...completedKeys]).toEqual(["implement"]);
+  });
 });

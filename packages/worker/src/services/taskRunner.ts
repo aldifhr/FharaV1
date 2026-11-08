@@ -198,6 +198,12 @@ export function resolveQaBaseUrl(
 export function buildStateFromDb(input: {
   subtasks: WorkerSubtask[];
   fileChanges: WorkerFileChange[];
+  /** Execution rows (for per-subtask file attribution, see below). */
+  executions?: Array<{
+    subtaskKey?: string;
+    status?: string;
+    meta?: unknown;
+  }>;
 }): { state: RunState; completedKeys: Set<string> } {
   // `waiting_approval` is a finished execution: requestApproval only moves
   // a subtask there after its work was produced. Counting it as done keeps
@@ -213,6 +219,28 @@ export function buildStateFromDb(input: {
     const existing = appliedFilesBySubtask.get(change.subtaskKey) ?? [];
     if (!existing.includes(change.filePath)) existing.push(change.filePath);
     appliedFilesBySubtask.set(change.subtaskKey, existing);
+  }
+  // The fileChanges table holds ONE row per file path: when several
+  // code_change subtasks edit the same file (implement, then review-fix),
+  // each save upserts the row and only the LAST writer's subtaskKey
+  // survives. Rebuilding attribution from those rows alone collapses —
+  // earlier writers look like they produced nothing, and the objective
+  // evaluation then reports them as completed-without-changes. The
+  // executions table keeps each subtask's own meta.filePaths, so union
+  // it in: every subtask that really produced a change keeps its
+  // attribution even when a later fix rewrote the same file.
+  for (const execution of input.executions ?? []) {
+    if (execution.status !== "completed" || !execution.subtaskKey) continue;
+    const filePaths = (execution.meta as { filePaths?: unknown } | null | undefined)
+      ?.filePaths;
+    if (!Array.isArray(filePaths)) continue;
+    const existing = appliedFilesBySubtask.get(execution.subtaskKey) ?? [];
+    for (const filePath of filePaths) {
+      if (typeof filePath === "string" && !existing.includes(filePath)) {
+        existing.push(filePath);
+      }
+    }
+    appliedFilesBySubtask.set(execution.subtaskKey, existing);
   }
   // Review/QA verdicts are not persisted as their own columns; they are
   // recoverable from the deterministic output the executor recorded on the
@@ -1086,6 +1114,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
   const seeded = storedPlan
     ? buildStateFromDb({
         subtasks: context.subtasks,
+        executions: context.executions,
         fileChanges: await deps.api.getFileChanges({ taskId: task._id }),
       })
     : null;
@@ -2090,8 +2119,17 @@ async function executePlan(input: {
               // Plan 005 Step 5.1: `complete` is only emitted when the
               // objective evidence says it is met; otherwise the request
               // becomes replan (concrete gaps) or ask_user (no path).
+              //
+              // Only a node that EXECUTED in this run may be downgraded.
+              // A node skipped as "Previously completed" on resume /
+              // recovery has no executionId this run; evaluating its
+              // objective here compares against rebuilt in-memory
+              // evidence, which is incomplete for that node, so the
+              // downgrade would fabricate a replan and post a
+              // "stopping this step" message per skipped node. The
+              // previous run already decided these nodes.
               let decision = decided;
-              if (decision.action === "complete") {
+              if (decision.action === "complete" && executionId) {
                 const pendingRequiredNodes = plan.subtasks.some(
                    (candidate) =>
                      (candidate.kind === "qa" || candidate.kind === "review") &&
@@ -3307,6 +3345,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
   // approval.
   const { state, completedKeys } = buildStateFromDb({
     subtasks: context.subtasks,
+    executions: context.executions,
     fileChanges: changes,
   });
   // Resumed runs must not redo finished nodes. Log what the DB reported so a

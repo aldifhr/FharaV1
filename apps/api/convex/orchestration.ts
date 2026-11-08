@@ -106,6 +106,14 @@ export const getRunContext = internalQuery({
     agents: Doc<"agents">[];
     plan: Doc<"plans"> | null;
     subtasks: Doc<"subtasks">[];
+    /**
+     * Per-subtask execution rows. The worker rebuilds file attribution
+     * from each completed execution's `meta.filePaths` — the fileChanges
+     * table holds one row per file path (upserted by the LAST writer),
+     * so rebuilding attribution from fileChanges alone collapses and
+     * marks earlier writers as having produced nothing.
+     */
+    executions: Doc<"executions">[];
     approvalMode: "ask" | "auto";
     llmProviders: PoolConnectionPayload[];
     /** Enabled MCP server configs for this project (Plan 009). Config-only. */
@@ -132,6 +140,11 @@ export const getRunContext = internalQuery({
       .order("asc")
       .collect();
 
+    const executions = await ctx.db
+      .query("executions")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .collect();
+
     // Provider pool (connections + model registry) assembled by the shared
     // backend helper. Only the ENCRYPTED key crosses to the worker — the
     // worker decrypts on its side (spec §5); plaintext is never returned.
@@ -156,6 +169,7 @@ export const getRunContext = internalQuery({
       agents: agents.map(projectAgentForWorker),
       plan: plans[0] ?? null,
       subtasks,
+      executions,
       approvalMode: project?.approvalMode === "auto" ? "auto" : "ask",
       llmProviders,
       mcpServers,

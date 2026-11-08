@@ -486,7 +486,10 @@ async function executeReview(
   }
 
   // Findings as a proper markdown list (blank line before it) so the
-  // chat renderer shows bullets instead of one run-on sentence.
+  // chat renderer shows bullets instead of one run-on sentence. The
+  // verdict itself is carried in the persisted output/meta for the
+  // objective evaluation and resumed-state rebuild; the CTO's single
+  // chat summary at completion reports it (no per-stage narration).
   const formatFindings = (findings: typeof review.findings) =>
     findings
       .map(
@@ -499,11 +502,6 @@ async function executeReview(
     verdict: review.verdict,
     findings: review.findings,
   });
-  await input.onMessage(
-    review.verdict === "approved"
-      ? "Review approved the prepared changes."
-      : `Review requested changes:\n\n${formatFindings(review.findings)}`
-  );
 
   if (review.verdict !== "approved") {
     return {

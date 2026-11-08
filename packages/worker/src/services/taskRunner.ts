@@ -956,37 +956,9 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       },
     });
     if (!storedPlan) {
-      const ctoAgent = runAgents.find((candidate) => /^cto$/i.test(candidate.role));
-      if (ctoAgent) {
-        // Plan summary: one line per assigned agent, mention inline with
-        // the subtask it owns. No leading self-tag (@CTO from the CTO's
-        // own message), no arrow chains.
-        const byAgent = new Map<string, string[]>();
-        for (const subtask of authoritative.plan.subtasks) {
-          const name = routeCapability(subtask.capability, runAgents, {
-            allowFallback: false,
-          })?.name;
-          if (!name) continue;
-          byAgent.set(name, [
-            ...(byAgent.get(name) ?? []),
-            `${subtask.title} (${subtask.capability})`,
-          ]);
-        }
-        const listing = [...byAgent.entries()]
-          .map(([name, items]) => `- @${name} — ${items.join("; ")}`)
-          .join("\n");
-        const selected = authoritative.plan.subtasks
-          .map((subtask) => `${subtask.title} (${subtask.capability})`)
-          .join("; ");
-        await deps.api.appendAgentMessage({
-          projectId: project._id,
-          taskId: task._id,
-          agentId: ctoAgent._id as any,
-          content: listing
-            ? `Plan:\n${listing}`
-            : `Plan: ${selected || "No specialized work is required"}. No specialized agents required — I'll handle it directly.`,
-        });
-      }
+      // No chat message about the plan here: the CTO posts ONE
+      // consolidated summary when the task completes (see finalize).
+      // The plan itself is recorded via orchestrator.plan / plan.created.
       if (authoritative.degradedReason) {
         await deps.api.logEvent({
           taskId: task._id,
@@ -2250,28 +2222,11 @@ async function executePlan(input: {
                 // (Delegation counting is budget bookkeeping only.)
                 input.budget.incrementDelegation();
               }
-              const ctoAgent = input.agents.find((candidate) => /^cto$/i.test(candidate.role));
-              if (ctoAgent && decision.action !== "complete" && !downgradedByObjective) {
-                const targetAgent = decision.target?.agentId
-                  ? input.agents.find((candidate) => candidate._id === decision.target?.agentId)
-                  : undefined;
-                const targetName = targetAgent?.name;
-                const target = decision.target?.capability ? ` (${decision.target.capability})` : "";
-                const instruction = decision.action === "delegate"
-                  ? `Please handle ${decision.target?.capability ?? "the next part"}${target}.`
-                  : decision.action === "execute"
-                    ? `Please revise the work: ${decision.reasoning}`
-                    : `I’m stopping this step: ${decision.reasoning}`;
-                const content = targetName ? `@${targetName} ${instruction}` : instruction;
-                await deps.api.appendAgentMessage({
-                  projectId: project._id,
-                  taskId: task._id,
-                  agentId: ctoAgent._id as any,
-                  content,
-                  subtaskKey: node.id,
-                  executionId,
-                }).catch(() => undefined);
-              }
+              // Decision narration stays in events only: the chat gets
+              // ONE CTO summary at completion. A "Please handle X" /
+              // "Please revise" chat line per decision was the remaining
+              // spam source (the delegation/revise itself, via applyDecision,
+              // is unaffected).
               const applied = applyDecision(
                 {
                   taskId,
@@ -2767,22 +2722,9 @@ async function executePlan(input: {
           type: "review.approved",
           payload: { iteration },
         });
-        const ctoAgent =
-          input.agents.find((a) => a.role === "cto") ||
-          input.agents.find((a) => capabilitiesOf(a).includes(CAPABILITY.CODE_REVIEW));
-        const changes = Array.from(state.fileChanges.values());
-        if (ctoAgent && changes.length > 0) {
-          // Report what the review actually covered: the reviewed files
-          // and the verdict — not boilerplate claims.
-          const fileList = changes.map((change) => change.filePath).join(", ");
-          const n = changes.length;
-          await deps.api.appendAgentMessage({
-            projectId: project._id,
-            taskId,
-            agentId: ctoAgent._id as any,
-            content: `Reviewed ${n} file${n === 1 ? "" : "s"} (${fileList}) — approved, no blocking findings.`,
-          });
-        }
+        // No chat narration: the CTO's one consolidated summary at
+        // completion reports the review outcome. The approval itself is
+        // recorded in events.
         return true;
       }
 
@@ -3676,10 +3618,37 @@ async function finalize(input: {
     return evaluation;
   }
 
-  const message =
+  // The ONE CTO chat message for the whole task: the executed plan,
+  // the review outcome, and the verification verdict — replacing the
+  // per-stage narration (plan announcement, review verdict note,
+  // "reviewed N files" note). Live progress lives in the thread
+  // panel's events, not in chat spam.
+  const planLines = plan.subtasks
+    .map((subtask) => {
+      const name = routeCapability(subtask.capability, input.agents, {
+        allowFallback: false,
+      })?.name;
+      return `- ${name ? `@${name}` : "Agent"} — ${subtask.title} (${subtask.capability})`;
+    })
+    .join("\n");
+  const reviewVerdicts = Object.values(state.reviewVerdicts);
+  const reviewedFiles = reviewVerdicts.length > 0 ? state.fileChanges.size : 0;
+  const reviewLine =
+    reviewVerdicts.length === 0
+      ? ""
+      : reviewVerdicts.every((r) => r.verdict === "approved")
+        ? `Review: approved${reviewedFiles > 0 ? ` (${reviewedFiles} file${reviewedFiles === 1 ? "" : "s"} reviewed, no blocking findings)` : ""}.`
+        : `Review: changes requested.`;
+  const message = [
     evaluation.verdict === "inconclusive"
-      ? `Task finished, but verification is inconclusive: ${details || "not all checks were performed"}.`
-      : "Task completed and verified.";
+      ? `Finished, but verification is inconclusive: ${details || "not all checks were performed"}.`
+      : "Done — plan executed:",
+    planLines ? `Plan:\n${planLines}` : "",
+    reviewLine,
+    `Verification: ${evaluation.verdict}.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const ctoAgent = input.agents.find((candidate) => /^cto$/i.test(candidate.role));
   await deps.api.appendAgentMessage({
     projectId: project._id,

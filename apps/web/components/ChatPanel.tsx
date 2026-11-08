@@ -136,6 +136,7 @@ function TaskCard({
   onApprove,
   onOpen,
   agents,
+  approvalMode,
 }: {
   task: any;
   subtasks: any[];
@@ -143,6 +144,7 @@ function TaskCard({
   onApprove: (approvalId: string) => void;
   onOpen: (taskId: string) => void;
   agents: any[];
+  approvalMode: "ask" | "auto";
 }) {
   const doneSubs = subtasks.filter((s) => s.status === "completed").length;
   const needsYou = task.status === "needs_approval" || pending.length > 0;
@@ -219,7 +221,7 @@ function TaskCard({
           <button type="button" onClick={() => onOpen(task._id)} className="rounded-xl border border-[#e5e3eb] px-3.5 py-2 text-[13px] font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
             Open thread
           </button>
-          {pending.length === 0 && task.status !== "done" && (
+          {pending.length === 0 && task.status !== "done" && approvalMode === "ask" && (
             <span className="ml-auto text-[11px] text-gray-400">Waits for approval before push</span>
           )}
         </div>
@@ -906,6 +908,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                           onApprove={(approvalId) => approve({ approvalId: approvalId as any })}
                           onOpen={onSelectTask}
                           agents={agents}
+                          approvalMode={(project as any)?.approvalMode ?? "ask"}
                         />
                         {pending.map((a: any) => (
                           <ApprovalCard

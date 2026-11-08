@@ -92,14 +92,20 @@ function OptionCards({
   options,
   pickedId,
   ctoAgrees,
+  taskId,
+  taskStatus,
   disabled,
   onPick,
+  onOpenTask,
 }: {
   options: ChatOption[];
   pickedId?: string;
   ctoAgrees?: boolean;
+  taskId?: string;
+  taskStatus?: string;
   disabled?: boolean;
   onPick: (option: ChatOption) => void;
+  onOpenTask?: (taskId: string) => void;
 }) {
   return (
     <div className="mt-3 max-w-2xl">
@@ -154,12 +160,29 @@ function OptionCards({
           );
         })}
       </div>
-      {pickedId !== undefined && ctoAgrees && (
-        <div className="mt-2 flex items-center gap-1.5">
-          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-            <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-indigo-100 text-[8px] font-bold text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">C</span>
-            CTO agrees
+      {pickedId !== undefined && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full bg-[#f3f1ff] px-2 py-0.5 text-[11px] font-semibold text-[#635bff] dark:bg-indigo-950/60 dark:text-indigo-300">
+            <Check size={11} /> You picked {pickedId}
           </span>
+          {ctoAgrees && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+              <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-indigo-100 text-[8px] font-bold text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">C</span>
+              CTO agrees
+            </span>
+          )}
+          {taskId && taskStatus && (
+            <button
+              type="button"
+              onClick={() => onOpenTask?.(taskId)}
+              title="Open the task created from this pick"
+              className="inline-flex items-center gap-1 rounded-full border border-[#e5e3eb] px-2 py-0.5 text-[11px] font-semibold text-gray-600 transition hover:border-[#635bff]/50 hover:text-[#635bff] dark:border-gray-700 dark:text-gray-300"
+            >
+              {taskStatus === "done" ? <CheckCircle2 size={11} /> : taskStatus === "failed" ? <XCircle size={11} /> : <Loader2 size={11} className="animate-spin" />}
+              {taskStatus === "done" ? "Done" : taskStatus === "failed" ? "Failed" : "Running"}
+              <ExternalLink size={10} />
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -1286,13 +1309,35 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                             break;
                           }
                         }
+                        // The pick auto-creates a task ("Task created from
+                        // your pick"); bind the card to that task's live
+                        // status so the card evolves with execution.
+                        let linkedTaskId: string | undefined;
+                        let linkedTaskStatus: string | undefined;
+                        if (pickedId) {
+                          for (let i = index + 2; i < timeline.length; i += 1) {
+                            const candidate = timeline[i];
+                            if (
+                              candidate?.taskId &&
+                              typeof candidate.content === "string" &&
+                              candidate.content.startsWith("Task created from your pick")
+                            ) {
+                              linkedTaskId = candidate.taskId;
+                              linkedTaskStatus = (tasks ?? []).find((t: any) => t._id === candidate.taskId)?.status;
+                              break;
+                            }
+                          }
+                        }
                         return (
                           <OptionCards
                             options={options}
                             pickedId={pickedId}
                             ctoAgrees={ctoAgrees}
+                            taskId={linkedTaskId}
+                            taskStatus={linkedTaskStatus}
                             disabled={chatSending}
                             onPick={(option) => void handleChooseProposal(`I choose ${option.id}: ${option.title}`)}
+                            onOpenTask={onSelectTask}
                           />
                         );
                       })()}

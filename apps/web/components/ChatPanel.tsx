@@ -46,43 +46,79 @@ function MessageText({ content }: { content: string }) {
 }
 
 function OptionPreview({ style }: { style: ChatOption["preview"] }) {
-  const line = <div className="h-1.5 rounded bg-gray-200 dark:bg-gray-700" />;
-  if (style === "plain") return null;
+  const nav = (
+    <div className="flex items-center gap-1.5">
+      <span className="h-2 w-2 rounded-full bg-[#8f90a8] dark:bg-gray-500" />
+      <span className="ml-auto h-1.5 w-5 rounded bg-gray-200 dark:bg-gray-700" />
+      <span className="h-1.5 w-5 rounded bg-gray-200 dark:bg-gray-700" />
+      <span className="h-1.5 w-4 rounded-full bg-[#8f90a8] dark:bg-gray-500" />
+    </div>
+  );
+  const bar = (w = "w-full") => <div className={`h-1.5 rounded bg-gray-200 dark:bg-gray-700 ${w}`} />;
   if (style === "rows") {
     return (
+      <div className="space-y-2 p-3">
+        {nav}
+        <div className="flex gap-2 pt-0.5">
+          <div className="h-9 w-10 shrink-0 rounded border border-gray-200 dark:border-gray-700" />
+          <div className="flex flex-1 flex-col justify-center gap-1">{bar("w-5/6")}{bar("w-2/3")}</div>
+        </div>
+        <div className="flex gap-2">
+          <div className="flex flex-1 flex-col justify-center gap-1">{bar("w-4/6")}{bar("w-3/4")}</div>
+          <div className="h-9 w-10 shrink-0 rounded border border-gray-200 dark:border-gray-700" />
+        </div>
+      </div>
+    );
+  }
+  if (style === "plain") {
+    // Text-only proposals still get a hero-shaped preview.
+    return (
       <div className="space-y-1.5 p-3">
-        {line}
-        <div className="h-1.5 w-3/4 rounded bg-gray-200 dark:bg-gray-700" />
-        <div className="h-1.5 w-1/2 rounded bg-gray-200 dark:bg-gray-700" />
+        {nav}
+        <div className="mx-auto mt-1 flex w-3/4 flex-col items-center gap-1">
+          <div className="h-2.5 w-4/5 rounded bg-gray-300 dark:bg-gray-600" />
+          <div className="h-1.5 w-3/5 rounded bg-gray-200 dark:bg-gray-700" />
+        </div>
+        <div className="mx-auto h-3.5 w-12 rounded-full border border-[#635bff]/50" />
       </div>
     );
   }
   const highlighted = style === "bold";
   return (
     <div className="space-y-1.5 p-3">
-      {line}
+      {nav}
       <div className="flex items-end gap-1.5 pt-0.5">
-        <div className="flex h-10 flex-1 items-end rounded border border-gray-200 p-1 dark:border-gray-700">
-          <div className="h-1.5 w-2/3 rounded bg-gray-200 dark:bg-gray-700" />
+        <div className="flex h-11 flex-1 flex-col gap-1 rounded border border-gray-200 p-1.5 dark:border-gray-700">
+          {bar("w-2/3")}{bar("w-1/3")}
         </div>
         <div
           className={
             highlighted
-              ? "flex h-12 flex-1 items-end rounded bg-[#15131c] p-1 dark:bg-white"
-              : "flex h-10 flex-1 items-end rounded border-2 border-[#635bff] p-1"
+              ? "flex h-14 flex-1 flex-col justify-end gap-1 rounded bg-[#15131c] p-1.5 dark:bg-white"
+              : "flex h-11 flex-1 flex-col justify-end gap-1 rounded border-2 border-[#635bff] p-1.5"
           }
         >
           <div
             className={
+              highlighted ? "h-2 w-4/5 rounded bg-white/90" : "h-2 w-4/5 rounded bg-gray-300 dark:bg-gray-600"
+            }
+          />
+          <div
+            className={
               highlighted
-                ? "h-1.5 w-full rounded bg-white/80"
-                : "h-1.5 w-full rounded bg-[#635bff]"
+                ? "h-2.5 w-2/5 rounded-full bg-[#635bff]"
+                : "h-2.5 w-2/5 rounded-full bg-[#635bff]"
             }
           />
         </div>
-        <div className="flex h-10 flex-1 items-end rounded border border-gray-200 p-1 dark:border-gray-700">
-          <div className="h-1.5 w-2/3 rounded bg-gray-200 dark:bg-gray-700" />
+        <div className="flex h-11 flex-1 flex-col gap-1 rounded border border-gray-200 p-1.5 dark:border-gray-700">
+          {bar("w-2/3")}{bar("w-1/2")}
         </div>
+      </div>
+      <div className="flex justify-center gap-1">
+        <div className="h-2.5 w-10 rounded-full bg-[#635bff]/70" />
+        <div className="h-2.5 w-10 rounded-full bg-gray-200 dark:bg-gray-700" />
+        <div className="h-2.5 w-10 rounded-full bg-gray-200 dark:bg-gray-700" />
       </div>
     </div>
   );
@@ -119,7 +155,7 @@ function OptionCards({
               disabled={disabled || pickedId !== undefined}
               onClick={() => onPick(option)}
               aria-pressed={selected}
-              className={`group overflow-hidden rounded-xl border-2 bg-white text-left shadow-sm transition ${
+              className={`group/option overflow-hidden rounded-xl border-2 bg-white text-left shadow-sm transition ${
                 selected
                   ? "border-[#635bff] bg-[#f3f1ff] dark:bg-indigo-950/30"
                   : "border-gray-200 hover:border-[#635bff]/60 dark:border-gray-800 dark:bg-gray-900"
@@ -135,7 +171,7 @@ function OptionCards({
                   className={`shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-bold ${
                     selected
                       ? "bg-[#635bff] text-white"
-                      : "bg-gray-100 text-gray-600 group-hover:bg-[#635bff] group-hover:text-white dark:bg-gray-800 dark:text-gray-300"
+                      : "bg-gray-100 text-gray-600 group-hover/option:bg-[#635bff] group-hover/option:text-white dark:bg-gray-800 dark:text-gray-300"
                   }`}
                 >
                   {option.id}

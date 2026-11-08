@@ -44,85 +44,112 @@ function MessageText({ content }: { content: string }) {
   );
 }
 
-function ProposalCards({
-  onSelectOption,
+function OptionPreview({ style }: { style: ChatOption["preview"] }) {
+  const line = <div className="h-1.5 rounded bg-gray-200 dark:bg-gray-700" />;
+  if (style === "plain") return null;
+  if (style === "rows") {
+    return (
+      <div className="space-y-1.5 p-3">
+        {line}
+        <div className="h-1.5 w-3/4 rounded bg-gray-200 dark:bg-gray-700" />
+        <div className="h-1.5 w-1/2 rounded bg-gray-200 dark:bg-gray-700" />
+      </div>
+    );
+  }
+  const highlighted = style === "bold";
+  return (
+    <div className="space-y-1.5 p-3">
+      {line}
+      <div className="flex items-end gap-1.5 pt-0.5">
+        <div className="flex h-10 flex-1 items-end rounded border border-gray-200 p-1 dark:border-gray-700">
+          <div className="h-1.5 w-2/3 rounded bg-gray-200 dark:bg-gray-700" />
+        </div>
+        <div
+          className={
+            highlighted
+              ? "flex h-12 flex-1 items-end rounded bg-[#15131c] p-1 dark:bg-white"
+              : "flex h-10 flex-1 items-end rounded border-2 border-[#635bff] p-1"
+          }
+        >
+          <div
+            className={
+              highlighted
+                ? "h-1.5 w-full rounded bg-white/80"
+                : "h-1.5 w-full rounded bg-[#635bff]"
+            }
+          />
+        </div>
+        <div className="flex h-10 flex-1 items-end rounded border border-gray-200 p-1 dark:border-gray-700">
+          <div className="h-1.5 w-2/3 rounded bg-gray-200 dark:bg-gray-700" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OptionCards({
+  options,
+  pickedId,
   disabled,
+  onPick,
 }: {
-  onSelectOption: (option: string) => void;
+  options: ChatOption[];
+  pickedId?: string;
   disabled?: boolean;
+  onPick: (option: ChatOption) => void;
 }) {
   return (
-    <div className="mt-3 grid max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2">
-      <div className="flex flex-col justify-between rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:border-[#635bff] dark:border-gray-800 dark:bg-gray-900">
-        <div>
-          <div className="flex items-center justify-between">
-            <span className="rounded-md bg-purple-50 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-950 dark:text-purple-300">
-              Option A
-            </span>
-            <span className="text-[11px] text-gray-400">Minimal Grid</span>
-          </div>
-          <h4 className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">
-            Clean 3-Column Grid
-          </h4>
-          <ul className="mt-2 space-y-1.5 text-xs text-gray-600 dark:text-gray-300">
-            <li className="flex items-start gap-1.5">
-              <span className="font-bold text-emerald-500">✓</span>
-              <span>3 equal columns, clean border</span>
-            </li>
-            <li className="flex items-start gap-1.5">
-              <span className="font-bold text-emerald-500">✓</span>
-              <span>Annual toggle with 'Save 20%' badge</span>
-            </li>
-            <li className="flex items-start gap-1.5">
-              <span className="font-bold text-emerald-500">✓</span>
-              <span>Clean typography, lowest risk</span>
-            </li>
-          </ul>
-        </div>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onSelectOption("Option A (Clean 3-Column Grid)")}
-          className="mt-4 w-full rounded-lg bg-gray-100 py-2 text-xs font-semibold text-gray-800 transition-colors hover:bg-[#635bff] hover:text-white disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-[#635bff]"
-        >
-          Choose Option A
-        </button>
-      </div>
-
-      <div className="flex flex-col justify-between rounded-xl border border-purple-200 bg-purple-50/20 p-4 shadow-sm transition-all hover:border-[#635bff] dark:border-purple-900/40 dark:bg-purple-950/10">
-        <div>
-          <div className="flex items-center justify-between">
-            <span className="rounded-md bg-purple-600 px-2 py-0.5 text-xs font-semibold text-white">
-              Option B
-            </span>
-            <span className="text-[11px] font-medium text-purple-600 dark:text-purple-400">Recommended</span>
-          </div>
-          <h4 className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">
-            Featured 'Pro' Tier
-          </h4>
-          <ul className="mt-2 space-y-1.5 text-xs text-gray-600 dark:text-gray-300">
-            <li className="flex items-start gap-1.5">
-              <span className="font-bold text-purple-600">✓</span>
-              <span>Elevated 'Pro' tier with subtle glow</span>
-            </li>
-            <li className="flex items-start gap-1.5">
-              <span className="font-bold text-purple-600">✓</span>
-              <span>Accordion for feature matrix</span>
-            </li>
-            <li className="flex items-start gap-1.5">
-              <span className="font-bold text-purple-600">✓</span>
-              <span>Higher conversion in past tests</span>
-            </li>
-          </ul>
-        </div>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onSelectOption("Option B (Featured 'Pro' Tier)")}
-          className="mt-4 w-full rounded-lg bg-[#635bff] py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#5346d8] disabled:opacity-50"
-        >
-          Choose Option B
-        </button>
+    <div className="mt-3 max-w-2xl">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {options.map((option) => {
+          const selected = pickedId !== undefined && pickedId === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              disabled={disabled || pickedId !== undefined}
+              onClick={() => onPick(option)}
+              aria-pressed={selected}
+              className={`group overflow-hidden rounded-xl border-2 bg-white text-left shadow-sm transition ${
+                selected
+                  ? "border-[#635bff] bg-[#f3f1ff] dark:bg-indigo-950/30"
+                  : "border-gray-200 hover:border-[#635bff]/60 dark:border-gray-800 dark:bg-gray-900"
+              } disabled:cursor-default disabled:opacity-90`}
+            >
+              {option.preview !== "plain" && (
+                <div className="border-b border-[#e9e7f5] dark:border-gray-800">
+                  <OptionPreview style={option.preview} />
+                </div>
+              )}
+              <div className="flex items-baseline gap-2 px-3 pt-2.5">
+                <span
+                  className={`rounded-md px-1.5 py-0.5 text-[11px] font-bold ${
+                    selected
+                      ? "bg-[#635bff] text-white"
+                      : "bg-gray-100 text-gray-600 group-hover:bg-[#635bff] group-hover:text-white dark:bg-gray-800 dark:text-gray-300"
+                  }`}
+                >
+                  {option.id}
+                </span>
+                <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900 dark:text-white">
+                  {option.title}
+                </p>
+                {option.summary && (
+                  <span className="shrink-0 text-[11px] text-gray-400">{option.summary}</span>
+                )}
+              </div>
+              <div className="px-3 pb-3 pt-1">
+                {selected ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#635bff]">
+                    <Check size={12} /> You picked {option.id}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-gray-400">{pickedId === undefined ? "Click to pick" : ""}</span>
+                )}
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -236,6 +263,13 @@ function FilesView({ project }: { project: any }) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [binaryNote, setBinaryNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    setImageSrc(null);
+    setBinaryNote(null);
+  }, [selected]);
 
   useEffect(() => {
     if (!workspacePath) return;
@@ -243,6 +277,8 @@ function FilesView({ project }: { project: any }) {
     setError("");
     setSelected(null);
     setContent(null);
+    setImageSrc(null);
+    setBinaryNote(null);
     fetch(`/api/project-files?workspacePath=${encodeURIComponent(workspacePath)}`)
       .then((res) => res.json())
       .then((data) => {
@@ -256,11 +292,23 @@ function FilesView({ project }: { project: any }) {
     if (!workspacePath) return;
     setSelected(filePath);
     setContent(null);
+    setImageSrc(null);
+    setBinaryNote(null);
     fetch(
       `/api/project-files?workspacePath=${encodeURIComponent(workspacePath)}&filePath=${encodeURIComponent(filePath)}`
     )
       .then((res) => res.json())
-      .then((data) => setContent((data as any)?.content ?? ""))
+      .then((data) => {
+        if ((data as any)?.image && (data as any)?.data && (data as any)?.mime) {
+          setImageSrc(`data:${(data as any).mime};base64,${(data as any).data}`);
+          setContent("");
+        } else if ((data as any)?.binary) {
+          setContent("");
+          setBinaryNote((data as any)?.reason ?? "Binary file — preview not available");
+        } else {
+          setContent((data as any)?.content ?? "");
+        }
+      })
       .catch(() => setContent("Failed to load file"));
   };
 
@@ -305,9 +353,16 @@ function FilesView({ project }: { project: any }) {
             <p className="border-b border-[#e5e3eb] px-4 py-2.5 font-mono text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
               {selected}
             </p>
-            <pre className="h-[calc(100%-37px)] overflow-auto p-4 font-mono text-xs leading-5 dark:text-gray-200">
-              {content ?? "Loading…"}
-            </pre>
+            {imageSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={imageSrc} alt={selected} className="h-[calc(100%-37px)] w-full object-contain bg-gray-50 dark:bg-gray-950" />
+            ) : content === "" && binaryNote ? (
+              <p className="flex h-[calc(100%-37px)] items-center justify-center text-sm text-gray-400">{binaryNote}</p>
+            ) : (
+              <pre className="h-[calc(100%-37px)] overflow-auto p-4 font-mono text-xs leading-5 dark:text-gray-200">
+                {content ?? "Loading…"}
+              </pre>
+            )}
           </>
         ) : (
           <p className="flex h-full items-center justify-center text-sm text-gray-400">
@@ -1229,7 +1284,10 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                 </div>
               );
             })}
-            {conversationTyping && (
+            {/* Generic chat-reply indicator. Per-agent status (Working now
+                / X is thinking) is more specific: when either is visible,
+                this one hides so the same state is not announced twice. */}
+            {conversationTyping && activeForSelectedTask.length === 0 && workingAgents.length === 0 && (
               <div className="flex items-center gap-2.5 rounded-full border border-[#ebe9f4] bg-white/80 px-3 py-1.5 text-xs font-medium text-gray-500 shadow-sm dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-300">
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#eeecfb] text-[10px] text-[#635bff] dark:bg-indigo-950 dark:text-indigo-300" aria-hidden="true">✦</span>
                 <span>Team is thinking</span>

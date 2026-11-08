@@ -199,7 +199,8 @@ export function pickOrchestrator(agents: AgentDefinition[]): AgentDefinition | n
   return enabled.find((agent) => /^orchestrator$/i.test(agent.role.trim())) ?? null;
 }
 
-function buildPlanningPrompt(input: PlannerInput): string {
+/** Builds the CTO planning prompt. Exported for prompt-shape tests. */
+export function buildPlanningPrompt(input: PlannerInput): string {
   const { command, classification, agents, policy } = input;
   return [
     "You are the CTO decision-maker for the multi-agent software engineering workspace.",
@@ -241,7 +242,30 @@ function buildPlanningPrompt(input: PlannerInput): string {
     "  package.json, vite/next config, index.html, src/main + src/App (or equivalent).",
     "  Never return a single index.html with CDN <script> tags as a 'migration'.",
     "- Dependencies must reference earlier subtasks and must not form cycles.",
-    "- Add a review node assigned to CTO for every code change. The CTO is the final technical quality gate; add QA separately only when the change is user-visible or the request asks for verification.",
+    // Plan 013 step 6: the prompt follows reviewMode/qaMode like the
+    // hints layer does, instead of mandating a review for every change.
+    ...(policy.reviewMode === "always"
+      ? [
+          "- Add a review node assigned to CTO for every code change. The CTO is the final technical quality gate (policy reviewMode=always).",
+        ]
+      : policy.reviewMode === "never"
+        ? [
+            "- Do NOT add a review node: policy reviewMode=never forbids it. The CTO quality gate still verifies the plan outcome, but the plan carries no review subtask.",
+          ]
+        : [
+            "- Add a review node assigned to CTO only for risky changes: auth, security, payments, migrations, concurrency, multi-domain, or multi-capability work. Simple single-capability changes get no review node. (policy reviewMode=auto: risk signal, not a mandate.)",
+          ]),
+    ...(policy.qaMode === "always"
+      ? [
+          "- Add a QA node for every code change: the app must be validated in the browser (policy qaMode=always).",
+        ]
+      : policy.qaMode === "never"
+        ? [
+            "- Do NOT add a QA node: policy qaMode=never forbids it. The plan carries no browser-validation subtask.",
+          ]
+        : [
+            "- Add a QA node only when the change is user-visible or the request asks for verification (policy qaMode=auto: verification signal, not a mandate).",
+          ]),
     "- Do NOT invent capabilities that are not listed above.",
     "- Keep the plan minimal; do not add decorative steps.",
     "",

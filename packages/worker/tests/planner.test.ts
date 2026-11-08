@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyCommand } from "@/orchestrator/classifier";
-import { createPlan, ensureRequiredSubtasks, heuristicPlan, wantsVisualQa } from "@/orchestrator/planner";
+import { buildPlanningPrompt, createPlan, ensureRequiredSubtasks, heuristicPlan, wantsVisualQa } from "@/orchestrator/planner";
 import type { AgentDefinition, ExecutionPlan } from "@/orchestrator/types";
 import { loadPolicy } from "@/orchestrator/policy";
 
@@ -290,5 +290,39 @@ describe("wantsVisualQa", () => {
     expect(plan.visualQa).toBe(false);
     expect(qaTask?.title).toBe("Validate HTML and browser reachability");
     expect(qaTask?.description.toLowerCase()).not.toContain("screenshot");
+  });
+});
+
+// Plan 013 step 6: the planner prompt follows reviewMode/qaMode.
+describe("planner prompt modes (plan 013 step 6)", () => {
+  const promptWith = (overrides: Partial<ReturnType<typeof loadPolicy>>) => {
+    const command = "Build the marketing page";
+    return buildPlanningPrompt({
+      command,
+      classification: classifyCommand(command),
+      agents: [frontend, reviewer, qa],
+      policy: { ...policy, ...overrides },
+    });
+  };
+
+  it("always mandates review and QA", () => {
+    const prompt = promptWith({ reviewMode: "always", qaMode: "always" });
+    expect(prompt).toContain("for every code change");
+    expect(prompt).toContain("policy reviewMode=always");
+    expect(prompt).toContain("policy qaMode=always");
+  });
+
+  it("never forbids review and QA", () => {
+    const prompt = promptWith({ reviewMode: "never", qaMode: "never" });
+    expect(prompt).toContain("policy reviewMode=never");
+    expect(prompt).toContain("policy qaMode=never");
+    expect(prompt).not.toContain("for every code change");
+  });
+
+  it("auto describes the risk/verification signals instead of mandating", () => {
+    const prompt = promptWith({});
+    expect(prompt).toContain("policy reviewMode=auto");
+    expect(prompt).toContain("policy qaMode=auto");
+    expect(prompt).not.toContain("for every code change");
   });
 });

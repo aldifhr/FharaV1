@@ -15,6 +15,15 @@ const DESIGN =
   /\b(design|ui\/ux|wireframe|mockup|layout direction|pricing direction|pricing layout|pricing tier|proposal)\b/i;
 const BACKEND =
   /\b(backend|back-end|api|server|endpoint|database|db|schema|convex|query|mutation|auth|webhook)\b/i;
+// Plain text/data files (notes, configs, fixtures) are not frontend work:
+// when a change command touches only these — no frontend/backend/design
+// keywords and no code file extensions — defaulting to frontend makes the
+// Designer own every .txt file. Backend is the team's file/shell
+// generalist, so route those to backend-development instead.
+const PLAIN_DATA_FILE =
+  /\.(txt|md|markdown|json|json5|csv|ya?ml|toml|ini|cfg|conf|env|log|xml|sql|lock)\b/i;
+const CODE_FILE =
+  /\.(html?|css|scss|sass|less|jsx?|tsx?|vue|svelte|py|go|rs|java|rb|php|cs|swift|kt|sh|bash|zsh)\b/i;
 const TESTING = /\b(test|tests|qa|e2e|playwright|vitest|coverage)\b/i;
 const SECURITY = /\b(security|vulnerab|authz|xss|csrf|injection|secret)\b/i;
 
@@ -74,28 +83,47 @@ export function classifyCommand(command: string): Classification {
   }
 
   if (hasChangeVerb) {
+    const plainFileOnly =
+      !hasFrontend &&
+      !hasBackend &&
+      !hasDesign &&
+      PLAIN_DATA_FILE.test(text) &&
+      !CODE_FILE.test(text);
     const suggested: string[] = [
       hasDesign
         ? CAPABILITY.DESIGN
-        : hasFrontend || !hasBackend
-          ? CAPABILITY.FRONTEND
-          : CAPABILITY.BACKEND,
+        : plainFileOnly
+          ? CAPABILITY.BACKEND
+          : hasFrontend || !hasBackend
+            ? CAPABILITY.FRONTEND
+            : CAPABILITY.BACKEND,
     ];
     if (hasTesting) suggested.push(CAPABILITY.BROWSER_TESTING);
     suggested.push(CAPABILITY.CODE_REVIEW);
     return {
       kind: "code_change",
       strategy: "single",
-      reasons: ["change request detected"],
+      reasons: plainFileOnly
+        ? ["plain text/data file change", "no frontend/backend domain indicated"]
+        : ["change request detected"],
       suggestedCapabilities: Array.from(new Set(suggested)),
     };
   }
 
+  const plainFileOnly =
+    !hasFrontend &&
+    !hasBackend &&
+    !hasDesign &&
+    PLAIN_DATA_FILE.test(text) &&
+    !CODE_FILE.test(text);
   return {
     kind: "code_change",
     strategy: "single",
     reasons: ["defaulted to a focused implementation task"],
-    suggestedCapabilities: [CAPABILITY.FRONTEND, CAPABILITY.CODE_REVIEW],
+    suggestedCapabilities: [
+      plainFileOnly ? CAPABILITY.BACKEND : CAPABILITY.FRONTEND,
+      CAPABILITY.CODE_REVIEW,
+    ],
   };
 }
 

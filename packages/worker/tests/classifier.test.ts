@@ -34,4 +34,44 @@ describe("classifier", () => {
     expect(result.kind).toBe("code_change");
     expect(result.strategy).toBe("single");
   });
+
+  it("routes plain text/data file changes to backend, not frontend", () => {
+    // Greetings of the plan-tone-check kind: a .txt file is not frontend
+    // work and must not land on the Designer.
+    const result = classifyCommand(
+      "Create plan-tone-check.txt containing exactly one line: Plan tone check"
+    );
+    expect(result.kind).toBe("code_change");
+    expect(result.suggestedCapabilities[0]).toBe("backend-development");
+    expect(result.suggestedCapabilities).toContain("code-review");
+
+    const notes = classifyCommand("Write sprint notes to notes.md");
+    expect(notes.suggestedCapabilities[0]).toBe("backend-development");
+
+    const data = classifyCommand("Create seed-data.json with two records");
+    expect(data.suggestedCapabilities[0]).toBe("backend-development");
+  });
+
+  it("keeps frontend routing for code and design files", () => {
+    const page = classifyCommand("Create structure-check-9d31.html with a heading");
+    expect(page.suggestedCapabilities[0]).toBe("frontend-development");
+
+    const script = classifyCommand("Add a timer to app.js");
+    expect(script.suggestedCapabilities[0]).toBe("frontend-development");
+
+    const ui = classifyCommand("redesign the pricing layout");
+    expect(ui.suggestedCapabilities[0]).toBe("ui-ux-design");
+  });
+
+  it("does not let a data filename override explicit domain keywords", () => {
+    const result = classifyCommand(
+      "Create api/notes.md documenting the new endpoint"
+    );
+    expect(result.suggestedCapabilities[0]).toBe("backend-development");
+
+    const frontend = classifyCommand(
+      "Create frontend/notes.md describing the new component"
+    );
+    expect(frontend.suggestedCapabilities[0]).toBe("frontend-development");
+  });
 });

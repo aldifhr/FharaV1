@@ -685,7 +685,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
   let branchName: string | undefined;
   let worktreePath: string | undefined;
 
-  const runAgents = agents.map(toAgentDefinition);
+  const runAgents = (agents as WorkerAgent[]).map(toAgentDefinition);
   const command = await withFileContexts(deps.workspaceRoot, project.workspacePath, task.command);
   const classification = classifyCommand(command);
   await deps.api.logEvent({
@@ -1526,6 +1526,14 @@ async function executePlan(input: {
   // or delegation subtask, 1 = fix subtask). Fix subtasks do not spawn
   // further fixes from evaluations; the review loop owns its iterations.
   const fixDepthByKey = new Map<string, number>();
+  // Completion state for THIS run. The persisted set only describes what a
+  // previous process finished; a node that completes mid-run must land here
+  // immediately or objective evaluation keeps reporting it as pending and
+  // the decision engine spawns recovery work for finished nodes.
+  const runCompleted = new Set<string>(input.completedKeys);
+  // Nodes added after planning (delegation / fix / recovery). They are
+  // execution details, never objective requirements.
+  const dynamicKeys = new Set<string>();
   // Live per-agent execution counts, fed to the delegation gate so an
   // agent already at its concurrency limit is not delegated more work,
   // and to the scheduler's per-agent start gate (Phase 4), which defers
@@ -1584,6 +1592,32 @@ async function executePlan(input: {
 
   const runNodes = (nodes: PlanSubtask[]): Promise<SchedulerResult> => {
     const subsetKeys = new Set(nodes.map((node) => node.key));
+    // Subset runs (the review/QA loops re-run their own nodes) filter out
+    // dependencies that live outside the subset, because the scheduler can
+    // only order nodes it was given. Dropping them silently would let QA
+    // run before the review it depends on, so an unmet prerequisite fails
+    // the subset closed instead of being ignored.
+    const unmet = nodes.filter((node) =>
+      node.dependencies.some(
+        (dependency) => !subsetKeys.has(dependency) && !runCompleted.has(dependency)
+      )
+    );
+    if (unmet.length > 0) {
+      const outcomes = new Map<string, NodeOutcome>(
+        unmet.map((node) => [
+          node.key,
+          {
+            status: "failed" as const,
+            error: `Prerequisite for "${node.key}" has not completed`,
+          },
+        ])
+      );
+      return Promise.resolve({
+        status: "failed",
+        outcomes,
+        failed: unmet.map((node) => node.key),
+      });
+    }
     return runScheduler(
       nodes.map((subtask) => ({
         id: subtask.key,
@@ -1598,7 +1632,7 @@ async function executePlan(input: {
           error: `No enabled agent can serve capability "${subtask.capability}"`,
         };
       }
-      if (input.completedKeys.has(node.id)) {
+      if (runCompleted.has(node.id)) {
         return { status: "completed", output: "Previously completed" };
       }
       const executionId = executionIds.get(node.id);
@@ -1781,7 +1815,7 @@ async function executePlan(input: {
         return true;
       },
       onStart: async (node, attempt) => {
-        if (input.completedKeys.has(node.id)) return;
+        if (runCompleted.has(node.id)) return;
         const subtask = plan.subtasks.find((candidate) => candidate.key === node.id)!;
         const agent = assign(node.id);
         if (!agent) throw new Error(`No enabled agent for capability ${subtask.capability}`);
@@ -1815,14 +1849,14 @@ async function executePlan(input: {
         const executionId = executionIds.get(node.id);
         // The node has settled: it no longer counts as active work for
         // its agent (a scheduler retry re-enters via onStart).
-        if (agent && !input.completedKeys.has(node.id)) {
+        if (agent && !runCompleted.has(node.id)) {
           activeByAgent.set(
             agent._id,
             Math.max(0, (activeByAgent.get(agent._id) ?? 1) - 1)
           );
         }
         let dynamicNodes: SchedulerNode[] | undefined;
-        if (!input.completedKeys.has(node.id) && executionId) {
+        if (!runCompleted.has(node.id) && executionId) {
           await deps.api.updateExecution({
             executionId,
             subtaskKey: node.id,
@@ -1832,6 +1866,10 @@ async function executePlan(input: {
             meta: outcome.status === "failed" ? undefined : outcome.meta,
           });
         }
+        // A node that settles completed joins this run's completion set
+        // BEFORE the decision engine reads it below, so a finished node is
+        // never treated as pending work.
+        if (outcome.status === "completed") runCompleted.add(node.id);
         const subtaskKind = plan.subtasks.find((candidate) => candidate.key === node.id)?.kind;
         const meta = outcome.meta as
           | { verdict?: string; findings?: ReviewResult["findings"] }
@@ -1915,7 +1953,7 @@ async function executePlan(input: {
                 budget: input.budget.snapshot(),
                 policy: deps.policy,
                 agents: input.agents,
-                completedKeys: input.completedKeys,
+                completedKeys: runCompleted,
                 step: decisionStep,
                 chainCapabilities: chain,
                 activeByAgent,
@@ -1969,12 +2007,14 @@ async function executePlan(input: {
                 const pendingRequiredNodes = plan.subtasks.some(
                    (candidate) =>
                      (candidate.kind === "qa" || candidate.kind === "review") &&
-                     !input.completedKeys.has(candidate.key) &&
+                     !dynamicKeys.has(candidate.key) &&
+                     !runCompleted.has(candidate.key) &&
                      candidate.key !== node.id
                  );
                  if (pendingRequiredNodes) return dynamicNodes;
                  const objective = evaluateObjective({
                   ...decisionContext,
+                  dynamicKeys,
                   objectiveEvidence: {
                     appliedFiles: Object.fromEntries(state.appliedFilesBySubtask),
                     qaVerdicts: state.qaVerdicts,
@@ -2108,7 +2148,7 @@ async function executePlan(input: {
                   budget: input.budget.snapshot(),
                   policy: deps.policy,
                   agents: input.agents,
-                  completedKeys: input.completedKeys,
+                  completedKeys: runCompleted,
                   step: decisionStep,
                   chainCapabilities: chain,
                   activeByAgent,
@@ -2119,6 +2159,7 @@ async function executePlan(input: {
               if (applied.nodes.length > 0) {
                 for (const dynamic of applied.nodes) {
                   plan.subtasks.push(dynamic);
+                  dynamicKeys.add(dynamic.key);
                   chainByKey.set(dynamic.key, [...chain, dynamic.capability]);
                   fixDepthByKey.set(dynamic.key, 0);
                 }
@@ -2253,6 +2294,7 @@ async function executePlan(input: {
                     order: nextOrder(),
                   };
                   plan.subtasks.push(delegationSubtask);
+                  dynamicKeys.add(key);
                   chainByKey.set(key, [...chain, evaluation.nextCapability]);
                   fixDepthByKey.set(key, 0);
                   delegatedSubtaskKey = key;
@@ -2286,6 +2328,7 @@ async function executePlan(input: {
                     dependencies: [node.id],
                   });
                   plan.subtasks.push(fixSubtask);
+                  dynamicKeys.add(key);
                   chainByKey.set(key, chain);
                   fixDepthByKey.set(key, (fixDepthByKey.get(node.id) ?? 0) + 1);
                   fixSubtaskKey = key;
@@ -2547,7 +2590,12 @@ async function executePlan(input: {
     const maxIterations = deps.policy.maxReviewIterations;
 
     for (let iteration = 0; iteration <= maxIterations; iteration += 1) {
-      for (const key of reviewNodeKeys) delete state.reviewVerdicts[key];
+      for (const key of reviewNodeKeys) {
+        delete state.reviewVerdicts[key];
+        // The loop deliberately re-runs its own nodes: clear this run's
+        // completion mark so the scheduler executes them again.
+        runCompleted.delete(key);
+      }
 
       await deps.api.logEvent({
         taskId,
@@ -2617,6 +2665,7 @@ async function executePlan(input: {
         order: plan.subtasks.reduce((max, candidate) => Math.max(max, candidate.order), 0) + 1,
       });
       plan.subtasks.push(fixSubtask);
+      dynamicKeys.add(fixSubtask.key);
       // The review loop owns this fix: register it as a fix-depth-1 node
       // on its own chain so an orchestrator evaluation of its outcome can
       // never spawn a second, duplicate fix subtask (Phase 3).
@@ -2662,7 +2711,12 @@ async function executePlan(input: {
     const maxIterations = deps.policy.maxReviewIterations;
 
     for (let iteration = 0; iteration <= maxIterations; iteration += 1) {
-      for (const node of qaNodes) delete state.qaVerdicts[node.key];
+      for (const node of qaNodes) {
+        delete state.qaVerdicts[node.key];
+        // The loop deliberately re-runs its own QA nodes: clear this run's
+        // completion mark so the scheduler executes them again.
+        runCompleted.delete(node.key);
+      }
 
       const qaRun = await runNodes(qaNodes);
       if (qaRun.status === "cancelled") return false;
@@ -2730,6 +2784,7 @@ async function executePlan(input: {
         order: plan.subtasks.reduce((max, candidate) => Math.max(max, candidate.order), 0) + 1,
       });
       plan.subtasks.push(fixSubtask);
+      dynamicKeys.add(fixSubtask.key);
       // The QA loop owns this fix: register it as a fix-depth-1 node on its
       // own chain so an orchestrator evaluation of its outcome can never
       // spawn a second, duplicate fix subtask (mirrors the review loop).
@@ -2980,6 +3035,7 @@ async function executePlan(input: {
           order: plan.subtasks.reduce((max, c) => Math.max(max, c.order), 0) + 1,
         });
         plan.subtasks.push(fixSubtask);
+        dynamicKeys.add(fixSubtask.key);
         chainByKey.set(fixSubtask.key, [fixSubtask.capability]);
         fixDepthByKey.set(fixSubtask.key, 1);
         await persistDynamic([fixSubtask], "fix");
@@ -3263,113 +3319,6 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
   } finally {
     taskAbort.dispose();
   }
-}
-
-async function mergeApprovalResolved(
-  deps: RunnerDeps,
-  task: WorkerTask,
-  project: WorkerProject,
-  branchName?: string,
-  worktreePath?: string
-): Promise<boolean> {
-  let attempt = 0;
-  const maxAttempts = 480; // ~12 min at 1.5s interval
-  while (attempt < maxAttempts) {
-    const approvals = await deps.api.getApprovals({ taskId: task._id });
-    const pending = approvals.filter(
-      (a) => a.kind === "merge_pr" && a.status === "pending"
-    );
-    if (pending.length === 0) {
-      const resolved = approvals.find((a) => a.kind === "merge_pr");
-      if (resolved?.status === "approved") {
-        if (branchName && worktreePath) {
-          try {
-            await deps.api.mergeBranch({ taskId: task._id });
-            await deps.api.logEvent({
-              taskId: task._id,
-              projectId: project._id,
-              type: "branch.merged",
-              payload: { branchName },
-              level: "info",
-            });
-          } catch (err: any) {
-            await deps.api.logEvent({
-              taskId: task._id,
-              projectId: project._id,
-              type: "branch.merge_failed",
-              payload: { error: err.message },
-              level: "error",
-            });
-            await deps.api.completeTask({
-              taskId: task._id,
-              status: "failed",
-              errorMessage: `Merge failed: ${err.message}`,
-            });
-            return false;
-          }
-        }
-        await deps.api.recordAudit({
-          taskId: task._id,
-          projectId: project._id,
-          workerId: deps.workerId,
-          actor: "user",
-          tool: "merge_pr",
-          action: "approve",
-          decision: "allowed",
-        });
-        const ctoAgent = input.agents.find((candidate) => /^cto$/i.test(candidate.role));
-        if (ctoAgent) {
-          await deps.api.appendAgentMessage({
-            projectId: project._id,
-            taskId: task._id,
-            agentId: ctoAgent._id as any,
-            content: "Approved. The changes are applied and the task is complete.",
-          });
-        }
-        await deps.api.completeTask({ taskId: task._id, status: "done" });
-        return true;
-      } else if (resolved?.status === "rejected") {
-        if (branchName && worktreePath) {
-          await deps.api.discardBranch({ taskId: task._id });
-          await deps.api.logEvent({
-            taskId: task._id,
-            projectId: project._id,
-            type: "branch.discarded",
-            payload: { branchName },
-            level: "warn",
-          });
-        }
-        await deps.api.recordAudit({
-          taskId: task._id,
-          projectId: project._id,
-          workerId: deps.workerId,
-          actor: "user",
-          tool: "merge_pr",
-          action: "reject",
-          decision: "denied",
-        });
-        await deps.api.appendAgentMessage({
-          projectId: project._id,
-          taskId: task._id,
-          content: "Changes were rejected by the user. Branch has been discarded.",
-        });
-        await deps.api.completeTask({
-          taskId: task._id,
-          status: "rejected",
-          errorMessage: "Changes rejected by user",
-        });
-        return false;
-      }
-    }
-    await sleep(1500);
-    attempt++;
-  }
-  await deps.api.completeTask({
-    taskId: task._id,
-    status: "failed",
-    errorMessage: "Approval timed out",
-  });
-  return false;
 }
 
 async function finalizeRecordEval(

@@ -31,7 +31,7 @@ function log(...args: unknown[]) {
 
 async function main() {
   const client = createConvexClient();
-  const api = new WorkerApi(client, process.env.CONVEX_SERVICE_TOKEN!);
+  const api = new WorkerApi(client, process.env.CONVEX_SERVICE_TOKEN!, workerId);
   const policy = loadPolicy();
   // Worker-wide LLM bound: configured ONCE here, from the worker's own
   // policy (WORKER_LLM_MAX_CONCURRENCY can override via env). Per-task

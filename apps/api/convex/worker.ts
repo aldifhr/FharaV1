@@ -208,6 +208,7 @@ export const updateSubtask = action({
     error: v.optional(v.string()),
     agentId: v.optional(v.id("agents")),
     agentName: v.optional(v.string()),
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
     return await ctx.runMutation(
@@ -297,6 +298,7 @@ export const saveFileChange = action({
     diff: v.string(),
     subtaskKey: v.optional(v.string()),
     executionId: v.optional(v.id("executions")),
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
     return await ctx.runMutation(
@@ -329,13 +331,15 @@ export const completeTask = action({
     taskId: v.id("tasks"),
     status: taskStatus,
     errorMessage: v.optional(v.string()),
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
-    const { taskId, status, errorMessage } = withoutToken(args);
-    await ctx.runMutation(internal.orchestration.completeTask, {
+    const { taskId, status, errorMessage, workerId } = withoutToken(args);
+    return await ctx.runMutation(internal.orchestration.completeTask, {
       taskId,
       status,
       errorMessage,
+      workerId,
     });
   },
 });

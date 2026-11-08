@@ -66,6 +66,14 @@ export interface ExecutionPlan {
   requiresApproval: boolean;
   maxConcurrency: number;
   subtasks: PlanSubtask[];
+  /**
+   * Plan-level visual-QA intent. Decided once at planning time and consumed
+   * by the executor, so planning and execution can never disagree about
+   * whether screenshots/baselines/viewports are wanted. Absent on plans
+   * persisted before plan 011 — the executor then falls back to its legacy
+   * command heuristic.
+   */
+  visualQa?: boolean;
 }
 
 export interface Classification {

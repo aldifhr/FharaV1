@@ -443,6 +443,37 @@ describe("decision: evaluateObjective (step 5.1)", () => {
     expect(result.missing).toEqual(["qa-1: QA verdict is failed"]);
   });
 
+  it("dynamic recovery/delegation nodes are not objective requirements", () => {
+    // The planned QA node passed; the extra decision_delegate_* nodes are
+    // execution details added by the recovery engine. They must not keep the
+    // task open — that was the production failure this test pins.
+    const withDynamic = context({
+      plan: {
+        version: 1,
+        goal: "g",
+        strategy: "single",
+        requiresApproval: false,
+        maxConcurrency: 1,
+        subtasks: [
+          { key: "impl", title: "Impl", description: "d", kind: "code_change", capability: CAPABILITY.FRONTEND, dependencies: [], order: 0 },
+          { key: "qa-1", title: "QA", description: "d", kind: "qa", capability: CAPABILITY.BROWSER_TESTING, dependencies: ["impl"], order: 1 },
+          { key: "decision_delegate_0", title: "Delegated", description: "d", kind: "qa", capability: CAPABILITY.BROWSER_TESTING, dependencies: ["impl"], order: 2 },
+          { key: "decision_delegate_0_2", title: "Delegated", description: "d", kind: "qa", capability: CAPABILITY.BROWSER_TESTING, dependencies: ["impl"], order: 3 },
+        ],
+      },
+      dynamicKeys: new Set(["decision_delegate_0", "decision_delegate_0_2"]),
+      completedKeys: new Set(["impl", "qa-1"]),
+      objectiveEvidence: {
+        appliedFiles: { impl: ["file-impl.txt"] },
+        qaVerdicts: { "qa-1": "passed" },
+        lastDecision: { action: "complete", expectedOutcome: "objective:met" },
+      },
+    });
+    const result = evaluateObjective(withDynamic);
+    expect(result.satisfied).toBe(true);
+    expect(result.missing).toEqual([]);
+  });
+
   it("not satisfied when the last decision outcome is unmet (recovery)", () => {
     const result = evaluateObjective(
       context({

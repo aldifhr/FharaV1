@@ -57,6 +57,12 @@ export interface DecisionContext {
   policy: ExecutionPolicy;
   agents: AgentDefinition[];
   completedKeys: ReadonlySet<string>;
+  /**
+   * Subtask keys added after planning (delegation / fix / recovery). They
+   * are execution details, never objective requirements — the planned graph
+   * is the only thing completion is measured against.
+   */
+  dynamicKeys?: ReadonlySet<string>;
   step: number;
   /** Plan 005 Phase 5 Step 5.1: objective evidence inputs from the runner. */
   objectiveEvidence?: ObjectiveEvidence;
@@ -155,10 +161,10 @@ export function evaluateObjective(ctx: DecisionContext): ObjectiveEvaluation {
   for (const subtask of ctx.plan.subtasks) {
     if (subtask.kind !== "qa") continue;
     // Dynamic delegation/recovery nodes are execution details, not new
-    // objective requirements. The original planned QA node is authoritative;
-    // otherwise every retry creates another required verdict and the CTO can
-    // never complete the task.
-    if (/^(?:decision_delegate|fix_qa|delegate_)/i.test(subtask.key)) continue;
+    // objective requirements. The runner marks them explicitly; the planned
+    // QA node is the only authoritative one, otherwise every retry creates
+    // another required verdict and the task can never complete.
+    if (ctx.dynamicKeys?.has(subtask.key)) continue;
     const verdict = ev.qaVerdicts?.[subtask.key];
     if (verdict === "passed") {
       evidence.push(`${subtask.key}: QA passed`);

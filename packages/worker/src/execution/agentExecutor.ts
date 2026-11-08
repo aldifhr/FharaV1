@@ -23,6 +23,7 @@ import { isCommandAllowed, runCommand } from "@/tools/runCommand";
 import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
 import { runResponsiveQa } from "./qa";
+import { wantsVisualQa } from "@/orchestrator/planner";
 import { getMcpRegistry, type McpHooks, type McpSession } from "@/mcp/registry";
 import { runMcpToolLoop } from "@/mcp/toolLoop";
 import type { McpToolDefinition } from "@/mcp/types";
@@ -518,7 +519,13 @@ async function executeQa(
   const report = await runResponsiveQa(input.workspacePath, {
     baseUrl: input.qaBaseUrl,
     signal: input.signal,
-    visualRegression: !/\b(?:no|not|without|don't|do\s+not|jangan)\b[\s\S]{0,160}\b(?:visual|screenshot|baseline|pixel|responsive|viewport)/i.test(input.command) && /\b(?:visual\s+regression|screenshot(?:s)?|baseline|pixel(?:-diff)?|responsive\s+(?:layout|viewports?)|desktop\s+and\s+(?:tablet|mobile)|tablet\s+and\s+mobile)\b/i.test(input.command),
+    // Plan-level intent is authoritative (plan 011). The command heuristic
+    // remains only for plans persisted before the field existed, so a
+    // "no screenshots / no viewport testing" request can never fall through
+    // to visual regression in the executor.
+    visualRegression:
+      input.plan.visualQa ??
+      wantsVisualQa(input.command),
     onCheck: async (check) => {
       await input.onEvent(
         "task.check",

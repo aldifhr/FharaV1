@@ -1,4 +1,5 @@
 import { internalMutation, internalQuery, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { loadProviderPool, type PoolConnectionPayload } from "./llmResolver";
@@ -49,6 +50,31 @@ function monotonicSubtaskStatus(
 ): string {
   if (current === "completed" && next !== "completed") return current;
   return next;
+}
+
+/**
+ * Lease fencing: only the worker that currently owns the task lease may
+ * write to it. A displaced worker (stale recovery requeued the task and
+ * another worker claimed it) keeps running locally, so its writes must be
+ * refused instead of interleaving with the new owner's.
+ *
+ * `workerId` is optional for backwards compatibility with legacy callers;
+ * when absent the write is treated as an orchestrator/offline write and is
+ * allowed, because every worker caller now passes it.
+ */
+async function holdsTaskLease(
+  ctx: MutationCtx,
+  taskId: Id<"tasks">,
+  workerId: string | undefined
+): Promise<boolean> {
+  if (!workerId) return true;
+  const task = await ctx.db.get(taskId);
+  if (!task) return false;
+  if (!task.workerId) return true;
+  if (task.workerId === workerId) return true;
+  // The current owner's lease already lapsed: the displaced writer may
+  // settle it (the task will be recovered or failed separately).
+  return (task.leaseExpiresAt ?? 0) < Date.now();
 }
 
 /**
@@ -210,7 +236,11 @@ export const heartbeat = internalMutation({
       .withIndex("by_worker", (q) => q.eq("workerId", args.workerId))
       .collect();
     for (const task of owned) {
-      if (task.status === "running") {
+      // A task being resumed after approval is still owned by this worker
+      // even though its status stays "needs_approval" during the resume
+      // claim; its lease must be renewed or a second worker could claim
+      // the same resume after the first lease window.
+      if (task.status === "running" || task.status === "needs_approval") {
         await ctx.db.patch(task._id, {
           leaseExpiresAt: now + leaseMs,
           updatedAt: now,
@@ -970,18 +1000,23 @@ export const saveFileChange = internalMutation({
     diff: v.string(),
     subtaskKey: v.optional(v.string()),
     executionId: v.optional(v.id("executions")),
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // Lease fencing (plan 011): a displaced worker must not stage files
+    // into a task another worker now owns.
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) return null;
+    const { workerId: _workerId, ...fields } = args;
     const existing = await ctx.db
       .query("fileChanges")
       .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
       .collect();
     const match = existing.find((change) => change.filePath === args.filePath);
     if (match) {
-      await ctx.db.patch(match._id, { ...args });
+      await ctx.db.patch(match._id, { ...fields });
       return match._id;
     }
-    return await ctx.db.insert("fileChanges", args);
+    return await ctx.db.insert("fileChanges", fields);
   },
 });
 
@@ -1012,9 +1047,15 @@ export const completeTask = internalMutation({
     taskId: v.id("tasks"),
     status: taskStatus,
     errorMessage: v.optional(v.string()),
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    // Lease fencing (plan 011): a displaced worker must not settle a task
+    // another worker now owns. Refused as a VALUE so the old worker stops.
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
+      return { applied: false, reason: "lease_lost" as const };
+    }
     // Terminal guard (Phase 4 hardening): a task that already reached
     // a terminal status keeps it. A worker that finishes late — after
     // a user cancellation, a recovery failure, or another worker's
@@ -1090,8 +1131,10 @@ export const updateSubtask = internalMutation({
     error: v.optional(v.string()),
     agentId: v.optional(v.id("agents")),
     agentName: v.optional(v.string()),
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) return false;
     const subtask = await ctx.db
       .query("subtasks")
       .withIndex("by_task_and_key", (q) =>

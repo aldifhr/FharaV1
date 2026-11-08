@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyCommand } from "@/orchestrator/classifier";
-import { createPlan, ensureRequiredSubtasks, heuristicPlan } from "@/orchestrator/planner";
+import { createPlan, ensureRequiredSubtasks, heuristicPlan, wantsVisualQa } from "@/orchestrator/planner";
 import type { AgentDefinition, ExecutionPlan } from "@/orchestrator/types";
 import { loadPolicy } from "@/orchestrator/policy";
 
@@ -245,5 +245,50 @@ describe("planner", () => {
       policy,
     });
     expect(plan.requiresApproval).toBe(false);
+  });
+});
+
+describe("wantsVisualQa", () => {
+  it("is false when the request prohibits screenshots, baselines and viewports", () => {
+    const command = [
+      "Create structure-check-abc.html with a heading and a paragraph.",
+      "Ask @QA to validate only the HTML structure, browser reachability,",
+      "console errors and network errors.",
+      "Do not take screenshots, do not compare baselines or pixels,",
+      "and do not test responsive or desktop/tablet/mobile viewports.",
+    ].join(" ");
+    expect(wantsVisualQa(command)).toBe(false);
+  });
+
+  it("is false for an Indonesian prohibition", () => {
+    const command =
+      "Buat halaman struktur.html. Jangan jalankan screenshot, baseline, atau uji viewport responsive.";
+    expect(wantsVisualQa(command)).toBe(false);
+  });
+
+  it("is true when visual regression is explicitly requested", () => {
+    expect(wantsVisualQa("Run a visual regression check with screenshots of every viewport")).toBe(
+      true
+    );
+  });
+
+  it("records the structural-only intent on the plan and the QA node text", () => {
+    const command = [
+      "Create structure-check-abc.html.",
+      "Ask @QA to validate only HTML structure and browser reachability.",
+      "Do not take screenshots or test viewports.",
+    ].join(" ");
+    const plan = heuristicPlan({
+      command,
+      classification: classifyCommand(command),
+      agents: [frontend, reviewer, qa],
+      policy,
+      hasQaUrl: true,
+    });
+    const qaTask = plan.subtasks.find((subtask) => subtask.kind === "qa");
+    expect(qaTask).toBeDefined();
+    expect(plan.visualQa).toBe(false);
+    expect(qaTask?.title).toBe("Validate HTML and browser reachability");
+    expect(qaTask?.description.toLowerCase()).not.toContain("screenshot");
   });
 });

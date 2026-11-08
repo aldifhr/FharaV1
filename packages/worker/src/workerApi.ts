@@ -33,7 +33,13 @@ type ActionInput<T extends FunctionReference<any, any, any, any>> = {
 export class WorkerApi {
   constructor(
     private readonly client: ConvexHttpClient,
-    private readonly token: string
+    private readonly token: string,
+    /**
+     * Lease owner identity. Fenced writes (completeTask, updateSubtask,
+     * saveFileChange) refuse to run when another worker holds the task
+     * lease, so a displaced worker cannot interleave with the new owner.
+     */
+    private readonly workerId?: string
   ) {}
 
   private args<T extends Record<string, unknown>>(value: T): any {
@@ -103,7 +109,10 @@ export class WorkerApi {
   async updateSubtask(
     input: ActionInput<typeof api.worker.updateSubtask>
   ): Promise<FunctionReturnType<typeof api.worker.updateSubtask>> {
-    return await this.client.action(api.worker.updateSubtask, this.args(input));
+    return await this.client.action(
+      api.worker.updateSubtask,
+      this.args({ workerId: this.workerId, ...input })
+    );
   }
 
   async requestApproval(
@@ -137,7 +146,10 @@ export class WorkerApi {
   async saveFileChange(
     input: ActionInput<typeof api.worker.saveFileChange>
   ): Promise<FunctionReturnType<typeof api.worker.saveFileChange>> {
-    return await this.client.action(api.worker.saveFileChange, this.args(input));
+    return await this.client.action(
+      api.worker.saveFileChange,
+      this.args({ workerId: this.workerId, ...input })
+    );
   }
 
   async markFilesApplied(
@@ -149,7 +161,10 @@ export class WorkerApi {
   async completeTask(
     input: ActionInput<typeof api.worker.completeTask>
   ): Promise<FunctionReturnType<typeof api.worker.completeTask>> {
-    return await this.client.action(api.worker.completeTask, this.args(input));
+    return await this.client.action(
+      api.worker.completeTask,
+      this.args({ workerId: this.workerId, ...input })
+    );
   }
 
   async recordEvaluation(

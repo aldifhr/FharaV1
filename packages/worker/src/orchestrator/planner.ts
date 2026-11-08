@@ -338,7 +338,7 @@ export function applyPlanningHints(
       (ctx.policy.qaMode !== "never" &&
         (riskSignal || verificationAsked || ctx.hasQaUrl === true));
     if (addQa) {
-      const visualQa = !/\b(?:no|not|without|don't|do\s+not|jangan)\b[\s\S]{0,160}\b(?:visual|screenshot|baseline|pixel|responsive|viewport)/i.test(ctx.command) && /\b(?:visual\s+regression|screenshot(?:s)?|baseline|pixel(?:-diff)?|responsive\s+(?:layout|viewports?)|desktop\s+and\s+(?:tablet|mobile)|tablet\s+and\s+mobile)\b/i.test(ctx.command);
+      const visualQa = wantsVisualQa(ctx.command);
       subtasks.push({
         key: uniqueKey("qa", subtasks),
         title: visualQa ? "Verify responsive visuals" : "Validate HTML and browser reachability",
@@ -356,8 +356,30 @@ export function applyPlanningHints(
   return {
     ...plan,
     strategy: subtasks.length > 1 ? "dag" : plan.strategy,
+    // Record the visual-QA decision on the plan itself: the executor reads
+    // this instead of re-parsing the command, so the two can never disagree.
+    visualQa: subtasks.some((subtask) => subtask.kind === "qa")
+      ? wantsVisualQa(ctx.command)
+      : plan.visualQa,
     subtasks: subtasks.map((subtask, index) => ({ ...subtask, order: index })),
   };
+}
+
+/**
+ * Single source of truth for "does this request want visual QA?".
+ * A negated prohibition anywhere in the request wins over the positive
+ * signal, which is what makes "@QA must not run screenshots/viewports"
+ * authoritative rather than advisory.
+ */
+export function wantsVisualQa(command: string): boolean {
+  const prohibited =
+    /\b(?:no|not|without|don't|do\s+not|jangan|tanpa)\b[\s\S]{0,160}\b(?:visual|screenshots?|baselines?|pixels?|responsive|viewports?|desktop|tablet|mobile)\b/i.test(
+      command
+    );
+  if (prohibited) return false;
+  return /\b(?:visual\s+regression|screenshots?|baselines?|pixel(?:-diff)?|responsive\s+(?:layout|viewports?)|(?:desktop|tablet|mobile)\s+(?:and\s+\w+\s+)?viewports?|viewport\s+testing)\b/i.test(
+    command
+  );
 }
 
 const RISK_SIGNAL =

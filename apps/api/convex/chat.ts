@@ -111,7 +111,7 @@ function buildPlanningGuidance(agent: { role: string }, opts: { isOrchestrator: 
 
 /** Shared guidance: machine-readable choice blocks for clickable cards. */
 const OPTIONS_GUIDANCE =
-  "When you present 2-4 choices for the user to pick from, end your reply with an options block, exactly in this format:\n[options]\nA|Short title|One-line summary|sheet\nB|Short title|One-line summary|bold\n[/options]\nPreview styles: sheet (three-column layout), bold (highlighted center card), rows (stacked list), plain (none). Keep it to ONE block per reply, then stop.";
+  "When you present 2-4 choices for the user to pick from, end your reply with an options block, exactly in this format:\n[options]\nA|Short title|One-line summary|sheet\nB|Short title|One-line summary|bold\n[/options]\nPreview styles: sheet (three-column layout), bold (highlighted center card), rows (stacked list), plain (none). Keep it to ONE block per reply, then stop.\nWhen the user picks one of your options, reply starting with 'I agree' if you endorse the choice, or explain your objection and why.";
 
 async function completeWithAgent(
   system: string,

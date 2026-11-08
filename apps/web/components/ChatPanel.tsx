@@ -91,11 +91,13 @@ function OptionPreview({ style }: { style: ChatOption["preview"] }) {
 function OptionCards({
   options,
   pickedId,
+  ctoAgrees,
   disabled,
   onPick,
 }: {
   options: ChatOption[];
   pickedId?: string;
+  ctoAgrees?: boolean;
   disabled?: boolean;
   onPick: (option: ChatOption) => void;
 }) {
@@ -152,6 +154,14 @@ function OptionCards({
           );
         })}
       </div>
+      {pickedId !== undefined && ctoAgrees && (
+        <div className="mt-2 flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+            <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-indigo-100 text-[8px] font-bold text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">C</span>
+            CTO agrees
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -992,7 +1002,19 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                   )}
                   {(pinnedMessages ?? []).map((m: any) => (
                     <div key={m._id} className="flex items-start gap-2 border-t border-gray-100 px-3 py-2 dark:border-gray-800">
-                      <div className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        title="Open in chat"
+                        aria-label="Open in chat"
+                        onClick={() => {
+                          setPinsOpen(false);
+                          setTab("chat");
+                          requestAnimationFrame(() =>
+                            document.getElementById(`message-${m._id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
+                          );
+                        }}
+                        className="min-w-0 flex-1 text-left"
+                      >
                         <p className="text-[11px] font-semibold text-gray-500">
                           {m.authorType === "agent"
                             ? roleLabel((agents as any)?.find((a: any) => a._id === m.agentId)?.role)
@@ -1000,7 +1022,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                           <span className="ml-1 font-normal text-gray-400">{formatMessageTime(m._creationTime)}</span>
                         </p>
                         <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap break-words text-[13px] text-gray-700 dark:text-gray-200">{m.content}</p>
-                      </div>
+                      </button>
                       <button
                         type="button"
                         title="Unpin message"
@@ -1101,7 +1123,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                   onClick={() =>
                     setClearConfirm({
                       title: "Clear this chat?",
-                      message: "Every chat message in this project will be deleted, including task reports. Tasks themselves are kept.",
+                      message: "Every chat message in this project will be deleted, except pinned messages. Tasks themselves are kept.",
                       confirmLabel: "Clear chat",
                       onOk: () => { void confirmClearChat(); },
                     })
@@ -1181,6 +1203,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                     );
                   })()}
                   <motion.div
+                    key={m._id}
+                    id={`message-${m._id}`}
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
@@ -1249,10 +1273,24 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                             new RegExp(`^I choose ${o.id}\\b`, "i").test(pickedMsg) ||
                             pickedMsg.includes(o.title)
                         )?.id;
+                        // The mockup's second chip: does the CTO endorse the
+                        // pick in its next reply?
+                        let ctoAgrees = false;
+                        if (pickedId) {
+                          for (let i = index + 2; i < timeline.length && i < index + 6; i += 1) {
+                            const candidate = timeline[i];
+                            if (!candidate || candidate.authorType !== "agent") continue;
+                            const role = (agents as any)?.find((a: any) => a._id === candidate.agentId)?.role;
+                            if (!/^(cto|architect|lead|orchestrator|planner)$/i.test(role ?? "")) continue;
+                            ctoAgrees = /^\s*i agree\b/i.test(candidate.content ?? "");
+                            break;
+                          }
+                        }
                         return (
                           <OptionCards
                             options={options}
                             pickedId={pickedId}
+                            ctoAgrees={ctoAgrees}
                             disabled={chatSending}
                             onPick={(option) => void handleChooseProposal(`I choose ${option.id}: ${option.title}`)}
                           />

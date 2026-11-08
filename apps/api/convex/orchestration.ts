@@ -1145,6 +1145,50 @@ export const setTaskStatus = internalMutation({
   },
 });
 
+export const pauseForInput = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    question: v.string(),
+    workerId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Lease fencing (plan 011): a displaced worker must not pause a task
+    // another worker now owns. Refused as a VALUE like completeTask.
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
+      return { applied: false, reason: "lease_lost" as const };
+    }
+    // Terminal guard: same absorbing rule as completeTask — a task that
+    // already settled stays settled; the pause is refused with a clear
+    // value so the caller can stop cleanly instead of asking a question
+    // nobody can answer.
+    const task = await ctx.db.get(args.taskId);
+    if (!task) {
+      return { applied: false, reason: "task_not_found" as const };
+    }
+    if (TERMINAL_TASK_STATUSES.has(task.status)) {
+      return {
+        applied: false,
+        reason: "task_already_terminal" as const,
+        status: task.status,
+      };
+    }
+    const now = Date.now();
+    await ctx.db.patch(args.taskId, {
+      status: "waiting_input",
+      pendingQuestion: args.question.slice(0, 2000),
+      updatedAt: now,
+    });
+    await ctx.db.insert("taskEvents", {
+      taskId: task._id,
+      projectId: task.projectId,
+      type: "task.input_asked",
+      payload: { question: args.question.slice(0, 500) },
+      level: "info",
+    });
+    return { applied: true, status: "waiting_input" as const };
+  },
+});
+
 export const updateSubtask = internalMutation({
   args: {
     taskId: v.id("tasks"),

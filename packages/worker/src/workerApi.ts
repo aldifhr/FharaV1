@@ -179,6 +179,13 @@ export class WorkerApi {
     return await this.client.action(api.worker.setTaskStatus, this.args(input));
   }
 
+  // Plan 013 step 4: pause a task for a user answer (`waiting_input`).
+  async pauseForInput(
+    input: ActionInput<typeof api.worker.pauseForInput>
+  ): Promise<FunctionReturnType<typeof api.worker.pauseForInput>> {
+    return await this.client.action(api.worker.pauseForInput, this.args(input));
+  }
+
   async recordEvaluation(
     input: ActionInput<typeof api.worker.recordEvaluation>
   ): Promise<FunctionReturnType<typeof api.worker.recordEvaluation>> {

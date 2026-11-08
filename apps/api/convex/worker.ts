@@ -355,6 +355,24 @@ export const setTaskStatus = action({
   },
 });
 
+// Plan 013 step 4: the worker pauses a task for a user answer.
+export const pauseForInput = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    question: v.string(),
+    workerId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    const { taskId, question, workerId } = withoutToken(args);
+    return await ctx.runMutation(internal.orchestration.pauseForInput, {
+      taskId,
+      question,
+      workerId,
+    });
+  },
+});
+
 export const recordEvaluation = action({
   args: {
     ...tokenArg,

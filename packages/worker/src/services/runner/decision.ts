@@ -464,8 +464,25 @@ export async function handleNodeOutcome(
           }
           case "complete":
           case "replan":
-          case "ask_user":
             break;
+          case "ask_user": {
+            // Plan 013 step 4: pause the task in `waiting_input` with
+            // the question visible; the first applied pause wins. A
+            // refused pause (lease lost / already terminal) is recorded
+            // and the run continues.
+            const paused = await deps.api
+              .pauseForInput({
+                taskId,
+                question: applied.question,
+                workerId: deps.workerId,
+              })
+              .catch(() => null);
+            if (paused?.applied && !ctx.budgetHalt) {
+              // The backend mutation already recorded `task.input_asked`.
+              ctx.budgetHalt = true;
+            }
+            break;
+          }
         }
         ctx.decisionStep += 1;
         await deps.api

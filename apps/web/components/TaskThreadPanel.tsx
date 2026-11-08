@@ -4,7 +4,6 @@ import { useMutation, useQuery } from "convex/react";
 import { motion } from "framer-motion";
 import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
-import InitialAvatar from "./InitialAvatar";
 import { roleLabel } from "@/lib/agentRoles";
 import ApprovalCard from "./ApprovalCard";
 import DiffCard from "./DiffCard";
@@ -136,7 +135,7 @@ export default function TaskThreadPanel({
   };
   const statusLabel = taskStatus === "done"
     ? "Completed"
-    : taskStatus === "needs_approval"
+    : taskStatus === "needs_approval" || taskStatus === "waiting_input"
       ? "Needs you"
       : taskStatus === "rejected"
         ? "Rejected"
@@ -325,7 +324,7 @@ export default function TaskThreadPanel({
           const msgAgent = (agents as any)?.find((a: any) => a._id === m.agentId);
           return (
           <div key={m._id} className="flex gap-2">
-            <InitialAvatar name={roleLabel(msgAgent?.role)} size={28} />
+            <AgentAvatar name={roleLabel(msgAgent?.role)} size={28} avatarParams={msgAgent?.avatarParams} />
             <div className="min-w-0">
               <p className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500">
                 {roleLabel(msgAgent?.role)}

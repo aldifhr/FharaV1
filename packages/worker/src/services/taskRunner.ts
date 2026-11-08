@@ -109,6 +109,47 @@ export { buildStateFromDb, carryForwardState } from "./runner/state";
 export { resolveQaBaseUrl } from "./runner/setup";
 export type { RunnerDeps, RunState } from "./runner/types";
 
+/**
+ * Thread the user's ask_user answers into the run's shared context
+ * (plan 013 step 4). The answer mutation in the backend persists a
+ * `user_answer` decision onto the task context; this run folds any it
+ * does not already know (by createdAt) into sharedContext.decisions —
+ * deduplicated so a worker restart never double-threads one answer.
+ * Never throws: a context read failure is logged and the run continues.
+ */
+async function threadUserAnswers(
+  deps: RunnerDeps,
+  taskId: string,
+  sharedContext: SharedTaskContext
+): Promise<void> {
+  // Capability check: legacy / test harnesses may not model getTaskContext.
+  if (typeof deps.api.getTaskContext !== "function") return;
+  const persisted = await deps.api.getTaskContext({ taskId }).catch(() => null);
+  const answers = (persisted?.decisions ?? []) as Array<{
+    decision?: string;
+    reason?: string;
+    createdAt?: number;
+  }>;
+  const seen = new Set(
+    sharedContext.decisions.map((entry) => `${entry.createdAt}:${entry.reason ?? ""}`)
+  );
+  for (const answer of answers) {
+    if (answer.decision !== "user_answer" || !answer.reason) continue;
+    const key = `${answer.createdAt}:${answer.reason}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    sharedContext.decisions = [
+      ...sharedContext.decisions,
+      {
+        decision: "user_answer",
+        reason: answer.reason,
+        fromAgent: "user",
+        createdAt: answer.createdAt ?? Date.now(),
+      },
+    ];
+  }
+}
+
 export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<void> {
   const context = await deps.api.getContext({ taskId: task._id });
   if (!context?.project) {
@@ -258,6 +299,9 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     title: task.title,
     classification,
   });
+  // Plan 013 step 4: a re-queued run threads the user's answer(s) into
+  // the shared context before planning/execution reads it.
+  await threadUserAnswers(deps, task._id, sharedContext);
   await deps.api
     .upsertTaskContext?.({
       taskId: task._id,
@@ -584,6 +628,10 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       });
 
       if (outcome.status === "waiting_approval") return;
+      // ask_user pause (plan 013 step 4): the backend already holds the
+      // question in `waiting_input`; this invocation just ends. The
+      // user's answer re-queues the task for a fresh worker claim.
+      if (outcome.status === "waiting_input") return;
 
       // Plan 005 Step 5.4: the decision step bound is terminal — fail
       // the task explicitly, never mark it done or replan it.
@@ -984,10 +1032,12 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
 }
 
 // Interpretation of one `executePlan` invocation. `replan` carries the
-// objective-missing feedback processTask's bounded re-plan consumes
-// (plan 013 step 3); every other status is terminal for the invocation.
+// objective-missing feedback processTask's bounded re-plan consumes,
+// and `waiting_input` means the task was paused by the backend
+// `pauseForInput` mutation (plan 013 step 4) — the caller simply ends
+// the invocation; the answer re-queues the task.
 export interface ExecutePlanResult {
-  status: "completed" | "failed" | "waiting_approval" | "cancelled" | "step_limit" | "replan";
+  status: "completed" | "failed" | "waiting_approval" | "cancelled" | "step_limit" | "replan" | "waiting_input";
   replanFeedback?: string;
 }
 
@@ -1181,6 +1231,10 @@ async function executePlan(input: {
   // The objective missing list carried by the first `replan` outcome of
   // this invocation; processTask turns it into bounded re-plan feedback.
   let replanFeedback: string | null = null;
+  // The question this invocation paused for (plan 013 step 4). Set only
+  // when the backend pause was applied; the re-queued run continues with
+  // the user's answer threaded into the shared context.
+  let waitingForInput: string | null = null;
   let delegationSeq = 0;
   let fixSeq = 0;
   for (const subtask of plan.subtasks) {
@@ -1221,13 +1275,17 @@ async function executePlan(input: {
   /** True once this run is cancelled — by the status poll or by the deadline signal. */
   const taskCancelled = (): boolean =>
     cancelled || input.taskAbort?.signal.aborted === true;
-  // Engine replan (plan 013 step 3) exits at stage boundaries, never
-  // mid-node: the caller re-plans through the single authority and
-  // re-runs the scheduler. Cancellation always wins.
-  const replanExit = (): { status: "replan"; replanFeedback: string } | null =>
-    replanFeedback !== null && !taskCancelled()
-      ? { status: "replan" as const, replanFeedback }
-      : null;
+  // Decision-terminal exits at stage boundaries, never mid-node:
+  // `waiting_input` (plan 013 step 4) wins over `replan` (step 3) — a
+  // question the user can still answer is worth more than re-planning
+  // the same gap. Cancellation always wins over replan.
+  const terminalExit = (): ExecutePlanResult | null => {
+    if (waitingForInput !== null) return { status: "waiting_input" };
+    if (replanFeedback !== null && !taskCancelled()) {
+      return { status: "replan", replanFeedback };
+    }
+    return null;
+  };
 
   const runNodes = (nodes: PlanSubtask[]): Promise<SchedulerResult> => {
     const subsetKeys = new Set(nodes.map((node) => node.key));
@@ -1939,8 +1997,23 @@ async function executePlan(input: {
                   break;
                 }
                 case "ask_user": {
-                  // Recorded in the decision event above; `waiting_input`
-                  // pause is wired in plan 013 step 4 (schema + resume).
+                  // Plan 013 step 4: pause the task in `waiting_input`
+                  // with the question visible. The first applied pause
+                  // wins; a refused pause (lease lost / task already
+                  // terminal) is recorded and the run continues.
+                  if (waitingForInput === null) {
+                    const paused = await deps.api
+                      .pauseForInput({
+                        taskId,
+                        question: applied.question,
+                        workerId: deps.workerId,
+                      })
+                      .catch(() => null);
+                    if (paused?.applied) {
+                      waitingForInput = applied.question;
+                      decisionTerminal = true;
+                    }
+                  }
                   break;
                 }
               }
@@ -2655,8 +2728,8 @@ async function executePlan(input: {
   // rest of this plan; processTask re-plans (bounded) and re-runs the
   // scheduler. Cancellation already won above.
   {
-    const replan = replanExit();
-    if (replan) return replan;
+    const exit = terminalExit();
+    if (exit) return exit;
   }
 
   const hasCodeChange = plan.subtasks.some((subtask) => subtask.kind === "code_change");
@@ -2671,8 +2744,8 @@ async function executePlan(input: {
   }
   // Same boundary after the review stage (plan 013 step 3).
   {
-    const replan = replanExit();
-    if (replan) return replan;
+    const exit = terminalExit();
+    if (exit) return exit;
   }
 
   const preparedChanges = Array.from(state.fileChanges.values());
@@ -2796,8 +2869,8 @@ async function executePlan(input: {
     }
     // Same boundary after the QA stage (plan 013 step 3).
     {
-      const replan = replanExit();
-      if (replan) return replan;
+      const exit = terminalExit();
+      if (exit) return exit;
     }
 
     // Verify loop (oh-my-claudecode `team-verify → team-fix`): static
@@ -2883,8 +2956,8 @@ async function executePlan(input: {
     // requested anywhere earlier in this invocation still wins over
     // "completed".
     {
-      const replan = replanExit();
-      if (replan) return replan;
+      const exit = terminalExit();
+      if (exit) return exit;
     }
   }
   } finally {
@@ -3076,6 +3149,8 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
     title: context.task.title,
     classification,
   });
+  // Plan 013 step 4: same threading on the approval-resume path.
+  await threadUserAnswers(deps, taskId, sharedContext);
 
   try {
     const outcome = await executePlan({
@@ -3127,6 +3202,10 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
     // execution could be finalized into "done".
     switch (outcome.status) {
       case "waiting_approval":
+        return;
+      case "waiting_input":
+        // Paused for a user answer (plan 013 step 4): the backend holds
+        // the question; this invocation just ends.
         return;
       case "cancelled":
         await finishCancelledTask({

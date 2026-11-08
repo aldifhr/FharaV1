@@ -124,6 +124,9 @@ function createDeps(policyOverrides: Partial<ExecutionPolicy>) {
     savePlan: async () => 1,
     requestApproval: async () => "approval-1",
     recordLifecycle: async () => undefined,
+    upsertTaskContext: async () => undefined,
+    getTaskContext: async () => null,
+    pauseForInput: async () => ({ applied: false, reason: "lease_lost" as const }),
   };
   const policy: ExecutionPolicy = {
     maxSubtasks: 8,

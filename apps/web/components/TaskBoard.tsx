@@ -14,6 +14,7 @@ const STATUS_PILL: Record<string, string> = {
   queued: "bg-amber-100 text-amber-700",
   running: "bg-sky-100 text-sky-700",
   needs_approval: "bg-rose-100 text-rose-700",
+  waiting_input: "bg-orange-100 text-orange-700",
   done: "bg-emerald-100 text-emerald-700",
   failed: "bg-red-100 text-red-700",
 };
@@ -89,7 +90,7 @@ export default function TaskBoard({
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [tasks, filter, query, subtasksOf, planOf]);
+  }, [tasks, filter, query, subtasksOf, planOf, agentNameById]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: (tasks ?? []).length };
@@ -138,7 +139,7 @@ export default function TaskBoard({
           onChange={(e) => setFilter(e.target.value)}
           className="rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
         >
-          {["all", "queued", "running", "needs_approval", "done", "failed"].map((s) => (
+          {["all", "queued", "running", "needs_approval", "waiting_input", "done", "failed"].map((s) => (
             <option key={s} value={s}>
               {s === "all" ? `All (${counts.all ?? 0})` : `${s} (${counts[s] ?? 0})`}
             </option>

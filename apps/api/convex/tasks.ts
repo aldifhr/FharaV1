@@ -238,3 +238,60 @@ export const retry = mutation({
     return true;
   },
 });
+
+export const answerQuestion = mutation({
+  args: { taskId: v.id("tasks"), answer: v.string() },
+  handler: async (ctx, args) => {
+    const task = await assertTaskAccess(ctx, args.taskId);
+    // Terminal guard (same value contract as orchestration.completeTask —
+    // a settled task can never come back to answer a question).
+    if (task.status === "done" || task.status === "rejected" || task.status === "failed") {
+      return { applied: false as const, reason: "task_already_terminal" as const };
+    }
+    if (task.status !== "waiting_input") {
+      return { applied: false as const, reason: "not_waiting_for_input" as const };
+    }
+    const answer = args.answer.trim();
+    if (answer.length === 0) {
+      return { applied: false as const, reason: "empty_answer" as const };
+    }
+    const now = Date.now();
+    // The answer travels in the persisted task-context decisions: the
+    // resumed run threads it into the shared context (a `user_answer`
+    // entry), so the answer influences the continued work. pendingQuestion
+    // is cleared — it only ever holds the PENDING question.
+    const contexts = await ctx.db
+      .query("taskContexts")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .order("desc")
+      .take(1);
+    const existing = contexts[0];
+    const answerDecision = {
+      decision: "user_answer",
+      reason: answer.slice(0, 2000),
+      fromAgent: "user",
+      createdAt: now,
+    };
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        decisions: [...(existing.decisions ?? []), answerDecision],
+        updatedAt: now,
+      });
+    }
+    await ctx.db.insert("taskEvents", {
+      taskId: task._id,
+      projectId: task.projectId,
+      type: "task.input_answered",
+      payload: { answer: answer.slice(0, 500) },
+      level: "info",
+    });
+    await ctx.db.patch(args.taskId, {
+      status: "queued",
+      pendingQuestion: undefined,
+      workerId: undefined,
+      leaseExpiresAt: undefined,
+      updatedAt: now,
+    });
+    return { applied: true as const };
+  },
+});

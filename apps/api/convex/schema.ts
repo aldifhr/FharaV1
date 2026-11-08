@@ -5,6 +5,9 @@ export const taskStatus = v.union(
   v.literal("queued"),
   v.literal("running"),
   v.literal("needs_approval"),
+  // Non-terminal pause (plan 013 step 4): the orchestrator asked the user
+  // a question and is waiting for the answer before continuing.
+  v.literal("waiting_input"),
   v.literal("done"),
   v.literal("rejected"),
   v.literal("failed")
@@ -137,6 +140,11 @@ export default defineSchema({
     branchName: v.optional(v.string()),
     worktreePath: v.optional(v.string()),
     assignedAgentIds: v.optional(v.array(v.id("agents"))),
+    // Plan 013 step 4 (additive): the question the orchestrator asked
+    // while the task is `waiting_input`. The user's answer travels
+    // separately (taskContext decision `user_answer`) — this field holds
+    // ONLY the pending question.
+    pendingQuestion: v.optional(v.string()),
   })
     .index("by_project", ["projectId"])
     .index("by_status", ["status"])

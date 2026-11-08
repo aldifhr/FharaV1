@@ -21,6 +21,7 @@ const STATUS_PILL: Record<string, string> = {
   queued: "bg-amber-100 text-amber-700",
   running: "bg-sky-100 text-sky-700",
   needs_approval: "bg-rose-100 text-rose-700",
+  waiting_input: "bg-orange-100 text-orange-700",
   done: "bg-emerald-100 text-emerald-700",
   rejected: "bg-gray-200 text-gray-600",
   failed: "bg-red-100 text-red-700",

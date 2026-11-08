@@ -224,3 +224,160 @@ describe("getRunContext credential hygiene (Phase 1 + 2)", () => {
     expect(serialized).not.toContain("sk-provider-plaintext");
   });
 });
+
+describe("task input pause/answer (plan 013 step 4)", () => {
+  test("pauseForInput is token-gated and applies to a running task", async () => {
+    process.env.CONVEX_SERVICE_TOKEN = SERVICE_TOKEN;
+    const t = convexTest(schema, modules);
+    const taskId = await t.run(async (ctx) => {
+      const projectId = await ctx.db.insert("projects", {
+        name: "P",
+        workspacePath: "/tmp/p",
+      });
+      return await ctx.db.insert("tasks", {
+        projectId,
+        title: "T",
+        command: "do the thing",
+        status: "running",
+      });
+    });
+
+    await expect(
+      t.action(api.worker.pauseForInput, {
+        taskId,
+        question: "Which style?",
+        workerToken: "wrong-token",
+      })
+    ).rejects.toThrow("Worker authentication required");
+
+    const res = await t.action(api.worker.pauseForInput, {
+      taskId,
+      question: "Which style?",
+      workerToken: SERVICE_TOKEN,
+    });
+    expect(res.applied).toBe(true);
+
+    const after = await t.run(async (ctx) => await ctx.db.get(taskId));
+    expect(after?.status).toBe("waiting_input");
+    expect(after?.pendingQuestion).toBe("Which style?");
+  });
+
+  test("a terminal task refuses the pause with task_already_terminal", async () => {
+    process.env.CONVEX_SERVICE_TOKEN = SERVICE_TOKEN;
+    const t = convexTest(schema, modules);
+    const taskId = await t.run(async (ctx) => {
+      const projectId = await ctx.db.insert("projects", {
+        name: "P",
+        workspacePath: "/tmp/p",
+      });
+      return await ctx.db.insert("tasks", {
+        projectId,
+        title: "T",
+        command: "do the thing",
+        status: "done",
+        completedAt: 123,
+      });
+    });
+
+    const res = await t.action(api.worker.pauseForInput, {
+      taskId,
+      question: "Which style?",
+      workerToken: SERVICE_TOKEN,
+    });
+    expect(res.applied).toBe(false);
+    if (!res.applied) {
+      expect(res.reason).toBe("task_already_terminal");
+    }
+
+    const after = await t.run(async (ctx) => await ctx.db.get(taskId));
+    expect(after?.status).toBe("done");
+    expect(after?.pendingQuestion).toBeUndefined();
+  });
+
+  test("answerQuestion records the answer, clears the question, and re-queues", async () => {
+    const t = convexTest(schema, modules);
+    const taskId = await t.run(async (ctx) => {
+      const projectId = await ctx.db.insert("projects", {
+        name: "P",
+        workspacePath: "/tmp/p",
+      });
+      const id = await ctx.db.insert("tasks", {
+        projectId,
+        title: "T",
+        command: "do the thing",
+        status: "waiting_input",
+        pendingQuestion: "Which style?",
+      });
+      await ctx.db.insert("taskContexts", {
+        taskId: id,
+        projectId,
+        originalRequest: "do the thing",
+        objective: "do the thing",
+        status: "running",
+        decisions: [],
+        artifacts: [],
+        outstandingIssues: [],
+        updatedAt: 1,
+      });
+      return id;
+    });
+
+    const res = await t.mutation(api.tasks.answerQuestion, {
+      taskId,
+      answer: "the bold wireframe",
+    });
+    expect(res.applied).toBe(true);
+
+    const after = await t.run(async (ctx) => await ctx.db.get(taskId));
+    expect(after?.status).toBe("queued");
+    expect(after?.pendingQuestion).toBeUndefined();
+
+    const context = await t.query(internal.orchestration.getTaskContext, { taskId });
+    const answerDecision = (context?.decisions ?? []).find(
+      (entry: any) => entry?.decision === "user_answer"
+    );
+    expect(answerDecision?.reason).toBe("the bold wireframe");
+  });
+
+  test("answerQuestion refuses terminal and non-waiting tasks", async () => {
+    const t = convexTest(schema, modules);
+    const { doneId, runningId } = await t.run(async (ctx) => {
+      const projectId = await ctx.db.insert("projects", {
+        name: "P",
+        workspacePath: "/tmp/p",
+      });
+      const doneId = await ctx.db.insert("tasks", {
+        projectId,
+        title: "T",
+        command: "do the thing",
+        status: "done",
+        completedAt: 123,
+      });
+      const runningId = await ctx.db.insert("tasks", {
+        projectId,
+        title: "T2",
+        command: "do something else",
+        status: "running",
+      });
+      return { doneId, runningId };
+    });
+
+    const terminal = await t.mutation(api.tasks.answerQuestion, {
+      taskId: doneId,
+      answer: "too late",
+    });
+    expect(terminal.applied).toBe(false);
+    if (!terminal.applied) {
+      expect(terminal.reason).toBe("task_already_terminal");
+    }
+
+    const wrongState = await t.mutation(api.tasks.answerQuestion, {
+      taskId: runningId,
+      answer: "nobody asked",
+    });
+    expect(wrongState.applied).toBe(false);
+    if (!wrongState.applied) {
+      expect(wrongState.reason).toBe("not_waiting_for_input");
+    }
+  });
+});

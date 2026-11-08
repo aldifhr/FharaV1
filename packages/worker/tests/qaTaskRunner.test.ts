@@ -51,7 +51,7 @@ vi.mock("../src/execution/agentExecutor", () => ({
         meta: {
           verdict: "passed",
           checks: [
-            { label: "application reachable", status: "passed" },
+            { label: "application reachable", status: "passed", details: "http://127.0.0.1:9001" },
             { label: "structural viewport", status: "passed" },
           ],
         },

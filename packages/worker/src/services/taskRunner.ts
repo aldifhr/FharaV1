@@ -2854,9 +2854,16 @@ async function executePlan(input: {
           const visualQa = plan.visualQa ?? wantsVisualQa(input.task.command);
           const ranChecks = qaNodes.flatMap((node) => state.qaChecks?.[node.key] ?? []);
           const passedCount = ranChecks.filter((check) => check.status === "passed").length;
+          // Same source as executeQa: the resolved URL recorded in the
+          // "application reachable" check (the threaded qaBaseUrl may be
+          // unset when the project has no qaUrl/devUrl configured).
+          const checked =
+            ranChecks.find((check) => check.label === "application reachable")?.details ??
+            input.qaBaseUrl ??
+            "the app";
           const detail =
             ranChecks.length > 0
-              ? `Checked ${input.qaBaseUrl ?? "the app"} — ${passedCount}/${ranChecks.length} checks ok: ${ranChecks
+              ? `Checked ${checked} — ${passedCount}/${ranChecks.length} checks ok: ${ranChecks
                   .map((check) => check.label)
                   .join(", ")}.`
               : "";

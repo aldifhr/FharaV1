@@ -538,10 +538,16 @@ async function executeQa(
 
   // Specific, not generic: name the URL that was actually checked, the
   // checks that ran, and the mode (structural vs visual regression).
+  // The URL comes from the "application reachable" check's details (the
+  // resolved base URL, including qa.ts's own fallback) because the
+  // threaded qaBaseUrl may be unset when no project URL is configured.
   // The "QA verdict: <verdict>" prefix is load-bearing — buildStateFromDb
   // re-reads the verdict from this persisted output on resume.
   const passedCount = report.checks.filter((check) => check.status === "passed").length;
-  const checked = input.qaBaseUrl ?? "the app";
+  const checked =
+    report.checks.find((check) => check.label === "application reachable")?.details ??
+    input.qaBaseUrl ??
+    "the app";
   const summary = `QA verdict: ${report.verdict} — ${passedCount}/${report.checks.length} checks ok on ${checked}: ${report.checks
     .map((check) => `${check.label}=${check.status}`)
     .join(", ")}${report.checks.length > 0 && !visualRegression ? ". No visual comparison — structural checks only" : ""}.`;

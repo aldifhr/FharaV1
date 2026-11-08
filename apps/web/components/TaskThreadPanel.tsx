@@ -8,7 +8,7 @@ import InitialAvatar from "./InitialAvatar";
 import { roleLabel } from "@/lib/agentRoles";
 import ApprovalCard from "./ApprovalCard";
 import DiffCard from "./DiffCard";
-import { Send, Loader2 as SendLoader } from "lucide-react";
+import { Send, Loader2 as SendLoader, RotateCcw } from "lucide-react";
 import {
   Check,
   ChevronLeft,
@@ -47,7 +47,8 @@ export default function TaskThreadPanel({
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!resizingRef.current) return;
-      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, e.clientX));
+      // Panel is right-docked: width shrinks as the handle moves right.
+      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, window.innerWidth - e.clientX));
       onPanelWidthChange(newWidth);
     };
 
@@ -113,6 +114,8 @@ export default function TaskThreadPanel({
   const workingAgent = (agents ?? []).find((agent: any) => agent.status === "working");
   const taskStatus = (task as any)?.status;
   const sendThreadMessage = useMutation(api.messages.insertThreadMessage);
+  const retryTask = useMutation(api.tasks.retry);
+  const [retrying, setRetrying] = useState(false);
   const approve = useMutation(api.approvals.approve);
   const reject = useMutation(api.approvals.reject);
   const hold = useMutation(api.approvals.hold);
@@ -202,10 +205,28 @@ export default function TaskThreadPanel({
       )}
 
       <div className="h-0 min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-[#fcfcfe] p-4 dark:bg-gray-950/40">
-        {taskStatus === "failed" && (task as any)?.errorMessage && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-            <p className="font-semibold">Task failed</p>
-            <p className="mt-1 break-words">{(task as any).errorMessage}</p>
+        {taskStatus === "failed" && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300">
+            <p className="font-semibold">Task failed{(task as any)?.errorMessage ? `: ${(task as any).errorMessage}` : ""}</p>
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                type="button"
+                disabled={retrying}
+                onClick={async () => {
+                  setRetrying(true);
+                  try {
+                    await retryTask({ taskId: taskId as any });
+                  } catch {
+                    /* status flips via the task query stream */
+                  } finally {
+                    setRetrying(false);
+                  }
+                }}
+                className="flex items-center gap-1.5 rounded-xl bg-[#635bff] px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-[#5346d8] disabled:opacity-50"
+              >
+                <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
+              </button>
+            </div>
           </div>
         )}
         {errors.length > 0 && (

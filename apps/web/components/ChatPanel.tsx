@@ -17,7 +17,7 @@ import Modal from "./Modal";
 import TaskBoard from "./TaskBoard";
 
 import { useToast } from "./Toasts";
-import { AtSign, Bell, Check, CheckCircle2, Copy, ExternalLink, FileText, GitBranch, Loader2, MoreHorizontal, Pencil, Pin, PinOff, Send, ChevronUp, ChevronDown, Edit2, X, XCircle, Trash2, Paperclip, Mic, Type } from "lucide-react";
+import { AtSign, Bell, Check, CheckCircle2, Copy, ExternalLink, FileText, GitBranch, Loader2, MoreHorizontal, Pencil, Pin, PinOff, RotateCcw, Send, ChevronUp, ChevronDown, Edit2, X, XCircle, Trash2, Paperclip, Mic, Type } from "lucide-react";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { roleLabel } from "@/lib/agentRoles";
 
@@ -206,8 +206,11 @@ function TaskCard({
   agents: any[];
   approvalMode: "ask" | "auto";
 }) {
+  const retryTask = useMutation(api.tasks.retry);
+  const [retrying, setRetrying] = useState(false);
   const doneSubs = subtasks.filter((s) => s.status === "completed").length;
   const needsYou = task.status === "needs_approval" || pending.length > 0;
+  const isFailed = task.status === "failed" || task.status === "rejected";
   const badge =
     task.status === "done"
       ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
@@ -271,6 +274,33 @@ function TaskCard({
           <div className="h-full bg-[#635bff] transition-all" style={{ width: `${progress}%` }} />
         </div>
       </div>
+      {isFailed && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300">
+          <p className="font-semibold">Task failed{task.errorMessage ? `: ${task.errorMessage}` : ""}</p>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              disabled={retrying}
+              onClick={async () => {
+                setRetrying(true);
+                try {
+                  await retryTask({ taskId: task._id as any });
+                } catch {
+                  /* the task row flips to queued via the query stream */
+                } finally {
+                  setRetrying(false);
+                }
+              }}
+              className="flex items-center gap-1.5 rounded-xl bg-[#635bff] px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-[#5346d8] disabled:opacity-50"
+            >
+              <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
+            </button>
+            <button type="button" onClick={() => onOpen(task._id)} className="rounded-xl border border-red-200 bg-white/60 px-3.5 py-2 text-[13px] font-semibold text-red-700 hover:bg-white dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
+              View thread
+            </button>
+          </div>
+        </div>
+      )}
       {(pending.length > 0 || task.status !== "done") && (
         <div className="flex items-center gap-2">
           {pending.length > 0 && (

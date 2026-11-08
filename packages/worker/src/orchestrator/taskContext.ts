@@ -17,7 +17,8 @@ export type TaskDecisionValue =
   | "parallel"
   | "replan"
   | "complete"
-  | "ask_user";
+  | "ask_user"
+  | "user_answer";
 
 export interface AgentResult {
   agentId?: string;

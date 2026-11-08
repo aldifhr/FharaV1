@@ -248,6 +248,16 @@ export interface DecisionObservation {
   error?: string;
   /** Transient failures are the scheduler retry's job, not a new node. */
   retryable?: boolean;
+  /**
+   * Plan 013 step 5: the objective state the runner computed via
+   * `evaluateObjective`. `met` false marks judgment moments — decide()
+   * consults the advisor (mode ≠ off) and, without one, applies the
+   * deterministic recovery rule (missing work → replan, no path →
+   * ask_user). When the objective is not yet judgeable (review/QA loop
+   * in flight, skipped node) the runner reports `met: true` with
+   * deferring evidence instead of a fabricated unmet verdict.
+   */
+  objective?: { met: boolean; missing: string[]; evidence: string[] };
 }
 
 const MAX_REASONING = 500;
@@ -654,7 +664,9 @@ export interface DecideResult {
 
 /**
  * One decision step: deterministic first, advisor only on "ambiguous"
- * (or "always"), validated, with fallback. Never throws.
+ * (or "always", or an unmet objective — plan 013 step 5), validated,
+ * with fallback. Deterministic vetoes (budget BLOCKED above, step
+ * limit earlier) never consult the advisor. Never throws.
  */
 export async function decide(
   ctx: DecisionContext,
@@ -680,24 +692,52 @@ export async function decide(
   }
 
   const det = nextDeterministicDecision(ctx, observation);
-  const detDecision = (): OrchestratorDecision =>
-    det === "ambiguous"
-      ? {
-          id,
-          action: "complete",
-          reasoning: "observation is ambiguous; no work requested",
-          expectedOutcome: "ambiguous:no-op",
-          decidedBy: "deterministic",
-          planVersion: ctx.planVersion,
-          createdAt: Date.now(),
-        }
-      : { ...det, id };
+  // Judgment moments (plan 013 step 5): an unmet objective.
+  const objectiveUnmet = observation.objective !== undefined && !observation.objective.met;
+  const detDecision = (): OrchestratorDecision => {
+    const base =
+      det === "ambiguous"
+        ? {
+            id,
+            action: "complete" as const,
+            reasoning: "observation is ambiguous; no work requested",
+            expectedOutcome: "ambiguous:no-op",
+            decidedBy: "deterministic" as const,
+            planVersion: ctx.planVersion,
+            createdAt: Date.now(),
+          }
+        : { ...det, id };
+    // Deterministic recovery rule (step 3, real since step 5): an unmet
+    // objective never completes — missing work → replan; no concrete gap
+    // (nothing missing but not satisfied) → no path → ask_user. Every
+    // completion except a budget veto counts (objective:met, ambiguous
+    // no-op, proposal:rejected alike — the retired downgrade treated
+    // them all this way). When the runner did not attach objective
+    // state (legacy callers/tests) the deterministic mapping stands.
+    if (objectiveUnmet && base.action === "complete" && base.expectedOutcome !== "policy:budget") {
+      const missing = observation.objective!.missing;
+      return {
+        ...base,
+        action: missing.length > 0 ? "replan" : "ask_user",
+        expectedOutcome: "recovery",
+        reasoning: `objective not satisfied: ${missing.join("; ")}`.slice(0, MAX_REASONING),
+        question: missing.length === 0 ? "objective not satisfied: no path found" : undefined,
+      };
+    }
+    return base;
+  };
 
   if (mode === "off") {
     return { decision: detDecision(), ...(det === "ambiguous" ? { fallback: "ambiguous, mode off" } : {}) };
   }
 
-  const consultAdvisor = mode === "always" || det === "ambiguous";
+  // Deterministic veto: a budget BLOCKED never consults the advisor —
+  // the policy layer decides, the model has no override. Mode "always"
+  // still consults everything else.
+  const detIsBudgetVeto =
+    det !== "ambiguous" && det.action === "complete" && det.expectedOutcome === "policy:budget";
+  const consultAdvisor =
+    !detIsBudgetVeto && (mode === "always" || det === "ambiguous" || objectiveUnmet);
   if (!consultAdvisor || !options.advise) {
     return {
       decision: detDecision(),
@@ -727,7 +767,7 @@ export async function decide(
  * for a bounded re-plan with the decision's reasoning as feedback;
  * `complete` ends scheduling and finalizes with `expectedOutcome`; `halt`
  * is a budget BLOCKED — scheduling stops with the budget.exhausted path;
- * `ask_user` stays a recorded no-op until step 4 wires the question.
+ * `ask_user` pauses the task in `waiting_input` (step 4).
  */
 export type AppliedDecision =
   | { kind: "nodes"; nodes: PlanSubtask[] }

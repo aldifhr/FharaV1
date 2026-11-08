@@ -406,6 +406,121 @@ describe("decision: decide() advisor + fallback", () => {
     expect(result.decision.decidedBy).toBe("deterministic");
     expect(result.fallback).toContain("no enabled agent serves");
   });
+
+  it("unmet objective consults the advisor even when the deterministic mapping is complete (plan 013 step 5)", async () => {
+    const ask = vi.fn(async () => validDelegate);
+    const result = await decide(
+      context(),
+      observation({
+        decision: "COMPLETE",
+        objective: { met: false, missing: ["qa-run: QA verdict is missing"], evidence: [] },
+      }),
+      {
+        llmMode: "ambiguous",
+        advise: ask,
+      }
+    );
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(result.decision.action).toBe("delegate");
+    expect(result.decision.decidedBy).toBe("llm");
+  });
+
+  it("mode off + unmet objective takes the deterministic recovery rule (plan 013 step 5)", async () => {
+    const asking = vi.fn(async () => validDelegate);
+    const missing = await decide(
+      context(),
+      observation({
+        decision: "COMPLETE",
+        objective: { met: false, missing: ["qa-run: QA verdict is missing"], evidence: [] },
+      }),
+      { llmMode: "off", advise: asking }
+    );
+    expect(asking).not.toHaveBeenCalled();
+    expect(missing.decision.action).toBe("replan");
+    expect(missing.decision.expectedOutcome).toBe("recovery");
+    expect(missing.decision.reasoning).toContain("QA verdict is missing");
+
+    const noPath = await decide(
+      context(),
+      observation({
+        decision: "COMPLETE",
+        objective: { met: false, missing: [], evidence: ["odd state"] },
+      }),
+      { llmMode: "off", advise: asking }
+    );
+    expect(noPath.decision.action).toBe("ask_user");
+  });
+
+  it("advisor unavailable with an unmet objective falls back to recovery with a recorded reason (plan 013 step 5)", async () => {
+    const result = await decide(
+      context(),
+      observation({
+        decision: "COMPLETE",
+        objective: { met: false, missing: ["qa-run: QA verdict is missing"], evidence: [] },
+      }),
+      {
+        llmMode: "ambiguous",
+        advise: async () => {
+          throw new Error("provider down");
+        },
+      }
+    );
+    expect(result.decision.action).toBe("replan");
+    expect(result.decision.expectedOutcome).toBe("recovery");
+    expect(result.fallback).toContain("provider down");
+  });
+
+  it("invalid advisor output with an unmet objective falls back to recovery and records why (plan 013 step 5)", async () => {
+    const result = await decide(
+      context(),
+      observation({
+        decision: "COMPLETE",
+        objective: { met: false, missing: ["qa-run: QA verdict is missing"], evidence: [] },
+      }),
+      {
+        llmMode: "ambiguous",
+        advise: async () => ({ action: "bogus" }),
+      }
+    );
+    expect(result.decision.action).toBe("replan");
+    expect(result.fallback).toContain("validation failed");
+  });
+
+  it("BLOCKED never consults the advisor, even unmet (plan 013 step 5)", async () => {
+    const ask = vi.fn(async () => validDelegate);
+    const result = await decide(
+      context(),
+      observation({
+        decision: "BLOCKED",
+        objective: { met: false, missing: ["qa-run: QA verdict is missing"], evidence: [] },
+      }),
+      {
+        llmMode: "always",
+        advise: ask,
+      }
+    );
+    expect(ask).not.toHaveBeenCalled();
+    expect(result.decision.action).toBe("complete");
+    expect(result.decision.expectedOutcome).toBe("policy:budget");
+  });
+
+  it("met objective never consults the advisor in ambiguous mode (plan 013 step 5)", async () => {
+    const ask = vi.fn(async () => validDelegate);
+    const result = await decide(
+      context(),
+      observation({
+        decision: "COMPLETE",
+        objective: { met: true, missing: [], evidence: ["qa-run: QA passed"] },
+      }),
+      {
+        llmMode: "ambiguous",
+        advise: ask,
+      }
+    );
+    expect(ask).not.toHaveBeenCalled();
+    expect(result.decision.action).toBe("complete");
+    expect(result.decision.expectedOutcome).toBe("objective:met");
+  });
 });
 
 describe("decision: evaluateObjective (step 5.1)", () => {

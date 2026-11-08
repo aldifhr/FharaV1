@@ -1707,6 +1707,66 @@ async function executePlan(input: {
                 chainCapabilities: chain,
                 activeByAgent,
               };
+              // Plan 013 step 5: the objective state travels with the
+              // observation. decide() consults the advisor where the
+              // objective is unmet and, without one, applies the recovery
+              // rule (missing work → replan, no path → ask_user); the
+              // retired post-hoc downgrade used to reclassify here.
+              //
+              // Only a node that EXECUTED in this run may be judged.
+              // A node skipped as "Previously completed" on resume /
+              // recovery has no executionId this run; evaluating its
+              // objective here compares against rebuilt in-memory
+              // evidence, which is incomplete for that node, so any
+              // verdict would be fabricated. The previous run already
+              // decided these nodes. While a review or QA loop is in
+              // flight its open findings are EXPECTED (the loop owns
+              // them), so the objective is not judgeable either. All
+              // three non-judgeable cases defer as met with evidence.
+              const reviewQaInFlight = plan.subtasks.some(
+                (candidate) =>
+                  (candidate.kind === "review" || candidate.kind === "qa") &&
+                  !dynamicKeys.has(candidate.key) &&
+                  !runCompleted.has(candidate.key)
+              );
+              let objectiveState: DecisionObservation["objective"];
+              if (!executionId || reviewQaInFlight) {
+                objectiveState = {
+                  met: true,
+                  missing: [],
+                  evidence: ["objective evaluation deferred (skipped node or review/QA loop in flight)"],
+                };
+              } else {
+                const objective = evaluateObjective({
+                  ...decisionContext,
+                  dynamicKeys,
+                  objectiveEvidence: {
+                    appliedFiles: Object.fromEntries(state.appliedFilesBySubtask),
+                    qaVerdicts: state.qaVerdicts,
+                    verification: state.verification,
+                  },
+                });
+                objectiveState = {
+                  met: objective.satisfied,
+                  missing: objective.missing,
+                  evidence: objective.evidence,
+                };
+                if (!objective.satisfied) {
+                  await deps.api.logEvent({
+                    taskId: task._id,
+                    projectId: project._id,
+                    type: "orchestrator.objective_unmet",
+                    payload: {
+                      missing: objective.missing,
+                      evidence: objective.evidence,
+                    },
+                    executionId,
+                    subtaskKey: node.id,
+                    level: "warn",
+                  });
+                }
+              }
+              observation.objective = objectiveState;
               const { decision: decided, fallback } = await decide(
                 decisionContext,
                 observation,
@@ -1752,98 +1812,7 @@ async function executePlan(input: {
                 });
                 return dynamicNodes;
               }
-              // Plan 005 Step 5.1: `complete` is only emitted when the
-              // objective evidence says it is met; otherwise the request
-              // becomes replan (concrete gaps) or ask_user (no path).
-              //
-              // Only a node that EXECUTED in this run may be downgraded.
-              // A node skipped as "Previously completed" on resume /
-              // recovery has no executionId this run; evaluating its
-              // objective here compares against rebuilt in-memory
-              // evidence, which is incomplete for that node, so the
-              // downgrade would fabricate a replan and post a
-              // "stopping this step" message per skipped node. The
-              // previous run already decided these nodes.
               let decision = decided;
-              // A downgrade is internal bookkeeping: the evidence check
-              // reclassified this outcome (complete -> replan/ask_user)
-              // because the objective is not met *yet* — e.g. a review
-              // finding the review loop is already fixing. Narrating it
-              // as a CTO "stopping this step" message per node settle is
-              // pure spam (the user saw it 5x in one task while the fix
-              // loop was progressing normally). Skip the chat narration
-              // for downgrades; the objective_unmet event above keeps
-              // the telemetry.
-              //
-              // While a review or QA loop is in flight its open findings
-              // are EXPECTED (the loop owns them and will close them when
-              // its verdict lands), so the downgrade itself is deferred
-              // too: mid-loop downgrades replan the task mid-fix and burn
-              // the replans budget for no reason.
-              const reviewQaInFlight = plan.subtasks.some(
-                (candidate) =>
-                  (candidate.kind === "review" || candidate.kind === "qa") &&
-                  !dynamicKeys.has(candidate.key) &&
-                  !runCompleted.has(candidate.key)
-              );
-              let downgradedByObjective = false;
-              if (decision.action === "complete" && executionId && !reviewQaInFlight) {
-                const pendingRequiredNodes = plan.subtasks.some(
-                   (candidate) =>
-                     (candidate.kind === "qa" || candidate.kind === "review") &&
-                     !dynamicKeys.has(candidate.key) &&
-                     !runCompleted.has(candidate.key) &&
-                     candidate.key !== node.id
-                 );
-                 if (pendingRequiredNodes) return dynamicNodes;
-                 const objective = evaluateObjective({
-                  ...decisionContext,
-                  dynamicKeys,
-                  objectiveEvidence: {
-                    appliedFiles: Object.fromEntries(state.appliedFilesBySubtask),
-                    qaVerdicts: state.qaVerdicts,
-                    verification: state.verification,
-                    lastDecision: {
-                      action: decision.action,
-                      expectedOutcome: decision.expectedOutcome,
-                    },
-                  },
-                });
-                if (objective.satisfied) {
-                  await deps.api.logEvent({
-                    taskId: task._id,
-                    projectId: project._id,
-                    type: "orchestrator.completed",
-                    payload: {
-                      evidence: objective.evidence,
-                      rationale: decision.reasoning.slice(0, 500),
-                    },
-                    executionId,
-                    subtaskKey: node.id,
-                    level: "info",
-                  });
-                } else {
-                  await deps.api.logEvent({
-                    taskId: task._id,
-                    projectId: project._id,
-                    type: "orchestrator.objective_unmet",
-                    payload: {
-                      missing: objective.missing,
-                      evidence: objective.evidence,
-                    },
-                    executionId,
-                    subtaskKey: node.id,
-                    level: "warn",
-                  });
-                  decision = {
-                    ...decision,
-                    action: objective.missing.length > 0 ? "replan" : "ask_user",
-                    reasoning: `objective not satisfied: ${objective.missing.join("; ")}`.slice(0, 500),
-                    expectedOutcome: "recovery",
-                  };
-                  downgradedByObjective = true;
-                }
-              }
               if (fallback) {
                 await deps.api.logEvent({
                   taskId: task._id,
@@ -1951,7 +1920,12 @@ async function executePlan(input: {
                   break;
                 }
                 case "halt": {
-                  if (!budgetHalt) {
+                  // Warn mode: the BLOCKED evaluation is advisory only
+                  // (same rule as the legacy evaluation branch — the
+                  // budget.warning event from the pre-call gate is the
+                  // visible signal and the run continues). Only enforce
+                  // mode latches the halt.
+                  if (budgetEnforced && !budgetHalt) {
                     budgetHalt = true;
                     await deps.api.logEvent({
                       taskId: task._id,
@@ -2838,7 +2812,7 @@ async function executePlan(input: {
       input.approvalResolved ? "user" : "orchestrator"
     );
     if ("stop" in applied) {
-      return applied.stop;
+      return { status: applied.stop };
     }
     if (input.approvalResolved && applied.applied.length > 0) {
       await deps.api.appendAgentMessage({

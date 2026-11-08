@@ -136,3 +136,64 @@ export function extractFileHint(command: string): string | null {
   const match = command.match(/[\w./-]+\.(tsx?|jsx?|css|html|json|md)/i);
   return match ? match[0] : null;
 }
+
+/**
+ * Remove the delegation JSON block from LLM response text before it is
+ * posted to user-facing chat. The delegation recommendation is internal
+ * routing metadata; leaking it ("{"delegationRecommendation":...}") into
+ * the conversation was a recurring UI defect. Only a delegation-shaped
+ * JSON object (same shape parseDelegation accepts) is removed — other
+ * JSON (e.g. draft file changes) is untouched.
+ */
+export function stripDelegationJson(content: string): string {
+  for (let start = content.indexOf("{"); start >= 0; start = content.indexOf("{", start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < content.length; index += 1) {
+      const character = content[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === "\"") inString = false;
+      } else if (character === "\"") {
+        inString = true;
+      } else if (character === "{") {
+        depth += 1;
+      } else if (character === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(content.slice(start, index + 1));
+          } catch {
+            break;
+          }
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            parseDelegation(content.slice(start, index + 1))
+          ) {
+            const before = content.slice(0, start).trimEnd();
+            const after = content.slice(index + 1).trimStart();
+            const joined = [before, after].filter(Boolean).join("\n").trim();
+            return joined || "(delegation noted — see task thread)";
+          }
+          break;
+        }
+      }
+    }
+  }
+  return content;
+}
+
+/**
+ * Chat-facing text for a raw LLM response: strip the delegation JSON
+ * and cap the length. The full output stays on the subtask row; what
+ * reaches the conversation is a readable excerpt, never a raw dump.
+ */
+export function sanitizeForChat(content: string, maxChars = 1500): string {
+  const stripped = stripDelegationJson(content).trim();
+  if (stripped.length <= maxChars) return stripped;
+  return `${stripped.slice(0, maxChars).trimEnd()}…`;
+}

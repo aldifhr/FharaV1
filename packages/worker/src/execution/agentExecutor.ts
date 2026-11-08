@@ -16,7 +16,7 @@ import {
   formatAgentContextForPrompt,
 } from "@/orchestrator/agentContext";
 import type { SharedTaskContext } from "@/orchestrator/taskContext";
-import { extractFileHint, parseDelegation, parseDraft, parseReview } from "@/utils/json";
+import { extractFileHint, parseDelegation, parseDraft, parseReview, sanitizeForChat } from "@/utils/json";
 import { validateFilePath } from "@/governance/tools";
 import { computeDiff, type FileDiff } from "@/tools/gitDiff";
 import { isCommandAllowed, runCommand } from "@/tools/runCommand";
@@ -645,7 +645,9 @@ async function executeReadOnly(
   if (mcpResult) {
     const content = mcpResult.answer.trim() || "No findings from workspace tool exploration.";
     if (content) await input.onChunk(content);
-    await input.onMessage(content);
+    // Chat gets a sanitized excerpt only — never the raw answer with
+    // its delegation JSON. Full output stays on the subtask row.
+    await input.onMessage(sanitizeForChat(content));
     await input.onEvent("agent.mcp_tools", {
       capability: subtask.capability,
       toolCount: mcpResult.toolCount,
@@ -762,7 +764,7 @@ async function executeReadOnly(
   if (!content) {
     return { status: "failed", error: `The ${mode} agent returned an empty response` };
   }
-  await input.onMessage(content);
+  await input.onMessage(sanitizeForChat(content));
   const delegation = parseDelegation(content);
   return {
     status: "completed",
@@ -814,8 +816,6 @@ async function executeShell(
     signal,
     taskGate: input.llmTaskGate,
   });
-  await input.onMessage(response.content.trim());
-
   const parsed = parseShellCommand(response.content);
   if (!parsed) {
     return {
@@ -823,6 +823,9 @@ async function executeShell(
       error: "Shell agent did not return a valid command JSON",
     };
   }
+  // The raw shell-command JSON must never reach chat; narrate the human
+  // command line instead (the result summary below follows on completion).
+  await input.onMessage(`$ ${parsed.command} ${parsed.args.join(" ")}`);
   if (!isCommandAllowed(parsed.command, parsed.args)) {
     return {
       status: "failed",

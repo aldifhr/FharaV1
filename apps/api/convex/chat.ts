@@ -109,6 +109,10 @@ function buildPlanningGuidance(agent: { role: string }, opts: { isOrchestrator: 
   ];
 }
 
+/** Shared guidance: machine-readable choice blocks for clickable cards. */
+const OPTIONS_GUIDANCE =
+  "When you present 2-4 choices for the user to pick from, end your reply with an options block, exactly in this format:\n[options]\nA|Short title|One-line summary|sheet\nB|Short title|One-line summary|bold\n[/options]\nPreview styles: sheet (three-column layout), bold (highlighted center card), rows (stacked list), plain (none). Keep it to ONE block per reply, then stop.";
+
 async function completeWithAgent(
   system: string,
   history: { role: string; content: string }[],
@@ -407,6 +411,7 @@ export const replyToChat = internalAction({
           isOrchestrator: orchestrator !== null && agent._id === orchestrator._id,
           taskIntent,
         }),
+        OPTIONS_GUIDANCE,
       ]
         .filter(Boolean)
         .join("\n");

@@ -9,6 +9,7 @@ import AgentAvatar from "./AgentAvatar";
 import InitialAvatar from "./InitialAvatar";
 import ApprovalCard from "./ApprovalCard";
 import QaPanel from "./QaPanel";
+import { parseOptions, type ChatOption } from "@/lib/options";
 import { AnimatedTooltip } from "@/components/ui/animated-tooltip";
 import { avatartionFor, deserializeAvatartion } from "./ui/avatartion";
 import DiffCard from "./DiffCard";
@@ -405,6 +406,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const [notifOpen, setNotifOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const nearBottomRef = useRef(true);
+  const lastMessageRef = useRef<{ _id: string; _creationTime: number } | null>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
@@ -546,6 +549,27 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeline, lastSeenKey, lastSeenIsFresh]);
+
+  // Follow the newest message: reset on project switch, then scroll when
+  // the last message changes while the user is already at the bottom.
+  useEffect(() => {
+    nearBottomRef.current = true;
+  }, [projectId]);
+
+  useEffect(() => {
+    const last = timeline[timeline.length - 1] as any;
+    if (!last) {
+      lastMessageRef.current = null;
+      return;
+    }
+    const prev = lastMessageRef.current;
+    if (prev && prev._id === last._id && prev._creationTime === last._creationTime) return;
+    lastMessageRef.current = { _id: last._id, _creationTime: last._creationTime };
+    if (nearBottomRef.current) {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }
+  }, [timeline]);
   const firstNewIndex = timeline.findIndex(
     (m: any) => m._creationTime > lastSeenAt
   );
@@ -731,7 +755,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     try {
       await sendMessage({
         projectId: projectId as any,
-        content: `I approve ${choice}. Please proceed with the technical breakdown and implementation.`,
+        content: choice,
         preferredAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
       });
     } catch (err) {
@@ -944,16 +968,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             <GitBranch size={12} />
             v{((selectedTask as any)?.planVersion ?? (tasks ?? [])[0]?.planVersion ?? 1)}
           </span>
-          <button
-            type="button"
-            onClick={() => setNotifOpen((open) => !open)}
-            title={`${pendingForProject} pending approval${pendingForProject === 1 ? "" : "s"} — open notifications`}
-            aria-label={`${pendingForProject} pending approvals`}
-            className="flex items-center gap-1 rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-          >
-            <Pin size={13} />
-            <span className="text-[11px] font-semibold tabular-nums">{pendingForProject > 9 ? "9+" : pendingForProject}</span>
-          </button>
         <div className="flex items-center gap-1">
           <div className="relative" ref={pinsRef}>
             <button
@@ -1105,7 +1119,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         </div>
       </header>
 
-      <div ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (!el) return; const dist = el.scrollHeight - el.scrollTop - el.clientHeight; setShowScrollDown(dist > 120); if (dist <= 120) markSeen(); }} className="flex-1 space-y-5 overflow-y-auto bg-transparent px-5 py-6">
+      <div ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (!el) return; const dist = el.scrollHeight - el.scrollTop - el.clientHeight; nearBottomRef.current = dist <= 120; setShowScrollDown(dist > 120); if (dist <= 120) markSeen(); }} className="flex-1 space-y-5 overflow-y-auto bg-transparent px-5 py-6">
         {taskErrors.map((event: any, index: number) => (
           <div key={`task-error-${index}`} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             <span className="font-semibold">Agent error:</span> {event.payload?.message ?? "Task failed to process."}
@@ -1221,17 +1235,26 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                           <Pin size={11} />
                         </button>
                       </div>
-                      {messageKind(m.content) === "delegation" ? null : <MessageText content={m.content} />}
+                      {messageKind(m.content) === "delegation" ? null : (
+                        <MessageText content={parseOptions(m.content).text} />
+                      )}
                       {(() => {
-                        const hasProposal =
-                          m.authorType === "agent" &&
-                          /Option A/i.test(m.content) &&
-                          /Option B/i.test(m.content);
-                        if (!hasProposal) return null;
+                        if (m.authorType !== "agent") return null;
+                        const { options } = parseOptions(m.content);
+                        if (options.length === 0) return null;
+                        const next = timeline[index + 1];
+                        const pickedMsg = next?.authorType === "user" ? (next.content ?? "") : "";
+                        const pickedId = options.find(
+                          (o) =>
+                            new RegExp(`^I choose ${o.id}\\b`, "i").test(pickedMsg) ||
+                            pickedMsg.includes(o.title)
+                        )?.id;
                         return (
-                          <ProposalCards
+                          <OptionCards
+                            options={options}
+                            pickedId={pickedId}
                             disabled={chatSending}
-                            onSelectOption={(choice) => void handleChooseProposal(choice)}
+                            onPick={(option) => void handleChooseProposal(`I choose ${option.id}: ${option.title}`)}
                           />
                         );
                       })()}

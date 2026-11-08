@@ -2128,6 +2128,16 @@ async function executePlan(input: {
               // "stopping this step" message per skipped node. The
               // previous run already decided these nodes.
               let decision = decided;
+              // A downgrade is internal bookkeeping: the evidence check
+              // reclassified this outcome (complete -> replan/ask_user)
+              // because the objective is not met *yet* — e.g. a review
+              // finding the review loop is already fixing. Narrating it
+              // as a CTO "stopping this step" message per node settle is
+              // pure spam (the user saw it 5x in one task while the fix
+              // loop was progressing normally). Skip the chat narration
+              // for downgrades; the objective_unmet event above keeps
+              // the telemetry.
+              let downgradedByObjective = false;
               if (decision.action === "complete" && executionId) {
                 const pendingRequiredNodes = plan.subtasks.some(
                    (candidate) =>
@@ -2182,6 +2192,7 @@ async function executePlan(input: {
                     reasoning: `objective not satisfied: ${objective.missing.join("; ")}`.slice(0, 500),
                     expectedOutcome: "recovery",
                   };
+                  downgradedByObjective = true;
                 }
               }
               if (fallback) {
@@ -2240,7 +2251,7 @@ async function executePlan(input: {
                 input.budget.incrementDelegation();
               }
               const ctoAgent = input.agents.find((candidate) => /^cto$/i.test(candidate.role));
-              if (ctoAgent && decision.action !== "complete") {
+              if (ctoAgent && decision.action !== "complete" && !downgradedByObjective) {
                 const targetAgent = decision.target?.agentId
                   ? input.agents.find((candidate) => candidate._id === decision.target?.agentId)
                   : undefined;

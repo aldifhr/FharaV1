@@ -330,6 +330,7 @@ const mockState = vi.hoisted(() => ({
   executed: [] as string[],
   sawAbort: false,
   mode: "track" as "track" | "hang" | "fail",
+  reviewCalls: 0,
 }));
 
 vi.mock("../src/execution/agentExecutor", () => ({
@@ -363,6 +364,29 @@ vi.mock("../src/execution/agentExecutor", () => ({
       return { status: "failed", error: "Execution cancelled" };
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
+    // First review call requests changes with a high finding (reproducing
+    // the trailing-newline review loop from the live runs); the second
+    // approves after the fix.
+    if (input.subtask.kind === "review") {
+      mockState.reviewCalls += 1;
+      if (mockState.reviewCalls === 1) {
+        return {
+          status: "completed",
+          output: "Review requested changes:\n\n- **[high]** file-implement.txt — trailing blank line",
+          meta: {
+            verdict: "changes_requested",
+            findings: [
+              { severity: "high", filePath: "file-implement.txt", description: "trailing blank line" },
+            ],
+          },
+        };
+      }
+      return {
+        status: "completed",
+        output: "Review approved.",
+        meta: { verdict: "approved", findings: [] },
+      };
+    }
     if (input.subtask.kind === "code_change") {
       const filePath = `file-${key}.txt`;
       await input.saveFileChange({
@@ -414,6 +438,35 @@ const SINGLE_IMPL_PLAN: ExecutionPlan = {
       capability: "frontend-development",
       dependencies: [],
       order: 0,
+    },
+  ],
+};
+
+/** Implement + review, for the fresh-run review-fix loop regression test. */
+const REVIEW_PLAN: ExecutionPlan = {
+  version: 1,
+  goal: "Phase 4 hardening review spam test",
+  strategy: "dag",
+  requiresApproval: false,
+  maxConcurrency: 2,
+  subtasks: [
+    {
+      key: "implement",
+      title: "Implement",
+      description: "Write the code",
+      kind: "code_change",
+      capability: "frontend-development",
+      dependencies: [],
+      order: 0,
+    },
+    {
+      key: "review",
+      title: "Review the change",
+      description: "Review the changes",
+      kind: "review",
+      capability: "code-review",
+      dependencies: ["implement"],
+      order: 1,
     },
   ],
 };
@@ -872,6 +925,42 @@ describe("resume outcome handling (mandatory test 7)", () => {
       expect(mockState.executed).not.toContain("review");
       expect(mockState.executed).not.toContain("qa");
       expect(captured.completions.some((c) => c.status === "done")).toBe(true);
+    },
+    15_000
+  );
+
+  it(
+    "a high review finding the fix loop handles does not spam objective-unmet messages",
+    async () => {
+      // Regression (live runs): the review requests changes with a high
+      // finding; the fix loop handles it, but every node settling while
+      // the finding is open downgraded to "replan" and posted a CTO
+      // "I'm stopping this step" message — 5 copies in one task. The
+      // downgrade is bookkeeping and must not narrate to the user.
+      mockState.mode = "track";
+      mockState.reviewCalls = 0;
+      const { deps, captured } = createRunnerDeps({
+        policy: BASE_POLICY,
+        taskStatus: "running",
+        plan: REVIEW_PLAN,
+      });
+
+      await processTask(
+        {
+          _id: "task-1",
+          projectId: "project-1",
+          title: "Review spam test",
+          command: "Create file.txt with one line",
+          status: "running",
+        } as unknown as WorkerTask,
+        deps
+      );
+
+      expect(mockState.reviewCalls).toBe(2);
+      expect(captured.completions.some((c) => c.status === "done")).toBe(true);
+      expect(
+        captured.messages.filter((m) => m.includes("stopping this step"))
+      ).toHaveLength(0);
     },
     15_000
   );

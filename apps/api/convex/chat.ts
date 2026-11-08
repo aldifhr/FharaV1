@@ -111,7 +111,38 @@ function buildPlanningGuidance(agent: { role: string }, opts: { isOrchestrator: 
 
 /** Shared guidance: machine-readable choice blocks for clickable cards. */
 const OPTIONS_GUIDANCE =
-  "When you present 2-4 choices for the user to pick from, end your reply with an options block, exactly in this format:\n[options]\nA|Short title|One-line summary|sheet\nB|Short title|One-line summary|bold\n[/options]\nPreview styles: sheet (three-column layout), bold (highlighted center card), rows (stacked list), plain (none). Keep it to ONE block per reply, then stop.\nWhen the user picks one of your options, reply starting with 'I agree' if you endorse the choice, or explain your objection and why.";
+  "When you present 2-4 choices for the user to pick from, end your reply with an options block, exactly in this format:\n[options]\nA|Short title|One-line summary|sheet\nB|Short title|One-line summary|bold\n[/options]\nPreview styles: sheet (three-column layout), bold (highlighted center card), rows (stacked list), plain (none). Keep it to ONE block per reply, then stop.\nBase the options on the user's CURRENT request only — do not carry over past tasks, files, or topics from earlier in this conversation unless the user asks for them personally. Keep your reply before the block to one short sentence: no plan summary, no delegation talk, no 'Create task' instructions. The user's pick starts execution automatically.\nWhen the user picks one of your options, reply starting with 'I agree' if you endorse the choice, or explain your objection and why.";
+
+/** Extract the picked option from the most recent [options] block in history.
+ *  Returns the option and the proposal text (without the block), or null
+ *  when the pick does not reference a real option. */
+export function findProposalOption(
+  history: { authorType: string; content: string }[],
+  pickId: string
+): { id: string; title: string; summary: string; brief: string } | null {
+  const wanted = pickId.trim().toUpperCase();
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const message = history[i];
+    if (message.authorType !== "agent") continue;
+    const match = /\[options\]([\s\S]*?)\[\/options\]/.exec(message.content);
+    if (!match) continue;
+    for (const line of match[1].split("\n")) {
+      const trimmed = line.trim().replace(/^[-*]\s*/, "");
+      if (!trimmed) continue;
+      const [id, title, summary] = trimmed.split("|").map((part) => (part ?? "").trim());
+      if (id.toUpperCase() === wanted && title) {
+        return {
+          id,
+          title,
+          summary: summary ?? "",
+          brief: `${message.content.slice(0, match.index)}${message.content.slice(match.index + match[0].length)}`.trim(),
+        };
+      }
+    }
+    return null; // only the latest proposal counts
+  }
+  return null;
+}
 
 async function completeWithAgent(
   system: string,
@@ -350,6 +381,40 @@ export const replyToChat = internalAction({
     }
 
     let taskIntent = classifyChatIntent(history[history.length - 1]?.content ?? "");
+
+    // Option pick ("I choose B: <title>") answering an agent's options
+    // block creates the task immediately — sending the user off to
+    // "Create task" manually after they chose is a dead end. Only fires
+    // when the pick references an option that actually exists in the
+    // latest proposal (no hallucinated ids).
+    const pickMatch = /^i choose ([a-z0-9]+)\s*:\s*(.+)$/i.exec(lastContent.trim());
+    if (pickMatch) {
+      const proposal = findProposalOption(history, pickMatch[1]);
+      if (proposal) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { api } = await import("./_generated/api.js") as any;
+          const command = `Build this approved option ${proposal.id} (${proposal.title}): ${proposal.summary}. Design context — ${proposal.brief}`;
+          const taskId = await (ctx as any).runMutation(api.tasks.createFromCommand, {
+            projectId: args.projectId,
+            command,
+            title: `Option ${proposal.id}: ${proposal.title}`,
+          });
+          await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+            projectId: args.projectId,
+            agentId: dispatcher._id as any,
+            taskId: taskId as any,
+            conversationId: args.conversationId,
+            content: `Task created from your pick: option ${proposal.id} — ${proposal.title}.`,
+            replyToMessageId: args.userMessageId,
+          });
+          return;
+        } catch (e: any) {
+          console.error("Option-pick dispatch failed:", e?.message ?? e);
+          // fall through to normal chat so the user still gets an answer
+        }
+      }
+    }
 
     // Stage B: if regex says chat but the text is imperative/indirect
     // (e.g. "Migrate this project to React", "Saya mau…"), let the LLM

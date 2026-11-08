@@ -59,6 +59,20 @@ export default function QaPanel({
     (e) => !VIEWPORTS.some((vp) => (e.payload?.label ?? "").toLowerCase().startsWith(vp.key))
   );
   const evalChecks = evaluation?.checks ?? [];
+  // The same verification check is recorded both as a task.check event
+  // (worker) and inside the evaluation row — merge by name so it only
+  // renders once (the event's details win when both exist).
+  const mergedChecks = [
+    ...otherChecks.map((e) => ({
+      name: e.payload?.label ?? "check",
+      status: e.payload?.status ?? "inconclusive",
+      details: e.payload?.details,
+    })),
+    ...evalChecks.filter(
+      (c) =>
+        !otherChecks.some((e) => (e.payload?.label ?? "") === (c.name ?? c.label ?? ""))
+    ),
+  ];
 
   // Nothing ran: render nothing. The old dashed placeholder promised
   // "Responsive QA (Desktop/Tablet/Mobile) … once the worker runs them"
@@ -101,22 +115,14 @@ export default function QaPanel({
           ))}
         </ul>
       )}
-      {(otherChecks.length > 0 || evalChecks.length > 0) && (
+      {(mergedChecks.length > 0) && (
         <div className="border-t border-[#eeeef3] px-3.5 py-3 dark:border-gray-800">
           <h4 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Test results</h4>
           <ul className="mt-2 space-y-1.5">
-            {otherChecks.map((e) => (
-              <li key={e._id} className="flex items-center gap-2 text-xs dark:text-white">
-                {statusIcon(e.payload?.status ?? "inconclusive")}
-                <span className="min-w-0 flex-1 truncate">{e.payload?.label ?? "check"}</span>
-                {e.payload?.details && <span className="hidden max-w-40 truncate text-gray-400 sm:block">{e.payload.details}</span>}
-                <span className="shrink-0 capitalize text-gray-400">{e.payload?.status ?? ""}</span>
-              </li>
-            ))}
-            {evalChecks.map((c, i) => (
-              <li key={`eval-${i}`} className="flex items-center gap-2 text-xs dark:text-white">
+            {mergedChecks.map((c, i) => (
+              <li key={`check-${i}`} className="flex items-center gap-2 text-xs dark:text-white">
                 {statusIcon(c.status ?? "inconclusive")}
-                <span className="min-w-0 flex-1 truncate">{c.name ?? c.label ?? `check ${i + 1}`}</span>
+                <span className="min-w-0 flex-1 truncate">{c.name}</span>
                 {c.details && <span className="hidden max-w-40 truncate text-gray-400 sm:block">{c.details}</span>}
                 <span className="shrink-0 capitalize text-gray-400">{c.status ?? ""}</span>
               </li>

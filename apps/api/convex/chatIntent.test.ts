@@ -27,6 +27,14 @@ describe("chat intent (mirrors worker router)", () => {
   test("greeting is chat", () => {
     expect(classifyChatIntent("hello!").kind).toBe("chat");
   });
+  test("greeting fast-path matches bare greetings only", async () => {
+    const { GREETING } = await import("./chat");
+    expect(GREETING.test("hi")).toBe(true);
+    expect(GREETING.test("Hai!")).toBe(true);
+    expect(GREETING.test("hello...")).toBe(true);
+    expect(GREETING.test("hi, create a todo list")).toBe(false);
+    expect(GREETING.test("hello world")).toBe(false);
+  });
   test("duplicate reply guard still works (checkAlreadyReplied)", async () => {
     const t = convexTest(schema, modules);
     const { projectId, conversationId, userMessageId } = await t.run(async (ctx) => {

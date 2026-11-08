@@ -19,6 +19,12 @@ const ADVICE_SHAPE =
 const EXPLICIT_NEGATION =
   /\b(do not|don't|dont|never)\b.*\b(create|make|start|run|execute|buat|bikin|jalankan)\b.*\btask\b|\b(jangan|tidak perlu)\b.*\btask\b/i;
 
+/** Bare greetings/small talk — replied to deterministically without the
+ *  LLM, so conversation history cannot drag an old topic (and a full
+ *  execution plan) into a "hi". */
+export const GREETING =
+  /^(hi|hello|hey|halo|hai|yo|good (morning|afternoon|evening))[!.,?\s]*$/i;
+
 export function classifyChatIntent(text: string): { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean } {
   const t = text.toLowerCase();
   const frontend = /\b(frontend|ui|react|component|page|button|css|tailwind)\b/.test(t);
@@ -91,6 +97,7 @@ function buildPlanningGuidance(agent: { role: string }, opts: { isOrchestrator: 
   if (opts.isOrchestrator) {
     return [
       "You are the orchestrator/planner.",
+      "Greetings and small talk get a brief greeting back — never a plan, delegation, or mention list for a bare hello.",
       "Answer briefly. If user asks for work to be done, propose a plan + delegation, then tell them to use Create task. Do not pretend to have executed code. Respond in plain text.",
     ];
   }
@@ -322,6 +329,22 @@ export const replyToChat = internalAction({
     // first agent when the project has no CTO — but a non-orchestrator
     // never receives planning guidance.
     const dispatcher = orchestrator ?? agents[0];
+
+    // Greeting fast-path: a bare "hi" must NOT reach the LLM with the
+    // full conversation history — previous task commands in the history
+    // (and the planner guidance) otherwise drag an old topic into a
+    // full execution plan. Reply briefly without any planning.
+    const lastContent = history[history.length - 1]?.content ?? "";
+    if (GREETING.test(lastContent.trim())) {
+      await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+        projectId: args.projectId,
+        agentId: dispatcher._id as any,
+        content: "Hi! Tell me what you'd like the team to work on.",
+        replyToMessageId: args.userMessageId,
+      });
+      return;
+    }
+
     let taskIntent = classifyChatIntent(history[history.length - 1]?.content ?? "");
 
     // Stage B: if regex says chat but the text is imperative/indirect

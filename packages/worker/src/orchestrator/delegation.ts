@@ -30,6 +30,27 @@ export interface RoutingResult {
   unavailableReason?: string;
 }
 
+/**
+ * Short role-ish names LLMs emit as targetCapability ("QA", "frontend")
+ * are not the canonical capability strings ("browser-testing",
+ * "frontend-development"). Compare in canonical form so a recommendation
+ * for "QA" is still suppressed when the plan already schedules
+ * browser-testing.
+ */
+const CAPABILITY_ALIASES: Readonly<Record<string, string>> = {
+  qa: CAPABILITY.BROWSER_TESTING,
+  frontend: CAPABILITY.FRONTEND,
+  backend: CAPABILITY.BACKEND,
+  design: CAPABILITY.DESIGN,
+  security: CAPABILITY.SECURITY,
+  reviewer: CAPABILITY.CODE_REVIEW,
+};
+
+function canonicalCapability(value: string): string {
+  const normalized = normalizeCapability(value);
+  return CAPABILITY_ALIASES[normalized] ?? normalized;
+}
+
 export function routePrimaryAgent(
   command: string,
   classification: Classification,
@@ -147,8 +168,8 @@ export function evaluateDelegation(input: {
    */
   const proposerCanServe = (capability: string): boolean => {
     if (!input.proposer) return false;
-    const wanted = normalizeCapability(capability);
-    return capabilitiesOf(input.proposer).some((own) => normalizeCapability(own) === wanted);
+    const wanted = canonicalCapability(capability);
+    return capabilitiesOf(input.proposer).some((own) => canonicalCapability(own) === wanted);
   };
 
   // If execution failed and no findings, retry same agent? orchestrator caller handles retry.
@@ -206,7 +227,7 @@ export function evaluateDelegation(input: {
     // recommendation here, deterministic heuristic below).
     if (
       (input.plannedCapabilities ?? []).some(
-        (planned) => normalizeCapability(planned) === normalizeCapability(targetCap)
+        (planned) => canonicalCapability(planned) === canonicalCapability(targetCap)
       )
     ) {
       return {

@@ -299,4 +299,33 @@ describe("evaluateDelegation planned capabilities", () => {
     expect(res.reason).toContain("plan already schedules");
     expect(res.targetCapability).toBe("Browser-Testing");
   });
+
+  it("REJECTs a short-name (\"QA\") recommendation when the plan already schedules browser-testing", () => {
+    // LLMs do not always emit canonical capability strings; a recommendation
+    // for "QA" must still be suppressed against a planned browser-testing
+    // node, or a second QA delegation is spawned for work already planned.
+    const res = evaluateDelegation({
+      result: {
+        agentName: "Developer",
+        capability: "frontend-development",
+        success: true,
+        summary: "done",
+        delegationRecommendation: {
+          targetCapability: "QA",
+          reason: "QA should validate the HTML structure",
+        },
+      } as any,
+      classification,
+      agents: [developer, qa],
+      budget: new BudgetTracker(loadPolicy()),
+      previousAgents: [],
+      delegationDepth: 0,
+      alreadyDelegatedCapabilities: [],
+      plannedCapabilities: ["frontend-development", "browser-testing"],
+      proposer: developer,
+    } as any);
+    expect(res.decision).toBe("REJECT");
+    expect(res.reason).toContain("plan already schedules");
+    expect(res.targetCapability).toBe("QA");
+  });
 });

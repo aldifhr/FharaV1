@@ -147,7 +147,13 @@ export default function TaskThreadPanel({
     const role = agentById(m.agentId)?.role;
     return role === "cto" || role === "reviewer";
   });
-  const otherMessages = (messages ?? []).filter((m: any) => !ctoMessages.includes(m));
+  // User messages are the task request — not replies. They render first
+  // and are excluded from the reply count (counting the user's own
+  // command as a "reply" was the bug).
+  const userMessages = (messages ?? []).filter((m: any) => m.authorType === "user");
+  const agentReplies = (messages ?? []).filter(
+    (m: any) => m.authorType === "agent" && !ctoMessages.includes(m)
+  );
   return (
     <div className="relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-[#ebe9f0] bg-white/90 shadow-[-8px_0_24px_rgba(40,35,80,0.04)] backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-l-0 max-[979px]:border-t max-[979px]:flex-row">
       <div
@@ -241,19 +247,18 @@ export default function TaskThreadPanel({
             </div>
           </section>
         )}
-        {checks.length > 0 && (
-          <section className="border-t border-gray-200 pt-3 dark:border-gray-800">
-            <div className="flex items-center gap-2 text-[11px] text-gray-400">
-              <span>{Math.max(1, otherMessages.length)} replies</span><span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
+        {userMessages.map((m: any) => (
+          <div key={m._id} className="flex gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-900 text-[10px] font-bold text-white">U</div>
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500">
+                You
+                <span className="font-normal text-gray-400">{m._creationTime ? new Date(m._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""}</span>
+              </p>
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-sm dark:text-white">{m.content}</p>
             </div>
-            <div className="mt-3 space-y-2">
-              {Array.from(new Map(checks.map((event: any) => [event.payload?.label, event])).values()).map((event: any) => {
-                const passed = event.payload?.status === "passed" || event.payload?.status === "clean";
-                return <div key={event._id} className="flex items-center gap-2 text-sm"><span className={passed ? "text-emerald-600" : "text-amber-600"}>{passed ? "✓" : "◔"}</span><span className="flex-1">{event.payload?.label ?? "QA check"}</span><span className="text-xs text-gray-400">{passed ? "clean" : event.payload?.status}</span></div>;
-              })}
-            </div>
-          </section>
-        )}
+          </div>
+        ))}
         {ctoMessages.map((m: any) => {
           const msgAgent = agentById(m.agentId);
           return (
@@ -270,27 +275,20 @@ export default function TaskThreadPanel({
             </div>
           );
         })}
-        {(otherMessages ?? []).length > 1 && (
+        {agentReplies.length > 0 && (
           <div className="flex items-center gap-3 pt-1">
-            <span className="text-[11px] font-medium text-gray-400">{(otherMessages ?? []).length - 1} replies</span>
+            <span className="text-[11px] font-medium text-gray-400">{agentReplies.length} replies</span>
             <span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
           </div>
         )}
-        {(otherMessages ?? []).map((m: any) => {
+        {agentReplies.map((m: any) => {
           const msgAgent = (agents as any)?.find((a: any) => a._id === m.agentId);
           return (
           <div key={m._id} className="flex gap-2">
-            {m.authorType === "agent" ? (
-              <InitialAvatar name={roleLabel(msgAgent?.role)} size={28} />
-            ) : (
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-900 text-[10px] font-bold text-white">U</div>
-            )}
+            <InitialAvatar name={roleLabel(msgAgent?.role)} size={28} />
             <div className="min-w-0">
               <p className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500">
-                {m.authorType === "agent" ? roleLabel(msgAgent?.role) : "You"}
-                {msgAgent?.role === "cto" || msgAgent?.role === "reviewer" ? (
-                  <span className="rounded-full border border-gray-200 px-1.5 py-px text-[10px] font-medium text-gray-400 dark:border-gray-700">review</span>
-                ) : null}
+                {roleLabel(msgAgent?.role)}
               </p>
               <div className="flex items-center gap-2">
                 <p className="whitespace-pre-wrap break-words text-sm dark:text-white">{m.content}</p>
@@ -302,6 +300,19 @@ export default function TaskThreadPanel({
           </div>
           );
         })}
+        {checks.length > 0 && (
+          <section className="border-t border-gray-200 pt-3 dark:border-gray-800">
+            <div className="flex items-center gap-2 text-[11px] text-gray-400">
+              <span>Checks</span><span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
+            </div>
+            <div className="mt-3 space-y-2">
+              {Array.from(new Map(checks.map((event: any) => [event.payload?.label, event])).values()).map((event: any) => {
+                const passed = event.payload?.status === "passed" || event.payload?.status === "clean";
+                return <div key={event._id} className="flex items-center gap-2 text-sm"><span className={passed ? "text-emerald-600" : "text-amber-600"}>{passed ? "✓" : "◔"}</span><span className="flex-1">{event.payload?.label ?? "QA check"}</span><span className="text-xs text-gray-400">{passed ? "clean" : event.payload?.status}</span></div>;
+              })}
+            </div>
+          </section>
+        )}
       </div>
 
       <form

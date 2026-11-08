@@ -21,7 +21,7 @@ execution order and a definition of done.
 | 010 | [CTO agent delegation](010-cto-agent-delegation.md) | P1 | L | 006, 007 | TODO |
 | 011 | [Orchestrator lifecycle correctness](011-orchestrator-lifecycle-correctness.md) | P1 | L | 005, 006, 010 | DONE |
 | 012 | [Split `taskRunner.ts`](012-split-taskRunner.md) | P1 | L | — | DONE (split landed by delegation; Steps 2-3 extracted with test evidence) |
-| 013 | [Real orchestrator decisions and effective completion guards](013-real-decisions-and-guards.md) | P1 | L | 011, 012 | TODO |
+| 013 | [Real orchestrator decisions and effective completion guards](013-real-decisions-and-guards.md) | P1 | L | 011, 012 | IN PROGRESS (Steps 1-7 landed; live smoke pending) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

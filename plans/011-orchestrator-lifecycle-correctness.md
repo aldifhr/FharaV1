@@ -7,6 +7,8 @@
 - Risk: MEDIUM
 - Dependencies: 005, 006, 010
 - Planned at: commit `d768a49`, 2026-11-08
+- State: **DONE** (completed 2026-11-08; all five steps verified and
+  covered by regression tests)
 
 ## Why this is needed
 
@@ -87,3 +89,47 @@ Track dynamic-node additions for the whole task and reject duplicate recovery/de
 
 - A schema or non-negotiable security rule must change.
 - Existing local modifications make attribution impossible; stop and report rather than overwrite them.
+
+## Completion evidence (2026-11-08)
+
+- **Step 1 (fail-closed verdicts)** — `executeQa` returns a *failed* node
+  outcome for `inconclusive` (verdict preserved in meta); `runQaLoop`
+  and `evaluateObjective` both require exactly `passed`. Regression tests
+  in `tests/qaThreading.test.ts` (inconclusive verdict → failed outcome +
+  preserved meta) and `tests/decision.test.ts`.
+- **Step 2 (honest reporting)** — structural mode checks are labelled
+  `structural check` (no viewport/responsive language; `checkLabelFor`
+  in `execution/qa.ts`); the verdict summary names the URL and the checks
+  that actually ran. Code grep: no screenshot/baseline/viewport claims in
+  structural paths; positive and negated visual requests both covered by
+  `tests/planner.test.ts` + `tests/qaThreading.test.ts`.
+- **Step 3 (explicit visual intent)** — `plan.visualQa` is the planner
+  metadata threaded runner → executor; `wantsVisualQa()` is the heuristic
+  fallback for pre-011 plans only (prohibition-safe: plural-tolerant).
+- **Step 4 (completion + dependencies)** — run-local `runCompleted` set
+  seeded once from `completedKeys`; review/QA loops deliberately clear
+  their own keys before re-runs; `runNodes` fails closed on unmet
+  non-stage prerequisites (subset semantics preserved).
+- **Step 5 (bounded dynamic recovery)** — `dynamicKeys` keeps dynamic
+  nodes out of objective requirements; delegation count + depth +
+  circularity gates bound creation; the `plannedCapabilities` guard
+  suppresses both the deterministic QA heuristic and agent
+  `delegationRecommendation`s for capabilities the plan already
+  schedules, including short capability aliases ("QA" ==
+  "browser-testing").
+
+### Live verification (smoke)
+
+Task `md76gre1tcsynhghwd8qpgf0gd8ht0rx` (structural-only QA with
+prohibitions): plan v1 only (implement → review → qa), one `qa.passed`
+with exactly two structural checks, no screenshot/baseline/viewport
+events, no duplicate delegation, no replan, approval auto-granted
+(auto mode), final CTO summary, task `done`.
+
+### Follow-ups (not in this plan)
+
+- The chat message for Q&A picks used to auto-create tasks (fixed);
+  task-level pause-for-input remains a separate design if wanted.
+- Screenshot/baseline QA only ever runs when the plan says visual;
+  Playwright browser revision must match the worker's playwright build
+  (environment maintenance, not code).

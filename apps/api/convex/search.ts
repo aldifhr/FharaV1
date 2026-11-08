@@ -22,7 +22,13 @@ export const global = query({
         .filter((t) => matches(t.title) || matches(t.command))
         .slice(0, 12)
         .map((t) => ({ ...t, projectName: nameById.get(t.projectId as string) ?? "—" })),
-      agents: agents.filter((a) => matches(a.name) || matches(a.role)).slice(0, 8).map(projectAgentDoc),
+      agents: agents
+        .filter((a) => matches(a.name) || matches(a.role))
+        .slice(0, 8)
+        .map((a) => ({
+          ...projectAgentDoc(a),
+          projectId: projects.find((p) => (p.agentIds ?? []).includes(a._id))?._id ?? null,
+        })),
     };
   },
 });

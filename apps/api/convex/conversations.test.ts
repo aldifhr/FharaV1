@@ -270,6 +270,26 @@ describe("getContext fallback preserves the historical selection", () => {
   });
 });
 
+describe("clearChat", () => {
+  test("deletes unpinned messages but keeps pinned ones", async () => {
+    const { t, projectId } = await setup();
+
+    const unpinned = await t.run(async (ctx) =>
+      ctx.db.insert("messages", { projectId, authorType: "user", content: "hello" })
+    );
+    const pinned = await t.run(async (ctx) =>
+      ctx.db.insert("messages", { projectId, authorType: "agent", content: "pinned", pinned: true })
+    );
+
+    const result = await t.mutation(api.conversations.clearChat, { projectId });
+    expect(result.deletedMessages).toBe(1);
+
+    const remaining = await t.query(api.messages.listByProject, { projectId });
+    expect(remaining.map((m) => m._id)).toEqual([pinned]);
+    expect(await t.run(async (ctx) => ctx.db.get(unpinned))).toBeNull();
+  });
+});
+
 describe("registry read models (addendum §1)", () => {
   test("listByProject returns members without credential fields", async () => {
     const { t, projectId, leadId, feId, disabledId } = await setup();

@@ -37,7 +37,6 @@ const AGENT_ROLES = [
   "devops",
   "researcher",
   "product-analyst",
-  "ui-ux",
 ] as const;
 
 export default function Sidebar({ projectId, onSelectProject }: { projectId?: string; onSelectProject?: (id: string) => void }) {
@@ -348,7 +347,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
         {openSections.projects && filteredProjects.map((p: any) => {
           const isSelected = projectId === p._id;
           const pendingCount = pendingByProject.get(p._id);
-          const badgeText = pendingCount ? `${pendingCount} pending` : isSelected ? "+3 files" : p.status === "done" ? "shipped" : "in progress";
+          const badgeText = pendingCount ? `${pendingCount} pending` : isSelected ? "current" : "in progress";
           return (
           <motion.div
             key={p._id}
@@ -369,9 +368,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
               <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
                 isSelected
                   ? "bg-white/80 text-[#5147b4] shadow-xs dark:bg-gray-700 dark:text-indigo-200"
-                  : badgeText === "shipped"
-                    ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400"
-                    : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                  : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
               }`}>
                 {badgeText}
               </span>
@@ -717,18 +714,6 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
         </Modal>
       )}
 
-      <div className="mt-auto shrink-0 rounded-2xl border border-[#ebe9f0] bg-white/90 p-3 shadow-xs dark:border-gray-800 dark:bg-gray-900/90">
-        <div className="flex items-center justify-between text-xs font-semibold text-gray-700 dark:text-gray-200">
-          <span>Weekly Claude quota</span>
-          <span className="font-mono text-[11px] text-gray-400">10%</span>
-        </div>
-        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
-          <div className="h-full rounded-full bg-[#3d3852] dark:bg-indigo-400" style={{ width: "10%" }} />
-        </div>
-        <p className="mt-1.5 text-[11px] text-gray-400">
-          10% used · resets in 3d
-        </p>
-      </div>
     </aside>
   );
 }

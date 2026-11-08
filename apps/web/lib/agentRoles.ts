@@ -14,7 +14,7 @@ export const ROLE_LABELS: Record<string, string> = {
   reviewer: "Reviewer",
   researcher: "Researcher",
   "product-analyst": "Product Analyst",
-  "ui-ux": "Designer",
+  "ui-ux": "UI/UX Designer",
   devops: "DevOps",
 };
 

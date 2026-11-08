@@ -23,14 +23,16 @@ test.describe("navigation", () => {
 
   test("command menu opens with the search button", async ({ page }) => {
     await gotoApp(page, "/");
-    // Close any stale dialog from a previous test.
-    await page.keyboard.press("Escape").catch(() => {});
+    await expectNoRuntimeError(page);
+
     const rail = page.getByRole("navigation").first();
     await rail.getByRole("button", { name: "Search" }).click();
-    // Wait for the Radix dialog title to appear inside the dialog portal.
-    await expect(page.getByRole("heading", { name: "Command menu", exact: true })).toBeVisible({
+    // The dialog title is sr-only and gets aria-hidden once the modal opens,
+    // so assert on the palette input — that is the real "it opened" signal.
+    await expect(page.getByPlaceholder("Search projects, tasks, agents…")).toBeVisible({
       timeout: 10_000,
     });
+    await expect(page.getByText("Search projects, tasks, and agents")).toBeVisible();
   });
 
   test("workspace routes redirect", async ({ page }) => {

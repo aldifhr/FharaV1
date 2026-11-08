@@ -26,10 +26,16 @@ export async function gotoApp(page: Page, path: string): Promise<void> {
   }
 }
 
-/** Next.js dev overlay marks runtime errors with this element. */
+/**
+ * Next.js 16 dev always mounts an empty <nextjs-portal> in the document, so
+ * "portal exists" is not an error signal. The overlay only fills that portal
+ * (and renders the error dialog + label) when a real runtime error fires, so
+ * assert on the portal's children instead of its presence.
+ */
 export async function expectNoRuntimeError(page: Page): Promise<void> {
-  const overlay = page.locator("nextjs-portal, [data-nextjs-dialog], #nextjs__container_errors_label");
-  await expect(overlay).toHaveCount(0);
+  await expect(page.locator("nextjs-portal > *")).toHaveCount(0);
+  await expect(page.locator("[data-nextjs-dialog]")).toHaveCount(0);
+  await expect(page.locator("#nextjs__container_errors_label")).toHaveCount(0);
   await expect(page.getByText("Unhandled Runtime Error")).toHaveCount(0);
   await expect(page.getByText("This page couldn't load")).toHaveCount(0);
 }
@@ -47,4 +53,22 @@ export function collectPageErrors(page: Page): string[] {
     if (msg.type() === "error") errors.push(`console: ${msg.text()}`);
   });
   return errors;
+}
+
+/** Open the command palette from the icon rail and wait for its input. */
+export async function openCommandMenu(page: Page): Promise<void> {
+  const rail = page.getByRole("navigation").first();
+  await rail.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByPlaceholder("Search projects, tasks, agents…")).toBeVisible();
+}
+
+/**
+ * Resolve the first project's id from the sidebar. Returns null when the
+ * deployment has no projects, so callers can skip data-dependent assertions.
+ */
+export async function firstProjectHref(page: Page): Promise<string | null> {
+  const link = page.locator("aside a[href^='/chats/']").first();
+  await expect(link).toBeVisible({ timeout: 20_000 });
+  const href = await link.getAttribute("href");
+  return href;
 }

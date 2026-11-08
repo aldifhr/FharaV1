@@ -13,8 +13,8 @@ test.describe("overview", () => {
     }
 
     await expect(page.getByRole("heading", { name: "Project", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Task terbaru" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /^Agent \(/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Recent tasks" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^Team \(/ })).toBeVisible();
   });
 
   test("project section renders either a list or its empty state", async ({ page }) => {

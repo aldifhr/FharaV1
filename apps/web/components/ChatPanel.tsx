@@ -1,25 +1,23 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { motion } from "framer-motion";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
-import InitialAvatar from "./InitialAvatar";
-import ApprovalCard from "./ApprovalCard";
-import QaPanel from "./QaPanel";
-import { parseOptions, type ChatOption } from "@/lib/options";
 import { AnimatedTooltip } from "@/components/ui/animated-tooltip";
 import { avatartionFor, deserializeAvatartion } from "./ui/avatartion";
-import DiffCard from "./DiffCard";
 import Modal from "./Modal";
 import TaskBoard from "./TaskBoard";
 
 import { useToast } from "./Toasts";
-import { AtSign, Bell, Check, CheckCircle2, Copy, ExternalLink, FileText, GitBranch, Loader2, MoreHorizontal, Pencil, Pin, PinOff, RotateCcw, Send, ChevronUp, ChevronDown, Edit2, X, XCircle, Trash2, Paperclip, Mic, Type } from "lucide-react";
+import { Bell, Check, Copy, GitBranch, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { roleLabel } from "@/lib/agentRoles";
+import ChatComposer from "./chat/ChatComposer";
+import MessageList from "./chat/MessageList";
+import { useChatQueue } from "./chat/useChatQueue";
+import { useDraftMentions } from "./chat/useDraftMentions";
+import FilesView from "./chat/FilesView";
 
 type Props = {
   projectId: string;
@@ -32,447 +30,8 @@ type Props = {
 
 // ponytail: auto-mode intent classification can be added via LLM when explicit modes feel too rigid
 
-function MessageText({ content }: { content: string }) {
-  // Make agent routing explicit in the transcript without changing the
-  // persisted message text or mention semantics used by the worker.
-  const highlighted = content.replace(/(^|\s)(@[A-Za-z][\w-]*)\b/g, "$1**$2**");
-  return (
-    <div className="mt-1 max-w-3xl space-y-2 text-[13px] leading-5 text-[#4c4a55] dark:text-gray-200">
-      <div className="markdown-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{highlighted}</ReactMarkdown>
-      </div>
-    </div>
-  );
-}
 
-function OptionPreview({ style }: { style: ChatOption["preview"] }) {
-  const nav = (
-    <div className="flex items-center gap-1.5">
-      <span className="h-2 w-2 rounded-full bg-[#8f90a8] dark:bg-gray-500" />
-      <span className="ml-auto h-1.5 w-5 rounded bg-gray-200 dark:bg-gray-700" />
-      <span className="h-1.5 w-5 rounded bg-gray-200 dark:bg-gray-700" />
-      <span className="h-1.5 w-4 rounded-full bg-[#8f90a8] dark:bg-gray-500" />
-    </div>
-  );
-  const bar = (w = "w-full") => <div className={`h-1.5 rounded bg-gray-200 dark:bg-gray-700 ${w}`} />;
-  if (style === "rows") {
-    return (
-      <div className="space-y-2 p-3">
-        {nav}
-        <div className="flex gap-2 pt-0.5">
-          <div className="h-9 w-10 shrink-0 rounded border border-gray-200 dark:border-gray-700" />
-          <div className="flex flex-1 flex-col justify-center gap-1">{bar("w-5/6")}{bar("w-2/3")}</div>
-        </div>
-        <div className="flex gap-2">
-          <div className="flex flex-1 flex-col justify-center gap-1">{bar("w-4/6")}{bar("w-3/4")}</div>
-          <div className="h-9 w-10 shrink-0 rounded border border-gray-200 dark:border-gray-700" />
-        </div>
-      </div>
-    );
-  }
-  if (style === "plain") {
-    // Text-only proposals still get a hero-shaped preview.
-    return (
-      <div className="space-y-1.5 p-3">
-        {nav}
-        <div className="mx-auto mt-1 flex w-3/4 flex-col items-center gap-1">
-          <div className="h-2.5 w-4/5 rounded bg-gray-300 dark:bg-gray-600" />
-          <div className="h-1.5 w-3/5 rounded bg-gray-200 dark:bg-gray-700" />
-        </div>
-        <div className="mx-auto h-3.5 w-12 rounded-full border border-[#635bff]/50" />
-      </div>
-    );
-  }
-  const highlighted = style === "bold";
-  return (
-    <div className="space-y-1.5 p-3">
-      {nav}
-      <div className="flex items-end gap-1.5 pt-0.5">
-        <div className="flex h-11 flex-1 flex-col gap-1 rounded border border-gray-200 p-1.5 dark:border-gray-700">
-          {bar("w-2/3")}{bar("w-1/3")}
-        </div>
-        <div
-          className={
-            highlighted
-              ? "flex h-14 flex-1 flex-col justify-end gap-1 rounded bg-[#15131c] p-1.5 dark:bg-white"
-              : "flex h-11 flex-1 flex-col justify-end gap-1 rounded border-2 border-[#635bff] p-1.5"
-          }
-        >
-          <div
-            className={
-              highlighted ? "h-2 w-4/5 rounded bg-white/90" : "h-2 w-4/5 rounded bg-gray-300 dark:bg-gray-600"
-            }
-          />
-          <div
-            className={
-              highlighted
-                ? "h-2.5 w-2/5 rounded-full bg-[#635bff]"
-                : "h-2.5 w-2/5 rounded-full bg-[#635bff]"
-            }
-          />
-        </div>
-        <div className="flex h-11 flex-1 flex-col gap-1 rounded border border-gray-200 p-1.5 dark:border-gray-700">
-          {bar("w-2/3")}{bar("w-1/2")}
-        </div>
-      </div>
-      <div className="flex justify-center gap-1">
-        <div className="h-2.5 w-10 rounded-full bg-[#635bff]/70" />
-        <div className="h-2.5 w-10 rounded-full bg-gray-200 dark:bg-gray-700" />
-        <div className="h-2.5 w-10 rounded-full bg-gray-200 dark:bg-gray-700" />
-      </div>
-    </div>
-  );
-}
 
-function OptionCards({
-  options,
-  pickedId,
-  ctoAgrees,
-  taskId,
-  taskStatus,
-  disabled,
-  onPick,
-  onOpenTask,
-}: {
-  options: ChatOption[];
-  pickedId?: string;
-  ctoAgrees?: boolean;
-  taskId?: string;
-  taskStatus?: string;
-  disabled?: boolean;
-  onPick: (option: ChatOption) => void;
-  onOpenTask?: (taskId: string) => void;
-}) {
-  return (
-    <div className="mt-3 max-w-2xl">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {options.map((option) => {
-          const selected = pickedId !== undefined && pickedId === option.id;
-          return (
-            <button
-              key={option.id}
-              type="button"
-              disabled={disabled || pickedId !== undefined}
-              onClick={() => onPick(option)}
-              aria-pressed={selected}
-              className={`group/option overflow-hidden rounded-xl border-2 bg-white text-left shadow-sm transition ${
-                selected
-                  ? "border-[#635bff] bg-[#f3f1ff] dark:bg-indigo-950/30"
-                  : "border-gray-200 hover:border-[#635bff]/60 dark:border-gray-800 dark:bg-gray-900"
-              } disabled:cursor-default disabled:opacity-90`}
-            >
-              {option.preview !== "plain" && (
-                <div className="border-b border-[#e9e7f5] dark:border-gray-800">
-                  <OptionPreview style={option.preview} />
-                </div>
-              )}
-              <div className="flex items-baseline gap-2 px-3 pt-2.5">
-                <span
-                  className={`shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-bold ${
-                    selected
-                      ? "bg-[#635bff] text-white"
-                      : "bg-gray-100 text-gray-600 group-hover/option:bg-[#635bff] group-hover/option:text-white dark:bg-gray-800 dark:text-gray-300"
-                  }`}
-                >
-                  {option.id}
-                </span>
-                <p className="min-w-0 flex-1 text-sm font-semibold text-gray-900 dark:text-white">
-                  {option.title}
-                </p>
-              </div>
-              {option.summary && (
-                <p className="px-3 pb-3 pt-1 text-[11px] text-gray-400">{option.summary}</p>
-              )}
-              <div className="px-3 pb-3 pt-1">
-                {selected ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#635bff]">
-                    <Check size={12} /> You picked {option.id}
-                  </span>
-                ) : (
-                  <span className="text-[11px] text-gray-400">{pickedId === undefined ? "Click to pick" : ""}</span>
-                )}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-      {pickedId !== undefined && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="inline-flex items-center gap-1 rounded-full bg-[#f3f1ff] px-2 py-0.5 text-[11px] font-semibold text-[#635bff] dark:bg-indigo-950/60 dark:text-indigo-300">
-            <Check size={11} /> You picked {pickedId}
-          </span>
-          {ctoAgrees && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-              <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-indigo-100 text-[8px] font-bold text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">C</span>
-              CTO agrees
-            </span>
-          )}
-          {taskId && taskStatus && (
-            <button
-              type="button"
-              onClick={() => onOpenTask?.(taskId)}
-              title="Open the task created from this pick"
-              className="inline-flex items-center gap-1 rounded-full border border-[#e5e3eb] px-2 py-0.5 text-[11px] font-semibold text-gray-600 transition hover:border-[#635bff]/50 hover:text-[#635bff] dark:border-gray-700 dark:text-gray-300"
-            >
-              {taskStatus === "done" ? <CheckCircle2 size={11} /> : taskStatus === "failed" ? <XCircle size={11} /> : <Loader2 size={11} className="animate-spin" />}
-              {taskStatus === "done" ? "Done" : taskStatus === "failed" ? "Failed" : "Running"}
-              <ExternalLink size={10} />
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TaskCard({
-  task,
-  subtasks,
-  pending,
-  onApprove,
-  onOpen,
-  agents,
-  approvalMode,
-}: {
-  task: any;
-  subtasks: any[];
-  pending: any[];
-  onApprove: (approvalId: string) => void;
-  onOpen: (taskId: string) => void;
-  agents: any[];
-  approvalMode: "ask" | "auto";
-}) {
-  const retryTask = useMutation(api.tasks.retry);
-  const [retrying, setRetrying] = useState(false);
-  const doneSubs = subtasks.filter((s) => s.status === "completed").length;
-  const needsYou = task.status === "needs_approval" || pending.length > 0;
-  const isFailed = task.status === "failed" || task.status === "rejected";
-  const badge =
-    task.status === "done"
-      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
-      : task.status === "failed" || task.status === "rejected"
-        ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
-        : needsYou
-          ? "bg-[#fff0df] text-[#bd6c23] dark:bg-orange-950 dark:text-orange-300"
-          : "bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300";
-  const badgeLabel =
-    task.status === "done" ? "Done" : task.status === "failed" ? "Failed" : needsYou ? "Needs you" : "In progress";
-  const progress = subtasks.length ? Math.round((doneSubs / subtasks.length) * 100) : task.status === "done" ? 100 : 0;
-  // Compact card: like the reference, the meta line names the agent
-  // currently working the task (first running subtask, else first).
-  const primarySubtask = subtasks.find((s) => s.status === "running") ?? subtasks[0];
-  const primaryAgent = agents.find((a) => a._id === (primarySubtask as any)?.assignedAgentId);
-  const statusIcon = needsYou
-    ? <Bell size={15} className="shrink-0 text-orange-500" />
-    : task.status === "done"
-      ? <CheckCircle2 size={15} className="shrink-0 text-emerald-600" />
-      : task.status === "failed" || task.status === "rejected"
-        ? <XCircle size={15} className="shrink-0 text-red-500" />
-        : <Loader2 size={15} className="shrink-0 animate-spin text-[#635bff]" />;
-
-  return (
-    <div className="space-y-1.5">
-      <div
-        onClick={() => onOpen(task._id)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onOpen(task._id);
-          }
-        }}
-        className="cursor-pointer overflow-hidden rounded-2xl border border-[#e5e3eb] bg-white shadow-[0_1px_2px_rgba(30,25,60,.04)] transition hover:border-[#cfc9f5] dark:border-gray-800 dark:bg-gray-900 dark:hover:border-indigo-800"
-      >
-        <div className="flex items-center gap-2 px-3.5 pt-3">
-          {statusIcon}
-          <p className="min-w-0 flex-1 truncate text-[13px] font-semibold dark:text-white">{task.title}</p>
-          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge}`}>{badgeLabel}</span>
-          <ExternalLink size={13} className="shrink-0 text-gray-300 dark:text-gray-600" />
-        </div>
-        <div className="flex items-center gap-1.5 px-3.5 pb-3 pt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
-          {primaryAgent && (
-            <>
-              <AgentAvatar name={roleLabel(primaryAgent.role)} size={16} avatarParams={primaryAgent.avatarParams} />
-              <span>{roleLabel(primaryAgent.role)}</span>
-            </>
-          )}
-          {task.branchName && (
-            <span className="rounded-md bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-              {task.branchName}
-            </span>
-          )}
-          {subtasks.length > 0 && (
-            <span>· {doneSubs} of {subtasks.length} subtasks</span>
-          )}
-        </div>
-        <div className="h-1 bg-gray-100 dark:bg-gray-800" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
-          <div className="h-full bg-[#635bff] transition-all" style={{ width: `${progress}%` }} />
-        </div>
-      </div>
-      {isFailed && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300">
-          <p className="font-semibold">Task failed{task.errorMessage ? `: ${task.errorMessage}` : ""}</p>
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              type="button"
-              disabled={retrying}
-              onClick={async () => {
-                setRetrying(true);
-                try {
-                  await retryTask({ taskId: task._id as any });
-                } catch {
-                  /* the task row flips to queued via the query stream */
-                } finally {
-                  setRetrying(false);
-                }
-              }}
-              className="flex items-center gap-1.5 rounded-xl bg-[#635bff] px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-[#5346d8] disabled:opacity-50"
-            >
-              <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
-            </button>
-            <button type="button" onClick={() => onOpen(task._id)} className="rounded-xl border border-red-200 bg-white/60 px-3.5 py-2 text-[13px] font-semibold text-red-700 hover:bg-white dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
-              View thread
-            </button>
-          </div>
-        </div>
-      )}
-      {(pending.length > 0 || task.status !== "done") && (
-        <div className="flex items-center gap-2">
-          {pending.length > 0 && (
-            <button type="button" onClick={() => onApprove(pending[0]._id)} className="flex items-center gap-1.5 rounded-xl bg-[#635bff] px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-[#5346d8]">
-              <Check size={14} /> Approve
-            </button>
-          )}
-          <button type="button" onClick={() => onOpen(task._id)} className="rounded-xl border border-[#e5e3eb] px-3.5 py-2 text-[13px] font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
-            Open thread
-          </button>
-          {pending.length === 0 && task.status !== "done" && approvalMode === "ask" && (
-            <span className="ml-auto text-[11px] text-gray-400">Waits for approval before push</span>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FilesView({ project }: { project: any }) {
-  const workspacePath = (project as any)?.workspacePath as string | undefined;
-  const [files, setFiles] = useState<string[] | null>(null);
-  const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
-  const [content, setContent] = useState<string | null>(null);
-  const [imageSrc, setImageSrc] = useState<string | null>(null);
-  const [binaryNote, setBinaryNote] = useState<string | null>(null);
-
-  useEffect(() => {
-    setImageSrc(null);
-    setBinaryNote(null);
-  }, [selected]);
-
-  useEffect(() => {
-    if (!workspacePath) return;
-    setFiles(null);
-    setError("");
-    setSelected(null);
-    setContent(null);
-    setImageSrc(null);
-    setBinaryNote(null);
-    fetch(`/api/project-files?workspacePath=${encodeURIComponent(workspacePath)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if ((data as any)?.error) setError((data as any).error);
-        else setFiles((data as any)?.files ?? []);
-      })
-      .catch(() => setError("Failed to load workspace files"));
-  }, [workspacePath]);
-
-  const openFile = (filePath: string) => {
-    if (!workspacePath) return;
-    setSelected(filePath);
-    setContent(null);
-    setImageSrc(null);
-    setBinaryNote(null);
-    fetch(
-      `/api/project-files?workspacePath=${encodeURIComponent(workspacePath)}&filePath=${encodeURIComponent(filePath)}`
-    )
-      .then((res) => res.json())
-      .then((data) => {
-        if ((data as any)?.image && (data as any)?.data && (data as any)?.mime) {
-          setImageSrc(`data:${(data as any).mime};base64,${(data as any).data}`);
-          setContent("");
-        } else if ((data as any)?.binary) {
-          setContent("");
-          setBinaryNote((data as any)?.reason ?? "Binary file — preview not available");
-        } else {
-          setContent((data as any)?.content ?? "");
-        }
-      })
-      .catch(() => setContent("Failed to load file"));
-  };
-
-  const visible = (files ?? []).filter(
-    (file) => !query || file.toLowerCase().includes(query.toLowerCase())
-  );
-
-  return (
-    <div className="flex min-h-0 flex-1 gap-4 p-5">
-      <div className="flex w-72 shrink-0 flex-col gap-2">
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search files…"
-          aria-label="Search files"
-          className="rounded-xl border border-[#e5e3eb] bg-white px-3 py-2 text-sm outline-none focus:border-[#a29ae8] dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-        />
-        <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-[#e5e3eb] bg-white p-1 dark:border-gray-800 dark:bg-gray-900">
-          {error && <p className="px-2 py-2 text-xs text-rose-600">{error}</p>}
-          {!error && !files && <p className="px-2 py-2 text-xs text-gray-400">Loading files…</p>}
-          {files && visible.length === 0 && (
-            <p className="px-2 py-2 text-xs text-gray-400">No files found.</p>
-          )}
-          {visible.map((file) => (
-            <button
-              key={file}
-              type="button"
-              onClick={() => openFile(file)}
-              className={`flex w-full items-center gap-2 truncate rounded-lg px-2 py-1.5 text-left text-[13px] transition hover:bg-gray-100 dark:hover:bg-gray-800 ${
-                selected === file ? "bg-gray-100 font-semibold dark:bg-gray-800" : ""
-              }`}
-            >
-              <FileText size={13} className="shrink-0 text-gray-400" />
-              <span className="min-w-0 flex-1 truncate">{file}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="min-w-0 flex-1 overflow-hidden rounded-xl border border-[#e5e3eb] bg-white dark:border-gray-800 dark:bg-gray-900">
-        {selected ? (
-          <>
-            <p className="border-b border-[#e5e3eb] px-4 py-2.5 font-mono text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
-              {selected}
-            </p>
-            {imageSrc ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={imageSrc} alt={selected} className="h-[calc(100%-37px)] w-full object-contain bg-gray-50 dark:bg-gray-950" />
-            ) : content === "" && binaryNote ? (
-              <p className="flex h-[calc(100%-37px)] items-center justify-center text-sm text-gray-400">{binaryNote}</p>
-            ) : (
-              <pre className="h-[calc(100%-37px)] overflow-auto p-4 font-mono text-xs leading-5 dark:text-gray-200">
-                {content ?? "Loading…"}
-              </pre>
-            )}
-          </>
-        ) : (
-          <p className="flex h-full items-center justify-center text-sm text-gray-400">
-            Select a file to preview it.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
 
 export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpenAgent, selectedTaskId }: Props) {
   const project = useQuery(api.projects.get, { projectId: projectId as any });
@@ -566,8 +125,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     try {
       await clearChat({ projectId: projectId as never });
       setDraft("");
-      setMessageQueue([]);
-      setMention(null);
+      queue.clear();
+      mentions.setMention(null);
       toast("success", "Chat cleared");
       setClearConfirm(null);
     } catch (err) {
@@ -676,18 +235,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
 
   const conversationTyping = lastMessage?.authorType === "user";
 
-  // Auto-dispatch queue after agent finishes responding
-  useEffect(() => {
-    if (wasAgentTypingRef.current && !conversationTyping) {
-      // Agent just finished responding — dispatch queued messages after a short delay
-      const queued = messageQueue.some((m) => m.status === "queued");
-      if (queued && selectedTaskId) {
-        const timer = setTimeout(() => void sendAllQueued(), 300);
-        return () => clearTimeout(timer);
-      }
-    }
-    wasAgentTypingRef.current = conversationTyping;
-  }, [conversationTyping]);
   const latestAgentMessage = [...selectedTaskMessages].reverse().find((message: any) => message.authorType === "agent");
   const taskTitle = (taskId: string) => (tasks ?? []).find((task) => task._id === taskId)?.title ?? "task";
   // A task block starts at the user message that spawned it. The plan message
@@ -700,19 +247,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     const taskId = m.taskId ?? taskFromPlan(m.content ?? "");
     if (m.replyToMessageId && taskId) replyToTask.set(m.replyToMessageId, taskId);
   }
-  // ponytail: evaluation and planning messages are summaries, not execution
-  // output. Detect by content prefix so the UI can show a badge.
-  // Delegation messages are written by the worker as
-  // "Delegation: From → To (capability): reason" (taskRunner.ts).
-  const messageKind = (content: string): "evaluation" | "planning" | "delegation" | "design" | null =>
-    /^Task (completed|finished)/.test(content) ? "evaluation" :
-    /^Plan dibuat/.test(content) ? "planning" :
-    /^Delegation:/.test(content) ? "delegation" :
-    /^Design proposal:/.test(content) ? "design" : null;
-  const delegationParts = (content: string) => {
-    const match = content.match(/^Delegation:\s*(.+?)\s*→\s*(.+?)\s*\((.+?)\)(?::\s*(.*))?$/s);
-    return match ? { from: match[1], to: match[2], capability: match[3], reason: match[4] ?? "" } : null;
-  };
   const blockKey = (m: any) => m.taskId ?? replyToTask.get(m._id) ?? taskFromPlan(m.content ?? "") ?? "conversation";
 
   const [manageName, setManageName] = useState("");
@@ -763,9 +297,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
 
   const sendMessage = useAction(api.messages.send);
   const [draft, setDraft] = useState("");
-  const [messageQueue, setMessageQueue] = useState<
-    Array<{ id: string; content: string; status: "queued" | "sending" | "sent" | "failed" }>
-  >([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [chatAgentIds, setChatAgentIds] = useState<string[]>([]);
 
@@ -777,76 +308,35 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     if (!activeConversation) return;
     setChatAgentIds(activeConversation.participants.map((p: any) => p.agentId));
   }, [activeConversation]);
+  // Who is drafting a chat reply (the "thinking" pill names them instead
+  // of a generic label); mirrors the persisted chat selection.
+  const replyingNames = chatAgentIds
+    .map((id) => (agents as any)?.find((a: any) => a._id === id))
+    .filter(Boolean)
+    .slice(0, 3)
+    .map((a: any) => roleLabel(a.role));
   const [chatError, setChatError] = useState("");
   const [chatSending, setChatSending] = useState(false);
-  const [mention, setMention] = useState<string | null>(null);
-  const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
 
-  useEffect(() => {
-    const workspacePath = (project as any)?.workspacePath;
-    if (!workspacePath) {
-      setWorkspaceFiles([]);
-      return;
-    }
-    let cancelled = false;
-    void fetch(`/api/project-files?workspacePath=${encodeURIComponent(workspacePath)}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Unable to list project files");
-        return (await response.json()) as { files?: string[] };
-      })
-      .then((data) => {
-        if (!cancelled) setWorkspaceFiles(data.files ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setWorkspaceFiles([]);
+  const mentions = useDraftMentions(draft, setDraft, project, projectFiles);
+  const queue = useChatQueue(
+    async (content) => {
+      await sendMessage({
+        projectId: projectId as any,
+        content,
+        preferredAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [(project as any)?.workspacePath]);
+    },
+    (message) => setChatError(message),
+  );
 
-  const mentionResults = useMemo(() => {
-    if (mention === null) return [];
-    const q = mention.toLowerCase();
-    const changedFiles = (projectFiles ?? []).map((f: any) => f.filePath as string);
-    return [...new Set([...workspaceFiles, ...changedFiles])]
-      .filter((p) => p.toLowerCase().includes(q))
-      .slice(0, 30);
-  }, [mention, projectFiles, workspaceFiles]);
-
-  const attachMentionedFiles = async (text: string) => {
-    const paths = [...new Set(
-      [...text.matchAll(/@([\w./-]+\.[\w]{1,12})/g)].map((match) => match[1]),
-    )];
-    if (paths.length === 0 || !(project as any)?.workspacePath) return text;
-    const contents = await Promise.all(paths.map(async (filePath) => {
-      const params = new URLSearchParams({
-        workspacePath: (project as any).workspacePath,
-        filePath,
-      });
-      const response = await fetch(`/api/project-files?${params}`);
-      if (!response.ok) return "";
-      const data = (await response.json()) as { content?: string };
-      return data.content ? `\n\n--- File: ${filePath} ---\n${data.content}` : "";
-    }));
-    return `${text}${contents.join("")}`.slice(0, 8000);
-  };
-
-  const insertMention = (path: string) => {
-    const at = draft.lastIndexOf("@");
-    const before = draft.slice(0, at);
-    setDraft(`${before}@${path} `);
-    setMention(null);
-  };
-
-  // Message queue helpers
   const addToQueue = async () => {
     const text = draft.trim();
     if (!text) return;
-    const content = await attachMentionedFiles(text);
-    setMessageQueue((q) => [...q, { id: crypto.randomUUID(), content, status: "queued" }]);
+    const content = await mentions.attachMentionedFiles(text);
+    queue.add(content);
     setDraft("");
-    setMention(null);
+    mentions.setMention(null);
   };
 
   const handleChooseProposal = async (choice: string) => {
@@ -871,14 +361,14 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     setChatError("");
     setChatSending(true);
     try {
-      const content = await attachMentionedFiles(text);
+      const content = await mentions.attachMentionedFiles(text);
       await sendMessage({
         projectId: projectId as any,
         content,
         preferredAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
       });
       setDraft("");
-      setMention(null);
+      mentions.setMention(null);
     } catch (err) {
       setChatError(err instanceof Error ? err.message : "Failed to send");
     } finally {
@@ -886,70 +376,29 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     }
   };
 
-  const removeFromQueue = (id: string) => {
-    setMessageQueue((q) => q.filter((m) => m.id !== id));
-  };
-
-  const moveInQueue = (id: string, direction: -1 | 1) => {
-    setMessageQueue((q) => {
-      const idx = q.findIndex((m) => m.id === id);
-      if (idx < 0) return q;
-      const next = idx + direction;
-      if (next < 0 || next >= q.length) return q;
-      const nextq = [...q];
-      [nextq[idx], nextq[next]] = [nextq[next], nextq[idx]];
-      return nextq;
-    });
-  };
-
-  const updateQueueItem = (id: string, content: string) => {
-    setMessageQueue((q) => q.map((m) => (m.id === id ? { ...m, content } : m)));
-  };
-
   const sendAllQueued = async () => {
-    const items = messageQueue.filter((m) => m.status === "queued");
-    if (items.length === 0) return;
     setChatError("");
     setChatSending(true);
-    for (const item of items) {
-      setMessageQueue((q) => q.map((m) => (m.id === item.id ? { ...m, status: "sending" } : m)));
-      try {
-        await sendMessage({
-          projectId: projectId as any,
-          content: item.content,
-          preferredAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
-        });
-        setMessageQueue((q) => q.map((m) => (m.id === item.id ? { ...m, status: "sent" } : m)));
-      } catch (err) {
-        setMessageQueue((q) => q.map((m) => (m.id === item.id ? { ...m, status: "failed" } : m)));
-        setChatError(err instanceof Error ? err.message : "Failed to send");
-        break;
+    try {
+      await queue.sendAll();
+    } finally {
+      setChatSending(false);
+    }
+  };
+
+  // Auto-dispatch queue after agent finishes responding
+  const queuedCount = queue.items.filter((m) => m.status === "queued").length;
+  useEffect(() => {
+    if (wasAgentTypingRef.current && !conversationTyping) {
+      // Agent just finished responding — dispatch queued messages after a short delay
+      if (queuedCount > 0 && selectedTaskId) {
+        const timer = setTimeout(() => void sendAllQueued(), 300);
+        return () => clearTimeout(timer);
       }
     }
-    setChatSending(false);
-    // Clear sent items after a short delay so the user sees the success state
-    setTimeout(() => {
-      setMessageQueue((q) => q.filter((m) => m.status !== "sent"));
-    }, 2000);
-  };
-
-  const handleDraftInput = (value: string) => {
-    setDraft(value);
-    const at = value.lastIndexOf("@");
-    const afterSpace = at >= 0 && (at === 0 || /\s/.test(value[at - 1]));
-    const token = afterSpace ? value.slice(at + 1) : null;
-    setMention(token !== null && !/\s/.test(token) ? token : null);
-  };
-
-  // Auto-grow the composer textarea up to maxHeight (120px).
-  const draftAreaRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    const el = draftAreaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-  }, [draft]);
-
+    wasAgentTypingRef.current = conversationTyping;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationTyping]);
   const headerAgents = agents.slice(0, 6);
   const activeForSelectedTask = useMemo(() => {
     if (!selectedTask) return [];
@@ -1076,11 +525,19 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
           ))}
         </div>
         <div className="ml-auto flex items-center gap-1.5">
+          {(((selectedTask as any)?.branchName ?? (tasks ?? [])[0]?.branchName) ? (
+            <span
+              title="Branch of the selected task"
+              className="flex max-w-[220px] items-center gap-1 rounded-lg border border-[#e5e3eb] px-2 py-1 font-mono text-[11px] font-semibold text-gray-500 dark:border-gray-700 dark:text-gray-400"
+            >
+              <GitBranch size={12} className="shrink-0" />
+              <span className="truncate">{((selectedTask as any)?.branchName ?? (tasks ?? [])[0]?.branchName)}</span>
+            </span>
+          ) : null)}
           <span
             title="Plan version of the selected task"
             className="flex items-center gap-1 rounded-lg border border-[#e5e3eb] px-2 py-1 font-mono text-[11px] font-semibold text-gray-500 dark:border-gray-700 dark:text-gray-400"
           >
-            <GitBranch size={12} />
             v{((selectedTask as any)?.planVersion ?? (tasks ?? [])[0]?.planVersion ?? 1)}
           </span>
         <div className="flex items-center gap-1">
@@ -1253,290 +710,33 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
           </div>
         ))}
         {tab === "chat" ? (
-          <>
-            {timeline.map((m: any, index: number) => {
-              const previous = timeline[index - 1];
-              const key = blockKey(m);
-              const prevKey = previous ? blockKey(previous) : null;
-              // Divider marks the start of a task block (at the user's message
-              // that spawned it), not a transition back to plain conversation.
-              const boundary = key !== prevKey && key !== "conversation";
-               const showTaskCard = key !== "conversation" && m.authorType === "agent" && previous?.authorType === "user";
-              return (
-                <div key={m._id}>
-                  {index === firstNewIndex && (
-                    <div className="flex items-center gap-3 text-[11px] font-medium text-[#635bff]">
-                      <span className="h-px flex-1 bg-[#e5e3eb] dark:bg-gray-700" />
-                      <span className="h-1.5 w-1.5 rounded-full bg-[#635bff]" />
-                      New
-                    </div>
-                  )}
-                  {boundary && (
-                    <p className="my-5 text-center text-[11px] text-gray-400">
-                      — {taskTitle(key)} —
-                    </p>
-                  )}
-                  {showTaskCard && (() => {
-                    const cardTask = (tasks ?? []).find((t) => t._id === key);
-                    if (!cardTask) return null;
-                    const pending = pendingItems.filter((a: any) => a.taskId === key && a.status === "pending");
-                    const qaEvents = (projectEvents ?? []).filter((e: any) => e.taskId === key && e.type === "task.check");
-                    return (
-                      <div className="space-y-2">
-                        <TaskCard
-                          task={cardTask}
-                          subtasks={subtasksOf.get(key) ?? []}
-                          pending={pending}
-                          onApprove={(approvalId) => approve({ approvalId: approvalId as any })}
-                          onOpen={onSelectTask}
-                          agents={agents}
-                          approvalMode={(project as any)?.approvalMode ?? "ask"}
-                        />
-                        {pending.map((a: any) => (
-                          <ApprovalCard
-                            key={a._id}
-                            approval={a}
-                            taskTitle={cardTask.title}
-                            onApprove={(approvalId) => approve({ approvalId: approvalId as any })}
-                            onReject={(approvalId) => reject({ approvalId: approvalId as any })}
-                            onHold={(approvalId) => hold({ approvalId: approvalId as any })}
-                            onReview={(taskId) => onSelectTask(taskId)}
-                          />
-                        ))}
-                        {qaEvents.length > 0 && <QaPanel events={qaEvents} />}
-                      </div>
-                    );
-                  })()}
-                  <motion.div
-                    key={m._id}
-                    id={`message-${m._id}`}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
-                    className="group mt-3 flex gap-3"
-                  >
-                    {m.authorType === "agent" ? (
-                      <InitialAvatar
-                        name={roleLabel((agents as any)?.find((a: any) => a._id === m.agentId)?.role)}
-                        size={32}
-                      />
-                    ) : (
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#eceaf3] text-[11px] font-bold text-[#5147b4] dark:bg-white/15 dark:text-white">
-                        You
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline gap-2">
-                        <p className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-[#34323d] dark:text-gray-100">
-                          {m.authorType === "agent"
-                            ? roleLabel((agents as any)?.find((a: any) => a._id === m.agentId)?.role)
-                            : "You"}
-                          {(() => {
-                            const kind = messageKind(m.content);
-                            if (kind === "evaluation") return (
-                              <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
-                                <svg className="animate-[spin_2.5s_linear_infinite]" xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <circle cx="12" cy="12" r="10" />
-                                  <path d="m16 9-5.5 5.5L8 12" />
-                                </svg>
-                                evaluated
-                              </span>
-                            );
-                            if (kind === "planning") return <span className=" rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900 dark:text-purple-300">planned</span>;
-                            if (kind === "delegation") return <span className=" rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">delegated</span>;
-                            if (kind === "design") return <span className=" rounded-full bg-pink-100 px-1.5 py-0.5 text-[10px] font-semibold text-pink-700 dark:bg-pink-950 dark:text-pink-300">design proposal</span>;
-                            return null;
-                          })()}
-                        </p>
-                        <span className="text-[11px] text-gray-400">{formatMessageTime(m._creationTime)}</span>
-                        <button
-                          type="button"
-                          title={m.pinned ? "Unpin message" : "Pin message"}
-                          aria-label={m.pinned ? "Unpin message" : "Pin message"}
-                          aria-pressed={Boolean(m.pinned)}
-                          onClick={() => void togglePin({ messageId: m._id, pinned: !m.pinned })}
-                          className={`rounded p-0.5 transition ${
-                            m.pinned
-                              ? "text-[#635bff]"
-                              : "text-gray-300 opacity-0 group-hover:opacity-100 hover:text-[#635bff]"
-                          }`}
-                        >
-                          <Pin size={11} />
-                        </button>
-                      </div>
-                      {messageKind(m.content) === "delegation" ? null : (
-                        <MessageText content={parseOptions(m.content).text} />
-                      )}
-                      {(() => {
-                        if (m.authorType !== "agent") return null;
-                        const { options } = parseOptions(m.content);
-                        if (options.length === 0) return null;
-                        const next = timeline[index + 1];
-                        const pickedMsg = next?.authorType === "user" ? (next.content ?? "") : "";
-                        const pickedId = options.find(
-                          (o) =>
-                            new RegExp(`^I choose ${o.id}\\b`, "i").test(pickedMsg) ||
-                            pickedMsg.includes(o.title)
-                        )?.id;
-                        // The mockup's second chip: does the CTO endorse the
-                        // pick in its next reply?
-                        let ctoAgrees = false;
-                        if (pickedId) {
-                          for (let i = index + 2; i < timeline.length && i < index + 6; i += 1) {
-                            const candidate = timeline[i];
-                            if (!candidate || candidate.authorType !== "agent") continue;
-                            const role = (agents as any)?.find((a: any) => a._id === candidate.agentId)?.role;
-                            if (!/^(cto|architect|lead|orchestrator|planner)$/i.test(role ?? "")) continue;
-                            ctoAgrees = /^\s*i agree\b/i.test(candidate.content ?? "");
-                            break;
-                          }
-                        }
-                        // The pick auto-creates a task ("Task created from
-                        // your pick"); bind the card to that task's live
-                        // status so the card evolves with execution.
-                        let linkedTaskId: string | undefined;
-                        let linkedTaskStatus: string | undefined;
-                        if (pickedId) {
-                          for (let i = index + 2; i < timeline.length; i += 1) {
-                            const candidate = timeline[i];
-                            if (
-                              candidate?.taskId &&
-                              typeof candidate.content === "string" &&
-                              candidate.content.startsWith("Task created from your pick")
-                            ) {
-                              linkedTaskId = candidate.taskId;
-                              linkedTaskStatus = (tasks ?? []).find((t: any) => t._id === candidate.taskId)?.status;
-                              break;
-                            }
-                          }
-                        }
-                        return (
-                          <OptionCards
-                            options={options}
-                            pickedId={pickedId}
-                            ctoAgrees={ctoAgrees}
-                            taskId={linkedTaskId}
-                            taskStatus={linkedTaskStatus}
-                            disabled={chatSending}
-                            onPick={(option) => void handleChooseProposal(`I choose ${option.id}: ${option.title}`)}
-                            onOpenTask={onSelectTask}
-                          />
-                        );
-                      })()}
-                      {(() => {
-                        const kind = messageKind(m.content);
-                        if (kind !== "delegation") return null;
-                        const parts = delegationParts(m.content);
-                        if (!parts) return null;
-                        return (
-                          <div className="mt-2 flex max-w-3xl flex-wrap items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs dark:border-indigo-950 dark:bg-indigo-950/20">
-                            <span className="font-semibold dark:text-white">{parts.from}</span>
-                            <span aria-hidden="true" className="text-indigo-400">→</span>
-                            <span className="font-semibold dark:text-white">{parts.to}</span>
-                            <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-indigo-600 ring-1 ring-indigo-100 dark:bg-gray-900 dark:text-indigo-300 dark:ring-gray-800">{parts.capability}</span>
-                            {parts.reason && <span className="w-full text-gray-500 dark:text-gray-400">{parts.reason}</span>}
-                          </div>
-                        );
-                      })()}
-                      {m.taskId && fileChangesByTask?.length && m._id === latestAgentMessage?._id ? (
-                        <div className="mt-2">
-                          <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-600">
-                            Changed {(fileChangesByTask as any).length} files
-                            <span className="text-emerald-600">+{diffStats.added}</span>
-                            <span className="text-rose-500">−{diffStats.removed}</span>
-                          </p>
-                          {(fileChangesByTask as any).map((fc: any) => {
-                            const pendingApproval = pendingItems.find(
-                              (a: any) => a.taskId === m.taskId && a.status === "pending" && (a.payload?.filePaths ?? []).includes(fc.filePath),
-                            );
-                            return (
-                              <DiffCard
-                                key={fc._id}
-                                filePath={fc.filePath}
-                                diff={fc.diff}
-                                changeType={fc.changeType}
-                                oldContent={fc.oldContent}
-                                newContent={fc.newContent}
-                                applied={Boolean(fc.appliedAt)}
-                                approvalId={pendingApproval?._id as string}
-                                busy={false}
-                                onApprove={(id) => approve({ approvalId: id as any })}
-                                onReject={(id) => reject({ approvalId: id as any })}
-                              />
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                  </motion.div>
-                </div>
-              );
-            })}
-            {/* Generic chat-reply indicator. Per-agent status (Working now
-                / X is thinking) is more specific: when either is visible,
-                this one hides so the same state is not announced twice. */}
-            {conversationTyping && activeForSelectedTask.length === 0 && workingAgents.length === 0 && (
-              <div className="flex items-center gap-2.5 rounded-full border border-[#ebe9f4] bg-white/80 px-3 py-1.5 text-xs font-medium text-gray-500 shadow-sm dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-300">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#eeecfb] text-[10px] text-[#635bff] dark:bg-indigo-950 dark:text-indigo-300" aria-hidden="true">✦</span>
-                <span>Team is thinking</span>
-                <span className="flex gap-1" aria-label="Agent is typing">
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8b82e8]" />
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8b82e8] [animation-delay:120ms]" />
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8b82e8] [animation-delay:240ms]" />
-                </span>
-              </div>
-            )}
-            {!timeline.length && <p className="text-sm text-gray-400">No messages yet.</p>}
-            {activeForSelectedTask.length > 0 ? (
-              <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
-                <div className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative h-2 w-2 rounded-full bg-emerald-500" />
-                  </span>
-                  Working now
-                </div>
-                <div className="mt-1.5 space-y-1">
-                  {activeForSelectedTask.map(({ agent, stage, subtaskKey }: any) => (
-                    <div key={agent._id} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
-                      <AgentAvatar name={roleLabel(agent.role)} size={18} status="working" avatarParams={agent.avatarParams} />
-                      <span className="font-medium">{roleLabel(agent.role)}</span>
-                      <span className="text-gray-400">
-                        {stage === "waiting_approval" ? "waiting approval" : stage === "queued" ? "queued" : "thinking"}
-                        {subtaskKey ? ` · ${subtaskKey}` : ""}
-                      </span>
-                      <span className="flex gap-0.5" aria-label="Agent is typing">
-                        <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
-                        <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
-                        <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:240ms]" />
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              workingAgents.length > 0 && (
-                <div className="flex items-center gap-2 text-xs text-gray-400">
-                  <div className="flex space-x-1">
-                    {workingAgents.slice(0, 3).map((agent: any) => (
-                      <AgentAvatar
-                        key={agent._id}
-                        name={roleLabel(agent.role)}
-                        size={20}
-                        avatarParams={agent.avatarParams}
-                      />
-                    ))}
-                  </div>
-                  <span>{workingAgents.map((agent: any) => roleLabel(agent.role)).join(", ")} is thinking</span>
-                  <span className="flex gap-0.5" aria-label="Agent is thinking">
-                    <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
-                    <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
-                    <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:240ms]" />
-                  </span>
-                </div>
-              )
-            )}
-          </>
+            <MessageList
+              timeline={timeline}
+              firstNewIndex={firstNewIndex}
+              agents={agents}
+              tasks={tasks}
+              subtasksOf={subtasksOf}
+              pendingItems={pendingItems}
+              projectEvents={projectEvents}
+              projectApprovalMode={(project as any)?.approvalMode ?? "ask"}
+              fileChangesByTask={fileChangesByTask}
+              latestAgentMessage={latestAgentMessage}
+              diffStats={diffStats}
+              chatSending={chatSending}
+              conversationTyping={conversationTyping}
+              replyingNames={replyingNames}
+              activeForSelectedTask={activeForSelectedTask}
+              workingAgents={workingAgents}
+              onSelectTask={onSelectTask}
+              approve={(approvalId) => approve({ approvalId: approvalId as any })}
+              reject={(approvalId) => reject({ approvalId: approvalId as any })}
+              hold={(approvalId) => hold({ approvalId: approvalId as any })}
+              togglePin={(messageId, pinned) => void togglePin({ messageId: messageId as never, pinned })}
+              onPickProposal={(choice) => void handleChooseProposal(choice)}
+              formatTime={formatMessageTime}
+              taskTitle={taskTitle}
+              blockKey={blockKey}
+            />
         ) : (
           <motion.div key="tasks" initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }}>
             {tab === "files" ? (
@@ -1628,185 +828,32 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         </Modal>
       )}
       {tab === "chat" && (
-        <div className="border-t border-[#ebe9f0] bg-white/80 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80">
-          <div className="relative flex flex-col gap-2">
-            {mention !== null && mentionResults.length > 0 && (
-              <ul className="absolute bottom-full left-0 z-30 mb-2 max-h-52 w-full overflow-y-auto rounded-xl border border-[#e5e3eb] bg-white py-1 shadow-xl dark:border-gray-700 dark:bg-gray-900">
-                {mentionResults.map((path) => (
-                  <li key={path}>
-                    <button
-                      type="button"
-                      onClick={() => insertMention(path)}
-                      className="block w-full truncate px-3 py-1.5 text-left font-mono text-xs hover:bg-gray-50 dark:hover:bg-gray-800"
-                    >
-                      @{path}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {messageQueue.length > 0 && (
-              <div className="space-y-1.5">
-                {messageQueue.map((item, idx) => (
-                  <div
-                    key={item.id}
-                    className={`flex items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
-                      item.status === "sending"
-                        ? "border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/50"
-                        : item.status === "sent"
-                        ? "border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/50"
-                        : item.status === "failed"
-                        ? "border-red-300 bg-red-50 dark:border-red-700 dark:bg-red-950/50"
-                        : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
-                    }`}
-                  >
-                    <span className="shrink-0 pt-0.5 font-mono text-gray-400">{idx + 1}.</span>
-                    {editingId === item.id ? (
-                      <input
-                        autoFocus
-                        value={item.content}
-                        onChange={(e) => updateQueueItem(item.id, e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") { e.preventDefault(); setEditingId(null); }
-                          if (e.key === "Escape") setEditingId(null);
-                        }}
-                        className="min-w-0 flex-1 rounded border border-indigo-300 bg-white px-1.5 py-0.5 text-xs dark:border-indigo-700 dark:bg-gray-800"
-                      />
-                    ) : (
-                      <span className="min-w-0 flex-1 truncate text-gray-700 dark:text-gray-200">
-                        {item.content}
-                      </span>
-                    )}
-                    <span
-                      className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${
-                        item.status === "queued"
-                          ? "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-                          : item.status === "sending"
-                          ? "bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300"
-                          : item.status === "sent"
-                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
-                          : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
-                      }`}
-                    >
-                      {item.status}
-                    </span>
-                    {item.status === "queued" && (
-                      <div className="flex shrink-0 items-center gap-0.5">
-                        <button
-                          type="button"
-                          onClick={() => moveInQueue(item.id, -1)}
-                          disabled={idx === 0}
-                          className="rounded p-0.5 text-gray-400 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-20 dark:hover:bg-gray-800"
-                        >
-                          <ChevronUp size={12} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => moveInQueue(item.id, 1)}
-                          disabled={idx === messageQueue.length - 1}
-                          className="rounded p-0.5 text-gray-400 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-20 dark:hover:bg-gray-800"
-                        >
-                          <ChevronDown size={12} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditingId(item.id)}
-                          className="rounded p-0.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-                        >
-                          <Edit2 size={12} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeFromQueue(item.id)}
-                          className="rounded p-0.5 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="rounded-2xl border border-[#e5e3eb] bg-white px-4 pb-3 pt-3.5 shadow-sm transition focus-within:border-[#a29ae8] focus-within:ring-2 focus-within:ring-[#e5e1ff] dark:border-gray-700 dark:bg-gray-800 dark:focus-within:border-indigo-400 dark:focus-within:ring-indigo-900">
-              <textarea
-                ref={draftAreaRef}
-                value={draft}
-                onChange={(e) => handleDraftInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (mention !== null && mentionResults.length > 0 && e.key === "Enter") {
-                    e.preventDefault();
-                    insertMention(mentionResults[0]);
-                    return;
-                  }
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void sendImmediately();
-                  }
-                  if (e.key === "Enter" && e.shiftKey) {
-                    e.preventDefault();
-                    void addToQueue();
-                  }
-                }}
-                rows={1}
-                placeholder={`Message ${((project as any)?.name ?? "the team")}, or @ a file`}
-                className="w-full resize-none bg-transparent px-0.5 text-[15px] leading-6 text-gray-900 outline-none placeholder:text-gray-400 dark:text-white dark:placeholder:text-gray-400"
-                style={{ minHeight: "24px", maxHeight: "120px" }}
-              />
-              <div className="mt-2 flex items-center gap-1.5">
-                 <button type="button" title="Formatting (not available)" aria-label="Formatting (not available)" disabled className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 dark:text-gray-600 cursor-not-allowed"><Type size={16} /></button>
-                 <button type="button" title="Attach a file (not available)" aria-label="Attach a file (not available)" disabled className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 dark:text-gray-600 cursor-not-allowed"><Paperclip size={16} /></button>
-                <button
-                  type="button"
-                  onClick={() => handleDraftInput(`${draft}@`)}
-                  title="Reference a file"
-                  aria-label="Reference a file"
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-700 dark:hover:text-gray-200"
-                >
-                  <AtSign size={15} />
-                </button>
-                <button type="button" title="Voice input (not available)" aria-label="Voice input (not available)" disabled className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 dark:text-gray-600 cursor-not-allowed"><Mic size={16} /></button>
-                <select value="" onChange={(event) => { if (event.target.value) setChatAgentIds((ids) => ids.includes(event.target.value) ? ids : [...ids, event.target.value]); }} aria-label="Select agents to route to" className="h-7 max-w-28 rounded-full border border-[#e5e3eb] bg-white px-2 text-xs text-gray-500 outline-none focus:border-[#a29ae8] dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"><option value="">Route to…</option>{agents.filter((a: any) => !chatAgentIds.includes(a._id)).map((a: any) => <option key={a._id} value={a._id}>{roleLabel(a.role)}</option>)}</select>
-                 {(() => { const cto = agents.find((a: any) => /^(cto|orchestrator|planner|architect)$/i.test(a.role ?? "")); return cto && !chatAgentIds.includes(cto._id) ? <button type="button" onClick={() => setChatAgentIds((ids) => ids.includes(cto._id) ? ids : [...ids, cto._id])} className="h-7 rounded-full border border-[#e5e3eb] px-2.5 text-xs font-semibold text-gray-600 hover:border-[#a29ae8] hover:text-[#5147b4] dark:border-gray-700 dark:text-gray-300" aria-label="Delegate to CTO">Delegate to CTO</button> : null; })()}
-                 {agents
-                  .filter((a: any) => chatAgentIds.includes(a._id))
-                  .map((a: any) => (
-                    <button
-                      key={a._id}
-                      type="button"
-                      onClick={() => setChatAgentIds((ids) => ids.filter((id) => id !== a._id))}
-                      title={`Stop routing to ${roleLabel(a.role)}`}
-                      className="flex h-7 items-center gap-1.5 rounded-full bg-[#eeecfb] px-2.5 py-1 text-xs font-semibold text-[#5147b4] transition hover:bg-[#e2defa] dark:bg-indigo-950 dark:text-indigo-300 dark:hover:bg-indigo-900"
-                    >
-                      <InitialAvatar name={roleLabel(a.role)} size={16} /> To {roleLabel(a.role)} <X size={11} />
-                    </button>
-                  ))}
-                <span className="ml-auto hidden text-[11px] text-gray-400 sm:block">Enter to send</span>
-                {messageQueue.length > 0 ? (
-                  <button
-                    onClick={() => void sendAllQueued()}
-                    disabled={chatSending || !messageQueue.some((m) => m.status === "queued")}
-                    className="flex items-center gap-1 rounded-xl bg-[#635bff] px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#5346d8] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Send size={14} /> Send all
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => void sendImmediately()}
-                    disabled={chatSending || !draft.trim()}
-                    aria-label="Send message"
-                    className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#635bff] text-white shadow-sm transition hover:bg-[#5346d8] disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <Send size={14} />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-          {chatError && <p className="mt-2 text-xs text-red-600">{chatError}</p>}
-        </div>
+        <ChatComposer
+          draft={draft}
+          onDraftChange={mentions.handleInput}
+          onSend={() => void sendImmediately()}
+          onQueue={() => void addToQueue()}
+          sending={chatSending}
+          error={chatError}
+          mention={mentions.mention}
+          mentionResults={mentions.results}
+          onInsertMention={mentions.insert}
+          queue={queue.items}
+          editingId={editingId}
+          onEdit={setEditingId}
+          onEditContent={queue.update}
+          onMove={queue.move}
+          onRemove={queue.remove}
+          onSendAll={() => void sendAllQueued()}
+          agents={agents}
+          chatAgentIds={chatAgentIds}
+          onToggleAgent={(agentId) =>
+            setChatAgentIds((ids) =>
+              ids.includes(agentId) ? ids.filter((id) => id !== agentId) : [...ids, agentId],
+            )
+          }
+          projectName={(project as any)?.name ?? "the team"}
+        />
       )}
 
     </main>

@@ -49,12 +49,19 @@ export default function ApprovalCard({
   const [acting, setActing] = useState<string | null>(null);
   const disabled = busy || acting !== null;
   const approveLabel = approval.kind === "git_push" ? "Approve push" : "Approve";
-  const run = (action: string, fn: (id: string) => void) => {
+  const run = (action: string, fn: (id: string) => void | Promise<void>) => {
     setActing(action);
+    const done = () => setActing(null);
     try {
-      fn(approval._id);
-    } finally {
-      setActing(null);
+      const result = fn(approval._id);
+      if (result && typeof (result as Promise<void>).then === "function") {
+        (result as Promise<void>).then(done, done);
+      } else {
+        // Sync caller: stay disabled briefly so the action is visible, then clear.
+        setTimeout(done, 400);
+      }
+    } catch {
+      done();
     }
   };
 
@@ -139,6 +146,9 @@ export default function ApprovalCard({
       </div>
       {acting === "hold" && (
         <p className="px-4 pb-3 text-[11px] text-amber-600 dark:text-amber-400">Held — the approval stays pending and is recorded in the task timeline.</p>
+      )}
+      {acting !== null && acting !== "hold" && (
+        <p className="px-4 pb-3 text-[11px] text-gray-400">Processing your decision…</p>
       )}
     </div>
   );

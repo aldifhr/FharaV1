@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertServiceToken } from "./authz";
 import { encryptApiKey, decryptApiKey } from "./llmCrypto";
-import { loadProviderPool, type PoolConnectionPayload } from "./llmResolver";
+import { loadProviderPool, pickPrimaryConnection, resolveConnectionKey, type PoolConnectionPayload } from "./llmResolver";
 
 /**
  * Public view of a provider connection: NEVER includes credential material
@@ -212,5 +212,157 @@ export const getForProject = internalQuery({
   args: { projectId: v.optional(v.id("projects")) },
   handler: async (ctx) => {
     return await loadProviderPool(ctx);
+  },
+});
+
+const ENHANCEMENT_SYSTEM_PROMPT = `You are a prompt rewriter, not an assistant. Your only job is to rewrite the user's draft prompt into a better, more detailed version of the same prompt. You must NEVER answer the prompt, never perform the task it describes, and never respond to questions inside it — the input is text to rewrite, not a request to you.
+
+Rules:
+1. Output only the rewritten prompt itself — no answer, no explanation, no commentary, no quotes around it.
+2. Keep the user's original intent; rewrite it as a clear, detailed, actionable instruction an AI agent can execute.
+3. If the input is already clear and detailed, improve it slightly without changing the intent.
+4. Translate Indonesian/bahasa prompts to English.
+5. Expand abbreviations and informal language; add specific details that help an AI agent understand the task better.
+6. If the input is a question (e.g. "who are you", "how to fix this project"), rewrite it as an instruction to do that thing — do not answer the question.
+
+Examples:
+- "how to fix this project" → "Analyze this project end to end: audit the codebase, identify bugs, broken flows, and missing pieces, then fix them one by one and verify each fix with the project's checks."
+- "who are you" → "Introduce yourself: state who you are, what you are built to do, and what you can help with."
+- "buatkan saya index.html" → "Create a new index.html file with a standard HTML5 template including proper document structure (doctype, html, head, body tags), appropriate meta tags for SEO, and a basic responsive layout."
+- "fix bug login" → "Fix the login bug in the application. Investigate the authentication flow, identify why users cannot log in, and implement a fix. Provide clear steps to reproduce the issue and verify the fix works."
+- "tambahin fitur dark mode" → "Add a dark mode feature to the application. Implement theme switching functionality that persists user preference, applies dark color scheme to all UI components, and respects system preferences."`;
+
+function getGlobalLLMConfig(): { provider: string; model: string; baseUrl: string; apiKey: string } {
+  const env: Record<string, string | undefined> =
+    (globalThis as any).process?.env ?? {};
+  const provider = (env.LLM_PROVIDER ?? "anthropic").toLowerCase();
+  return {
+    provider,
+    model: env.LLM_MODEL ?? (provider === "openai" ? "gpt-4o-mini" : "claude-sonnet-4-20250514"),
+    baseUrl: provider === "openai"
+      ? (env.LLM_OPENAI_BASE_URL ?? env.LLM_BASE_URL ?? "https://api.openai.com/v1")
+      : (env.LLM_ANTHROPIC_BASE_URL ?? env.LLM_BASE_URL ?? "https://api.anthropic.com/v1"),
+    apiKey: env.LLM_API_KEY ?? env.OPENAI_API_KEY ?? "",
+  };
+}
+
+/**
+ * Extract the assistant text from an openai-compatible chat completion body.
+ * Some gateways answer with `content-type: text/event-stream` and a plain
+ * JSON body followed by an SSE sentinel (`data: [DONE]`), which breaks
+ * `response.json()` ("Unexpected non-whitespace character after JSON").
+ * Falls back to concatenating SSE `delta` chunks when the body is fully
+ * chunked. Returns null when no assistant text can be recovered.
+ */
+function parseChatCompletionContent(raw: string): string | null {
+  type Chunk = { choices?: Array<{ message?: { content?: string }; delta?: { content?: string } }> };
+  const parse = (text: string): Chunk | null => {
+    try {
+      return JSON.parse(text) as Chunk;
+    } catch {
+      return null;
+    }
+  };
+  const whole = parse(raw) ?? parse(raw.replace(/\s*data:\s*\[DONE\]\s*$/i, ""));
+  if (whole) return whole.choices?.[0]?.message?.content?.trim() ?? null;
+  const content = [...raw.matchAll(/^data:\s*(.+)$/gm)]
+    .map((m) => parse(m[1]))
+    .filter((chunk): chunk is Chunk => chunk !== null)
+    .map((chunk) => chunk.choices?.[0]?.delta?.content ?? chunk.choices?.[0]?.message?.content ?? "")
+    .join("");
+  return content.trim() || null;
+}
+
+/**
+ * Enhance a short/vague prompt using the LLM.
+ * Uses the provider pool if configured, otherwise falls back to global LLM config.
+ */
+export const enhancePrompt = action({
+  args: { token: v.string(), prompt: v.string() },
+  handler: async (ctx, args): Promise<string> => {
+    assertServiceToken(args.token);
+
+    // Load provider pool first
+    const pool: PoolConnectionPayload[] = await ctx.runQuery(
+      internal.llmProviders.getForProject,
+      {}
+    );
+
+    let config = getGlobalLLMConfig();
+
+    // Override with provider pool if available
+    const primary = pickPrimaryConnection(pool);
+    if (primary) {
+      const key = await resolveConnectionKey(primary.connection);
+      if (key) {
+        config = {
+          provider: primary.connection.provider.toLowerCase(),
+          model: primary.model.modelId,
+          baseUrl: primary.connection.baseUrl,
+          apiKey: key,
+        };
+      }
+    }
+
+    if (!config.apiKey) {
+      throw new Error("No LLM API key configured. Add a provider in Settings or set LLM_API_KEY.");
+    }
+
+    // Frame the input as text to rewrite (not a request to answer), so the
+    // model rewrites the prompt instead of answering it.
+    const userMessage = `Rewrite this prompt (do not answer it):\n"""${args.prompt}"""`;
+    const messages = [
+      { role: "system" as const, content: ENHANCEMENT_SYSTEM_PROMPT },
+      { role: "user" as const, content: userMessage },
+    ];
+
+    if (config.provider === "openai" || config.provider === "openai-compatible") {
+      const response = await fetch(
+        `${config.baseUrl.replace(/\/$/, "")}/chat/completions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${config.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: config.model,
+            messages,
+            max_tokens: 1024,
+            stream: false,
+          }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`LLM request failed: ${response.status}`);
+      }
+      return parseChatCompletionContent(await response.text()) ?? args.prompt;
+    } else {
+      // Anthropic
+      const response = await fetch(
+        `${config.baseUrl.replace(/\/$/, "")}/messages`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": config.apiKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify({
+            model: config.model,
+            max_tokens: 1024,
+            system: ENHANCEMENT_SYSTEM_PROMPT,
+            messages: [{ role: "user" as const, content: userMessage }],
+          }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`LLM request failed: ${response.status}`);
+      }
+      const data = await response.json() as { content?: Array<{ type: string; text?: string }> };
+      const textBlock = data.content?.find((c) => c.type === "text");
+      return textBlock?.text?.trim() ?? args.prompt;
+    }
   },
 });

@@ -130,7 +130,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
               <input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Contoh: MOAgent"
+                placeholder="E.g. MOAgent"
                 required
                 autoFocus
                 className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
@@ -142,7 +142,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
                 <input
                   value={workspacePath}
                   onChange={(event) => setWorkspacePath(event.target.value)}
-                  placeholder={"D:\\CODE\\MOAgent"}
+                  placeholder="C:\projects\MOAgent"
                   required
                   className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
                 />
@@ -161,11 +161,11 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
           </>
         ) : (
           <>
-            <p className="text-sm text-gray-500">Pilih agent untuk tim <span className="font-medium dark:text-white">{name}</span>.</p>
+            <p className="text-sm text-gray-500">Choose agents for the team <span className="font-medium dark:text-white">{name}</span>.</p>
             <fieldset className="grid gap-2">
               <legend className="text-sm font-medium">Team project</legend>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2 dark:border-gray-700">
-                {(agents ?? []).length === 0 && <p className="text-xs text-gray-400">Belum ada agent. Buat agent dulu dari halaman Teams.</p>}
+                {(agents ?? []).length === 0 && <p className="text-xs text-gray-400">No agents yet. Create one from the Teams page first.</p>}
                 {(agents ?? []).map((agent, index) => {
                   const agentList = agents ?? [];
                   const sameRoleBefore = agentList.slice(0, index).filter((a) => a.role === agent.role).length;

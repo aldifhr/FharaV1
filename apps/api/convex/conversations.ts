@@ -362,10 +362,11 @@ export const closeConversation = mutation({
  * Clear the project's chat: delete every message in the project — the
  * conversation messages (the same set `chatContext.getContext` feeds the
  * LLM, so this also resets the model's memory of the chat) and the
- * task-linked report messages, so the timeline is empty. Task rows and their
- * non-message history (subtasks, approvals, file changes, …) are kept.
- * The active conversation is closed and its participants soft-left, so the
- * next send starts a fresh thread. Returns how many messages were deleted.
+ * task-linked report messages, so the timeline is empty. Pinned messages
+ * are kept. Task rows and their non-message history (subtasks, approvals,
+ * file changes, …) are kept. The active conversation is closed and its
+ * participants soft-left, so the next send starts a fresh thread. Returns
+ * how many messages were deleted.
  */
 export const clearChat = mutation({
   args: { projectId: v.id("projects") },
@@ -376,8 +377,11 @@ export const clearChat = mutation({
       .query("messages")
       .withIndex("by_project", (q) => q.eq("projectId", project._id))
       .collect();
+    let deleted = 0;
     for (const message of messages) {
+      if (message.pinned === true) continue;
       await ctx.db.delete(message._id);
+      deleted += 1;
     }
 
     const now = Date.now();
@@ -405,6 +409,6 @@ export const clearChat = mutation({
       }
     }
 
-    return { deletedMessages: messages.length };
+    return { deletedMessages: deleted };
   },
 });

@@ -117,7 +117,7 @@ const ROLE_FALLBACK: Record<
     displayName: "UI/UX Designer",
     category: "Product",
     description: "User experience and interface design.",
-    defaultCapabilities: ["frontend-development"],
+    defaultCapabilities: ["ui-ux-design", "frontend-development"],
     defaultTools: ["read_file"],
     systemPromptHint: "Design guidance only; Frontend Developer implements.",
   },

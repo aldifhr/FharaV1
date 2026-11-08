@@ -22,10 +22,32 @@ function resolveFile(base: string, filePath: string) {
   return resolved;
 }
 
+const IMAGE_MIME: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".bmp": "image/bmp",
+  ".ico": "image/x-icon",
+  ".avif": "image/avif",
+};
+const IMAGE_MAX = 2_000_000;
+
+// ponytail: base64 data-URL is fine for local preview; upgrade to blob URLs if files grow
+function imageMimeFor(filePath: string): string | null {
+  return IMAGE_MIME[path.extname(filePath).toLowerCase()] ?? null;
+}
+
+function isBinary(buf: Buffer) {
+  return buf.subarray(0, 8000).includes(0);
+}
+
 async function collectFiles(base: string, current = base, result: string[] = []) {
   if (result.length >= MAX_FILES) return result;
   for (const entry of await fs.readdir(current, { withFileTypes: true })) {
-    if (IGNORED.has(entry.name)) continue;
+    if (IGNORED.has(entry.name) || entry.name === ".DS_Store") continue;
     const absolute = path.join(current, entry.name);
     if (entry.isDirectory()) {
       await collectFiles(base, absolute, result);
@@ -44,7 +66,27 @@ export async function GET(request: NextRequest) {
     const base = getBase(workspacePath);
 
     if (filePath) {
-      const content = await fs.readFile(resolveFile(base, filePath), "utf8");
+      if (path.basename(filePath) === ".DS_Store") {
+        return NextResponse.json({ content: "", binary: true, reason: "System file — preview not available" });
+      }
+      const mime = imageMimeFor(filePath);
+      const resolved = resolveFile(base, filePath);
+      const raw = await fs.readFile(resolved);
+      if (mime) {
+        if (raw.length > IMAGE_MAX) {
+          return NextResponse.json({ content: "", binary: true, reason: "Image too large to preview" });
+        }
+        return NextResponse.json({
+          content: "",
+          image: true,
+          mime,
+          data: raw.toString("base64"),
+        });
+      }
+      if (isBinary(raw)) {
+        return NextResponse.json({ content: "", binary: true, reason: "Binary file — preview not available" });
+      }
+      const content = raw.toString("utf8");
       return NextResponse.json({ content: content.slice(0, MAX_CONTENT) });
     }
 

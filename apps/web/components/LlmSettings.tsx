@@ -133,6 +133,7 @@ function LlmSettingsModal({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [modelForm, setModelForm] = useState(emptyModelForm);
   const [editingModelId, setEditingModelId] = useState<string | null>(null);
+  const [addingModelFor, setAddingModelFor] = useState<string | null>(null);
   const [regModelOptions, setRegModelOptions] = useState<string[]>([]);
   const [regModelLoading, setRegModelLoading] = useState(false);
   const [regModelError, setRegModelError] = useState("");
@@ -147,6 +148,7 @@ function LlmSettingsModal({
       setEditingId(null);
       setModelForm(emptyModelForm);
       setEditingModelId(null);
+      setAddingModelFor(null);
       setConfirmReq(null);
     }
   }, [open ]);
@@ -171,11 +173,11 @@ function LlmSettingsModal({
 
   async function fetchModels() {
     if (!form.baseUrl.trim()) {
-      setModelError("Isi Base URL dulu");
+      setModelError("Base URL is required");
       return;
     }
     if (!form.apiKey.trim() && !editingId) {
-      setModelError("Isi Base URL + API key dulu");
+      setModelError("Base URL + API key are required");
       return;
     }
     setModelLoading(true);
@@ -192,9 +194,9 @@ function LlmSettingsModal({
       });
       const ids: string[] = data.models ?? [];
       setModelOptions([...new Set(ids)].sort());
-      if (ids.length === 0) setModelError("Provider tidak return daftar model");
+      if (ids.length === 0) setModelError("Provider returned no models");
     } catch (e: any) {
-      setModelError(e instanceof Error ? e.message : "Gagal fetch model");
+      setModelError(e instanceof Error ? e.message : "Failed to fetch models");
     } finally {
       setModelLoading(false);
     }
@@ -290,7 +292,7 @@ function LlmSettingsModal({
   async function fetchRegistryModels() {
     const connection = (providers ?? []).find((p: any) => p._id === modelForm.providerId);
     if (!connection) {
-      setRegModelError("Pilih connection dulu");
+      setRegModelError("Pick a connection first");
       return;
     }
     setRegModelLoading(true);
@@ -303,9 +305,9 @@ function LlmSettingsModal({
       });
       const ids: string[] = data.models ?? [];
       setRegModelOptions([...new Set(ids)].sort());
-      if (ids.length === 0) setRegModelError("Provider tidak return daftar model");
+      if (ids.length === 0) setRegModelError("Provider returned no models");
     } catch (e: any) {
-      setRegModelError(e instanceof Error ? e.message : "Gagal fetch model");
+      setRegModelError(e instanceof Error ? e.message : "Failed to fetch models");
     } finally {
       setRegModelLoading(false);
     }
@@ -345,6 +347,7 @@ function LlmSettingsModal({
 
   function startEditModel(m: ModelRow) {
     setEditingModelId(m._id);
+    setAddingModelFor(m.providerId);
     setModelForm({
       providerId: m.providerId,
       modelId: m.modelId,
@@ -356,6 +359,22 @@ function LlmSettingsModal({
       outputPricePer1k: m.outputPricePer1k !== undefined ? String(m.outputPricePer1k) : "",
       isAvailable: m.isAvailable !== false,
     });
+  }
+
+  function openAddModel(providerId: string) {
+    setEditingModelId(null);
+    setModelForm({ ...emptyModelForm, providerId });
+    setRegModelOptions([]);
+    setRegModelError("");
+    setAddingModelFor(providerId);
+  }
+
+  function closeModelForm() {
+    const pid = modelForm.providerId;
+    setEditingModelId(null);
+    setAddingModelFor(null);
+    setModelForm({ ...emptyModelForm, providerId: pid });
+    setRegModelOptions([]);
   }
 
   async function toggleModelAvailable(m: ModelRow) {
@@ -391,7 +410,7 @@ function LlmSettingsModal({
   }
 
   const inputCls =
-    "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800";
+    "w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800";
 
   return (
     <Modal title="LLM Settings" onClose={onClose} maxWidth="max-w-2xl">
@@ -399,23 +418,8 @@ function LlmSettingsModal({
       <div className="mt-4 max-h-[70vh] overflow-y-auto pr-1">
         <div className="grid gap-4">
           <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
-            <h2 className="text-sm font-semibold">How resolution works</h2>
-            <p className="mt-1 text-xs text-gray-500">
-              Satu pool koneksi global untuk semua project. Setiap agent memilih LLM-nya sendiri: penugasan
-              provider/model di form agent dicoba dulu, lalu penugasan fallback-nya, lalu pool. Di dalam pool,
-              nomor priority terendah menang; di antara priority yang sama, pilihan dilakukan secara weighted
-              random menurut Weight (kecuali policy agent diset ke &quot;priority&quot;). Model patterns
-              membatasi model mana saja yang boleh dilayani koneksi ini (glob seperti <code>gpt-4*</code>,
-              dicocokkan ke Model Registry di bawah). Koneksi yang gagal 3× beruntun karena error transien
-              (timeout/5xx) dikeluarkan sementara selama 60 detik (circuit breaker), dan task otomatis pindah
-              ke kandidat berikutnya. API key tersimpan terenkripsi AES-256-GCM di backend — UI hanya pernah
-              melihat status <em>key configured</em>, tidak pernah key-nya.
-            </p>
-          </section>
-
-          <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
               <h2 className="text-sm font-semibold">{editingId ? "Edit connection" : "Add connection"}</h2>
-              <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-2 gap-2.5 text-sm">
                 <label className="grid gap-1">
                   Name
                   <input
@@ -426,53 +430,11 @@ function LlmSettingsModal({
                   />
                 </label>
                 <label className="grid gap-1">
-                  Provider
-                  <select
-                    value={form.provider}
-                    onChange={(e) => setForm({ ...form, provider: e.target.value })}
-                    className={inputCls}
-                  >
-                    <option value="anthropic">Anthropic</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="openai-compatible">OpenAI-compatible</option>
-                  </select>
-                </label>
-                <label className="grid gap-1">
-                  Initial model
-                  <div className="flex gap-2">
-                    {modelOptions.length > 0 ? (
-                      <select value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} className={inputCls}>
-                        <option value="">Pilih model…</option>
-                        {modelOptions.map((m) => <option key={m} value={m}>{m}</option>)}
-                      </select>
-                    ) : (
-                      <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="nous / gpt-4o-mini" className={inputCls} />
-                    )}
-                    <button type="button" onClick={fetchModels} disabled={modelLoading} className="shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 disabled:opacity-50">
-                      {modelLoading ? "…" : "Fetch"}
-                    </button>
-                  </div>
-                  {modelError && <span className="text-xs text-rose-500">{modelError}</span>}
-                  <span className="text-[11px] text-gray-400">
-                    Dipakai sebagai model awal koneksi ini dan otomatis terdaftar di Models di bawah; model lain
-                    bisa ditambah/diubah dari panel Models.
-                  </span>
-                </label>
-                <label className="grid gap-1">
                   Base URL
                   <input
                     value={form.baseUrl}
                     onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
                     placeholder="https://api.anthropic.com/v1"
-                    className={inputCls}
-                  />
-                </label>
-                <label className="grid gap-1">
-                  API key env (fallback)
-                  <input
-                    value={form.apiKeyEnv}
-                    onChange={(e) => setForm({ ...form, apiKeyEnv: e.target.value })}
-                    placeholder="LLM_API_KEY"
                     className={inputCls}
                   />
                 </label>
@@ -487,40 +449,74 @@ function LlmSettingsModal({
                   />
                 </label>
                 <label className="grid gap-1">
-                  Priority (lower = first)
-                  <input
-                    value={form.priority}
-                    onChange={(e) => setForm({ ...form, priority: e.target.value })}
-                    type="number"
-                    className={inputCls}
-                  />
+                  Model
+                  <div className="flex gap-2">
+                    {modelOptions.length > 0 ? (
+                      <select value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} className={inputCls}>
+                        <option value="">Choose model…</option>
+                        {modelOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    ) : (
+                      <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="nous / gpt-4o-mini" className={inputCls} />
+                    )}
+                    <button type="button" onClick={fetchModels} disabled={modelLoading} className="shrink-0 rounded-lg border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700 disabled:opacity-50">
+                      {modelLoading ? "…" : "Fetch"}
+                    </button>
+                  </div>
+                  {modelError && <span className="text-xs text-rose-500">{modelError}</span>}
                 </label>
-                <label className="grid gap-1">
-                  Weight (load balance)
-                  <input
-                    value={form.weight}
-                    onChange={(e) => setForm({ ...form, weight: e.target.value })}
-                    type="number"
-                    className={inputCls}
-                  />
-                </label>
-                <label className="grid gap-1">
-                  Model patterns (comma-separated)
-                  <input
-                    value={form.modelPatterns}
-                    onChange={(e) => setForm({ ...form, modelPatterns: e.target.value })}
-                    placeholder="gpt-4*, claude-* — kosongkan = semua model"
-                    className={inputCls}
-                  />
-                </label>
-                <label className="col-span-2 flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={form.isEnabled}
-                    onChange={(e) => setForm({ ...form, isEnabled: e.target.checked })}
-                  />
-                  Enabled — include in pool
-                </label>
+                <details className="col-span-2 rounded-xl border border-gray-200 px-3 py-2 dark:border-gray-700">
+                  <summary className="cursor-pointer text-xs font-medium text-gray-500 dark:text-gray-400">Advanced</summary>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <label className="grid gap-1">
+                      Provider
+                      <select
+                        value={form.provider}
+                        onChange={(e) => setForm({ ...form, provider: e.target.value })}
+                        className={inputCls}
+                      >
+                        <option value="anthropic">Anthropic</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="openai-compatible">OpenAI-compatible</option>
+                      </select>
+                    </label>
+                    <label className="grid gap-1">
+                      Priority (lower = first)
+                      <input
+                        value={form.priority}
+                        onChange={(e) => setForm({ ...form, priority: e.target.value })}
+                        type="number"
+                        className={inputCls}
+                      />
+                    </label>
+                    <label className="grid gap-1">
+                      Weight (load balance)
+                      <input
+                        value={form.weight}
+                        onChange={(e) => setForm({ ...form, weight: e.target.value })}
+                        type="number"
+                        className={inputCls}
+                      />
+                    </label>
+                    <label className="col-span-2 grid gap-1">
+                      Model patterns (comma-separated)
+                      <input
+                        value={form.modelPatterns}
+                        onChange={(e) => setForm({ ...form, modelPatterns: e.target.value })}
+                        placeholder="gpt-4*, claude-* — leave empty = all models"
+                        className={inputCls}
+                      />
+                    </label>
+                    <label className="col-span-2 flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={form.isEnabled}
+                        onChange={(e) => setForm({ ...form, isEnabled: e.target.checked })}
+                      />
+                      Enabled — include in pool
+                    </label>
+                  </div>
+                </details>
                 <div className="col-span-2 flex gap-2">
                   <button
                     type="submit"
@@ -549,8 +545,7 @@ function LlmSettingsModal({
               {sorted === undefined && <p className="mt-2 text-xs text-gray-400">Loading…</p>}
               {sorted && sorted.length === 0 && (
                 <p className="mt-2 text-xs text-gray-500">
-                  Belum ada provider. Tambahkan provider pertama di atas — API key dibaca dari env var yang kamu isi di
-                  field &quot;API key env name&quot;.
+                  No connections yet. Add your first connection above — the API key is read from the env var you set in the &quot;API key env&quot; field.
                 </p>
               )}
               <div className="mt-3 grid gap-2">
@@ -561,86 +556,208 @@ function LlmSettingsModal({
                   const circuitOpen =
                     health?.circuitOpenUntil != null &&
                     health.circuitOpenUntil > Date.now();
+                  const connModels = (models ?? []).filter((m: any) => m.providerId === p._id);
+                  const modelFormOpen = addingModelFor === p._id || editingModelId !== null;
                   return (
                   <div
                     key={p._id}
-                    className="flex items-center gap-3 rounded-xl border border-[#e5e3eb] px-3 py-2.5 text-sm dark:border-gray-700"
+                    className="rounded-xl border border-[#e5e3eb] px-3 py-2.5 text-sm dark:border-gray-700"
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium truncate">{p.name}</span>
-                        <span className="rounded-full bg-[#eceaf3] px-2 py-0.5 text-[10px] font-semibold text-[#5147b4] dark:bg-white/10 dark:text-white">
-                          P{p.priority}
-                        </span>
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] dark:bg-white/5">
-                          w{p.weight}
-                        </span>
-                        {p.isEnabled === false && (
-                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
-                            disabled
+                    <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium truncate">{p.name}</span>
+                          <span className="rounded-full bg-[#eceaf3] px-2 py-0.5 text-[10px] font-semibold text-[#5147b4] dark:bg-white/10 dark:text-white">
+                            P{p.priority}
                           </span>
-                        )}
-                        {p.apiKeyConfigured ? (
-                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                            key configured
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] dark:bg-white/5">
+                            w{p.weight}
                           </span>
-                        ) : (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                            no key stored
-                          </span>
-                        )}
-                        {health &&
-                          (circuitOpen ? (
+                          {p.isEnabled === false && (
                             <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
-                              circuit open s/d{" "}
-                              {new Date(health.circuitOpenUntil!).toLocaleTimeString()}
+                              disabled
+                            </span>
+                          )}
+                          {p.apiKeyConfigured ? (
+                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                              key configured
                             </span>
                           ) : (
-                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                              circuit closed
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                              no key stored
                             </span>
-                          ))}
-                      </div>
-                      <div className="mt-0.5 truncate text-xs text-gray-500">
-                        {p.provider} · {p.model} · {p.baseUrl} · {p.apiKeyEnv}
-                        {(p.modelPatterns?.length ?? 0) > 0 && ` · patterns: ${p.modelPatterns!.join(", ")}`}
-                      </div>
-                      {health && (
-                        <div className="mt-0.5 truncate text-xs text-gray-500">
-                          Health: {health.totalSuccesses} sukses ·{" "}
-                          {health.totalTransientFailures} gagal transien
-                          {health.consecutiveTransientFailures > 0 &&
-                            ` · ${health.consecutiveTransientFailures} beruntun`}
-                          {health.lastSuccessAt &&
-                            ` · sukses terakhir ${new Date(health.lastSuccessAt).toLocaleTimeString()}`}
-                          {health.lastFailureAt &&
-                            ` · gagal terakhir ${new Date(health.lastFailureAt).toLocaleTimeString()}`}
+                          )}
+                          {health &&
+                            (circuitOpen ? (
+                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                                circuit open until{" "}
+                                {new Date(health.circuitOpenUntil!).toLocaleTimeString()}
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                circuit closed
+                              </span>
+                            ))}
                         </div>
+                        <div className="mt-0.5 truncate text-xs text-gray-500">
+                          {p.provider} · {p.model} · {p.baseUrl} · {p.apiKeyEnv}
+                          {(p.modelPatterns?.length ?? 0) > 0 && ` · patterns: ${p.modelPatterns!.join(", ")}`}
+                        </div>
+                        {health && (
+                          <div className="mt-0.5 truncate text-xs text-gray-500">
+                            Health: {health.totalSuccesses} successes ·{" "}
+                            {health.totalTransientFailures} transient failures
+                            {health.consecutiveTransientFailures > 0 &&
+                              ` · ${health.consecutiveTransientFailures} in a row`}
+                            {health.lastSuccessAt &&
+                              ` · last success ${new Date(health.lastSuccessAt).toLocaleTimeString()}`}
+                            {health.lastFailureAt &&
+                              ` · last failure ${new Date(health.lastFailureAt).toLocaleTimeString()}`}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleEnabled(p)}
+                        className="rounded-lg border border-gray-200 px-2 py-1 text-xs dark:border-gray-700"
+                      >
+                        {p.isEnabled !== false ? "Disable" : "Enable"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => startEdit(p)}
+                        className="rounded-lg p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800"
+                        aria-label={`Edit ${p.name}`}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => askDelete(p)}
+                        className="rounded-lg p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                        aria-label={`Delete ${p.name}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+
+                    <div className="mt-2 border-t border-gray-100 pt-2 dark:border-gray-800">
+                      <div className="text-xs font-semibold text-gray-500">Models ({connModels.length})</div>
+                      <div className="mt-1.5 grid gap-1.5">
+                        {connModels.map((m: any) => (
+                          <div key={m._id} className="flex items-center gap-3 rounded-lg bg-gray-50 px-3 py-2 text-sm dark:bg-white/[0.03]">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium truncate">{m.displayName || m.modelId}</span>
+                                {m.displayName && <span className="text-xs text-gray-400">{m.modelId}</span>}
+                                {m.isAvailable === false && (
+                                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                                    unavailable
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-0.5 truncate text-xs text-gray-500">
+                                {[
+                                  m.contextWindow ? `ctx ${m.contextWindow}` : null,
+                                  m.supportsTools ? "tools" : null,
+                                  m.supportsReasoning ? "reasoning" : null,
+                                  m.inputPricePer1k !== undefined || m.outputPricePer1k !== undefined
+                                    ? `price in ${m.inputPricePer1k ?? "–"} / out ${m.outputPricePer1k ?? "–"} per 1k`
+                                    : null,
+                                ].filter(Boolean).join(" · ") || "—"}
+                              </div>
+                            </div>
+                            <button type="button" onClick={() => toggleModelAvailable(m)} className="rounded-lg border border-gray-200 px-2 py-1 text-xs dark:border-gray-700">
+                              {m.isAvailable !== false ? "Mark unavailable" : "Mark available"}
+                            </button>
+                            <button type="button" onClick={() => startEditModel(m)} className="rounded-lg p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800" aria-label={`Edit ${m.modelId}`}>
+                              <Pencil size={14} />
+                            </button>
+                            <button type="button" onClick={() => askDeleteModel(m)} className="rounded-lg p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30" aria-label={`Delete ${m.modelId}`}>
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))}
+                        {connModels.length === 0 && (
+                          <p className="text-xs text-gray-400">No models registered yet.</p>
+                        )}
+                      </div>
+
+                      {modelFormOpen && modelForm.providerId === p._id ? (
+                        <form onSubmit={handleModelSubmit} className="mt-2 grid grid-cols-2 gap-3 rounded-lg bg-gray-50 p-3 text-sm dark:bg-white/[0.03]">
+                          <label className="grid gap-1">
+                            Model ID
+                            <div className="flex gap-2">
+                              {regModelOptions.length > 0 ? (
+                                <select value={modelForm.modelId} onChange={(e) => setModelForm({ ...modelForm, modelId: e.target.value })} className={inputCls}>
+                                  <option value="">Choose model…</option>
+                                  {regModelOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                              ) : (
+                                <input value={modelForm.modelId} onChange={(e) => setModelForm({ ...modelForm, modelId: e.target.value })} placeholder="nous / gpt-4o-mini" className={inputCls} />
+                              )}
+                              <button type="button" onClick={fetchRegistryModels} disabled={regModelLoading} className="shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 disabled:opacity-50">
+                                {regModelLoading ? "…" : "Fetch"}
+                              </button>
+                            </div>
+                            {regModelError && <span className="text-xs text-rose-500">{regModelError}</span>}
+                          </label>
+                          <label className="flex items-center gap-2 pt-6 text-sm">
+                            <input type="checkbox" checked={modelForm.isAvailable} onChange={(e) => setModelForm({ ...modelForm, isAvailable: e.target.checked })} />
+                            Available
+                          </label>
+                          <details className="col-span-2 rounded-xl border border-gray-200 px-3 py-2 dark:border-gray-700">
+                            <summary className="cursor-pointer text-xs font-medium text-gray-500 dark:text-gray-400">Advanced</summary>
+                            <div className="mt-3 grid grid-cols-2 gap-3">
+                              <label className="grid gap-1">
+                                Display name (optional)
+                                <input value={modelForm.displayName} onChange={(e) => setModelForm({ ...modelForm, displayName: e.target.value })} className={inputCls} />
+                              </label>
+                              <label className="grid gap-1">
+                                Context window (tokens, optional)
+                                <input value={modelForm.contextWindow} onChange={(e) => setModelForm({ ...modelForm, contextWindow: e.target.value })} type="number" min="0" className={inputCls} />
+                              </label>
+                              <label className="grid gap-1">
+                                Input price / 1k tokens (optional)
+                                <input value={modelForm.inputPricePer1k} onChange={(e) => setModelForm({ ...modelForm, inputPricePer1k: e.target.value })} type="number" min="0" step="any" className={inputCls} />
+                              </label>
+                              <label className="grid gap-1">
+                                Output price / 1k tokens (optional)
+                                <input value={modelForm.outputPricePer1k} onChange={(e) => setModelForm({ ...modelForm, outputPricePer1k: e.target.value })} type="number" min="0" step="any" className={inputCls} />
+                              </label>
+                              <label className="flex items-center gap-2 text-sm">
+                                <input type="checkbox" checked={modelForm.supportsTools} onChange={(e) => setModelForm({ ...modelForm, supportsTools: e.target.checked })} />
+                                Supports tools
+                              </label>
+                              <label className="flex items-center gap-2 text-sm">
+                                <input type="checkbox" checked={modelForm.supportsReasoning} onChange={(e) => setModelForm({ ...modelForm, supportsReasoning: e.target.checked })} />
+                                Supports reasoning
+                              </label>
+                            </div>
+                          </details>
+                          <div className="col-span-2 flex gap-2">
+                            <button type="submit" className="flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-gray-900">
+                              <Plus size={15} /> {editingModelId ? "Save model" : "Add model"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={closeModelForm}
+                              className="rounded-lg border border-gray-300 px-4 py-2 text-sm dark:border-gray-700"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openAddModel(p._id)}
+                          className="mt-2 flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+                        >
+                          <Plus size={13} /> Add model
+                        </button>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => toggleEnabled(p)}
-                      className="rounded-lg border border-gray-200 px-2 py-1 text-xs dark:border-gray-700"
-                    >
-                      {p.isEnabled !== false ? "Disable" : "Enable"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => startEdit(p)}
-                      className="rounded-lg p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800"
-                      aria-label={`Edit ${p.name}`}
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => askDelete(p)}
-                      className="rounded-lg p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
-                      aria-label={`Delete ${p.name}`}
-                    >
-                      <Trash2 size={14} />
-                    </button>
                   </div>
                   );
                 })}
@@ -648,157 +765,11 @@ function LlmSettingsModal({
               {healthStats !== undefined &&
                 Object.keys(healthStats.snapshots).length === 0 && (
                   <p className="mt-2 text-xs text-gray-500">
-                    Status circuit belum ada data: worker melaporkan
-                    snapshot kesehatan provider ke backend setiap kali
-                    ada hasil panggilan (sukses/gagal), jadi panel ini
-                    terisi setelah worker menjalankan panggilan LLM
-                    pertama. Data di atas tetap akurat untuk konfigurasi
-                    koneksi.
+                    Circuit status fills in after the worker makes its first LLM call. The connection config above stays accurate either way.
                   </p>
                 )}
             </section>
 
-          <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
-            <h2 className="text-sm font-semibold">Models</h2>
-            <p className="mt-1 text-xs text-gray-500">
-              Model Registry: model adalah entitas sendiri per koneksi — agent memilih model dari registry ini.
-              Model yang ditandai unavailable tidak akan dipilih resolver; agent yang butuh tool-use/reasoning
-              hanya menerima model dengan flag tersebut.
-            </p>
-            <form onSubmit={handleModelSubmit} className="mt-3 grid grid-cols-2 gap-3 text-sm">
-              <label className="grid gap-1">
-                Connection
-                <select
-                  value={modelForm.providerId}
-                  onChange={(e) => setModelForm({ ...modelForm, providerId: e.target.value })}
-                  disabled={editingModelId !== null}
-                  className={inputCls}
-                >
-                  <option value="">Pilih connection…</option>
-                  {(providers ?? []).map((p: any) => (
-                    <option key={p._id} value={p._id}>{p.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="grid gap-1">
-                Model ID
-                <div className="flex gap-2">
-                  {regModelOptions.length > 0 ? (
-                    <select value={modelForm.modelId} onChange={(e) => setModelForm({ ...modelForm, modelId: e.target.value })} className={inputCls}>
-                      <option value="">Pilih model…</option>
-                      {regModelOptions.map((m) => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  ) : (
-                    <input value={modelForm.modelId} onChange={(e) => setModelForm({ ...modelForm, modelId: e.target.value })} placeholder="nous / gpt-4o-mini" className={inputCls} />
-                  )}
-                  <button type="button" onClick={fetchRegistryModels} disabled={regModelLoading} className="shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 disabled:opacity-50">
-                    {regModelLoading ? "…" : "Fetch"}
-                  </button>
-                </div>
-                {regModelError && <span className="text-xs text-rose-500">{regModelError}</span>}
-              </label>
-              <label className="grid gap-1">
-                Display name (opsional)
-                <input value={modelForm.displayName} onChange={(e) => setModelForm({ ...modelForm, displayName: e.target.value })} className={inputCls} />
-              </label>
-              <label className="grid gap-1">
-                Context window (tokens, opsional)
-                <input value={modelForm.contextWindow} onChange={(e) => setModelForm({ ...modelForm, contextWindow: e.target.value })} type="number" min="0" className={inputCls} />
-              </label>
-              <label className="grid gap-1">
-                Input price / 1k tokens (opsional)
-                <input value={modelForm.inputPricePer1k} onChange={(e) => setModelForm({ ...modelForm, inputPricePer1k: e.target.value })} type="number" min="0" step="any" className={inputCls} />
-              </label>
-              <label className="grid gap-1">
-                Output price / 1k tokens (opsional)
-                <input value={modelForm.outputPricePer1k} onChange={(e) => setModelForm({ ...modelForm, outputPricePer1k: e.target.value })} type="number" min="0" step="any" className={inputCls} />
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={modelForm.supportsTools} onChange={(e) => setModelForm({ ...modelForm, supportsTools: e.target.checked })} />
-                Supports tools
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={modelForm.supportsReasoning} onChange={(e) => setModelForm({ ...modelForm, supportsReasoning: e.target.checked })} />
-                Supports reasoning
-              </label>
-              <label className="col-span-2 flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={modelForm.isAvailable} onChange={(e) => setModelForm({ ...modelForm, isAvailable: e.target.checked })} />
-                Available — resolver boleh memilih model ini
-              </label>
-              <div className="col-span-2 flex gap-2">
-                <button type="submit" className="flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-gray-900">
-                  <Plus size={15} /> {editingModelId ? "Save model" : "Register model"}
-                </button>
-                {editingModelId && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingModelId(null);
-                      setModelForm({ ...emptyModelForm, providerId: modelForm.providerId });
-                    }}
-                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm dark:border-gray-700"
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
-            </form>
-
-            {models === undefined && <p className="mt-3 text-xs text-gray-400">Loading…</p>}
-            {models && models.length === 0 && (
-              <p className="mt-3 text-xs text-gray-500">
-                Belum ada model terdaftar. Membuat koneksi baru otomatis mendaftarkan initial model-nya; tambah
-                model lain lewat form di atas.
-              </p>
-            )}
-            <div className="mt-3 grid gap-3">
-              {(providers ?? []).map((p: any) => {
-                const rows = (models ?? []).filter((m: any) => m.providerId === p._id);
-                if (rows.length === 0) return null;
-                return (
-                  <div key={p._id}>
-                    <div className="text-xs font-semibold text-gray-500">{p.name}</div>
-                    <div className="mt-1.5 grid gap-2">
-                      {rows.map((m: any) => (
-                        <div key={m._id} className="flex items-center gap-3 rounded-xl border border-[#e5e3eb] px-3 py-2.5 text-sm dark:border-gray-700">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium truncate">{m.displayName || m.modelId}</span>
-                              {m.displayName && <span className="text-xs text-gray-400">{m.modelId}</span>}
-                              {m.isAvailable === false && (
-                                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
-                                  unavailable
-                                </span>
-                              )}
-                            </div>
-                            <div className="mt-0.5 truncate text-xs text-gray-500">
-                              {[
-                                m.contextWindow ? `ctx ${m.contextWindow}` : null,
-                                m.supportsTools ? "tools" : null,
-                                m.supportsReasoning ? "reasoning" : null,
-                                m.inputPricePer1k !== undefined || m.outputPricePer1k !== undefined
-                                  ? `price in ${m.inputPricePer1k ?? "–"} / out ${m.outputPricePer1k ?? "–"} per 1k`
-                                  : null,
-                              ].filter(Boolean).join(" · ") || "—"}
-                            </div>
-                          </div>
-                          <button type="button" onClick={() => toggleModelAvailable(m)} className="rounded-lg border border-gray-200 px-2 py-1 text-xs dark:border-gray-700">
-                            {m.isAvailable !== false ? "Mark unavailable" : "Mark available"}
-                          </button>
-                          <button type="button" onClick={() => startEditModel(m)} className="rounded-lg p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800" aria-label={`Edit ${m.modelId}`}>
-                            <Pencil size={14} />
-                          </button>
-                          <button type="button" onClick={() => askDeleteModel(m)} className="rounded-lg p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30" aria-label={`Delete ${m.modelId}`}>
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
         </div>
       </div>
     </Modal>

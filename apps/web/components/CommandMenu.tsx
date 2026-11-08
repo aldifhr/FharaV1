@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Command as CommandPrimitive } from "cmdk";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
@@ -22,7 +23,11 @@ const subClass = "block truncate text-xs leading-normal text-muted-foreground";
 
 export default function CommandMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
   const router = useRouter();
-  const results = useQuery(api.search.global, { q: " " });
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    if (!open) setQ("");
+  }, [open]);
+  const results = useQuery(api.search.global, q.trim() ? { q } : "skip");
 
   return (
     <CommandDialog
@@ -40,9 +45,9 @@ export default function CommandMenu({ open, onClose }: { open: boolean; onClose:
           return value.toLowerCase().includes(q) ? 1 : 0;
         }}
       >
-        <CommandInput placeholder="Search projects, tasks, agents…" />
+        <CommandInput value={q} onValueChange={setQ} placeholder="Search projects, tasks, agents…" />
         <CommandList className="p-1">
-          <CommandEmpty>Start typing to search.</CommandEmpty>
+          <CommandEmpty>{q.trim() ? "No results." : "Start typing to search."}</CommandEmpty>
 
           {results?.projects.length ? (
             <CommandGroup heading="Projects">
@@ -87,7 +92,7 @@ export default function CommandMenu({ open, onClose }: { open: boolean; onClose:
                   key={a._id}
                   value={`${roleLabel(a.role)} ${a.status}`}
                   className={itemClass}
-                  onSelect={() => { onClose(); router.push("/"); }}
+                  onSelect={() => { onClose(); if (a.projectId) router.push(`/chats/${a.projectId}`); }}
                 >
                   <AgentAvatar name={roleLabel(a.role)} size={20} status={a.status} avatarParams={a.avatarParams} />
                   <span className={textClass}>

@@ -449,11 +449,18 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   // and unseen messages and advances as the user reads to the bottom.
   const lastSeenKey = `moagent-chat-lastseen-${projectId}`;
   const [lastSeenAt, setLastSeenAt] = useState(0);
+  // First run (no stored position): adopt the current newest message as
+  // seen, so the divider only ever marks genuinely new arrivals —
+  // otherwise the whole backlog reads as "new" and the divider sits at
+  // the very top again.
+  const [lastSeenIsFresh, setLastSeenIsFresh] = useState(false);
   useEffect(() => {
     try {
-      setLastSeenAt(Number(localStorage.getItem(lastSeenKey)) || 0);
+      const stored = Number(localStorage.getItem(lastSeenKey));
+      if (stored) setLastSeenAt(stored);
+      else setLastSeenIsFresh(true);
     } catch {
-      setLastSeenAt(0);
+      setLastSeenIsFresh(true);
     }
   }, [lastSeenKey]);
   const markSeen = () => {
@@ -472,12 +479,18 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     });
   };
   useEffect(() => {
+    if (timeline.length === 0) return;
+    if (lastSeenIsFresh) {
+      markSeen();
+      setLastSeenIsFresh(false);
+      return;
+    }
     const el = scrollRef.current;
     if (el && el.scrollHeight - el.scrollTop - el.clientHeight <= 120) {
       markSeen();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeline, lastSeenKey]);
+  }, [timeline, lastSeenKey, lastSeenIsFresh]);
   const firstNewIndex = timeline.findIndex(
     (m: any) => m._creationTime > lastSeenAt
   );

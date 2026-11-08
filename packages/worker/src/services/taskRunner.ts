@@ -958,10 +958,9 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     if (!storedPlan) {
       const ctoAgent = runAgents.find((candidate) => /^cto$/i.test(candidate.role));
       if (ctoAgent) {
-        // Plan summary: mention each assigned agent once, inline with the
-        // subtask it owns. No leading self-tag (@CTO from the CTO's own
-        // message) — one mention per agent is enough for the UI to render
-        // them bold without turning the message into a tag pile.
+        // Plan summary: one line per assigned agent, mention inline with
+        // the subtask it owns. No leading self-tag (@CTO from the CTO's
+        // own message), no arrow chains.
         const byAgent = new Map<string, string[]>();
         for (const subtask of authoritative.plan.subtasks) {
           const name = routeCapability(subtask.capability, runAgents, {
@@ -970,21 +969,21 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           if (!name) continue;
           byAgent.set(name, [
             ...(byAgent.get(name) ?? []),
-            `${subtask.title} → ${subtask.capability}`,
+            `${subtask.title} (${subtask.capability})`,
           ]);
         }
         const listing = [...byAgent.entries()]
-          .map(([name, items]) => `@${name} — ${items.join("; ")}`)
-          .join("; ");
+          .map(([name, items]) => `- @${name} — ${items.join("; ")}`)
+          .join("\n");
         const selected = authoritative.plan.subtasks
-          .map((subtask) => `${subtask.title} → ${subtask.capability}`)
+          .map((subtask) => `${subtask.title} (${subtask.capability})`)
           .join("; ");
         await deps.api.appendAgentMessage({
           projectId: project._id,
           taskId: task._id,
           agentId: ctoAgent._id as any,
           content: listing
-            ? `Plan: ${listing}.`
+            ? `Plan:\n${listing}`
             : `Plan: ${selected || "No specialized work is required"}. No specialized agents required — I'll handle it directly.`,
         });
       }

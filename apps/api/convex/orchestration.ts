@@ -886,6 +886,32 @@ export const requestApproval = internalMutation({
   },
 });
 
+export const claimResumableTask = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    workerId: v.string(),
+    leaseMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.status !== "needs_approval") return null;
+    const now = Date.now();
+    if (task.workerId && task.workerId !== args.workerId && (task.leaseExpiresAt ?? 0) >= now) {
+      return null;
+    }
+    const leaseExpiresAt = now + (args.leaseMs ?? DEFAULT_LEASE_MS);
+    await ctx.db.patch(task._id, { workerId: args.workerId, leaseExpiresAt, updatedAt: now });
+    await ctx.db.insert("taskEvents", {
+      taskId: task._id,
+      projectId: task.projectId,
+      type: "task.claimed",
+      payload: { workerId: args.workerId, reason: "approval_resume" },
+      level: "info",
+    });
+    return { ...task, workerId: args.workerId, leaseExpiresAt };
+  },
+});
+
 export const getResumableTasks = internalQuery({
   args: {},
   handler: async (ctx) => {

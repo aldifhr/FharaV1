@@ -251,6 +251,14 @@ export const getResumable = action({
   },
 });
 
+export const claimResumable = action({
+  args: { ...tokenArg, taskId: v.id("tasks"), workerId: v.string(), leaseMs: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<any> => {
+    const { taskId, workerId, leaseMs } = withoutToken(args);
+    return await ctx.runMutation(internal.orchestration.claimResumableTask, { taskId, workerId, leaseMs });
+  },
+});
+
 export const getApprovals = action({
   args: { ...tokenArg, taskId: v.id("tasks") },
   handler: async (ctx, args): Promise<any> => {

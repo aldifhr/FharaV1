@@ -116,6 +116,12 @@ export class WorkerApi {
     return await this.client.action(api.worker.getResumable, this.args({}));
   }
 
+  async claimResumable(
+    input: ActionInput<typeof api.worker.claimResumable>
+  ): Promise<FunctionReturnType<typeof api.worker.claimResumable>> {
+    return await this.client.action(api.worker.claimResumable, this.args(input));
+  }
+
   async getApprovals(
     input: ActionInput<typeof api.worker.getApprovals>
   ): Promise<WorkerApproval[]> {

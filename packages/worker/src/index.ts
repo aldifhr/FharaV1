@@ -183,9 +183,16 @@ async function main() {
       );
 
       if (resumed) {
-        log(`resuming task ${resumed.task._id} after approval`);
-        startTask(resumed.task._id, () => resumeTask(resumed.task._id, deps));
-        continue;
+        const claimedResume = await api.claimResumable({
+          taskId: resumed.task._id,
+          workerId,
+          leaseMs: LEASE_MS,
+        });
+        if (claimedResume) {
+          log(`resuming task ${resumed.task._id} after approval`);
+          startTask(resumed.task._id, () => resumeTask(resumed.task._id, deps));
+          continue;
+        }
       }
 
       const claimed = await api.claimTask({ workerId, leaseMs: LEASE_MS });

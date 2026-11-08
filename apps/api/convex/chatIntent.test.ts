@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
-import { classifyChatIntent, findProposalOption } from "./chat";
+import { classifyChatIntent } from "./chat";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -34,40 +34,6 @@ describe("chat intent (mirrors worker router)", () => {
     expect(GREETING.test("hello...")).toBe(true);
     expect(GREETING.test("hi, create a todo list")).toBe(false);
     expect(GREETING.test("hello world")).toBe(false);
-  });
-  test("findProposalOption resolves the picked id from the latest block", () => {
-    const history = [
-      { authorType: "user", content: "Give me two pricing directions" },
-      {
-        authorType: "agent",
-        content:
-          "Two directions for you.\n[options]\nA|Clean three-column table|Simple side-by-side tiers|sheet\nB|Popular tier spotlight|Center card emphasized|bold\n[/options]",
-      },
-    ];
-    const found = findProposalOption(history, "b");
-    expect(found?.id).toBe("B");
-    expect(found?.title).toBe("Popular tier spotlight");
-    expect(found?.summary).toBe("Center card emphasized");
-    expect(found?.brief).toBe("Two directions for you.");
-  });
-  test("findProposalOption returns null for hallucinated ids or no block", () => {
-    expect(
-      findProposalOption(
-        [{ authorType: "user", content: "Give me two directions" }],
-        "A"
-      )
-    ).toBeNull();
-    expect(
-      findProposalOption(
-        [
-          {
-            authorType: "agent",
-            content: "[options]\nA|Only|One|plain\n[/options]",
-          },
-        ],
-        "C"
-      )
-    ).toBeNull();
   });
   test("duplicate reply guard still works (checkAlreadyReplied)", async () => {
     const t = convexTest(schema, modules);

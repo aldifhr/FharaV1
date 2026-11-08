@@ -3618,19 +3618,8 @@ async function finalize(input: {
     return evaluation;
   }
 
-  // The ONE CTO chat message for the whole task: the executed plan,
-  // the review outcome, and the verification verdict — replacing the
-  // per-stage narration (plan announcement, review verdict note,
-  // "reviewed N files" note). Live progress lives in the thread
-  // panel's events, not in chat spam.
-  const planLines = plan.subtasks
-    .map((subtask) => {
-      const name = routeCapability(subtask.capability, input.agents, {
-        allowFallback: false,
-      })?.name;
-      return `- ${name ? `@${name}` : "Agent"} — ${subtask.title} (${subtask.capability})`;
-    })
-    .join("\n");
+  // The ONE CTO chat message for the whole task: the outcome summary
+  // (plan details live in events, not repeated here).
   const reviewVerdicts = Object.values(state.reviewVerdicts);
   const reviewedFiles = reviewVerdicts.length > 0 ? state.fileChanges.size : 0;
   const reviewLine =
@@ -3642,8 +3631,7 @@ async function finalize(input: {
   const message = [
     evaluation.verdict === "inconclusive"
       ? `Finished, but verification is inconclusive: ${details || "not all checks were performed"}.`
-      : "Done — plan executed:",
-    planLines ? `Plan:\n${planLines}` : "",
+      : "Done.",
     reviewLine,
     `Verification: ${evaluation.verdict}.`,
   ]

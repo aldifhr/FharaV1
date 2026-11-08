@@ -190,12 +190,21 @@ export default function AgentDetailPanel({
     ...(roleDescription ? [roleDescription] : []),
     ...(fallback?.systemPromptHint ? [fallback.systemPromptHint] : []),
   ];
+  // Backend returns [] (not null) when an agent has no explicit caps and
+  // no synced roleDefinition row, so an empty array must fall through to
+  // the role defaults just like a missing value does.
   const capabilities: string[] =
-    (detail as any)?.effectiveCapabilities ??
-    (agent.capabilities?.length ? agent.capabilities : (fallback?.defaultCapabilities ?? []));
+    (detail as any)?.effectiveCapabilities?.length
+      ? (detail as any).effectiveCapabilities
+      : (agent.capabilities?.length ? agent.capabilities : (fallback?.defaultCapabilities ?? []));
   const effectiveTools: string[] =
-    (detail as any)?.effectiveTools ?? (agent.supportedTools?.length ? agent.supportedTools : (fallback?.defaultTools ?? []));
-  const toolsAreCustom: boolean = (detail as any)?.toolsAreCustom ?? agent.supportedTools !== undefined;
+    (detail as any)?.effectiveTools?.length
+      ? (detail as any).effectiveTools
+      : (agent.supportedTools?.length ? agent.supportedTools : (fallback?.defaultTools ?? []));
+  const toolsAreCustom: boolean =
+    (detail as any)?.effectiveTools?.length
+      ? ((detail as any)?.toolsAreCustom ?? agent.supportedTools !== undefined)
+      : agent.supportedTools !== undefined;
   const assignedProjects: any[] = (detail as any)?.assignedProjects ?? [];
   const assignments: any[] = (detail as any)?.projectAssignments ?? [];
   const assignedTasks: any[] = (detail as any)?.assignedTasks ?? [];

@@ -6,20 +6,12 @@ import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
 import InitialAvatar from "./InitialAvatar";
 import { roleLabel } from "@/lib/agentRoles";
-import QaPanel from "./QaPanel";
 import ApprovalCard from "./ApprovalCard";
 import DiffCard from "./DiffCard";
 import { Send, Loader2 as SendLoader } from "lucide-react";
 import {
-  CheckCircle2,
   ChevronLeft,
-  Circle,
-  GitBranch,
-  ListTree,
-  Loader2,
-  MinusCircle,
   X,
-  XCircle,
 } from "lucide-react";
 
 const MIN_WIDTH = 200;
@@ -117,7 +109,6 @@ export default function TaskThreadPanel({
   // empty. Add when verification is re-enabled.
   const checks = (events ?? []).filter((e: any) => e.type === "task.check");
   const errors = (events ?? []).filter((e: any) => e.type === "task.error");
-  const stages = (events ?? []).filter((e: any) => e.type === "task.stage");
   const workingAgent = (agents ?? []).find((agent: any) => agent.status === "working");
   const taskStatus = (task as any)?.status;
   const sendThreadMessage = useMutation(api.messages.insertThreadMessage);
@@ -157,20 +148,6 @@ export default function TaskThreadPanel({
     return role === "cto" || role === "reviewer";
   });
   const otherMessages = (messages ?? []).filter((m: any) => !ctoMessages.includes(m));
-  const timelineEvents = [...(events ?? [])].sort((a: any, b: any) => a._creationTime - b._creationTime);
-  const eventLabel = (event: any): string => {
-    const type = event.type as string;
-    if (type.startsWith("approval.")) return type.replace("approval.", "Approval ");
-    if (type === "task.stage") return `Stage: ${event.payload?.stage ?? ""}`;
-    if (type === "task.check") return `${event.payload?.label ?? "Check"} · ${event.payload?.status ?? ""}`;
-    if (type === "task.error") return `Error: ${event.payload?.message ?? ""}`;
-    if (type.startsWith("orchestrator.")) return type.replace("orchestrator.", "Orchestrator ");
-    if (type.startsWith("qa.")) return type.replace("qa.", "QA ");
-    if (type.startsWith("review.")) return type.replace("review.", "Review ");
-    if (type.startsWith("verification.")) return type.replace("verification.", "Verification ");
-    return type;
-  };
-
   return (
     <div className="relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-[#ebe9f0] bg-white/90 shadow-[-8px_0_24px_rgba(40,35,80,0.04)] backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-l-0 max-[979px]:border-t max-[979px]:flex-row">
       <div
@@ -219,99 +196,7 @@ export default function TaskThreadPanel({
         </div>
       )}
 
-      {execution && ((execution as any).subtasks?.length ?? 0) > 0 && (
-        <section className="mx-4 mt-3 rounded-xl border border-[#ebe9f0] bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
-          <h3 className="text-xs font-semibold text-gray-700 dark:text-gray-200">Engineering Team Status</h3>
-          <div className="mt-2 space-y-2">
-            {Array.from(new Map(((execution as any).subtasks ?? []).map((subtask: any) => [subtask.assignedAgentId ?? subtask.capability, subtask])).values()).map((subtask: any) => {
-              const role = agentById(subtask.assignedAgentId)?.role ?? subtask.capability;
-              const state = subtask.status as string;
-              const label = state === "completed" ? "Completed" : state === "failed" ? "Needs review" : state === "running" ? "Testing" : "On track";
-              const tone = state === "completed" ? "text-emerald-600" : state === "failed" ? "text-rose-600" : state === "running" ? "text-sky-600" : "text-amber-600";
-              return <div key={subtask._id} className="rounded-lg bg-gray-50 px-2.5 py-2 dark:bg-gray-950"><div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold dark:text-white">{roleLabel(role)}</span><span className={`text-[11px] font-semibold ${tone}`}>{label}</span></div><p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">{subtask.error ?? subtask.title}</p></div>;
-            })}
-          </div>
-        </section>
-      )}
       <div className="h-0 min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-[#fcfcfe] p-4 dark:bg-gray-950/40">
-        {false && execution && ((execution as any).subtasks?.length ?? 0) > 0 && (
-          <section className="rounded-xl border border-[#ebe9f0] bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-            <div className="flex items-center justify-between">
-              <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase text-gray-500">
-                <ListTree size={13} /> Execution plan
-              </h4>
-              <span className="text-[10px] text-gray-400">
-                {(execution as any).plan
-                  ? `v${(execution as any).plan.version} · ${(execution as any).plan.createdBy}`
-                  : "unplanned"}
-              </span>
-            </div>
-            <div className="mt-2 space-y-1.5">
-              {((execution as any).subtasks ?? []).map((subtask: any) => {
-                const state = subtask.status as string;
-                const Icon =
-                  state === "completed"
-                    ? CheckCircle2
-                    : state === "failed"
-                      ? XCircle
-                      : state === "running"
-                        ? Loader2
-                        : state === "blocked" || state === "skipped"
-                          ? MinusCircle
-                          : Circle;
-                const tone =
-                  state === "completed"
-                    ? "text-emerald-600"
-                    : state === "failed"
-                      ? "text-rose-600"
-                      : state === "running"
-                        ? "text-sky-600"
-                        : state === "waiting_approval"
-                          ? "text-amber-600"
-                          : "text-gray-400";
-                return (
-                  <div key={subtask._id} className="rounded-md bg-white px-2 py-1.5 dark:bg-gray-950">
-                    <div className="flex items-center gap-1.5">
-                      <Icon size={13} className={`${tone} ${state === "running" ? "animate-spin" : ""}`} />
-                      <span className="min-w-0 flex-1 truncate text-xs font-medium dark:text-white">
-                        {subtask.title}
-                      </span>
-                      <span className="shrink-0 text-[10px] text-gray-400">{subtask.kind}</span>
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-2 pl-[19px] text-[10px] text-gray-400">
-                      <span className="truncate">{subtask.capability}</span>
-                      {subtask.assignedAgentName && <span>· {roleLabel(agentById(subtask.assignedAgentId)?.role)}</span>}
-                      {subtask.dependencies?.length > 0 && (
-                        <span className="flex items-center gap-0.5">
-                          <GitBranch size={10} /> {subtask.dependencies.join(", ")}
-                        </span>
-                      )}
-                    </div>
-                    {subtask.error && (
-                      <p className="mt-0.5 pl-[19px] text-[10px] text-rose-600">{subtask.error}</p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            {(execution as any).evaluation && (
-              <div className="mt-2 flex items-center justify-between text-[11px]">
-                <span className="text-gray-500">Verification</span>
-                <span
-                  className={`rounded-full px-2 py-0.5 font-semibold ${
-                    (execution as any).evaluation.verdict === "passed"
-                      ? "bg-emerald-100 text-emerald-700"
-                      : (execution as any).evaluation.verdict === "inconclusive"
-                        ? "bg-amber-100 text-amber-700"
-                        : "bg-rose-100 text-rose-700"
-                  }`}
-                >
-                  {(execution as any).evaluation.verdict}
-                </span>
-              </div>
-            )}
-          </section>
-        )}
         {taskStatus === "failed" && (task as any)?.errorMessage && (
           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
             <p className="font-semibold">Task failed</p>
@@ -322,11 +207,6 @@ export default function TaskThreadPanel({
           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
             <p className="font-semibold">Agent error</p>
             <p className="mt-1 break-words">{errors[errors.length - 1].payload?.message ?? "Task failed to process."}</p>
-          </div>
-        )}
-        {stages.length > 0 && (
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
-            {stages[stages.length - 1].payload?.message ?? `Stage: ${stages[stages.length - 1].payload?.stage}`}
           </div>
         )}
         {pendingApprovals.map((a: any) => (
@@ -422,25 +302,6 @@ export default function TaskThreadPanel({
           </div>
           );
         })}
-        {false && checks.length > 0 && (
-          <div>
-            <h4 className="text-xs font-semibold uppercase text-gray-500">Checklist</h4>
-            <div className="mt-1.5 space-y-1">
-              {checks.map((e: any, i: number) => {
-                const passed = e.payload.status === "passed" || e.payload.status === "clean";
-                return (
-                  <div key={i} className="flex items-center gap-2 text-xs dark:text-white">
-                    <span className={passed ? "text-emerald-600" : "text-amber-500"}>
-                      {passed ? <CheckCircle2 size={13} /> : <Loader2 size={13} className={e.payload.status === "running" ? "animate-spin" : ""} />}
-                    </span>
-                    <span className="min-w-0 flex-1">QA · {e.payload.label}</span>
-                    <span className="shrink-0 text-gray-400">{e.payload.status}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
 
       <form

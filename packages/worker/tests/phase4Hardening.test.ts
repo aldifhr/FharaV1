@@ -961,6 +961,9 @@ describe("resume outcome handling (mandatory test 7)", () => {
       expect(
         captured.messages.filter((m) => m.includes("stopping this step"))
       ).toHaveLength(0);
+      // The objective downgrade itself is deferred while the review loop
+      // owns the open findings — no objective_unmet churn mid-loop.
+      expect(captured.eventTypes).not.toContain("orchestrator.objective_unmet");
     },
     15_000
   );

@@ -2118,8 +2118,20 @@ async function executePlan(input: {
               // loop was progressing normally). Skip the chat narration
               // for downgrades; the objective_unmet event above keeps
               // the telemetry.
+              //
+              // While a review or QA loop is in flight its open findings
+              // are EXPECTED (the loop owns them and will close them when
+              // its verdict lands), so the downgrade itself is deferred
+              // too: mid-loop downgrades replan the task mid-fix and burn
+              // the replans budget for no reason.
+              const reviewQaInFlight = plan.subtasks.some(
+                (candidate) =>
+                  (candidate.kind === "review" || candidate.kind === "qa") &&
+                  !dynamicKeys.has(candidate.key) &&
+                  !runCompleted.has(candidate.key)
+              );
               let downgradedByObjective = false;
-              if (decision.action === "complete" && executionId) {
+              if (decision.action === "complete" && executionId && !reviewQaInFlight) {
                 const pendingRequiredNodes = plan.subtasks.some(
                    (candidate) =>
                      (candidate.kind === "qa" || candidate.kind === "review") &&

@@ -14,13 +14,21 @@ import type { ExecutionPlan } from "@/orchestrator/types";
 
 const qaSpy = vi.hoisted(() => ({
   calls: [] as Array<{ workspacePath: string; options: Record<string, unknown> }>,
+  next: null as {
+    verdict: "passed" | "failed" | "inconclusive";
+    checks: Array<{ label: string; status: "passed" | "failed" | "inconclusive"; details?: string }>;
+    failures: string[];
+    inconclusive: string[];
+  } | null,
 }));
 
 vi.mock("../src/execution/qa", () => ({
   runResponsiveQa: async (workspacePath: string, options: Record<string, unknown>) => {
     qaSpy.calls.push({ workspacePath, options });
-    return { verdict: "passed", checks: [], failures: [], inconclusive: [] };
+    return qaSpy.next ?? { verdict: "passed", checks: [], failures: [], inconclusive: [] };
   },
+  checkLabelFor: (viewportLabel: string, visualRegression: boolean) =>
+    visualRegression ? `${viewportLabel} viewport` : "structural check",
 }));
 
 import { executeSubtask, type SubtaskExecutionInput } from "@/execution/agentExecutor";
@@ -94,5 +102,61 @@ describe("executeQa threading", () => {
     expect(result.status).toBe("completed");
     expect(qaSpy.calls).toHaveLength(1);
     expect(qaSpy.calls[0].options.baseUrl).toBeUndefined();
+  });
+
+  it("returns failed (not completed) on an inconclusive verdict, preserving it in meta", async () => {
+    qaSpy.next = {
+      verdict: "inconclusive",
+      checks: [
+        { label: "application reachable", status: "passed" },
+        { label: "structural check", status: "inconclusive", details: "baseline missing" },
+      ],
+      failures: [],
+      inconclusive: ["structural check"],
+    };
+    const result = await executeSubtask(makeQaInput({ qaBaseUrl: "http://127.0.0.1:3000" }));
+    expect(result.status).toBe("failed");
+    expect(result.meta).toMatchObject({ verdict: "inconclusive" });
+  });
+
+  it("structural runs carry no viewport/responsive/screenshot claims in output", async () => {
+    qaSpy.next = {
+      verdict: "passed",
+      checks: [
+        { label: "application reachable", status: "passed" },
+        { label: "structural check", status: "passed" },
+      ],
+      failures: [],
+      inconclusive: [],
+    };
+    const announced: string[] = [];
+    const input = makeQaInput({
+      plan: {
+        version: 1,
+        goal: "qa",
+        strategy: "dag",
+        requiresApproval: false,
+        maxConcurrency: 1,
+        visualQa: false,
+        subtasks: [],
+      } as unknown as ExecutionPlan,
+      onMessage: async (content: string) => {
+        announced.push(content);
+      },
+    });
+    const result = await executeSubtask(input);
+    expect(result.status).toBe("completed");
+    expect(qaSpy.calls).toHaveLength(1);
+    expect(qaSpy.calls[0].options.visualRegression).toBe(false);
+    expect(announced.join("\n")).toContain("structural");
+    expect(announced.join("\n")).not.toMatch(/desktop|tablet|mobile|responsive|screenshot/i);
+  });
+
+  it("checkLabelFor never emits viewport claims in structural mode", async () => {
+    const { checkLabelFor } = await import("../src/execution/qa");
+    expect(checkLabelFor("desktop", true)).toBe("desktop viewport");
+    expect(checkLabelFor("mobile", true)).toBe("mobile viewport");
+    expect(checkLabelFor("structural", false)).toBe("structural check");
+    expect(checkLabelFor("desktop", false)).not.toMatch(/viewport|desktop|mobile|tablet|responsive/i);
   });
 });

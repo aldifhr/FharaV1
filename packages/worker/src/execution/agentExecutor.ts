@@ -566,6 +566,19 @@ async function executeQa(
       meta: { verdict: report.verdict, checks: report.checks },
     };
   }
+  if (report.verdict === "inconclusive") {
+    // An inconclusive run is NOT a completed node: the QA verdict guard
+    // (plan 011) requires an explicit pass, and the runner's QA loop
+    // treats any non-pass verdict as failing. Surface it as failed
+    // (with the verdict preserved in meta) so the scheduler and the
+    // objective cannot read "inconclusive" as "done". The QA loop
+    // synthesizes fix findings from the recorded inconclusive checks.
+    return {
+      status: "failed",
+      error: `QA inconclusive: ${report.inconclusive.join("; ")}`,
+      meta: { verdict: report.verdict, checks: report.checks },
+    };
+  }
   return {
     status: "completed",
     output: summary,

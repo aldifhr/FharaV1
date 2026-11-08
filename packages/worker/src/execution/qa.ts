@@ -20,6 +20,16 @@ export interface QaReport {
   inconclusive: string[];
 }
 
+/**
+ * Label for one QA check (plan 011). Visual mode names each viewport;
+ * structural mode runs a single pass and is labelled as a structural
+ * check so no output ever claims viewport/responsive coverage that did
+ * not run.
+ */
+export function checkLabelFor(viewportLabel: string, visualRegression: boolean): string {
+  return visualRegression ? `${viewportLabel} viewport` : "structural check";
+}
+
 export interface QaOptions {
   baseUrl?: string;
   autoStartServer?: boolean;
@@ -166,7 +176,10 @@ export async function runResponsiveQa(
             });
             break;
           }
-          const label = `${viewport.label} viewport`;
+          // Structural mode has no viewports to label: the check is one
+          // structural pass over the page. Naming it a "viewport" check
+          // would claim responsive coverage that never ran (plan 011).
+          const label = checkLabelFor(viewport.label, options.visualRegression ?? false);
           const consoleErrors: string[] = [];
           const networkErrors: string[] = [];
           const page = await browser.newPage({
@@ -246,7 +259,7 @@ export async function runResponsiveQa(
               );
               await record({ label, status: baseline.status, details: baseline.details });
             } else {
-              await record({ label, status: "passed", details: "Viewport loaded; visual comparison skipped" });
+              await record({ label, status: "passed", details: "Page rendered with visible body; no screenshot or visual comparison" });
             }
           } catch (error) {
             await record({

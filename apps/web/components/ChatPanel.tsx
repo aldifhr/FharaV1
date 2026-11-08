@@ -7,7 +7,6 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
 import InitialAvatar from "./InitialAvatar";
-import { countLines } from "./DiffCard";
 import ApprovalCard from "./ApprovalCard";
 import QaPanel from "./QaPanel";
 import { AnimatedTooltip } from "@/components/ui/animated-tooltip";

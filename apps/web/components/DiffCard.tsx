@@ -3,9 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
-// react-diff-viewer is a CommonJS class component; load it client-only
-// so its prop-types / memoize-one graph never runs during SSR.
-const DiffViewer = dynamic(() => import("react-diff-viewer"), { ssr: false });
+// react-diff-viewer-continued is a CommonJS class component; load it
+// client-only so its prop-types graph never runs during SSR. (The
+// original react-diff-viewer only supports React 16.)
+const DiffViewer = dynamic(() => import("react-diff-viewer-continued"), { ssr: false });
 
 export type FileChangeType = "new" | "modified" | "deleted";
 
@@ -87,6 +88,11 @@ export default function DiffCard({
   const rows = useMemo(() => parseDiff(diff), [diff]);
   const { added, removed } = useMemo(() => countLines(diff), [diff]);
   const [dark, setDark] = useState(false);
+  // Uncontrolled when the parent does not own the expanded state (most
+  // callers don't): Without this the collapse button is dead because
+  // onExpandedChange is undefined.
+  const [internalExpanded, setInternalExpanded] = useState(true);
+  const isExpanded = onExpandedChange ? expanded : internalExpanded;
 
   useEffect(() => {
     const sync = () => setDark(document.documentElement.classList.contains("dark"));
@@ -94,19 +100,25 @@ export default function DiffCard({
     return () => undefined;
   }, [expanded]);
 
-  const hasContents = oldContent !== undefined && newContent !== undefined && oldContent !== null && newContent !== null;
+  // A new file has no old content (and vice versa): pass an empty string
+  // on that side so the viewer still renders the additions/deletions
+  // instead of dropping to the plain unified-diff fallback.
+  const hasContents = oldContent != null || newContent != null;
 
   return (
     <div className="mt-2 overflow-hidden rounded-xl border border-[#e5e3eb] bg-white shadow-[0_1px_2px_rgba(30,25,60,.04)] dark:border-gray-800 dark:bg-gray-900">
       <div className="flex items-center gap-2 border-b border-[#eeeef3] bg-[#fbfbfd] px-3 py-2 dark:border-gray-800 dark:bg-gray-800/60">
         <button
           type="button"
-          onClick={() => onExpandedChange?.(!expanded)}
-          aria-expanded={expanded}
-          aria-label={expanded ? `Collapse ${filePath}` : `Expand ${filePath}`}
+          onClick={() => {
+            if (onExpandedChange) onExpandedChange(!expanded);
+            else setInternalExpanded((value) => !value);
+          }}
+          aria-expanded={isExpanded}
+          aria-label={isExpanded ? `Collapse ${filePath}` : `Expand ${filePath}`}
           className="rounded p-0.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
         >
-          {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
         <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#494752] dark:text-gray-200">{filePath}</span>
         {changeType === "new" && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">New</span>}
@@ -137,7 +149,7 @@ export default function DiffCard({
           </span>
         )}
       </div>
-      {expanded && (
+      {isExpanded && (
         hasContents ? (
           <div className="max-h-96 overflow-auto font-mono text-[11px] leading-[1.7]">
             <DiffViewer

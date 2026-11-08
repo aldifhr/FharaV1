@@ -40,11 +40,9 @@ function timeLabel(ts: number) {
 export default function QaPanel({
   events,
   evaluation,
-  compact = false,
 }: {
   events: TaskEvent[] | undefined;
   evaluation?: { verdict: string; checks?: EvalCheck[]; notes?: string } | null;
-  compact?: boolean;
 }) {
   const checks = (events ?? []).filter((e) => e.type === "task.check");
   const viewportRows = VIEWPORTS.map((vp) => {
@@ -62,19 +60,15 @@ export default function QaPanel({
   );
   const evalChecks = evaluation?.checks ?? [];
 
-  if (checks.length === 0 && !evaluation) {
-    return (
-      <div className="rounded-xl border border-dashed border-[#e5e3eb] bg-white px-4 py-4 text-xs text-gray-400 dark:border-gray-800 dark:bg-gray-900">
-        No QA results yet. Responsive QA (Desktop 1440 / Tablet 768 / Mobile 375) and
-        verification checks appear here once the worker runs them for this task.
-      </div>
-    );
-  }
+  // Nothing ran: render nothing. The old dashed placeholder promised
+  // "Responsive QA (Desktop/Tablet/Mobile) … once the worker runs them"
+  // even for structural-only tasks that never run viewport checks.
+  if (checks.length === 0 && !evaluation) return null;
 
   return (
     <section className="overflow-hidden rounded-xl border border-[#e5e3eb] bg-white dark:border-gray-800 dark:bg-gray-900">
       <header className="flex items-center justify-between border-b border-[#eeeef3] px-3.5 py-2.5 dark:border-gray-800">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">QA · responsive viewports</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">QA checks</h3>
         {evaluation && (
           <span
             className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
@@ -89,7 +83,7 @@ export default function QaPanel({
           </span>
         )}
       </header>
-      {viewportRows.length > 0 ? (
+      {viewportRows.length > 0 && (
         <ul className="divide-y divide-[#f0eff4] dark:divide-gray-800">
           {viewportRows.map((row) => (
             <li key={row.key} className="flex items-center gap-2.5 px-3.5 py-2.5">
@@ -106,10 +100,8 @@ export default function QaPanel({
             </li>
           ))}
         </ul>
-      ) : (
-        <p className="px-3.5 py-3 text-xs text-gray-400">No viewport checks recorded for this task yet.</p>
       )}
-      {!compact && (otherChecks.length > 0 || evalChecks.length > 0) && (
+      {(otherChecks.length > 0 || evalChecks.length > 0) && (
         <div className="border-t border-[#eeeef3] px-3.5 py-3 dark:border-gray-800">
           <h4 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Test results</h4>
           <ul className="mt-2 space-y-1.5">

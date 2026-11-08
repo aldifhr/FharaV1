@@ -92,7 +92,16 @@ export const createFromCommand = mutation({
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .order("desc")
       .take(30);
-    const conversationMsgs = history.filter((m) => !m.taskId && !isErrorChatter(m.content) && m.authorType === "user");
+    // The current user message is inserted before the task is created
+    // (chat send path), so it is always in this history — echoing it back
+    // as "Conversation context" just doubles the command with itself.
+    const conversationMsgs = history.filter(
+      (m) =>
+        !m.taskId &&
+        !isErrorChatter(m.content) &&
+        m.authorType === "user" &&
+        m.content.trim() !== rawCommand.trim()
+    );
     // Only include context if the user message itself is short / ambiguous
     const needsContext = rawCommand.length < 80 || /^(git pull|pull|push|checkout|buatin|buat)$/i.test(rawCommand);
     const historyLines = needsContext

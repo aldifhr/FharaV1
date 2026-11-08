@@ -1107,7 +1107,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                             onReview={(taskId) => onSelectTask(taskId)}
                           />
                         ))}
-                        {qaEvents.length > 0 && <QaPanel events={qaEvents} compact />}
+                        {qaEvents.length > 0 && <QaPanel events={qaEvents} />}
                       </div>
                     );
                   })()}

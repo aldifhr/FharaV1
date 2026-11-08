@@ -355,12 +355,16 @@ export const replyToChat = internalAction({
     // followed by a choice must NOT auto-create execution tasks (the user
     // was just asking). The pick is answered in chat; the user asks for
     // work explicitly when they want it built.
+    const isOptionPick = /^i choose ([a-z0-9]+)\s*:\s*(.+)$/i.test(lastContent.trim());
+    if (isOptionPick) {
+      taskIntent = { ...taskIntent, kind: "chat" };
+    }
 
     // Stage B: if regex says chat but the text is imperative/indirect
     // (e.g. "Migrate this project to React", "Saya mau…"), let the LLM
     // semantically upgrade to task. Invalid output stays chat (fail closed).
     const lastUserContent = history[history.length - 1]?.content ?? "";
-    if (taskIntent.kind !== "task" && lastUserContent.length > 0) {
+    if (!isOptionPick && taskIntent.kind !== "task" && lastUserContent.length > 0) {
       try {
         const semantic = await classifySemantically(lastUserContent, globalConfig);
         if (semantic?.kind === "task") {

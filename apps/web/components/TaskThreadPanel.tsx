@@ -247,7 +247,13 @@ export default function TaskThreadPanel({
             </div>
           </section>
         )}
-        {userMessages.map((m: any) => (
+        {userMessages.map((m: any) => {
+          // The task command may carry planner-only context (appended for
+          // ambiguous short commands) — show the human part only.
+          const raw: string = m.content ?? "";
+          const marker = "\n\n--- Conversation context ---";
+          const head = raw.includes(marker) ? raw.slice(0, raw.indexOf(marker)) : raw;
+          return (
           <div key={m._id} className="flex gap-2">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-900 text-[10px] font-bold text-white">U</div>
             <div className="min-w-0">
@@ -255,10 +261,11 @@ export default function TaskThreadPanel({
                 You
                 <span className="font-normal text-gray-400">{m._creationTime ? new Date(m._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""}</span>
               </p>
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-sm dark:text-white">{m.content}</p>
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-sm dark:text-white">{head}</p>
             </div>
           </div>
-        ))}
+          );
+        })}
         {ctoMessages.map((m: any) => {
           const msgAgent = agentById(m.agentId);
           return (

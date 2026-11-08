@@ -147,10 +147,8 @@ export default function TaskThreadPanel({
     const role = agentById(m.agentId)?.role;
     return role === "cto" || role === "reviewer";
   });
-  // User messages are the task request — not replies. They render first
-  // and are excluded from the reply count (counting the user's own
-  // command as a "reply" was the bug).
-  const userMessages = (messages ?? []).filter((m: any) => m.authorType === "user");
+  // Agent activity only: the user's own messages live in chat, not the
+  // thread. The replies divider counts agent replies only.
   const agentReplies = (messages ?? []).filter(
     (m: any) => m.authorType === "agent" && !ctoMessages.includes(m)
   );
@@ -247,25 +245,6 @@ export default function TaskThreadPanel({
             </div>
           </section>
         )}
-        {userMessages.map((m: any) => {
-          // The task command may carry planner-only context (appended for
-          // ambiguous short commands) — show the human part only.
-          const raw: string = m.content ?? "";
-          const marker = "\n\n--- Conversation context ---";
-          const head = raw.includes(marker) ? raw.slice(0, raw.indexOf(marker)) : raw;
-          return (
-          <div key={m._id} className="flex gap-2">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-900 text-[10px] font-bold text-white">U</div>
-            <div className="min-w-0">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500">
-                You
-                <span className="font-normal text-gray-400">{m._creationTime ? new Date(m._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""}</span>
-              </p>
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-sm dark:text-white">{head}</p>
-            </div>
-          </div>
-          );
-        })}
         {ctoMessages.map((m: any) => {
           const msgAgent = agentById(m.agentId);
           return (

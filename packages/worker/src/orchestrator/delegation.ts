@@ -200,6 +200,23 @@ export function evaluateDelegation(input: {
       };
     }
 
+    // The stored plan already schedules this capability: running it again as
+    // a dynamic node duplicates the work and reports a second verdict for
+    // the same objective. Suppress it regardless of who proposed it (agent
+    // recommendation here, deterministic heuristic below).
+    if (
+      (input.plannedCapabilities ?? []).some(
+        (planned) => normalizeCapability(planned) === normalizeCapability(targetCap)
+      )
+    ) {
+      return {
+        decision: "REJECT",
+        reason: `plan already schedules ${targetCap}`,
+        targetCapability: targetCap,
+        shouldCallLLM: false,
+      };
+    }
+
     // Depth is a property of this branch's chain, not a task-global counter.
     if (branchDepth >= maxDepth) {
       return {

@@ -270,4 +270,33 @@ describe("evaluateDelegation planned capabilities", () => {
     expect(res.decision).toBe("COMPLETE");
     expect(res.targetCapability).toBeUndefined();
   });
+
+  it("REJECTs an agent recommendation for a capability the plan already schedules", () => {
+    // In the smoke run the agent itself recommended browser-testing while the
+    // plan already carried a QA node, so the recommendation path had to be
+    // suppressed too (not just the deterministic heuristic).
+    const res = evaluateDelegation({
+      result: {
+        agentName: "Developer",
+        capability: "frontend-development",
+        success: true,
+        summary: "done",
+        delegationRecommendation: {
+          targetCapability: "Browser-Testing",
+          reason: "QA should validate the HTML structure",
+        },
+      } as any,
+      classification,
+      agents: [developer, qa],
+      budget: new BudgetTracker(loadPolicy()),
+      previousAgents: [],
+      delegationDepth: 0,
+      alreadyDelegatedCapabilities: [],
+      plannedCapabilities: ["frontend-development", "browser-testing"],
+      proposer: developer,
+    } as any);
+    expect(res.decision).toBe("REJECT");
+    expect(res.reason).toContain("plan already schedules");
+    expect(res.targetCapability).toBe("Browser-Testing");
+  });
 });

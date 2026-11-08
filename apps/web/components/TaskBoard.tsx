@@ -209,7 +209,7 @@ export default function TaskBoard({
                 </div>
               </button>
               <div className="flex shrink-0 items-center gap-2">
-                <div className="flex -space-x-1.5">
+                <div className="flex gap-1">
                   {[...assigned.entries()].slice(0, 4).map(([name, id]) => (
                     <span key={name} title={name} className="flex h-5 w-5 items-center justify-center rounded-full bg-[#eeecfb] text-[9px] font-semibold text-[#4c42a3] dark:bg-gray-800 dark:text-gray-300">
                       {name.slice(0, 2).toUpperCase()}
@@ -218,7 +218,10 @@ export default function TaskBoard({
                 </div>
                 <button
                   type="button"
-                  onClick={() => setExpanded((prev) => ({ ...prev, [t._id]: !prev[t._id] }))}
+                  // Toggle against the *current* openness (including the
+                  // selection default) — toggling expanded[id] alone could
+                  // never close a selected task, making the chevron dead.
+                  onClick={() => setExpanded((prev) => ({ ...prev, [t._id]: !isOpen }))}
                   aria-label={isOpen ? "Collapse" : "Expand"}
                   className="rounded-md p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
                 >

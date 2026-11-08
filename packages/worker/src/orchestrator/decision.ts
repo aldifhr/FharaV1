@@ -97,8 +97,13 @@ export interface ObjectiveEvaluation {
   missing: string[];
 }
 
-/** Outcomes that signal the objective is NOT yet met. */
-const UNMET_OUTCOMES = new Set(["retry", "recovery", "policy:budget", "decision:step_limit"]);
+/** Outcomes that signal the objective is NOT yet met. "policy:budget" is
+ *  deliberately absent: in warn mode a budget warning is non-fatal by
+ *  design and must not poison the objective forever (that produced
+ *  bogus "last decision outcome policy:budget is not met" verdicts in live
+ *  runs); in enforce mode exhaustion ends the task via the explicit
+ *  budget-exhausted path, not via objective evaluation. */
+const UNMET_OUTCOMES = new Set(["retry", "recovery", "decision:step_limit"]);
 
 /**
  * Plan 005 Phase 5 Step 5.1: is the task objective satisfied? Pure: it reads

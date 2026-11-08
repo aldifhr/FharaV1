@@ -404,6 +404,19 @@ describe("decision: evaluateObjective (step 5.1)", () => {
     expect(result.evidence.some((entry) => entry.includes("impl: 1 file change(s) applied"))).toBe(true);
   });
 
+  it("budget-warning outcomes do not poison the objective", () => {
+    const result = evaluateObjective(
+      context({
+        objectiveEvidence: {
+          appliedFiles: { impl: ["file-impl.txt"] },
+          lastDecision: { action: "complete", expectedOutcome: "policy:budget" },
+        },
+      })
+    );
+    expect(result.satisfied).toBe(true);
+    expect(result.missing).toEqual([]);
+  });
+
   it("not satisfied when a completed code_change has no applied file (complete without evidence)", () => {
     const result = evaluateObjective(
       context({

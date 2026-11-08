@@ -1183,7 +1183,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             ) : (
               workingAgents.length > 0 && (
                 <div className="flex items-center gap-2 text-xs text-gray-400">
-                  <div className="flex -space-x-1.5">
+                  <div className="flex space-x-1">
                     {workingAgents.slice(0, 3).map((agent: any) => (
                       <AgentAvatar
                         key={agent._id}

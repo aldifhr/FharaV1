@@ -82,10 +82,10 @@ export default function Modal({
         }
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <Card className="overflow-hidden border-[#ebe9f0] bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900">
-          <CardContent className="p-5">
+        <Card className="max-h-[90vh] overflow-hidden border-[#ebe9f0] bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900">
+          <CardContent className="flex max-h-[90vh] min-h-0 flex-col overflow-hidden p-5">
             {header}
-            <div className={fullScreen ? "mt-4" : ""}>{children}</div>
+            <div className={fullScreen ? "mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1" : "min-h-0 flex-1 overflow-y-auto overscroll-contain"}>{children}</div>
           </CardContent>
         </Card>
       </motion.div>

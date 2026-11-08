@@ -95,6 +95,12 @@ export interface RunnerDeps {
 interface RunState {
   priorOutputs: Map<string, string>;
   qaVerdicts: Record<string, "passed" | "failed" | "inconclusive">;
+  /** The exact checks each QA node ran (labels + statuses). Feeds the
+   * specific pass message instead of a generic template. */
+  qaChecks?: Record<
+    string,
+    Array<{ label: string; status: string; details?: string }>
+  >;
   reviewVerdicts: Record<string, ReviewResult>;
   fileChanges: Map<string, FileDiff>;
   /** Applied file paths per producing subtask key (Phase 5 Step 5.1). */
@@ -1963,6 +1969,15 @@ async function executePlan(input: {
             meta?.verdict === "inconclusive")
         ) {
           state.qaVerdicts[node.id] = meta.verdict;
+          // Keep the actual checks so the pass message can name the URL
+          // and the checks that ran instead of a generic template.
+          const checks = (meta as { checks?: unknown })?.checks;
+          if (Array.isArray(checks)) {
+            state.qaChecks = {
+              ...(state.qaChecks ?? {}),
+              [node.id]: checks as NonNullable<RunState["qaChecks"]>[string],
+            };
+          }
         }
         // Intelligent orchestrator: evaluate every finished subtask, keep
         // the shared context current for the agents that run next, and
@@ -2829,20 +2844,30 @@ async function executePlan(input: {
           input.agents.find((a) => a.role === "qa") ||
           input.agents.find((a) => capabilitiesOf(a).includes(CAPABILITY.BROWSER_TESTING));
         if (qaAgent) {
-          // Describe what actually ran. The plan-level intent is authoritative
-          // (a prohibition like "no screenshots" must never be read as a
-          // request for visual checks just because the word appears).
-          // No @QA mention here: the message is authored by the QA agent
-          // itself, so a leading self-tag reads as QA talking about itself.
+          // Describe what actually ran, not a boilerplate list: the URL
+          // that was checked and the checks that executed. The plan-level
+          // intent is authoritative (a prohibition like "no screenshots"
+          // must never be read as a request for visual checks just
+          // because the word appears). No @QA mention here: the message
+          // is authored by the QA agent itself, so a leading self-tag
+          // reads as QA talking about itself.
           const visualQa = plan.visualQa ?? wantsVisualQa(input.task.command);
+          const ranChecks = qaNodes.flatMap((node) => state.qaChecks?.[node.key] ?? []);
+          const passedCount = ranChecks.filter((check) => check.status === "passed").length;
+          const detail =
+            ranChecks.length > 0
+              ? `Checked ${input.qaBaseUrl ?? "the app"} — ${passedCount}/${ranChecks.length} checks ok: ${ranChecks
+                  .map((check) => check.label)
+                  .join(", ")}.`
+              : "";
           await deps.api.appendAgentMessage({
             projectId: project._id,
             taskId,
             agentId: qaAgent._id as any,
-            content: `QA validation passed. ${
+            content: `QA validation passed. ${detail}${
               visualQa
-                ? "Visual checks completed as requested."
-                : "Structural checks completed: browser reachability, HTML structure, console errors, and network errors."
+                ? " Visual checks completed as requested."
+                : " Structural checks only — no visual comparison."
             }`,
           });
         }

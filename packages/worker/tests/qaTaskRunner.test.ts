@@ -48,7 +48,13 @@ vi.mock("../src/execution/agentExecutor", () => ({
       return {
         status: "completed",
         output: "QA verdict: passed",
-        meta: { verdict: "passed", checks: [] },
+        meta: {
+          verdict: "passed",
+          checks: [
+            { label: "application reachable", status: "passed" },
+            { label: "structural viewport", status: "passed" },
+          ],
+        },
       };
     }
     return { status: "completed", output: "ok" };
@@ -300,6 +306,13 @@ describe("processTask QA URL threading", () => {
     for (const message of qaMessages) {
       expect(message.content).not.toMatch(/^@QA\b/);
     }
-    expect(qaMessages.some((m) => m.content.startsWith("QA validation passed"))).toBe(true);
+    const passMessage = qaMessages.find((m) => m.content.startsWith("QA validation passed"));
+    expect(passMessage).toBeDefined();
+    // Specific, not generic: the message names the URL checked and the
+    // checks that actually ran.
+    expect(passMessage?.content).toContain("http://127.0.0.1:9001");
+    expect(passMessage?.content).toContain("2/2 checks ok");
+    expect(passMessage?.content).toContain("application reachable");
+    expect(passMessage?.content).toContain("Structural checks only");
   });
 });

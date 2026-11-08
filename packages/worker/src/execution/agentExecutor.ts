@@ -516,6 +516,9 @@ async function executeReview(
 async function executeQa(
   input: SubtaskExecutionInput
 ): Promise<SubtaskExecutionResult> {
+  const visualRegression =
+    input.plan.visualQa ??
+    wantsVisualQa(input.command);
   const report = await runResponsiveQa(input.workspacePath, {
     baseUrl: input.qaBaseUrl,
     signal: input.signal,
@@ -523,9 +526,7 @@ async function executeQa(
     // remains only for plans persisted before the field existed, so a
     // "no screenshots / no viewport testing" request can never fall through
     // to visual regression in the executor.
-    visualRegression:
-      input.plan.visualQa ??
-      wantsVisualQa(input.command),
+    visualRegression,
     onCheck: async (check) => {
       await input.onEvent(
         "task.check",
@@ -535,11 +536,15 @@ async function executeQa(
     },
   });
 
-  // No @QA mention: this summary is authored by the QA agent itself, so a
-  // leading self-tag reads as QA talking about itself in third person.
-  const summary = `QA verdict: ${report.verdict}. Checks: ${report.checks
+  // Specific, not generic: name the URL that was actually checked, the
+  // checks that ran, and the mode (structural vs visual regression).
+  // The "QA verdict: <verdict>" prefix is load-bearing — buildStateFromDb
+  // re-reads the verdict from this persisted output on resume.
+  const passedCount = report.checks.filter((check) => check.status === "passed").length;
+  const checked = input.qaBaseUrl ?? "the app";
+  const summary = `QA verdict: ${report.verdict} — ${passedCount}/${report.checks.length} checks ok on ${checked}: ${report.checks
     .map((check) => `${check.label}=${check.status}`)
-    .join(", ")}`;
+    .join(", ")}${report.checks.length > 0 && !visualRegression ? ". No visual comparison — structural checks only" : ""}.`;
   await input.onMessage(summary);
 
   if (report.verdict === "failed") {

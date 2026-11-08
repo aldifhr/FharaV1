@@ -924,18 +924,34 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     if (!storedPlan) {
       const ctoAgent = runAgents.find((candidate) => /^cto$/i.test(candidate.role));
       if (ctoAgent) {
-        const selected = authoritative.plan.subtasks.map((subtask) => `${subtask.title} → ${subtask.capability}`).join("; ");
-        const mentions = authoritative.plan.subtasks
-          .map((subtask) => routeCapability(subtask.capability, runAgents, { allowFallback: false })?.name)
-          .filter((name): name is string => Boolean(name))
-          .filter((name, index, names) => names.indexOf(name) === index)
-          .map((name) => `@${name}`)
-          .join(" ");
+        // Plan summary: mention each assigned agent once, inline with the
+        // subtask it owns. No leading self-tag (@CTO from the CTO's own
+        // message) — one mention per agent is enough for the UI to render
+        // them bold without turning the message into a tag pile.
+        const byAgent = new Map<string, string[]>();
+        for (const subtask of authoritative.plan.subtasks) {
+          const name = routeCapability(subtask.capability, runAgents, {
+            allowFallback: false,
+          })?.name;
+          if (!name) continue;
+          byAgent.set(name, [
+            ...(byAgent.get(name) ?? []),
+            `${subtask.title} → ${subtask.capability}`,
+          ]);
+        }
+        const listing = [...byAgent.entries()]
+          .map(([name, items]) => `@${name} — ${items.join("; ")}`)
+          .join("; ");
+        const selected = authoritative.plan.subtasks
+          .map((subtask) => `${subtask.title} → ${subtask.capability}`)
+          .join("; ");
         await deps.api.appendAgentMessage({
           projectId: project._id,
           taskId: task._id,
           agentId: ctoAgent._id as any,
-          content: `@CTO Plan: ${mentions || "No specialized agents required"}. ${selected || "No specialized work is required"}. I will use only the listed agents and review the result before completion.`,
+          content: listing
+            ? `Plan: ${listing}.`
+            : `Plan: ${selected || "No specialized work is required"}. No specialized agents required — I'll handle it directly.`,
         });
       }
       if (authoritative.degradedReason) {

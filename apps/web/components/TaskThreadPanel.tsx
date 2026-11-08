@@ -10,6 +10,7 @@ import ApprovalCard from "./ApprovalCard";
 import DiffCard from "./DiffCard";
 import { Send, Loader2 as SendLoader } from "lucide-react";
 import {
+  Check,
   ChevronLeft,
   X,
 } from "lucide-react";
@@ -223,7 +224,10 @@ export default function TaskThreadPanel({
             onHold={(approvalId) => hold({ approvalId: approvalId as any })}
           />
         ))}
-        {fileChanges && fileChanges.length > 0 && (
+        {/* Diffs render inline under the CTO summary (see ctoMessages).
+            This top section is only the fallback for tasks with no CTO
+            messages at all. */}
+        {ctoMessages.length === 0 && fileChanges && fileChanges.length > 0 && (
           <section>
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-semibold uppercase text-gray-500">File changes</h4>
@@ -245,8 +249,9 @@ export default function TaskThreadPanel({
             </div>
           </section>
         )}
-        {ctoMessages.map((m: any) => {
+        {ctoMessages.map((m: any, index: number) => {
           const msgAgent = agentById(m.agentId);
+          const isLastCto = index === ctoMessages.length - 1;
           return (
             <div key={m._id} className="flex gap-2">
               <AgentAvatar name={roleLabel(msgAgent?.role)} size={28} avatarParams={msgAgent?.avatarParams} />
@@ -257,6 +262,34 @@ export default function TaskThreadPanel({
                   <span className="font-normal text-gray-400">{m._creationTime ? new Date(m._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""}</span>
                 </p>
                 <p className="mt-0.5 whitespace-pre-wrap break-words text-sm dark:text-white">{m.content}</p>
+                {/* The CTO's summary message carries the run's file diffs
+                    inline, like a review note — not in a separate panel. */}
+                {isLastCto && fileChanges && fileChanges.length > 0 && (
+                  <div className="mt-2 space-y-2">
+                    {fileChanges.map((fc: any) => (
+                      <DiffCard
+                        key={fc._id}
+                        filePath={fc.filePath}
+                        diff={fc.diff}
+                        changeType={fc.changeType}
+                        oldContent={fc.oldContent}
+                        newContent={fc.newContent}
+                      />
+                    ))}
+                    <div className="flex flex-wrap gap-1.5">
+                      {(events ?? []).some((e: any) => e.type === "review.approved") && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                          <Check size={11} /> Approved
+                        </span>
+                      )}
+                      {!fileChanges.some((fc: any) => /(^|\/)package(-lock)?\.json$/.test(fc.filePath) || /pnpm-lock\.yaml$/.test(fc.filePath) || fc.filePath.endsWith("yarn.lock")) && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                          no new packages
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );

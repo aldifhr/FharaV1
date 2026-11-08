@@ -17,7 +17,7 @@ import Modal from "./Modal";
 import TaskBoard from "./TaskBoard";
 
 import { useToast } from "./Toasts";
-import { AtSign, Bell, Check, CheckCircle2, Clock, Copy, ExternalLink, FileText, GitBranch, Loader2, MoreHorizontal, Pencil, Pin, PinOff, Send, ChevronUp, ChevronDown, Edit2, X, XCircle, Trash2, Paperclip, Mic, SquareTerminal, Type } from "lucide-react";
+import { AtSign, Bell, Check, CheckCircle2, Copy, ExternalLink, FileText, GitBranch, Loader2, MoreHorizontal, Pencil, Pin, PinOff, Send, ChevronUp, ChevronDown, Edit2, X, XCircle, Trash2, Paperclip, Mic, Type } from "lucide-react";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { roleLabel } from "@/lib/agentRoles";
 
@@ -132,7 +132,7 @@ function OptionCards({
               )}
               <div className="flex items-baseline gap-2 px-3 pt-2.5">
                 <span
-                  className={`rounded-md px-1.5 py-0.5 text-[11px] font-bold ${
+                  className={`shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-bold ${
                     selected
                       ? "bg-[#635bff] text-white"
                       : "bg-gray-100 text-gray-600 group-hover:bg-[#635bff] group-hover:text-white dark:bg-gray-800 dark:text-gray-300"
@@ -140,13 +140,13 @@ function OptionCards({
                 >
                   {option.id}
                 </span>
-                <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900 dark:text-white">
+                <p className="min-w-0 flex-1 text-sm font-semibold text-gray-900 dark:text-white">
                   {option.title}
                 </p>
-                {option.summary && (
-                  <span className="shrink-0 text-[11px] text-gray-400">{option.summary}</span>
-                )}
               </div>
+              {option.summary && (
+                <p className="px-3 pb-3 pt-1 text-[11px] text-gray-400">{option.summary}</p>
+              )}
               <div className="px-3 pb-3 pt-1">
                 {selected ? (
                   <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#635bff]">
@@ -875,6 +875,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     setMention(token !== null && !/\s/.test(token) ? token : null);
   };
 
+  // Auto-grow the composer textarea up to maxHeight (120px).
+  const draftAreaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = draftAreaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, [draft]);
+
   const headerAgents = agents.slice(0, 6);
   const activeForSelectedTask = useMemo(() => {
     if (!selectedTask) return [];
@@ -902,8 +911,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     },
     { added: 0, removed: 0 }
   );
+  // Refresh relative timestamps ("just now" → "2m ago") once a minute.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
   const formatMessageTime = (createdAt: number) => {
-    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - createdAt) / 60000));
+    const elapsedMinutes = Math.max(0, Math.floor((now - createdAt) / 60000));
     if (elapsedMinutes < 1) return "just now";
     if (elapsedMinutes < 60) return `${elapsedMinutes}m ago`;
     const elapsedHours = Math.floor(elapsedMinutes / 60);
@@ -1515,7 +1531,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             <fieldset className="grid gap-2">
               <legend className="text-sm font-medium">Team project</legend>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2 dark:border-gray-700">
-                {(allAgents ?? []).length === 0 && <p className="text-xs text-gray-400">Belum ada agent. Buat agent dulu dari halaman Teams.</p>}
+                {(allAgents ?? []).length === 0 && <p className="text-xs text-gray-400">No agents yet. Create one from the Teams page first.</p>}
                 {(allAgents ?? []).map((agent: any) => (
                   <label key={agent._id} className="flex items-center gap-2 text-sm">
                     <input
@@ -1650,6 +1666,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
 
             <div className="rounded-2xl border border-[#e5e3eb] bg-white px-4 pb-3 pt-3.5 shadow-sm transition focus-within:border-[#a29ae8] focus-within:ring-2 focus-within:ring-[#e5e1ff] dark:border-gray-700 dark:bg-gray-800 dark:focus-within:border-indigo-400 dark:focus-within:ring-indigo-900">
               <textarea
+                ref={draftAreaRef}
                 value={draft}
                 onChange={(e) => handleDraftInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -1668,13 +1685,13 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                   }
                 }}
                 rows={1}
-                placeholder={`Message ${((project as any)?.name ?? "the team")}, or type / for a command`}
+                placeholder={`Message ${((project as any)?.name ?? "the team")}, or @ a file`}
                 className="w-full resize-none bg-transparent px-0.5 text-[15px] leading-6 text-gray-900 outline-none placeholder:text-gray-400 dark:text-white dark:placeholder:text-gray-400"
                 style={{ minHeight: "24px", maxHeight: "120px" }}
               />
               <div className="mt-2 flex items-center gap-1.5">
-                 <button type="button" title="Formatting" aria-label="Formatting" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-700 dark:hover:text-gray-200"><Type size={16} /></button>
-                 <button type="button" title="Attach a file" aria-label="Attach a file" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-700 dark:hover:text-gray-200"><Paperclip size={16} /></button>
+                 <button type="button" title="Formatting (not available)" aria-label="Formatting (not available)" disabled className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 dark:text-gray-600 cursor-not-allowed"><Type size={16} /></button>
+                 <button type="button" title="Attach a file (not available)" aria-label="Attach a file (not available)" disabled className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 dark:text-gray-600 cursor-not-allowed"><Paperclip size={16} /></button>
                 <button
                   type="button"
                   onClick={() => handleDraftInput(`${draft}@`)}
@@ -1684,7 +1701,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                 >
                   <AtSign size={15} />
                 </button>
-                <button type="button" title="Voice input" aria-label="Voice input" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-700 dark:hover:text-gray-200"><Mic size={16} /></button>
+                <button type="button" title="Voice input (not available)" aria-label="Voice input (not available)" disabled className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 dark:text-gray-600 cursor-not-allowed"><Mic size={16} /></button>
                 <select value="" onChange={(event) => { if (event.target.value) setChatAgentIds((ids) => ids.includes(event.target.value) ? ids : [...ids, event.target.value]); }} aria-label="Select agents to route to" className="h-7 max-w-28 rounded-full border border-[#e5e3eb] bg-white px-2 text-xs text-gray-500 outline-none focus:border-[#a29ae8] dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"><option value="">Route to…</option>{agents.filter((a: any) => !chatAgentIds.includes(a._id)).map((a: any) => <option key={a._id} value={a._id}>{roleLabel(a.role)}</option>)}</select>
                  {(() => { const cto = agents.find((a: any) => /^(cto|orchestrator|planner|architect)$/i.test(a.role ?? "")); return cto && !chatAgentIds.includes(cto._id) ? <button type="button" onClick={() => setChatAgentIds((ids) => ids.includes(cto._id) ? ids : [...ids, cto._id])} className="h-7 rounded-full border border-[#e5e3eb] px-2.5 text-xs font-semibold text-gray-600 hover:border-[#a29ae8] hover:text-[#5147b4] dark:border-gray-700 dark:text-gray-300" aria-label="Delegate to CTO">Delegate to CTO</button> : null; })()}
                  {agents

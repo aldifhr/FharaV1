@@ -485,6 +485,16 @@ async function executeReview(
     };
   }
 
+  // Findings as a proper markdown list (blank line before it) so the
+  // chat renderer shows bullets instead of one run-on sentence.
+  const formatFindings = (findings: typeof review.findings) =>
+    findings
+      .map(
+        (finding) =>
+          `- **[${finding.severity}]** \`${finding.filePath}\` — ${finding.description}`
+      )
+      .join("\n");
+
   await input.onEvent("review.completed", {
     verdict: review.verdict,
     findings: review.findings,
@@ -492,17 +502,13 @@ async function executeReview(
   await input.onMessage(
     review.verdict === "approved"
       ? "Review approved the prepared changes."
-      : `Review requested changes:\n${review.findings
-          .map((finding) => `- [${finding.severity}] ${finding.filePath}: ${finding.description}`)
-          .join("\n")}`
+      : `Review requested changes:\n\n${formatFindings(review.findings)}`
   );
 
   if (review.verdict !== "approved") {
     return {
       status: "completed",
-      output: `Review requested changes:\n${review.findings
-        .map((finding) => `- [${finding.severity}] ${finding.filePath}: ${finding.description}`)
-        .join("\n")}`,
+      output: `Review requested changes:\n\n${formatFindings(review.findings)}`,
       meta: { verdict: review.verdict, findings: review.findings },
     };
   }

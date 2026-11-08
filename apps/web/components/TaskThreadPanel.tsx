@@ -385,7 +385,7 @@ export default function TaskThreadPanel({
                   <span className="rounded-full border border-gray-200 px-1.5 py-px text-[10px] font-medium text-gray-400 dark:border-gray-700">review</span>
                   <span className="font-normal text-gray-400">{m._creationTime ? new Date(m._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""}</span>
                 </p>
-                <p className="mt-0.5 text-sm dark:text-white">{m.content}</p>
+                <p className="mt-0.5 whitespace-pre-wrap break-words text-sm dark:text-white">{m.content}</p>
               </div>
             </div>
           );
@@ -413,7 +413,7 @@ export default function TaskThreadPanel({
                 ) : null}
               </p>
               <div className="flex items-center gap-2">
-                <p className="text-sm dark:text-white">{m.content}</p>
+                <p className="whitespace-pre-wrap break-words text-sm dark:text-white">{m.content}</p>
                 <span className="shrink-0 text-[10px] text-gray-400">
                   {m._creationTime ? new Date(m._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""}
                 </span>

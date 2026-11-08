@@ -2762,12 +2762,15 @@ async function executePlan(input: {
           input.agents.find((a) => capabilitiesOf(a).includes(CAPABILITY.CODE_REVIEW));
         const changes = Array.from(state.fileChanges.values());
         if (ctoAgent && changes.length > 0) {
-          const firstFile = changes[0].filePath;
+          // Report what the review actually covered: the reviewed files
+          // and the verdict — not boilerplate claims.
+          const fileList = changes.map((change) => change.filePath).join(", ");
+          const n = changes.length;
           await deps.api.appendAgentMessage({
             projectId: project._id,
             taskId,
             agentId: ctoAgent._id as any,
-            content: `Checked diff on ${firstFile}, token usage is consistent with our design preset, no unused variables or bundle bloat.`,
+            content: `Reviewed ${n} file${n === 1 ? "" : "s"} (${fileList}) — approved, no blocking findings.`,
           });
         }
         return true;

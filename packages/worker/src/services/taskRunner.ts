@@ -16,7 +16,7 @@ import {
   type SubtaskKind,
 } from "@/orchestrator/types";
 import { classifyCommand } from "@/orchestrator/classifier";
-import { createPlan, wantsVisualQa } from "@/orchestrator/planner";
+import { wantsVisualQa } from "@/orchestrator/planner";
 import { validatePlan } from "@/orchestrator/planValidator";
 import { BudgetTracker, isBudgetExhaustedError } from "@/orchestrator/budget";
 import type { TokenUsageMeta } from "@/effects/llmCall";
@@ -320,6 +320,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         assertBudgetForCall,
         signal: taskAbort.controller.signal,
         llmTaskGate,
+        hasQaUrl: Boolean(resolveQaBaseUrl(project)),
       });
     } catch (error) {
       // Budget exhausted before planning (Phase 5): the task ends with
@@ -421,12 +422,17 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       createdBy = context.plan!.createdBy;
       planVersion = context.plan!.version;
     } else {
-      let created: Awaited<ReturnType<typeof createPlan>>;
+      let created: Awaited<ReturnType<typeof createAuthoritativePlan>>;
       try {
-        created = await createPlan({
+        created = await createAuthoritativePlan({
+          taskId: task._id,
+          projectId: project._id,
           command,
-          classification,
+          title: task.title,
           agents: runAgents,
+          classification,
+          budget,
+          sharedContext,
           policy: deps.policy,
           llmConfig,
           llmResolver,
@@ -434,10 +440,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           assertBudgetForCall,
           signal: taskAbort.controller.signal,
           llmTaskGate,
-          hasQaUrl: Boolean(
-            (project as { qaUrl?: string | null }).qaUrl ||
-              (project as { devUrl?: string | null }).devUrl
-          ),
+          hasQaUrl: Boolean(resolveQaBaseUrl(project)),
         });
       } catch (error) {
         if (isBudgetExhaustedError(error)) {
@@ -580,11 +583,11 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         },
       });
 
-      if (outcome === "waiting_approval") return;
+      if (outcome.status === "waiting_approval") return;
 
       // Plan 005 Step 5.4: the decision step bound is terminal — fail
       // the task explicitly, never mark it done or replan it.
-      if (outcome === "step_limit") {
+      if (outcome.status === "step_limit") {
         await deps.api.logEvent({
           taskId: task._id,
           projectId: project._id,
@@ -611,7 +614,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       // Cancellation is terminal (Phase 4 hardening): a cancelled or
       // timed-out task ends here — it is never replanned, never
       // finalized, and never marked done.
-      if (outcome === "cancelled") {
+      if (outcome.status === "cancelled") {
         await finishCancelledTask({
           deps,
           task,
@@ -621,7 +624,106 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         return;
       }
 
-      if (outcome === "completed") {
+      // Engine replan (plan 013 step 3): the decision engine requested a
+      // re-plan with the objective missing list as feedback. Bounded by
+      // the same replans budget as the verification/execution replans;
+      // exhaustion fails the task with the missing list, never a
+      // silent done. Cancellation still wins (checked above).
+      if (outcome.status === "replan") {
+        const missing = outcome.replanFeedback ?? "objective not satisfied";
+        if (replans < maxPlanningIterations) {
+          replans += 1;
+          feedback = buildReplanFeedback(`Objective not satisfied: ${missing}`, sharedContext);
+          let replanned: Awaited<ReturnType<typeof createAuthoritativePlan>>;
+          try {
+            replanned = await createAuthoritativePlan({
+              taskId: task._id,
+              projectId: project._id,
+              command,
+              title: task.title,
+              agents: runAgents,
+              classification,
+              budget,
+              sharedContext,
+              policy: deps.policy,
+              feedback,
+              llmConfig,
+              llmResolver,
+              onTokenUsage: recordUsage,
+              assertBudgetForCall,
+              signal: taskAbort.controller.signal,
+              llmTaskGate,
+              hasQaUrl: Boolean(resolveQaBaseUrl(project)),
+            });
+          } catch (error) {
+            if (isBudgetExhaustedError(error)) {
+              await finishBudgetExhaustedTask({
+                deps,
+                task,
+                project,
+                budget,
+                reason: error.reason,
+              });
+              return;
+            }
+            if (taskAbort.controller.signal.aborted) {
+              await finishCancelledTask({
+                deps,
+                task,
+                project,
+                signal: taskAbort.controller.signal,
+              });
+              return;
+            }
+            throw error;
+          }
+          const previousPlan = plan;
+          plan = replanned.plan;
+          planVersion += 1;
+          await persistPlan(deps, {
+            taskId: task._id,
+            projectId: project._id,
+            plan,
+            version: planVersion,
+            createdBy: replanned.createdBy,
+            classification: classification.kind,
+          });
+          const carried = carryForwardState(previousPlan, state, plan);
+          completedKeys = carried.completedKeys;
+          await deps.api.logEvent({
+            taskId: task._id,
+            projectId: project._id,
+            type: "plan.replanned",
+            payload: { replans, feedback: feedback.slice(0, 1000) },
+            level: "warn",
+          });
+          continue;
+        }
+        const failureMessage = `Objective not satisfied after ${replans} replan(s): ${missing}`;
+        await deps.api.logEvent({
+          taskId: task._id,
+          projectId: project._id,
+          type: "task.error",
+          payload: { message: failureMessage.slice(0, 2000) },
+          level: "error",
+        });
+        await deps.api
+          .recordLifecycle?.({
+            taskId: task._id,
+            projectId: project._id,
+            state: "FAILED",
+            prevState: "RUNNING",
+          })
+          ?.catch(() => undefined);
+        await deps.api.completeTask({
+          taskId: task._id,
+          status: "failed",
+          errorMessage: failureMessage,
+        });
+        return;
+      }
+
+      if (outcome.status === "completed") {
         const after = await deps.api.getContext({ taskId: task._id });
         // Terminal guard (Phase 4 hardening): the cancellation may
         // have landed while the scheduler was finishing its last node
@@ -676,12 +778,17 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
               .join("; ")}`,
             sharedContext
           );
-          let replanned: Awaited<ReturnType<typeof createPlan>>;
+          let replanned: Awaited<ReturnType<typeof createAuthoritativePlan>>;
           try {
-            replanned = await createPlan({
+            replanned = await createAuthoritativePlan({
+              taskId: task._id,
+              projectId: project._id,
               command,
-              classification,
+              title: task.title,
               agents: runAgents,
+              classification,
+              budget,
+              sharedContext,
               policy: deps.policy,
               feedback,
               llmConfig,
@@ -690,6 +797,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
               assertBudgetForCall,
               signal: taskAbort.controller.signal,
               llmTaskGate,
+              hasQaUrl: Boolean(resolveQaBaseUrl(project)),
             });
           } catch (error) {
             if (isBudgetExhaustedError(error)) {
@@ -781,12 +889,17 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       if (replans < maxPlanningIterations) {
         replans += 1;
         feedback = buildReplanFeedback(failureSummary, sharedContext);
-        let replanned: Awaited<ReturnType<typeof createPlan>>;
+        let replanned: Awaited<ReturnType<typeof createAuthoritativePlan>>;
         try {
-          replanned = await createPlan({
+          replanned = await createAuthoritativePlan({
+            taskId: task._id,
+            projectId: project._id,
             command,
-            classification,
+            title: task.title,
             agents: runAgents,
+            classification,
+            budget,
+            sharedContext,
             policy: deps.policy,
             feedback,
             llmConfig,
@@ -795,6 +908,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
             assertBudgetForCall,
             signal: taskAbort.controller.signal,
             llmTaskGate,
+            hasQaUrl: Boolean(resolveQaBaseUrl(project)),
           });
         } catch (error) {
           if (isBudgetExhaustedError(error)) {
@@ -869,6 +983,14 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
   }
 }
 
+// Interpretation of one `executePlan` invocation. `replan` carries the
+// objective-missing feedback processTask's bounded re-plan consumes
+// (plan 013 step 3); every other status is terminal for the invocation.
+export interface ExecutePlanResult {
+  status: "completed" | "failed" | "waiting_approval" | "cancelled" | "step_limit" | "replan";
+  replanFeedback?: string;
+}
+
 async function executePlan(input: {
   deps: RunnerDeps;
   task: WorkerTask;
@@ -938,7 +1060,7 @@ async function executePlan(input: {
     plan: ExecutionPlan;
     version: number;
   }) => Promise<void>;
-}): Promise<"completed" | "failed" | "waiting_approval" | "cancelled" | "step_limit"> {
+}): Promise<ExecutePlanResult> {
   const { deps, task, project, plan, state } = input;
   const browser = new WebClient({
     headless: true,
@@ -956,7 +1078,7 @@ async function executePlan(input: {
   // spawn a duplicate of work the plan will run anyway.
   const plannedCapabilities = plan.subtasks.map((subtask) => subtask.capability);
   if (implementationNodes.length === 0 && reviewNodes.length === 0 && qaNodes.length === 0) {
-    return "failed";
+    return { status: "failed" };
   }
 
   const executionIds = new Map<string, WorkerExecutionId>();
@@ -1051,6 +1173,14 @@ async function executePlan(input: {
   // predate budgetMode (field unset) keep the historical halt.
   const budgetEnforced = deps.policy.budgetMode !== "warn";
   let budgetHalt = false;
+  // Latched when a decision-terminal outcome (complete or replan) ends
+  // scheduling for this invocation (plan 013 step 3). Unlike `budgetHalt`
+  // it carries no budget semantics: the scheduled drain finishes, then
+  // executePlan returns "completed" (complete) or "replan".
+  let decisionTerminal = false;
+  // The objective missing list carried by the first `replan` outcome of
+  // this invocation; processTask turns it into bounded re-plan feedback.
+  let replanFeedback: string | null = null;
   let delegationSeq = 0;
   let fixSeq = 0;
   for (const subtask of plan.subtasks) {
@@ -1091,6 +1221,13 @@ async function executePlan(input: {
   /** True once this run is cancelled — by the status poll or by the deadline signal. */
   const taskCancelled = (): boolean =>
     cancelled || input.taskAbort?.signal.aborted === true;
+  // Engine replan (plan 013 step 3) exits at stage boundaries, never
+  // mid-node: the caller re-plans through the single authority and
+  // re-runs the scheduler. Cancellation always wins.
+  const replanExit = (): { status: "replan"; replanFeedback: string } | null =>
+    replanFeedback !== null && !taskCancelled()
+      ? { status: "replan" as const, replanFeedback }
+      : null;
 
   const runNodes = (nodes: PlanSubtask[]): Promise<SchedulerResult> => {
     const subsetKeys = new Set(nodes.map((node) => node.key));
@@ -1283,7 +1420,7 @@ async function executePlan(input: {
       // to this same invocation, capped per invocation; a budget BLOCKED
       // decision latches the halt so no new nodes start afterwards.
       maxAddedNodes: deps.policy.maxSubtasks,
-      shouldHaltNewNodes: () => budgetHalt || stepLimitHit,
+      shouldHaltNewNodes: () => budgetHalt || stepLimitHit || decisionTerminal,
       shouldCancel: async () => {
         // The task deadline fired the shared abort controller (or a
         // cancel already propagated): the task is cancelled NOW. This
@@ -1729,34 +1866,83 @@ async function executePlan(input: {
                 decision,
                 (base) => uniqueSubtaskKey(`${base}_${decisionStep}`)
               );
-              if (applied.nodes.length > 0) {
-                for (const dynamic of applied.nodes) {
-                  plan.subtasks.push(dynamic);
-                  dynamicKeys.add(dynamic.key);
-                  chainByKey.set(dynamic.key, [...chain, dynamic.capability]);
-                  fixDepthByKey.set(dynamic.key, 0);
+              // Plan 013 step 3: the applied outcome is real. `nodes`
+              // spawns dynamic subtasks; `halt` is a budget BLOCKED and
+              // stops scheduling on the budget-exhausted path; `complete`
+              // latches the terminal flag ONLY when no planned node
+              // remains pending (otherwise completion is deferred and
+              // recorded — the remaining stages own the objective);
+              // `replan` latches too and `replanFeedback` carries the
+              // objective missing list back to processTask's bounded
+              // re-plan; `ask_user` is a recorded no-op until step 4.
+              switch (applied.kind) {
+                case "nodes": {
+                  if (applied.nodes.length > 0) {
+                    for (const dynamic of applied.nodes) {
+                      plan.subtasks.push(dynamic);
+                      dynamicKeys.add(dynamic.key);
+                      chainByKey.set(dynamic.key, [...chain, dynamic.capability]);
+                      fixDepthByKey.set(dynamic.key, 0);
+                    }
+                    await persistDynamic(applied.nodes, decision.action === "execute" ? "fix" : "delegation");
+                    dynamicNodes = applied.nodes.map((dynamic) => ({
+                      id: dynamic.key,
+                      dependencies: dynamic.dependencies,
+                    }));
+                  }
+                  break;
                 }
-                await persistDynamic(applied.nodes, decision.action === "execute" ? "fix" : "delegation");
-                dynamicNodes = applied.nodes.map((dynamic) => ({
-                  id: dynamic.key,
-                  dependencies: dynamic.dependencies,
-                }));
-              }
-              if (applied.halt && !budgetHalt) {
-                budgetHalt = true;
-                await deps.api.logEvent({
-                  taskId: task._id,
-                  projectId: project._id,
-                  type: "orchestrator.budget_blocked",
-                  payload: {
-                    subtaskKey: node.id,
-                    reason: applied.note.slice(0, 500),
-                    budget: input.budget.snapshot(),
-                  },
-                  executionId,
-                  subtaskKey: node.id,
-                  level: "warn",
-                });
+                case "halt": {
+                  if (!budgetHalt) {
+                    budgetHalt = true;
+                    await deps.api.logEvent({
+                      taskId: task._id,
+                      projectId: project._id,
+                      type: "orchestrator.budget_blocked",
+                      payload: {
+                        subtaskKey: node.id,
+                        reason: applied.reason.slice(0, 500),
+                        budget: input.budget.snapshot(),
+                      },
+                      executionId,
+                      subtaskKey: node.id,
+                      level: "warn",
+                    });
+                  }
+                  break;
+                }
+                case "complete": {
+                  const noPlannedPending = plan.subtasks.every(
+                    (candidate) => candidate.key === node.id || runCompleted.has(candidate.key)
+                  );
+                  if (applied.expectedOutcome === "objective:met" && noPlannedPending) {
+                    decisionTerminal = true;
+                    await deps.api.logEvent({
+                      taskId: task._id,
+                      projectId: project._id,
+                      type: "orchestrator.completed",
+                      payload: { expectedOutcome: applied.expectedOutcome },
+                      executionId,
+                      subtaskKey: node.id,
+                      level: "info",
+                    });
+                  }
+                  break;
+                }
+                case "replan": {
+                  decisionTerminal = true;
+                  // First request wins: the earliest missing list is the
+                  // feedback the bounded re-plan will address.
+                  if (replanFeedback === null) {
+                    replanFeedback = applied.reason;
+                  }
+                  break;
+                }
+                case "ask_user": {
+                  // Recorded in the decision event above; `waiting_input`
+                  // pause is wired in plan 013 step 4 (schema + resume).
+                  break;
+                }
               }
               decisionStep += 1;
               await deps.api
@@ -2447,7 +2633,7 @@ async function executePlan(input: {
   // Plan 005 Step 5.4: the decision step bound is terminal — fail the
   // task explicitly upstream, never mark it done or replan it.
   if (stepLimitHit) {
-    return "step_limit";
+    return { status: "step_limit" };
   }
   if (implementation.status === "cancelled") {
     await deps.api
@@ -2460,21 +2646,33 @@ async function executePlan(input: {
     // Cancellation is its own outcome (Phase 4 hardening): the caller
     // ends the task as cancelled instead of treating it as a failure
     // it could replan away.
-    return "cancelled";
+    return { status: "cancelled" };
   }
   if (implementation.status !== "completed") {
-    return taskCancelled() ? "cancelled" : "failed";
+    return { status: taskCancelled() ? "cancelled" : "failed" };
+  }
+  // Engine replan at the stage boundary (plan 013 step 3): abandon the
+  // rest of this plan; processTask re-plans (bounded) and re-runs the
+  // scheduler. Cancellation already won above.
+  {
+    const replan = replanExit();
+    if (replan) return replan;
   }
 
   const hasCodeChange = plan.subtasks.some((subtask) => subtask.kind === "code_change");
   if (hasCodeChange && state.fileChanges.size === 0) {
     state.feedback.push("The implementation produced no file changes");
-    return "failed";
+    return { status: "failed" };
   }
 
   const reviewApproved = await runReviewLoop();
   if (!reviewApproved) {
-    return taskCancelled() ? "cancelled" : "failed";
+    return { status: taskCancelled() ? "cancelled" : "failed" };
+  }
+  // Same boundary after the review stage (plan 013 step 3).
+  {
+    const replan = replanExit();
+    if (replan) return replan;
   }
 
   const preparedChanges = Array.from(state.fileChanges.values());
@@ -2493,7 +2691,7 @@ async function executePlan(input: {
       state
     );
     if (!dryRun.allowed) {
-      return taskCancelled() ? "cancelled" : "failed";
+      return { status: taskCancelled() ? "cancelled" : "failed" };
     }
     dryRunSummary = dryRun.summary;
   }
@@ -2558,7 +2756,7 @@ async function executePlan(input: {
       target: preparedChanges.map((change) => change.filePath).join(","),
       details: { dryRun: dryRunSummary },
     });
-    return "waiting_approval";
+    return { status: "waiting_approval" };
   }
 
   if (preparedChanges.length > 0) {
@@ -2591,10 +2789,15 @@ async function executePlan(input: {
     // fails the task instead of being silently marked done.
     const qaApproved = await runQaLoop();
     if (!qaApproved) {
-      return taskCancelled() ? "cancelled" : "failed";
+      return { status: taskCancelled() ? "cancelled" : "failed" };
     }
     if (stepLimitHit) {
-      return "step_limit";
+      return { status: "step_limit" };
+    }
+    // Same boundary after the QA stage (plan 013 step 3).
+    {
+      const replan = replanExit();
+      if (replan) return replan;
     }
 
     // Verify loop (oh-my-claudecode `team-verify → team-fix`): static
@@ -2632,7 +2835,7 @@ async function executePlan(input: {
           state.feedback.push(
             `Verification still failing after ${maxVerifyIters} fix attempt(s): ${failedChecks.map((c) => c.name).join(", ")}`
           );
-          return taskCancelled() ? "cancelled" : "failed";
+          return { status: taskCancelled() ? "cancelled" : "failed" };
         }
         const findings: ReviewFinding[] = failedChecks.map((c) => ({
           severity: "high" as const,
@@ -2641,7 +2844,7 @@ async function executePlan(input: {
           suggestion: "Fix the failing check and retry verification.",
         }));
         const implementer = implementerAgent(plan, input.agents);
-        if (!implementer) return taskCancelled() ? "cancelled" : "failed";
+        if (!implementer) return { status: taskCancelled() ? "cancelled" : "failed" };
         const codeSubtask = plan.subtasks.find((c) => c.kind === "code_change");
         const fixSubtask = buildFixSubtask({
           key: `fix_verify_${verifyIteration + 1}`,
@@ -2664,23 +2867,30 @@ async function executePlan(input: {
           level: "warn",
         });
         const fixRun = await runNodes([fixSubtask]);
-        if (fixRun.status !== "completed") return taskCancelled() ? "cancelled" : "failed";
+        if (fixRun.status !== "completed") return { status: taskCancelled() ? "cancelled" : "failed" };
         if (input.approvalMode !== "ask") {
           const fixPaths = state.appliedFilesBySubtask.get(fixSubtask.key) ?? [];
           const fixChanges = fixPaths
             .map((p) => state.fileChanges.get(p))
             .filter((c): c is FileDiff => Boolean(c));
           const applied = await applyStaged(fixChanges, "orchestrator");
-          if ("stop" in applied) return taskCancelled() ? "cancelled" : "failed";
+          if ("stop" in applied) return { status: taskCancelled() ? "cancelled" : "failed" };
         }
         verifyIteration += 1;
       }
+    }
+    // Final boundary before completing (plan 013 step 3): a replan
+    // requested anywhere earlier in this invocation still wins over
+    // "completed".
+    {
+      const replan = replanExit();
+      if (replan) return replan;
     }
   }
   } finally {
     await browser.close().catch(() => undefined);
   }
-  return "completed";
+  return { status: "completed" };
 }
 
 export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void> {
@@ -2915,7 +3125,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
     // hardening). The pre-hardening resume path ran finalize
     // unconditionally, so a failed — or even cancelled — resumed
     // execution could be finalized into "done".
-    switch (outcome) {
+    switch (outcome.status) {
       case "waiting_approval":
         return;
       case "cancelled":
@@ -2926,6 +3136,60 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
           signal: taskAbort.controller.signal,
         });
         return;
+      case "step_limit": {
+        // Plan 005 Step 5.4 mirrored from processTask: the decision
+        // step bound is terminal, never a silent done.
+        await deps.api.logEvent({
+          taskId,
+          projectId: context.project._id,
+          type: "orchestrator.step_limit",
+          payload: { maxDecisionSteps: deps.policy.maxDecisionSteps },
+          level: "error",
+        });
+        await deps.api
+          .recordLifecycle?.({
+            taskId,
+            projectId: context.project._id,
+            state: "FAILED",
+            prevState: "RUNNING",
+          })
+          ?.catch(() => undefined);
+        await deps.api.completeTask({
+          taskId,
+          status: "failed",
+          errorMessage: "Decision step limit reached",
+        });
+        return;
+      }
+      case "replan": {
+        // The engine asked for a re-plan with the objective missing
+        // list (plan 013 step 3). resumeTask has no re-plan loop — the
+        // replans budget is processTask's — so the resumed run ends
+        // failed with the missing list instead of a silent done.
+        const missing = outcome.replanFeedback ?? "objective not satisfied";
+        const failureMessage = `Objective not satisfied after resume: ${missing}`;
+        await deps.api.logEvent({
+          taskId,
+          projectId: context.project._id,
+          type: "task.error",
+          payload: { message: failureMessage.slice(0, 2000) },
+          level: "error",
+        });
+        await deps.api
+          .recordLifecycle?.({
+            taskId,
+            projectId: context.project._id,
+            state: "FAILED",
+            prevState: "RUNNING",
+          })
+          ?.catch(() => undefined);
+        await deps.api.completeTask({
+          taskId,
+          status: "failed",
+          errorMessage: failureMessage,
+        });
+        return;
+      }
       case "failed": {
         const failureSummary =
           state.feedback.join("; ") || "Execution failed after approval";

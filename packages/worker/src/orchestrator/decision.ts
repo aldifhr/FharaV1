@@ -720,17 +720,25 @@ export async function decide(
   }
 }
 
-export interface AppliedDecision {
-  nodes: PlanSubtask[];
-  /** Phase 2: always false — complete/replan are recorded no-ops here. */
-  halt: boolean;
-  note: string;
-}
+/**
+ * The discriminated outcome of applying a validated decision (plan 013
+ * step 3): every decision has exactly one of these shapes. `nodes` carries
+ * the dynamic subtasks to persist and schedule; `replan` asks the runner
+ * for a bounded re-plan with the decision's reasoning as feedback;
+ * `complete` ends scheduling and finalizes with `expectedOutcome`; `halt`
+ * is a budget BLOCKED — scheduling stops with the budget.exhausted path;
+ * `ask_user` stays a recorded no-op until step 4 wires the question.
+ */
+export type AppliedDecision =
+  | { kind: "nodes"; nodes: PlanSubtask[] }
+  | { kind: "replan"; reason: string }
+  | { kind: "complete"; expectedOutcome?: string }
+  | { kind: "halt"; reason: string }
+  | { kind: "ask_user"; question: string };
 
 /**
- * Pure applier: turn a validated decision into the dynamic nodes the
- * runner persists. Keys are filled here via the injected `uniqueKey`.
- * `replan` and `complete` are recorded no-ops until Phase 5.
+ * Pure applier: turn a validated decision into what the runner must do.
+ * Keys are filled here via the injected `uniqueKey`.
  */
 export function applyDecision(
   ctx: DecisionContext,
@@ -766,21 +774,27 @@ export function applyDecision(
               capability: decision.target.capability,
             }
           : undefined;
-      if (!task) return { nodes: [], halt: false, note: `${decision.action} without task or target — no nodes` };
-      return { nodes: [toNode(task, 0)], halt: false, note: decision.action };
+      if (!task) return { kind: "nodes", nodes: [] };
+      return { kind: "nodes", nodes: [toNode(task, 0)] };
     }
     case "parallel": {
       const tasks = decision.tasks ?? (decision.task ? [decision.task] : []);
-      return { nodes: tasks.map((task, index) => toNode(task, index)), halt: false, note: "parallel" };
+      return { kind: "nodes", nodes: tasks.map((task, index) => toNode(task, index)) };
     }
     case "replan":
-      return { nodes: [], halt: false, note: "replan recorded as no-op in Phase 2 (Phase 5 implements it)" };
+      return { kind: "replan", reason: decision.reasoning };
     case "complete":
-      return { nodes: [], halt: false, note: decision.expectedOutcome ?? "complete recorded as no-op in Phase 2" };
+      // A budget BLOCKED (`policy:budget`) is a halt, not a completion:
+      // the runner stops scheduling and ends on the budget-exhausted path.
+      if (decision.expectedOutcome === "policy:budget") {
+        return { kind: "halt", reason: decision.reasoning };
+      }
+      return { kind: "complete", expectedOutcome: decision.expectedOutcome };
     case "ask_user":
-      return { nodes: [], halt: false, note: decision.question ?? "ask_user recorded as no-op in Phase 2" };
+      // Recorded no-op until step 4 wires the question into `waiting_input`.
+      return { kind: "ask_user", question: decision.question ?? decision.reasoning };
     default:
-      return { nodes: [], halt: false, note: "unknown action — no nodes" };
+      return { kind: "nodes", nodes: [] };
   }
 }
 

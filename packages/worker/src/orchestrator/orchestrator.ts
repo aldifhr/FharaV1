@@ -316,6 +316,13 @@ export interface AuthoritativePlanInput {
   signal?: AbortSignal;
   /** Per-task LLM gate (Phase 4 hardening), forwarded to the planner. */
   llmTaskGate?: LlmConcurrencyGate;
+  /**
+   * The project has a QA/dev URL (plan 013 step 3): forwarded to the
+   * planner so the auto QA hint can fire on replans too. Callers that
+   * know the project must pass it — the authoritative path previously
+   * always planned as if there were no URL.
+   */
+  hasQaUrl?: boolean;
 }
 
 export interface AuthoritativePlanResult {
@@ -324,6 +331,11 @@ export interface AuthoritativePlanResult {
   plan: ExecutionPlan;
   createdBy: "orchestrator" | "fallback";
   degradedReason?: string;
+  /**
+   * Hints dropped because no enabled agent serves their capability,
+   * forwarded from the planner subroutine (plan.hint_dropped bookkeeping).
+   */
+  droppedHintKeys?: string[];
   /**
    * The primary agent, unified with per-subtask routing: the agent that
    * serves the first subtask of the executed plan. There is no separate
@@ -369,6 +381,7 @@ export async function createAuthoritativePlan(
   let plan: ExecutionPlan;
   let createdBy: "orchestrator" | "fallback";
   let degradedReason: string | undefined;
+  let droppedHintKeys: string[] | undefined;
 
   if (input.storedPlan) {
     plan = input.storedPlan;
@@ -386,10 +399,12 @@ export async function createAuthoritativePlan(
       assertBudgetForCall: input.assertBudgetForCall,
       signal: input.signal,
       llmTaskGate: input.llmTaskGate,
+      hasQaUrl: input.hasQaUrl,
     });
     plan = created.plan;
     createdBy = created.createdBy;
     degradedReason = created.degradedReason;
+    droppedHintKeys = created.droppedHintKeys;
   }
 
   const firstSubtask = plan.subtasks[0];
@@ -404,6 +419,7 @@ export async function createAuthoritativePlan(
     plan,
     createdBy,
     degradedReason,
+    droppedHintKeys,
     primaryAgent,
     primaryCapability: firstSubtask?.capability ?? orchestratorPlan.primaryCapability,
   };

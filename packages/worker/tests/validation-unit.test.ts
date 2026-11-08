@@ -94,19 +94,42 @@ describe("validation-unit: decision applyDecision", () => {
     const c = ctx2();
     const target = { key: "new-sub", title: "New", description: "d", capability: "frontend-development", kind: "code_change" as const } as any;
     const result = applyDecision(c, { action: "execute", reasoning: "do it", task: target, id: "d1", decidedBy: "deterministic" } as any, uniqueKey);
-    expect(result.nodes).toHaveLength(1);
-    expect(result.nodes[0]!.key).toBe("new-sub");
-    expect(result.nodes[0]!.kind).toBe("code_change");
+    expect(result.kind).toBe("nodes");
+    if (result.kind === "nodes") {
+      expect(result.nodes).toHaveLength(1);
+      expect(result.nodes[0]!.key).toBe("new-sub");
+      expect(result.nodes[0]!.kind).toBe("code_change");
+    }
   });
   it("applyDecision delegate without task/target returns []", () => {
     const c = ctx2();
     const result = applyDecision(c, { action: "delegate", reasoning: "delegate", id: "d1", decidedBy: "deterministic" } as any, uniqueKey);
-    expect(result.nodes).toEqual([]);
+    expect(result).toEqual({ kind: "nodes", nodes: [] });
   });
   it("kindForCapability maps browser-testing to qa via delegate target", () => {
     const c = ctx2();
     const r = applyDecision(c, { action: "delegate", reasoning: "x", target: { capability: "browser-testing" }, id: "d1", decidedBy: "deterministic" } as any, uniqueKey);
-    expect(r.nodes[0]?.kind).toBe("qa");
+    expect(r.kind).toBe("nodes");
+    if (r.kind === "nodes") {
+      expect(r.nodes[0]?.kind).toBe("qa");
+    }
+  });
+  it("applyDecision replan carries the reasoning as feedback", () => {
+    const c = ctx2();
+    const r = applyDecision(c, { action: "replan", reasoning: "objective not satisfied: qa-validate: QA verdict is missing", expectedOutcome: "recovery", id: "d1", decidedBy: "deterministic" } as any, uniqueKey);
+    expect(r).toEqual({ kind: "replan", reason: "objective not satisfied: qa-validate: QA verdict is missing" });
+  });
+  it("applyDecision complete with a budget outcome halts; other completes finalize", () => {
+    const c = ctx2();
+    const blocked = applyDecision(c, { action: "complete", reasoning: "budget exhausted", expectedOutcome: "policy:budget", id: "d1", decidedBy: "deterministic" } as any, uniqueKey);
+    expect(blocked.kind).toBe("halt");
+    const met = applyDecision(c, { action: "complete", reasoning: "all done", expectedOutcome: "objective:met", id: "d2", decidedBy: "deterministic" } as any, uniqueKey);
+    expect(met).toEqual({ kind: "complete", expectedOutcome: "objective:met" });
+  });
+  it("applyDecision ask_user is a recorded outcome until step 4", () => {
+    const c = ctx2();
+    const r = applyDecision(c, { action: "ask_user", reasoning: "need direction", question: "Which style?", id: "d1", decidedBy: "deterministic" } as any, uniqueKey);
+    expect(r).toEqual({ kind: "ask_user", question: "Which style?" });
   });
 });
 

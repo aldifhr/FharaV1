@@ -220,3 +220,54 @@ describe("evaluateDelegation selfServe (Phase 4 Step 4.1 — scenario E)", () =>
     expect(res.decision).toBe("APPROVE");
   });
 });
+
+describe("evaluateDelegation planned capabilities", () => {
+  const developer: AgentDefinition = {
+    _id: "dev1",
+    name: "Developer",
+    role: "developer",
+    capabilities: ["frontend-development"],
+  };
+  const qa: AgentDefinition = {
+    _id: "qa1",
+    name: "QA",
+    role: "qa",
+    capabilities: ["browser-testing"],
+  };
+
+  const classification = {
+    ...classifyCommand("implement feature"),
+    suggestedCapabilities: ["frontend-development", "browser-testing"],
+  } as any;
+
+  const run = (plannedCapabilities?: string[]) =>
+    evaluateDelegation({
+      result: {
+        agentName: "Developer",
+        capability: "frontend-development",
+        success: true,
+        summary: "done",
+      } as any,
+      classification,
+      agents: [developer, qa],
+      budget: new BudgetTracker(loadPolicy()),
+      previousAgents: [],
+      delegationDepth: 0,
+      alreadyDelegatedCapabilities: [],
+      plannedCapabilities,
+    } as any);
+
+  it("spawns QA when the plan has no QA node", () => {
+    const res = run(["frontend-development"]);
+    expect(res.decision).toBe("APPROVE");
+    expect(res.targetCapability).toBe("browser-testing");
+  });
+
+  it("does not spawn a second QA node when the plan already schedules QA", () => {
+    // The stored plan has qa-structure-reachability downstream; delegating
+    // browser-testing here would run QA twice for the same work.
+    const res = run(["frontend-development", "code-review", "browser-testing"]);
+    expect(res.decision).toBe("COMPLETE");
+    expect(res.targetCapability).toBeUndefined();
+  });
+});

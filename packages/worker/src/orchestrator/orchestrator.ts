@@ -201,6 +201,13 @@ export function evaluateAfterExecution(input: {
   activeByAgent?: ReadonlyMap<string, number>;
   /** The agent that produced `result` (Phase 4 Step 4.1 selfServe gate). */
   proposer?: AgentDefinition;
+  /**
+   * Capabilities the stored plan already schedules (planned nodes only).
+   * The deterministic QA heuristic must not spawn a second QA node when the
+   * plan already has one: the dynamic copy doubles QA cost and reports a
+   * duplicate verdict for the same work.
+   */
+  plannedCapabilities?: string[];
 }): { decision: DelegationDecision; nextAgent?: AgentDefinition; nextCapability?: string; reason: string; updatedContext: SharedTaskContext } {
   const { result, classification, agents, budget, previousAgents, delegationDepth, alreadyDelegated, taskContext } = input;
 
@@ -254,6 +261,7 @@ export function evaluateAfterExecution(input: {
     alreadyDelegatedCapabilities: alreadyDelegated,
     chainCapabilities: input.chainCapabilities,
     activeByAgent: input.activeByAgent,
+    plannedCapabilities: input.plannedCapabilities,
     proposer: input.proposer,
   });
 

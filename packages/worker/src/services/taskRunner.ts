@@ -17,7 +17,7 @@ import {
   type SubtaskKind,
 } from "@/orchestrator/types";
 import { classifyCommand } from "@/orchestrator/classifier";
-import { createPlan, heuristicPlan } from "@/orchestrator/planner";
+import { createPlan, heuristicPlan, wantsVisualQa } from "@/orchestrator/planner";
 import { validatePlan } from "@/orchestrator/planValidator";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
 import {
@@ -1455,6 +1455,10 @@ async function executePlan(input: {
   );
   const reviewNodes = plan.subtasks.filter((subtask) => subtask.kind === "review");
   const qaNodes = plan.subtasks.filter((subtask) => subtask.kind === "qa");
+  // Capabilities the STORED plan already schedules (computed before any
+  // dynamic node is added). Delegation heuristics consult this so they never
+  // spawn a duplicate of work the plan will run anyway.
+  const plannedCapabilities = plan.subtasks.map((subtask) => subtask.capability);
   if (implementationNodes.length === 0 && reviewNodes.length === 0 && qaNodes.length === 0) {
     return "failed";
   }
@@ -1594,12 +1598,22 @@ async function executePlan(input: {
     const subsetKeys = new Set(nodes.map((node) => node.key));
     // Subset runs (the review/QA loops re-run their own nodes) filter out
     // dependencies that live outside the subset, because the scheduler can
-    // only order nodes it was given. Dropping them silently would let QA
-    // run before the review it depends on, so an unmet prerequisite fails
-    // the subset closed instead of being ignored.
+    // only order nodes it was given. Review/QA nodes are stage-managed by
+    // the runner itself, so their ordering never has to be enforced here.
+    // Any other unmet prerequisite (an implementation/analysis node that
+    // never completed) fails the subset closed instead of letting the node
+    // run on incomplete work.
+    const stageManaged = new Set(
+      plan.subtasks
+        .filter((subtask) => subtask.kind === "review" || subtask.kind === "qa")
+        .map((subtask) => subtask.key)
+    );
     const unmet = nodes.filter((node) =>
       node.dependencies.some(
-        (dependency) => !subsetKeys.has(dependency) && !runCompleted.has(dependency)
+        (dependency) =>
+          !subsetKeys.has(dependency) &&
+          !stageManaged.has(dependency) &&
+          !runCompleted.has(dependency)
       )
     );
     if (unmet.length > 0) {
@@ -1922,6 +1936,7 @@ async function executePlan(input: {
                 alreadyDelegated: chain.slice(0, -1),
                 chainCapabilities: chain,
                 activeByAgent,
+                plannedCapabilities,
                 taskContext: input.sharedContext,
                 proposer: agent,
               });
@@ -2216,6 +2231,7 @@ async function executePlan(input: {
                 alreadyDelegated: chain.slice(0, -1),
                 chainCapabilities: chain,
                 activeByAgent,
+                plannedCapabilities,
                 taskContext: input.sharedContext,
                 proposer: agent,
               });
@@ -2734,11 +2750,19 @@ async function executePlan(input: {
           input.agents.find((a) => a.role === "qa") ||
           input.agents.find((a) => capabilitiesOf(a).includes(CAPABILITY.BROWSER_TESTING));
         if (qaAgent) {
+          // Describe what actually ran. The plan-level intent is authoritative
+          // (a prohibition like "no screenshots" must never be read as a
+          // request for visual checks just because the word appears).
+          const visualQa = plan.visualQa ?? wantsVisualQa(input.task.command);
           await deps.api.appendAgentMessage({
             projectId: project._id,
             taskId,
             agentId: qaAgent._id as any,
-            content: `@QA QA validation passed. ${qaNodes.some((node) => /visual|responsive|screenshot|baseline|pixel/i.test(`${node.title} ${node.description}`)) ? "Visual checks completed as requested." : "Structural checks completed: browser reachability, HTML structure, console errors, and network errors."}`,
+            content: `@QA QA validation passed. ${
+              visualQa
+                ? "Visual checks completed as requested."
+                : "Structural checks completed: browser reachability, HTML structure, console errors, and network errors."
+            }`,
           });
         }
         return true;
@@ -2911,7 +2935,12 @@ async function executePlan(input: {
           files: preparedChanges.length,
           build: "clean",
           tests: "passed",
-          qa: qaNodes.length > 0 ? "3 viewports pass" : "verified",
+          qa:
+            qaNodes.length > 0
+              ? (plan.visualQa ?? wantsVisualQa(input.task.command))
+                ? "Visual QA planned"
+                : "Structural QA planned"
+              : "not requested",
         },
       },
       requestedByAgentId: implementer?._id as any,

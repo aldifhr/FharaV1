@@ -119,6 +119,12 @@ export function evaluateDelegation(input: {
    * enforcement at dispatch time is Phase 4; this is the delegation gate.
    */
   activeByAgent?: ReadonlyMap<string, number>;
+  /**
+   * Capabilities the stored plan already schedules (planned nodes only).
+   * The deterministic QA heuristic uses this to avoid spawning a dynamic QA
+   * node that duplicates a planned one.
+   */
+  plannedCapabilities?: string[];
 }): DelegationEvaluation {
   const { result, agents, budget } = input;
   const enabled = agents.filter(isAgentEnabled);
@@ -293,6 +299,7 @@ export function evaluateDelegation(input: {
     needsQa &&
     hasQaAgent &&
     !hasRunQa &&
+    !input.plannedCapabilities?.includes("browser-testing") &&
     branchDepth < maxDepth &&
     (policy.maxDelegations === undefined ||
       budget.delegationCount < policy.maxDelegations) &&

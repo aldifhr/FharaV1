@@ -7,6 +7,7 @@ import { ChevronDown, ChevronRight, Loader2, Plus, Square, Trash2 } from "lucide
 import { api } from "@/api/convex/_generated/api";
 import { useToast } from "./Toasts";
 import { roleLabel } from "@/lib/agentRoles";
+import SubtaskActivity from "./SubtaskActivity";
 import { NEUTRAL_PILL, TASK_STATUSES, TASK_STATUS_PILL, isClosedStatus, subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
 import { SectionLoading, useWorkspace } from "@/app/WorkspaceContext";
 
@@ -308,7 +309,8 @@ export default function TaskBoard({
                   const Icon = meta.icon;
                   const agent = s.assignedAgentName ? agentNameById.get(s.assignedAgentId) : null;
                   return (
-                    <div key={s._id} className="flex items-center gap-2 text-xs">
+                    <div key={s._id}>
+                    <div className="flex items-center gap-2 text-xs">
                       <Icon size={13} className={`${meta.cls}${s.status === "running" ? " animate-spin" : ""}`} />
                       <span className="min-w-0 flex-1 truncate font-medium text-ink">
                         {s.title}
@@ -325,6 +327,10 @@ export default function TaskBoard({
                         </span>
                       )}
                       <span className={`shrink-0 text-[10px] font-semibold ${meta.cls}`}>{meta.label}</span>
+                    </div>
+                    {s.status === "running" && s.activity && (
+                      <SubtaskActivity activity={s.activity} at={s.activityAt} />
+                    )}
                     </div>
                   );
                 })}

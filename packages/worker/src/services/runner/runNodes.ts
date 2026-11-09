@@ -12,6 +12,7 @@ import { handleNodeOutcome } from "./decision";
 import type { RunContext } from "./types";
 import type { FileDiff } from "@/tools/gitDiff";
 import { applyQaCheck, buildChangesCard, buildQaCard, postStageCard } from "./cards";
+import { ACTIVITY_STARTING, ACTIVITY_THINKING, createActivityReporter, describeActivity } from "./activity";
 
 /**
  * The DAG nodes runner (plan 012 step 2): run a set of subtasks through
@@ -101,6 +102,11 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       }
       // Plan 019: files this node staged, for the "Changed N files" card.
       const stagedByNode: FileDiff[] = [];
+      // Live activity line under the running subtask in the task panel.
+      const reportActivity = createActivityReporter((activity) =>
+        deps.api.setSubtaskActivity({ taskId, key: node.id, activity })
+      );
+      reportActivity(ACTIVITY_STARTING);
       const outcome = await executeSubtask({
         workspacePath: input.workspacePath,
         command: task.command,
@@ -131,9 +137,13 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         deadlineAt: runInfo?.deadlineAt,
         // Pre-call budget gate (Phase 5): the executor checks it before
         // every LLM call this subtask makes.
-        assertBudgetForCall: input.assertBudgetForCall,
+        assertBudgetForCall: () => {
+          reportActivity(ACTIVITY_THINKING);
+          input.assertBudgetForCall?.();
+        },
         onEvent: async (type, payload, level) => {
           input.taskAbort?.bump?.();
+          reportActivity(describeActivity(type, payload));
           // Plan 019: live QA checklist — each browser check updates the card.
           if (subtask.kind === "qa" && type === "task.check" && ctx.qaCard) {
             const check = payload as { label?: string; status?: string; details?: string } | undefined;
@@ -222,6 +232,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
               }
             : undefined,
         saveFileChange: async (change) => {
+          reportActivity(describeActivity("file.staged", { filePath: change.filePath }));
           await deps.api.saveFileChange({
             taskId,
             projectId: project._id,

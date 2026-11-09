@@ -9,6 +9,7 @@ import { subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
 import ApprovalCard from "./ApprovalCard";
 import DiffCard from "./DiffCard";
 import InitialAvatar from "./InitialAvatar";
+import SubtaskActivity from "./SubtaskActivity";
 import ChatCard from "./chat/cards/ChatCard";
 import ReviewSnippet from "./chat/cards/ReviewSnippet";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
@@ -439,14 +440,19 @@ export default function TaskThreadPanel({
                   const Icon = meta.icon;
                   const agent = agentById(s.assignedAgentId);
                   return (
-                    <li key={s._id} className="flex items-center gap-2.5 text-[14px]">
-                      <Icon size={15} className={`shrink-0 ${meta.cls}${s.status === "running" ? " animate-spin" : ""}`} aria-hidden="true" />
-                      <span className="min-w-0 flex-1 truncate text-ink">
-                        {s.title}
-                        {typeof s.reviewRound === "number" && s.reviewRound > 1 ? <span className="ml-1 text-ink-3">(round {s.reviewRound})</span> : null}
-                      </span>
-                      {agent && <span className="shrink-0 text-[13px] text-ink-3">{roleLabel(agent.role)}</span>}
-                      <span className={`w-16 shrink-0 text-right text-[13px] ${meta.cls}`}>{meta.label}</span>
+                    <li key={s._id} className="text-[14px]">
+                      <div className="flex items-center gap-2.5">
+                        <Icon size={15} className={`shrink-0 ${meta.cls}${s.status === "running" ? " animate-spin" : ""}`} aria-hidden="true" />
+                        <span className="min-w-0 flex-1 truncate text-ink">
+                          {s.title}
+                          {typeof s.reviewRound === "number" && s.reviewRound > 1 ? <span className="ml-1 text-ink-3">(round {s.reviewRound})</span> : null}
+                        </span>
+                        {agent && <span className="shrink-0 text-[13px] text-ink-3">{roleLabel(agent.role)}</span>}
+                        <span className={`w-16 shrink-0 text-right text-[13px] ${meta.cls}`}>{meta.label}</span>
+                      </div>
+                      {s.status === "running" && s.activity && (
+                        <SubtaskActivity activity={s.activity} at={s.activityAt} />
+                      )}
                     </li>
                   );
                 })}

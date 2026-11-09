@@ -1451,6 +1451,26 @@ export const pauseForInput = internalMutation({
   },
 });
 
+/** Live activity line for a running subtask; ignored once it settled. */
+export const setSubtaskActivity = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    key: v.string(),
+    activity: v.string(),
+    workerId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) return false;
+    const subtask = await ctx.db
+      .query("subtasks")
+      .withIndex("by_task_and_key", (q) => q.eq("taskId", args.taskId).eq("key", args.key))
+      .unique();
+    if (!subtask || subtask.status !== "running") return false;
+    await ctx.db.patch(subtask._id, { activity: args.activity.slice(0, 160), activityAt: Date.now() });
+    return true;
+  },
+});
+
 export const updateSubtask = internalMutation({
   args: {
     taskId: v.id("tasks"),

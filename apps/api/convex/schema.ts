@@ -253,6 +253,10 @@ export default defineSchema({
     attempts: v.number(),
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
+    // Live "what is the agent doing" line for a running subtask
+    // ("Reading 4 files", "Running npm test", "Waiting for the model").
+    activity: v.optional(v.string()),
+    activityAt: v.optional(v.number()),
   })
     .index("by_task", ["taskId"])
     .index("by_task_and_key", ["taskId", "key"])

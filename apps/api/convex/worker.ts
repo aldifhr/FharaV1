@@ -244,6 +244,22 @@ export const updateSubtask = action({
   },
 });
 
+export const setSubtaskActivity = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    key: v.string(),
+    activity: v.string(),
+    workerId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(
+      internal.orchestration.setSubtaskActivity,
+      withoutToken(args)
+    );
+  },
+});
+
 export const requestApproval = action({
   args: {
     ...tokenArg,

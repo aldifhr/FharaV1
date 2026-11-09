@@ -139,6 +139,15 @@ export class WorkerApi {
     );
   }
 
+  async setSubtaskActivity(
+    input: ActionInput<typeof api.worker.setSubtaskActivity>
+  ): Promise<FunctionReturnType<typeof api.worker.setSubtaskActivity>> {
+    return await this.client.action(
+      api.worker.setSubtaskActivity,
+      this.args({ workerId: this.workerId, ...input })
+    );
+  }
+
   async requestApproval(
     input: ActionInput<typeof api.worker.requestApproval>
   ): Promise<FunctionReturnType<typeof api.worker.requestApproval>> {

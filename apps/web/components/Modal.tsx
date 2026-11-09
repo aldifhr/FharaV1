@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
@@ -20,10 +20,23 @@ export default function Modal({
   fullScreen?: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Move focus into the dialog on open and give it back on close.
+  useEffect(() => {
+    if (!mounted) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    const first = panel?.querySelector<HTMLElement>(
+      'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    (first ?? panel)?.focus();
+    return () => previous?.focus?.();
+  }, [mounted]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -40,11 +53,11 @@ export default function Modal({
 
   const header = (
     <div className="flex items-center justify-between gap-4">
-      <h2 className="font-medium">{title}</h2>
+      <h2 className="min-w-0 truncate font-medium">{title}</h2>
       <button
         type="button"
         onClick={onClose}
-        className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-white"
+        className="rounded-lg p-1.5 text-gray-500 outline-none focus-visible:ring-2 focus-visible:ring-[#635bff]/40 hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-white"
         aria-label="Close"
       >
         <X size={17} />
@@ -77,9 +90,12 @@ export default function Modal({
             : `w-full ${maxWidth}`
         }
         onMouseDown={(event) => event.stopPropagation()}
+        ref={panelRef}
+        tabIndex={-1}
+        style={{ outline: "none" }}
       >
-        <Card className="max-h-[90vh] overflow-hidden border-[#ebe9f0] bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900">
-          <CardContent className="flex max-h-[90vh] min-h-0 flex-col overflow-hidden p-5">
+        <Card className="max-h-[90dvh] overflow-hidden border-[#ebe9f0] bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900">
+          <CardContent className="flex max-h-[90dvh] min-h-0 flex-col overflow-hidden p-5">
             {header}
             <div className={fullScreen ? "mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1" : "min-h-0 flex-1 overflow-y-auto overscroll-contain"}>{children}</div>
           </CardContent>

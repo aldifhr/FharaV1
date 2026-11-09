@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, CheckCircle2, ExternalLink, Loader2, XCircle } from "lucide-react";
+import { Check, CheckCircle2, ExternalLink, Loader2, XCircle, Bell, Clock } from "lucide-react";
 import type { ChatOption } from "@/lib/options";
 
 function OptionPreview({ style }: { style: ChatOption["preview"] }) {
@@ -48,7 +48,7 @@ function OptionPreview({ style }: { style: ChatOption["preview"] }) {
     return (
       <div className="space-y-1.5 p-3">
         {nav}
-        <div className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-md bg-[#15131c] p-3 dark:bg-white">
+        <div className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-md bg-[#15131c] p-3 dark:bg-gray-800">
           <div className="h-2.5 w-3/5 rounded bg-white/90" />
           <div className="h-1.5 w-2/5 rounded bg-white/50" />
           <div className="mt-0.5 h-3 w-10 rounded-full bg-[#635bff]" />
@@ -142,7 +142,7 @@ export default function OptionCards({
                 </p>
               </div>
               {option.summary && (
-                <p className="px-3 pb-3 pt-1 text-[11px] text-gray-400">{option.summary}</p>
+                <p className="px-3 pb-3 pt-1 text-[11px] text-gray-500 dark:text-gray-400">{option.summary}</p>
               )}
               <div className="px-3 pb-3 pt-1">
                 {selected ? (
@@ -150,7 +150,7 @@ export default function OptionCards({
                     <Check size={12} /> You picked {option.id}
                   </span>
                 ) : (
-                  <span className="text-[11px] text-gray-400">{pickedId === undefined ? "Click to pick" : ""}</span>
+                  <span className="text-[11px] text-gray-500 dark:text-gray-400">{pickedId === undefined ? "Click to pick" : ""}</span>
                 )}
               </div>
             </button>
@@ -175,8 +175,28 @@ export default function OptionCards({
               title="Open the task created from this pick"
               className="inline-flex items-center gap-1 rounded-full border border-[#e5e3eb] px-2 py-0.5 text-[11px] font-semibold text-gray-600 transition hover:border-[#635bff]/50 hover:text-[#635bff] dark:border-gray-700 dark:text-gray-300"
             >
-              {taskStatus === "done" ? <CheckCircle2 size={11} /> : taskStatus === "failed" ? <XCircle size={11} /> : <Loader2 size={11} className="animate-spin" />}
-              {taskStatus === "done" ? "Done" : taskStatus === "failed" ? "Failed" : "Running"}
+              {taskStatus === "done" ? (
+                <CheckCircle2 size={11} />
+              ) : taskStatus === "failed" || taskStatus === "rejected" ? (
+                <XCircle size={11} />
+              ) : taskStatus === "needs_approval" || taskStatus === "waiting_input" ? (
+                <Bell size={11} />
+              ) : taskStatus === "running" ? (
+                <Loader2 size={11} className="animate-spin" />
+              ) : (
+                <Clock size={11} />
+              )}
+              {taskStatus === "done"
+                ? "Done"
+                : taskStatus === "failed"
+                  ? "Failed"
+                  : taskStatus === "rejected"
+                    ? "Rejected"
+                    : taskStatus === "needs_approval" || taskStatus === "waiting_input"
+                      ? "Needs you"
+                      : taskStatus === "running"
+                        ? "Running"
+                        : "Queued"}
               <ExternalLink size={10} />
             </button>
           )}

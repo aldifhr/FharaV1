@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Trash2 } from "lucide-react";
@@ -22,10 +22,32 @@ export default function ConfirmDialog({
   onConfirm: () => void;
 }) {
   const [mounted, setMounted] = useState(false);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const open = request !== null;
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Focus Cancel on open, restore focus on close, and own Escape (capture
+  // phase) so it doesn't also close a Modal underneath.
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const t = setTimeout(() => cancelRef.current?.focus(), 0);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      e.preventDefault();
+      if (!pending) onCancel();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("keydown", onKey, true);
+      previous?.focus?.();
+    };
+  }, [open, pending, onCancel]);
 
   if (!mounted) return null;
 
@@ -60,10 +82,11 @@ export default function ConfirmDialog({
             <p className="mt-3 text-sm leading-5 text-gray-600 dark:text-gray-300">{request.message}</p>
             <div className="mt-4 flex justify-end gap-2">
               <button
+                ref={cancelRef}
                 type="button"
                 onClick={onCancel}
                 disabled={pending}
-                className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 outline-none transition focus-visible:ring-2 focus-visible:ring-[#635bff]/50 hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>
@@ -71,9 +94,9 @@ export default function ConfirmDialog({
                 type="button"
                 onClick={onConfirm}
                 disabled={pending}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-50"
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white outline-none transition focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900 hover:bg-red-700 disabled:opacity-50"
               >
-                {pending ? "Deleting..." : request.confirmLabel ?? "Delete"}
+                {pending ? "Working…" : request.confirmLabel ?? "Delete"}
               </button>
             </div>
           </motion.div>

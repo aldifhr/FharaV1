@@ -10,7 +10,7 @@ import Modal from "./Modal";
 import TaskBoard from "./TaskBoard";
 
 import { useToast } from "./Toasts";
-import { Bell, Check, Copy, GitBranch, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
+import { Bell, Check, Copy, GitBranch, Menu, MoreHorizontal, Pencil, Pin, PinOff, Trash2, X } from "lucide-react";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { roleLabel } from "@/lib/agentRoles";
 import { dispatchChatTyping } from "@/lib/chatTyping";
@@ -19,6 +19,10 @@ import MessageList from "./chat/MessageList";
 import { useChatQueue } from "./chat/useChatQueue";
 import { useDraftMentions } from "./chat/useDraftMentions";
 import FilesView from "./chat/FilesView";
+import { statusFromActive } from "./AgentDetailPanel";
+import { useWorkspace } from "@/app/WorkspaceContext";
+
+const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 
 type Props = {
   projectId: string;
@@ -35,6 +39,7 @@ type Props = {
 
 
 export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpenAgent, selectedTaskId }: Props) {
+  const { openSidebar } = useWorkspace();
   const project = useQuery(api.projects.get, { projectId: projectId as any });
   const messages = useQuery(api.messages.listByProject, { projectId: projectId as any });
   const tasks = useQuery(api.tasks.listByProject, { projectId: projectId as any });
@@ -55,13 +60,22 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const [clearPending, setClearPending] = useState(false);
   const [clearConfirm, setClearConfirm] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const projectAgentIds = project?.agentIds;
-  const agents = (projectAgentIds
-    ? (allAgents ?? []).filter((agent: any) => (projectAgentIds as readonly string[]).includes(agent._id))
-    : (allAgents ?? [])) as any[];
+  const agents = useMemo(
+    () =>
+      (projectAgentIds
+        ? (allAgents ?? []).filter((agent: any) => (projectAgentIds as readonly string[]).includes(agent._id))
+        : (allAgents ?? [])) as any[],
+    [allAgents, projectAgentIds],
+  );
   const pendingForProject = (approvals ?? []).filter((a: any) => a.projectId === projectId).length;
   const pendingItems = (approvals ?? []).filter((a: any) => a.projectId === projectId);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [moreAgentsOpen, setMoreAgentsOpen] = useState(false);
+  const moreAgentsRef = useRef<HTMLDivElement>(null);
+  const [actingApprovalId, setActingApprovalId] = useState<string | null>(null);
+  const [confirmRejectId, setConfirmRejectId] = useState<string | null>(null);
+  const scrollToMessageRef = useRef<((messageId: string) => boolean) | null>(null);
   const [notifOpen, setNotifOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -96,6 +110,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [notifOpen]);
+
+  useEffect(() => {
+    if (!moreAgentsOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (moreAgentsRef.current && !moreAgentsRef.current.contains(event.target as Node)) setMoreAgentsOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [moreAgentsOpen]);
 
   useEffect(() => {
     if (!pinsOpen) return;
@@ -138,7 +161,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   };
 
   const selectedTask = (tasks ?? []).find((task) => task._id === selectedTaskId);
-  const fileChangesByTask = useQuery(api.fileChanges.listByTask, selectedTask ? { taskId: selectedTask._id } : "skip");
   const taskEvents = useQuery(api.taskEvents.listByTask, selectedTask ? { taskId: selectedTask._id } : "skip");
   const projectFiles = useQuery(api.fileChanges.listByProject, { projectId: projectId as any });
   const subtasksByTask = useQuery(api.workspace.listSubtasksByProject, { projectId: projectId as any });
@@ -148,16 +170,17 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     return map;
   }, [subtasksByTask]);
   const activeByAgent = useQuery(api.executionView.activeByAgent, {});
-  const selectedTaskMessages = selectedTask
-    ? (messages ?? []).filter((message: any) => message.taskId === selectedTask._id)
-    : [];
   // Chat timeline = conversation messages only. Task-linked messages
   // (taskId set) belong to the task thread and must not leak into the
   // chat as reports. Task user copies (same content as the conversation
   // message) are skipped to avoid duplicates.
-  const timeline = (messages ?? [])
-    .filter((message: any) => !message.taskId)
-    .sort((a: any, b: any) => a._creationTime - b._creationTime);
+  const timeline = useMemo(
+    () =>
+      (messages ?? [])
+        .filter((message: any) => !message.taskId)
+        .sort((a: any, b: any) => a._creationTime - b._creationTime),
+    [messages],
+  );
   const lastMessage = timeline[timeline.length - 1];
 
   // "• New" divider: marks the first message newer than the newest one
@@ -166,7 +189,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   // still read "New" at the top. It now sits at the boundary between seen
   // and unseen messages and advances as the user reads to the bottom.
   const lastSeenKey = `moagent-chat-lastseen-${projectId}`;
-  const [lastSeenAt, setLastSeenAt] = useState(0);
+  // null until read from storage: rendering with 0 put "• New" above the
+  // oldest message for one frame on every mount.
+  const [lastSeenAt, setLastSeenAt] = useState<number | null>(null);
   // First run (no stored position): adopt the current newest message as
   // seen, so the divider only ever marks genuinely new arrivals —
   // otherwise the whole backlog reads as "new" and the divider sits at
@@ -176,15 +201,20 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     try {
       const stored = Number(localStorage.getItem(lastSeenKey));
       if (stored) setLastSeenAt(stored);
-      else setLastSeenIsFresh(true);
+      else {
+        setLastSeenAt(0);
+        setLastSeenIsFresh(true);
+      }
     } catch {
+      setLastSeenAt(0);
       setLastSeenIsFresh(true);
     }
   }, [lastSeenKey]);
   const markSeen = () => {
     const seen = lastMessage?._creationTime ?? 0;
     if (!seen) return;
-    setLastSeenAt((prev) => {
+    setLastSeenAt((prevOrNull) => {
+      const prev = prevOrNull ?? 0;
       const next = Math.max(prev, seen);
       if (next !== prev) {
         try {
@@ -197,7 +227,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     });
   };
   useEffect(() => {
-    if (timeline.length === 0) return;
+    if (timeline.length === 0 || lastSeenAt === null) return;
     if (lastSeenIsFresh) {
       markSeen();
       setLastSeenIsFresh(false);
@@ -208,13 +238,38 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       markSeen();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeline, lastSeenKey, lastSeenIsFresh]);
+  }, [timeline, lastSeenKey, lastSeenIsFresh, lastSeenAt === null]);
 
   // Follow the newest message: reset on project switch, then scroll when
   // the last message changes while the user is already at the bottom.
   useEffect(() => {
     nearBottomRef.current = true;
   }, [projectId]);
+
+  // Jump to the newest message. Repeated on the next frames because the
+  // virtualized list renders with estimated row heights first.
+  const scrollToBottom = () => {
+    const apply = () => {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    };
+    apply();
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(apply);
+    });
+  };
+
+  // Coming back to Chat from Tasks/Files: the shared scroll container kept
+  // the other tab's position, which landed on the oldest messages.
+  useEffect(() => {
+    setShowScrollDown(false);
+    if (tab === "chat") {
+      nearBottomRef.current = true;
+      scrollToBottom();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   useEffect(() => {
     const last = timeline[timeline.length - 1] as any;
@@ -225,12 +280,10 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     const prev = lastMessageRef.current;
     if (prev && prev._id === last._id && prev._creationTime === last._creationTime) return;
     lastMessageRef.current = { _id: last._id, _creationTime: last._creationTime };
-    if (nearBottomRef.current) {
-      const el = scrollRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
-    }
+    if (nearBottomRef.current) scrollToBottom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeline]);
-  const firstNewIndex = timeline.findIndex(
+  const firstNewIndex = lastSeenAt === null ? -1 : timeline.findIndex(
     (m: any) => m._creationTime > lastSeenAt
   );
   const wasAgentTypingRef = useRef(false);
@@ -257,7 +310,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     fresh &&
     !(tasks ?? []).some((t: any) => t.title === lastMessage?.content);
 
-  const latestAgentMessage = [...selectedTaskMessages].reverse().find((message: any) => message.authorType === "agent");
   const taskTitle = (taskId: string) => (tasks ?? []).find((task) => task._id === taskId)?.title ?? "task";
   // A task block starts at the user message that spawned it. The plan message
   // replies to that user message, so the link is recoverable from
@@ -308,11 +360,18 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         approvalMode: manageApprovalMode,
         instructions: manageInstructions,
       });
+    } catch (err) {
+      setManageError(`Couldn't save project settings: ${errorText(err)}`);
+      setSavingManage(false);
+      return;
+    }
+    try {
       await updateTeam({ projectId: projectId as never, agentIds: manageAgentIds as never[] });
       setIsManageOpen(false);
       toast("success", "Project updated");
     } catch (err) {
-      setManageError(err instanceof Error ? err.message : "Failed to update project");
+      // Settings above already saved: say exactly which part failed.
+      setManageError(`Project settings saved, but the team couldn't be updated: ${errorText(err)}`);
     } finally {
       setSavingManage(false);
     }
@@ -342,7 +401,26 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     .map((a: any) => roleLabel(a.role));
   const [chatError, setChatError] = useState("");
   const [chatSending, setChatSending] = useState(false);
-  const [dismissedErrors, setDismissedErrors] = useState<Set<string>>(() => new Set());
+  // Dismissed agent-error banners survive reloads within the tab session.
+  const dismissedKey = `moagent-dismissed-errors-${projectId}`;
+  const [dismissedErrors, setDismissedErrors] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      return new Set(JSON.parse(sessionStorage.getItem(dismissedKey) ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  const dismissError = (errorId: string) =>
+    setDismissedErrors((dismissed) => {
+      const next = new Set(dismissed).add(errorId);
+      try {
+        sessionStorage.setItem(dismissedKey, JSON.stringify([...next]));
+      } catch {
+        /* storage denied — keep it in memory */
+      }
+      return next;
+    });
 
   const mentions = useDraftMentions(draft, setDraft, project, projectFiles, agents as any[]);
   const queue = useChatQueue(
@@ -440,19 +518,34 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     dispatchChatTyping({ agentIds: ids as string[], active: true });
   }, [conversationTyping, chatAgentIds, agents]);
 
-  // Auto-dispatch queue after agent finishes responding
+  // Auto-dispatch the queue when the agent finishes replying (chat replies
+  // are the normal case — this used to require a selected task). The
+  // previous typing state is always recorded so the edge is never missed.
   const queuedCount = queue.items.filter((m) => m.status === "queued").length;
   useEffect(() => {
-    if (wasAgentTypingRef.current && !conversationTyping) {
-      // Agent just finished responding — dispatch queued messages after a short delay
-      if (queuedCount > 0 && selectedTaskId) {
-        const timer = setTimeout(() => void sendAllQueued(), 300);
-        return () => clearTimeout(timer);
-      }
-    }
+    const wasTyping = wasAgentTypingRef.current;
     wasAgentTypingRef.current = conversationTyping;
+    if (wasTyping && !conversationTyping && queuedCount > 0) {
+      const timer = setTimeout(() => void sendAllQueued(), 300);
+      return () => clearTimeout(timer);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationTyping]);
+
+  // Bell popover actions: disabled while running, errors surface as toasts,
+  // reject asks for a second tap.
+  const runApproval = async (approvalId: string, action: "approve" | "reject") => {
+    setActingApprovalId(approvalId);
+    setConfirmRejectId(null);
+    try {
+      if (action === "approve") await approve({ approvalId: approvalId as any });
+      else await reject({ approvalId: approvalId as any });
+    } catch (err) {
+      toast("error", action === "approve" ? "Couldn't approve" : "Couldn't reject", errorText(err));
+    } finally {
+      setActingApprovalId(null);
+    }
+  };
   const headerAgents = agents.slice(0, 6);
   const activeForSelectedTask = useMemo(() => {
     if (!selectedTask) return [];
@@ -474,17 +567,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     return active && active.projectId === projectId;
   });
   const taskErrors = (taskEvents ?? []).filter((event: any) => event.type === "task.error");
-  const diffStats = (fileChangesByTask ?? []).reduce(
-    (stats, fileChange: any) => {
-      for (const line of fileChange.diff.split("\n")) {
-        if (line.startsWith("+++") || line.startsWith("---")) continue;
-        if (line.startsWith("+")) stats.added += 1;
-        if (line.startsWith("-")) stats.removed += 1;
-      }
-      return stats;
-    },
-    { added: 0, removed: 0 }
-  );
+  // Header status from the execution lease (source of truth), like the
+  // Sidebar — the persisted `agents.status` is stale.
+  const leaseStatus = (agentId: string) => statusFromActive((activeByAgent as any)?.[agentId]);
   // Refresh relative timestamps ("just now" → "2m ago") once a minute.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -502,9 +587,18 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   };
 
   return (
-    <main className="relative flex min-w-0 flex-1 flex-col bg-transparent">
-      <header className="border-b border-[#ebe9f0] bg-white/30 dark:border-gray-800 dark:bg-gray-950/20">
-      <div className="flex min-h-[56px] items-center gap-3 px-5 py-2.5">
+    <main className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-transparent">
+      <header className="shrink-0 border-b border-[#ebe9f0] bg-white/30 dark:border-gray-800 dark:bg-gray-950/20">
+      <div className="flex min-h-[56px] items-center gap-3 px-4 py-2.5 sm:px-5">
+        <button
+          type="button"
+          onClick={openSidebar}
+          aria-label="Open projects and team"
+          title="Projects and team"
+          className="-ml-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-600 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 min-[980px]:hidden dark:text-gray-300 dark:hover:bg-gray-800"
+        >
+          <Menu size={18} />
+        </button>
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-emerald-200 text-sm font-bold text-emerald-900 dark:bg-emerald-800 dark:text-emerald-100">
           {(project as any)?.name?.slice(0, 1).toUpperCase() ?? "A"}
         </div>
@@ -521,15 +615,17 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                     key={a._id}
                     type="button"
                     onClick={() => onOpenAgent?.(a._id)}
-                    aria-label={roleLabel(a.role)}
-                    className={`-ml-1.5 rounded-full p-0 first:ml-0 ${
+                    aria-label={`${roleLabel(a.role)} · ${leaseStatus(a._id).label}`}
+                    onFocus={() => setActiveAgentId(a._id)}
+                    onBlur={() => setActiveAgentId(null)}
+                    className={`-ml-1.5 rounded-full p-0 outline-none first:ml-0 focus-visible:ring-2 focus-visible:ring-[#635bff]/50 ${
                       activeAgentId && activeAgentId !== a._id
                         ? "opacity-40"
                         : "opacity-100 transition hover:opacity-70"
                     }`}
                     onMouseEnter={() => setActiveAgentId(a._id)}
                   >
-                    <AgentAvatar name={roleLabel(a.role)} size={20} status={a.status === "working" ? "working" : a.status === "queued" ? "queued" : a.status === "needs_you" ? "needs_you" : "idle"} avatarParams={a.avatarParams} />
+                    <AgentAvatar name={roleLabel(a.role)} size={20} status={leaseStatus(a._id).avatar} avatarParams={a.avatarParams} />
                   </button>
                 ))}
               </div>
@@ -542,7 +638,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                         ? [{
                             id: a._id,
                             name: roleLabel(a.role),
-                            designation: `${roleLabel(a.role)} · ${a.status}`,
+                            designation: leaseStatus(a._id).label,
                             avatar: (a.avatarParams ? deserializeAvatartion(a.avatarParams) : null) ?? avatartionFor(roleLabel(a.role)),
                             size: 20,
                           }]
@@ -552,15 +648,34 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                 </span>
               )}
               {agents.length > headerAgents.length && (
-                <button
-                  type="button"
-                  onClick={() => onOpenAgent?.(agents[headerAgents.length]._id)}
-                  title={`+${agents.length - headerAgents.length} more — open agents`}
-                  aria-label={`Open ${agents.length - headerAgents.length} more agents`}
-                  className="-ml-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-[10px] font-semibold text-gray-600 ring-1 ring-white transition hover:bg-gray-200"
-                >
-                  +{agents.length - headerAgents.length}
-                </button>
+                <div className="relative" ref={moreAgentsRef}>
+                  <button
+                    type="button"
+                    onClick={() => setMoreAgentsOpen((open) => !open)}
+                    title={`${agents.length - headerAgents.length} more agents`}
+                    aria-label={`Show ${agents.length - headerAgents.length} more agents`}
+                    aria-expanded={moreAgentsOpen}
+                    className="-ml-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-[10px] font-semibold text-gray-600 outline-none ring-1 ring-white transition hover:bg-gray-200 focus-visible:ring-2 focus-visible:ring-[#635bff]/50 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-900 dark:hover:bg-gray-700"
+                  >
+                    +{agents.length - headerAgents.length}
+                  </button>
+                  {moreAgentsOpen && (
+                    <div className="absolute left-0 top-full z-40 mt-2 w-52 overflow-hidden rounded-xl border border-[#ebe9f0] bg-white py-1 text-sm shadow-xl dark:border-gray-800 dark:bg-gray-900">
+                      {agents.slice(headerAgents.length).map((a: any) => (
+                        <button
+                          key={a._id}
+                          type="button"
+                          onClick={() => { setMoreAgentsOpen(false); onOpenAgent?.(a._id); }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800"
+                        >
+                          <AgentAvatar name={roleLabel(a.role)} size={20} status={leaseStatus(a._id).avatar} avatarParams={a.avatarParams} />
+                          <span className="min-w-0 flex-1 truncate">{roleLabel(a.role)}</span>
+                          <span className="text-[11px] text-gray-500 dark:text-gray-400">{leaseStatus(a._id).label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
             <span className="text-xs text-gray-500">{agents.length} {agents.length === 1 ? "agent" : "agents"}</span>
@@ -568,7 +683,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         </div>
       </div>
       {/* Tab bar row: workspace tabs (left) + version/pin/bell/more (right) */}
-      <div className="flex items-center gap-3 border-t border-[#f0eef4] px-5 py-2 dark:border-gray-800/60">
+      <div className="flex items-center gap-2 border-t border-[#f0eef4] px-4 py-2 sm:gap-3 sm:px-5 dark:border-gray-800/60">
         <div className="flex shrink-0 items-center rounded-xl bg-gray-100 p-1 dark:bg-gray-800" role="tablist" aria-label="Workspace view">
           {(["chat", "tasks", "files"] as const).map((t) => (
             <button
@@ -577,28 +692,32 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               role="tab"
               aria-selected={tab === t}
               onClick={() => setTab(t)}
-              className={`rounded-lg px-3 py-1.5 text-[13px] capitalize transition ${tab === t ? "bg-white font-semibold text-[#24232d] shadow-sm dark:bg-gray-900 dark:text-white" : "text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"}`}
+              className={`rounded-lg px-3 py-1.5 text-[13px] capitalize outline-none transition focus-visible:ring-2 focus-visible:ring-[#635bff]/40 ${tab === t ? "bg-white font-semibold text-[#24232d] shadow-sm dark:bg-gray-900 dark:text-white" : "text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"}`}
             >
               {t}{t === "tasks" && tasks?.length ? ` ${tasks.length}` : ""}
             </button>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-1.5">
-          {(((selectedTask as any)?.branchName ?? (tasks ?? [])[0]?.branchName) ? (
+        <div className="ml-auto flex min-w-0 items-center gap-1.5">
+          {/* Branch + plan version describe the selected task only; falling
+              back to an arbitrary tasks[0] showed the wrong task's data. */}
+          {(selectedTask as any)?.branchName ? (
             <span
               title="Branch of the selected task"
-              className="flex max-w-[220px] items-center gap-1 rounded-lg border border-[#e5e3eb] px-2 py-1 font-mono text-[11px] font-semibold text-gray-500 dark:border-gray-700 dark:text-gray-400"
+              className="hidden max-w-[220px] items-center gap-1 rounded-lg border border-[#e5e3eb] px-2 py-1 font-mono text-[11px] font-semibold text-gray-500 sm:flex dark:border-gray-700 dark:text-gray-400"
             >
-              <GitBranch size={12} className="shrink-0" />
-              <span className="truncate">{((selectedTask as any)?.branchName ?? (tasks ?? [])[0]?.branchName)}</span>
+              <GitBranch size={12} className="shrink-0" aria-hidden="true" />
+              <span className="truncate">{(selectedTask as any).branchName}</span>
             </span>
-          ) : null)}
-          <span
-            title="Plan version of the selected task"
-            className="flex items-center gap-1 rounded-lg border border-[#e5e3eb] px-2 py-1 font-mono text-[11px] font-semibold text-gray-500 dark:border-gray-700 dark:text-gray-400"
-          >
-            v{((selectedTask as any)?.planVersion ?? (tasks ?? [])[0]?.planVersion ?? 1)}
-          </span>
+          ) : null}
+          {selectedTask && (selectedTask as any).planVersion ? (
+            <span
+              title="Plan version of the selected task"
+              className="hidden items-center gap-1 rounded-lg border border-[#e5e3eb] px-2 py-1 font-mono text-[11px] font-semibold text-gray-500 sm:flex dark:border-gray-700 dark:text-gray-400"
+            >
+              v{(selectedTask as any).planVersion}
+            </span>
+          ) : null}
         <div className="flex items-center gap-1">
           <div className="relative" ref={pinsRef}>
             <button
@@ -607,19 +726,19 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               title={`${(pinnedMessages ?? []).length} pinned message${(pinnedMessages ?? []).length === 1 ? "" : "s"}`}
               aria-label={`${(pinnedMessages ?? []).length} pinned messages`}
               aria-expanded={pinsOpen}
-              className="flex items-center gap-1 rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+              className="flex items-center gap-1 rounded-lg p-1.5 text-gray-500 outline-none transition hover:bg-gray-100 hover:text-gray-700 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
             >
               <Pin size={13} />
               <span className="text-[11px] font-semibold tabular-nums">{(pinnedMessages ?? []).length > 9 ? "9+" : (pinnedMessages ?? []).length}</span>
             </button>
             {pinsOpen && (
-              <div className="absolute right-0 z-40 mt-2 w-80 overflow-hidden rounded-xl border border-[#ebe9f0] bg-white py-1 text-sm shadow-xl dark:border-gray-800 dark:bg-gray-900">
+              <div className="absolute right-0 z-40 mt-2 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[#ebe9f0] bg-white py-1 text-sm shadow-xl dark:border-gray-800 dark:bg-gray-900">
                 <p className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                   Pinned ({(pinnedMessages ?? []).length})
                 </p>
                 <div className="max-h-64 overflow-y-auto">
                   {(pinnedMessages ?? []).length === 0 && (
-                    <p className="px-3 py-3 text-sm text-gray-400">No pinned messages yet. Hover a message and click the pin icon to keep it here.</p>
+                    <p className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">No pinned messages yet. Use the pin icon on a message to keep it here.</p>
                   )}
                   {(pinnedMessages ?? []).map((m: any) => (
                     <div key={m._id} className="flex items-start gap-2 border-t border-gray-100 px-3 py-2 dark:border-gray-800">
@@ -629,10 +748,16 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                         aria-label="Open in chat"
                         onClick={() => {
                           setPinsOpen(false);
+                          // Task-thread messages live in the thread, not the chat timeline.
+                          if (m.taskId) {
+                            onSelectTask(m.taskId);
+                            return;
+                          }
                           setTab("chat");
-                          requestAnimationFrame(() =>
-                            document.getElementById(`message-${m._id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
-                          );
+                          // Wait for the tab switch (and its scroll-to-bottom) to settle.
+                          setTimeout(() => {
+                            if (!scrollToMessageRef.current?.(m._id)) toast("info", "That message is no longer in the loaded chat history.");
+                          }, 80);
                         }}
                         className="min-w-0 flex-1 text-left"
                       >
@@ -640,7 +765,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                           {m.authorType === "agent"
                             ? roleLabel((agents as any)?.find((a: any) => a._id === m.agentId)?.role)
                             : "You"}
-                          <span className="ml-1 font-normal text-gray-400">{formatMessageTime(m._creationTime)}</span>
+                          <span className="ml-1 font-normal text-gray-500 dark:text-gray-400">{formatMessageTime(m._creationTime)}</span>
                         </p>
                         <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap break-words text-[13px] text-gray-700 dark:text-gray-200">{m.content}</p>
                       </button>
@@ -649,7 +774,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                         title="Unpin message"
                         aria-label="Unpin message"
                         onClick={() => void togglePin({ messageId: m._id, pinned: false })}
-                        className="shrink-0 rounded p-1 text-gray-400 transition hover:bg-gray-100 hover:text-[#635bff] dark:hover:bg-gray-800"
+                        className="shrink-0 rounded-md p-1.5 text-gray-500 outline-none transition hover:bg-gray-100 hover:text-[#635bff] focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-400 dark:hover:bg-gray-800"
                       >
                         <PinOff size={13} />
                       </button>
@@ -666,7 +791,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               title={`Notifications — ${pendingForProject} pending approval${pendingForProject === 1 ? "" : "s"}`}
               aria-label={`Notifications — ${pendingForProject} pending approval${pendingForProject === 1 ? "" : "s"}`}
               aria-expanded={notifOpen}
-              className="relative rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+              className="relative rounded-lg p-1.5 text-gray-500 outline-none transition hover:bg-gray-100 hover:text-gray-700 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
             >
               <Bell size={15} />
               {pendingForProject > 0 && (
@@ -676,33 +801,55 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               )}
             </button>
             {notifOpen && (
-              <div className="absolute right-0 z-40 mt-2 w-72 overflow-hidden rounded-xl border border-[#ebe9f0] bg-white py-1 text-sm shadow-xl dark:border-gray-800 dark:bg-gray-900">
+              <div className="absolute right-0 z-40 mt-2 w-[min(18rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[#ebe9f0] bg-white py-1 text-sm shadow-xl dark:border-gray-800 dark:bg-gray-900">
                 <p className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                   Notifications ({pendingForProject})
                 </p>
                 <div className="max-h-64 overflow-y-auto">
                   {pendingItems.length === 0 && (
-                    <p className="px-3 py-3 text-sm text-gray-400">Nothing is waiting for approval.</p>
+                    <p className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">Nothing is waiting for approval.</p>
                   )}
                   {pendingItems.map((a: any) => (
                     <div key={a._id} className="border-t border-gray-100 px-3 py-2 dark:border-gray-800">
                       <p className="truncate text-sm font-medium">{a.summary}</p>
-                      <p className="mt-0.5 text-xs text-gray-500">{a.kind}</p>
-                      <div className="mt-1.5 flex gap-2">
+                      <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{a.kind}</p>
+                      <div className="mt-1.5 flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={() => approve({ approvalId: a._id })}
-                          className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-semibold text-white"
+                          disabled={actingApprovalId !== null}
+                          onClick={() => void runApproval(a._id, "approve")}
+                          className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white outline-none hover:bg-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:opacity-50"
                         >
-                          Approve
+                          {actingApprovalId === a._id ? "Working…" : "Approve"}
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => reject({ approvalId: a._id })}
-                          className="rounded-lg bg-gray-200 px-2 py-1 text-xs font-semibold dark:bg-gray-700 dark:text-white"
-                        >
-                          Reject
-                        </button>
+                        {confirmRejectId === a._id ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={actingApprovalId !== null}
+                              onClick={() => void runApproval(a._id, "reject")}
+                              className="rounded-lg bg-red-600 px-2.5 py-1 text-xs font-semibold text-white outline-none hover:bg-red-700 focus-visible:ring-2 focus-visible:ring-red-400/60 disabled:opacity-50"
+                            >
+                              Confirm reject
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmRejectId(null)}
+                              className="rounded-lg px-2 py-1 text-xs font-semibold text-gray-500 outline-none hover:text-gray-800 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-400 dark:hover:text-gray-200"
+                            >
+                              Keep
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={actingApprovalId !== null}
+                            onClick={() => setConfirmRejectId(a._id)}
+                            className="rounded-lg bg-gray-200 px-2.5 py-1 text-xs font-semibold outline-none hover:bg-gray-300 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 disabled:opacity-50 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600"
+                          >
+                            Reject
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -717,7 +864,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               title="More actions"
               aria-label="More actions"
               aria-expanded={moreOpen}
-              className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+              className="rounded-lg p-1.5 text-gray-500 outline-none transition hover:bg-gray-100 hover:text-gray-700 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
             >
               <MoreHorizontal size={17} />
             </button>
@@ -762,13 +909,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         </div>
       </header>
 
-      <div ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (!el) return; const dist = el.scrollHeight - el.scrollTop - el.clientHeight; nearBottomRef.current = dist <= 120; setShowScrollDown(dist > 120); if (dist <= 120) markSeen(); }} className="flex-1 space-y-5 overflow-y-auto bg-transparent px-5 py-6">
+      <div ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (!el) return; const dist = el.scrollHeight - el.scrollTop - el.clientHeight; nearBottomRef.current = dist <= 120; setShowScrollDown(tab === "chat" && dist > 120); if (dist <= 120) markSeen(); }} className="relative min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-transparent px-4 py-5 sm:px-5 sm:py-6">
         {taskErrors.filter((event: any) => !dismissedErrors.has(String(event._id ?? event.payload?.message ?? "unknown"))).map((event: any) => {
           const errorId = String(event._id ?? event.payload?.message ?? "unknown");
           return (
-          <div key={errorId} className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            <span className="min-w-0 flex-1"><span className="font-semibold">Agent error:</span> {event.payload?.message ?? "Task failed to process."}</span>
-            <button type="button" aria-label="Dismiss error" onClick={() => setDismissedErrors((dismissed) => new Set(dismissed).add(errorId))} className="rounded p-0.5 text-red-400 hover:text-red-600">×</button>
+          <div key={errorId} role="alert" className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+            <span className="min-w-0 flex-1 break-words"><span className="font-semibold">Agent error:</span> {event.payload?.message ?? "Task failed to process."}</span>
+            <button type="button" aria-label="Dismiss error" onClick={() => dismissError(errorId)} className="-m-0.5 shrink-0 rounded-md p-1 text-red-500 outline-none hover:bg-red-100 hover:text-red-700 focus-visible:ring-2 focus-visible:ring-red-400/60 dark:text-red-400 dark:hover:bg-red-900/40 dark:hover:text-red-200">
+              <X size={14} />
+            </button>
           </div>
           );
         })}
@@ -783,9 +932,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               pendingItems={pendingItems}
               projectEvents={projectEvents}
               projectApprovalMode={(project as any)?.approvalMode ?? "ask"}
-              fileChangesByTask={fileChangesByTask}
-              latestAgentMessage={latestAgentMessage}
-              diffStats={diffStats}
+              loading={messages === undefined}
+              scrollToMessageRef={scrollToMessageRef}
               chatSending={chatSending}
               conversationTyping={conversationTyping}
               replyingNames={replyingNames}
@@ -802,7 +950,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               blockKey={blockKey}
             />
         ) : (
-          <motion.div key="tasks" initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }}>
+          <motion.div key={tab} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }}>
             {tab === "files" ? (
               <FilesView project={project} />
             ) : (
@@ -812,12 +960,12 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         )}
       </div>
 
-      {showScrollDown && (
+      {showScrollDown && tab === "chat" && (
         <button
           type="button"
           onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })}
           aria-label="Scroll to bottom"
-          className="absolute bottom-24 left-1/2 z-20 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full bg-white shadow-lg ring-1 ring-gray-200 hover:bg-gray-50 dark:bg-gray-800 dark:ring-gray-700"
+          className="absolute bottom-32 left-1/2 z-20 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full bg-white text-gray-700 shadow-lg outline-none ring-1 ring-gray-200 hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-[#635bff]/50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-700"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
         </button>
@@ -843,7 +991,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               <input
                 value={managePath}
                 onChange={(event) => setManagePath(event.target.value)}
-                required
+                placeholder="/path/to/your/repo"
                 className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
               />
             </label>
@@ -871,7 +1019,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             <fieldset className="grid gap-2">
               <legend className="text-sm font-medium">Team project</legend>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2 dark:border-gray-700">
-                {(allAgents ?? []).length === 0 && <p className="text-xs text-gray-400">No agents yet. Create one from the Teams page first.</p>}
+                {(allAgents ?? []).length === 0 && <p className="text-xs text-gray-400">No agents yet. Create one with + in the Team section of the sidebar.</p>}
                 {(allAgents ?? []).map((agent: any) => (
                   <label key={agent._id} className="flex items-center gap-2 text-sm">
                     <input
@@ -914,20 +1062,18 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
           agentResults={mentions.agentResults}
           onInsertMention={mentions.insert}
           onInsertAgent={mentions.insertAgent}
+          onDismissMention={() => mentions.setMention(null)}
           queue={queue.items}
           editingId={editingId}
           onEdit={setEditingId}
           onEditContent={queue.update}
           onMove={queue.move}
           onRemove={queue.remove}
+          onRetry={(id) => {
+            setChatError("");
+            void queue.retry(id);
+          }}
           onSendAll={() => void sendAllQueued()}
-          agents={agents}
-          chatAgentIds={chatAgentIds}
-          onToggleAgent={(agentId) =>
-            setChatAgentIds((ids) =>
-              ids.includes(agentId) ? ids.filter((id) => id !== agentId) : [...ids, agentId],
-            )
-          }
           projectName={(project as any)?.name ?? "the team"}
         />
       )}

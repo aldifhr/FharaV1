@@ -32,9 +32,13 @@ export default function AgentAvatar({ name, size = 32, status, avatar, avatarPar
     >
       <AvatartionAvatarView avatar={resolvedAvatar} className="h-full w-full" />
       {status && (
-        <span
-          className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white ${STATUS_DOT[status] ?? "bg-gray-400"}`}
-        />
+        <>
+          <span
+            aria-hidden="true"
+            className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white dark:ring-gray-900 ${STATUS_DOT[status] ?? "bg-gray-400"}`}
+          />
+          <span className="sr-only">{`${name}: ${String(status).replace(/_/g, " ")}`}</span>
+        </>
       )}
     </span>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { roleLabel } from "@/lib/agentRoles";
+import { AGENT_ROLES, roleLabel } from "@/lib/agentRoles";
 
 /**
  * `@mention` state for the composer. One token drives both:
@@ -53,12 +53,22 @@ export function useDraftMentions(
   const agentResults = useMemo(() => {
     if (mention === null) return [];
     const q = mention.toLowerCase();
-    return agents
+    // Every teammate on the project, one row per role (mentions address a
+    // role, e.g. "@QA"), in the canonical team order.
+    const seen = new Set<string>();
+    const order = (role: string) => {
+      const i = (AGENT_ROLES as readonly string[]).indexOf((role ?? "").toLowerCase());
+      return i < 0 ? AGENT_ROLES.length : i;
+    };
+    return [...agents]
+      .sort((x, y) => order(x.role) - order(y.role))
       .filter((a) => {
-        const label = roleLabel(a.role).toLowerCase();
-        return label.includes(q) || a.name.toLowerCase().includes(q);
-      })
-      .slice(0, 6);
+        const label = roleLabel(a.role);
+        if (seen.has(label)) return false;
+        const match = label.toLowerCase().includes(q) || (a.name ?? "").toLowerCase().includes(q) || (a.role ?? "").toLowerCase().includes(q);
+        if (match) seen.add(label);
+        return match;
+      });
   }, [mention, agents]);
 
   /** Read `@path` contents from the workspace and append them to `text`. */
@@ -76,7 +86,9 @@ export function useDraftMentions(
       const data = (await response.json()) as { content?: string };
       return data.content ? `\n\n--- File: ${filePath} ---\n${data.content}` : "";
     }));
-    return `${text}${contents.join("")}`.slice(0, 8000);
+    const full = `${text}${contents.join("")}`;
+    // Cap the payload, but say so instead of cutting a file off silently.
+    return full.length > 8000 ? `${full.slice(0, 8000)}\n…[truncated]` : full;
   };
 
   /** Agent ids mentioned in the text (`@CTO`, `@Frontend`, …). */

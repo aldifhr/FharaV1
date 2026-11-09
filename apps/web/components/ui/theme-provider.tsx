@@ -8,8 +8,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>("light");
 
   const applyTheme = useCallback((next: Theme) => {
-    localStorage.setItem("theme", next);
+    try {
+      localStorage.setItem("theme", next);
+    } catch {
+      /* storage denied — theme still applies for this session */
+    }
     const root = document.documentElement;
+    root.style.colorScheme = next;
     root.classList.toggle("dark", next === "dark");
     root.setAttribute("data-theme", next);
   }, []);
@@ -20,11 +25,26 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [applyTheme]);
 
   useEffect(() => {
-    const stored = (localStorage.getItem("theme") as Theme | null) ?? "light";
-    const resolved: Theme = stored === "dark" ? "dark" : "light";
+    // Mirror what the inline script in app/layout.tsx already applied: the
+    // saved choice, else the OS preference (not persisted until the user
+    // picks a theme).
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem("theme");
+    } catch {
+      /* storage denied */
+    }
+    const resolved: Theme =
+      stored === "dark" || stored === "light"
+        ? stored
+        : window.matchMedia?.("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light";
     setThemeState(resolved);
-    applyTheme(resolved);
-  }, [applyTheme]);
+    const root = document.documentElement;
+    root.classList.toggle("dark", resolved === "dark");
+    root.setAttribute("data-theme", resolved);
+  }, []);
 
   const toggle = useCallback(() => {
     setThemeState((prev) => {

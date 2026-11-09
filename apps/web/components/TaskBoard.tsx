@@ -3,29 +3,14 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { motion } from "framer-motion";
-import { CheckCircle2, ChevronDown, ChevronRight, Clock, Loader2, Plus, RotateCcw, Trash2, XCircle } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Plus, Trash2 } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { useToast } from "./Toasts";
 import { roleLabel } from "@/lib/agentRoles";
+import { NEUTRAL_PILL, TASK_STATUSES, TASK_STATUS_PILL, isClosedStatus, subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
+import { SectionLoading, useWorkspace } from "@/app/WorkspaceContext";
 
 type TaskRow = any;
-
-const STATUS_PILL: Record<string, string> = {
-  queued: "bg-amber-100 text-amber-700",
-  running: "bg-sky-100 text-sky-700",
-  needs_approval: "bg-rose-100 text-rose-700",
-  waiting_input: "bg-orange-100 text-orange-700",
-  done: "bg-emerald-100 text-emerald-700",
-  failed: "bg-red-100 text-red-700",
-};
-
-const SUBTASK_STATUS: Record<string, { label: string; cls: string; icon: typeof Clock }> = {
-  pending: { label: "pending", cls: "text-gray-400", icon: Clock },
-  running: { label: "running", cls: "text-sky-600", icon: Loader2 },
-  completed: { label: "done", cls: "text-emerald-600", icon: CheckCircle2 },
-  failed: { label: "failed", cls: "text-red-600", icon: XCircle },
-  blocked: { label: "blocked", cls: "text-amber-600", icon: Clock },
-};
 
 // Agile phases: derived from subtask kind + task status, never from a stale
 // stored phase. Order matches the sprint flow.
@@ -34,16 +19,18 @@ const PHASES = [
   { key: "implementation", label: "Implementation" },
   { key: "review", label: "Review" },
   { key: "verification", label: "Verification" },
-  { key: "done", label: "Done" },
+  { key: "done", label: "Closed" },
 ] as const;
 
 function phaseOf(t: any, subtasks: any[]): string {
-  if (t.status === "done" || t.status === "failed") return t.status === "done" ? "done" : "implementation";
+  // Done, failed and rejected tasks will not progress on their own: they
+  // belong in the closed lane (the pill says which), not "Implementation".
+  if (isClosedStatus(t.status)) return "done";
   // A subtask is actively running right now → its phase is current.
   const running = subtasks.find((s) => s.status === "running");
   if (running) return kindToPhase(running.kind);
   // Nothing running: the earliest pending kind marks the phase.
-  const earliest = subtasks.find((s) => s.status === "pending" || s.status === "blocked");
+  const earliest = subtasks.find((s) => ["pending", "ready", "waiting_approval", "blocked"].includes(s.status));
   if (earliest) return kindToPhase(earliest.kind);
   const done = subtasks.filter((s) => s.status === "completed").length;
   if (done > 0) return "implementation";
@@ -72,8 +59,7 @@ export default function TaskBoard({
   const projectFiles = useQuery(api.fileChanges.listByProject, { projectId: projectId as any });
   const pendingApprovals = useQuery(api.approvals.listPendingAll, {});
   const agents = useQuery(api.agents.list, {});
-  const removeTask = useMutation(api.tasks.remove);
-  const retryTask = useMutation(api.tasks.retry);
+  const { deleteTask } = useWorkspace();
   const createTask = useMutation(api.tasks.createFromCommand);
   const toast = useToast();
 
@@ -82,8 +68,6 @@ export default function TaskBoard({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [manual, setManual] = useState("");
   const [creating, setCreating] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   const subtasksOf = useMemo(() => {
     const map = new Map<string, any[]>();
@@ -128,21 +112,9 @@ export default function TaskBoard({
     return c;
   }, [tasks]);
 
-  const handleDelete = async (task: TaskRow) => {
-    setDeletingId(task._id);
-    try {
-      await removeTask({ taskId: task._id });
-      toast("success", "Task deleted", task.title);
-    } catch (err) {
-      toast("error", "Failed to delete task", err instanceof Error ? err.message : "Failed");
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
   const handleCreate = async () => {
     const text = manual.trim();
-    if (!text) return;
+    if (!text || creating) return;
     setCreating(true);
     try {
       const taskId = await createTask({ projectId: projectId as any, command: text });
@@ -162,16 +134,18 @@ export default function TaskBoard({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Filter tasks…"
-          className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+          aria-label="Filter tasks"
+          className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-[#635bff]/40 sm:text-sm dark:border-gray-700 dark:bg-gray-800"
         />
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+          aria-label="Filter by status"
+          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-[#635bff]/40 sm:text-sm dark:border-gray-700 dark:bg-gray-800"
         >
-          {["all", "queued", "running", "needs_approval", "waiting_input", "done", "failed"].map((s) => (
+          {["all", ...TASK_STATUSES].map((s) => (
             <option key={s} value={s}>
-              {s === "all" ? `All (${counts.all ?? 0})` : `${s} (${counts[s] ?? 0})`}
+              {s === "all" ? `All (${counts.all ?? 0})` : `${taskStatusLabel(s)} (${counts[s] ?? 0})`}
             </option>
           ))}
         </select>
@@ -181,24 +155,34 @@ export default function TaskBoard({
         <input
           value={manual}
           onChange={(e) => setManual(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void handleCreate()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              void handleCreate();
+            }
+          }}
           placeholder="Create a task manually…"
-          className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+          aria-label="New task"
+          className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-[#635bff]/40 sm:text-sm dark:border-gray-700 dark:bg-gray-800"
         />
         <button
           type="button"
           onClick={() => void handleCreate()}
           disabled={creating || !manual.trim()}
-          className="flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-gray-900"
+          className="flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white outline-none focus-visible:ring-2 focus-visible:ring-[#635bff]/50 disabled:opacity-50 dark:bg-white dark:text-gray-900"
         >
           {creating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
           Create
         </button>
       </div>
 
-      {visible.length === 0 && (
-        <p className="py-8 text-center text-sm text-gray-400">No tasks match.</p>
-      )}
+      {tasks === undefined ? (
+        <SectionLoading />
+      ) : tasks.length === 0 ? (
+        <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">No tasks yet. Ask the team in Chat, or create one above.</p>
+      ) : visible.length === 0 ? (
+        <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">No tasks match this filter.</p>
+      ) : null}
 
       {/* Sprint board: agile phases as swimlanes. Each task is indivisible —
           it lives in exactly one phase, derived from its subtasks. */}
@@ -214,7 +198,7 @@ export default function TaskBoard({
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                   {phase.label}
                 </h3>
-                <span className="text-[11px] text-gray-400">{inPhase.length}</span>
+                <span className="text-[11px] text-gray-500 dark:text-gray-400">{inPhase.length}</span>
               </header>
               {inPhase.map(({ t, subtasks }) => {
         const done = subtasks.filter((s) => s.status === "completed").length;
@@ -230,7 +214,7 @@ export default function TaskBoard({
         return (
           <motion.div
             key={t._id}
-            layout
+            layout="position"
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             className={`rounded-xl border bg-white p-3 dark:bg-gray-900 ${
@@ -238,18 +222,18 @@ export default function TaskBoard({
             }`}
           >
             <div className="flex items-start justify-between gap-3">
-              <button type="button" onClick={() => onSelectTask(t._id)} className="min-w-0 flex-1 text-left">
+              <button type="button" onClick={() => onSelectTask(t._id)} className="min-w-0 flex-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-[#635bff]/40">
                 <p className="truncate text-sm font-medium dark:text-white">{t.title}</p>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
-                  <span className={`rounded-full px-2 py-0.5 font-semibold ${STATUS_PILL[t.status] ?? "bg-gray-100 text-gray-600"}`}>{t.status}</span>
+                  <span className={`rounded-full px-2 py-0.5 font-semibold ${TASK_STATUS_PILL[t.status] ?? NEUTRAL_PILL}`}>{taskStatusLabel(t.status)}</span>
                   {subtasks.length > 0 && (
                     <span className="rounded-full bg-gray-100 px-2 py-0.5 font-medium dark:bg-gray-800">
                       {done}/{subtasks.length} subtasks
                     </span>
                   )}
                   {pending.length > 0 && (
-                    <span className="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-700 dark:bg-rose-950">
-                      {pending.length} approval
+                    <span className="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+                      {pending.length} approval{pending.length === 1 ? "" : "s"}
                     </span>
                   )}
                 </div>
@@ -268,17 +252,19 @@ export default function TaskBoard({
                   // selection default) — toggling expanded[id] alone could
                   // never close a selected task, making the chevron dead.
                   onClick={() => setExpanded((prev) => ({ ...prev, [t._id]: !isOpen }))}
-                  aria-label={isOpen ? "Collapse" : "Expand"}
-                  className="rounded-md p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  aria-label={isOpen ? `Collapse ${t.title}` : `Expand ${t.title}`}
+                  aria-expanded={isOpen}
+                  className="rounded-md p-1.5 text-gray-500 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-400 dark:hover:bg-gray-800"
                 >
                   {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                 </button>
                 <button
                   type="button"
-                  onClick={() => void handleDelete(t)}
-                  disabled={t.status === "running" || deletingId === t._id}
+                  onClick={() => deleteTask({ _id: t._id, title: t.title, status: t.status })}
+                  disabled={t.status === "running"}
                   title={t.status === "running" ? "Running tasks cannot be deleted" : "Delete task"}
-                  className="rounded-md p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30"
+                  aria-label={t.status === "running" ? "Running tasks cannot be deleted" : `Delete task ${t.title}`}
+                  className="rounded-md p-1.5 text-gray-500 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-400/50 disabled:opacity-30 dark:text-gray-400 dark:hover:bg-red-950/50"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -290,14 +276,14 @@ export default function TaskBoard({
                 {plan && (
                   <p className="text-[11px] text-gray-500">
                     <span className="font-semibold text-gray-600 dark:text-gray-300">Goal:</span> {plan.goal}
-                    <span className="ml-2 text-gray-400">v{plan.version} · {plan.createdBy}</span>
+                    <span className="ml-2 text-gray-500 dark:text-gray-400">v{plan.version} · {plan.createdBy}</span>
                   </p>
                 )}
                 {subtasks.length === 0 && (
-                  <p className="text-xs text-gray-400">No subtasks yet.</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">No subtasks yet.</p>
                 )}
                 {subtasks.map((s: any) => {
-                  const meta = SUBTASK_STATUS[s.status] ?? SUBTASK_STATUS.pending;
+                  const meta = subtaskStatusMeta(s.status);
                   const Icon = meta.icon;
                   const agent = s.assignedAgentName ? agentNameById.get(s.assignedAgentId) : null;
                   return (
@@ -306,7 +292,7 @@ export default function TaskBoard({
                       <span className="min-w-0 flex-1 truncate font-medium text-gray-700 dark:text-gray-200">
                         {s.title}
                         {s.reviewRound && s.reviewRound > 1 ? (
-                          <span className="ml-1 font-normal text-gray-400">(round {s.reviewRound})</span>
+                          <span className="ml-1 font-normal text-gray-500 dark:text-gray-400">(round {s.reviewRound})</span>
                         ) : null}
                       </span>
                       <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-800">
@@ -322,10 +308,10 @@ export default function TaskBoard({
                   );
                 })}
                 {t.errorMessage && (
-                  <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] text-red-600 dark:bg-red-950/40">{t.errorMessage}</p>
+                  <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] text-red-600 dark:bg-red-950/40 dark:text-red-300">{t.errorMessage}</p>
                 )}
                 {/* Agile phase flow */}
-                <div className="flex items-center gap-1 pt-2">
+                <div className="flex flex-wrap items-center gap-1 pt-2">
                   {PHASES.map((phase, i) => {
                     const current = phaseOf(t, subtasks);
                     const active = phase.key === current;
@@ -337,13 +323,13 @@ export default function TaskBoard({
                             active
                               ? "bg-[#5147b4] text-white"
                               : passed
-                                ? "bg-emerald-100 text-emerald-700"
-                                : "bg-gray-100 text-gray-400"
+                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                                : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
                           }`}
                         >
                           {phase.label}
                         </span>
-                        {i < PHASES.length - 1 && <span className="text-gray-300">→</span>}
+                        {i < PHASES.length - 1 && <span aria-hidden="true" className="text-gray-300 dark:text-gray-600">→</span>}
                       </span>
                     );
                   })}

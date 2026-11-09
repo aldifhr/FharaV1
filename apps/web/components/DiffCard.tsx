@@ -39,6 +39,8 @@ function parseDiff(diff: string): DiffRow[] {
       continue;
     }
     if (raw.startsWith("diff ") || raw.startsWith("index ") || raw.startsWith("---") || raw.startsWith("+++")) continue;
+    // "\ No newline at end of file" is metadata, not a line.
+    if (raw.startsWith("\\")) continue;
     if (raw.startsWith("+")) {
       rows.push({ type: "add", oldNo: null, newNo: newNo++, text: raw.slice(1) });
     } else if (raw.startsWith("-")) {
@@ -47,6 +49,9 @@ function parseDiff(diff: string): DiffRow[] {
       rows.push({ type: "ctx", oldNo: oldNo++, newNo: newNo++, text: raw.replace(/^ /, "") });
     }
   }
+  // The trailing newline of the diff yields one empty "context" row.
+  const last = rows[rows.length - 1];
+  if (last && last.type === "ctx" && last.text === "") rows.pop();
   return rows;
 }
 
@@ -94,11 +99,15 @@ export default function DiffCard({
   const [internalExpanded, setInternalExpanded] = useState(true);
   const isExpanded = onExpandedChange ? expanded : internalExpanded;
 
+  // Follow theme toggles while the diff is open (the class lives on <html>).
   useEffect(() => {
-    const sync = () => setDark(document.documentElement.classList.contains("dark"));
+    const root = document.documentElement;
+    const sync = () => setDark(root.classList.contains("dark"));
     sync();
-    return () => undefined;
-  }, [expanded]);
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
 
   // A new file has no old content (and vice versa): pass an empty string
   // on that side so the viewer still renders the additions/deletions
@@ -116,17 +125,17 @@ export default function DiffCard({
           }}
           aria-expanded={isExpanded}
           aria-label={isExpanded ? `Collapse ${filePath}` : `Expand ${filePath}`}
-          className="rounded p-0.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+          className="rounded p-1 text-gray-500 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-400 dark:hover:bg-gray-800"
         >
           {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
         <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#494752] dark:text-gray-200">{filePath}</span>
-        {changeType === "new" && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">New</span>}
-        {changeType === "deleted" && <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">Deleted</span>}
+        {changeType === "new" && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">New</span>}
+        {changeType === "deleted" && <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-950 dark:text-rose-300">Deleted</span>}
         {applied && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">applied</span>}
         <span className="flex shrink-0 gap-1.5 tabular-nums text-[11px] font-semibold">
-          {added > 0 && <span className="text-emerald-600">+{added}</span>}
-          {removed > 0 && <span className="text-rose-500">−{removed}</span>}
+          {added > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{added}</span>}
+          {removed > 0 && <span className="text-rose-500 dark:text-rose-400">−{removed}</span>}
         </span>
         {approvalId && (
           <span className="ml-auto flex gap-1.5">
@@ -134,17 +143,19 @@ export default function DiffCard({
               type="button"
               disabled={busy}
               onClick={() => onApprove?.(approvalId)}
+              title="Approves the whole change set this file belongs to"
               className="rounded-lg bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
             >
-              Accept
+              Approve all
             </button>
             <button
               type="button"
               disabled={busy}
               onClick={() => onReject?.(approvalId)}
+              title="Rejects the whole change set this file belongs to"
               className="rounded-lg bg-gray-200 px-2 py-1 text-[11px] font-semibold disabled:opacity-50 dark:bg-gray-700 dark:text-white"
             >
-              Reject
+              Reject all
             </button>
           </span>
         )}

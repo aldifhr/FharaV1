@@ -78,6 +78,11 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
       setStep("team");
       return;
     }
+    // A project with no agents gets no replies at all.
+    if (selectedAgentIds.length === 0) {
+      setError("Pick at least one agent for this project.");
+      return;
+    }
     setSaving(true);
     try {
       const projectId = (await createProject({
@@ -182,7 +187,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
                 </button>
               </div>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2 dark:border-gray-700">
-                {(agents ?? []).length === 0 && <p className="text-xs text-gray-400">No agents yet. Create one from the Teams page first.</p>}
+                {(agents ?? []).length === 0 && <p className="text-xs text-gray-500 dark:text-gray-400">No agents yet. Create one with + in the Team section of the sidebar.</p>}
                 {(agents ?? []).map((agent, index) => {
                   const agentList = agents ?? [];
                   const sameRoleBefore = agentList.slice(0, index).filter((a) => a.role === agent.role).length;
@@ -216,10 +221,10 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
             </button>
           </>
         )}
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
         <button
           type="submit"
-          disabled={saving}
+          disabled={saving || (step === "team" && selectedAgentIds.length === 0)}
           className="mt-1 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
         >
           {saving ? "Saving..." : step === "project" ? "Next" : "Create project"}

@@ -51,7 +51,8 @@ export default function IconRail({
       onMouseEnter: showTooltip,
       onMouseMove: showTooltip,
       onMouseLeave: hideTooltip,
-      className: `group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[#5147b4] transition hover:bg-[#eceaf3] hover:text-[#3d34a0] dark:text-white/65 dark:hover:bg-white/15 dark:hover:text-white ${active ? "bg-[#5147b4] text-white shadow-sm hover:bg-[#5147b4] dark:bg-white/20 dark:hover:bg-white/15" : ""}`,
+      "aria-current": active ? ("page" as const) : undefined,
+      className: `group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[#5147b4] outline-none transition focus-visible:ring-2 focus-visible:ring-[#635bff]/50 hover:bg-[#eceaf3] hover:text-[#3d34a0] dark:text-white/65 dark:hover:bg-white/15 dark:hover:text-white ${active ? "bg-[#5147b4] text-white shadow-sm hover:bg-[#5147b4] dark:bg-white/20 dark:hover:bg-white/15" : ""}`,
     };
 
     const inner = (
@@ -144,7 +145,8 @@ export default function IconRail({
 
   const isMenuActive = (href: string) => {
     if (href === "/") return pathname === "/";
-    return pathname === href;
+    // Highlight Chat inside a project too (/chats/<id>).
+    return pathname === href || pathname.startsWith(`${href}/`);
   };
 
   return (

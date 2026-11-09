@@ -4,7 +4,8 @@ export type Agent = {
   _id: string;
   name: string;
   role: string;
-  status: "idle" | "working" | "queued" | "needs_you";
+  /** Persisted agent status; stale — prefer the execution lease. */
+  status: string;
   llmModel?: string;
   llmProvider?: string;
   llmApiKeyConfigured?: boolean;
@@ -24,6 +25,10 @@ export interface WorkspaceContextValue {
   toggleThread: () => void;
   closeThread: () => void;
   openAgent: (agentId: string) => void;
+  /** Ask for confirmation, then delete the task permanently. */
+  deleteTask: (task: Task) => void;
+  /** Open the project/team sidebar (a drawer below 980px). */
+  openSidebar: () => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -47,6 +52,7 @@ export function useWorkspace(): WorkspaceContextValue {
 export function SectionLoading({ rows = 3 }: { rows?: number }) {
   return (
     <div className="mt-6 space-y-3" role="status" aria-label="Loading">
+      <span className="sr-only">Loading…</span>
       {Array.from({ length: rows }, (_, index) => (
         <div key={index} className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
           <Skeleton className="h-4 w-2/5" />

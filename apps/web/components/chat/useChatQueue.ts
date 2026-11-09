@@ -15,10 +15,21 @@ export type QueuedMessage = {
 };
 
 export function useChatQueue(send: (content: string) => Promise<unknown>, onError?: (message: string) => void) {
-  const [items, setItems] = useState<QueuedMessage[]>([]);
+  const [items, setItemsState] = useState<QueuedMessage[]>([]);
   const [sending, setSending] = useState(false);
+  // Mirror of `items` so async callers (auto-send timers) never read a
+  // stale closure.
+  const itemsRef = useRef<QueuedMessage[]>([]);
+  const sendingRef = useRef(false);
+  const setItems = (update: (q: QueuedMessage[]) => QueuedMessage[]) => {
+    setItemsState((q) => {
+      const next = update(q);
+      itemsRef.current = next;
+      return next;
+    });
+  };
 
-  const clear = () => setItems([]);
+  const clear = () => setItems(() => []);
 
   const add = (content: string) => {
     setItems((q) => [...q, { id: crypto.randomUUID(), content, status: "queued" }]);
@@ -44,28 +55,43 @@ export function useChatQueue(send: (content: string) => Promise<unknown>, onErro
     setItems((q) => q.map((m) => (m.id === id ? { ...m, content } : m)));
   };
 
-  const sendAll = async (clearDelayMs = 2000) => {
-    const pending = items.filter((m) => m.status === "queued");
+  /** Send pending rows in order (queued and previously failed), or only
+   *  `onlyId` when given (per-row retry). Stops at the first failure. */
+  const sendAll = async (clearDelayMs = 2000, onlyId?: string) => {
+    if (sendingRef.current) return;
+    const pending = itemsRef.current.filter(
+      (m) => (m.status === "queued" || m.status === "failed") && (!onlyId || m.id === onlyId),
+    );
     if (pending.length === 0) return;
+    sendingRef.current = true;
     setSending(true);
-    for (const item of pending) {
-      setItems((q) => q.map((m) => (m.id === item.id ? { ...m, status: "sending" } : m)));
-      try {
-        await send(item.content);
-        setItems((q) => q.map((m) => (m.id === item.id ? { ...m, status: "sent" } : m)));
-      } catch (err) {
-        setItems((q) => q.map((m) => (m.id === item.id ? { ...m, status: "failed" } : m)));
-        onError?.(err instanceof Error ? err.message : "Failed to send");
-        break;
+    try {
+      for (const item of pending) {
+        // Read the latest content (the row may have been edited).
+        const current = itemsRef.current.find((m) => m.id === item.id);
+        if (!current) continue;
+        setItems((q) => q.map((m) => (m.id === item.id ? { ...m, status: "sending" } : m)));
+        try {
+          await send(current.content);
+          setItems((q) => q.map((m) => (m.id === item.id ? { ...m, status: "sent" } : m)));
+        } catch (err) {
+          setItems((q) => q.map((m) => (m.id === item.id ? { ...m, status: "failed" } : m)));
+          onError?.(err instanceof Error ? err.message : "Failed to send");
+          break;
+        }
       }
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
+      setTimeout(() => {
+        setItems((q) => q.filter((m) => m.status !== "sent"));
+      }, clearDelayMs);
     }
-    setSending(false);
-    setTimeout(() => {
-      setItems((q) => q.filter((m) => m.status !== "sent"));
-    }, clearDelayMs);
   };
 
-  return { items, sending, add, remove, move, update, sendAll, clear };
+  const retry = (id: string) => sendAll(2000, id);
+
+  return { items, sending, add, remove, move, update, sendAll, retry, clear };
 }
 
 /** Auto-grow a textarea up to `maxHeight` as the draft changes. */

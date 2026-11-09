@@ -21,26 +21,61 @@ import { Card, CardContent } from "./ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { usePathname } from "next/navigation";
 import { randomAvatartion, type AvatartionAvatar } from "./ui/avatartion";
-import { roleLabel, ROLE_DEFAULT_PROMPTS } from "@/lib/agentRoles";
+import { AGENT_ROLES, roleLabel, ROLE_DEFAULT_PROMPTS } from "@/lib/agentRoles";
 import { subscribeChatTyping } from "@/lib/chatTyping";
 import { SkeletonBox } from "skullet/react";
 
-const AGENT_ROLES = [
-  "lead",
-  "cto",
-  "designer",
-  "frontend",
-  "backend",
-  "qa",
-  "growth",
-  "support",
-  "reviewer",
-  "devops",
-  "researcher",
-  "product-analyst",
-] as const;
+// Touch / keyboard reachable row actions (were hover-only).
+const ROW_ACTION_VISIBILITY =
+  "hidden group-hover:inline-flex group-focus-within:inline-flex [@media(hover:none)]:inline-flex";
 
-export default function Sidebar({ projectId, onSelectProject }: { projectId?: string; onSelectProject?: (id: string) => void }) {
+const PROJECT_COLORS = ["bg-sky-200 text-sky-900", "bg-emerald-200 text-emerald-900", "bg-violet-200 text-violet-900", "bg-amber-200 text-amber-900", "bg-rose-200 text-rose-900", "bg-teal-200 text-teal-900"];
+
+function ProjectMark({ name, active = false }: { name: string; active?: boolean }) {
+  const initial = (name.trim().charAt(0) || "•").toUpperCase();
+  const color = PROJECT_COLORS[[...name].reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % PROJECT_COLORS.length];
+  return (
+    <span
+      aria-hidden="true"
+      className={`mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold ${active ? "bg-[#5147b4] text-white" : color}`}
+    >
+      {initial}
+    </span>
+  );
+}
+
+function SectionHeader({ title, count, open, onToggle, onManage }: { title: string; count?: number; open: boolean; onToggle: () => void; onManage?: () => void }) {
+  return (
+    <div className="flex items-center justify-between px-1 py-1">
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex items-center gap-1 rounded-md text-[13px] font-semibold text-[#24232d] outline-none hover:text-[#5147b4] focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-100">
+        <span aria-hidden="true" className={`inline-block text-[9px] text-gray-400 transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
+        {title}
+        {count !== undefined && <span className="font-medium text-gray-500 dark:text-gray-400">{count}</span>}
+      </button>
+      <span className="flex items-center gap-1">
+        {onManage && (
+          <button type="button" onClick={onManage} aria-label={`Add to ${title}`} title={`Add to ${title}`} className="rounded-md p-1 text-gray-500 outline-none hover:bg-[#eeecfb] hover:text-[#5147b4] focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-400 dark:hover:bg-gray-800">
+            <Plus size={14} />
+          </button>
+        )}
+      </span>
+    </div>
+  );
+}
+
+export default function Sidebar({
+  projectId,
+  onSelectProject,
+  drawerOpen = false,
+  onCloseDrawer,
+}: {
+  projectId?: string;
+  onSelectProject?: (id: string) => void;
+  /** With `onCloseDrawer`, the sidebar is a slide-in drawer below 980px. */
+  drawerOpen?: boolean;
+  onCloseDrawer?: () => void;
+}) {
+  const isDrawer = Boolean(onCloseDrawer);
   const pathname = usePathname();
   const [q, setQ] = useState("");
   const projects = useQuery(api.projects.list, {});
@@ -88,6 +123,18 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   );
 
   const [detailAgent, setDetailAgent] = useState<any>(null);
+  const [actingApprovalId, setActingApprovalId] = useState<string | null>(null);
+  const [confirmRejectId, setConfirmRejectId] = useState<string | null>(null);
+
+  // Drawer: Escape closes it.
+  useEffect(() => {
+    if (!isDrawer || !drawerOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCloseDrawer?.();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isDrawer, drawerOpen, onCloseDrawer]);
   const removeProject = useMutation(api.projects.remove);
   const router = useRouter();
   const toast = useToast();
@@ -129,6 +176,21 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
         name: generatedName,
         role: agentRole,
         ...(agentPrompt.trim() ? { systemPrompt: agentPrompt } : {}),
+        // Keep the avatar the user generated in the preview.
+        ...(avatarSeed
+          ? {
+              avatarParams: {
+                face: avatarSeed.face,
+                hair: avatarSeed.hair,
+                eyes: avatarSeed.eyes,
+                mouth: avatarSeed.mouth,
+                outfit: avatarSeed.outfit,
+                accessory: avatarSeed.accessory,
+                facialHair: avatarSeed.facialHair,
+                bg: avatarSeed.bg,
+              },
+            }
+          : {}),
       });
       setAgentRole("");
       setAgentPrompt("");
@@ -256,49 +318,57 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
     });
   }
 
-  const SectionHeader = ({ key_, title, count, onManage }: { key_: keyof typeof openSections; title: string; count?: number; onManage?: () => void }) => (
-    <div className="flex items-center justify-between px-1 py-1">
-      <button type="button" onClick={() => toggleSection(key_)} className="flex items-center gap-1 text-[13px] font-semibold text-[#24232d] hover:text-[#5147b4] dark:text-gray-100">
-        <span className={`inline-block text-[9px] text-gray-400 transition-transform ${openSections[key_] ? "rotate-90" : ""}`}>▶</span>
-        {title}
-        {count !== undefined && <span className="font-medium text-gray-400 dark:text-gray-500">{count}</span>}
-      </button>
-      <span className="flex items-center gap-1">
-        {onManage && (
-          <button type="button" onClick={onManage} aria-label={`Manage ${title}`} title={`Manage ${title}`} className="rounded-md p-1 text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4]">
-            <Plus size={14} />
-          </button>
-        )}
-      </span>
-    </div>
-  );
+  async function runApproval(approvalId: string, action: "approve" | "hold" | "reject") {
+    setActingApprovalId(approvalId);
+    setConfirmRejectId(null);
+    try {
+      if (action === "approve") await approve({ approvalId: approvalId as never });
+      else if (action === "hold") {
+        await hold({ approvalId: approvalId as never });
+        toast("info", "Held", "The approval stays pending.");
+      } else await reject({ approvalId: approvalId as never });
+    } catch (err) {
+      toast("error", `Couldn't ${action}`, err instanceof Error ? err.message : "Please try again.");
+    } finally {
+      setActingApprovalId(null);
+    }
+  }
+
+  // Roles offered in the create/edit menus. A legacy role on an existing
+  // agent stays selectable so editing it does not silently blank the field.
+  const roleOptions: string[] =
+    agentRole && !(AGENT_ROLES as readonly string[]).includes(agentRole) ? [...AGENT_ROLES, agentRole] : [...AGENT_ROLES];
 
   if (pathname === "/") return null;
 
-  const PROJECT_COLORS = ["bg-sky-200 text-sky-900", "bg-emerald-200 text-emerald-900", "bg-violet-200 text-violet-900", "bg-amber-200 text-amber-900", "bg-rose-200 text-rose-900", "bg-teal-200 text-teal-900"];
-  const ProjectMark = ({ name, active = false }: { name: string; active?: boolean }) => {
-    const initial = (name.trim().charAt(0) || "•").toUpperCase();
-    const color = PROJECT_COLORS[[...name].reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % PROJECT_COLORS.length];
-    return (
-      <span
-        aria-hidden="true"
-        className={`mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold ${active ? "bg-[#5147b4] text-white" : color}`}
-      >
-        {initial}
-      </span>
-    );
-  };
+  const asideClass = isDrawer
+    ? // Phone: off-canvas drawer opened from the chat header's menu button.
+      `flex h-full w-[270px] shrink-0 flex-col gap-5 overflow-y-auto border-r border-[#e7e5ef] bg-white/70 px-3.5 py-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/70 max-[979px]:fixed max-[979px]:inset-y-0 max-[979px]:left-0 max-[979px]:z-50 max-[979px]:w-[min(86vw,320px)] max-[979px]:bg-white max-[979px]:pb-[max(1rem,env(safe-area-inset-bottom))] max-[979px]:pt-[max(1rem,env(safe-area-inset-top))] max-[979px]:shadow-2xl max-[979px]:dark:bg-gray-950 ${drawerOpen ? "" : "max-[979px]:hidden"}`
+    : "flex h-full w-[270px] shrink-0 flex-col gap-5 overflow-y-auto border-r border-[#e7e5ef] bg-white/70 px-3.5 py-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/70 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-r-0";
 
   return (
-    <aside className="flex h-full w-[270px] shrink-0 flex-col gap-5 overflow-y-auto border-r border-[#e7e5ef] bg-white/70 px-3.5 py-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/70 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-r-0">
+    <>
+    {isDrawer && drawerOpen && (
+      <div aria-hidden="true" onClick={onCloseDrawer} className="fixed inset-0 z-40 bg-black/40 min-[980px]:hidden" />
+    )}
+    <aside className={asideClass} aria-label="Projects and team" {...(isDrawer && drawerOpen ? { role: "dialog", "aria-modal": true } : {})}>
+      {isDrawer && (
+        <div className="flex items-center justify-between min-[980px]:hidden">
+          <span className="text-sm font-semibold">Workspace</span>
+          <button type="button" onClick={onCloseDrawer} aria-label="Close menu" className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-300 dark:hover:bg-gray-800">
+            <X size={18} />
+          </button>
+        </div>
+      )}
       <ConfirmDialog request={confirmReq} pending={removingAgentId !== null} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
       <div className="relative shrink-0">
         <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search"
-          className="h-9 w-full rounded-xl border-[#e5e3eb] bg-white pl-8 pr-12 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+          placeholder="Search projects"
+          aria-label="Search projects"
+          className="h-9 w-full rounded-xl border-[#e5e3eb] bg-white pl-8 pr-12 text-base sm:text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white"
         />
         <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-semibold text-gray-400 dark:border-gray-700 dark:bg-gray-800">
           ⌘K
@@ -306,7 +376,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
       </div>
 
       <div>
-        <SectionHeader key_="needsYou" title="Needs you" count={pending?.length ?? 0} />
+        <SectionHeader title="Needs you" count={pending?.length ?? 0} open={openSections.needsYou} onToggle={() => toggleSection("needsYou")} />
         <AnimatePresence initial={false}>
         {openSections.needsYou && (pending ?? []).slice(0, 3).map((a: any) => {
           const agentRoleLabel = roleLabel((agents ?? []).find((ag: any) => ag._id === a.requestedByAgentId)?.role);
@@ -328,15 +398,26 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
               </div>
             </div>
             <div className="mt-2.5 flex flex-wrap gap-2 pl-[38px]">
-              <Button type="button" size="sm" onClick={() => approve({ approvalId: a._id })} className="bg-emerald-600 text-white hover:bg-emerald-700">
-                <Check /> {a.kind === "git_push" ? "Approve push" : isEmailOrReply ? "Approve reply" : "Approve"}
+              <Button type="button" size="sm" disabled={actingApprovalId !== null} onClick={() => void runApproval(a._id, "approve")} className="bg-emerald-600 text-white hover:bg-emerald-700">
+                <Check /> {actingApprovalId === a._id ? "Working…" : a.kind === "git_push" ? "Approve push" : isEmailOrReply ? "Approve reply" : "Approve"}
               </Button>
-              <Button type="button" size="sm" variant="secondary" onClick={() => hold({ approvalId: a._id })}>
+              <Button type="button" size="sm" variant="secondary" disabled={actingApprovalId !== null} onClick={() => void runApproval(a._id, "hold")}>
                 <Hand size={13} /> Hold
               </Button>
-              <Button type="button" size="sm" variant="secondary" onClick={() => reject({ approvalId: a._id })}>
-                <X /> Reject
-              </Button>
+              {confirmRejectId === a._id ? (
+                <>
+                  <Button type="button" size="sm" disabled={actingApprovalId !== null} onClick={() => void runApproval(a._id, "reject")} className="bg-red-600 text-white hover:bg-red-700">
+                    Confirm reject
+                  </Button>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmRejectId(null)}>
+                    Keep
+                  </Button>
+                </>
+              ) : (
+                <Button type="button" size="sm" variant="secondary" disabled={actingApprovalId !== null} onClick={() => setConfirmRejectId(a._id)}>
+                  <X /> Reject
+                </Button>
+              )}
             </div>
             </CardContent>
           </Card>
@@ -344,11 +425,16 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
           );
         })}
         </AnimatePresence>
-        {openSections.needsYou && pending?.length === 0 && <p className="px-1 pt-2 text-xs text-gray-400">Nothing is waiting for approval.</p>}
+        {openSections.needsYou && (pending?.length ?? 0) > 3 && (
+          <Link href="/inbox" className="mt-2 block rounded-md px-1 text-xs font-medium text-[#5147b4] outline-none hover:underline focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-indigo-300">
+            View all {pending?.length} in Inbox
+          </Link>
+        )}
+        {openSections.needsYou && pending?.length === 0 && <p className="px-1 pt-2 text-xs text-gray-500 dark:text-gray-400">Nothing is waiting for approval.</p>}
       </div>
 
       <div>
-        <SectionHeader key_="projects" title="Projects" onManage={openNewProject} />
+        <SectionHeader title="Projects" open={openSections.projects} onToggle={() => toggleSection("projects")} onManage={openNewProject} />
         {openSections.projects && projects === undefined && (
           <div aria-hidden className="mt-2 space-y-2 px-1">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -359,7 +445,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
             ))}
           </div>
         )}
-        {openSections.projects && projects !== undefined && filteredProjects.length === 0 && <p className="px-1 pt-2 text-xs text-gray-400">No projects yet.</p>}
+        {openSections.projects && projects !== undefined && filteredProjects.length === 0 && <p className="px-1 pt-2 text-xs text-gray-500 dark:text-gray-400">{q ? "No projects match." : "No projects yet."}</p>}
         <AnimatePresence initial={false}>
         {openSections.projects && (projectsShowAll ? filteredProjects : filteredProjects.slice(0, 7)).map((p: any) => {
           const isSelected = projectId === p._id;
@@ -384,7 +470,8 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
             <Link
               href={`/chats/${p._id}`}
               onClick={() => onSelectProject?.(p._id)}
-              className="min-w-0 flex-1 truncate"
+              aria-current={isSelected ? "page" : undefined}
+              className="min-w-0 flex-1 truncate rounded outline-none focus-visible:ring-2 focus-visible:ring-[#635bff]/40"
             >
               {p.name}
             </Link>
@@ -406,7 +493,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                       variant="ghost"
                       size="icon-xs"
                       onClick={() => handleRemoveProject(p)}
-                      className="hidden text-gray-400 hover:bg-red-50 hover:text-red-600 group-hover:inline-flex"
+                      className={`${ROW_ACTION_VISIBILITY} text-gray-500 hover:bg-red-50 hover:text-red-600 dark:text-gray-400 dark:hover:bg-red-950/50`}
                       aria-label={`Delete ${p.name}`}
                     />
                   }
@@ -434,10 +521,10 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
 
       <div>
         <div className="flex items-center justify-between px-1">
-          <button type="button" onClick={() => toggleSection("team")} className="flex items-center gap-1 text-[13px] font-semibold text-[#24232d] hover:text-[#5147b4] dark:text-gray-100">
-            <span className={`inline-block text-[9px] text-gray-400 transition-transform ${openSections.team ? "rotate-90" : ""}`}>▶</span>
+          <button type="button" onClick={() => toggleSection("team")} aria-expanded={openSections.team} className="flex items-center gap-1 rounded-md text-[13px] font-semibold text-[#24232d] outline-none hover:text-[#5147b4] focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-100">
+            <span aria-hidden="true" className={`inline-block text-[9px] text-gray-400 transition-transform ${openSections.team ? "rotate-90" : ""}`}>▶</span>
             Team
-            <span className="font-medium text-gray-400 dark:text-gray-500">{visibleAgents.length}</span>
+            <span className="font-medium text-gray-500 dark:text-gray-400">{visibleAgents.length}</span>
           </button>
           <span className="flex items-center gap-1">
           <Tooltip>
@@ -509,11 +596,11 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                     : "text-gray-400";
           return (
           <motion.div key={a._id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} className="mt-1 rounded-xl hover:bg-[#f0eff7] dark:hover:bg-gray-800">
-            <div role="button" tabIndex={0} onClick={() => setDetailAgent(a)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setDetailAgent(a); }} className="group flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 dark:text-white">
+            <div role="button" tabIndex={0} onClick={() => setDetailAgent(a)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setDetailAgent(a); }} aria-label={`${roleLabel(a.role)} details`} className="group flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-white">
               <AgentAvatar name={roleLabel(a.role)} size={26} status={isDisabled ? undefined : status.avatar} avatarParams={a.avatarParams} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13px]">{roleLabel(a.role)}</span>
-                <span className="block truncate text-[11px] capitalize text-gray-400">
+                <span className="block truncate text-[11px] capitalize text-gray-500 dark:text-gray-400">
                   {active ? (
                     <>
                       <span className="font-medium text-emerald-600 dark:text-emerald-400">
@@ -534,7 +621,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
               <button
                 type="button"
                 onClick={(event) => { event.stopPropagation(); setExpandedAgentId(expanded ? null : a._id); }}
-                className="rounded px-1 text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4]"
+                className="rounded p-1 text-gray-500 outline-none hover:bg-[#eeecfb] hover:text-[#5147b4] focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-400 dark:hover:bg-gray-700"
                 title={expanded ? `Collapse ${roleLabel(a.role)}` : `Expand ${roleLabel(a.role)}`}
                 aria-label={expanded ? `Collapse ${roleLabel(a.role)}` : `Expand ${roleLabel(a.role)}`}
                 aria-expanded={expanded}
@@ -544,7 +631,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
               <button
                 type="button"
                 onClick={(event) => { event.stopPropagation(); openAgentEditor(a); }}
-                className="hidden rounded px-1 text-gray-400 hover:bg-[#eeecfb] hover:text-[#5147b4] group-hover:block"
+                className={`${ROW_ACTION_VISIBILITY} rounded p-1 text-gray-500 outline-none hover:bg-[#eeecfb] hover:text-[#5147b4] focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-400 dark:hover:bg-gray-700`}
                 title={`Edit ${roleLabel(a.role)}`}
                 aria-label={`Edit ${roleLabel(a.role)}`}
               >
@@ -557,11 +644,11 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                   handleRemoveAgent(a._id, roleLabel(a.role));
                 }}
                 disabled={removingAgentId === a._id}
-                className="hidden rounded px-1 text-xs text-gray-400 hover:bg-red-50 hover:text-red-600 group-hover:block disabled:opacity-50"
+                className={`${ROW_ACTION_VISIBILITY} rounded p-1 text-gray-500 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-400/50 disabled:opacity-50 dark:text-gray-400 dark:hover:bg-red-950/50`}
                 title={`Remove ${roleLabel(a.role)}`}
                 aria-label={`Remove ${roleLabel(a.role)}`}
               >
-                ×
+                <X size={13} />
               </button>
             </div>
             {expanded && (
@@ -590,7 +677,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
           );
         })()}
         {openSections.team && (agents ?? []).length === 0 && agents !== undefined && (
-          <p className="px-1 pt-2 text-xs text-gray-400">No agents yet.</p>
+          <p className="px-1 pt-2 text-xs text-gray-500 dark:text-gray-400">No agents yet.</p>
         )}
       </div>
 
@@ -613,9 +700,10 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                     <SelectValue placeholder="Select a role…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {AGENT_ROLES.map((role) => (
+                    {roleOptions.map((role) => (
                       <SelectItem key={role} value={role}>
                         {roleLabel(role)}
+                        {!(AGENT_ROLES as readonly string[]).includes(role) ? " (retired)" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -656,7 +744,8 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                   className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
                 />
               </label>
-              <button type="submit" disabled={savingAgent} className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+              {agentError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{agentError}</p>}
+              <button type="submit" disabled={savingAgent} className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-gray-900">
                 {savingAgent ? "Creating…" : "Create agent"}
               </button>
             </div>
@@ -677,9 +766,10 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                     <SelectValue placeholder="Select a role…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {AGENT_ROLES.map((role) => (
+                    {roleOptions.map((role) => (
                       <SelectItem key={role} value={role}>
                         {roleLabel(role)}
+                        {!(AGENT_ROLES as readonly string[]).includes(role) ? " (retired)" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -762,5 +852,6 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
       )}
 
     </aside>
+    </>
   );
 }

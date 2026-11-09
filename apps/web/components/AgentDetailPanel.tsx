@@ -17,14 +17,6 @@ const ROLE_FALLBACK: Record<
   string,
   { displayName: string; category: string; description: string; defaultCapabilities: string[]; defaultTools: string[]; systemPromptHint: string }
 > = {
-  lead: {
-    displayName: "Lead",
-    category: "Leadership",
-    description: "Project coordination, task analysis, delegation, collaboration tracking.",
-    defaultCapabilities: ["project-coordination", "general"],
-    defaultTools: ["read_file"],
-    systemPromptHint: "Break the request into clear requirements and actionable tasks, coordinate the right agents, track progress, summarize results. Do not execute code changes directly.",
-  },
   cto: {
     displayName: "CTO",
     category: "Leadership",
@@ -36,7 +28,7 @@ const ROLE_FALLBACK: Record<
   designer: {
     displayName: "Designer",
     category: "Product",
-    description: "UI/UX, wireframes, design system, component specifications.",
+    description: "UI and UX design, wireframes, design system, component specifications.",
     defaultCapabilities: ["ui-ux-design"],
     defaultTools: ["read_file", "write_file"],
     systemPromptHint: "Produce implementable design specs (layout, components, tokens, states, responsive) with accessibility considered. Design only — no code edits.",
@@ -64,14 +56,6 @@ const ROLE_FALLBACK: Record<
     defaultCapabilities: ["browser-testing"],
     defaultTools: ["read_file", "run_command"],
     systemPromptHint: "Verify with the narrowest relevant checks and report evidence. Distinguish executed tests from proposed ones — never fabricate results. Defects go back to the implementer with a concrete repro.",
-  },
-  growth: {
-    displayName: "Growth Specialist",
-    category: "Growth",
-    description: "SEO, product growth, analytics, metrics, user engagement.",
-    defaultCapabilities: ["growth-marketing"],
-    defaultTools: ["read_file"],
-    systemPromptHint: "Tie every recommendation to a measurable goal (clicks, signups, retention). Advise and specify — implementation stays with the engineer agent.",
   },
   support: {
     displayName: "Support Specialist",
@@ -104,22 +88,6 @@ const ROLE_FALLBACK: Record<
     defaultCapabilities: ["research"],
     defaultTools: ["read_file"],
     systemPromptHint: "Prefer official docs; distinguish facts from assumptions with sources. Read-only research — no file modifications.",
-  },
-  "product-analyst": {
-    displayName: "Product Analyst",
-    category: "Product",
-    description: "Requirement analysis and acceptance criteria.",
-    defaultCapabilities: ["research"],
-    defaultTools: ["read_file"],
-    systemPromptHint: "Structure requirements into acceptance criteria with explicit scope boundaries. Do not expand scope.",
-  },
-  "ui-ux": {
-    displayName: "UI/UX Designer",
-    category: "Product",
-    description: "User experience and interface design.",
-    defaultCapabilities: ["ui-ux-design"],
-    defaultTools: ["read_file"],
-    systemPromptHint: "Design guidance only — layout, hierarchy, and UX rationale. The Frontend Developer implements it.",
   },
 };
 
@@ -159,8 +127,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function formatTime(epoch: number | null) {
-  if (epoch === null) return "—";
+function formatTime(epoch: number | null | undefined) {
+  if (epoch == null) return "—";
   return new Date(epoch).toLocaleString();
 }
 
@@ -181,7 +149,9 @@ export default function AgentDetailPanel({
     | undefined;
   const status = statusFromActive(active);
 
-  const roleKey = (agent.role ?? "").trim().toLowerCase();
+  const rawRole = (agent.role ?? "").trim().toLowerCase();
+  // Retired roles (ui-ux, product-analyst) display as their successor.
+  const roleKey = rawRole === "ui-ux" ? "designer" : rawRole === "product-analyst" ? "researcher" : rawRole;
   const fallback = ROLE_FALLBACK[roleKey];
   const roleDefinition = (detail as any)?.roleDefinition;
   const roleName: string = roleLabel(agent.role);
@@ -215,11 +185,9 @@ export default function AgentDetailPanel({
         <div className="flex items-center gap-3">
           <AgentAvatar name={roleLabel(agent.role)} size={44} status={status.avatar === "idle" ? undefined : status.avatar} avatarParams={agent.avatarParams} />
           <div className="min-w-0">
-            <p className="text-sm font-medium">{roleName}</p>
+            <p className="text-sm font-medium">{fallback?.displayName ?? roleName}</p>
             <p className="text-xs capitalize text-gray-500">
-              {roleName}
-              {fallback?.category ? ` · ${fallback.category}` : ""}
-              {roleDefinition?.category ? ` · ${roleDefinition.category}` : ""}
+              {roleDefinition?.category ?? fallback?.category ?? fallback?.displayName ?? "Agent"}
             </p>
           </div>
           <span className="ml-auto flex items-center gap-2">
@@ -265,7 +233,7 @@ export default function AgentDetailPanel({
         <Section title="Tool permissions">
           <ChipRow values={effectiveTools} />
           <p className="mt-1 text-[11px] text-gray-400">
-            {toolsAreCustom ? "Agent override (`supportedTools`)." : "Role defaults (`defaultToolsForRole`)."}
+            {toolsAreCustom ? "Custom for this agent." : "Role defaults."}
           </p>
           {assignments.some((row) => row.allowedTools) && (
             <ul className="mt-2 space-y-1 text-xs text-gray-500">

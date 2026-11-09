@@ -3,18 +3,18 @@
 import { motion } from "framer-motion";
 import { Pin } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { RefObject } from "react";
+import { useEffect, useRef, type MutableRefObject, type RefObject } from "react";
 import { parseOptions } from "@/lib/options";
 import { roleLabel } from "@/lib/agentRoles";
 import ApprovalCard from "../ApprovalCard";
 import QaPanel from "../QaPanel";
-import DiffCard from "../DiffCard";
 import AgentAvatar from "../AgentAvatar";
 import { ReasoningLine } from "../ui/trace";
 import MessageText from "./MessageText";
 import OptionCards from "./OptionCards";
 import TaskCard from "./TaskCard";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
+import { SectionLoading } from "@/app/WorkspaceContext";
 
 export type MessageKind = "evaluation" | "planning" | "delegation" | "design" | null;
 
@@ -43,19 +43,21 @@ type Props = {
   pendingItems: any[];
   projectEvents?: any[];
   projectApprovalMode: "ask" | "auto";
-  fileChangesByTask?: any[];
-  latestAgentMessage: any;
-  diffStats: { added: number; removed: number };
+  /** Messages query still loading: show a skeleton, not "No messages yet". */
+  loading?: boolean;
   chatSending: boolean;
   conversationTyping: boolean;
   replyingNames: string[];
   activeForSelectedTask: any[];
   workingAgents: any[];
   scrollRef?: RefObject<HTMLDivElement | null>;
+  /** Filled with a function that scrolls a message into view (works for
+   *  virtualized rows that are not in the DOM). Returns false if absent. */
+  scrollToMessageRef?: MutableRefObject<((messageId: string) => boolean) | null>;
   onSelectTask: (taskId: string) => void;
-  approve: (approvalId: string) => void;
-  reject: (approvalId: string) => void;
-  hold: (approvalId: string) => void;
+  approve: (approvalId: string) => unknown;
+  reject: (approvalId: string) => unknown;
+  hold: (approvalId: string) => unknown;
   togglePin: (messageId: string, pinned: boolean) => void;
   onPickProposal: (choice: string) => void;
   formatTime: (createdAt: number) => string;
@@ -66,19 +68,42 @@ type Props = {
 export default function MessageList(props: Props) {
   const {
     timeline, firstNewIndex, agents, tasks = [], subtasksOf, pendingItems, projectEvents = [],
-    projectApprovalMode, fileChangesByTask, latestAgentMessage, diffStats, chatSending,
-    conversationTyping, replyingNames, activeForSelectedTask, workingAgents, scrollRef, onSelectTask, approve, reject,
-    hold, togglePin, onPickProposal, formatTime, taskTitle, blockKey,
+    projectApprovalMode, loading = false, chatSending,
+    conversationTyping, replyingNames, activeForSelectedTask, workingAgents, scrollRef, scrollToMessageRef,
+    onSelectTask, approve, reject, hold, togglePin, onPickProposal, formatTime, taskTitle, blockKey,
   } = props;
 
+  const listRef = useRef<HTMLDivElement>(null);
   const virtualized = timeline.length >= VIRTUALIZE_THRESHOLD;
   const virtualizer = useVirtualizer({
     count: virtualized ? timeline.length : 0,
     getScrollElement: () => scrollRef?.current ?? null,
     estimateSize: () => 140,
     overscan: 8,
+    // The list sits below error banners and padding inside the scroll
+    // container; without the margin the visible range is off by that much.
+    scrollMargin: listRef.current?.offsetTop ?? 0,
     getItemKey: (index) => blockKey(timeline[index]) + String(index),
   });
+
+  useEffect(() => {
+    if (!scrollToMessageRef) return;
+    scrollToMessageRef.current = (messageId: string) => {
+      const index = timeline.findIndex((m: any) => m._id === messageId);
+      if (index < 0) return false;
+      if (virtualized) {
+        virtualizer.scrollToIndex(index, { align: "center" });
+        // Re-run once rows are measured so the target lands centred.
+        requestAnimationFrame(() => virtualizer.scrollToIndex(index, { align: "center" }));
+        return true;
+      }
+      document.getElementById(`message-${messageId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return true;
+    };
+    return () => {
+      if (scrollToMessageRef) scrollToMessageRef.current = null;
+    };
+  }, [scrollToMessageRef, timeline, virtualized, virtualizer]);
 
   const renderItem = (m: any, index: number, animate: boolean) => {
     const previous = timeline[index - 1];
@@ -116,7 +141,6 @@ export default function MessageList(props: Props) {
                 task={cardTask}
                 subtasks={subtasksOf.get(key) ?? []}
                 pending={pending}
-                onApprove={approve}
                 onOpen={onSelectTask}
                 agents={agents}
                 approvalMode={projectApprovalMode}
@@ -197,27 +221,27 @@ export default function MessageList(props: Props) {
               return null;
             })()}
           </p>
-          <span className="text-[11px] text-gray-400">{formatTime(m._creationTime)}</span>
+          <span className="text-[11px] text-gray-500 dark:text-gray-400">{formatTime(m._creationTime)}</span>
           <button
             type="button"
             title={m.pinned ? "Unpin message" : "Pin message"}
             aria-label={m.pinned ? "Unpin message" : "Pin message"}
             aria-pressed={Boolean(m.pinned)}
             onClick={() => togglePin(m._id, !m.pinned)}
-            className={`rounded p-0.5 transition ${
+            className={`-my-1 rounded-md p-1.5 outline-none transition focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 ${
               m.pinned
                 ? "text-[#635bff]"
-                : "text-gray-300 opacity-0 group-hover:opacity-100 hover:text-[#635bff]"
+                : "text-gray-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-[#635bff] [@media(hover:none)]:opacity-60 dark:text-gray-500"
             }`}
           >
-            <Pin size={11} />
+            <Pin size={12} aria-hidden="true" />
           </button>
         </div>
         <div className="mt-1.5">
           {m.authorType === "agent" && (m.reasoning || !m.content?.trim()) && (
             <ReasoningLine
               text={m.reasoning}
-              running={!m.content?.trim()}
+              running={!m.content?.trim() && conversationTyping && index === timeline.length - 1}
               seconds={m.reasoningDurationMs}
             />
           )}
@@ -238,11 +262,9 @@ export default function MessageList(props: Props) {
           if (options.length === 0) return null;
           const next = timeline[index + 1];
           const pickedMsg = next?.authorType === "user" ? (next.content ?? "") : "";
-          const pickedId = options.find(
-            (o) =>
-              new RegExp(`^I choose ${o.id}\\b`, "i").test(pickedMsg) ||
-              pickedMsg.includes(o.title)
-          )?.id;
+          // Only the explicit "I choose <id>" form counts: a title substring
+          // match picked the wrong option ("Dark" in "Dark & Light").
+          const pickedId = options.find((o) => new RegExp(`^I choose ${o.id}\\b`, "i").test(pickedMsg))?.id;
           // The mockup's second chip: does the CTO endorse the
           // pick in its next reply?
           let ctoAgrees = false;
@@ -251,7 +273,7 @@ export default function MessageList(props: Props) {
               const candidate = timeline[i];
               if (!candidate || candidate.authorType !== "agent") continue;
               const role = (agents as any)?.find((a: any) => a._id === candidate.agentId)?.role;
-              if (!/^(cto|architect|lead|orchestrator|planner)$/i.test(role ?? "")) continue;
+              if (!/^(cto|architect|orchestrator|planner)$/i.test(role ?? "")) continue;
               ctoAgrees = /^\s*i agree\b/i.test(candidate.content ?? "");
               break;
             }
@@ -303,43 +325,15 @@ export default function MessageList(props: Props) {
             </div>
           );
         })()}
-        {m.taskId && fileChangesByTask?.length && m._id === latestAgentMessage?._id ? (
-          <div className="mt-2">
-            <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-600">
-              Changed {(fileChangesByTask as any).length} files
-              <span className="text-emerald-600">+{diffStats.added}</span>
-              <span className="text-rose-500">−{diffStats.removed}</span>
-            </p>
-            {(fileChangesByTask as any).map((fc: any) => {
-              const pendingApproval = pendingItems.find(
-                (a: any) => a.taskId === m.taskId && a.status === "pending" && (a.payload?.filePaths ?? []).includes(fc.filePath),
-              );
-              return (
-                <DiffCard
-                  key={fc._id}
-                  filePath={fc.filePath}
-                  diff={fc.diff}
-                  changeType={fc.changeType}
-                  oldContent={fc.oldContent}
-                  newContent={fc.newContent}
-                  applied={Boolean(fc.appliedAt)}
-                  approvalId={pendingApproval?._id as string}
-                  busy={false}
-                  onApprove={(id) => approve(id as string)}
-                  onReject={(id) => reject(id as string)}
-                />
-              );
-            })}
-          </div>
-        ) : null}
       </div>
     </>
   );
 
   return (
     <>
+      {loading && <SectionLoading rows={2} />}
       {virtualized ? (
-        <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+        <div ref={listRef} style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
           {virtualizer.getVirtualItems().map((vi) => {
             const m = timeline[vi.index];
             return (
@@ -352,7 +346,7 @@ export default function MessageList(props: Props) {
                   top: 0,
                   left: 0,
                   width: "100%",
-                  transform: `translateY(${vi.start}px)`,
+                  transform: `translateY(${vi.start - virtualizer.options.scrollMargin}px)`,
                 }}
               >
                 {renderItem(m, vi.index, false)}
@@ -361,25 +355,30 @@ export default function MessageList(props: Props) {
           })}
         </div>
       ) : (
-        timeline.map((m: any, index: number) => renderItem(m, index, true))
+        <div ref={listRef}>{timeline.map((m: any, index: number) => renderItem(m, index, true))}</div>
       )}
       {/* Generic chat-reply indicator. Per-agent status (Working now
           / X is thinking) is more specific: when either is visible,
           this one hides so the same state is not announced twice. */}
       {conversationTyping && activeForSelectedTask.length === 0 && workingAgents.length === 0 && (
-        <div className="flex items-center gap-2.5 rounded-full border border-[#ebe9f4] bg-white/80 px-3 py-1.5 text-xs font-medium text-gray-500 shadow-sm dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-300">
+        <div role="status" aria-live="polite" className="flex w-fit items-center gap-2.5 rounded-full border border-[#ebe9f4] bg-white/80 px-3 py-1.5 text-xs font-medium text-gray-500 shadow-sm dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-300">
           <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#eeecfb] text-[10px] text-[#635bff] dark:bg-indigo-950 dark:text-indigo-300" aria-hidden="true">✦</span>
           <span>{replyLabel(replyingNames)}</span>
-          <span className="flex gap-1" aria-label="Agent is typing">
+          <span className="flex gap-1" aria-hidden="true">
             <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8b82e8]" />
             <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8b82e8] [animation-delay:120ms]" />
             <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8b82e8] [animation-delay:240ms]" />
           </span>
         </div>
       )}
-      {!timeline.length && <p className="text-sm text-gray-400">No messages yet.</p>}
+      {!loading && !timeline.length && (
+        <div className="py-10 text-center">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-200">No messages yet</p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Describe what you want built. Type @ to address a teammate like @CTO or @QA.</p>
+        </div>
+      )}
       {activeForSelectedTask.length > 0 ? (
-        <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
+        <div role="status" aria-live="polite" className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
           <div className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">
             <span className="relative flex h-2 w-2">
               <span className="absolute h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
@@ -392,11 +391,11 @@ export default function MessageList(props: Props) {
               <div key={agent._id} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
                 <AgentAvatar name={roleLabel(agent.role)} size={18} status="working" avatarParams={agent.avatarParams} />
                 <span className="font-medium">{roleLabel(agent.role)}</span>
-                <span className="text-gray-400">
+                <span className="text-gray-500 dark:text-gray-400">
                   {stage === "waiting_approval" ? "waiting approval" : stage === "queued" ? "queued" : "thinking"}
                   {subtaskKey ? ` · ${subtaskKey}` : ""}
                 </span>
-                <span className="flex gap-0.5" aria-label="Agent is typing">
+                <span className="flex gap-0.5" aria-hidden="true">
                   <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
                   <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
                   <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:240ms]" />
@@ -407,7 +406,7 @@ export default function MessageList(props: Props) {
         </div>
       ) : (
         workingAgents.length > 0 && (
-          <div className="flex items-center gap-2 text-xs text-gray-400">
+          <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
             <div className="flex space-x-1">
               {workingAgents.slice(0, 3).map((agent: any) => (
                 <AgentAvatar
@@ -418,8 +417,8 @@ export default function MessageList(props: Props) {
                 />
               ))}
             </div>
-            <span>{workingAgents.map((agent: any) => roleLabel(agent.role)).join(", ")} is thinking</span>
-            <span className="flex gap-0.5" aria-label="Agent is thinking">
+            <span>{workingAgents.map((agent: any) => roleLabel(agent.role)).join(", ")} {workingAgents.length === 1 ? "is" : "are"} thinking</span>
+            <span className="flex gap-0.5" aria-hidden="true">
               <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
               <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
               <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:240ms]" />

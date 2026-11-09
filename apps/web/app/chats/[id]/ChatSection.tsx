@@ -16,7 +16,11 @@ function ChatSection() {
   }, [projectId, searchParams]);
 
   return (
+    // Keyed by project: draft, queue, selection and scroll state must not
+    // leak from one project into the next (queued messages were sent to
+    // the wrong project).
     <ChatPanel
+      key={projectId}
       projectId={projectId}
       tab={tab}
       setTab={setTab}

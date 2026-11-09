@@ -512,7 +512,9 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
       case "text":
         if (event.text) {
           texts.push(event.text);
-          chain = chain.then(() => input.onChunk?.(event.text)).catch(() => {});
+          // OpenCode emits whole text parts: keep them on their own lines.
+          const part = event.text.endsWith("\n") ? event.text : `${event.text}\n`;
+          chain = chain.then(() => input.onChunk?.(part)).catch(() => {});
         }
         break;
       case "tool":

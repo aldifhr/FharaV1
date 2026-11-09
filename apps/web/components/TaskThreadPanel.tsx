@@ -11,6 +11,7 @@ import ApprovalCard from "./ApprovalCard";
 import DiffCard from "./DiffCard";
 import InitialAvatar from "./InitialAvatar";
 import SubtaskActivity from "./SubtaskActivity";
+import SubtaskLiveOutput from "./SubtaskLiveOutput";
 import ChatCard from "./chat/cards/ChatCard";
 import ReviewSnippet from "./chat/cards/ReviewSnippet";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
@@ -530,6 +531,7 @@ export default function TaskThreadPanel({
                       {s.status === "running" && s.activity && (
                         <SubtaskActivity activity={s.activity} at={s.activityAt} />
                       )}
+                      {s.status === "running" && taskId && <SubtaskLiveOutput taskId={taskId} subtaskKey={s.key} />}
                     </li>
                   );
                 })}

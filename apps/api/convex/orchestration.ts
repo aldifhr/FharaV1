@@ -9,6 +9,7 @@ import { resolveRunMcpServers } from "./mcpServers";
 import { loadMemorySection } from "./memories";
 import { writePlanVersion } from "./lib/planStore";
 import { decidePermissionCore, permissionArgs } from "./permissionBroker";
+import { clearSubtaskLive } from "./subtaskLive";
 import { recordAudit } from "./lib/recordAudit";
 import {
   autoApprovalDecision,
@@ -1593,6 +1594,8 @@ export const updateSubtask = internalMutation({
           ? Date.now()
           : undefined,
     });
+    // Live output tail only exists while running (subtaskLive.ts).
+    if (nextStatus !== "running") await clearSubtaskLive(ctx, args.taskId, args.key);
     return true;
   },
 });

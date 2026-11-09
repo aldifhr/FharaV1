@@ -135,7 +135,8 @@ describe("opencode JSON events", () => {
     expect(result.output).toBe("done");
     expect(result.inputTokens).toBe(12079 + 7352);
     expect(result.outputTokens).toBe(15 + 4 + 1);
-    expect(chunks).toEqual(["done"]);
+    // Whole text parts, newline-terminated so parts stay on their own lines.
+    expect(chunks).toEqual(["done\n"]);
     expect(messages).toEqual(["done"]);
     const tool = events.find(([t]) => t === "native.tool");
     expect(tool?.[1]).toMatchObject({ tool: "write", status: "completed" });

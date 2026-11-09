@@ -195,43 +195,147 @@ export class OpenAICompatibleProvider implements LLMProvider {
       );
     }
 
-    const normalizedBody = responseBody.replace(/(?:\r?\n)?data:\s*\[DONE\]\s*$/, "");
-    try {
-      const data = JSON.parse(normalizedBody) as { choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } };
-      return {
-        content: data.choices?.[0]?.message?.content ?? "",
-        inputTokens: data.usage?.prompt_tokens,
-        outputTokens: data.usage?.completion_tokens,
-      };
-    } catch (error) {
-      if (!(error instanceof SyntaxError)) throw error;
-
-      // A server that answers with SSE even without `stream: true`: the
-      // usage (when sent) rides on the last chunk(s). `stream_options` is
-      // deliberately not sent — strict OpenAI rejects it on a non-stream
-      // request; missing usage is estimated upstream (withUsageEstimate).
-      let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
-      const content = normalizedBody
-        .split(/\r?\n/)
-        .filter((line) => line.startsWith("data:") && line.slice(5).trim() !== "[DONE]")
-        .map((line) => {
-          const payload = JSON.parse(line.slice(5).trim()) as {
-            choices?: { delta?: { content?: string }; message?: { content?: string } }[];
-            usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
-          };
-          if (payload.usage) usage = payload.usage;
-          return payload.choices?.[0]?.delta?.content ?? payload.choices?.[0]?.message?.content ?? "";
-        })
-        .join("");
-
-      return { content, inputTokens: usage?.prompt_tokens, outputTokens: usage?.completion_tokens };
-    }
+    return parseCompletionBody(responseBody);
   }
 
+  /**
+   * Real SSE streaming (`stream: true`): text deltas reach `onChunk` as
+   * they arrive, so the live output tail moves while the model writes.
+   * Same timeout/abort coverage as complete() (the whole body read), same
+   * error shape. A server that ignores `stream` and answers with one JSON
+   * body is parsed like complete() and emitted as a single chunk. Usage
+   * is read when the server sends it; `stream_options` is not sent (strict
+   * servers reject unknown fields), missing usage is estimated upstream.
+   */
   async stream(messages: LLMMessage[], onChunk: (delta: string) => void, model?: string, opts?: LLMCallOptions): Promise<LLMResult> {
-    const result = await this.complete(messages, model, opts);
-    if (result.content) onChunk(result.content);
-    return result;
+    const url = `${this.baseUrl.replace(/\/$/, "")}/chat/completions`;
+    const controller = new AbortController();
+    const timeoutMs = effectiveLlmTimeoutMs(opts?.timeoutMs);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const onExternalAbort = () => controller.abort();
+    if (opts?.signal) {
+      if (opts.signal.aborted) controller.abort();
+      else opts.signal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "text/event-stream",
+          authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: model ?? this.model,
+          messages,
+          max_tokens: opts?.maxTokens ?? llmMaxTokens(),
+          stream: true,
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const details = (await response.text()).trim().slice(0, 500);
+        throw new Error(
+          `LLM request failed (${response.status}) for model "${model ?? this.model}" at ${this.baseUrl}/chat/completions${details ? `: ${details}` : ""}`
+        );
+      }
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!response.body || !/event-stream/i.test(contentType)) {
+        const result = parseCompletionBody(await response.text());
+        if (result.content) onChunk(result.content);
+        return result;
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let content = "";
+      let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+      const handleLine = (line: string) => {
+        if (!line.startsWith("data:")) return;
+        const data = line.slice(5).trim();
+        if (!data || data === "[DONE]") return;
+        let payload: {
+          choices?: { delta?: { content?: string | null }; message?: { content?: string | null } }[];
+          usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
+          error?: { message?: string } | string;
+        };
+        try {
+          payload = JSON.parse(data);
+        } catch {
+          return; // a malformed keep-alive/comment line is not fatal
+        }
+        if (payload.error) {
+          const message = typeof payload.error === "string" ? payload.error : payload.error.message ?? "unknown error";
+          throw new Error(`LLM stream error for model "${model ?? this.model}" at ${this.baseUrl}/chat/completions: ${message.slice(0, 500)}`);
+        }
+        if (payload.usage) usage = payload.usage;
+        const delta = payload.choices?.[0]?.delta?.content ?? payload.choices?.[0]?.message?.content ?? "";
+        if (delta) {
+          content += delta;
+          onChunk(delta);
+        }
+      };
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() ?? "";
+        for (const line of lines) handleLine(line);
+      }
+      buffer += decoder.decode();
+      if (buffer) handleLine(buffer);
+      return { content, inputTokens: usage?.prompt_tokens, outputTokens: usage?.completion_tokens };
+    } catch (error) {
+      if (controller.signal.aborted && error instanceof Error && error.name === "AbortError") {
+        if (opts?.signal?.aborted) {
+          throw new Error(`LLM request aborted by caller at ${this.baseUrl}/chat/completions`);
+        }
+        throw new Error(`LLM request timed out after ${Math.round(timeoutMs / 1000)}s at ${this.baseUrl}/chat/completions`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      opts?.signal?.removeEventListener("abort", onExternalAbort);
+    }
+  }
+}
+
+/**
+ * Parse a /chat/completions body: one JSON object, or SSE lines from a
+ * server that streams even without `stream: true`.
+ */
+function parseCompletionBody(responseBody: string): LLMResult {
+  const normalizedBody = responseBody.replace(/(?:\r?\n)?data:\s*\[DONE\]\s*$/, "");
+  try {
+    const data = JSON.parse(normalizedBody) as { choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } };
+    return {
+      content: data.choices?.[0]?.message?.content ?? "",
+      inputTokens: data.usage?.prompt_tokens,
+      outputTokens: data.usage?.completion_tokens,
+    };
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+
+    // A server that answers with SSE even without `stream: true`: the
+    // usage (when sent) rides on the last chunk(s). `stream_options` is
+    // deliberately not sent — strict OpenAI rejects it on a non-stream
+    // request; missing usage is estimated upstream (withUsageEstimate).
+    let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+    const content = normalizedBody
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:") && line.slice(5).trim() !== "[DONE]")
+      .map((line) => {
+        const payload = JSON.parse(line.slice(5).trim()) as {
+          choices?: { delta?: { content?: string }; message?: { content?: string } }[];
+          usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
+        };
+        if (payload.usage) usage = payload.usage;
+        return payload.choices?.[0]?.delta?.content ?? payload.choices?.[0]?.message?.content ?? "";
+      })
+      .join("");
+
+    return { content, inputTokens: usage?.prompt_tokens, outputTokens: usage?.completion_tokens };
   }
 }
 

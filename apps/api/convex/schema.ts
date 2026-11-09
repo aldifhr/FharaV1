@@ -295,6 +295,20 @@ export default defineSchema({
     .index("by_task_and_status", ["taskId", "status"])
     .index("by_project", ["projectId"]),
 
+  // Live output tail of a running subtask (worker:setSubtaskLiveOutput).
+  // Kept off the subtasks row: it is rewritten every ~400ms while a model
+  // streams, and subtask rows (with their outputs) feed project-wide
+  // reactive queries that should not refire on every flush.
+  subtaskLive: defineTable({
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    key: v.string(),
+    text: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_task", ["taskId"])
+    .index("by_task_and_key", ["taskId", "key"]),
+
   executions: defineTable({
     taskId: v.id("tasks"),
     projectId: v.id("projects"),

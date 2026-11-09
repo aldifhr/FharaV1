@@ -208,6 +208,7 @@ export const remove = mutation({
         "executions",
         "evaluations",
         "plans",
+        "subtaskLive",
       ] as const) {
         const records = await ctx.db
           .query(table)

@@ -8,6 +8,7 @@ import type { FunctionReturnType } from "convex/server";
 import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Copy, Download, FileJson, FileText } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import IconRail from "@/components/IconRail";
+import SubtaskLiveOutput from "@/components/SubtaskLiveOutput";
 import { useToast } from "@/components/Toasts";
 import { buildRunJson, buildRunMarkdown, exportFilename } from "@/lib/runExport";
 import webPackage from "../../../package.json";
@@ -110,8 +111,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function StepDetail({ step, stepByKey }: { step: Step; stepByKey: Map<string, Step> }) {
+function StepDetail({ step, stepByKey, taskId }: { step: Step; stepByKey: Map<string, Step>; taskId: string }) {
   const t = step.tokens;
+  const running = isActiveStatus(step.status) && step.completedAt === undefined;
   return (
     <div className="space-y-3 border-t border-line bg-canvas/40 px-4 py-3.5">
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
@@ -168,6 +170,9 @@ function StepDetail({ step, stepByKey }: { step: Step; stepByKey: Map<string, St
           <p className="text-[12px] font-medium text-red-600 dark:text-red-400">Error</p>
           <pre className="mt-1 overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] text-red-600 dark:text-red-400">{step.error}</pre>
         </div>
+      )}
+      {running && step.type === "execution" && step.subtaskKey && (
+        <SubtaskLiveOutput taskId={taskId} subtaskKey={step.subtaskKey} className="" />
       )}
       {step.input && <Mono label="Input" text={step.input} defaultOpen={step.input.length < 400} />}
       {step.output && <Mono label="Output" text={step.output} />}
@@ -248,7 +253,7 @@ function Waterfall({ run, now }: { run: Run; now: number }) {
                 <span className="block text-ink-3">{tokens ? `${step.tokens?.estimated ? "≈" : ""}${formatTokens(tokens)} tok${step.tokens?.approximate ? "*" : ""}` : ""}</span>
               </span>
             </button>
-            {expanded && <StepDetail step={step} stepByKey={stepByKey} />}
+            {expanded && <StepDetail step={step} stepByKey={stepByKey} taskId={run.task._id} />}
           </li>
         );
       })}

@@ -8,6 +8,7 @@ import { api } from "@/api/convex/_generated/api";
 import { useToast } from "./Toasts";
 import { roleLabel } from "@/lib/agentRoles";
 import SubtaskActivity from "./SubtaskActivity";
+import SubtaskLiveOutput from "./SubtaskLiveOutput";
 import { NEUTRAL_PILL, TASK_STATUSES, TASK_STATUS_PILL, isClosedStatus, subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
 import { SectionLoading, useWorkspace } from "@/app/WorkspaceContext";
 import ConfirmDialog from "./ConfirmDialog";
@@ -356,6 +357,7 @@ export default function TaskBoard({
                     {s.status === "running" && s.activity && (
                       <SubtaskActivity activity={s.activity} at={s.activityAt} />
                     )}
+                    {s.status === "running" && <SubtaskLiveOutput taskId={t._id} subtaskKey={s.key} />}
                     </div>
                   );
                 })}

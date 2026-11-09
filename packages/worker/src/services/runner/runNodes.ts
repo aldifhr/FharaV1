@@ -13,6 +13,7 @@ import type { RunContext } from "./types";
 import type { FileDiff } from "@/tools/gitDiff";
 import { applyQaCheck, buildChangesCard, buildQaCard, postStageCard } from "./cards";
 import { ACTIVITY_STARTING, ACTIVITY_THINKING, createActivityReporter, describeActivity } from "./activity";
+import { LiveOutputCoalescer } from "./liveOutput";
 
 /**
  * The DAG nodes runner (plan 012 step 2): run a set of subtasks through
@@ -107,6 +108,11 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         deps.api.setSubtaskActivity({ taskId, key: node.id, activity })
       );
       reportActivity(ACTIVITY_STARTING);
+      // Live output tail under the running row: streamed text, coalesced.
+      const live = new LiveOutputCoalescer({
+        write: (text) => deps.api.setSubtaskLiveOutput({ taskId, key: node.id, text }),
+        clear: () => deps.api.setSubtaskLiveOutput({ taskId, key: node.id, text: "" }),
+      });
       const outcome = await executeSubtask({
         workspacePath: input.workspacePath,
         command: task.command,
@@ -144,6 +150,11 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         onEvent: async (type, payload, level) => {
           input.taskAbort?.bump?.();
           reportActivity(describeActivity(type, payload));
+          if (type === "native.tool") {
+            const tool = payload as { tool?: string; title?: string; target?: string } | undefined;
+            const step = tool?.title || [tool?.tool, tool?.target].filter(Boolean).join(" ");
+            if (step) live.line(`› ${step}`);
+          }
           // Plan 019: live QA checklist — each browser check updates the card.
           if (subtask.kind === "qa" && type === "task.check" && ctx.qaCard) {
             const check = payload as { label?: string; status?: string; details?: string } | undefined;
@@ -204,8 +215,10 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
             executionId,
           });
         },
-        onChunk: async () => {
-          // Chunks are buffered by the provider; the final message is stored once.
+        onChunk: async (delta) => {
+          // Streamed text feeds the live tail only; the final message is
+          // still stored once by onMessage.
+          live.push(delta);
         },
         discardFileChange:
           typeof (deps.api as { discardFileChange?: unknown }).discardFileChange === "function"
@@ -301,7 +314,9 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
             });
           }
         },
-      });
+        // Settled (or threw): drop the live tail once pending writes land.
+        // Not awaited: a slow cosmetic write must not hold the outcome.
+      }).finally(() => void live.close());
       if (outcome.status === "completed" && subtask.kind === "code_change" && stagedByNode.length > 0) {
         await postStageCard(deps.api, {
           taskId,

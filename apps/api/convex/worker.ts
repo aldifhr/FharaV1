@@ -263,6 +263,20 @@ export const setSubtaskActivity = action({
   },
 });
 
+/** Live output tail of a running subtask; empty `text` clears it. */
+export const setSubtaskLiveOutput = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    key: v.string(),
+    text: v.string(),
+    workerId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.subtaskLive.set, withoutToken(args));
+  },
+});
+
 export const requestApproval = action({
   args: {
     ...tokenArg,

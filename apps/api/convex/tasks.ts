@@ -240,6 +240,7 @@ export const remove = mutation({
         | "delegations"
         | "lifecycleHistory"
         | "taskPushes"
+        | "subtaskLive"
     ) => {
       const records = await ctx.db
         .query(table)
@@ -262,6 +263,7 @@ export const remove = mutation({
       "delegations",
       "lifecycleHistory",
       "taskPushes",
+      "subtaskLive",
     ] as const) {
       await deleteByTask(table);
     }

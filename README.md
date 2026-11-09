@@ -101,8 +101,7 @@ Requires Node ≥ 20.9 (`.nvmrc`: 24) and git.
 git clone <this repo> MOAgent && cd MOAgent
 npm install
 
-cp .env.example .env                          # worker + shared settings
-cp apps/web/.env.example apps/web/.env.local  # web app
+cp .env.example .env                          # the only env file you edit (worker, web and Convex)
 
 cd apps/api && npx convex dev --once && cd ../..   # log in / pick a deployment, push functions, generate convex/_generated
 npm run doctor                                     # checks the setup, prints ✓ / ! / ✗ with fixes
@@ -110,20 +109,19 @@ npm run dev                                        # Convex dev + web (http://lo
 ```
 
 `npx convex dev` writes the deployment to `apps/api/.env.local`; copy its
-URL into `NEXT_PUBLIC_CONVEX_URL` in both `.env` and `apps/web/.env.local`.
+URL into `NEXT_PUBLIC_CONVEX_URL` in `.env`.
 For a self-hosted backend set `CONVEX_SELF_HOSTED_URL` /
 `CONVEX_SELF_HOSTED_ADMIN_KEY` instead (see `apps/api/.env.example`).
 
-Then set the Convex deployment env once (same values as your `.env`):
-
-```bash
-cd apps/api
-npx convex env set CONVEX_SERVICE_TOKEN "$(openssl rand -hex 32)"   # also put it in .env and apps/web/.env.local
-npx convex env set PROVIDER_ENCRYPTION_KEY "$(openssl rand -base64 32)"  # also in .env
-```
+Put `CONVEX_SERVICE_TOKEN` (`openssl rand -hex 32`) and
+`PROVIDER_ENCRYPTION_KEY` (`openssl rand -base64 32`) in `.env`. Convex
+functions cannot read files, so `npm run dev` copies the keys they use
+(`LLM_*`, `GITHUB_*`, `PROVIDER_ENCRYPTION_KEY`, `CONVEX_SERVICE_TOKEN`, …)
+from `.env` to the Convex deployment env, only when a value changed. Run
+`npm run env:sync` to do that by hand.
 
 Add an LLM provider in **Settings → LLM** (or set the `LLM_*` fallback in
-`.env` and in the Convex env), create a project pointing at a local git
+`.env`), create a project pointing at a local git
 repository, and send a request in its chat.
 
 `npm run dev` runs three processes with prefixed logs (`[api]`, `[web]`,
@@ -134,9 +132,10 @@ pieces: `npm run dev:web`, `npm run dev:api`, `npm run worker`,
 
 ## Configuration
 
-Worker settings live in the root `.env`; the web app reads
-`apps/web/.env.local`; backend settings live in the **Convex deployment env**
-(`npx convex env set`). All are listed in the `.env.example` files.
+Everything lives in the root `.env`: the worker reads it, the web app loads
+it in `next.config.mjs` (`apps/web/.env.local` still works as an override),
+and `npm run dev` / `npm run env:sync` copies the backend keys to the Convex
+deployment env. All are listed in `.env.example`.
 
 | Variable | Where | Default | What it does |
 |---|---|---|---|

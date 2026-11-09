@@ -7,9 +7,10 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -k -n api,web,worker -c blue,magenta,green \"npm run --workspace=@moagent/api dev\" \"npm run dev:web\" \"npm run worker:supervised\"",
+    "dev": "node scripts/env.mjs sync && concurrently -k -n api,web,worker -c blue,magenta,green \"npm run dev:api\" \"npm run dev:web\" \"npm run worker:supervised\"",
     "dev:web": "npm run --workspace=@moagent/web dev",
-    "dev:api": "npm run --workspace=@moagent/api dev",
+    "dev:api": "node scripts/env.mjs run -- npm run --workspace=@moagent/api dev",
+    "env:sync": "node scripts/env.mjs sync",
     "build": "npm run --workspace=@moagent/web build",
     "worker": "npm run --workspace=@moagent/worker start",
     "worker:supervised": "node scripts/supervise.mjs --name worker --cwd packages/worker -- npx tsx src/index.ts",

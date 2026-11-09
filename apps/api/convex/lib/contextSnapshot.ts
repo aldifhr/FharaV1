@@ -467,7 +467,7 @@ export function buildContextSnapshot(input: SnapshotInput): { meta: SnapshotMeta
 }
 
 /** Share of the prompt each section takes, in whole percent (sums to ~100). */
-export function sectionShares(stats: SectionStat[]): Array<SectionStat & { share: number }> {
+export function sectionShares<T extends { tokens: number }>(stats: T[]): Array<T & { share: number }> {
   const total = stats.reduce((n, s) => n + s.tokens, 0) || 1;
   return stats.map((s) => ({ ...s, share: Math.round((s.tokens / total) * 1000) / 10 }));
 }

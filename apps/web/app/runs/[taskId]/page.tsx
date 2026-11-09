@@ -19,6 +19,8 @@ import RoutingInspector from "@/components/runs/RoutingInspector";
 import PlanGraph from "@/components/runs/PlanGraph";
 import Contracts from "@/components/runs/Contracts";
 import { ReviewerSection, SecondOpinionButton } from "@/components/review/Reviewer";
+import ReplaySession from "@/components/runs/ReplaySession";
+import RunContext from "@/components/context/RunContext";
 import { MODEL_TIER_LABELS, type ModelTierKey } from "@/api/convex/lib/modelTiers";
 import { formatEstimateLine } from "@/api/convex/lib/estimate";
 import {
@@ -664,6 +666,9 @@ export default function RunTracePage() {
               <Section title="Routing">
                 <RoutingInspector routing={run.routing} instruction={run.task.command} />
               </Section>
+
+              <ReplaySession taskId={String(run.task._id)} />
+              <RunContext taskId={String(run.task._id)} />
 
               <Agents run={run} />
               <Events run={run} />

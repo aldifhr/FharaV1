@@ -24,6 +24,7 @@ import ActivityGroupRow from "./ActivityGroupRow";
 import { useToast } from "../Toasts";
 import { QuotedSnippet, quoteOf } from "./QuoteBlock";
 import { ChatOpinionLine, useChatOpinions, useRequestMessageOpinion } from "../review/Reviewer";
+import ContextDrawer from "../context/ContextDrawer";
 
 export type MessageKind = "evaluation" | "planning" | "delegation" | "design" | null;
 
@@ -125,6 +126,8 @@ export default function MessageList(props: Props) {
   const chatProjectId = (timeline.find((m: any) => m.projectId) as any)?.projectId as string | undefined;
   const opinions = useChatOpinions(chatProjectId);
   const requestOpinion = useRequestMessageOpinion();
+  // Context Inspector drawer for one agent reply (its LLM calls).
+  const [inspectId, setInspectId] = useState<string | null>(null);
   // A reply is live while the action streams it. The age cap keeps a row
   // from an action that died mid-stream from animating forever.
   const isLive = (m: any) =>
@@ -406,8 +409,30 @@ export default function MessageList(props: Props) {
               {/* Reasoning is meta, so it sits above the bubble; while the
                   reply has no text yet the bubble itself shows Thinking. */}
               {showReasoning && hasText && (
+                <div className="mt-1 flex items-start gap-3">
+                  <div className="min-w-0">
+                    <ReasoningLine text={m.reasoning} running={false} seconds={m.reasoningDurationMs} />
+                  </div>
+                  {m.authorType === "agent" && !isLive(m) && (
+                    <button
+                      type="button"
+                      onClick={() => setInspectId(String(m._id))}
+                      className="mt-[3px] shrink-0 text-[12px] text-ink-3 hover:text-ink"
+                    >
+                      Inspect context
+                    </button>
+                  )}
+                </div>
+              )}
+              {!showReasoning && hasText && m.authorType === "agent" && !isLive(m) && !m.card && !m.taskId && (
                 <div className="mt-1">
-                  <ReasoningLine text={m.reasoning} running={false} seconds={m.reasoningDurationMs} />
+                  <button
+                    type="button"
+                    onClick={() => setInspectId(String(m._id))}
+                    className="text-[12px] text-ink-3 hover:text-ink"
+                  >
+                    Inspect context
+                  </button>
                 </div>
               )}
               <div className="mt-1.5 w-fit min-w-0 max-w-full rounded-2xl rounded-tl-md bg-bubble px-4 py-3">
@@ -529,6 +554,7 @@ export default function MessageList(props: Props) {
 
   return (
     <CardSurfaceProvider value={cardSurface}>
+      {inspectId && <ContextDrawer messageId={inspectId} onClose={() => setInspectId(null)} />}
       {loading && <SectionLoading rows={2} />}
       {virtualized ? (
         <div ref={listRef} style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>

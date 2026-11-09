@@ -71,6 +71,13 @@ export default function ManageProjectModal({
   useEffect(() => {
     if (tierState && !tiersTouched) setTiers(tierState.tiers);
   }, [tierState, tiersTouched]);
+  // Context Snapshot retention (days; default 14).
+  const retention = useQuery(api.contextSnapshots.getRetention, { projectId: projectId as never });
+  const setRetention = useMutation(api.contextSnapshots.setRetention);
+  const [retentionDays, setRetentionDays] = useState<string>("");
+  useEffect(() => {
+    if (retention && retentionDays === "") setRetentionDays(String(retention.days));
+  }, [retention, retentionDays]);
   const [name, setName] = useState(project.name ?? "");
   const [path, setPath] = useState(project.workspacePath ?? "");
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(projectDefaultPermissionMode(project));
@@ -110,6 +117,10 @@ export default function ManageProjectModal({
       }
       if (shadowDefault !== Boolean(project.shadowAgentDefault)) {
         await setShadowDefault({ projectId: projectId as never, enabled: shadowDefault });
+      }
+      const days = Number(retentionDays);
+      if (retention && retentionDays !== "" && Number.isFinite(days) && days !== retention.days) {
+        await setRetention({ projectId: projectId as never, days });
       }
       if (tiersTouched) {
         await setModelTiers({ projectId: projectId as never, modelTiers: tiers as never });
@@ -182,6 +193,22 @@ export default function ManageProjectModal({
             <span className="text-[12.5px] text-ink-3">
               The Reviewer reads each completed subtask and leaves notes. It never runs anything or blocks the task. Off by default; switch it per task in the thread.
             </span>
+          </span>
+        </label>
+        <label className="grid gap-1">
+          Context snapshots kept for (days)
+          <input
+            type="number"
+            min={1}
+            max={365}
+            value={retentionDays}
+            onChange={(e) => setRetentionDays(e.target.value)}
+            className={field}
+          />
+          <span className="text-[12.5px] text-ink-3">
+            {retention && !retention.enabled
+              ? "Recording is off for this deployment (CONTEXT_SNAPSHOTS=0)."
+              : "What each LLM call saw, for Inspect context, Replay and the Playground. Older snapshots are deleted daily."}
           </span>
         </label>
         <fieldset className="grid gap-2">

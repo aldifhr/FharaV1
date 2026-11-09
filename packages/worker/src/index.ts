@@ -145,6 +145,11 @@ async function main() {
     }
   }, HEARTBEAT_MS);
 
+  const SHUTDOWN_DRAIN_MS = 5_000;
+  const SHUTDOWN_HARD_CAP_MS = 10_000;
+  /** Settles after `ms` at the latest; never rejects. */
+  const withTimeout = (p: Promise<unknown>, ms: number) =>
+    Promise.race([p.catch(() => undefined), sleep(ms)]);
   const shutdown = async (signal: string) => {
     if (stopping) return;
     stopping = true;
@@ -154,16 +159,23 @@ async function main() {
     // MCP are still alive; 4) only then stop heartbeat, dispose MCP and
     // mark offline. Interrupted tasks are not failed: their leases lapse
     // and recovery hands them to another worker.
+    // Hard cap: Ctrl+C must always end the worker, even when Convex is
+    // already down (npm run dev stops api first) and markOffline or an MCP
+    // dispose never settles. Leases lapse on their own anyway.
+    setTimeout(() => {
+      log("shutdown took too long, exiting");
+      process.exit(0);
+    }, SHUTDOWN_HARD_CAP_MS).unref();
     shutdownController.abort(new Error("Worker shutting down"));
-    const deadline = Date.now() + 15_000;
+    const deadline = Date.now() + SHUTDOWN_DRAIN_MS;
     while (inFlight.size > 0 && Date.now() < deadline) {
       await sleep(200);
     }
     if (inFlight.size > 0) log(`${inFlight.size} task(s) still draining at exit; leases will expire`);
     clearInterval(heartbeat);
     // Plan 009: kill every MCP child process before the worker exits.
-    await getMcpRegistry().disposeAll().catch(() => undefined);
-    await api.markOffline({ workerId }).catch(() => undefined);
+    await withTimeout(getMcpRegistry().disposeAll(), 2_000);
+    await withTimeout(api.markOffline({ workerId }), 2_000);
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));

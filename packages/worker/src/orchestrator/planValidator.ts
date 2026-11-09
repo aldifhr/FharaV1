@@ -208,3 +208,21 @@ export function topologicalOrder(subtasks: PlanSubtask[]): PlanSubtask[] {
   }
   return result;
 }
+
+/**
+ * Validate a plan read back from storage (resume after approval, lease
+ * recovery). The planner's subtask cap applies to what a PLANNER may
+ * propose; the stored plan also carries the nodes the runner itself added
+ * during the run (review/QA/verification fix nodes, delegations), each
+ * bounded by its own loop limit. Re-applying the planner cap here failed a
+ * review-approved e2e ULTRA task right after the user approved its diff
+ * ("plan has 9 subtasks; limit is 8" -> "Stored plan is missing or
+ * invalid"). Structure is still fully validated.
+ */
+export function validateStoredPlan(raw: unknown, maxSubtasks: number): ValidationResult {
+  const count =
+    raw && typeof raw === "object" && Array.isArray((raw as { subtasks?: unknown }).subtasks)
+      ? (raw as { subtasks: unknown[] }).subtasks.length
+      : 0;
+  return validatePlan(raw, Math.max(maxSubtasks, count));
+}

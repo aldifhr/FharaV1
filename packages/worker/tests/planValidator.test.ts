@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validatePlan, findCycle } from "@/orchestrator/planValidator";
+import { validatePlan, validateStoredPlan, findCycle } from "@/orchestrator/planValidator";
 
 const validPlan = {
   goal: "Ship a feature",
@@ -117,5 +117,30 @@ describe("plan validator", () => {
     );
     expect(bad.ok).toBe(false);
     expect(bad.errors.join(" ")).toContain("allowedPaths");
+  });
+});
+
+describe("stored plan validation", () => {
+  const big = {
+    ...validPlan,
+    subtasks: Array.from({ length: 9 }, (_, i) => ({
+      key: `n${i}`,
+      title: `Node ${i}`,
+      description: "work",
+      kind: "code_change",
+      capability: "frontend-development",
+      dependencies: i === 0 ? [] : [`n${i - 1}`],
+      order: i,
+    })),
+  };
+
+  it("accepts a stored plan that grew past the planner cap with runner-added nodes", () => {
+    expect(validatePlan(big, 8).ok).toBe(false);
+    expect(validateStoredPlan(big, 8).ok).toBe(true);
+  });
+
+  it("still rejects a structurally invalid stored plan", () => {
+    const broken = { ...big, subtasks: [...big.subtasks, { ...big.subtasks[0], key: "x", dependencies: ["missing"] }] };
+    expect(validateStoredPlan(broken, 8).ok).toBe(false);
   });
 });

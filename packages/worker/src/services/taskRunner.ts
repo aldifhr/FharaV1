@@ -20,7 +20,7 @@ import { classifyCommand } from "@/orchestrator/classifier";
 import { splitTimedOutNodes, timedOutKeys } from "@/orchestrator/concernSplit";
 import { policyForComplexity } from "@/orchestrator/policy";
 import { wantsVisualQa } from "@/orchestrator/planner";
-import { validatePlan } from "@/orchestrator/planValidator";
+import { validatePlan, validateStoredPlan } from "@/orchestrator/planValidator";
 import { BudgetTracker, isBudgetExhaustedError } from "@/orchestrator/budget";
 import type { TokenUsageMeta } from "@/effects/llmCall";
 import {
@@ -382,7 +382,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
   let createdBy: "orchestrator" | "fallback" = "fallback";
   let planVersion: number;
 
-  const stored = context.plan ? validatePlan(context.plan.payload, deps.policy.maxSubtasks) : null;
+  const stored = context.plan ? validateStoredPlan(context.plan.payload, deps.policy.maxSubtasks) : null;
   const storedPlan = stored?.ok && stored.plan ? stored.plan : null;
 
   if (deps.policy.orchestratorAuthoritative === true) {
@@ -1956,7 +1956,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
   if (!applyApprovals.some((approval) => approval.status === "approved")) return;
 
   const planValidation = context.plan
-    ? validatePlan(context.plan.payload, deps.policy.maxSubtasks)
+    ? validateStoredPlan(context.plan.payload, deps.policy.maxSubtasks)
     : null;
   if (!planValidation?.ok || !planValidation.plan) {
     await deps.api.completeTask({

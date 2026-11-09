@@ -45,6 +45,8 @@ const LAYERS: Record<string, number> = {
 /** apps/api modules that are pure TypeScript and safe at the foundation layer. */
 const SHARED_FOUNDATION = new Set([
   "convex/lib/roles",
+  // Skill v2: pure skill prompt helpers (PromptSkill type, budgets).
+  "convex/lib/skills",
   // Pure shared helpers (no Convex APIs): plan validation + estimate +
   // plan-review policy run on both sides.
   "convex/lib/ownershipPaths",

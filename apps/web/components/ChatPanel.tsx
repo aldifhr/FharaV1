@@ -130,37 +130,35 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const lastMessage = timeline[timeline.length - 1];
 
   // ── Unread "• New" divider: last-read timestamp per conversation. ──────
+  // `lastReadAt` advances (and persists) as the user reads to the bottom;
+  // the divider stays where it was when the conversation was opened, so it
+  // does not vanish the moment the view auto-scrolls. Sending a message
+  // means the user caught up: the divider goes away.
   const conversationKey = (activeConversation as any)?.conversation?._id ?? projectId;
-  const [lastSeenAt, setLastSeenAt] = useState<number | null>(null);
-  const [lastSeenFresh, setLastSeenFresh] = useState(false);
+  const lastReadRef = useRef<number>(0);
+  const [dividerAt, setDividerAt] = useState<number | null>(null);
   useEffect(() => {
-    // Keep the pre-conversation per-project key readable after the switch.
+    // The pre-conversation per-project key stays readable after the switch.
     const stored = readLastRead(conversationKey) ?? readLastRead(projectId);
-    setLastSeenAt(stored ?? 0);
-    setLastSeenFresh(stored === null);
+    lastReadRef.current = stored ?? 0;
+    // First visit (nothing stored): the backlog is not "new".
+    setDividerAt(stored ?? Number.POSITIVE_INFINITY);
   }, [conversationKey, projectId]);
   const markSeen = () => {
     const seen = lastMessage?._creationTime ?? 0;
-    if (!seen) return;
-    setLastSeenAt((prev) => {
-      const next = Math.max(prev ?? 0, seen);
-      if (next !== prev) writeLastRead(conversationKey, next);
-      return next;
-    });
+    if (!seen || seen <= lastReadRef.current) return;
+    lastReadRef.current = seen;
+    writeLastRead(conversationKey, seen);
   };
   useEffect(() => {
-    if (timeline.length === 0 || lastSeenAt === null) return;
-    if (lastSeenFresh) {
-      // First visit: the backlog is not "new".
-      markSeen();
-      setLastSeenFresh(false);
-      return;
-    }
+    if (timeline.length === 0 || dividerAt === null) return;
     const el = scrollRef.current;
-    if (el && el.scrollHeight - el.scrollTop - el.clientHeight <= 120 && document.visibilityState === "visible") markSeen();
+    const atBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight <= 120;
+    if ((atBottom && document.visibilityState === "visible") || dividerAt === Number.POSITIVE_INFINITY) markSeen();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeline, conversationKey, lastSeenFresh, lastSeenAt === null]);
-  const firstNewIndex = lastSeenAt === null ? -1 : timeline.findIndex((m: any) => m._creationTime > lastSeenAt && m.authorType !== "user");
+  }, [timeline, conversationKey, dividerAt]);
+  const firstNewIndex =
+    dividerAt === null ? -1 : timeline.findIndex((m: any) => m._creationTime > dividerAt && m.authorType !== "user");
 
   // ── Scrolling ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -332,6 +330,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       }
       setDraft("");
       mentions.setMention(null);
+      setDividerAt(Number.POSITIVE_INFINITY);
     } catch (err) {
       setChatError(err instanceof Error ? err.message : "Failed to send");
     } finally {

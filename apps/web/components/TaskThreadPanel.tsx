@@ -323,8 +323,13 @@ export default function TaskThreadPanel({
   const isDelegationHandoff = (m: any) => m.authorType === "agent" && typeof m.content === "string" && /^@[\w-]+\s/.test(m.content);
   // Agent replies plus the user's own replies/steers, so the user can see
   // that what they sent went through.
+  // The task's own command (first user message) is the thread's subject,
+  // not a reply.
+  const commandMessageId = (messages ?? []).find((m: any) => m.authorType === "user")?._id;
   const threadReplies = (messages ?? []).filter(
-    (m: any) => (m.authorType === "agent" && !ctoMessages.includes(m) && !isDelegationHandoff(m)) || m.authorType === "user",
+    (m: any) =>
+      (m.authorType === "agent" && !ctoMessages.includes(m) && !isDelegationHandoff(m)) ||
+      (m.authorType === "user" && m._id !== commandMessageId),
   );
   const replyCount = threadReplies.length;
 

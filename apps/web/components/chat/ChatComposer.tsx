@@ -15,7 +15,7 @@ import {
   Paperclip,
   RotateCcw,
   SendHorizontal,
-  Slash,
+  SquareSlash,
   Sparkles,
   SquareCode,
   Type,
@@ -486,7 +486,7 @@ export default function ChatComposer({
               <AtSign size={16} />
             </button>
             <button type="button" className={`${tool} max-sm:hidden`} aria-label="Commands" title="Commands" onClick={() => (draft ? appendToken("/") : onDraftChange("/"))}>
-              <Slash size={15} />
+              <SquareSlash size={16} />
             </button>
             {speechSupported && (
               <button

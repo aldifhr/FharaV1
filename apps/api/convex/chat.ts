@@ -315,6 +315,44 @@ export function pickConversationalAgent(
   return [notCto[0]];
 }
 
+/** Max teammates the CTO can pull into one chat turn by @mention. */
+export const MAX_CTO_HANDOFFS = 3;
+
+/**
+ * Teammates the CTO addressed in its reply with `@Name` or `@role`
+ * (case-insensitive, whole word), in the order they first appear. The
+ * speaker itself and unknown names are ignored. Exported for unit tests.
+ */
+export function extractAgentMentions<T extends { _id: string; name: string; role: string }>(
+  text: string,
+  team: T[],
+  speakerId?: string
+): T[] {
+  const hits: Array<{ index: number; agent: T }> = [];
+  for (const agent of team) {
+    if (speakerId && String(agent._id) === String(speakerId)) continue;
+    const labels = Array.from(new Set([agent.name, agent.role].filter(Boolean)));
+    let first = -1;
+    for (const label of labels) {
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+      const match = new RegExp(`(^|[^\\w@])@${escaped}(?![\\w-])`, "i").exec(text);
+      if (match && (first === -1 || match.index < first)) first = match.index;
+    }
+    if (first !== -1) hits.push({ index: first, agent });
+  }
+  return hits.sort((a, b) => a.index - b.index).map((hit) => hit.agent);
+}
+
+/** System-prompt lines that let the CTO hand parts of a chat turn to teammates. */
+export function buildHandoffGuidance(team: Array<{ _id: string; name: string; role: string }>, speakerId: string): string[] {
+  const others = team.filter((a) => String(a._id) !== String(speakerId));
+  if (others.length === 0) return [];
+  return [
+    `Teammates you can bring into this chat: ${others.map((a) => `@${a.name}`).join(", ")}.`,
+    `When part of the question needs a teammate's expertise, address them with @Name and say exactly what you need from them (at most ${MAX_CTO_HANDOFFS}). They reply right after you, in this chat. Do not mention teammates for greetings or when you can answer fully yourself.`,
+  ];
+}
+
 /** Parse the CTO chooser's reply: the chosen candidate id, or null. */
 export function parseResponderSelection(raw: string, candidateIds: string[]): string | null {
   const text = raw.trim();
@@ -744,16 +782,25 @@ export const replyToChat = internalAction({
         replyToMessageId: args.userMessageId,
       });
       let lastPatchAt = 0;
+      // Partial patches run one at a time; the final patch waits for the
+      // last one. Fire-and-forget patches could land AFTER the final write
+      // and overwrite the full reply with a truncated snapshot.
+      let patchChain: Promise<unknown> = Promise.resolve();
       const result = await completeWithAgent(system, msgs, config, ({ content, reasoning }) => {
         const now = Date.now();
         if (now - lastPatchAt < 250 || (!content.trim() && !reasoning.trim())) return;
         lastPatchAt = now;
-        void ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
-          messageId: messageId as any,
-          content,
-          reasoning: reasoning || undefined,
-        }).catch(() => {});
+        patchChain = patchChain
+          .then(() =>
+            ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
+              messageId: messageId as any,
+              content,
+              reasoning: reasoning || undefined,
+            })
+          )
+          .catch(() => {});
       });
+      await patchChain;
       await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
         messageId: messageId as any,
         content: result.content,
@@ -973,6 +1020,10 @@ export const replyToChat = internalAction({
     if (intent.intent === "ask" && !isOptionPick) {
       if (mentionedAgents.length > 0) {
         responders = mentionedAgents;
+      } else if (orchestrator !== null) {
+        // The CTO is in the chat (the default participant): it answers and
+        // pulls teammates in by @mention when their expertise is needed.
+        responders = [orchestrator];
       } else {
         const pool = (teamAgents ?? agents).filter(
           (a) => !/(cto|architect|lead|orchestrator|planner|manager)/i.test(a.role)
@@ -988,10 +1039,18 @@ export const replyToChat = internalAction({
     } else {
       responders = agents;
     }
-    // Sequential multi-agent replies: each selected agent answers with its persona
-    for (const agent of responders) {
-      const multiNotice = responders.length > 1
-        ? ` You are participating in a multi-agent discussion with: ${responders.map((a) => `${a.name} (${a.role})`).join(", ")}.`
+    // Sequential multi-agent replies: each selected agent answers with its persona.
+    // The queue grows when the CTO @mentions teammates in its reply (handoff).
+    const queue = [...responders];
+    const answered = new Set<string>();
+    const handoffFrom = new Map<string, string>();
+    let handoffs = 0;
+    for (let turn = 0; turn < queue.length; turn += 1) {
+      const agent = queue[turn];
+      if (answered.has(String(agent._id))) continue;
+      answered.add(String(agent._id));
+      const multiNotice = queue.length > 1
+        ? ` You are participating in a multi-agent discussion with: ${queue.map((a) => `${a.name} (${a.role})`).join(", ")}.`
         : "";
       const system = [
         `You are ${agent.name}, a ${agent.role} on the agent team of project "${projectName}".${multiNotice}`,
@@ -1005,6 +1064,12 @@ export const replyToChat = internalAction({
           isOrchestrator: orchestrator !== null && agent._id === orchestrator._id,
           taskIntent,
         }),
+        ...(orchestrator !== null && agent._id === orchestrator._id
+          ? buildHandoffGuidance((teamAgents ?? agents) as Array<{ _id: string; name: string; role: string }>, String(agent._id))
+          : []),
+        ...(handoffFrom.has(String(agent._id))
+          ? [`${handoffFrom.get(String(agent._id))} (CTO) brought you into this chat with an @mention. Answer only the part addressed to you, briefly, in the user's language. Do not repeat what the CTO already said.`]
+          : []),
         OPTIONS_GUIDANCE,
       ]
         .filter(Boolean)
@@ -1046,7 +1111,19 @@ export const replyToChat = internalAction({
 
       if (content.trim()) {
         // Append response to conversation so subsequent agents have context
-        conversation.push({ role: "assistant", content: content.trim() });
+        conversation.push({ role: "assistant", content: `${agent.name}: ${content.trim()}` });
+        // CTO handoff: teammates it @mentioned answer next, in order.
+        if (orchestrator !== null && agent._id === orchestrator._id) {
+          const team = (teamAgents ?? agents) as typeof agents;
+          for (const mentioned of extractAgentMentions(content, team, String(agent._id))) {
+            if (handoffs >= MAX_CTO_HANDOFFS) break;
+            if (answered.has(String(mentioned._id))) continue;
+            if (queue.some((queued, index) => index > turn && queued._id === mentioned._id)) continue;
+            queue.push(mentioned);
+            handoffFrom.set(String(mentioned._id), agent.name);
+            handoffs += 1;
+          }
+        }
       }
     }
   },

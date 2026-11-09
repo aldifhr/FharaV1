@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
-import { classifyChatIntent, parseIntentResult, parseResponderSelection, pickConversationalAgent } from "./chat";
+import { buildHandoffGuidance, classifyChatIntent, extractAgentMentions, parseIntentResult, parseResponderSelection, pickConversationalAgent } from "./chat";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -76,5 +76,30 @@ describe("chat intent (mirrors worker router)", () => {
     });
     const { internal } = await import("./_generated/api");
     expect(await t.query(internal.chatContext.checkAlreadyReplied, { userMessageId })).toBe(false);
+  });
+});
+
+describe("CTO @mention handoff", () => {
+  const team = [
+    { _id: "cto", name: "CTO", role: "cto" },
+    { _id: "fe", name: "Frontend", role: "frontend" },
+    { _id: "be", name: "Backend", role: "backend" },
+    { _id: "qa", name: "QA", role: "qa" },
+  ];
+
+  test("finds teammates mentioned by name or role, in order of appearance", () => {
+    const text = "Saya usul begini. @Backend tolong cek skema, lalu @frontend sesuaikan form. @QA nanti tes.";
+    expect(extractAgentMentions(text, team, "cto").map((a) => a._id)).toEqual(["be", "fe", "qa"]);
+  });
+
+  test("ignores the speaker, emails, unknown names and partial words", () => {
+    const text = "@CTO di sini. Kirim ke me@Backend.dev, @Designer belum ada, @Frontendish bukan nama.";
+    expect(extractAgentMentions(text, team, "cto")).toEqual([]);
+  });
+
+  test("lists the other teammates in the CTO guidance", () => {
+    const lines = buildHandoffGuidance(team, "cto");
+    expect(lines[0]).toContain("@Frontend");
+    expect(lines[0]).not.toContain("@CTO");
   });
 });

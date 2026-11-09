@@ -314,7 +314,7 @@ export const send = action({
       content: args.content,
       conversationId,
     });
-    ctx.scheduler.runAfter(0, internal.chat.replyToChat, {
+    await ctx.scheduler.runAfter(0, internal.chat.replyToChat, {
       projectId: args.projectId,
       conversationId,
       userMessageId: messageId,

@@ -221,7 +221,7 @@ export default function TaskCard({
       {/* Approve lives on the ApprovalCard(s) rendered below this card —
           one control per approval, not a second button for pending[0]. */}
       {!isClosedStatus(task.status) && pending.length === 0 && task.status !== "done" && approvalMode === "ask" && (
-        <p className={`pl-1 text-[11px] ${MUTED}`}>Waits for your approval before anything is pushed</p>
+        <p className={`pl-1 text-[11px] ${MUTED}`}>Team is working. You will get an Approve card here before any change is applied.</p>
       )}
     </div>
   );

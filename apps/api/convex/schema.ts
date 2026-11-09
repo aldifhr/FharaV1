@@ -119,6 +119,9 @@ export default defineSchema({
     isEnabled: v.optional(v.boolean()),
     priority: v.optional(v.number()),
     maxConcurrency: v.optional(v.number()),
+    // Set once when syncFixedTeam retires a removed role; a later manual
+    // re-enable is respected because retired rows are never re-disabled.
+    retiredAt: v.optional(v.number()),
   }).index("by_enabled", ["isEnabled"]),
 
   tasks: defineTable({

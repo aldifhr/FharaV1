@@ -62,6 +62,14 @@ async function main() {
       })
       .catch(() => undefined);
   });
+  // Apply fixed-team migrations (retired roles, new default capabilities)
+  // to existing data. Best-effort: a failure never blocks task claiming.
+  try {
+    const synced = await api.syncFixedTeam();
+    log(`fixed team synced: ${synced.total} roles, ${synced.retired} retired`);
+  } catch (error) {
+    log("fixed team sync failed:", error instanceof Error ? error.message : String(error));
+  }
   const workspaceRoot = process.env.WORKSPACE_ROOT ?? "./workspaces";
   const inFlight = new Map<string, Promise<void>>();
 

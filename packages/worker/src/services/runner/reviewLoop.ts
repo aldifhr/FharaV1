@@ -57,11 +57,13 @@ export async function runReviewLoop(ctx: RunContext): Promise<boolean> {
         // The loop deliberately re-runs its own nodes: clear this run's
         // completion mark so the scheduler executes them again.
         runCompleted.delete(key);
-        // Round is stored separately; UI composes "Review (round N)".
-        if (iteration > 0) {
-          const rt = plan.subtasks.find((s) => s.key === key);
-          if (rt) rt.reviewRound = iteration + 1;
-        }
+      }
+      // Round is stored separately (title stays stable); persist it so the
+      // UI can render "Review (round N)" for the re-run review rows.
+      if (iteration > 0) {
+        const rerun = plan.subtasks.filter((s) => reviewNodeKeys.includes(s.key));
+        for (const node of rerun) node.reviewRound = iteration + 1;
+        await persistDynamic(rerun, "review_fix");
       }
 
       await deps.api.logEvent({

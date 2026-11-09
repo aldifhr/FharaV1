@@ -54,7 +54,25 @@ export function pathsOverlap(a?: string[], b?: string[]): boolean {
 }
 
 function normalizePathPrefix(raw: string): string {
-  return raw.trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/\*\*$/, "").replace(/\/$/, "");
+  const segments = raw.trim().replace(/\\/g, "/").replace(/^\.\//, "").split("/");
+  // Keep only the literal directory part of a glob: "src/components/**/*.tsx"
+  // scopes to "src/components".
+  const literal: string[] = [];
+  for (const segment of segments) {
+    if (/[*?[{]/.test(segment)) break;
+    literal.push(segment);
+  }
+  return literal.join("/").replace(/\/+$/, "");
+}
+
+/** True when a (possibly absolute, worktree-rooted) file sits inside scope. */
+function fileInScope(file: string, scope: string): boolean {
+  return (
+    file === scope ||
+    file.startsWith(`${scope}/`) ||
+    file.endsWith(`/${scope}`) ||
+    file.includes(`/${scope}/`)
+  );
 }
 
 export interface FixCandidate {
@@ -87,7 +105,7 @@ export function pickFixOwner(
     for (const scopeRaw of candidate.allowedPaths ?? []) {
       const scope = normalizePathPrefix(scopeRaw).toLowerCase();
       if (!scope || scope === "src") continue; // generic src/ matches everything — skip
-      if (files.some((file) => file === scope || file.startsWith(`${scope}/`))) {
+      if (files.some((file) => fileInScope(file, scope))) {
         if (scope.length > bestLen) {
           bestLen = scope.length;
           best = candidate;

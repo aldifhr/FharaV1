@@ -233,15 +233,113 @@ function isMissing(error: unknown): boolean {
   );
 }
 
-function makeUnifiedDiff(filePath: string, oldContent: string, newContent: string): string {
-  const oldLines = oldContent === "" ? [] : oldContent.split("\n");
-  const newLines = newContent === "" ? [] : newContent.split("\n");
-  const lines: string[] = [
-    `--- a/${filePath}`,
-    `+++ b/${filePath}`,
-    `@@ -1,${oldLines.length} +1,${newLines.length} @@`,
-  ];
-  for (const line of oldLines) lines.push(`-${line}`);
-  for (const line of newLines) lines.push(`+${line}`);
+const DIFF_CONTEXT_LINES = 3;
+/** Above this many LCS cells the diff falls back to a whole-file rewrite. */
+const MAX_LCS_CELLS = 4_000_000;
+
+type DiffOp = { type: " " | "-" | "+"; line: string };
+
+function splitLines(content: string): string[] {
+  if (content === "") return [];
+  const lines = content.split("\n");
+  // A trailing newline terminates the last line; it is not an extra line.
+  if (lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
+
+function lineOps(oldLines: string[], newLines: string[]): DiffOp[] {
+  // Trim the common prefix/suffix first: most edits touch a small window.
+  let prefix = 0;
+  while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < oldLines.length - prefix &&
+    suffix < newLines.length - prefix &&
+    oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]
+  ) suffix += 1;
+  const a = oldLines.slice(prefix, oldLines.length - suffix);
+  const b = newLines.slice(prefix, newLines.length - suffix);
+  const ops: DiffOp[] = oldLines.slice(0, prefix).map((line) => ({ type: " ", line }));
+
+  if ((a.length + 1) * (b.length + 1) > MAX_LCS_CELLS) {
+    for (const line of a) ops.push({ type: "-", line });
+    for (const line of b) ops.push({ type: "+", line });
+  } else {
+    // LCS table from the end so the walk below goes forward.
+    const width = b.length + 1;
+    const table = new Uint32Array((a.length + 1) * width);
+    for (let i = a.length - 1; i >= 0; i -= 1) {
+      for (let j = b.length - 1; j >= 0; j -= 1) {
+        table[i * width + j] =
+          a[i] === b[j]
+            ? table[(i + 1) * width + j + 1] + 1
+            : Math.max(table[(i + 1) * width + j], table[i * width + j + 1]);
+      }
+    }
+    let i = 0;
+    let j = 0;
+    while (i < a.length && j < b.length) {
+      if (a[i] === b[j]) {
+        ops.push({ type: " ", line: a[i] });
+        i += 1;
+        j += 1;
+      } else if (table[(i + 1) * width + j] >= table[i * width + j + 1]) {
+        ops.push({ type: "-", line: a[i] });
+        i += 1;
+      } else {
+        ops.push({ type: "+", line: b[j] });
+        j += 1;
+      }
+    }
+    for (; i < a.length; i += 1) ops.push({ type: "-", line: a[i] });
+    for (; j < b.length; j += 1) ops.push({ type: "+", line: b[j] });
+  }
+
+  for (const line of oldLines.slice(oldLines.length - suffix)) ops.push({ type: " ", line });
+  return ops;
+}
+
+/**
+ * Unified diff with real hunks (3 lines of context), so approval views and
+ * the reviewer prompt see what changed instead of a whole-file rewrite.
+ */
+export function makeUnifiedDiff(filePath: string, oldContent: string, newContent: string): string {
+  const ops = lineOps(splitLines(oldContent), splitLines(newContent));
+  const header = [`--- a/${filePath}`, `+++ b/${filePath}`];
+  const changed = ops.map((op, index) => (op.type === " " ? -1 : index)).filter((index) => index >= 0);
+  if (changed.length === 0) return header.join("\n");
+
+  // Group changes whose context windows touch into one hunk.
+  const ranges: Array<[number, number]> = [];
+  for (const index of changed) {
+    const from = Math.max(0, index - DIFF_CONTEXT_LINES);
+    const to = Math.min(ops.length - 1, index + DIFF_CONTEXT_LINES);
+    const last = ranges[ranges.length - 1];
+    if (last && from <= last[1] + 1) last[1] = Math.max(last[1], to);
+    else ranges.push([from, to]);
+  }
+
+  // Line numbers (1-based) of each op in the old and new file.
+  const oldAt: number[] = [];
+  const newAt: number[] = [];
+  let oldLine = 1;
+  let newLine = 1;
+  for (const op of ops) {
+    oldAt.push(oldLine);
+    newAt.push(newLine);
+    if (op.type !== "+") oldLine += 1;
+    if (op.type !== "-") newLine += 1;
+  }
+
+  const lines = [...header];
+  for (const [from, to] of ranges) {
+    const slice = ops.slice(from, to + 1);
+    const oldCount = slice.filter((op) => op.type !== "+").length;
+    const newCount = slice.filter((op) => op.type !== "-").length;
+    const oldStart = oldCount === 0 ? oldAt[from] - 1 : oldAt[from];
+    const newStart = newCount === 0 ? newAt[from] - 1 : newAt[from];
+    lines.push(`@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`);
+    for (const op of slice) lines.push(`${op.type}${op.line}`);
+  }
   return lines.join("\n");
 }

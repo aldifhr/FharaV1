@@ -597,6 +597,10 @@ export const upsertDynamicSubtasks = internalMutation({
         .unique();
       if (row) {
         existing.push(subtask.key);
+        // A re-run review node keeps its row; only its round advances.
+        if (subtask.reviewRound !== undefined && row.reviewRound !== subtask.reviewRound) {
+          await ctx.db.patch(row._id, { reviewRound: subtask.reviewRound });
+        }
         continue;
       }
       await ctx.db.insert("subtasks", {

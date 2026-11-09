@@ -647,6 +647,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
               dependencies: subtask.dependencies,
               order: subtask.order,
               allowedPaths: subtask.allowedPaths,
+              reviewRound: subtask.reviewRound,
               origin,
             })),
           });
@@ -2007,6 +2008,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
             dependencies: subtask.dependencies,
             order: subtask.order,
             allowedPaths: subtask.allowedPaths,
+            reviewRound: subtask.reviewRound,
             origin,
           })),
         });

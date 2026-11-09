@@ -305,6 +305,9 @@ export default function TaskBoard({
                       <Icon size={13} className={`${meta.cls}${s.status === "running" ? " animate-spin" : ""}`} />
                       <span className="min-w-0 flex-1 truncate font-medium text-gray-700 dark:text-gray-200">
                         {s.title}
+                        {s.reviewRound && s.reviewRound > 1 ? (
+                          <span className="ml-1 font-normal text-gray-400">(round {s.reviewRound})</span>
+                        ) : null}
                       </span>
                       <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-800">
                         {s.capability}

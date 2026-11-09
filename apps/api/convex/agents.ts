@@ -1,6 +1,6 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { assertAgentAccess, assertProjectAccess } from "./authz";
 
 /**
@@ -575,72 +575,84 @@ export const FIXED_AGENTS = [
   },
 ];
 
+const RETIRED_ROLES = ["lead", "growth", "product-analyst"];
+
+/**
+ * Sync the fixed team: seed missing roles, union new default capabilities
+ * into existing rows, and retire removed roles exactly once.
+ *
+ * - Prompts/descriptions are only filled when empty, so edits made in the
+ *   UI are never overwritten.
+ * - Retired agents are disabled once and stamped with `retiredAt`; a later
+ *   manual re-enable sticks.
+ */
+export async function syncFixedTeam(ctx: MutationCtx, projectId?: Id<"projects">) {
+  const existingAgents = await ctx.db.query("agents").collect();
+
+  const retiredIds = new Set<string>();
+  for (const agent of existingAgents) {
+    if (!RETIRED_ROLES.includes(agent.role)) continue;
+    if (agent.retiredAt) continue;
+    retiredIds.add(String(agent._id));
+    await ctx.db.patch(agent._id, { isEnabled: false, status: "idle", retiredAt: Date.now() });
+  }
+
+  const createdAgentIds: Id<"agents">[] = [];
+  for (const def of FIXED_AGENTS) {
+    const match = existingAgents.find((a) => a.role === def.role);
+    if (!match) {
+      const id = await ctx.db.insert("agents", {
+        name: def.name,
+        role: def.role,
+        description: def.description,
+        systemPrompt: def.systemPrompt,
+        capabilities: def.capabilities,
+        supportedTools: def.supportedTools,
+        status: "idle",
+        avatarParams: defaultAvatarParams(def.name),
+        isEnabled: true,
+        priority: def.priority,
+        maxConcurrency: def.maxConcurrency,
+      });
+      createdAgentIds.push(id);
+      continue;
+    }
+    createdAgentIds.push(match._id);
+    const current = match.capabilities ?? [];
+    const merged = Array.from(new Set([...current, ...def.capabilities]));
+    const patch: Partial<Doc<"agents">> = {};
+    if (merged.length !== current.length) patch.capabilities = merged;
+    if (!match.description?.trim()) patch.description = def.description;
+    if (!match.systemPrompt?.trim()) patch.systemPrompt = def.systemPrompt;
+    if (Object.keys(patch).length > 0) await ctx.db.patch(match._id, patch);
+  }
+
+  if (projectId) {
+    const project = await ctx.db.get(projectId);
+    if (project) {
+      const retiredAll = new Set(
+        existingAgents.filter((a) => RETIRED_ROLES.includes(a.role)).map((a) => String(a._id))
+      );
+      const kept = (project.agentIds ?? []).filter((id) => !retiredAll.has(String(id)));
+      const combined = Array.from(new Set([...kept, ...createdAgentIds]));
+      await ctx.db.patch(project._id, { agentIds: combined });
+    }
+  }
+
+  return { total: FIXED_AGENTS.length, agentIds: createdAgentIds, retired: retiredIds.size };
+}
+
 export const ensureFixedTeam = mutation({
   args: { projectId: v.optional(v.id("projects")) },
   handler: async (ctx, args) => {
-    const existingAgents = await ctx.db.query("agents").collect();
-
-    // Retired roles (deleted from FIXED_AGENTS): disable once so existing
-    // projects never route new work to them again.
-    const retired = existingAgents.filter((a) =>
-      ["lead", "growth", "product-analyst"].includes(a.role)
-    );
-    const retiredIds = new Set<string>();
-    for (const agent of retired) {
-      retiredIds.add(String(agent._id));
-      if (agent.isEnabled !== false) {
-        await ctx.db.patch(agent._id, { isEnabled: false, status: "idle" });
-      }
-    }
-    const createdAgentIds: string[] = [];
-
-    for (const def of FIXED_AGENTS) {
-      const match = existingAgents.find((a) => a.role === def.role);
-      if (!match) {
-        const id = await ctx.db.insert("agents", {
-          name: def.name,
-          role: def.role,
-          description: def.description,
-          systemPrompt: def.systemPrompt,
-          capabilities: def.capabilities,
-          supportedTools: def.supportedTools,
-          status: "idle",
-          avatarParams: defaultAvatarParams(def.name),
-          isEnabled: true,
-          priority: def.priority,
-          maxConcurrency: def.maxConcurrency,
-        });
-        createdAgentIds.push(id);
-      } else {
-        createdAgentIds.push(match._id);
-        // Union capabilities so existing rows gain new defaults
-        // (e.g. Support gains "general", a legacy Reviewer gains
-        // "code-review") without overwriting custom entries.
-        const merged = Array.from(new Set([...(match.capabilities ?? []), ...def.capabilities]));
-        const needsPatch =
-          merged.length !== (match.capabilities?.length ?? 0) ||
-          match.description !== def.description ||
-          match.systemPrompt !== def.systemPrompt;
-        if (needsPatch) {
-          await ctx.db.patch(match._id, {
-            capabilities: merged,
-            description: def.description,
-            systemPrompt: def.systemPrompt,
-          });
-        }
-      }
-    }
-
-    if (args.projectId) {
-      const project = await ctx.db.get(args.projectId);
-      if (project) {
-        const kept = (project.agentIds ?? []).filter((id: string) => !retiredIds.has(String(id)));
-        const combined = Array.from(new Set([...kept, ...createdAgentIds]));
-        await ctx.db.patch(project._id, { agentIds: combined as any });
-      }
-    }
-
-    return { total: FIXED_AGENTS.length, agentIds: createdAgentIds };
+    if (args.projectId) await assertProjectAccess(ctx, args.projectId);
+    return await syncFixedTeam(ctx, args.projectId);
   },
 });
 
+
+/** Worker startup hook: apply the fixed-team sync to existing data once per boot. */
+export const syncFixedTeamInternal = internalMutation({
+  args: {},
+  handler: async (ctx) => await syncFixedTeam(ctx),
+});

@@ -46,6 +46,10 @@ export class WorkerApi {
     return { ...value, workerToken: this.token };
   }
 
+  async syncFixedTeam(): Promise<FunctionReturnType<typeof api.worker.syncFixedTeam>> {
+    return await this.client.action(api.worker.syncFixedTeam, this.args({}));
+  }
+
   async claimTask(
     input: ActionInput<typeof api.worker.claimTask>
   ): Promise<FunctionReturnType<typeof api.worker.claimTask>> {

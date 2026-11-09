@@ -18,6 +18,14 @@ function withoutToken<A extends object>(args: A): Omit<A, "workerToken"> {
   return rest;
 }
 
+export const syncFixedTeam = action({
+  args: { ...tokenArg },
+  handler: async (ctx, args): Promise<any> => {
+    withoutToken(args);
+    return await ctx.runMutation(internal.agents.syncFixedTeamInternal, {});
+  },
+});
+
 export const claimTask = action({
   args: {
     ...tokenArg,

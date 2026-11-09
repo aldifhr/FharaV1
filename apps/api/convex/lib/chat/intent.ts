@@ -13,6 +13,16 @@ const QUESTION_SHAPE =
 // "menurutmu …", "bandingkan A vs B") are discussion, never a task.
 const QUESTION_SHAPE_ID =
   /\b(apa itu|apa yang|apa bedanya|apakah|bagaimana|gimana|kenapa|mengapa|kok|mana yang|yang mana|menurut(mu| kamu| lo| lu| anda)?|bandingkan|perbandingan|jelaskan|jelasin)\b|\bvs\.?\b/i;
+// Indonesian tag questions and discussion particles ("kan …", "emang iya",
+// "bukannya …", "masa sih") and any message ending in "?" are remarks or
+// questions in a discussion, never an order. "kan ga cuma buat project ini
+// kedepannya" became a task because "buat" (= "for") matched a change verb.
+const DISCUSSION_SHAPE_ID =
+  /(^|\s)(kan|emang(nya)?|memang(nya)?|bukan(nya)?|masa(k)?|toh)(\s|[?!.,]|$)|\?\s*$/i;
+// "buat" is also the preposition "for": "buat project ini", "buat kamu",
+// "buat ke depannya". Those uses are removed before looking for a change verb.
+const BUAT_PREPOSITION =
+  /\b(buat|untuk)\s+(project|proyek|projek|ini|itu|kamu|saya|aku|gue|gw|kita|kami|mereka|dia|apa|siapa|ke\s*depan\w*|kedepan\w*|nanti|sekarang|semua|user|pengguna|tim|team|orang|jaga[- ]jaga)\b/gi;
 // "can you …" / "bisa …?" / "kamu bisa …?" — a question to the agent, not an
 // order to build something. Was missing: the shape above only covered
 // "can I …", so capability questions ("can you be CTO?") fell through to
@@ -73,18 +83,19 @@ export function classifyChatIntent(text: string): { kind: string; frontend: bool
   // Boundary guard (same as worker router): question/advice shapes never
   // become tasks, even when they contain a change verb. Capability/
   // confirmation questions ("can you be X?", "bisa kan?") belong here too.
-  if ((QUESTION_SHAPE.test(text) || QUESTION_SHAPE_ID.test(text)) || ADVICE_SHAPE.test(text) || CONFIRMATION_SHAPE.test(text)) {
+  if ((QUESTION_SHAPE.test(text) || QUESTION_SHAPE_ID.test(text)) || ADVICE_SHAPE.test(text) || CONFIRMATION_SHAPE.test(text) || DISCUSSION_SHAPE_ID.test(text.trim())) {
     return { kind: "chat", frontend, backend, testing, security };
   }
+  const verbs = t.replace(BUAT_PREPOSITION, " ");
   // Read-only analysis without a change verb is chat (audit/research).
-  const hasChangeVerb = /\b(buat\w*|tambah\w*|implement|build|create|fix|perbaiki|refactor|update|change|add|remove)\b/i.test(t);
+  const hasChangeVerb = /\b(buat\w*|tambah\w*|implement|build|create|fix|perbaiki|refactor|update|change|add|remove)\b/i.test(verbs);
   const isReadOnly = /\b(audit|review|research|investigate|analyze|analyse)\b/i.test(t);
   if (isReadOnly && !hasChangeVerb) {
     return { kind: "chat", frontend, backend, testing, security };
   }
 
   // If command contains impl keywords, treat as task regardless
-  const impl = /\b(buatin|buat\w*|tambah\w*|implement|build|create|fix|perbaiki|refactor|update|change|add|remove|migrate|convert|scaffold|setup|install|pindah|konversi|pasang|sesuaikan)\b/.test(t);
+  const impl = /\b(buatin|buat\w*|tambah\w*|implement|build|create|fix|perbaiki|refactor|update|change|add|remove|migrate|convert|scaffold|setup|install|pindah|konversi|pasang|sesuaikan)\b/.test(verbs);
   return { kind: impl ? "task" : "chat", frontend, backend, testing, security };
 }
 
@@ -151,7 +162,8 @@ export function hasAskShape(text: string): boolean {
     EXPLICIT_NEGATION.test(text) ||
     (QUESTION_SHAPE.test(text) || QUESTION_SHAPE_ID.test(text)) ||
     ADVICE_SHAPE.test(text) ||
-    CONFIRMATION_SHAPE.test(text)
+    CONFIRMATION_SHAPE.test(text) ||
+    DISCUSSION_SHAPE_ID.test(text.trim())
   );
 }
 

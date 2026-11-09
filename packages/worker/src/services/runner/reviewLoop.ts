@@ -1,3 +1,4 @@
+import { repeatedOutputStop } from "./repeatGuard";
 import type { RunContext } from "./types";
 import type { PlanSubtask } from "@/types";
 import { implementerAgent } from "./setup";
@@ -100,6 +101,15 @@ export async function runReviewLoop(ctx: RunContext): Promise<boolean> {
         level: "warn",
       });
 
+      const reviewRepeat = await repeatedOutputStop(
+        ctx,
+        "review",
+        findings.map((finding) => `${finding.filePath}: ${finding.description}`).join("\n")
+      );
+      if (reviewRepeat) {
+        state.feedback.push(reviewRepeat);
+        return false;
+      }
       if (iteration >= maxIterations) {
         state.feedback.push(
           `Review still requested changes after ${maxIterations} fix attempt(s): ${findings

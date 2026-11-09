@@ -3,6 +3,8 @@ import { effectiveLlmTimeoutMs, type GlobalLLMConfig, type LLMMessage, type LLMP
 import type { ProviderHealthRegistry } from "@/llm/health";
 import type { TokenUsageMeta } from "@/types/llm";
 import { recordLlmSnapshot } from "@/llm/snapshots";
+import { classifyProviderError } from "@/utils/stallDetector";
+import { emitObservation, markProgress } from "./observationContext";
 
 export type { TokenUsageMeta } from "@/types/llm";
 
@@ -388,8 +390,9 @@ export async function runLlmCallWithFallback(
       provider: handle.config.provider,
       durationMs: Date.now() - startedAt,
     });
-  for (const handle of handles) {
+  for (const [index, handle] of handles.entries()) {
     try {
+      markProgress();
       const result = await runLlmCall(handle.provider, messages, handle.config.model, {
         retries: options.retries,
         timeoutMs: options.timeoutMs,
@@ -406,6 +409,7 @@ export async function runLlmCallWithFallback(
         provider: handle.config.provider,
         durationMs: Date.now() - startedAt,
       });
+      markProgress();
       return { result: estimated, servedBy: handle };
     } catch (error) {
       lastError = error;
@@ -422,6 +426,36 @@ export async function runLlmCallWithFallback(
       }
       if (handle === handles[handles.length - 1]) fail(error, handle);
       options.health?.recordFailure(handle.connectionId, { transient: true });
+      // Provider unavailable (connection / 5xx / 429): switch to the next
+      // provider in the chain when one is configured, else fail clearly.
+      const failureClass = classifyProviderError(error);
+      const next = handles[index + 1];
+      if (failureClass) {
+        emitObservation({
+          kind: "provider_unavailable",
+          action: next ? "fallback" : "fail",
+          reason: next
+            ? `Provider ${handle.connectionName} unavailable (${failureClass}); switching to ${next.connectionName}`
+            : `Provider ${handle.connectionName} unavailable (${failureClass}); ${
+                handles.length > 1 ? "every provider in the fallback chain failed" : "no fallback provider configured"
+              }`,
+          detail: {
+            class: failureClass,
+            provider: handle.connectionName,
+            model: handle.config.model,
+            ...(next ? { fallbackTo: next.connectionName } : {}),
+          },
+        });
+      }
+      if (!next && failureClass && error instanceof Error) {
+        // Keep the original message (its "(NNN)" status keeps the retry
+        // classification) and say why no other provider took over.
+        error.message = `${error.message} — provider unavailable (${failureClass}): ${
+          handles.length > 1
+            ? `all ${handles.length} providers in the fallback chain failed`
+            : "no fallback provider configured"
+        }`;
+      }
       // Transient and retries exhausted on this handle: fall through to
       // the next candidate in the chain (same task, same call).
     }

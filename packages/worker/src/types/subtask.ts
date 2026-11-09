@@ -38,6 +38,12 @@ export interface PlanSubtask {
   constraints?: string[];
   deliverable?: string;
   acceptance?: AcceptanceGate[];
+  /**
+   * Replan Reasoning: why the planner added / changed this node in a
+   * replan. Read by the replan diff, then stripped before the plan is
+   * persisted (it lives on the plan version's `replan` record instead).
+   */
+  replanReasoning?: string;
 }
 
 /** Why a subtask was added after planning (persisted as its origin). */

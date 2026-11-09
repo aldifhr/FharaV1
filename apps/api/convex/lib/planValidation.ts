@@ -32,6 +32,8 @@ export interface ValidatedSubtask {
   constraints?: string[];
   deliverable?: string;
   acceptance?: AcceptanceGate[];
+  /** Replan Reasoning (planner output in a replan; stripped before persist). */
+  replanReasoning?: string;
 }
 
 export interface ValidatedPlan {
@@ -43,6 +45,8 @@ export interface ValidatedPlan {
   subtasks: ValidatedSubtask[];
   /** Plan-level visual-QA intent, carried through when stored (resume / reviewed plans). */
   visualQa?: boolean;
+  /** Planner output in a replan: why nodes were removed (stripped before persist). */
+  replanRemovals?: Array<{ key: string; reasoning: string }>;
 }
 
 /** Same normalisation as the worker's `normalizeCapability`. */
@@ -163,6 +167,9 @@ export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResul
       order: typeof value.order === "number" && Number.isFinite(value.order) ? value.order : index,
       ...(ownership.ok && ownership.paths ? { allowedPaths: ownership.paths } : {}),
       ...contract.contract,
+      ...(typeof value.replanReasoning === "string" && value.replanReasoning.trim()
+        ? { replanReasoning: value.replanReasoning.trim().slice(0, 1000) }
+        : {}),
     });
   });
 
@@ -206,12 +213,28 @@ export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResul
       requiresApproval,
       maxConcurrency,
       ...(typeof candidate.visualQa === "boolean" ? { visualQa: candidate.visualQa } : {}),
+      ...replanRemovalsOf(candidate.replanRemovals),
       subtasks: subtasks
         .slice()
         .sort((a, b) => a.order - b.order)
         .map((subtask, index) => ({ ...subtask, order: index })),
     },
   };
+}
+
+/** Planner-provided removal reasons (replan only); malformed entries are dropped. */
+function replanRemovalsOf(raw: unknown): { replanRemovals?: Array<{ key: string; reasoning: string }> } {
+  if (!Array.isArray(raw)) return {};
+  const removals = raw
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+    .filter((entry) => typeof entry.key === "string" && typeof entry.reasoning === "string")
+    .map((entry) => ({
+      key: (entry.key as string).trim().toLowerCase(),
+      reasoning: (entry.reasoning as string).trim().slice(0, 1000),
+    }))
+    .filter((entry) => entry.key && entry.reasoning)
+    .slice(0, 40);
+  return removals.length > 0 ? { replanRemovals: removals } : {};
 }
 
 export function findCycle<T extends { key: string; dependencies: string[] }>(

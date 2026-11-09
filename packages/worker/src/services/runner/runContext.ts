@@ -9,6 +9,8 @@ import type { WorkerExecutionId } from "@/workerApi";
 import type { DynamicSubtaskOrigin } from "@/types/subtask";
 import type { ApplyStagedResult, ExecutePlanInput, RunContext } from "./types";
 import { runNodes } from "./runNodes";
+import { RepeatedOutputGuard, stallThresholdsFromEnv } from "@/utils/stallDetector";
+import { llmTimeoutMs } from "@/llm";
 
 /**
  * Build the RunContext for one `executePlan` invocation (plan 012 step 3).
@@ -194,8 +196,11 @@ export function createRunContext(input: ExecutePlanInput, browser: WebClient): R
     return { applied: appliedPaths };
   };
 
+  const stallThresholds = stallThresholdsFromEnv(process.env, llmTimeoutMs());
   const ctx: RunContext = {
     input,
+    stallThresholds,
+    repeatGuard: new RepeatedOutputGuard(stallThresholds.repeatedOutputLimit),
     deps,
     task,
     project,

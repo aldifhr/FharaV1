@@ -19,6 +19,7 @@ import type {
  */
 
 const plannerMock = vi.hoisted(() => ({
+  repeatSame: false,
   createPlanCalls: [] as Array<{ feedback?: string; hasQaUrl?: boolean }>,
 }));
 
@@ -44,7 +45,22 @@ vi.mock("../src/orchestrator/planner", () => {
   return {
     createPlan: async (input: { feedback?: string; hasQaUrl?: boolean }) => {
       plannerMock.createPlanCalls.push({ feedback: input.feedback, hasQaUrl: input.hasQaUrl });
-      return { plan, createdBy: "llm", notes: [] };
+      // A replan changes the approach (Replan Quality Check rejects an
+      // identical repeat of the failed node); repeatSame opts out.
+      const call = plannerMock.createPlanCalls.length;
+      if (call === 1 || plannerMock.repeatSame) return { plan, createdBy: "llm", notes: [] };
+      return {
+        plan: {
+          ...plan,
+          subtasks: plan.subtasks.map((subtask) => ({
+            ...subtask,
+            description: `${subtask.description} (approach ${call})`,
+            replanReasoning: "Changed the approach after the failure",
+          })),
+        },
+        createdBy: "llm",
+        notes: [],
+      };
     },
     heuristicPlan: () => plan,
   };
@@ -72,6 +88,7 @@ let workspace: string;
 beforeEach(async () => {
   workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-engine-replan-"));
   plannerMock.createPlanCalls = [];
+  plannerMock.repeatSame = false;
 });
 
 afterEach(async () => {

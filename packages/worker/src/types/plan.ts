@@ -35,6 +35,10 @@ export interface ExecutionPlan {
    * command heuristic.
    */
   visualQa?: boolean;
+  /** Planner output only: why nodes were removed in a replan (stripped before persist). */
+  replanRemovals?: Array<{ key: string; reasoning: string }>;
+  /** Set on a replanned version: the diff, scope and reasoning (Replan Intelligence). */
+  replan?: ReplanRecord;
 }
 
 export interface Classification {
@@ -60,3 +64,48 @@ export interface Concern {
   /** The clause of the request this concern came from. */
   text: string;
 }
+
+/* Replan Intelligence records (built by orchestrator/replanIntelligence). */
+
+export interface ReplanDiffEntry {
+  key: string;
+  title: string;
+  kind: string;
+  capability: string;
+  /** Changed fields (modified only). */
+  fields?: string[];
+  /** The planner's Replan Reasoning for this change (added / modified / removed). */
+  reasoning?: string;
+  /** Frozen completed node (preserved, never re-run). */
+  frozen?: boolean;
+  /** The planner rewrote a frozen node; the guard restored it. */
+  restored?: boolean;
+  /** Changed although it was neither failed nor downstream of a failure. */
+  outsideImpact?: boolean;
+}
+
+export interface ReplanDiff {
+  added: ReplanDiffEntry[];
+  removed: ReplanDiffEntry[];
+  modified: ReplanDiffEntry[];
+  preserved: ReplanDiffEntry[];
+}
+
+/** What one accepted replan stored on its plan version (payload.replan). */
+export interface ReplanRecord {
+  fromVersion: number;
+  toVersion: number;
+  reason: string;
+  failedKeys: string[];
+  impactKeys: string[];
+  frozenKeys: string[];
+  restoredKeys: string[];
+  diff: ReplanDiff;
+  /** Planner calls this replan took (1, or 2 after a quality reject). */
+  attempts: number;
+  /** Messages of the violations that made an earlier attempt retry. */
+  rejected: string[];
+  /** Changed nodes that still had no reasoning after the retry. */
+  reasoningMissing: string[];
+}
+

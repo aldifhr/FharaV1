@@ -1,3 +1,4 @@
+import { repeatedOutputStop } from "./repeatGuard";
 import { QA_FIX_INTRO } from "@/prompts/fix";
 import type { RunContext } from "./types";
 import type { PlanSubtask } from "@/types";
@@ -287,6 +288,15 @@ export async function runQaLoop(ctx: RunContext): Promise<boolean> {
         level: "warn",
       });
 
+      const qaRepeat = await repeatedOutputStop(
+        ctx,
+        "qa",
+        findings.map((finding) => finding.description).join("\n")
+      );
+      if (qaRepeat) {
+        state.feedback.push(qaRepeat);
+        return false;
+      }
       if (iteration >= maxIterations) {
         state.feedback.push(
           `QA still failing after ${maxIterations} fix attempt(s): ${findings

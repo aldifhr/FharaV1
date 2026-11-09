@@ -424,6 +424,10 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
             reason: own ? missing : `Objective not satisfied: ${missing}`,
           });
           if (result === "ended") return;
+          if (result === "rejected") {
+            await fail(loop.rejection ?? "Replan rejected by the quality check");
+            return;
+          }
           continue;
         }
         await fail(`Objective not satisfied after ${loop.replans} replan(s): ${missing}`);
@@ -469,6 +473,10 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
               .join("; ")}`,
           });
           if (result === "ended") return;
+          if (result === "rejected") {
+            await fail(loop.rejection ?? "Replan rejected by the quality check");
+            return;
+          }
           continue;
         }
         await deps.api
@@ -513,6 +521,10 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
           timedOutFrom: failureSummary,
         });
         if (result === "ended") return;
+        if (result === "rejected") {
+          await fail(loop.rejection ?? "Replan rejected by the quality check");
+          return;
+        }
         continue;
       }
       await fail(failureSummary);

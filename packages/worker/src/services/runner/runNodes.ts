@@ -16,6 +16,9 @@ import type { FileDiff } from "@/tools/gitDiff";
 import { applyQaCheck, buildChangesCard, buildQaCard, postStageCard } from "./cards";
 import { ACTIVITY_STARTING, ACTIVITY_THINKING, createActivityReporter, describeActivity } from "./activity";
 import { LiveOutputCoalescer } from "./liveOutput";
+import { runWithObservationScope } from "@/effects/observationContext";
+import { stallEventType, stallThresholdsFromEnv, type StallObservation } from "@/utils/stallDetector";
+import { llmTimeoutMs } from "@/llm";
 
 /**
  * The DAG nodes runner (plan 012 step 2): run a set of subtasks through
@@ -76,6 +79,25 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       failed: unmet.map((node) => node.key),
     };
   }
+  const stallThresholds = ctx.stallThresholds ?? stallThresholdsFromEnv(process.env, llmTimeoutMs());
+  // One timeline event per deadlock / stall observation (`stall.<kind>`).
+  const reportStall = async (observation: StallObservation): Promise<void> => {
+    await deps.api
+      .logEvent({
+        taskId,
+        projectId: project._id,
+        type: stallEventType(observation.kind),
+        payload: {
+          kind: observation.kind,
+          action: observation.action,
+          reason: observation.reason,
+          ...(observation.detail ? { detail: observation.detail } : {}),
+        },
+        ...(observation.nodeKey ? { subtaskKey: observation.nodeKey } : {}),
+        level: observation.action === "fallback" || observation.action === "retry" || observation.action === "report" ? "warn" : "error",
+      })
+      .catch(() => undefined);
+  };
   return runScheduler(
     nodes.map((subtask) => ({
       id: subtask.key,
@@ -95,6 +117,12 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         return { status: "completed", output: "Previously completed" };
       }
       const executionId = executionIds.get(node.id);
+      // Progress: keeps both the task idle watchdog and this node's stall
+      // watchdog (scheduler) alive.
+      const beat = () => {
+        input.taskAbort?.bump?.();
+        runInfo?.progress?.();
+      };
       // Resolve this agent's provider chain (assignment → fallback → pool).
       // A resolution failure (e.g. no provider can serve the agent, or a
       // provider cannot be constructed) fails the subtask explicitly.
@@ -123,9 +151,16 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       // guard): fold undelivered inputs now; the prompt acks what it renders.
       if (input.sharedContext) await pullTaskInputs(deps, taskId, input.sharedContext);
       // Context Snapshot scope: every LLM call this node makes is attributed
-      // to this task, execution attempt, subtask and agent.
+      // to this task, execution attempt, subtask and agent. Inside it, the
+      // observation scope feeds the stall watchdog and typed observations.
       const outcome = await withSnapshotScope(
         { taskId: String(taskId), projectId: String(project._id), executionId: executionId ? String(executionId) : undefined, subtaskKey: node.id, agentId: String(agent._id), agentRole: agent.role },
+        () => runWithObservationScope(
+        {
+          nodeKey: node.id,
+          progress: beat,
+          emit: (observation) => void reportStall(observation),
+        },
         () => executeSubtask({
         workspacePath: input.workspacePath,
         command: task.command,
@@ -163,7 +198,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
           input.assertBudgetForCall?.();
         },
         onEvent: async (type, payload, level) => {
-          input.taskAbort?.bump?.();
+          beat();
           reportActivity(describeActivity(type, payload));
           if (type === "native.tool") {
             const tool = payload as { tool?: string; title?: string; target?: string } | undefined;
@@ -213,7 +248,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
           });
         },
         onMessage: async (content) => {
-          input.taskAbort?.bump?.();
+          beat();
           // Suppress exact-duplicate consecutive postings per agent+subtask
           // (QA loops and fix loops re-execute identical summary text — the
           // conversation showed the same QA verdict 4x in a row).
@@ -231,6 +266,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
           });
         },
         onChunk: async (delta) => {
+          beat();
           // Streamed text feeds the live tail only; the final message is
           // still stored once by onMessage.
           live.push(delta);
@@ -248,7 +284,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
                 const produced = state.appliedFilesBySubtask.get(node.id) ?? [];
                 if (!produced.includes(filePath)) produced.push(filePath);
                 state.appliedFilesBySubtask.set(node.id, produced);
-                input.taskAbort?.bump?.();
+                beat();
                 await deps.api.logEvent({
                   taskId,
                   projectId: project._id,
@@ -284,7 +320,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
           const produced = state.appliedFilesBySubtask.get(node.id) ?? [];
           if (!produced.includes(change.filePath)) produced.push(change.filePath);
           state.appliedFilesBySubtask.set(node.id, produced);
-          input.taskAbort?.bump?.();
+          beat();
           await deps.api.logEvent({
             taskId,
             projectId: project._id,
@@ -295,7 +331,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
           });
         },
         onTokenUsage: async (inputTokens, outputTokens, model, meta) => {
-          input.taskAbort?.bump?.();
+          beat();
           // Feed the shared budget tracker with every real LLM call.
           input.budget?.recordLLMCall({
             inputTokens,
@@ -331,7 +367,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         },
         // Settled (or threw): drop the live tail once pending writes land.
         // Not awaited: a slow cosmetic write must not hold the outcome.
-      })).finally(() => void live.close());
+      }))).finally(() => void live.close());
       if (outcome.status === "completed" && subtask.kind === "code_change" && stagedByNode.length > 0) {
         await postStageCard(deps.api, {
           taskId,
@@ -357,6 +393,11 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       // to this same invocation, capped per invocation; a budget BLOCKED
       // decision latches the halt so no new nodes start afterwards.
       maxAddedNodes: deps.policy.maxSubtasks,
+      // Deadlock & stall detector: typed observations per condition, and
+      // the no-progress watchdog (retry once, then escalate).
+      stallMs: stallThresholds.agentStallMs,
+      stallRetries: stallThresholds.agentStallRetries,
+      onStall: reportStall,
       // Plan 022: a user pause stops new dispatch; running nodes finish.
       shouldHaltNewNodes: () => ctx.budgetHalt || ctx.stepLimitHit || ctx.decisionTerminal || ctx.paused,
       shouldCancel: async () => {

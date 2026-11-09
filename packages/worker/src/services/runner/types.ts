@@ -1,4 +1,5 @@
 import type { LoadAwareDecision } from "@/orchestrator/loadAwareRouting";
+import type { RepeatedOutputGuard, StallThresholds } from "@/utils/stallDetector";
 import type {
   WorkerApi,
   WorkerExecutionId,
@@ -179,6 +180,10 @@ export type RunNodesFn = (nodes: PlanSubtask[]) => Promise<SchedulerResult>;
  */
 export interface RunContext {
   input: ExecutePlanInput;
+  /** Deadlock & stall detector thresholds (env-configurable; see utils/stallDetector). */
+  stallThresholds?: StallThresholds;
+  /** Repeated-output guard shared by the review / verification / QA fix loops. */
+  repeatGuard?: RepeatedOutputGuard;
   deps: RunnerDeps;
   task: WorkerTask;
   project: WorkerProject;

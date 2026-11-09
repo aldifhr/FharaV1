@@ -221,7 +221,9 @@ export async function persistPlan(
     createdBy: input.createdBy,
     goal: input.plan.goal,
     payload: input.plan,
-    subtasks: input.plan.subtasks,
+    // Replan Reasoning is planner output, not a subtask row field (the
+    // row validator is strict); it is kept on payload.replan instead.
+    subtasks: input.plan.subtasks.map(({ replanReasoning: _reasoning, ...subtask }) => subtask),
     ...(input.createdBy === "fallback" && input.degradedReason
       ? { degradedReason: input.degradedReason.slice(0, 500) }
       : {}),

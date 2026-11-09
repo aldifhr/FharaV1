@@ -1,5 +1,12 @@
 import { isTransientLlmError } from "@/effects/llmCall";
 import { pathsOverlap } from "@/utils/ownershipPaths";
+import {
+  AGENT_STALLED_PREFIX,
+  DEPENDENCY_DEADLOCK_PREFIX,
+  isAgentStalledError,
+  validateDag,
+  type StallObservation,
+} from "@/utils/stallDetector";
 
 /** Default interval at which running nodes re-check for cancellation. */
 const CANCEL_POLL_MS = 2_000;
@@ -20,6 +27,8 @@ export interface NodeRunInfo {
   /** Epoch ms at which this attempt's subtask timeout fires. */
   deadlineAt: number;
   attempt: number;
+  /** Heartbeat for the stall watchdog: call on any observable progress. */
+  progress: () => void;
 }
 
 export interface SchedulerHooks {
@@ -73,6 +82,15 @@ export interface SchedulerHooks {
    * are then blocked with a halt reason instead of being executed.
    */
   shouldHaltNewNodes?: () => boolean;
+  /**
+   * Stall watchdog: a running node with no `info.progress()` heartbeat for
+   * this long is aborted as "Agent stalled", retried `stallRetries` times
+   * (default 1) and then escalated. 0 / unset disables it.
+   */
+  stallMs?: number;
+  stallRetries?: number;
+  /** Typed deadlock / stall observations (each condition classified on its own). */
+  onStall?: (observation: StallObservation) => void | Promise<void>;
 }
 
 export interface SchedulerResult {
@@ -178,6 +196,15 @@ export async function runScheduler(
   const concurrency = Math.max(1, hooks.maxConcurrency);
   const retryDelayMs = hooks.retryDelayMs ?? 250;
   const maxAddedNodes = hooks.maxAddedNodes ?? Number.POSITIVE_INFINITY;
+  const stallCounts = new Map<string, number>();
+  const stallRetries = Math.max(0, hooks.stallRetries ?? 1);
+  const observe = async (observation: StallObservation): Promise<void> => {
+    try {
+      await hooks.onStall?.(observation);
+    } catch {
+      // Observability never changes the scheduling outcome.
+    }
+  };
 
   /**
    * Admit dynamically returned nodes. A node is admitted only when its id
@@ -221,6 +248,38 @@ export async function runScheduler(
       states.set(node.id, "waiting");
       outcomes.set(node.id, outcome);
       halted = true;
+      return;
+    }
+    // Agent stalled (watchdog): retried `stallRetries` times regardless of
+    // the generic retry budget, then escalated — never a generic timeout.
+    if (isAgentStalledError(outcome.error)) {
+      const stalls = (stallCounts.get(node.id) ?? 0) + 1;
+      stallCounts.set(node.id, stalls);
+      const canRetry =
+        stalls <= stallRetries &&
+        !cancelled &&
+        !haltLatched &&
+        !hooks.shouldHaltNewNodes?.() &&
+        (!hooks.shouldRetryNode || (await hooks.shouldRetryNode(node, outcome, attempt)));
+      await observe({
+        kind: "agent_stalled",
+        action: canRetry ? "retry" : "escalate",
+        nodeKey: node.id,
+        reason: outcome.error,
+        detail: { stalls, attempt, stallMs: hooks.stallMs },
+      });
+      if (canRetry) {
+        states.set(node.id, "pending");
+        return;
+      }
+      const escalated: NodeOutcome = {
+        status: "failed",
+        error: `Escalated (agent_stalled): ${outcome.error} on ${stalls} attempt(s); not retried again`,
+        meta: outcome.meta,
+      };
+      states.set(node.id, "failed");
+      outcomes.set(node.id, escalated);
+      failed.push(node.id);
       return;
     }
     // Permanent failures (invalid plan, forbidden path, no agent for the
@@ -283,12 +342,33 @@ export async function runScheduler(
         resolve({ status: "failed", error: `Subtask timed out after ${hooks.timeoutMs}ms` });
       }, hooks.timeoutMs);
     });
+    let lastProgress = Date.now();
+    const progress = () => {
+      lastProgress = Date.now();
+    };
+    let stallTimer: ReturnType<typeof setInterval> | undefined;
+    const stallMs = hooks.stallMs ?? 0;
+    const stallError = `${AGENT_STALLED_PREFIX}: no output or heartbeat progress for ${stallMs}ms`;
+    const stall =
+      stallMs > 0
+        ? new Promise<NodeOutcome>((resolve) => {
+            stallTimer = setInterval(() => {
+              if (Date.now() - lastProgress <= stallMs) return;
+              if (stallTimer) clearInterval(stallTimer);
+              controller.abort();
+              resolve({ status: "failed", error: stallError });
+            }, Math.min(5_000, Math.max(50, Math.floor(stallMs / 4))));
+            (stallTimer as { unref?: () => void }).unref?.();
+          })
+        : undefined;
     const promise = (async () => {
       try {
         await hooks.onStart(node, attempt);
+        progress();
         const outcome = await Promise.race([
-          execute(node, controller.signal, { deadlineAt, attempt }),
+          execute(node, controller.signal, { deadlineAt, attempt, progress }),
           timeout,
+          ...(stall ? [stall] : []),
         ]);
         if (timedOut) {
           return {
@@ -309,6 +389,7 @@ export async function runScheduler(
         };
       } finally {
         if (timer) clearTimeout(timer);
+        if (stallTimer) clearInterval(stallTimer);
         controllers.delete(node.id);
       }
     })();
@@ -323,7 +404,8 @@ export async function runScheduler(
         if (state !== "pending") continue;
         const node = byId.get(id);
         if (!node) continue;
-        const blocking = node.dependencies.some((dependency) => {
+        const missingDependency = node.dependencies.find((dependency) => !byId.has(dependency));
+        const blockingDependency = node.dependencies.find((dependency) => {
           const dependencyState = states.get(dependency);
           return (
             dependencyState === "failed" ||
@@ -331,15 +413,36 @@ export async function runScheduler(
             dependencyState === "waiting"
           );
         });
-        const missing = node.dependencies.some((dependency) => !byId.has(dependency));
-        if (blocking || missing) {
+        if (blockingDependency !== undefined || missingDependency !== undefined) {
+          // Dependency deadlock: this node can never run. Name the
+          // dependency and why (failed / cancelled-or-blocked / missing).
+          const dependencyState = blockingDependency ? states.get(blockingDependency) : undefined;
+          const why =
+            missingDependency !== undefined
+              ? `depends on "${missingDependency}", which does not exist`
+              : `waits on "${blockingDependency}" (${
+                  dependencyState === "failed"
+                    ? "failed"
+                    : dependencyState === "waiting"
+                      ? "awaiting approval"
+                      : "cancelled/blocked"
+                })`;
+          const error = `${DEPENDENCY_DEADLOCK_PREFIX}: ${why}`;
           states.set(id, "blocked");
-          outcomes.set(id, {
-            status: "failed",
-            error: missing ? "Dependency does not exist" : reason,
-          });
+          outcomes.set(id, { status: "failed", error });
           failed.push(id);
-          await hooks.onBlocked?.(node, missing ? "Dependency does not exist" : reason);
+          await hooks.onBlocked?.(node, error);
+          await observe({
+            kind: "dependency_deadlock",
+            action: "fail",
+            nodeKey: id,
+            reason: error,
+            detail: {
+              dependency: missingDependency ?? blockingDependency,
+              dependencyState: missingDependency !== undefined ? "missing" : dependencyState === "blocked" ? "cancelled" : dependencyState,
+              ...(reason !== "Dependency failed" ? { context: reason } : {}),
+            },
+          });
           changed = true;
         }
       }
@@ -441,11 +544,42 @@ export async function runScheduler(
           hooks.canStartNode !== undefined &&
           !hooks.canStartNode(node)
       );
-      await blockAllPending(
-        stalledDeferred
-          ? "Start gate never freed a slot for this subtask (agent concurrency limit)"
-          : "Dependency could not run"
-      );
+      // No runnable nodes while nothing is running: validate the
+      // remaining DAG and report what actually holds it (a cycle, the
+      // start gate) instead of a generic "could not run".
+      const pendingNodes = allNodes.filter((node) => states.get(node.id) === "pending");
+      const validation = validateDag(pendingNodes);
+      const cycleMembers = new Set(validation.cycle ?? []);
+      await observe({
+        kind: "no_runnable_nodes",
+        action: "report",
+        reason: validation.cycle
+          ? `No runnable nodes: dependency cycle ${validation.cycle.join(" -> ")}`
+          : stalledDeferred
+            ? "No runnable nodes: the agent concurrency gate never freed a slot"
+            : "No runnable nodes: pending dependencies can never be satisfied",
+        detail: {
+          pending: pendingNodes.map((node) => node.id),
+          cycle: validation.cycle,
+          deferredByStartGate: stalledDeferred,
+        },
+      });
+      if (stalledDeferred && !validation.cycle) {
+        await blockAllPending("Start gate never freed a slot for this subtask (agent concurrency limit)");
+        return { status: "failed", outcomes, failed };
+      }
+      for (const node of pendingNodes) {
+        const error = cycleMembers.has(node.id)
+          ? `${DEPENDENCY_DEADLOCK_PREFIX}: dependency cycle ${validation.cycle!.join(" -> ")}`
+          : `${DEPENDENCY_DEADLOCK_PREFIX}: waits on "${
+              node.dependencies.find((dependency) => states.get(dependency) !== "success") ?? "?"
+            }" (${validation.cycle ? "cyclic" : "never runnable"})`;
+        states.set(node.id, "blocked");
+        outcomes.set(node.id, { status: "failed", error });
+        failed.push(node.id);
+        await hooks.onBlocked?.(node, error);
+        await observe({ kind: "dependency_deadlock", action: "fail", nodeKey: node.id, reason: error, detail: { cycle: validation.cycle } });
+      }
       return { status: "failed", outcomes, failed };
     }
 

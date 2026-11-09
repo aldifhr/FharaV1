@@ -7,6 +7,7 @@ import { roleKeyForCapability } from "./lib/planEdit";
 import type { PlanEstimate } from "./lib/estimate";
 import { contractOf } from "./lib/subtaskContract";
 import { normalizeModelTiers, tierForRole } from "./lib/modelTiers";
+import { replansFromPlans } from "./lib/replanView";
 
 /**
  * Runs / execution traces: a read-only projection of how the orchestrator
@@ -711,6 +712,8 @@ export const get = query({
           }
         : null,
       routing,
+      /** Replan Intelligence: diff, reasons and preserved nodes per replanned version. */
+      replans: replansFromPlans(plans),
       /**
        * Plan 022: each subtask's contract and acceptance (gate results with
        * evidence), separate from its execution status.

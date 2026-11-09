@@ -20,6 +20,7 @@ import { createFakeApi, createRunnerDeps, testPolicy, testTask } from "./helpers
  */
 
 const plannerMock = vi.hoisted(() => ({
+  repeatSame: false,
   createPlanCalls: [] as Array<{ feedback?: string }>,
 }));
 
@@ -45,7 +46,22 @@ vi.mock("../src/orchestrator/planner", () => {
   return {
     createPlan: async (input: { feedback?: string }) => {
       plannerMock.createPlanCalls.push({ feedback: input.feedback });
-      return { plan, createdBy: "llm", notes: [] };
+      // A replan changes the approach (Replan Quality Check rejects an
+      // identical repeat of the failed node); repeatSame opts out.
+      const call = plannerMock.createPlanCalls.length;
+      if (call === 1 || plannerMock.repeatSame) return { plan, createdBy: "llm", notes: [] };
+      return {
+        plan: {
+          ...plan,
+          subtasks: plan.subtasks.map((subtask) => ({
+            ...subtask,
+            description: `${subtask.description} (approach ${call})`,
+            replanReasoning: "Changed the approach after the failure",
+          })),
+        },
+        createdBy: "llm",
+        notes: [],
+      };
     },
     heuristicPlan: () => plan,
   };
@@ -74,6 +90,7 @@ let workspace: string;
 beforeEach(async () => {
   workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-replan-"));
   plannerMock.createPlanCalls = [];
+  plannerMock.repeatSame = false;
 });
 
 afterEach(async () => {
@@ -144,6 +161,29 @@ describe("processTask replan (Phase 3)", () => {
 
     expect(plannerMock.createPlanCalls).toHaveLength(1);
     expect(completions.at(-1)?.status).toBe("failed");
+  });
+});
+
+describe("processTask replan quality check (Replan Intelligence)", () => {
+  it("rejects a replan that repeats the failed node, retries once with the reason, then fails clearly", async () => {
+    plannerMock.repeatSame = true;
+    const { deps, completions, task } = createDeps({});
+    await processTask(task, deps);
+
+    // Initial plan + replan + exactly one quality retry.
+    expect(plannerMock.createPlanCalls).toHaveLength(3);
+    const scoped = plannerMock.createPlanCalls[1].feedback ?? "";
+    expect(scoped).toContain("REPLAN SCOPE");
+    expect(scoped).toContain("Failed nodes");
+    expect(scoped).toContain("implement [code_change/frontend-development]");
+    const retry = plannerMock.createPlanCalls[2].feedback ?? "";
+    expect(retry).toContain("REJECTED by the quality check");
+    expect(retry).toContain("repeats failed node");
+
+    const last = completions.at(-1);
+    expect(last?.status).toBe("failed");
+    expect(last?.errorMessage).toContain("Replan rejected by the quality check");
+    expect(last?.errorMessage).toContain("same objective, agent");
   });
 });
 

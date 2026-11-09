@@ -21,6 +21,7 @@ import Contracts from "@/components/runs/Contracts";
 import { ReviewerSection, SecondOpinionButton } from "@/components/review/Reviewer";
 import ReplaySession from "@/components/runs/ReplaySession";
 import RunContext from "@/components/context/RunContext";
+import ReplanDiff from "@/components/runs/ReplanDiff";
 import { MODEL_TIER_LABELS, type ModelTierKey } from "@/api/convex/lib/modelTiers";
 import { formatEstimateLine } from "@/api/convex/lib/estimate";
 import {
@@ -662,6 +663,12 @@ export default function RunTracePage() {
                   </h2>
                 )}
               />
+
+              {run.replans.length > 0 && (
+                <Section title="Replan" aside={run.replans.length}>
+                  <ReplanDiff replans={run.replans} />
+                </Section>
+              )}
 
               <Section title="Routing">
                 <RoutingInspector routing={run.routing} instruction={run.task.command} />

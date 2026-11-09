@@ -1,3 +1,4 @@
+import { repeatedOutputStop } from "./repeatGuard";
 import { VERIFY_FIX_INTRO } from "@/prompts/fix";
 import type { RunContext } from "./types";
 import type { PlanSubtask } from "@/types";
@@ -98,7 +99,19 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
       status: check.status,
       ...(check.details ? { details: check.details.slice(0, 500) } : {}),
     }));
-    if (failedChecks.length === 0) break;
+    if (failedChecks.length === 0) {
+      ctx.repeatGuard?.reset("verification");
+      break;
+    }
+    const verifyRepeat = await repeatedOutputStop(
+      ctx,
+      "verification",
+      failedChecks.map((c) => `${c.name}: ${c.details ?? ""}`).join("\n")
+    );
+    if (verifyRepeat) {
+      state.feedback.push(verifyRepeat);
+      return "failed";
+    }
     if (verifyIteration >= maxVerifyIters) {
       state.feedback.push(
         `Verification still failing after ${maxVerifyIters} fix attempt(s)${

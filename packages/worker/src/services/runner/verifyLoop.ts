@@ -1,12 +1,12 @@
 import type { RunContext } from "./types";
-import type { PlanSubtask } from "@/orchestrator/types";
+import type { PlanSubtask } from "@/types";
 import { implementerAgent } from "./setup";
 import { pickFixOwner } from "@/orchestrator/ownership";
 import { applyOrRequestFixApproval } from "./fixApply";
 import { buildFixSubtask } from "@/orchestrator/reviewLoop";
 import { runVerification } from "@/execution/verification";
 import type { ReviewFinding } from "@/utils/json";
-import { CAPABILITY } from "@/orchestrator/types";
+import { CAPABILITY } from "@/types";
 import { buildVerificationCard, postStageCard } from "./cards";
 
 /**

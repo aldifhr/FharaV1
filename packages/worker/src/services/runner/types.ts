@@ -14,13 +14,15 @@ import type {
   Classification,
   ExecutionPlan,
   PlanSubtask,
-} from "@/orchestrator/types";
+} from "@/types";
 import type { GlobalLLMConfig } from "@/llm";
 import type { TaskLlmResolver } from "@/llm/resolver";
-import type { TokenUsageMeta } from "@/effects/llmCall";
+import type { TokenUsageFn } from "@/types/llm";
+import type { QaCheckRecord, QaVerdict } from "@/types/qa";
+import type { DynamicSubtaskOrigin } from "@/types/subtask";
 import type { WebClient } from "@/tools/webClient";
 import type { LlmConcurrencyGate } from "@/effects/llmCall";
-import type { McpSession } from "@/mcp/registry";
+import type { McpRunConfig } from "@/mcp/registry";
 import type {
   NodeOutcome,
   SchedulerNode,
@@ -51,13 +53,10 @@ export interface RunnerDeps {
  */
 export interface RunState {
   priorOutputs: Map<string, string>;
-  qaVerdicts: Record<string, "passed" | "failed" | "inconclusive" | "blocked">;
+  qaVerdicts: Record<string, QaVerdict>;
   /** The exact checks each QA node ran (labels + statuses). Feeds the
    * specific pass message instead of a generic template. */
-  qaChecks?: Record<
-    string,
-    Array<{ label: string; status: string; details?: string }>
-  >;
+  qaChecks?: Record<string, QaCheckRecord[]>;
   reviewVerdicts: Record<string, ReviewResult>;
   fileChanges: Map<string, FileDiff>;
   /** Applied file paths per producing subtask key (Phase 5 Step 5.1). */
@@ -110,24 +109,13 @@ export interface ExecutePlanInput {
   /** Per-task LLM gate (Phase 4 hardening), threaded into every subtask LLM call. */
   llmTaskGate?: LlmConcurrencyGate;
   /** Plan 009: MCP tool provider for this run; absent means "no MCP tools". */
-  mcp?: {
-    sessions: McpSession[];
-    writeTools: boolean;
-    maxIterations: number;
-  };
+  mcp?: McpRunConfig;
   /**
    * Usage sink for plan-level LLM calls (the decision advisor). Threaded
    * from the caller's recorder so advisor spend is metered in the same
    * BudgetTracker and tokenUsage table as subtask calls.
    */
-  onTokenUsage?: (
-    inputTokens: number,
-    outputTokens: number,
-    model: string,
-    agentName: string,
-    agentId?: string,
-    meta?: TokenUsageMeta
-  ) => Promise<void>;
+  onTokenUsage?: TokenUsageFn;
   worktree?: { branchName: string; worktreePath: string };
   /**
    * Persist dynamically spawned subtasks (Phase 4 hardening): called
@@ -137,7 +125,7 @@ export interface ExecutePlanInput {
    */
   onDynamicSubtasks?: (request: {
     added: PlanSubtask[];
-    origin: "delegation" | "fix" | "review_fix";
+    origin: DynamicSubtaskOrigin;
     plan: ExecutionPlan;
     version: number;
   }) => Promise<void>;
@@ -262,7 +250,7 @@ export interface RunContext {
   uniqueSubtaskKey: (base: string) => string;
   persistDynamic: (
     added: PlanSubtask[],
-    origin: "delegation" | "fix" | "review_fix"
+    origin: DynamicSubtaskOrigin
   ) => Promise<void>;
   /** True once this run is cancelled — by the status poll or the deadline signal. */
   taskCancelled: () => boolean;

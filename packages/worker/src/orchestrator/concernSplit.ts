@@ -1,6 +1,6 @@
 import { concernCategory } from "./classifier";
 import { routeCapability } from "./capabilities";
-import { CAPABILITY, type AgentDefinition, type Classification, type Concern, type ExecutionPlan, type PlanSubtask } from "./types";
+import { CAPABILITY, type AgentDefinition, type Classification, type Concern, type ExecutionPlan, type PlanSubtask } from "@/types";
 
 /**
  * Per-concern planning for high/ultra changes (e2e ULTRA).

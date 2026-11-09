@@ -5,7 +5,7 @@ import {
   type ExecutionPlan,
   type PlanSubtask,
   type SubtaskKind,
-} from "./types";
+} from "@/types";
 import type { BudgetSnapshot } from "./budget";
 import type { ExecutionPolicy } from "./policy";
 import type { ExecutionHistoryEntry, OutstandingIssue } from "./taskContext";
@@ -18,6 +18,7 @@ import { findCycle } from "./planValidator";
 import { pickFixOwner } from "./ownership";
 import { preventCircularDelegation } from "./delegation";
 import type { DelegationDecision } from "./delegation";
+import type { QaVerdict } from "@/types/qa";
 
 /**
  * Plan 006 Phase 2 (adopts plan 005 Phase 2): the decision contract.
@@ -87,7 +88,7 @@ export interface ObjectiveEvidence {
   /** Applied file paths per completed subtask key (code_change nodes). */
   appliedFiles?: Record<string, string[]>;
   /** QA verdicts by subtask key. */
-  qaVerdicts?: Record<string, "passed" | "failed" | "inconclusive" | "blocked">;
+  qaVerdicts?: Record<string, QaVerdict>;
   /** Static verification result; undefined when it did not run. */
   verification?: { status: "passed" | "failed" | "skipped"; details?: string };
   /** The decision whose expectedOutcome is being checked for satisfaction. */

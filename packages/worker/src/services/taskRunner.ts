@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import type { WorkerAgent, WorkerTask } from "@/workerApi";
-import type { SubtaskKind } from "@/orchestrator/types";
+import type { SubtaskKind } from "@/types";
 import { classifyCommand } from "@/orchestrator/classifier";
 import { policyForComplexity } from "@/orchestrator/policy";
 import { validateStoredPlan } from "@/orchestrator/planValidator";

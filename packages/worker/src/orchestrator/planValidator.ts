@@ -1,4 +1,4 @@
-import type { ExecutionPlan, PlanSubtask, SubtaskKind } from "./types";
+import type { ExecutionPlan, PlanSubtask, SubtaskKind } from "@/types";
 import { normalizeCapability } from "./capabilities";
 import { normalizeAllowedPaths } from "./ownership";
 

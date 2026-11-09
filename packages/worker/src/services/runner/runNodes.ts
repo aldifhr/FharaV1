@@ -1,6 +1,6 @@
 import type {
   PlanSubtask,
-} from "@/orchestrator/types";
+} from "@/types";
 import { runScheduler, type NodeOutcome, type SchedulerResult } from "@/scheduler/dagScheduler";
 import { executeSubtask } from "@/execution/agentExecutor";
 import { resolveExecutionRuntime } from "@/execution/nativeProvider";

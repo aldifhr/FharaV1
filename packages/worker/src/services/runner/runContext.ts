@@ -1,10 +1,11 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { CAPABILITY, type AgentDefinition, type PlanSubtask } from "@/orchestrator/types";
+import { CAPABILITY, type AgentDefinition, type PlanSubtask } from "@/types";
 import { routeCapability } from "@/orchestrator/capabilities";
 import type { WebClient } from "@/tools/webClient";
 import { applyFileChange, hashContent, type FileDiff } from "@/tools/gitDiff";
 import type { WorkerExecutionId } from "@/workerApi";
+import type { DynamicSubtaskOrigin } from "@/types/subtask";
 import type { ApplyStagedResult, ExecutePlanInput, RunContext } from "./types";
 import { runNodes } from "./runNodes";
 
@@ -50,7 +51,7 @@ export function createRunContext(input: ExecutePlanInput, browser: WebClient): R
    */
   const persistDynamic = async (
     added: PlanSubtask[],
-    origin: "delegation" | "fix" | "review_fix"
+    origin: DynamicSubtaskOrigin
   ): Promise<void> => {
     if (!input.onDynamicSubtasks || added.length === 0) return;
     try {

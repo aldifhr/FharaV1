@@ -1,4 +1,4 @@
-import { CAPABILITY, type AgentDefinition } from "./types";
+import { CAPABILITY, type AgentDefinition } from "@/types";
 
 const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   {

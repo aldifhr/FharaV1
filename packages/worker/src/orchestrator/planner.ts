@@ -5,11 +5,11 @@ import {
   usageMetaFor,
   type FallbackHandle,
   type LlmConcurrencyGate,
-  type TokenUsageMeta,
 } from "@/effects/llmCall";
+import type { TokenUsageFn } from "@/types/llm";
 import { providerHealth } from "@/llm/health";
 import type { TaskLlmResolver } from "@/llm/resolver";
-import { CAPABILITY, type AgentDefinition, type Classification, type ExecutionPlan } from "./types";
+import { CAPABILITY, type AgentDefinition, type Classification, type ExecutionPlan } from "@/types";
 import { routeCapability, capabilitiesOf, describeCapabilities, isAgentEnabled, normalizeCapability } from "./capabilities";
 import { validatePlan } from "./planValidator";
 import { extractJson } from "@/utils/json";
@@ -29,7 +29,7 @@ export interface PlannerInput {
    * fallback across its chain. Takes precedence over `llmConfig`.
    */
   llmResolver?: TaskLlmResolver;
-  onTokenUsage?: (inputTokens: number, outputTokens: number, model: string, agentName: string, agentId?: string, meta?: TokenUsageMeta) => Promise<void>;
+  onTokenUsage?: TokenUsageFn;
   /**
    * Pre-call budget gate (Phase 5): invoked BEFORE the planner's LLM
    * call. Enforce mode throws BudgetExhaustedError — deliberately NOT

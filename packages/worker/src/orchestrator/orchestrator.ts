@@ -1,4 +1,4 @@
-import type { AgentDefinition, Classification, ExecutionPlan, PlanSubtask } from "./types";
+import type { AgentDefinition, Classification, ExecutionPlan, PlanSubtask } from "@/types";
 import { classifyCommand } from "./classifier";
 import { routeCapability, capabilitiesOf, isAgentEnabled } from "./capabilities";
 import { BudgetTracker } from "./budget";

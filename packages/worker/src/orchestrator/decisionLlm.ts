@@ -5,8 +5,8 @@ import {
   runLlmCallWithFallback,
   type FallbackHandle,
   type LlmConcurrencyGate,
-  type TokenUsageMeta,
 } from "@/effects/llmCall";
+import type { TokenUsageFn } from "@/types/llm";
 import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig } from "@/llm";
 import { providerHealth } from "@/llm/health";
 import type { TaskLlmResolver } from "@/llm/resolver";
@@ -39,7 +39,7 @@ export interface DecisionAdvisorInput {
   /** Task cancellation/deadline signal. */
   signal?: AbortSignal;
   llmTaskGate?: LlmConcurrencyGate;
-  onTokenUsage?: (inputTokens: number, outputTokens: number, model: string, agentName: string, agentId?: string, meta?: TokenUsageMeta) => Promise<void>;
+  onTokenUsage?: TokenUsageFn;
   /**
    * Injected provider call for tests (live calls are opt-in and never in
    * the default suite). When set, it replaces the real call.

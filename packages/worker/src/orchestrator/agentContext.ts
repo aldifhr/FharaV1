@@ -1,5 +1,5 @@
 import type { SharedTaskContext, ExecutionHistoryEntry, TaskArtifact, OutstandingIssue } from "./taskContext";
-import type { AgentDefinition } from "./types";
+import type { AgentDefinition } from "@/types";
 import { capabilitiesOf } from "./capabilities";
 
 export interface AgentExecutionContext {

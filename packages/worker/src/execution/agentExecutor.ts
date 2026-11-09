@@ -6,11 +6,12 @@ import {
   usageMetaFor,
   type FallbackHandle,
   type LlmConcurrencyGate,
-  type TokenUsageMeta,
 } from "@/effects/llmCall";
+import type { SubtaskTokenUsageFn } from "@/types/llm";
+import type { EventSink } from "@/types/events";
 import { providerHealth } from "@/llm/health";
 import { isBudgetExhaustedError } from "@/orchestrator/budget";
-import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/orchestrator/types";
+import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/types";
 import {
   buildAgentExecutionContext,
   formatAgentContextForPrompt,
@@ -21,7 +22,7 @@ import {
   isNativeProviderAvailable,
   type SpawnImpl,
 } from "./nativeProvider";
-import type { SharedTaskContext } from "@/orchestrator/taskContext";
+import type { SharedTaskContext } from "@/types";
 import { extractFileHint, parseDelegation, parseReview, sanitizeForChat, type DraftFile } from "@/utils/json";
 import { classifyToolCalls, parseToolCallMarkup, stripToolCallMarkup } from "@/utils/toolCallMarkup";
 import { diagnoseDraftParse, parseDraftLenient, type DraftFormat } from "@/utils/draftLenient";
@@ -47,7 +48,7 @@ import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
 import { runResponsiveQa } from "./qa";
 import { wantsVisualQa } from "@/orchestrator/planner";
-import { getMcpRegistry, type McpHooks, type McpSession } from "@/mcp/registry";
+import { getMcpRegistry, type McpHooks, type McpRunConfig, type McpSession } from "@/mcp/registry";
 import { runMcpToolLoop } from "@/mcp/toolLoop";
 import type { McpToolDefinition } from "@/mcp/types";
 
@@ -93,11 +94,7 @@ export interface SubtaskExecutionInput {
    * it is skipped instead of being started and killed mid-flight.
    */
   deadlineAt?: number;
-  onEvent: (
-    type: string,
-    payload: Record<string, unknown>,
-    level?: "info" | "warn" | "error"
-  ) => Promise<void>;
+  onEvent: EventSink;
   onMessage: (content: string) => Promise<void>;
   onChunk: (delta: string) => Promise<void>;
   saveFileChange: (change: FileDiff) => Promise<void>;
@@ -113,7 +110,7 @@ export interface SubtaskExecutionInput {
    * (the earlier staged edit is withdrawn instead of failing as a no-op).
    */
   discardFileChange?: (filePath: string) => Promise<void>;
-  onTokenUsage?: (inputTokens: number, outputTokens: number, model: string, meta?: TokenUsageMeta) => Promise<void>;
+  onTokenUsage?: SubtaskTokenUsageFn;
   /**
    * Pre-call budget gate (Phase 5): invoked BEFORE every LLM call this
    * subtask makes. In "enforce" mode it throws BudgetExhaustedError —
@@ -130,11 +127,7 @@ export interface SubtaskExecutionInput {
    * subtask runs on its existing path. `writeTools` defaults to false:
    * write-capable MCP tools are filtered for every role.
    */
-  mcp?: {
-    sessions: McpSession[];
-    writeTools?: boolean;
-    maxIterations?: number;
-  };
+  mcp?: Pick<McpRunConfig, "sessions"> & Partial<McpRunConfig>;
   /**
    * Plan 014 runtime: "api" (default, host tools + gated LLM) or
    * "native-provider" (provider CLI with its own native tools in the

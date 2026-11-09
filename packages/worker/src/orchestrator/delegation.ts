@@ -1,5 +1,5 @@
-import type { AgentDefinition, Classification } from "./types";
-import { CAPABILITY } from "./types";
+import type { AgentDefinition, Classification } from "@/types";
+import { CAPABILITY } from "@/types";
 import { classifyCommand } from "./classifier";
 import {
   routeCapability,

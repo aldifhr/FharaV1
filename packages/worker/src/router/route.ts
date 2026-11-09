@@ -1,5 +1,5 @@
 import { classifyCommand } from "../orchestrator/classifier";
-import type { AgentDefinition, Classification } from "../orchestrator/types";
+import type { AgentDefinition, Classification } from "@/types";
 import { selectAgentsForChat } from "./selectAgents";
 
 export type RouterIntent =

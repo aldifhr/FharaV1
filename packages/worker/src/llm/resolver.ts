@@ -4,7 +4,7 @@ import {
   type GlobalLLMConfig,
   type LLMProvider,
 } from "@/llm";
-import type { AgentDefinition } from "@/orchestrator/types";
+import type { AgentDefinition } from "@/types";
 import { decryptApiKey } from "./crypto";
 import { providerHealth, type ProviderHealthRegistry } from "./health";
 

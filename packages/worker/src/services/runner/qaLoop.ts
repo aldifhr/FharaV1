@@ -1,9 +1,9 @@
 import type { RunContext } from "./types";
-import type { PlanSubtask } from "@/orchestrator/types";
+import type { PlanSubtask } from "@/types";
 import { qaFindings } from "./setup";
 import { buildFixSubtask, formatReviewFindings } from "@/orchestrator/reviewLoop";
 import { capabilitiesOf, normalizeCapability, routeCapability } from "@/orchestrator/capabilities";
-import { CAPABILITY } from "@/orchestrator/types";
+import { CAPABILITY } from "@/types";
 import { wantsVisualQa } from "@/orchestrator/planner";
 import { pickFixOwner, type FixCandidate } from "@/orchestrator/ownership";
 import { applyOrRequestFixApproval } from "./fixApply";

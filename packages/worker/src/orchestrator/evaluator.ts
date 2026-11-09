@@ -2,18 +2,9 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { hashContent } from "@/tools/gitDiff";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
+import type { EvaluationCheck, EvaluationVerdict } from "@/types/execution";
 
-export type EvaluationVerdict = "passed" | "failed" | "inconclusive";
-
-export interface EvaluationCheck {
-  name: string;
-  status: EvaluationVerdict;
-  details?: string;
-  /** Wall time of the step, when it ran (plan 019 verification card). */
-  durationMs?: number;
-  /** Test counts parsed from the runner output, when it printed them. */
-  counts?: { passed: number; total: number };
-}
+export type { EvaluationCheck, EvaluationVerdict } from "@/types/execution";
 
 export interface EvaluationFileChange {
   filePath: string;

@@ -6,7 +6,7 @@ import {
   type ExecutionPlan,
   type PlanSubtask,
   type SubtaskKind,
-} from "@/orchestrator/types";
+} from "@/types";
 import { classifyCommand } from "@/orchestrator/classifier";
 import { heuristicPlan } from "@/orchestrator/planner";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
@@ -22,7 +22,7 @@ import {
 import { providerHealth } from "@/llm/health";
 import { routeCapability } from "@/orchestrator/capabilities";
 import type { ReviewFinding } from "@/utils/json";
-import { getMcpRegistry, type McpSession } from "@/mcp/registry";
+import { getMcpRegistry, type McpRunConfig } from "@/mcp/registry";
 import type { WebClientConfig } from "@/tools/webClient";
 import type { NodeOutcome, SchedulerResult } from "@/scheduler/dagScheduler";
 import type { FileDiff } from "@/tools/gitDiff";
@@ -282,7 +282,7 @@ export function mcpForTask(
   workspacePath: string,
   policy: ExecutionPolicy,
   reportStatus: (serverId: string, status: "connected" | "disconnected" | "error", errorMessage?: string) => Promise<void> | void
-): { sessions: McpSession[]; writeTools: boolean; maxIterations: number } | undefined {
+): McpRunConfig | undefined {
   if (policy.mcpToolLoop === false) return undefined;
   const sessions = getMcpRegistry().ensure(
     configs ?? [],

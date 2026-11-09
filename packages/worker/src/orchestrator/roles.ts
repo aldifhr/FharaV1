@@ -15,9 +15,9 @@
  * as researcher, router tie-break always picked it first), ui-ux (duplicate
  * of designer — normalizeRole maps ui-ux to designer).
  */
-import { CAPABILITY } from "./types";
+import { CAPABILITY } from "@/types";
 import { capabilitiesOf } from "./capabilities";
-import type { AgentDefinition } from "./types";
+import type { AgentDefinition } from "@/types";
 
 export type AgentRole =
   | "cto"

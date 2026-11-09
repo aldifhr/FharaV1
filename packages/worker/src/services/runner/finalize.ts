@@ -1,7 +1,7 @@
 import type {
   AgentDefinition,
   ExecutionPlan,
-} from "@/orchestrator/types";
+} from "@/types";
 import {
   evaluateTask,
   type EvaluationCheck,

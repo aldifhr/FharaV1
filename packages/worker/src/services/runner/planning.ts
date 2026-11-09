@@ -4,11 +4,12 @@ import type {
   AgentDefinition,
   Classification,
   ExecutionPlan,
-} from "@/orchestrator/types";
+} from "@/types";
 import { isBudgetExhaustedError, type BudgetTracker } from "@/orchestrator/budget";
 import {
   createAuthoritativePlan,
   createOrchestratorPlan,
+  type AuthoritativePlanResult,
 } from "@/orchestrator/orchestrator";
 import type { SharedTaskContext } from "@/orchestrator/taskContext";
 import type { GlobalLLMConfig } from "@/llm";
@@ -20,7 +21,7 @@ import { resolveQaBaseUrl, resolveWorkspacePath } from "./setup";
 import { finishBudgetExhaustedTask, finishCancelledTask } from "./terminal";
 import { persistPlan } from "./finalize";
 
-export type AuthoritativePlanResult = Awaited<ReturnType<typeof createAuthoritativePlan>>;
+export type { AuthoritativePlanResult };
 
 /**
  * Everything one planner call needs for a task run. Built once by

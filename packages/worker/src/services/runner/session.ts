@@ -1,7 +1,7 @@
 import type { WorkerAgent, WorkerApi } from "@/workerApi";
 import type { BudgetTracker } from "@/orchestrator/budget";
 import type { SharedTaskContext } from "@/orchestrator/taskContext";
-import type { TokenUsageMeta } from "@/effects/llmCall";
+import type { TokenUsageFn } from "@/types/llm";
 import type { ExecutePlanInput, RunnerDeps } from "./types";
 
 /**
@@ -16,14 +16,7 @@ type TaskId = string;
 type ProjectId = string;
 
 /** The usage sink signature threaded to the planner and every subtask. */
-export type RecordUsageFn = (
-  inputTokens: number,
-  outputTokens: number,
-  model: string,
-  agentName: string,
-  agentId?: string,
-  meta?: TokenUsageMeta
-) => Promise<void>;
+export type RecordUsageFn = TokenUsageFn;
 
 /**
  * Pre-call budget gate closure (Phase 5): warn mode emits ONE

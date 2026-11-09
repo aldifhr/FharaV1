@@ -1,5 +1,5 @@
 import type { RunContext } from "./types";
-import type { PlanSubtask } from "@/orchestrator/types";
+import type { PlanSubtask } from "@/types";
 import type { FileDiff } from "@/tools/gitDiff";
 import { routeCapability } from "@/orchestrator/capabilities";
 

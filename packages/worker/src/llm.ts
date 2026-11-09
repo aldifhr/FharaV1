@@ -1,15 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
+import type { LLMMessage, LLMResult } from "@/types/llm";
 
-export interface LLMMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
-}
-
-export interface LLMResult {
-  content: string;
-  inputTokens?: number;
-  outputTokens?: number;
-}
+export type { LLMMessage, LLMResult } from "@/types/llm";
 
 export interface LLMCallOptions {
   /** External cancellation (task cancel/deadline). Enforcement lands in

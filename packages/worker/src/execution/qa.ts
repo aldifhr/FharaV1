@@ -8,26 +8,9 @@ import { chromium, type Browser } from "playwright";
 import { killTree } from "./verification";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
+import type { QaCheck, QaReport } from "@/types/qa";
 
-export interface QaCheck {
-  label: string;
-  status: "passed" | "failed" | "inconclusive";
-  details?: string;
-}
-
-export interface QaReport {
-  /**
-   * `blocked` = the QA ENVIRONMENT could not run the check (no browser
-   * binary, no node_modules, no dev script, npm missing). It is never a
-   * code defect and must not be routed to an implementer fix.
-   */
-  verdict: "passed" | "failed" | "inconclusive" | "blocked";
-  checks: QaCheck[];
-  failures: string[];
-  inconclusive: string[];
-  /** Why QA was blocked (environment), when verdict is "blocked". */
-  blockedReason?: string;
-}
+export type { QaCheck, QaReport } from "@/types/qa";
 
 /** Thrown internally for environment problems; mapped to verdict "blocked". */
 class QaEnvironmentError extends Error {}

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { EventSink } from "@/types/events";
 
 /**
  * Provider-native runtime (plan 014): executes a subtask through a
@@ -486,7 +487,7 @@ export interface NativeRunInput {
   /** Request JSON events (default true). */
   json?: boolean;
   signal?: AbortSignal;
-  onEvent?: (type: string, payload: Record<string, unknown>, level?: "info" | "warn" | "error") => Promise<void>;
+  onEvent?: EventSink;
   onChunk?: (delta: string) => Promise<void>;
   onMessage?: (text: string) => Promise<void>;
   spawnImpl?: SpawnImpl;

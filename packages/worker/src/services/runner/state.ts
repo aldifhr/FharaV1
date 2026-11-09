@@ -4,11 +4,12 @@ import type {
 } from "@/workerApi";
 import type {
   ExecutionPlan,
-} from "@/orchestrator/types";
+} from "@/types";
 import { normalizeCapability } from "@/orchestrator/capabilities";
 import type { ReviewFinding, ReviewResult } from "@/utils/json";
 import type { FileDiff } from "@/tools/gitDiff";
 import type { RunState } from "./types";
+import type { QaVerdict } from "@/types/qa";
 
 /**
  * Build the executable state for a task from what the DB already holds:
@@ -119,7 +120,7 @@ function persistedReviewVerdict(
 /** Read a QA verdict back from the summary executeQa persisted. */
 function persistedQaVerdict(
   output: string
-): "passed" | "failed" | "inconclusive" | "blocked" | null {
+): QaVerdict | null {
   const match = /QA verdict:\s*(passed|failed|inconclusive|blocked)/i.exec(output);
   if (!match) return null;
   const verdict = match[1].toLowerCase();

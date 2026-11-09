@@ -1,5 +1,5 @@
 import { splitTimedOutNodes, timedOutKeys } from "@/orchestrator/concernSplit";
-import type { ExecutionPlan } from "@/orchestrator/types";
+import type { ExecutionPlan } from "@/types";
 import type { SharedTaskContext } from "@/orchestrator/taskContext";
 import type { RunState } from "./types";
 import { carryForwardState } from "./state";

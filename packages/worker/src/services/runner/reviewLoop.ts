@@ -1,9 +1,9 @@
 import type { RunContext } from "./types";
-import type { PlanSubtask } from "@/orchestrator/types";
+import type { PlanSubtask } from "@/types";
 import { implementerAgent } from "./setup";
 import { buildReviewFixSubtask, collectRequestedChanges, formatReviewFindings } from "@/orchestrator/reviewLoop";
 import { pickFixOwner } from "@/orchestrator/ownership";
-import { CAPABILITY } from "@/orchestrator/types";
+import { CAPABILITY } from "@/types";
 
 /**
  * The review correction loop (plan 012 step 2): corrections for a failing

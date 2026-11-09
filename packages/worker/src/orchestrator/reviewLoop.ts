@@ -1,5 +1,5 @@
 import type { ReviewFinding, ReviewResult } from "@/utils/json";
-import type { PlanSubtask } from "./types";
+import type { PlanSubtask } from "@/types";
 
 export function formatReviewFindings(findings: ReviewFinding[]): string {
   if (findings.length === 0) return "No concrete findings were provided.";

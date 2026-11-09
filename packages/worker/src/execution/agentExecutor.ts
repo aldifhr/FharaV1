@@ -29,12 +29,12 @@ import { shellInstruction, shellUserContent } from "@/prompts/shell";
 export { buildRepairPrompt } from "@/prompts/codeChange";
 import type { EventSink } from "@/types/events";
 import { providerHealth } from "@/llm/health";
-import { isBudgetExhaustedError } from "@/orchestrator/budget";
+import { isBudgetExhaustedError } from "@/utils/budgetError";
 import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/types";
 import {
   buildAgentExecutionContext,
   formatAgentContextForPrompt,
-} from "@/orchestrator/agentContext";
+} from "./agentContext";
 import {
   runNativeProvider,
   buildNativePrompt,
@@ -47,7 +47,7 @@ import { classifyToolCalls, parseToolCallMarkup, stripToolCallMarkup } from "@/u
 import { diagnoseDraftParse, parseDraftLenient, type DraftFormat } from "@/utils/draftLenient";
 import { tmpdir } from "node:os";
 import { maskStringSecrets, validateFilePath } from "@/governance/tools";
-import { isPathWithinOwnership } from "@/orchestrator/ownership";
+import { isPathWithinOwnership } from "@/utils/ownershipPaths";
 import {
   computeDiff,
   diffFromContents,
@@ -66,7 +66,7 @@ import { promisify } from "node:util";
 import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
 import { runResponsiveQa } from "./qa";
-import { wantsVisualQa } from "@/orchestrator/planner";
+import { wantsVisualQa } from "@/utils/qaIntent";
 import { getMcpRegistry, type McpHooks, type McpRunConfig, type McpSession } from "@/mcp/registry";
 import { runMcpToolLoop } from "@/mcp/toolLoop";
 import type { McpToolDefinition } from "@/mcp/types";

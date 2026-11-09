@@ -1,6 +1,6 @@
 import { internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { assertProjectAccess } from "./authz";
+import { assertProjectAccess } from "./lib/authz";
 
 /**
  * Authorization bridge for public ACTIONS (which have no `ctx.db`). The

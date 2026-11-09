@@ -1,6 +1,6 @@
 import { query, mutation, action, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { assertProjectAccess, getVisibleTask } from "./authz";
+import { assertProjectAccess, getVisibleTask } from "./lib/authz";
 import { internal } from "./_generated/api";
 
 export const listByProject = query({

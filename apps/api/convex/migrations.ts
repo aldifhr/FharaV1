@@ -1,5 +1,5 @@
 import { internalMutation, internalQuery } from "./_generated/server";
-import { encryptApiKey, reEncryptApiKey } from "./llmCrypto";
+import { encryptApiKey, reEncryptApiKey } from "./lib/llmCrypto";
 
 /**
  * Phase 2 data migration (spec §4B/§5.3) — internal, idempotent, safe to

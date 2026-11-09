@@ -10,7 +10,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { assertProjectAccess } from "./authz";
+import { assertProjectAccess } from "./lib/authz";
 import { holdsTaskLease } from "./orchestration";
 import { prState } from "./schema";
 import type { QaCardData, VerificationCardData } from "./cardTypes";

@@ -1,8 +1,6 @@
 "use client";
 
-import { useTheme as useCtx } from "./theme-provider";
-
-export type Theme = "light" | "dark";
+import { useTheme as useCtx, type Theme } from "./theme-provider";
 
 export function useTheme() {
   const { theme, toggle, setTheme } = useCtx();

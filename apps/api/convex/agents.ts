@@ -1,7 +1,16 @@
 import { query, mutation, internalMutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { assertAgentAccess, assertProjectAccess, assertRegistryWriteAccess } from "./authz";
+import { assertAgentAccess, assertProjectAccess, assertRegistryWriteAccess } from "./lib/authz";
+import {
+  FIXED_TEAM_SEED_ORDER,
+  REVOKED_DEFAULT_CAPABILITIES,
+  ROLES,
+  isRetiredRole,
+  normalizeRoleKey,
+} from "./lib/roles";
+import { defaultAvatarParams } from "./lib/avatar";
+import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT } from "./lib/prompts/agents";
 
 /**
  * Plan 007: browser-safe agent projection — the same shape `list` has always
@@ -10,28 +19,6 @@ import { assertAgentAccess, assertProjectAccess, assertRegistryWriteAccess } fro
 export function projectAgentDoc(agent: Doc<"agents">) {
   const { llmApiKey, llmApiKeyEnv, ...rest } = agent;
   return { ...rest, llmApiKeyConfigured: Boolean(llmApiKey) };
-}
-
-function defaultAvatarParams(name: string) {
-  const palettes = ["Black", "Brown", "Blonde", "Red", "PastelPink"];
-  let hash = 0;
-  for (const character of name) hash = (hash * 31 + character.charCodeAt(0)) | 0;
-  const hairColor = palettes[Math.abs(hash) % palettes.length];
-  return {
-    avatarStyle: "Circle",
-    topType: "ShortHairShortFlat",
-    accessoriesType: "Blank",
-    hatColor: "Black",
-    hairColor,
-    facialHairType: "Blank",
-    facialHairColor: "Brown",
-    clotheType: "ShirtCrewNeck",
-    clotheColor: "Blue03",
-    eyeType: "Default",
-    eyebrowType: "Default",
-    mouthType: "Smile",
-    skinColor: "Light",
-  };
 }
 
 function normalizeCapabilities(values: string[] | undefined): string[] | undefined {
@@ -189,31 +176,8 @@ export function defaultSystemPromptForRole(role: string): string {
   const key = role.trim().toLowerCase();
   const seed = FIXED_AGENTS.find((agent) => agent.role === key);
   if (seed) return seed.systemPrompt;
-  if (key === "ui-ux") {
-    return (
-      "You are the UI/UX Designer. Design guidance only -- layout, hierarchy, and UX rationale. " +
-      "The Frontend Developer implements it."
-    );
-  }
-  if (key === "reviewer") {
-    return (
-      "You are the Reviewer. Review diffs independently with file references, " +
-      "call out defects and risks concretely. Never silently modify code or approve your own work."
-    );
-  }
-  if (key === "researcher") {
-    return (
-      "You are the Researcher. Prefer official docs; distinguish facts from assumptions with sources. " +
-      "Read-only research -- no file modifications."
-    );
-  }
-  if (key === "devops") {
-    return (
-      "You are the DevOps Engineer. Make minimal, reversible infra changes. " +
-      "Report the exact commands run and their output."
-    );
-  }
-  return "You are a specialized agent. Work only within your assigned scope and report changed files and limitations.";
+  if (key === "ui-ux") return LEGACY_UI_UX_PROMPT;
+  return GENERIC_AGENT_PROMPT;
 }
 
 export const create = mutation({
@@ -490,138 +454,21 @@ export const getExecutionHistory = query({
   },
 });
 
-export const FIXED_AGENTS = [
-  {
-    key: "cto",
-    name: "CTO",
-    role: "cto",
-    description: "Technical architecture, technical decisions, risk evaluation.",
-    systemPrompt:
-      "You are the CTO. You decide HOW the work is built: the technical approach, architecture, framework and library choices, data model, and risk trade-offs. You evaluate risk and give a go/no-go on sensitive changes (auth, payments, migrations, new libs). Boundaries: you own the technical direction, not the requirements. You decide the HOW and set the guardrails. Keep plans simple and consistent with the existing codebase; reject over-engineering. Read-only: you do not write code yourself. Output: a decision with brief rationale, risks, and concrete next steps. Reporting to the owner: always in 2-3 plain-language sentences, like talking to a non-technical owner -- what is done, the impact, and any problem or decision needed last. Never use bullets, headers, or pasted terminal output. Technical detail only when asked.",
-    capabilities: ["architecture", "security-audit"],
-    supportedTools: ["read_file"],
-    priority: 9,
-    maxConcurrency: 2,
-  },
-  {
-    key: "designer",
-    name: "Designer",
-    role: "designer",
-    description: "UI/UX, wireframes, design system, component specifications.",
-    systemPrompt:
-      "You are the UI/UX Designer. Turn requests into concrete design specs another developer can implement directly: layout, component list, tokens, states, and responsive behavior. Every proposal must consider accessibility (contrast, focus, touch targets) and existing UI conventions. Boundaries: design only — you do not edit code. Output: short spec + text wireframe structure the Frontend agent can build from.",
-    capabilities: ["ui-ux-design"],
-    supportedTools: ["read_file", "write_file"],
-    priority: 8,
-    maxConcurrency: 1,
-  },
-  {
-    key: "frontend",
-    name: "Frontend",
-    role: "frontend",
-    description: "Frontend implementation, React, Next.js, responsive UI, design fidelity.",
-    systemPrompt:
-      "You are the Frontend Developer. Implement exactly the assigned subtask: React/Next.js pages, components, state, and styling that match the design spec and existing conventions. Reuse components/ui primitives before writing new ones; keep TypeScript strict, markup accessible, and all UI copy in English. Boundaries: work only within your subtask scope — never mark the global task complete, never touch backend logic. Output: changed files, how it behaves, and any limitations.",
-    capabilities: ["frontend-development"],
-    supportedTools: ["read_file", "write_file", "run_command"],
-    priority: 8,
-    maxConcurrency: 2,
-  },
-  {
-    key: "backend",
-    name: "Backend",
-    role: "backend",
-    description: "Backend, API, database implementation, server-side business logic.",
-    systemPrompt:
-      "You are the Backend Developer. Implement exactly the assigned subtask: Convex queries/mutations/actions, schema, validation, and integrations. Follow existing patterns, keep security invariants (no credential leakage, terminal-status guard), and verify schema changes are additive. Boundaries: no UI work, no silent schema drops, no provider keys outside the backend. Output: changed files, how it behaves, and any limitations.",
-    capabilities: ["backend-development"],
-    supportedTools: ["read_file", "write_file", "run_command"],
-    priority: 8,
-    maxConcurrency: 2,
-  },
-  {
-    key: "qa",
-    name: "QA",
-    role: "qa",
-    description: "Testing, bug detection, quality assurance, verification.",
-    systemPrompt:
-      "You are the QA Engineer. Verify the assigned subtask by running the narrowest relevant checks and reporting evidence, not guesses. Distinguish executed tests from proposed ones; never fabricate results. Check edge cases and regressions, not just happy paths. Boundaries: you verify and report — fixes go back to the implementation agent. Output: pass/fail per check with file references, and a concrete repro for any defect.",
-    capabilities: ["browser-testing"],
-    supportedTools: ["read_file", "run_command"],
-    priority: 7,
-    maxConcurrency: 2,
-  },
-  {
-    key: "support",
-    name: "Support",
-    role: "support",
-    description: "Documentation, user support, operational assistance, troubleshooting.",
-    systemPrompt:
-      "You are the Support Specialist. Write clear, step-by-step user documentation, API references, and troubleshooting guides in English. Answer the actual question first, then the how. Never invent features, endpoints, or behavior you cannot verify — check the code or say it is unknown. Boundaries: docs and guidance only, no code changes. Output: structured guide with prerequisites, steps, and expected results.",
-    capabilities: ["documentation-support", "general"],
-    supportedTools: ["read_file", "write_file"],
-    priority: 6,
-    maxConcurrency: 1,
-  },
-  {
-    key: "reviewer",
-    name: "Reviewer",
-    role: "reviewer",
-    description: "Independent code review. Evaluates implementation quality.",
-    systemPrompt:
-      "You are the Reviewer. Review diffs independently with file references, call out defects and risks concretely. Never silently modify code or approve your own work. Verification commands (tsc, lint, test, build) are executed by the runtime, not by you — review the diff only.",
-    capabilities: ["code-review"],
-    supportedTools: ["read_file"],
-    priority: 7,
-    maxConcurrency: 2,
-  },
-  {
-    key: "researcher",
-    name: "Researcher",
-    role: "researcher",
-    description: "Technical research and information gathering.",
-    systemPrompt:
-      "You are the Researcher. Prefer official docs; distinguish facts from assumptions with sources. Read-only research -- no file modifications.",
-    capabilities: ["research"],
-    supportedTools: ["read_file"],
-    priority: 6,
-    maxConcurrency: 2,
-  },
-  {
-    key: "devops",
-    name: "DevOps",
-    role: "devops",
-    description: "Docker, CI/CD, deployment, infrastructure.",
-    systemPrompt:
-      "You are the DevOps Engineer. Make minimal, reversible infra changes. Report the exact commands run and their output.",
-    capabilities: ["github", "shell-execution"],
-    supportedTools: ["read_file", "run_command"],
-    priority: 7,
-    maxConcurrency: 2,
-  },
-];
-
-/** Roles removed from the fixed team. Matched on the normalized role. */
-const RETIRED_ROLES = new Set(["lead", "growth", "product-analyst", "ui-ux"]);
-
-/**
- * Capabilities a fixed role used to ship with and must no longer carry.
- * The sync otherwise only ever UNIONS defaults into existing rows, so a CTO
- * row seeded with `code-review` kept routing reviews to the CTO forever.
- * Only these are removed; capabilities a user added by hand are kept.
- */
-const REVOKED_DEFAULT_CAPABILITIES: Record<string, readonly string[]> = {
-  cto: ["code-review"],
-};
-
-/** "Product Analyst", "product_analyst", "UI/UX" → "product-analyst", "ui-ux". */
-export function normalizeRoleKey(role: string | undefined): string {
-  return (role ?? "").trim().toLowerCase().replace(/[\s_\/]+/g, "-");
-}
-
-function isRetiredRole(role: string | undefined): boolean {
-  return RETIRED_ROLES.has(normalizeRoleKey(role));
-}
+/** The fixed team seed, derived from the shared role definitions. */
+export const FIXED_AGENTS = FIXED_TEAM_SEED_ORDER.map((key) => {
+  const role = ROLES[key];
+  return {
+    key: role.key,
+    name: role.label,
+    role: role.key,
+    description: role.description,
+    systemPrompt: AGENT_SEED_PROMPTS[role.defaultPromptKey],
+    capabilities: [...role.capabilities],
+    supportedTools: [...role.defaultTools],
+    priority: role.priority,
+    maxConcurrency: role.maxConcurrency,
+  };
+});
 
 /**
  * Sync the fixed team: seed missing roles, union new default capabilities

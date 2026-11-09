@@ -16,7 +16,7 @@ export const CARD_DIVIDER = "border-line";
 export const MUTED = "text-ink-3";
 export const TITLE = "text-[13px] font-semibold text-ink";
 
-export const BTN_BASE =
+const BTN_BASE =
   "inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-50";
 export const BTN_PRIMARY = `${BTN_BASE} bg-brand text-white shadow-sm hover:bg-brand-hover`;
 export const BTN_OUTLINE = `${BTN_BASE} border border-line bg-panel text-ink hover:bg-hover dark:bg-transparent`;

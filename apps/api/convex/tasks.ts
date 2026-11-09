@@ -5,9 +5,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import {
   assertProjectAccess,
   assertTaskAccess,
+  canViewProject,
   getViewerId,
   visibleProjectIds,
-} from "./authz";
+} from "./lib/authz";
 import { refreshAgentStatus } from "./orchestration";
 import { taskStatus } from "./schema";
 
@@ -73,8 +74,7 @@ export const listAll = query({
     const visible: typeof tasks = [];
     for (const task of tasks) {
       const project = await ctx.db.get(task.projectId);
-      if (!project) continue;
-      if (!project.ownerId || project.ownerId === viewerId) {
+      if (canViewProject(viewerId, project)) {
         visible.push(task);
       }
     }

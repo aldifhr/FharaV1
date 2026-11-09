@@ -12,7 +12,7 @@ import { roleLabel } from "@/lib/agentRoles";
 import { dispatchChatTyping } from "@/lib/chatTyping";
 import { isClosedStatus } from "@/lib/taskStatus";
 import { readLastRead, writeLastRead } from "@/lib/lastRead";
-import type { TeamStatusEntry } from "@/lib/teamStatus";
+import { statusFromLeases, type LeaseEntry, type StatusMap } from "@/lib/teamStatus";
 import ChatComposer from "./chat/ChatComposer";
 import ChatHeader, { type ChatTab, type HeaderNotification } from "./chat/ChatHeader";
 import ManageProjectModal from "./chat/ManageProjectModal";
@@ -22,6 +22,8 @@ import FilesView from "./chat/FilesView";
 import { useChatQueue } from "./chat/useChatQueue";
 import { useDraftMentions } from "./chat/useDraftMentions";
 import { useWorkspace } from "@/app/WorkspaceContext";
+import { clockTime, isSameDay, shortDate } from "@/lib/format";
+import { projectMembers } from "@/lib/projectMembers";
 
 type Props = {
   projectId: string;
@@ -31,8 +33,6 @@ type Props = {
   onOpenAgent?: (agentId: string) => void;
   selectedTaskId: string | null;
 };
-
-type StatusMap = Record<string, TeamStatusEntry>;
 
 /** Lifts the live team status out of a boundary-protected query. */
 function TeamStatusFeed({ projectId, onChange }: { projectId: string; onChange: (s: StatusMap | undefined) => void }) {
@@ -89,10 +89,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
 
   const projectAgentIds = (project as any)?.agentIds as string[] | undefined;
   const agents = useMemo(
-    () =>
-      ((projectAgentIds && projectAgentIds.length
-        ? (allAgents ?? []).filter((agent: any) => projectAgentIds.includes(agent._id))
-        : (allAgents ?? [])) as any[]),
+    () => projectMembers((allAgents ?? []) as any[], projectAgentIds),
     [allAgents, projectAgentIds],
   );
   const pendingItems = useMemo(() => (approvals ?? []).filter((a: any) => a.projectId === projectId), [approvals, projectId]);
@@ -101,18 +98,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const status: StatusMap | undefined = useMemo(() => {
     if (liveStatus) return liveStatus;
     if (!activeByAgent) return undefined;
-    const map: StatusMap = {};
-    for (const [agentId, a] of Object.entries(activeByAgent as Record<string, any>)) {
-      if (a.projectId !== projectId) continue;
-      map[agentId] = {
-        status: a.status === "waiting_approval" ? "waiting_on_you" : a.status === "queued" ? "queued" : a.subtaskKey?.includes("qa") ? "testing" : a.subtaskKey?.includes("review") ? "reviewing" : "working",
-        taskId: a.taskId,
-        taskTitle: a.taskTitle,
-        projectName: null,
-        subtaskKey: a.subtaskKey ?? null,
-      };
-    }
-    return map;
+    return statusFromLeases(activeByAgent as Record<string, LeaseEntry>, { projectId, otherProjects: "skip", checkFirst: "qa" });
   }, [liveStatus, activeByAgent, projectId]);
 
   const subtasksOf = useMemo(() => {
@@ -391,11 +377,10 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     return () => clearInterval(timer);
   }, []);
   const formatMessageTime = (createdAt: number) => {
-    const d = new Date(createdAt);
-    const hm = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const hm = clockTime(createdAt);
     if (now - createdAt < 60_000) return "just now";
-    if (d.toDateString() === new Date(now).toDateString()) return hm;
-    return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${hm}`;
+    if (isSameDay(createdAt, now)) return hm;
+    return `${shortDate(createdAt)}, ${hm}`;
   };
 
   const notifications: HeaderNotification[] = [

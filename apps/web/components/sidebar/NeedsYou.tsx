@@ -8,6 +8,7 @@ import { api } from "@/api/convex/_generated/api";
 import { roleLabel } from "@/lib/agentRoles";
 import { useOptionalWorkspace } from "@/app/WorkspaceContext";
 import { SectionToggle } from "./SectionToggle";
+import { clockTime, isSameDay, shortDate } from "@/lib/format";
 
 const KIND_ICON: Record<string, { icon: LucideIcon; tone: string }> = {
   push: { icon: ArrowUp, tone: "bg-warn-soft text-warn" },
@@ -21,11 +22,7 @@ const KIND_ICON: Record<string, { icon: LucideIcon; tone: string }> = {
 const MAX_SHOWN = 3;
 
 function timeOf(ms: number): string {
-  const d = new Date(ms);
-  const sameDay = d.toDateString() === new Date().toDateString();
-  return sameDay
-    ? d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
-    : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return isSameDay(ms) ? clockTime(ms) : shortDate(ms);
 }
 
 /** "Needs you": everything waiting on the user across projects. */

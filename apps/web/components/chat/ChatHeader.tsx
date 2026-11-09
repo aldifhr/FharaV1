@@ -6,7 +6,8 @@ import InitialAvatar from "../InitialAvatar";
 import ProjectAvatar from "../shell/ProjectAvatar";
 import { iconButtonClass, popoverClass, usePopover } from "../shell/usePopover";
 import { roleLabel } from "@/lib/agentRoles";
-import { teamStatusLabel, type TeamStatusEntry } from "@/lib/teamStatus";
+import { teamStatusLabel, type StatusMap } from "@/lib/teamStatus";
+import type { AgentRef as Agent } from "@/lib/types";
 
 export type ChatTab = "chat" | "tasks" | "files";
 
@@ -18,7 +19,6 @@ export type HeaderNotification = {
   taskId?: string;
 };
 
-type Agent = { _id: string; role: string };
 type PinnedMessage = { _id: string; content: string; authorType: string; agentId?: string; taskId?: string; _creationTime: number };
 
 /** "shedi.app" from the dev URL, else the repo folder name. */
@@ -61,7 +61,7 @@ export default function ChatHeader({
 }: {
   project: { name?: string; devUrl?: string; workspacePath?: string } | null | undefined;
   agents: Agent[];
-  status?: Record<string, TeamStatusEntry>;
+  status?: StatusMap;
   tab: ChatTab;
   onTab: (tab: ChatTab) => void;
   openTaskCount: number;

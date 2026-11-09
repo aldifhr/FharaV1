@@ -5,26 +5,25 @@ import {
   assertRegistryWriteAccess,
   canViewProject,
   getViewerId,
-} from "./authz";
+} from "./lib/authz";
+import { RETIRED_ROLE_KEYS, ROLE_KEYS, ROLES } from "./lib/roles";
 
-// Org chart: the fixed team (CTO, Designer, Frontend, Backend, QA, Support,
-// Reviewer, Researcher, DevOps) — see agents.ts FIXED_AGENTS. The retired
-// roles (Lead, Growth, Product Analyst, UI/UX) are no longer seeded; their
-// existing registry rows are disabled by syncDefaults.
-// Kept in sync with packages/worker/src/orchestrator/roles.ts ROLE_DEFINITIONS.
-export const RETIRED_ROLE_KEYS = ["lead", "growth", "product-analyst", "ui-ux"] as const;
-
-export const DEFAULT_ROLES = [
-  { key: "cto", name: "CTO", category: "Leadership", description: "Technical architecture, technical decisions, risk evaluation.", capabilities: ["architecture", "security-audit"], defaultTools: ["read_file"], enabled: true },
-  { key: "designer", name: "Designer", category: "Product", description: "UI/UX, wireframes, design system, component specifications.", capabilities: ["ui-ux-design"], defaultTools: ["read_file", "write_file"], enabled: true },
-  { key: "frontend", name: "Frontend Developer", category: "Engineering", description: "Frontend implementation, React, Next.js, responsive UI.", capabilities: ["frontend-development"], defaultTools: ["read_file", "write_file", "run_command"], enabled: true },
-  { key: "backend", name: "Backend Developer", category: "Engineering", description: "Backend, API, database, server-side logic.", capabilities: ["backend-development"], defaultTools: ["read_file", "write_file", "run_command"], enabled: true },
-  { key: "qa", name: "QA Engineer", category: "Quality", description: "Testing, bug detection, quality assurance, verification.", capabilities: ["browser-testing"], defaultTools: ["read_file", "run_command"], enabled: true },
-  { key: "support", name: "Support Specialist", category: "Operations", description: "Documentation, user support, operational assistance, troubleshooting.", capabilities: ["documentation-support"], defaultTools: ["read_file", "write_file"], enabled: true },
-  { key: "devops", name: "DevOps Engineer", category: "Engineering", description: "Docker, CI/CD, deployment, infrastructure.", capabilities: ["github", "shell-execution"], defaultTools: ["read_file", "run_command"], enabled: true },
-  { key: "reviewer", name: "Reviewer", category: "Quality", description: "Independent code review.", capabilities: ["code-review"], defaultTools: ["read_file"], enabled: true },
-  { key: "researcher", name: "Researcher", category: "Research", description: "Technical research.", capabilities: ["research"], defaultTools: ["read_file"], enabled: true },
-] as const;
+// Org chart: the fixed team — see lib/roles.ts (shared with the web app and
+// agents.ts FIXED_AGENTS). The retired roles (Lead, Growth, Product
+// Analyst, UI/UX) are no longer seeded; their existing registry rows are
+// disabled by syncDefaults.
+export const DEFAULT_ROLES = ROLE_KEYS.map((key) => {
+  const role = ROLES[key];
+  return {
+    key: role.key,
+    name: role.title,
+    category: role.category,
+    description: role.registryDescription,
+    capabilities: role.registryCapabilities,
+    defaultTools: role.defaultTools,
+    enabled: true,
+  };
+});
 
 export const list = query({
   args: {},

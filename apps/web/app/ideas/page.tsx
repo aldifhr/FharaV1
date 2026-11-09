@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { shortDate } from "@/lib/format";
 
 type Idea = {
   id: string;
@@ -200,7 +201,7 @@ export default function IdeasPage() {
                         {idea.text}
                       </p>
                       <p className="mt-0.5 text-xs text-gray-500">
-                        Added {new Date(idea.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        Added {shortDate(idea.createdAt)}
                       </p>
                     </div>
                     <Button

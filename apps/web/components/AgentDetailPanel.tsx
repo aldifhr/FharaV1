@@ -7,89 +7,24 @@ import Modal from "./Modal";
 import { Badge } from "./ui/badge";
 import { SkeletonBox } from "skullet/react";
 import { roleLabel } from "@/lib/agentRoles";
+import { LEGACY_ROLE_SUCCESSORS, ROLES, isRoleKey } from "@/api/convex/lib/roles";
 
 /**
- * Mirrors `packages/worker/src/orchestrator/roles.ts` ROLE_DEFINITIONS.
- * Used as a fallback when the backend `roleDefinitions` row is missing,
- * and for the responsibilities hint which only lives in the worker.
+ * Fallback when the backend `roleDefinitions` row is missing, plus the
+ * responsibilities hint — both from the shared role module.
  */
-const ROLE_FALLBACK: Record<
-  string,
-  { displayName: string; category: string; description: string; defaultCapabilities: string[]; defaultTools: string[]; systemPromptHint: string }
-> = {
-  cto: {
-    displayName: "CTO",
-    category: "Leadership",
-    description: "Technical architecture, technical decisions, code review, risk evaluation.",
-    defaultCapabilities: ["architecture", "security-audit"],
-    defaultTools: ["read_file"],
-    systemPromptHint: "Decide technical approach, architecture, and risk with brief rationale. Read-only planning and review — no code writing, no over-engineering. Report to the owner in 2-3 plain-language sentences, no bullets, headers, or terminal output.",
-  },
-  designer: {
-    displayName: "Designer",
-    category: "Product",
-    description: "UI and UX design, wireframes, design system, component specifications.",
-    defaultCapabilities: ["ui-ux-design"],
-    defaultTools: ["read_file", "write_file"],
-    systemPromptHint: "Produce implementable design specs (layout, components, tokens, states, responsive) with accessibility considered. Design only — no code edits.",
-  },
-  frontend: {
-    displayName: "Frontend Developer",
-    category: "Engineering",
-    description: "React and Next.js development. UI implementation.",
-    defaultCapabilities: ["frontend-development"],
-    defaultTools: ["read_file", "write_file", "run_command"],
-    systemPromptHint: "Implement exactly the assigned frontend subtask, reusing UI primitives; strict TypeScript, accessible markup, English copy. Report changed files and limits. Never mark the global task complete.",
-  },
-  backend: {
-    displayName: "Backend Developer",
-    category: "Engineering",
-    description: "API development and server-side business logic.",
-    defaultCapabilities: ["backend-development"],
-    defaultTools: ["read_file", "write_file", "run_command"],
-    systemPromptHint: "Implement exactly the assigned backend subtask (Convex functions, schema, validation), keeping security invariants and additive schema changes. Report changed files and limits. Never mark the global task complete.",
-  },
-  qa: {
-    displayName: "QA Engineer",
-    category: "Quality",
-    description: "Test planning, execution, bug detection, quality verification.",
-    defaultCapabilities: ["browser-testing"],
-    defaultTools: ["read_file", "run_command"],
-    systemPromptHint: "Verify with the narrowest relevant checks and report evidence. Distinguish executed tests from proposed ones — never fabricate results. Defects go back to the implementer with a concrete repro.",
-  },
-  support: {
-    displayName: "Support Specialist",
-    category: "Operations",
-    description: "Documentation, user support, operational assistance, troubleshooting.",
-    defaultCapabilities: ["documentation-support"],
-    defaultTools: ["read_file", "write_file"],
-    systemPromptHint: "Answer the actual question first, then the how. Never invent features or behavior — check the code or say it is unknown. Docs and guidance only, no code changes.",
-  },
-  devops: {
-    displayName: "DevOps Engineer",
-    category: "Engineering",
-    description: "Docker, CI/CD, deployment, infrastructure.",
-    defaultCapabilities: ["shell-execution", "backend-development"],
-    defaultTools: ["read_file", "run_command"],
-    systemPromptHint: "Changes are policy-gated. Prefer minimal, reversible infra changes; report exact commands run and their output.",
-  },
-  reviewer: {
-    displayName: "Reviewer",
-    category: "Quality",
-    description: "Independent code review. Evaluates implementation quality.",
-    defaultCapabilities: ["code-review"],
-    defaultTools: ["read_file"],
-    systemPromptHint: "Review diffs independently with file references. Never silently modify code or approve your own work.",
-  },
-  researcher: {
-    displayName: "Researcher",
-    category: "Research",
-    description: "Technical research and information gathering.",
-    defaultCapabilities: ["research"],
-    defaultTools: ["read_file"],
-    systemPromptHint: "Prefer official docs; distinguish facts from assumptions with sources. Read-only research — no file modifications.",
-  },
-};
+function roleFallback(roleKey: string) {
+  if (!isRoleKey(roleKey)) return undefined;
+  const role = ROLES[roleKey];
+  return {
+    displayName: role.title,
+    category: role.category,
+    description: role.registryDescription,
+    defaultCapabilities: [...role.registryCapabilities],
+    defaultTools: [...role.defaultTools],
+    systemPromptHint: role.hint,
+  };
+}
 
 /** Status from the backend execution lease — never the persisted `agents.status`. */
 export function statusFromActive(
@@ -154,8 +89,8 @@ export default function AgentDetailPanel({
 
   const rawRole = (agent.role ?? "").trim().toLowerCase();
   // Retired roles (ui-ux, product-analyst) display as their successor.
-  const roleKey = rawRole === "ui-ux" ? "designer" : rawRole === "product-analyst" ? "researcher" : rawRole;
-  const fallback = ROLE_FALLBACK[roleKey];
+  const roleKey = LEGACY_ROLE_SUCCESSORS[rawRole] ?? rawRole;
+  const fallback = roleFallback(roleKey);
   const roleDefinition = (detail as any)?.roleDefinition;
   const roleName: string = roleLabel(agent.role);
   const roleDescription: string = roleDefinition?.description ?? fallback?.description ?? "";

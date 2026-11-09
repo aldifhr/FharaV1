@@ -2,13 +2,13 @@ import { internalMutation, internalQuery, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { loadProviderPool, type PoolConnectionPayload } from "./llmResolver";
+import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver";
 import { decidePermissionCore, permissionArgs } from "./permissionBroker";
 import {
   assertProjectAccess,
   getVisibleTask,
   visibleProjectIds,
-} from "./authz";
+} from "./lib/authz";
 import {
   taskStatus,
   subtaskKind,

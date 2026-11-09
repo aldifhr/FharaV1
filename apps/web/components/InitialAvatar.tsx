@@ -1,5 +1,7 @@
 "use client";
 
+import { pickByName } from "@/lib/utils";
+
 /**
  * Compact initial avatar matching the workspace design language: a pastel
  * circle with the agent's initial and an optional status dot.
@@ -39,7 +41,7 @@ const DOT: Record<string, string> = {
 export function colorForName(name: string): string {
   const initial = (name.trim().charAt(0) || "•").toUpperCase();
   if (ROLE_BG[initial]) return ROLE_BG[initial];
-  return COLORS[[...name].reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % COLORS.length];
+  return pickByName(name, COLORS);
 }
 
 export default function InitialAvatar({

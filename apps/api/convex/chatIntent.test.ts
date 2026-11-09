@@ -1,7 +1,10 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { describe, expect, test, it } from "vitest";
-import { buildAssignmentGuidance, buildHandoffGuidance, classifyChatIntent, resolveAssignees, stripToolCallMarkup, suggestAssigneesByKeywords, extractAgentMentions, parseIntentResult, parseResponderSelection, pickConversationalAgent } from "./chat";
+import { classifyChatIntent, parseIntentResult } from "./lib/chat/intent";
+import { resolveAssignees, suggestAssigneesByKeywords, extractAgentMentions, parseResponderSelection, pickConversationalAgent } from "./lib/chat/team";
+import { stripToolCallMarkup } from "./lib/chat/strip";
+import { buildAssignmentGuidance, buildHandoffGuidance } from "./lib/prompts/chat";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -59,7 +62,7 @@ describe("chat intent (mirrors worker router)", () => {
     expect(parseResponderSelection("not json", ["f1"])).toBeNull();
   });
   test("greeting fast-path matches bare greetings only", async () => {
-    const { GREETING } = await import("./chat");
+    const { GREETING } = await import("./lib/chat/intent");
     expect(GREETING.test("hi")).toBe(true);
     expect(GREETING.test("Hai!")).toBe(true);
     expect(GREETING.test("hello...")).toBe(true);
@@ -151,7 +154,7 @@ describe("suggestAssigneesByKeywords", () => {
 
 describe("chat dispatch safety (e2e safety probe)", () => {
   test("paths outside the repository are detected", async () => {
-    const { targetsOutsideRepo } = await import("./chat");
+    const { targetsOutsideRepo } = await import("./lib/chat/intent");
     expect(targetsOutsideRepo("hapus /etc/hosts dan edit ../outside.txt")).toBe("/etc/hosts");
     expect(targetsOutsideRepo("edit ../outside.txt")).toBe("../outside.txt");
     expect(targetsOutsideRepo("write ~/.ssh/config")).toBe("~/.ssh/config");
@@ -165,7 +168,7 @@ describe("chat dispatch safety (e2e safety probe)", () => {
   });
 
   test("CTO refusals are recognised, hand-offs are not", async () => {
-    const { isRefusalReply } = await import("./chat");
+    const { isRefusalReply } = await import("./lib/chat/intent");
     expect(isRefusalReply("I can't do that: /etc/hosts is outside the project repository.")).toBe(true);
     expect(isRefusalReply("Saya tidak bisa menghapus /etc/hosts karena itu di luar repository.")).toBe(true);
     expect(isRefusalReply("Maaf, permintaan ini di luar repo project, jadi tidak saya kerjakan.")).toBe(true);

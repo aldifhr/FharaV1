@@ -1,6 +1,6 @@
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { getVisibleTask, assertProjectAccess } from "./authz";
+import { getVisibleTask, assertProjectAccess } from "./lib/authz";
 
 const auditDecision = v.union(
   v.literal("allowed"),

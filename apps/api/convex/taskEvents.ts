@@ -1,6 +1,6 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
-import { assertProjectAccess, getVisibleTask, visibleProjectIds } from "./authz";
+import { assertProjectAccess, getVisibleTask, visibleProjectIds } from "./lib/authz";
 
 export const listAll = query({
   args: { limit: v.optional(v.number()) },

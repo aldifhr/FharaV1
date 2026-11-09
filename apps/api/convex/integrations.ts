@@ -8,7 +8,7 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { assertProjectAccess } from "./authz";
+import { assertProjectAccess } from "./lib/authz";
 
 // GitHub OAuth configuration
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? "";

@@ -11,13 +11,15 @@ import {
   TEAM_STATUS_RANK,
   teamStatusLabel,
   teamStatusTone,
-  type TeamStatusEntry,
+  statusFromLeases,
+  type LeaseEntry,
+  type StatusMap,
   type TeamStatusWord,
 } from "@/lib/teamStatus";
 import { SectionToggle } from "./SectionToggle";
+import { projectMembers } from "@/lib/projectMembers";
 
 export type TeamAgent = { _id: string; name: string; role: string; isEnabled?: boolean };
-type StatusMap = Record<string, TeamStatusEntry>;
 
 const SHOWN = 7;
 
@@ -85,28 +87,11 @@ function LiveRows({ projectId, ...rest }: Omit<Parameters<typeof TeamRows>[0], "
 
 /** Fallback when the live read model is unavailable: the execution lease view. */
 function LeaseRows({ projectId, ...rest }: Omit<Parameters<typeof TeamRows>[0], "status"> & { projectId?: string }) {
-  const active = useQuery(api.executionView.activeByAgent, {}) as
-    | Record<string, { taskId: string; projectId: string; taskTitle: string; subtaskKey?: string; status: string }>
-    | undefined;
-  const status = useMemo(() => {
-    const map: StatusMap = {};
-    for (const [agentId, a] of Object.entries(active ?? {})) {
-      const word: TeamStatusWord =
-        projectId && a.projectId !== projectId
-          ? "elsewhere"
-          : a.status === "waiting_approval"
-            ? "waiting_on_you"
-            : a.status === "queued"
-              ? "queued"
-              : a.subtaskKey?.includes("review")
-                ? "reviewing"
-                : a.subtaskKey?.includes("qa")
-                  ? "testing"
-                  : "working";
-      map[agentId] = { status: word, taskId: a.taskId, taskTitle: a.taskTitle, projectName: null, subtaskKey: a.subtaskKey ?? null };
-    }
-    return map;
-  }, [active, projectId]);
+  const active = useQuery(api.executionView.activeByAgent, {}) as Record<string, LeaseEntry> | undefined;
+  const status = useMemo(
+    () => statusFromLeases(active, { projectId, otherProjects: "elsewhere", checkFirst: "review" }),
+    [active, projectId],
+  );
   return <TeamRows {...rest} status={status} />;
 }
 
@@ -129,8 +114,7 @@ const TeamList = forwardRef<
 
   const memberIds = (project as { agentIds?: string[] } | null | undefined)?.agentIds;
   const q = filter.trim().toLowerCase();
-  const agents = (allAgents ?? [])
-    .filter((a) => !memberIds || memberIds.length === 0 || memberIds.includes(a._id))
+  const agents = projectMembers(allAgents, memberIds)
     .filter((a) => !q || roleLabel(a.role).toLowerCase().includes(q) || a.name.toLowerCase().includes(q));
   const rowProps = { agents, drafting, onOpenAgent };
 

@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: typecheck + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # No secrets in CI: no Convex deployment, no LLM keys. Live-LLM / e2e
+      # suites are gated on these and stay skipped.
+      CI: "true"
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate Convex _generated (offline, no deploy key)
+        run: npm run codegen:offline
+
+      - name: Typecheck web
+        run: npm run --workspace=@fhara/web typecheck
+
+      - name: Typecheck api
+        run: npm run --workspace=@fhara/api typecheck
+
+      - name: Typecheck worker
+        run: npm run --workspace=@fhara/worker typecheck
+
+      - name: Test api (vitest)
+        run: npm run --workspace=@fhara/api test
+
+      - name: Test worker (vitest)
+        run: npm run --workspace=@fhara/worker test

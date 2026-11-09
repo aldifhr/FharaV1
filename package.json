@@ -16,6 +16,7 @@
     "worker:supervised": "node scripts/supervise.mjs --name worker --cwd packages/worker -- npx tsx src/index.ts",
     "convex": "npm run --workspace=@fhara/api codegen --silent && concurrently -k -n api,worker \"npm run --workspace=@fhara/api dev\" \"npm run worker\"",
     "doctor": "node scripts/doctor.mjs",
+    "codegen:offline": "node scripts/convex-codegen-offline.mjs",
     "stats:roles": "tsx scripts/stats-roles.ts",
     "migrate:github-global": "node scripts/env.mjs run -- npm run --workspace=@fhara/api migrate:github-global",
     "electron:dev": "node scripts/env.mjs sync && concurrently -k -n api,web,worker,app -c blue,magenta,green,yellow \"npm run dev:api\" \"npm run dev:web\" \"npm run worker:supervised\" \"wait-on http://127.0.0.1:3000 && electron electron/main.cjs\"",

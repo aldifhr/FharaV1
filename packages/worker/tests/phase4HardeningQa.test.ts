@@ -89,6 +89,11 @@ describe("QA process-tree cleanup (mandatory test 12)", () => {
       const qaPromise = runResponsiveQa(workspace, {
         baseUrl: "http://127.0.0.1:34567",
         signal: controller.signal,
+        // This test is about dev-server process-tree cleanup, not the
+        // browser. Skip the Chromium preflight: without it, hosts that have
+        // no Playwright Chromium (CI, fresh clones) block QA before the dev
+        // server ever starts and the test fails on `up`, not on cleanup.
+        preflight: false,
       });
 
       // Both observable processes come up and are alive.

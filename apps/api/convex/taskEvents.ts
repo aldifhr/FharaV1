@@ -1,14 +1,17 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
-import { assertProjectAccess, getVisibleTask } from "./authz";
+import { assertProjectAccess, getVisibleTask, visibleProjectIds } from "./authz";
 
 export const listAll = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    return await ctx.db
+    // Only events of projects the caller may see (core H5).
+    const visible = await visibleProjectIds(ctx);
+    const rows = await ctx.db
       .query("taskEvents")
       .order("desc")
       .take(Math.min(Math.max(args.limit ?? 200, 1), 500));
+    return rows.filter((row) => visible.has(row.projectId as string));
   },
 });
 

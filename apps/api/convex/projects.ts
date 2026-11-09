@@ -134,10 +134,19 @@ export const list = query({
   },
 });
 
+/**
+ * One project, or `null` when the id is malformed or the project no longer
+ * exists (stale/deleted URL) so the UI can redirect instead of crashing.
+ * Access to an existing project owned by someone else still throws.
+ */
 export const get = query({
-  args: { projectId: v.id("projects") },
+  args: { projectId: v.string() },
   handler: async (ctx, args) => {
-    return await assertProjectAccess(ctx, args.projectId);
+    const projectId = ctx.db.normalizeId("projects", args.projectId);
+    if (!projectId) return null;
+    const project = await ctx.db.get(projectId);
+    if (!project) return null;
+    return await assertProjectAccess(ctx, projectId);
   },
 });
 

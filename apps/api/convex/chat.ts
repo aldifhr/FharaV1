@@ -80,6 +80,9 @@ async function readRepoSnapshot(workspaceRoot: string): Promise<string> {
 export const getRepoSnapshot = action({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args): Promise<string | null> => {
+    // Authorization (core H5): reads files from the project's workspace on
+    // the host, so the caller must be allowed to see the project.
+    await ctx.runQuery(internal.access.checkProjectAccess, { projectId: args.projectId });
     const project = (await ctx.runQuery(internal.chatContext.getProjectPath, {
       projectId: args.projectId,
     })) as { workspacePath: string } | null;
@@ -294,17 +297,23 @@ function buildAnswerGuidance(subtype: IntentSubtype): string[] {
   }
 }
 
+/** The chat orchestrator: role exactly "cto" (legacy "architect"). */
+export const ORCHESTRATOR_ROLE = /^(cto|architect)$/i;
+/** Roles that never answer as the conversational (ASK) agent. Anchored;
+ *  the retired "lead" role is no longer special-cased. */
+export const ORCHESTRATOR_LIKE_ROLE = /^(cto|architect|orchestrator|planner|manager)$/i;
+
 /** One conversational agent for every ASK (plan 016). The CTO/Orchestrator
  *  owns TASK; their functions stay separate. Prefer a general-purpose
- *  agent (General/Assistant), then Researcher, then Support — never
- *  Product Analyst (requirement-focused) or a coding role. An explicit
+ *  agent (General/Assistant), then Researcher, then Support — never a
+ *  coding role. An explicit
  *  mention (the user routed to the CTO by @CTO) always wins. This is the
  *  deterministic fallback when the CTO chooser (below) is unavailable.
  *  Exported for unit tests. */
 export function pickConversationalAgent(
   agents: Array<{ _id: string; name: string; role: string; systemPrompt?: string }>
 ): Array<{ _id: string; name: string; role: string; systemPrompt?: string }> {
-  const notCto = agents.filter((a) => !/(cto|architect|lead|orchestrator|planner|manager)/i.test(a.role));
+  const notCto = agents.filter((a) => !ORCHESTRATOR_LIKE_ROLE.test(a.role.trim()));
   if (notCto.length === 0) return agents; // user mentioned the CTO explicitly
   const general = notCto.find((a) => /^(general|assistant)/i.test(a.role));
   if (general) return [general];
@@ -351,6 +360,85 @@ export function buildHandoffGuidance(team: Array<{ _id: string; name: string; ro
     `Teammates you can bring into this chat: ${others.map((a) => `@${a.name}`).join(", ")}.`,
     `When part of the question needs a teammate's expertise, address them with @Name and say exactly what you need from them (at most ${MAX_CTO_HANDOFFS}). They reply right after you, in this chat. Do not mention teammates for greetings or when you can answer fully yourself.`,
   ];
+}
+
+/** Roles that always stay in an assigned task's pool so review and QA still run. */
+const ALWAYS_IN_POOL = /^(reviewer|qa)$/i;
+
+/**
+ * The task's agent pool when the CTO (or the user) assigned specific
+ * teammates: the CTO (planner), the assignees, and the Reviewer/QA so the
+ * checks still run. Empty when nobody was assigned (the whole team is used).
+ */
+export function resolveAssignees<T extends { _id: string; role: string }>(
+  team: T[],
+  orchestrator: T | null,
+  picked: T[]
+): T[] {
+  if (picked.length === 0) return [];
+  const pool = new Map<string, T>();
+  if (orchestrator) pool.set(String(orchestrator._id), orchestrator);
+  for (const agent of picked) pool.set(String(agent._id), agent);
+  for (const agent of team) if (ALWAYS_IN_POOL.test(agent.role)) pool.set(String(agent._id), agent);
+  return [...pool.values()];
+}
+
+/**
+ * Remove tool-call markup some models emit as plain text (chat agents have
+ * no tools): complete blocks, and an unterminated one with everything after it.
+ */
+export function stripToolCallMarkup(text: string): string {
+  const open = /<(?:[a-z_]+_)?tool_call\b[^>]*>/i;
+  let out = text.replace(/<((?:[a-z_]+_)?tool_call)\b[^>]*>[\s\S]*?<\/\1>/gi, "");
+  const dangling = out.search(open);
+  if (dangling >= 0) out = out.slice(0, dangling);
+  return out.replace(/[ \t]{2,}/g, " ").trim();
+}
+
+const ROLE_KEYWORDS: Array<[RegExp, RegExp]> = [
+  [/^frontend$/i, /\b(ui|ux|component|komponen|page|halaman|tampilan|css|tailwind|react|layout|button|tombol|form|modal|frontend|next\.?js)\b/i],
+  [/^backend$/i, /\b(api|endpoint|helper|util|lib|function|fungsi|database|db|schema|server|convex|query|mutation|backend|parser|algorithm|logic|logika)\b/i],
+  [/^designer$/i, /\b(design|desain|mockup|wireframe|warna|color|palette|typography|font|logo|branding)\b/i],
+  [/^devops$/i, /\b(deploy|docker|ci|cd|pipeline|github actions|workflow|infra|kubernetes|nginx)\b/i],
+  [/^researcher$/i, /\b(riset|research|bandingkan|compare|cari tahu|investigate|analisis|analysis|benchmark)\b/i],
+  [/^support$/i, /\b(docs|dokumentasi|documentation|readme|faq|panduan|guide|changelog)\b/i],
+];
+
+/**
+ * Deterministic assignee pick from the request text, used when the CTO's
+ * reply names nobody (empty reply, or no @mentions). Falls back to Backend
+ * for code work so a task never silently goes to the whole team.
+ */
+export function suggestAssigneesByKeywords<T extends { _id: string; name: string; role: string }>(
+  text: string,
+  team: T[]
+): T[] {
+  const picked: T[] = [];
+  for (const [roleRe, wordRe] of ROLE_KEYWORDS) {
+    if (!wordRe.test(text)) continue;
+    const agent = team.find((a) => roleRe.test(a.role) || roleRe.test(a.name));
+    if (agent && !picked.includes(agent)) picked.push(agent);
+  }
+  if (picked.length === 0) {
+    const fallback = team.find((a) => /^backend$/i.test(a.role) || /^backend$/i.test(a.name));
+    if (fallback) picked.push(fallback);
+  }
+  return picked;
+}
+
+/** System-prompt lines for the CTO when it assigns a task from chat. */
+export function buildAssignmentGuidance(
+  team: Array<{ _id: string; name: string; role: string }>,
+  speakerId: string,
+  requested: Array<{ name: string }>
+): string[] {
+  const others = team.filter((a) => String(a._id) !== String(speakerId));
+  return [
+    "The user asked the team to do work, and the task is being created now. Reply quickly, without long deliberation.",
+    `In one or two short sentences in the user's language, say who does what and address each owner as @Name. Teammates: ${others.map((a) => `@${a.name}`).join(", ")}. Pick only the ones really needed.`,
+    requested.length ? `The user asked for ${requested.map((a) => `@${a.name}`).join(", ")}; include them.` : "",
+    "Do not tell the user to click Create task and do not claim anything has run.",
+  ].filter(Boolean);
 }
 
 /** Parse the CTO chooser's reply: the chosen candidate id, or null. */
@@ -508,7 +596,7 @@ async function completeWithAgent(
       },
       body: JSON.stringify({
         model,
-        max_tokens: 4096,
+        max_tokens: 8192,
         stream: true,
         messages: [{ role: "system", content: system }, ...messages],
       }),
@@ -576,7 +664,7 @@ async function completeWithAgent(
     },
     body: JSON.stringify({
       model,
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: system || undefined,
       messages,
       stream: true,
@@ -752,13 +840,14 @@ export const replyToChat = internalAction({
       });
     }
 
-    // Only an agent whose ROLE is cto/lead/orchestrator/planner may act as
-    // the orchestrator (legacy "architect" accepted for backward compat).
+    // Only an agent whose ROLE is exactly "cto" may act as the orchestrator
+    // (legacy "architect" accepted for backward compat). Anchored: an
+    // unanchored match also hit "director", "doctor", …
     // Falling back to agents[0] made any selected agent
     // introduce itself as "the orchestrator/planner" while still naming its own
     // role (e.g. "frontend developer ... I'm the orchestrator/planner").
     const orchestrator =
-      agents.find((a) => /cto|architect/i.test(a.role)) ??
+      agents.find((a) => ORCHESTRATOR_ROLE.test(a.role.trim())) ??
       null;
     // The dispatcher creates the task row. It may be the orchestrator, or the
     // first agent when the project has no CTO — but a non-orchestrator
@@ -786,7 +875,8 @@ export const replyToChat = internalAction({
       // last one. Fire-and-forget patches could land AFTER the final write
       // and overwrite the full reply with a truncated snapshot.
       let patchChain: Promise<unknown> = Promise.resolve();
-      const result = await completeWithAgent(system, msgs, config, ({ content, reasoning }) => {
+      const raw = await completeWithAgent(system, msgs, config, ({ content: rawContent, reasoning }) => {
+        const content = stripToolCallMarkup(rawContent);
         const now = Date.now();
         if (now - lastPatchAt < 250 || (!content.trim() && !reasoning.trim())) return;
         lastPatchAt = now;
@@ -801,12 +891,19 @@ export const replyToChat = internalAction({
           .catch(() => {});
       });
       await patchChain;
+      // Chat agents have no tools; drop tool-call text some models emit anyway.
+      const result = { ...raw, content: stripToolCallMarkup(raw.content) };
       await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
         messageId: messageId as any,
         content: result.content,
         reasoning: result.reasoning || undefined,
         reasoningDurationMs: result.reasoningDurationMs || undefined,
       });
+      // A reply that produced only reasoning (e.g. the model ran out of
+      // tokens while thinking) would render as an empty bubble.
+      if (!result.content.trim()) {
+        await ctx.runMutation(internal.chatContext.removeEmptyAgentMessage, { messageId: messageId as any });
+      }
       return result;
     };
 
@@ -985,15 +1082,69 @@ export const replyToChat = internalAction({
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { api } = await import("./_generated/api.js") as any;
-        // create task (public mutation) — will be picked up by worker
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const team = (teamAgents ?? agents) as typeof agents;
+        // Explicit @mentions from the user are assignees too.
+        const userAssignees = (args.preferredAgentIds ?? [])
+          .map((id) => team.find((a) => a._id === String(id)))
+          .filter((a): a is (typeof agents)[number] => Boolean(a) && a!._id !== orchestrator?._id);
+        // CTO assignment: the CTO answers with a short plan and @mentions the
+        // teammates who own each part; those become the task's assignees.
+        let ctoAssignees: typeof agents = [];
+        if (orchestrator) {
+          try {
+            const ctoConfig = await resolveConfigFromProviders(llmProviders, globalConfig, orchestrator as any);
+            const plan = await streamReplyToAgent(
+              orchestrator._id as any,
+              ctoConfig,
+              [
+                `You are ${orchestrator.name}, the CTO of project "${projectName}".`,
+                "You are NOT the underlying LLM model. Never name the model or the provider.",
+                orchestrator.systemPrompt ?? "",
+                ...buildAssignmentGuidance(team, String(orchestrator._id), userAssignees),
+              ]
+                .filter(Boolean)
+                .join("\n"),
+              conversation,
+            );
+            ctoAssignees = extractAgentMentions(plan.content, team, String(orchestrator._id));
+          } catch (err: any) {
+            console.error("CTO assignment reply failed:", err?.message ?? err);
+          }
+        }
+        // The CTO's reply may name nobody (empty reply, no @mentions); pick
+        // owners from the request itself instead of handing it to everyone.
+        const keywordAssignees =
+          userAssignees.length || ctoAssignees.length
+            ? []
+            : suggestAssigneesByKeywords(lastUserContent, team.filter((a) => a._id !== orchestrator?._id));
+        const assignees = resolveAssignees(team, orchestrator, [...userAssignees, ...ctoAssignees, ...keywordAssignees]);
         const taskId = await (ctx as any).runMutation(api.tasks.createFromCommand, {
           projectId: args.projectId,
           command: lastUserContent,
           title: lastUserContent.slice(0, 80),
+          ...(assignees.length ? { assignedAgentIds: assignees.map((a) => a._id) } : {}),
         });
-        // Silent auto-dispatch: the UI surfaces task creation (toast,
-        // task card) — a chat message here is noise the user does not want.
+        if (orchestrator) {
+          await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+            projectId: args.projectId,
+            agentId: orchestrator._id as any,
+            conversationId: args.conversationId,
+            replyToMessageId: args.userMessageId,
+            taskId: taskId as any,
+            content: "",
+            card: {
+              kind: "assignment",
+              data: {
+                taskId: String(taskId),
+                title: lastUserContent.slice(0, 80),
+                assignees: (assignees.length ? assignees : team)
+                  .filter((a) => a._id !== orchestrator._id)
+                  .map((a) => ({ agentId: String(a._id), name: a.name, role: a.role })),
+                assignedBy: orchestrator.name,
+              },
+            },
+          });
+        }
         return; // skip normal chat reply loop
       } catch (e: any) {
         console.error("Auto-dispatch failed:", e?.message ?? e);
@@ -1026,7 +1177,7 @@ export const replyToChat = internalAction({
         responders = [orchestrator];
       } else {
         const pool = (teamAgents ?? agents).filter(
-          (a) => !/(cto|architect|lead|orchestrator|planner|manager)/i.test(a.role)
+          (a) => !ORCHESTRATOR_LIKE_ROLE.test(a.role.trim())
         );
         const pickedId = await chooseAskResponder(
           pool as Array<{ _id: string; name: string; role: string; systemPrompt?: string }>,

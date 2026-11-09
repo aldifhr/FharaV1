@@ -1,13 +1,32 @@
 import { query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { visibleProjects } from "./authz";
+
+/** Bounded reads (core M7): the dashboard must not scan whole tables. */
+const OVERVIEW_TASK_LIMIT = 1000;
+const OVERVIEW_APPROVAL_LIMIT = 200;
+const OVERVIEW_AGENT_LIMIT = 200;
 
 export const get = query({
   args: {},
   handler: async (ctx) => {
-    const projects = await ctx.db.query("projects").collect();
-    const agents = await ctx.db.query("agents").collect();
-    const approvals = await ctx.db.query("approvals").filter((q) => q.eq(q.field("status"), "pending")).order("desc").collect();
-    const tasks = await ctx.db.query("tasks").order("desc").collect();
+    // Scoped to the projects the caller may see (core H5).
+    const projects = (await visibleProjects(ctx)).sort(
+      (a, b) => b._creationTime - a._creationTime
+    );
+    const visible = new Set(projects.map((p) => p._id as string));
+    const agents = await ctx.db.query("agents").take(OVERVIEW_AGENT_LIMIT);
+    const approvals = (
+      await ctx.db
+        .query("approvals")
+        .withIndex("by_status", (q) => q.eq("status", "pending"))
+        .order("desc")
+        .take(OVERVIEW_APPROVAL_LIMIT)
+    ).filter((a) => visible.has(a.projectId as string));
+    // Counts cover the most recent OVERVIEW_TASK_LIMIT tasks.
+    const recent = await ctx.db.query("tasks").order("desc").take(OVERVIEW_TASK_LIMIT);
+    const tasksTruncated = recent.length >= OVERVIEW_TASK_LIMIT;
+    const tasks = recent.filter((t) => visible.has(t.projectId as string));
 
     const byStatus: Record<string, number> = {};
     for (const t of tasks) byStatus[t.status] = (byStatus[t.status] ?? 0) + 1;
@@ -55,7 +74,7 @@ export const get = query({
       agentByStatus,
       approvals: approvals.map((a) => ({ ...enrich(a), taskTitle: taskTitleById.get(a.taskId as string) ?? null })),
       recentTasks,
-      taskCounts: { total: tasks.length, byStatus },
+      taskCounts: { total: tasks.length, byStatus, truncated: tasksTruncated },
     };
   },
 });

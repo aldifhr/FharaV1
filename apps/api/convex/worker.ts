@@ -2,6 +2,7 @@ import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertServiceToken } from "./authz";
+import { permissionArgs } from "./permissionBroker";
 import {
   taskStatus,
   subtaskKind,
@@ -49,9 +50,12 @@ export const heartbeat = action({
     capacity: v.number(),
     activeTasks: v.number(),
     leaseMs: v.optional(v.number()),
+    // Optional: ids of the tasks this worker is running right now; only
+    // their leases are renewed (see orchestration.heartbeat).
+    activeTaskIds: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args): Promise<any> => {
-    const { workerId, hostname, capacity, activeTasks, leaseMs } =
+    const { workerId, hostname, capacity, activeTasks, leaseMs, activeTaskIds } =
       withoutToken(args);
     return await ctx.runMutation(internal.orchestration.heartbeat, {
       workerId,
@@ -59,6 +63,7 @@ export const heartbeat = action({
       capacity,
       activeTasks,
       leaseMs,
+      activeTaskIds,
     });
   },
 });
@@ -102,6 +107,8 @@ export const setPlanning = action({
     classification: v.string(),
     strategy: v.string(),
     planVersion: v.number(),
+    // Lease fencing: pass the worker id so a displaced worker is refused.
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
     await ctx.runMutation(internal.orchestration.setPlanning, withoutToken(args));
@@ -132,6 +139,8 @@ export const savePlan = action({
         reviewRound: v.optional(v.number()),
       })
     ),
+    // Lease fencing: pass the worker id so a displaced worker is refused.
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
     return await ctx.runMutation(
@@ -162,6 +171,8 @@ export const saveDynamicSubtasks = action({
         reviewRound: v.optional(v.number()),
       })
     ),
+    // Lease fencing: pass the worker id so a displaced worker is refused.
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
     return await ctx.runMutation(
@@ -202,9 +213,11 @@ export const updateExecution = action({
     error: v.optional(v.string()),
     meta: v.optional(v.any()),
     leaseMs: v.optional(v.number()),
+    // Lease fencing: pass the worker id so a displaced worker is refused.
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
-    await ctx.runMutation(
+    return await ctx.runMutation(
       internal.orchestration.updateExecution,
       withoutToken(args)
     );
@@ -248,6 +261,8 @@ export const requestApproval = action({
     payload: v.optional(v.any()),
     requestedByAgentId: v.optional(v.id("agents")),
     planVersion: v.optional(v.number()),
+    // Lease fencing: pass the worker id so a displaced worker is refused.
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
     return await ctx.runMutation(internal.orchestration.requestApproval, {
@@ -256,19 +271,16 @@ export const requestApproval = action({
   },
 });
 
-/** Plan 015: broker verdict for a risky action (Allow/Deny/Ask). */
+/**
+ * Plan 015: broker verdict for a risky action (Allow/Deny/Ask).
+ * `targetPaths` (every file in the batch, absolute or workspace-relative),
+ * `planVersion` and `workspaceRoot` (the worker's resolved absolute root)
+ * are optional; `targetPath` alone keeps working.
+ */
 export const checkPermission = action({
   args: {
     ...tokenArg,
-    taskId: v.id("tasks"),
-    projectId: v.id("projects"),
-    kind: v.union(
-      v.literal("apply_changes"),
-      v.literal("git_push"),
-      v.literal("run_command"),
-      v.literal("merge_pr")
-    ),
-    targetPath: v.string(),
+    ...permissionArgs,
   },
   handler: async (ctx, args): Promise<{ decision: "allow" | "deny" | "ask"; reason: string; approvalId?: string }> => {
     return await ctx.runQuery(internal.orchestration.checkPermission, {

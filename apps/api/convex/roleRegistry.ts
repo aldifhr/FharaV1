@@ -1,24 +1,29 @@
 import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import {
+  assertProjectAccess,
+  assertRegistryWriteAccess,
+  canViewProject,
+  getViewerId,
+} from "./authz";
 
-// Org chart: Fixed 8-agent team (Lead, CTO, Designer, Frontend, Backend, QA, Growth, Support)
-// plus legacy roles for backwards compatibility.
+// Org chart: the fixed team (CTO, Designer, Frontend, Backend, QA, Support,
+// Reviewer, Researcher, DevOps) — see agents.ts FIXED_AGENTS. The retired
+// roles (Lead, Growth, Product Analyst, UI/UX) are no longer seeded; their
+// existing registry rows are disabled by syncDefaults.
 // Kept in sync with packages/worker/src/orchestrator/roles.ts ROLE_DEFINITIONS.
+export const RETIRED_ROLE_KEYS = ["lead", "growth", "product-analyst", "ui-ux"] as const;
+
 export const DEFAULT_ROLES = [
-  { key: "lead", name: "Lead", category: "Leadership", description: "Project coordination, task analysis, delegation, collaboration tracking.", capabilities: ["project-coordination", "general"], defaultTools: ["read_file"], enabled: true },
   { key: "cto", name: "CTO", category: "Leadership", description: "Technical architecture, technical decisions, risk evaluation.", capabilities: ["architecture", "security-audit"], defaultTools: ["read_file"], enabled: true },
   { key: "designer", name: "Designer", category: "Product", description: "UI/UX, wireframes, design system, component specifications.", capabilities: ["ui-ux-design"], defaultTools: ["read_file", "write_file"], enabled: true },
   { key: "frontend", name: "Frontend Developer", category: "Engineering", description: "Frontend implementation, React, Next.js, responsive UI.", capabilities: ["frontend-development"], defaultTools: ["read_file", "write_file", "run_command"], enabled: true },
   { key: "backend", name: "Backend Developer", category: "Engineering", description: "Backend, API, database, server-side logic.", capabilities: ["backend-development"], defaultTools: ["read_file", "write_file", "run_command"], enabled: true },
   { key: "qa", name: "QA Engineer", category: "Quality", description: "Testing, bug detection, quality assurance, verification.", capabilities: ["browser-testing"], defaultTools: ["read_file", "run_command"], enabled: true },
-  { key: "growth", name: "Growth Specialist", category: "Growth", description: "SEO, product growth, analytics, metrics, user engagement.", capabilities: ["growth-marketing"], defaultTools: ["read_file"], enabled: true },
   { key: "support", name: "Support Specialist", category: "Operations", description: "Documentation, user support, operational assistance, troubleshooting.", capabilities: ["documentation-support"], defaultTools: ["read_file", "write_file"], enabled: true },
-  // Legacy role definitions
   { key: "devops", name: "DevOps Engineer", category: "Engineering", description: "Docker, CI/CD, deployment, infrastructure.", capabilities: ["github", "shell-execution"], defaultTools: ["read_file", "run_command"], enabled: true },
   { key: "reviewer", name: "Reviewer", category: "Quality", description: "Independent code review.", capabilities: ["code-review"], defaultTools: ["read_file"], enabled: true },
   { key: "researcher", name: "Researcher", category: "Research", description: "Technical research.", capabilities: ["research"], defaultTools: ["read_file"], enabled: true },
-  { key: "product-analyst", name: "Product Analyst", category: "Product", description: "Requirement analysis.", capabilities: ["research"], defaultTools: ["read_file"], enabled: true },
-  { key: "ui-ux", name: "UI/UX Designer", category: "Product", description: "User experience and interface design.", capabilities: ["ui-ux-design"], defaultTools: ["read_file"], enabled: true },
 ] as const;
 
 export const list = query({
@@ -99,13 +104,24 @@ export const syncDefaults = internalMutation({
         }
       }
     }
-    return { updated, created };
+    // Retired roles: disable their registry rows (kept for history).
+    let disabled = 0;
+    for (const key of RETIRED_ROLE_KEYS) {
+      const rows = await ctx.db.query("roleDefinitions").withIndex("by_key", (q) => q.eq("key", key)).take(5);
+      for (const row of rows) {
+        if (row.enabled === false) continue;
+        await ctx.db.patch(row._id, { enabled: false, updatedAt: Date.now() } as never);
+        disabled++;
+      }
+    }
+    return { updated, created, disabled };
   },
 });
 
 export const update = mutation({
   args: { id: v.id("roleDefinitions"), capabilityPatch: v.optional(v.any()), description: v.optional(v.string()), enabled: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
+    await assertRegistryWriteAccess(ctx);
     const { id, ...rest } = args;
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     if (rest.enabled !== undefined) patch.enabled = rest.enabled;
@@ -117,6 +133,8 @@ export const update = mutation({
 export const assignToProject = mutation({
   args: { projectId: v.id("projects"), agentId: v.id("agents"), customInstructions: v.optional(v.string()), allowedTools: v.optional(v.array(v.string())) },
   handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
+    if (!(await ctx.db.get(args.agentId))) throw new Error("Agent not found");
     const existing = await ctx.db.query("projectAgents").withIndex("by_project_and_agent", (q) => q.eq("projectId", args.projectId).eq("agentId", args.agentId)).take(1);
     const id = existing[0]
       ? (await ctx.db.patch(existing[0]._id, { enabled: true, customInstructions: args.customInstructions, allowedTools: args.allowedTools, updatedAt: Date.now() }), existing[0]._id)
@@ -141,6 +159,7 @@ export const assignToProject = mutation({
 export const removeFromProject = mutation({
   args: { projectId: v.id("projects"), agentId: v.id("agents") },
   handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
     const rows = await ctx.db.query("projectAgents").withIndex("by_project_and_agent", (q) => q.eq("projectId", args.projectId).eq("agentId", args.agentId)).take(1);
     // Removing an assignment must not delete the organization-level member.
     if (rows[0]) await ctx.db.delete(rows[0]._id);
@@ -155,7 +174,8 @@ export const removeFromProject = mutation({
 export const listProjectTeam = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const rows = await ctx.db.query("projectAgents").withIndex("by_project", (q) => q.eq("projectId", args.projectId)).collect();
+    await assertProjectAccess(ctx, args.projectId);
+    const rows = await ctx.db.query("projectAgents").withIndex("by_project", (q) => q.eq("projectId", args.projectId)).take(200);
     const members = await Promise.all(rows.map(async (r) => {
       const agent = await ctx.db.get(r.agentId);
       const role = agent?.roleId ? await ctx.db.get(agent.roleId) : null;
@@ -168,8 +188,20 @@ export const listProjectTeam = query({
 export const getExecutionStatus = query({
   args: { agentId: v.id("agents") },
   handler: async (ctx, args) => {
-    const executions = await ctx.db.query("executions").withIndex("by_agent", (q) => q.eq("agentId", args.agentId)).collect();
-    const active = executions.filter((e) => ["queued", "running"].includes(e.status));
+    // Indexed + bounded (no scan of the agent's whole history), and only
+    // executions in projects the caller may see.
+    const viewerId = await getViewerId(ctx);
+    const active = [];
+    for (const status of ["queued", "running"] as const) {
+      const rows = await ctx.db
+        .query("executions")
+        .withIndex("by_agent_and_status", (q) => q.eq("agentId", args.agentId).eq("status", status))
+        .take(50);
+      for (const row of rows) {
+        const project = await ctx.db.get(row.projectId);
+        if (canViewProject(viewerId, project)) active.push(row);
+      }
+    }
     return {
       active: active.length,
       status: active.length === 0 ? ("idle" as const) : ("working" as const),

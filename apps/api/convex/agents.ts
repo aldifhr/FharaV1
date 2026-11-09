@@ -1,7 +1,7 @@
 import { query, mutation, internalMutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { assertAgentAccess, assertProjectAccess } from "./authz";
+import { assertAgentAccess, assertProjectAccess, assertRegistryWriteAccess } from "./authz";
 
 /**
  * Plan 007: browser-safe agent projection — the same shape `list` has always
@@ -237,11 +237,13 @@ export const create = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    // Agents are a global registry: signed-in viewer or local mode only.
+    await assertRegistryWriteAccess(ctx);
     const name = args.name.trim();
     const role = args.role.trim();
     // Every agent starts with a persona: the seed prompt for its role when
     // the caller does not supply one, editable later via agents.update.
-    const systemPrompt = args.systemPrompt?.trim() ?? defaultSystemPromptForRole(role);
+    const systemPrompt = args.systemPrompt?.trim() || defaultSystemPromptForRole(role);
     if (!name) throw new Error("Agent name is required");
     if (!role) throw new Error("Agent role is required");
 
@@ -469,7 +471,7 @@ export const FIXED_AGENTS = [
     key: "cto",
     name: "CTO",
     role: "cto",
-    description: "Technical architecture, technical decisions, code review, risk evaluation.",
+    description: "Technical architecture, technical decisions, risk evaluation.",
     systemPrompt:
       "You are the CTO. You decide HOW the work is built: the technical approach, architecture, framework and library choices, data model, and risk trade-offs. You evaluate risk and give a go/no-go on sensitive changes (auth, payments, migrations, new libs). Boundaries: you own the technical direction, not the requirements. You decide the HOW and set the guardrails. Keep plans simple and consistent with the existing codebase; reject over-engineering. Read-only: you do not write code yourself. Output: a decision with brief rationale, risks, and concrete next steps. Reporting to the owner: always in 2-3 plain-language sentences, like talking to a non-technical owner -- what is done, the impact, and any problem or decision needed last. Never use bullets, headers, or pasted terminal output. Technical detail only when asked.",
     capabilities: ["architecture", "security-audit"],
@@ -575,7 +577,27 @@ export const FIXED_AGENTS = [
   },
 ];
 
-const RETIRED_ROLES = ["lead", "growth", "product-analyst"];
+/** Roles removed from the fixed team. Matched on the normalized role. */
+const RETIRED_ROLES = new Set(["lead", "growth", "product-analyst", "ui-ux"]);
+
+/**
+ * Capabilities a fixed role used to ship with and must no longer carry.
+ * The sync otherwise only ever UNIONS defaults into existing rows, so a CTO
+ * row seeded with `code-review` kept routing reviews to the CTO forever.
+ * Only these are removed; capabilities a user added by hand are kept.
+ */
+const REVOKED_DEFAULT_CAPABILITIES: Record<string, readonly string[]> = {
+  cto: ["code-review"],
+};
+
+/** "Product Analyst", "product_analyst", "UI/UX" → "product-analyst", "ui-ux". */
+export function normalizeRoleKey(role: string | undefined): string {
+  return (role ?? "").trim().toLowerCase().replace(/[\s_\/]+/g, "-");
+}
+
+function isRetiredRole(role: string | undefined): boolean {
+  return RETIRED_ROLES.has(normalizeRoleKey(role));
+}
 
 /**
  * Sync the fixed team: seed missing roles, union new default capabilities
@@ -591,7 +613,7 @@ export async function syncFixedTeam(ctx: MutationCtx, projectId?: Id<"projects">
 
   const retiredIds = new Set<string>();
   for (const agent of existingAgents) {
-    if (!RETIRED_ROLES.includes(agent.role)) continue;
+    if (!isRetiredRole(agent.role)) continue;
     if (agent.retiredAt) continue;
     retiredIds.add(String(agent._id));
     await ctx.db.patch(agent._id, { isEnabled: false, status: "idle", retiredAt: Date.now() });
@@ -599,7 +621,9 @@ export async function syncFixedTeam(ctx: MutationCtx, projectId?: Id<"projects">
 
   const createdAgentIds: Id<"agents">[] = [];
   for (const def of FIXED_AGENTS) {
-    const match = existingAgents.find((a) => a.role === def.role);
+    const match = existingAgents.find(
+      (a) => normalizeRoleKey(a.role) === def.role && !isRetiredRole(a.role)
+    );
     if (!match) {
       const id = await ctx.db.insert("agents", {
         name: def.name,
@@ -619,9 +643,14 @@ export async function syncFixedTeam(ctx: MutationCtx, projectId?: Id<"projects">
     }
     createdAgentIds.push(match._id);
     const current = match.capabilities ?? [];
-    const merged = Array.from(new Set([...current, ...def.capabilities]));
+    const revoked = new Set(REVOKED_DEFAULT_CAPABILITIES[def.role] ?? []);
+    const merged = Array.from(new Set([...current, ...def.capabilities])).filter(
+      (capability) => !revoked.has(capability)
+    );
     const patch: Partial<Doc<"agents">> = {};
-    if (merged.length !== current.length) patch.capabilities = merged;
+    const sameCaps =
+      merged.length === current.length && merged.every((capability, index) => capability === current[index]);
+    if (!sameCaps) patch.capabilities = merged;
     if (!match.description?.trim()) patch.description = def.description;
     if (!match.systemPrompt?.trim()) patch.systemPrompt = def.systemPrompt;
     if (Object.keys(patch).length > 0) await ctx.db.patch(match._id, patch);
@@ -631,7 +660,7 @@ export async function syncFixedTeam(ctx: MutationCtx, projectId?: Id<"projects">
     const project = await ctx.db.get(projectId);
     if (project) {
       const retiredAll = new Set(
-        existingAgents.filter((a) => RETIRED_ROLES.includes(a.role)).map((a) => String(a._id))
+        existingAgents.filter((a) => isRetiredRole(a.role)).map((a) => String(a._id))
       );
       const kept = (project.agentIds ?? []).filter((id) => !retiredAll.has(String(id)));
       const combined = Array.from(new Set([...kept, ...createdAgentIds]));
@@ -645,6 +674,9 @@ export async function syncFixedTeam(ctx: MutationCtx, projectId?: Id<"projects">
 export const ensureFixedTeam = mutation({
   args: { projectId: v.optional(v.id("projects")) },
   handler: async (ctx, args) => {
+    // The sync seeds, patches and retires rows in the GLOBAL agent table,
+    // so it needs registry write access even when a project is given.
+    await assertRegistryWriteAccess(ctx);
     if (args.projectId) await assertProjectAccess(ctx, args.projectId);
     return await syncFixedTeam(ctx, args.projectId);
   },

@@ -1,17 +1,24 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { projectAgentDoc } from "./agents";
+import { visibleProjects } from "./authz";
+
+/** Bounded scan window (core M7): the newest tasks only. */
+const SEARCH_TASK_WINDOW = 500;
 
 export const global = query({
   args: { q: v.string() },
   handler: async (ctx, args) => {
     const q = args.q.trim().toLowerCase();
 
-    const [projects, tasks, agents] = await Promise.all([
-      ctx.db.query("projects").collect(),
-      ctx.db.query("tasks").order("desc").collect(),
-      ctx.db.query("agents").collect(),
+    const [projects, recentTasks, agents] = await Promise.all([
+      visibleProjects(ctx),
+      ctx.db.query("tasks").order("desc").take(SEARCH_TASK_WINDOW),
+      ctx.db.query("agents").take(200),
     ]);
+    // Scoped to the projects the caller may see (core H5).
+    const visible = new Set(projects.map((p) => p._id as string));
+    const tasks = recentTasks.filter((t) => visible.has(t.projectId as string));
     const nameById = new Map(projects.map((p) => [p._id as string, p.name]));
 
     const matches = (s: string) => !q || s.toLowerCase().includes(q);

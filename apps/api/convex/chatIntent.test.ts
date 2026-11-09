@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
-import { buildHandoffGuidance, classifyChatIntent, extractAgentMentions, parseIntentResult, parseResponderSelection, pickConversationalAgent } from "./chat";
+import { describe, expect, test, it } from "vitest";
+import { buildAssignmentGuidance, buildHandoffGuidance, classifyChatIntent, resolveAssignees, stripToolCallMarkup, suggestAssigneesByKeywords, extractAgentMentions, parseIntentResult, parseResponderSelection, pickConversationalAgent } from "./chat";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -101,5 +101,50 @@ describe("CTO @mention handoff", () => {
     const lines = buildHandoffGuidance(team, "cto");
     expect(lines[0]).toContain("@Frontend");
     expect(lines[0]).not.toContain("@CTO");
+  });
+});
+
+describe("CTO task assignment", () => {
+  const team = [
+    { _id: "cto", name: "CTO", role: "cto" },
+    { _id: "fe", name: "Frontend", role: "frontend" },
+    { _id: "be", name: "Backend", role: "backend" },
+    { _id: "qa", name: "QA", role: "qa" },
+    { _id: "rv", name: "Reviewer", role: "reviewer" },
+  ];
+
+  test("keeps the CTO, the assignees, and Reviewer/QA in the pool", () => {
+    const pool = resolveAssignees(team, team[0], [team[1]]).map((a) => a._id).sort();
+    expect(pool).toEqual(["cto", "fe", "qa", "rv"]);
+  });
+
+  test("returns no pool when nobody was assigned", () => {
+    expect(resolveAssignees(team, team[0], [])).toEqual([]);
+  });
+
+  test("assignment guidance lists teammates and the user's picks", () => {
+    const lines = buildAssignmentGuidance(team, "cto", [{ name: "Backend" }]).join("\n");
+    expect(lines).toContain("@Frontend");
+    expect(lines).toContain("include them");
+    expect(lines).not.toContain("@CTO,");
+  });
+});
+
+describe("stripToolCallMarkup", () => {
+  it("drops complete and dangling tool-call blocks", () => {
+    expect(stripToolCallMarkup("Cek dulu.<longcat_tool_call>X\n<a>b</a></longcat_tool_call> ok")).toBe("Cek dulu. ok");
+    expect(stripToolCallMarkup("Saya lihat file.<longcat_tool_call>DevOps\n<longcat_arg_ke")).toBe("Saya lihat file.");
+    expect(stripToolCallMarkup("plain")).toBe("plain");
+  });
+});
+
+describe("suggestAssigneesByKeywords", () => {
+  const team = ["Frontend", "Backend", "Designer", "DevOps", "Researcher", "Support", "QA", "Reviewer"].map((r) => ({ _id: r, name: r, role: r.toLowerCase() }));
+  it("picks owners from the request", () => {
+    expect(suggestAssigneesByKeywords("Implement helper countGraphemes di src/lib/resume", team).map((a) => a.name)).toEqual(["Backend"]);
+    expect(suggestAssigneesByKeywords("ubah tampilan halaman login dan update README", team).map((a) => a.name)).toEqual(["Frontend", "Support"]);
+  });
+  it("falls back to Backend, never the whole team", () => {
+    expect(suggestAssigneesByKeywords("kerjain ini dong", team).map((a) => a.name)).toEqual(["Backend"]);
   });
 });

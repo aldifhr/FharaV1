@@ -1,6 +1,6 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
-import { getVisibleTask } from "./authz";
+import { getViewerId, getVisibleTask, canViewProject } from "./authz";
 
 export const getForTask = query({
   args: { taskId: v.id("tasks") },
@@ -57,18 +57,25 @@ export const getForTask = query({
 export const activeByAgent = query({
   args: {},
   handler: async (ctx) => {
+    // Bounded per status (orphaned rows from old cancelled tasks must not
+    // grow this read) and scoped to visible projects (core H5).
+    const viewerId = await getViewerId(ctx);
     const active = await ctx.db
       .query("executions")
       .withIndex("by_status", (q) => q.eq("status", "running"))
-      .collect();
+      .order("desc")
+      .take(200);
     const waiting = await ctx.db
       .query("executions")
       .withIndex("by_status", (q) => q.eq("status", "waiting_approval"))
-      .collect();
+      .order("desc")
+      .take(200);
     const queued = await ctx.db
       .query("executions")
       .withIndex("by_status", (q) => q.eq("status", "queued"))
-      .collect();
+      .order("desc")
+      .take(200);
+    const projectVisible = new Map<string, boolean>();
     const map = new Map<string, { taskId: string; projectId: string; taskTitle: string; subtaskKey?: string; status: string }>();
     for (const exec of [...active, ...waiting, ...queued]) {
       if (!exec.agentId) continue;
@@ -78,6 +85,11 @@ export const activeByAgent = query({
       // cancelled/terminal task leaves orphaned queued/running executions
       // that must not surface as "X is thinking" in an unrelated project.
       if (task.status === "failed" || task.status === "done" || task.status === "rejected") continue;
+      const projectKey = task.projectId as string;
+      if (!projectVisible.has(projectKey)) {
+        projectVisible.set(projectKey, canViewProject(viewerId, await ctx.db.get(task.projectId)));
+      }
+      if (!projectVisible.get(projectKey)) continue;
       map.set(exec.agentId as string, {
         taskId: exec.taskId as string,
         projectId: task.projectId as string,

@@ -66,7 +66,11 @@ export const approvalKind = v.union(
 export const approvalStatus = v.union(
   v.literal("pending"),
   v.literal("approved"),
-  v.literal("rejected")
+  v.literal("rejected"),
+  // Closed without a user decision: the task was cancelled, or a manual
+  // retry superseded the approvals of the previous attempt. Neither grants
+  // nor denies anything (permissionBroker ignores it).
+  v.literal("cancelled")
 );
 
 export default defineSchema({
@@ -177,7 +181,9 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_status", ["status"])
     .index("by_status_and_updated", ["status", "updatedAt"])
+    .index("by_status_and_lease", ["status", "leaseExpiresAt"])
     .index("by_worker", ["workerId"])
+    .index("by_worker_and_status", ["workerId", "status"])
     .index("by_idempotency", ["idempotencyKey"]),
 
   plans: defineTable({
@@ -246,7 +252,9 @@ export default defineSchema({
   })
     .index("by_task", ["taskId"])
     .index("by_worker", ["workerId"])
+    .index("by_worker_and_status", ["workerId", "status"])
     .index("by_agent", ["agentId"])
+    .index("by_agent_and_status", ["agentId", "status"])
     .index("by_status", ["status"])
     .index("by_status_and_lease", ["status", "leaseExpiresAt"]),
 
@@ -257,7 +265,9 @@ export default defineSchema({
     activeTasks: v.number(),
     status: v.union(v.literal("online"), v.literal("offline")),
     lastHeartbeatAt: v.number(),
-  }).index("by_worker_id", ["workerId"]),
+  })
+    .index("by_worker_id", ["workerId"])
+    .index("by_status_and_heartbeat", ["status", "lastHeartbeatAt"]),
 
   messages: defineTable({
     projectId: v.id("projects"),
@@ -297,6 +307,19 @@ export default defineSchema({
     // still validate. reasoningDurationMs is measured around the LLM call.
     reasoning: v.optional(v.string()),
     reasoningDurationMs: v.optional(v.number()),
+    // Structured chat card rendered next to the text (assignment, push,
+    // qa, verification). Optional; plain messages carry none.
+    card: v.optional(
+      v.object({
+        kind: v.union(
+          v.literal("assignment"),
+          v.literal("push"),
+          v.literal("qa"),
+          v.literal("verification")
+        ),
+        data: v.any(),
+      })
+    ),
   })
     .index("by_project", ["projectId"])
     .index("by_task", ["taskId"])

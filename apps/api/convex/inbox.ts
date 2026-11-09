@@ -1,32 +1,46 @@
 import { query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { projectAgentDoc } from "./agents";
+import { visibleProjectIds } from "./authz";
+
+/** Bounded reads (core M7): failed tasks in particular only ever grow. */
+const INBOX_APPROVAL_LIMIT = 100;
+const INBOX_TASK_LIMIT = 100;
+const INBOX_FAILED_LIMIT = 50;
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const approvals = await ctx.db
-      .query("approvals")
-      .withIndex("by_status", (q) => q.eq("status", "pending"))
-      .order("desc")
-      .collect();
-    const needsApproval = await ctx.db
-      .query("tasks")
-      .withIndex("by_status", (q) => q.eq("status", "needs_approval"))
-      .order("desc")
-      .collect();
-    const failed = await ctx.db
-      .query("tasks")
-      .withIndex("by_status", (q) => q.eq("status", "failed"))
-      .order("desc")
-      .collect();
+    // Scoped to the projects the caller may see (core H5).
+    const visible = await visibleProjectIds(ctx);
+    const approvals = (
+      await ctx.db
+        .query("approvals")
+        .withIndex("by_status", (q) => q.eq("status", "pending"))
+        .order("desc")
+        .take(INBOX_APPROVAL_LIMIT)
+    ).filter((a) => visible.has(a.projectId as string));
+    const needsApproval = (
+      await ctx.db
+        .query("tasks")
+        .withIndex("by_status", (q) => q.eq("status", "needs_approval"))
+        .order("desc")
+        .take(INBOX_TASK_LIMIT)
+    ).filter((t) => visible.has(t.projectId as string));
+    const failed = (
+      await ctx.db
+        .query("tasks")
+        .withIndex("by_status", (q) => q.eq("status", "failed"))
+        .order("desc")
+        .take(INBOX_FAILED_LIMIT)
+    ).filter((t) => visible.has(t.projectId as string));
     const tasks = [...needsApproval, ...failed].sort(
       (a, b) => (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime)
     );
     const agents = await ctx.db
       .query("agents")
       .filter((q) => q.eq(q.field("status"), "needs_you"))
-      .collect();
+      .take(200);
 
     const projectIds = [...new Set<string>([...approvals.map((a) => a.projectId as string), ...tasks.map((t) => t.projectId as string)])] as Id<"projects">[];
     const projectNameById = new Map<string, string>();

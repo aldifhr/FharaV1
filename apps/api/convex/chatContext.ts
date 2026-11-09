@@ -42,10 +42,16 @@ export const insertAgentMessage = internalMutation({
     replyToMessageId: v.optional(v.id("messages")),
     taskId: v.optional(v.id("tasks")),
     conversationId: v.optional(v.id("conversations")),
+    card: v.optional(
+      v.object({
+        kind: v.union(v.literal("assignment"), v.literal("push"), v.literal("qa"), v.literal("verification")),
+        data: v.any(),
+      })
+    ),
   },
   handler: async (ctx, args) => {
     const content = args.content.trim();
-    if (!content) return null;
+    if (!content && !args.card) return null;
     return await ctx.db.insert("messages", {
       projectId: args.projectId,
       agentId: args.agentId,
@@ -54,6 +60,7 @@ export const insertAgentMessage = internalMutation({
       replyToMessageId: args.replyToMessageId,
       taskId: args.taskId,
       conversationId: args.conversationId,
+      ...(args.card ? { card: args.card } : {}),
     });
   },
 });
@@ -109,6 +116,18 @@ export const updateStreamingAgentMessage = internalMutation({
       if (value !== undefined) cleaned[key] = value;
     }
     await ctx.db.patch(messageId, cleaned);
+    return null;
+  },
+});
+
+/** Drop a streamed agent message that ended with no content and no card. */
+export const removeEmptyAgentMessage = internalMutation({
+  args: { messageId: v.id("messages") },
+  handler: async (ctx, args) => {
+    const message = await ctx.db.get(args.messageId);
+    if (message && message.authorType === "agent" && !message.content.trim() && !message.card) {
+      await ctx.db.delete(args.messageId);
+    }
     return null;
   },
 });

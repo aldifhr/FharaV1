@@ -7,11 +7,14 @@ export const listByProject = query({
   args: { projectId: v.id("projects"), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     await assertProjectAccess(ctx, args.projectId);
-    return await ctx.db
+    // Newest N, returned oldest-first: `.order("asc").take(n)` returned the
+    // OLDEST n rows, so chats past the cap stopped showing new replies.
+    const newest = await ctx.db
       .query("messages")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .order("asc")
+      .order("desc")
       .take(Math.min(Math.max(args.limit ?? 500, 1), 1000));
+    return newest.reverse();
   },
 });
 
@@ -20,11 +23,13 @@ export const listByTask = query({
   handler: async (ctx, args) => {
     const task = await getVisibleTask(ctx, args.taskId);
     if (!task) return [];
-    return await ctx.db
+    // Newest 500, returned oldest-first (see listByProject).
+    const newest = await ctx.db
       .query("messages")
       .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
-      .order("asc")
+      .order("desc")
       .take(500);
+    return newest.reverse();
   },
 });
 
@@ -301,6 +306,12 @@ export const send = action({
     conversationId: v.optional(v.id("conversations")),
   },
   handler: async (ctx, args): Promise<{ messageId: string; conversationId: string }> => {
+    // Authorization (core H5): the caller's identity propagates into
+    // runQuery, so owned projects require their owner; open projects stay
+    // open (local single-user mode). Without this anyone could post into
+    // any project and trigger paid LLM replies there.
+    await ctx.runQuery(internal.access.checkProjectAccess, { projectId: args.projectId });
+    if (!args.content.trim()) throw new Error("Message is required");
     // Plan 007: resolve (or create) the project's active conversation and sync
     // the caller's participant selection into it before the reply runs, so
     // participation is persisted rather than recomputed per message.

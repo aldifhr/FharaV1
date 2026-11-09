@@ -1,8 +1,52 @@
 import { query, mutation } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
-import { assertProjectAccess, assertTaskAccess, getViewerId } from "./authz";
+import type { Doc, Id } from "./_generated/dataModel";
+import {
+  assertProjectAccess,
+  assertTaskAccess,
+  getViewerId,
+  visibleProjectIds,
+} from "./authz";
+import { refreshAgentStatus } from "./orchestration";
 import { taskStatus } from "./schema";
+
+/** A worker currently holds an unexpired lease on the task (e.g. resuming it). */
+function holdsLiveLease(task: Doc<"tasks">): boolean {
+  return Boolean(task.workerId) && (task.leaseExpiresAt ?? 0) > Date.now();
+}
+
+/**
+ * Close a task's approvals in the given statuses as "cancelled" (no user
+ * decision; ignored by the permission broker and by the worker's resume
+ * selection). The previous status is appended to the row's history.
+ */
+async function closeApprovals(
+  ctx: MutationCtx,
+  taskId: Id<"tasks">,
+  statuses: ReadonlyArray<"pending" | "approved" | "rejected">,
+  reason: string,
+  now: number
+): Promise<number> {
+  const rows = await ctx.db
+    .query("approvals")
+    .withIndex("by_task", (q) => q.eq("taskId", taskId))
+    .collect();
+  let closed = 0;
+  for (const row of rows) {
+    if (!(statuses as readonly string[]).includes(row.status)) continue;
+    await ctx.db.patch(row._id, {
+      status: "cancelled",
+      resolvedAt: row.resolvedAt ?? now,
+      history: [
+        ...(row.history ?? []),
+        { at: now, from: row.status, to: "cancelled", reason },
+      ],
+    });
+    closed++;
+  }
+  return closed;
+}
 
 export const listByProject = query({
   args: { projectId: v.id("projects"), limit: v.optional(v.number()) },
@@ -56,13 +100,18 @@ export const get = query({
 export const activeTaskProjectIds = query({
   args: {},
   handler: async (ctx) => {
+    // Bounded per status and limited to projects the caller may see.
+    const visible = await visibleProjectIds(ctx);
     const ids = new Set<string>();
     for (const status of ["queued", "running", "needs_approval", "waiting_input"] as const) {
       const rows = await ctx.db
         .query("tasks")
         .withIndex("by_status", (q) => q.eq("status", status))
-        .collect();
-      for (const row of rows) ids.add(row.projectId as string);
+        .order("desc")
+        .take(500);
+      for (const row of rows) {
+        if (visible.has(row.projectId as string)) ids.add(row.projectId as string);
+      }
     }
     return [...ids];
   },
@@ -161,9 +210,24 @@ export const remove = mutation({
     if (task.status === "running") {
       throw new Error("Running tasks cannot be deleted");
     }
+    if (holdsLiveLease(task)) {
+      throw new Error("A worker is resuming this task; cancel it first");
+    }
 
     const deleteByTask = async (
-      table: "messages" | "approvals" | "taskEvents" | "fileChanges" | "subtasks" | "executions" | "evaluations" | "plans"
+      table:
+        | "messages"
+        | "approvals"
+        | "taskEvents"
+        | "fileChanges"
+        | "subtasks"
+        | "executions"
+        | "evaluations"
+        | "plans"
+        | "taskContexts"
+        | "agentEvents"
+        | "delegations"
+        | "lifecycleHistory"
     ) => {
       const records = await ctx.db
         .query(table)
@@ -181,6 +245,10 @@ export const remove = mutation({
       "executions",
       "evaluations",
       "plans",
+      "taskContexts",
+      "agentEvents",
+      "delegations",
+      "lifecycleHistory",
     ] as const) {
       await deleteByTask(table);
     }
@@ -203,11 +271,51 @@ export const cancel = mutation({
       workerId: undefined,
       leaseExpiresAt: undefined,
     });
+
+    // Clean up what the cancelled run left open (core M8): pending
+    // approvals would otherwise stay actionable in the inbox, and running
+    // executions would read "running" until their lease lapsed and then
+    // "Worker lease expired".
+    const cancelledApprovals = await closeApprovals(ctx, task._id, ["pending"], "task_cancelled", now);
+    const affectedAgents = new Set<Id<"agents">>();
+    let cancelledExecutions = 0;
+    const executions = await ctx.db
+      .query("executions")
+      .withIndex("by_task", (q) => q.eq("taskId", task._id))
+      .collect();
+    for (const execution of executions) {
+      if (
+        execution.status !== "running" &&
+        execution.status !== "queued" &&
+        execution.status !== "waiting_approval"
+      ) {
+        continue;
+      }
+      await ctx.db.patch(execution._id, {
+        status: "cancelled",
+        error: "Cancelled by user",
+        leaseExpiresAt: undefined,
+        completedAt: now,
+      });
+      cancelledExecutions++;
+      if (execution.agentId) affectedAgents.add(execution.agentId);
+    }
+    const subtasks = await ctx.db
+      .query("subtasks")
+      .withIndex("by_task", (q) => q.eq("taskId", task._id))
+      .collect();
+    for (const subtask of subtasks) {
+      if (subtask.status === "running" || subtask.status === "waiting_approval") {
+        await ctx.db.patch(subtask._id, { status: "blocked", error: "Cancelled by user" });
+      }
+    }
+    for (const agentId of affectedAgents) await refreshAgentStatus(ctx, agentId);
+
     await ctx.db.insert("taskEvents", {
       taskId: task._id,
       projectId: task.projectId,
       type: "task.cancelled",
-      payload: {},
+      payload: { cancelledApprovals, cancelledExecutions },
       level: "warn",
     });
     return true;
@@ -219,7 +327,17 @@ export const retry = mutation({
   handler: async (ctx, args) => {
     const task = await assertTaskAccess(ctx, args.taskId);
     if (task.status === "running") throw new Error("Running tasks cannot be retried");
+    // A needs_approval task a worker is resuming holds a live lease:
+    // re-queuing it would run it twice.
+    if (holdsLiveLease(task)) {
+      throw new Error("A worker is resuming this task; wait or cancel it first");
+    }
     const now = Date.now();
+    // The previous attempt's approvals are superseded: a pending one would
+    // stay actionable, an old rejection would make the resumed run reject
+    // again (and the broker deny), and an old approval must not silently
+    // grant the new attempt. History is kept on each row.
+    await closeApprovals(ctx, task._id, ["pending", "approved", "rejected"], "task_retried", now);
     await ctx.db.patch(args.taskId, {
       status: "queued",
       workerId: undefined,

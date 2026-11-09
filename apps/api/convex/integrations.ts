@@ -240,6 +240,7 @@ export const handleWebhook = httpAction(async (ctx, request) => {
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
     const integrations = await ctx.db
       .query("integrations")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -294,6 +295,7 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration not found");
+    await assertProjectAccess(ctx, integration.projectId);
 
     // Mark as disconnected instead of deleting to preserve audit trail
     await ctx.db.patch(args.integrationId, {
@@ -306,49 +308,89 @@ export const remove = mutation({
 });
 
 /**
- * Refresh GitHub integration - re-fetch user info and update integration
+ * Refresh GitHub integration - re-fetch user info and update integration.
+ *
+ * An ACTION (core H8): queries and mutations cannot do network I/O, so the
+ * old mutation threw on every `fetch` and rolled its own error patch back.
+ * The action authorizes and reads the token through an internal query, calls
+ * GitHub, then records the outcome through an internal mutation.
  */
-export const refresh = mutation({
+export const refresh = action({
+  args: { integrationId: v.id("integrations") },
+  handler: async (ctx, args): Promise<{ status: "active"; githubOwner?: string }> => {
+    const target = await ctx.runQuery(internal.integrations.getForRefresh, {
+      integrationId: args.integrationId,
+    });
+
+    let login: string | undefined;
+    try {
+      const userResponse = await fetch("https://api.github.com/user", {
+        headers: {
+          Authorization: `Bearer ${target.accessToken}`,
+          Accept: "application/vnd.github+json",
+        },
+      });
+      if (!userResponse.ok) {
+        throw new Error(`GitHub API error: ${userResponse.status}`);
+      }
+      const user = (await userResponse.json()) as { login?: string; name?: string };
+      login = user.login;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      await ctx.runMutation(internal.integrations.recordRefreshResult, {
+        integrationId: args.integrationId,
+        ok: false,
+        errorMessage: message,
+      });
+      throw error;
+    }
+    await ctx.runMutation(internal.integrations.recordRefreshResult, {
+      integrationId: args.integrationId,
+      ok: true,
+      githubOwner: login,
+    });
+    return { status: "active", githubOwner: login };
+  },
+});
+
+/** Authorize a refresh and hand the action the token (internal only). */
+export const getForRefresh = internalQuery({
   args: { integrationId: v.id("integrations") },
   handler: async (ctx, args) => {
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration not found");
+    await assertProjectAccess(ctx, integration.projectId);
     if (integration.type !== "github") throw new Error("Not a GitHub integration");
     if (!integration.accessToken) throw new Error("No access token");
+    return { accessToken: integration.accessToken };
+  },
+});
 
-    try {
-      // Fetch current user from GitHub
-      const userResponse = await fetch("https://api.github.com/user", {
-        headers: {
-          Authorization: `Bearer ${integration.accessToken}`,
-          Accept: "application/vnd.github+json",
-        },
-      });
-
-      if (!userResponse.ok) {
-        throw new Error(`GitHub API error: ${userResponse.status}`);
-      }
-
-      const user = (await userResponse.json()) as {
-        login?: string;
-        name?: string;
-      };
-
+export const recordRefreshResult = internalMutation({
+  args: {
+    integrationId: v.id("integrations"),
+    ok: v.boolean(),
+    githubOwner: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const integration = await ctx.db.get(args.integrationId);
+    if (!integration) return;
+    const now = Date.now();
+    if (args.ok) {
       await ctx.db.patch(args.integrationId, {
-        githubOwner: user.login,
+        ...(args.githubOwner !== undefined ? { githubOwner: args.githubOwner } : {}),
         status: "active",
         errorMessage: undefined,
-        lastSyncAt: Date.now(),
-        updatedAt: Date.now(),
+        lastSyncAt: now,
+        updatedAt: now,
       });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
+    } else {
       await ctx.db.patch(args.integrationId, {
         status: "error",
-        errorMessage: message,
-        updatedAt: Date.now(),
+        errorMessage: args.errorMessage,
+        updatedAt: now,
       });
-      throw error;
     }
   },
 });
@@ -365,6 +407,7 @@ export const updateConfig = mutation({
   handler: async (ctx, args) => {
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration not found");
+    await assertProjectAccess(ctx, integration.projectId);
 
     const updates: Record<string, unknown> = {
       updatedAt: Date.now(),

@@ -3,7 +3,12 @@ import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { loadProviderPool, type PoolConnectionPayload } from "./llmResolver";
-import { decidePermissionCore } from "./permissionBroker";
+import { decidePermissionCore, permissionArgs } from "./permissionBroker";
+import {
+  assertProjectAccess,
+  getVisibleTask,
+  visibleProjectIds,
+} from "./authz";
 import {
   taskStatus,
   subtaskKind,
@@ -12,6 +17,13 @@ import {
 } from "./schema";
 
 const DEFAULT_LEASE_MS = 60_000;
+
+/** Upper bound on rows one heartbeat renews per status (a worker runs a handful). */
+const HEARTBEAT_SCAN_LIMIT = 100;
+/** Upper bound on stale tasks / executions / workers one recovery pass handles. */
+const RECOVERY_BATCH = 50;
+/** Upper bound on needs_approval tasks one resume poll returns. */
+const RESUMABLE_SCAN_LIMIT = 50;
 
 /**
  * Phase 4 recovery bound: a stale task with a valid stored plan is
@@ -61,22 +73,31 @@ function monotonicSubtaskStatus(
  *
  * `workerId` is optional for backwards compatibility with legacy callers;
  * when absent the write is treated as an orchestrator/offline write and is
- * allowed, because every worker caller now passes it.
+ * allowed.
+ *
+ * A task with NO owner (`workerId` cleared by recoverStale's requeue, by a
+ * user cancel, or by requestApproval) is not a free-for-all: a worker that
+ * presents an identity is refused, because the task is no longer its own —
+ * the next legitimate writer is whoever claims it again. Only writes that
+ * explicitly pass `allowUnowned` (none of the worker hot paths) may proceed.
  */
-async function holdsTaskLease(
+export async function holdsTaskLease(
   ctx: MutationCtx,
   taskId: Id<"tasks">,
-  workerId: string | undefined
+  workerId: string | undefined,
+  options: { allowUnowned?: boolean } = {}
 ): Promise<boolean> {
   if (!workerId) return true;
   const task = await ctx.db.get(taskId);
   if (!task) return false;
-  if (!task.workerId) return true;
+  if (!task.workerId) return options.allowUnowned === true;
   if (task.workerId === workerId) return true;
   // The current owner's lease already lapsed: the displaced writer may
   // settle it (the task will be recovered or failed separately).
   return (task.leaseExpiresAt ?? 0) < Date.now();
 }
+
+const LEASE_LOST_ERROR = "Lease lost: this task is no longer owned by this worker";
 
 /**
  * Strip legacy per-agent LLM fields — above all the plaintext `llmApiKey` —
@@ -219,6 +240,11 @@ export const heartbeat = internalMutation({
     capacity: v.number(),
     activeTasks: v.number(),
     leaseMs: v.optional(v.number()),
+    // Optional: the task ids this worker is actually running right now.
+    // When given, only those leases are renewed, so a task the worker
+    // abandoned without settling cannot be kept alive forever by the
+    // heartbeat (core H2). Omitted = legacy behaviour (renew all owned).
+    activeTaskIds: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -246,33 +272,44 @@ export const heartbeat = internalMutation({
       });
     }
 
-    const owned = await ctx.db
-      .query("tasks")
-      .withIndex("by_worker", (q) => q.eq("workerId", args.workerId))
-      .collect();
-    for (const task of owned) {
-      // A task being resumed after approval is still owned by this worker
-      // even though its status stays "needs_approval" during the resume
-      // claim; its lease must be renewed or a second worker could claim
-      // the same resume after the first lease window.
-      if (task.status === "running" || task.status === "needs_approval") {
+    // Only in-flight statuses, through the (workerId, status) index: the
+    // by_worker index alone returned every task this worker ever owned.
+    // A task being resumed after approval is still owned by this worker
+    // even though its status stays "needs_approval" during the resume
+    // claim; its lease must be renewed or a second worker could claim
+    // the same resume after the first lease window.
+    const activeIds = args.activeTaskIds ? new Set(args.activeTaskIds) : null;
+    let renewedTasks = 0;
+    for (const status of ["running", "needs_approval"] as const) {
+      const owned = await ctx.db
+        .query("tasks")
+        .withIndex("by_worker_and_status", (q) =>
+          q.eq("workerId", args.workerId).eq("status", status)
+        )
+        .take(HEARTBEAT_SCAN_LIMIT);
+      for (const task of owned) {
+        if (activeIds && !activeIds.has(task._id as string)) continue;
         await ctx.db.patch(task._id, {
           leaseExpiresAt: now + leaseMs,
           updatedAt: now,
         });
+        renewedTasks++;
       }
     }
 
-    const executions = await ctx.db
-      .query("executions")
-      .withIndex("by_worker", (q) => q.eq("workerId", args.workerId))
-      .collect();
-    for (const execution of executions) {
-      if (execution.status === "running" || execution.status === "queued") {
+    for (const status of ["running", "queued"] as const) {
+      const executions = await ctx.db
+        .query("executions")
+        .withIndex("by_worker_and_status", (q) =>
+          q.eq("workerId", args.workerId).eq("status", status)
+        )
+        .take(HEARTBEAT_SCAN_LIMIT);
+      for (const execution of executions) {
+        if (activeIds && !activeIds.has(execution.taskId as string)) continue;
         await ctx.db.patch(execution._id, { leaseExpiresAt: now + leaseMs });
       }
     }
-    return { now };
+    return { now, renewedTasks };
   },
 });
 
@@ -298,21 +335,33 @@ export const recoverStale = internalMutation({
     const staleGraceMs = args.staleGraceMs ?? 30_000;
     const recovered: string[] = [];
 
-    const workers = await ctx.db.query("workers").collect();
-    const aliveWorkers = new Set(
-      workers
-        .filter((worker) => args.now - worker.lastHeartbeatAt < staleGraceMs)
-        .map((worker) => worker.workerId)
-    );
-
-    const running = await ctx.db
+    // The LEASE is authoritative (core H7). A worker's heartbeat row is
+    // created only by its first heartbeat (~10 s after boot), so "no
+    // heartbeat row" used to reclaim tasks a brand-new worker had just
+    // claimed with a perfectly valid lease. A task is stale only once its
+    // lease has actually expired (or it has none at all). Read through the
+    // (status, leaseExpiresAt) index and bounded per pass.
+    const noLease = await ctx.db
       .query("tasks")
-      .withIndex("by_status", (q) => q.eq("status", "running"))
-      .collect();
+      .withIndex("by_status_and_lease", (q) =>
+        q.eq("status", "running").eq("leaseExpiresAt", undefined)
+      )
+      .take(RECOVERY_BATCH);
+    const expiredLease = await ctx.db
+      .query("tasks")
+      .withIndex("by_status_and_lease", (q) =>
+        q.eq("status", "running").lt("leaseExpiresAt", args.now)
+      )
+      .take(RECOVERY_BATCH);
+    const seen = new Set<string>();
+    const running = [...noLease, ...expiredLease].filter((task) => {
+      if (seen.has(task._id as string)) return false;
+      seen.add(task._id as string);
+      return true;
+    });
     for (const task of running) {
       const leaseExpired = !task.leaseExpiresAt || task.leaseExpiresAt < args.now;
-      const workerAlive = task.workerId ? aliveWorkers.has(task.workerId) : false;
-      if (!leaseExpired && workerAlive) continue;
+      if (!leaseExpired) continue;
 
       // Phase 4 recovery semantics: a stale task is only a loss when
       // there is nothing valid to resume from. When the latest stored
@@ -413,7 +462,7 @@ export const recoverStale = internalMutation({
       .withIndex("by_status_and_lease", (q) =>
         q.eq("status", "running").lt("leaseExpiresAt", args.now)
       )
-      .collect();
+      .take(RECOVERY_BATCH * 4);
     for (const execution of executions) {
       await ctx.db.patch(execution._id, {
         status: "failed",
@@ -423,10 +472,14 @@ export const recoverStale = internalMutation({
       await refreshAgentStatus(ctx, execution.agentId);
     }
 
-    for (const worker of workers) {
-      if (args.now - worker.lastHeartbeatAt >= staleGraceMs && worker.status === "online") {
-        await ctx.db.patch(worker._id, { status: "offline", activeTasks: 0 });
-      }
+    const staleWorkers = await ctx.db
+      .query("workers")
+      .withIndex("by_status_and_heartbeat", (q) =>
+        q.eq("status", "online").lt("lastHeartbeatAt", args.now - staleGraceMs)
+      )
+      .take(RECOVERY_BATCH);
+    for (const worker of staleWorkers) {
+      await ctx.db.patch(worker._id, { status: "offline", activeTasks: 0 });
     }
 
     return { recoveredTasks: recovered.length, recoveredExecutions: executions.length };
@@ -439,8 +492,12 @@ export const setPlanning = internalMutation({
     classification: v.string(),
     strategy: v.string(),
     planVersion: v.number(),
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
+      throw new Error(LEASE_LOST_ERROR);
+    }
     await ctx.db.patch(args.taskId, {
       classification: args.classification,
       strategy: args.strategy,
@@ -469,11 +526,20 @@ export const savePlan = internalMutation({
         dependencies: v.array(v.string()),
         order: v.number(),
         allowedPaths: v.optional(v.array(v.string())),
+        // worker.savePlan accepts `origin`; the internal validator must too
+        // or a plan carrying it fails validation.
+        origin: v.optional(v.string()),
         reviewRound: v.optional(v.number()),
       })
     ),
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // Lease fencing (core M2): a displaced worker must not replace the new
+    // owner's plan and subtask rows.
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
+      throw new Error(LEASE_LOST_ERROR);
+    }
     const now = Date.now();
     const existing = await ctx.db
       .query("plans")
@@ -492,17 +558,35 @@ export const savePlan = internalMutation({
       createdAt: now,
     });
 
+    // Replan semantics (core M5): rows whose key persists into the new plan
+    // are UPDATED IN PLACE — their definition follows the new plan, but a
+    // finished row (completed/skipped) keeps its status, output and
+    // timestamps, so the dashboard does not show finished work as pending
+    // and a crash after the replan does not re-execute (and re-pay for)
+    // carried work. Their _id is kept, so executions.subtaskId stays valid.
+    // Unfinished rows go back to pending; rows dropped by the new plan are
+    // deleted.
     const oldSubtasks = await ctx.db
       .query("subtasks")
       .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
       .collect();
-    for (const subtask of oldSubtasks) await ctx.db.delete(subtask._id);
+    const oldByKey = new Map<string, Doc<"subtasks">>();
+    for (const row of oldSubtasks) {
+      if (oldByKey.has(row.key)) {
+        // Duplicate key rows (legacy data): keep one.
+        await ctx.db.delete(row._id);
+        continue;
+      }
+      oldByKey.set(row.key, row);
+    }
+    const newKeys = new Set(args.subtasks.map((subtask) => subtask.key));
+    for (const [key, row] of oldByKey) {
+      if (!newKeys.has(key)) await ctx.db.delete(row._id);
+    }
 
+    const preserved: string[] = [];
     for (const subtask of args.subtasks) {
-      await ctx.db.insert("subtasks", {
-        taskId: args.taskId,
-        projectId: args.projectId,
-        key: subtask.key,
+      const definition = {
         title: subtask.title,
         description: subtask.description,
         kind: subtask.kind,
@@ -511,6 +595,30 @@ export const savePlan = internalMutation({
         order: subtask.order,
         allowedPaths: subtask.allowedPaths,
         reviewRound: subtask.reviewRound,
+        ...(subtask.origin !== undefined ? { origin: subtask.origin } : {}),
+      };
+      const prior = oldByKey.get(subtask.key);
+      if (prior) {
+        if (prior.status === "completed" || prior.status === "skipped") {
+          await ctx.db.patch(prior._id, definition);
+          preserved.push(subtask.key);
+        } else {
+          await ctx.db.patch(prior._id, {
+            ...definition,
+            status: "pending",
+            attempts: 0,
+            error: undefined,
+            startedAt: undefined,
+            completedAt: undefined,
+          });
+        }
+        continue;
+      }
+      await ctx.db.insert("subtasks", {
+        taskId: args.taskId,
+        projectId: args.projectId,
+        key: subtask.key,
+        ...definition,
         status: "pending",
         attempts: 0,
       });
@@ -531,6 +639,7 @@ export const savePlan = internalMutation({
         strategy: args.strategy,
         createdBy: args.createdBy,
         subtasks: args.subtasks.map((subtask) => subtask.key),
+        ...(preserved.length > 0 ? { preservedCompleted: preserved } : {}),
       },
       level: "info",
     });
@@ -543,6 +652,10 @@ export const savePlan = internalMutation({
  * delegation and fix subtasks the orchestrator adds mid-run (Phase 3)
  * previously lived only in the worker's memory, so a worker restart
  * lost them and recovery could only rebuild the initial plan.
+ *
+ * A write whose `version` is not the stored plan's version is refused as
+ * a whole (no rows, no payload merge): nodes spawned under a superseded
+ * plan must not pollute the current one (core M4).
  *
  * Two writes, both idempotent and safe against concurrent callers:
  *  1. PLAN CHECKPOINT — the current plan row's payload is extended
@@ -583,10 +696,41 @@ export const upsertDynamicSubtasks = internalMutation({
         reviewRound: v.optional(v.number()),
       })
     ),
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const inserted: string[] = [];
     const existing: string[] = [];
+
+    // Lease fencing (core M2): refused as a value, the caller treats
+    // persistence as best-effort.
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
+      return { inserted, existing, payloadUpdated: false, refused: "lease_lost" as const };
+    }
+
+    // Version check FIRST (core M4): a late write from a superseded plan
+    // version must not add rows to the current plan — not just skip the
+    // payload merge. With no plan row at all (legacy), rows are accepted.
+    const plans = await ctx.db
+      .query("plans")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .order("desc")
+      .take(1);
+    const planRow = plans[0];
+    if (planRow && planRow.version !== args.version) {
+      await ctx.db.insert("taskEvents", {
+        taskId: args.taskId,
+        projectId: args.projectId,
+        type: "plan.dynamic_subtasks_stale",
+        payload: {
+          version: args.version,
+          currentVersion: planRow.version,
+          keys: args.subtasks.map((subtask) => subtask.key),
+        },
+        level: "warn",
+      });
+      return { inserted, existing, payloadUpdated: false, stale: true as const };
+    }
 
     for (const subtask of args.subtasks) {
       const row = await ctx.db
@@ -623,12 +767,6 @@ export const upsertDynamicSubtasks = internalMutation({
     }
 
     let payloadUpdated = false;
-    const plans = await ctx.db
-      .query("plans")
-      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
-      .order("desc")
-      .take(1);
-    const planRow = plans[0];
     if (planRow && planRow.version === args.version) {
       const currentPayload = (planRow.payload ?? {}) as {
         subtasks?: Array<{ key: string }>;
@@ -686,6 +824,12 @@ export const startExecution = internalMutation({
     leaseMs: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<Id<"executions">> => {
+    // Lease fencing (core M2/M3): only the current lease owner may start
+    // work on the task. A worker whose task was requeued, cancelled or
+    // handed to another worker stops here instead of racing the new owner.
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
+      throw new Error(LEASE_LOST_ERROR);
+    }
     const now = Date.now();
     const leaseMs = args.leaseMs ?? DEFAULT_LEASE_MS;
     const subtask = await ctx.db
@@ -773,11 +917,21 @@ export const updateExecution = internalMutation({
     error: v.optional(v.string()),
     meta: v.optional(v.any()),
     leaseMs: v.optional(v.number()),
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
     const execution = await ctx.db.get(args.executionId);
     if (!execution) throw new Error("Execution not found");
+    // Lease fencing (core M2): a displaced worker must not settle the new
+    // owner's subtask rows. Refused as a value.
+    if (!(await holdsTaskLease(ctx, execution.taskId, args.workerId))) {
+      return { applied: false as const, reason: "lease_lost" as const };
+    }
+    // An execution the user cancelled stays cancelled.
+    if (execution.status === "cancelled" && args.status !== "cancelled") {
+      return { applied: false as const, reason: "execution_cancelled" as const };
+    }
     const subtaskKey = args.subtaskKey ?? execution.subtaskKey;
 
     await ctx.db.patch(args.executionId, {
@@ -846,6 +1000,7 @@ export const updateExecution = internalMutation({
       subtaskKey: subtaskKey ?? undefined,
       level: args.status === "failed" ? "error" : "info",
     });
+    return { applied: true as const };
   },
 });
 
@@ -865,6 +1020,7 @@ export const requestApproval = internalMutation({
     payload: v.optional(v.any()),
     requestedByAgentId: v.optional(v.id("agents")),
     planVersion: v.optional(v.number()),
+    workerId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<Id<"approvals">> => {
     const now = Date.now();
@@ -885,6 +1041,11 @@ export const requestApproval = internalMutation({
       throw new Error(
         `Task is already ${task.status}; approvals can no longer be requested`
       );
+    }
+    // Lease fencing (core M2): a displaced worker must not move the new
+    // owner's task to needs_approval and clear its lease.
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
+      throw new Error(LEASE_LOST_ERROR);
     }
     const pending = existing.find(
       (approval) =>
@@ -956,19 +1117,12 @@ export const requestApproval = internalMutation({
  *  worker through its token-gated action). Uses the same core as the
  *  public `permissionBroker.decidePermission` query. */
 export const checkPermission = internalQuery({
-  args: {
-    taskId: v.id("tasks"),
-    projectId: v.id("projects"),
-    kind: v.union(
-      v.literal("apply_changes"),
-      v.literal("git_push"),
-      v.literal("run_command"),
-      v.literal("merge_pr")
-    ),
-    targetPath: v.string(),
-  },
+  args: permissionArgs,
   handler: async (ctx, args) => {
-    return await decidePermissionCore(ctx, args);
+    // Reached only through the service-token action worker.checkPermission:
+    // the worker has no viewer identity, so the viewer-based project check
+    // would deny every owned project (core H4a). The token is the authz.
+    return await decidePermissionCore(ctx, args, { trusted: true });
   },
 });
 
@@ -1001,10 +1155,13 @@ export const claimResumableTask = internalMutation({
 export const getResumableTasks = internalQuery({
   args: {},
   handler: async (ctx) => {
+    // Polled every ~1.5 s per worker: bounded (core M6). The oldest
+    // waiting tasks come first so none starves behind newer ones.
     const tasks = await ctx.db
       .query("tasks")
       .withIndex("by_status", (q) => q.eq("status", "needs_approval"))
-      .collect();
+      .order("asc")
+      .take(RESUMABLE_SCAN_LIMIT);
     const results = [];
     for (const task of tasks) {
       const approvals = await ctx.db
@@ -1083,6 +1240,9 @@ export const markFileChangesApplied = internalMutation({
     workerId: v.string(),
   },
   handler: async (ctx, args) => {
+    // Lease fencing: a displaced worker must not stamp the new owner's
+    // file rows as applied.
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) return;
     const now = Date.now();
     const changes = await ctx.db
       .query("fileChanges")
@@ -1107,17 +1267,14 @@ export const completeTask = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    // Lease fencing (plan 011): a displaced worker must not settle a task
-    // another worker now owns. Refused as a VALUE so the old worker stops.
-    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
-      return { applied: false, reason: "lease_lost" as const };
-    }
     // Terminal guard (Phase 4 hardening): a task that already reached
     // a terminal status keeps it. A worker that finishes late — after
     // a user cancellation, a recovery failure, or another worker's
     // completion — gets a clear refusal VALUE ({ applied: false }),
     // not an error, so it can stop cleanly; the stored outcome, its
     // error message and its completion timestamp are left untouched.
+    // Checked before the lease so a cancelled task (whose owner was
+    // cleared) still reports "task_already_terminal".
     const before = await ctx.db.get(args.taskId);
     if (before && TERMINAL_TASK_STATUSES.has(before.status)) {
       return {
@@ -1125,6 +1282,11 @@ export const completeTask = internalMutation({
         reason: "task_already_terminal" as const,
         status: before.status,
       };
+    }
+    // Lease fencing (plan 011): a displaced worker must not settle a task
+    // another worker now owns. Refused as a VALUE so the old worker stops.
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
+      return { applied: false, reason: "lease_lost" as const };
     }
     await ctx.db.patch(args.taskId, {
       status: args.status,
@@ -1186,11 +1348,6 @@ export const pauseForInput = internalMutation({
     workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Lease fencing (plan 011): a displaced worker must not pause a task
-    // another worker now owns. Refused as a VALUE like completeTask.
-    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
-      return { applied: false, reason: "lease_lost" as const };
-    }
     // Terminal guard: same absorbing rule as completeTask — a task that
     // already settled stays settled; the pause is refused with a clear
     // value so the caller can stop cleanly instead of asking a question
@@ -1205,6 +1362,11 @@ export const pauseForInput = internalMutation({
         reason: "task_already_terminal" as const,
         status: task.status,
       };
+    }
+    // Lease fencing (plan 011): a displaced worker must not pause a task
+    // another worker now owns. Refused as a VALUE like completeTask.
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
+      return { applied: false, reason: "lease_lost" as const };
     }
     const now = Date.now();
     // Options are optional A/B/C-style choices: deduped, trimmed, bounded
@@ -1420,6 +1582,18 @@ export const listAgentEvents = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    // Authorization (core H5): resolve the owning project of whichever
+    // scope was asked for and apply the same conditional ownership rule.
+    if (args.conversationId) {
+      const conversation = await ctx.db.get(args.conversationId);
+      if (!conversation) return [];
+      await assertProjectAccess(ctx, conversation.projectId);
+    } else if (args.taskId) {
+      const task = await getVisibleTask(ctx, args.taskId);
+      if (!task) return [];
+    } else if (args.projectId) {
+      await assertProjectAccess(ctx, args.projectId);
+    }
     if (args.conversationId) {
       return await ctx.db
         .query("agentEvents")
@@ -1545,23 +1719,29 @@ export const appendAgentMessage = internalMutation({
   },
 });
 
-async function refreshAgentStatus(
-  ctx: { db: any },
+export async function refreshAgentStatus(
+  ctx: Pick<MutationCtx, "db">,
   agentId: Id<"agents"> | undefined
 ): Promise<void> {
   if (!agentId) return;
   const agent = await ctx.db.get(agentId);
   if (!agent || agent.status === "needs_you") return;
-  const executions = await ctx.db
-    .query("executions")
-    .withIndex("by_agent", (q: any) => q.eq("agentId", agentId))
-    .collect();
-  const busy = executions.some(
-    (execution: Doc<"executions">) =>
-      execution.status === "running" ||
-      execution.status === "queued" ||
-      execution.status === "waiting_approval"
-  );
+  // Point lookups on (agentId, status) instead of collecting every
+  // execution the agent ever ran (core H6: the fixed team accumulates
+  // executions forever and this runs on every execution update).
+  let busy = false;
+  for (const status of ["running", "queued", "waiting_approval"] as const) {
+    const active = await ctx.db
+      .query("executions")
+      .withIndex("by_agent_and_status", (q) =>
+        q.eq("agentId", agentId).eq("status", status)
+      )
+      .first();
+    if (active) {
+      busy = true;
+      break;
+    }
+  }
   const nextStatus = busy ? "working" : "idle";
   if (agent.status !== nextStatus) {
     await ctx.db.patch(agentId, { status: nextStatus });
@@ -1602,10 +1782,27 @@ export const recordTokenUsage = internalMutation({
   },
 });
 
+/** Most recent token-usage rows aggregated by tokenUsageStats (core M7). */
+const TOKEN_USAGE_STATS_LIMIT = 5000;
+const DELEGATION_STATS_LIMIT = 2000;
+
 export const tokenUsageStats = query({
   args: {},
   handler: async (ctx) => {
-    const records = await ctx.db.query("tokenUsage").collect();
+    // Bounded (core M7: one row per LLM call grows forever) and scoped to
+    // the projects the caller may see (core H5). Aggregates cover the most
+    // recent TOKEN_USAGE_STATS_LIMIT calls; `truncated` says when older
+    // calls were left out.
+    const visible = await visibleProjectIds(ctx);
+    const recent = await ctx.db
+      .query("tokenUsage")
+      .withIndex("by_created_at")
+      .order("desc")
+      .take(TOKEN_USAGE_STATS_LIMIT);
+    const truncated = recent.length >= TOKEN_USAGE_STATS_LIMIT;
+    const records = recent
+      .filter((record) => visible.has(record.projectId as string))
+      .reverse();
     const byAgent: Record<string, { inputTokens: number; outputTokens: number; calls: number }> = {};
     // Phase 5: usage per serving provider connection / registry model.
     // Attribution columns exist only on calls recorded after Phase 5;
@@ -1696,7 +1893,9 @@ export const tokenUsageStats = query({
     }
     // Delegation metrics from the delegations table — real subtask-
     // producing decisions since Phase 3 (count per decision outcome).
-    const delegationRows = await ctx.db.query("delegations").collect();
+    const delegationRows = (
+      await ctx.db.query("delegations").order("desc").take(DELEGATION_STATS_LIMIT)
+    ).filter((row) => visible.has(row.projectId as string));
     const byDecision: Record<string, number> = {};
     for (const row of delegationRows) {
       byDecision[row.decision] = (byDecision[row.decision] ?? 0) + 1;
@@ -1719,6 +1918,7 @@ export const tokenUsageStats = query({
       totalEstimatedCost,
       delegations,
       timeline,
+      truncated,
     };
   },
 });

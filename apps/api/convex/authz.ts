@@ -164,11 +164,72 @@ export async function getVisibleTask(
   return task;
 }
 
+/** True when the viewer may see this project (open project, or their own). */
+export function canViewProject(
+  viewerId: string | null,
+  project: Pick<Doc<"projects">, "ownerId"> | null | undefined
+): boolean {
+  if (!project) return false;
+  return !project.ownerId || project.ownerId === viewerId;
+}
+
+/**
+ * Ids of every project the caller may see: all open (owner-less) projects
+ * plus the viewer's own. Global feeds (overview, inbox, search, …) filter
+ * their rows through this set so an unauthenticated caller never reads an
+ * owned project's data. Bounded: projects are a small table, read through
+ * the by_owner index.
+ */
+export async function visibleProjects(
+  ctx: Ctx,
+  limit = 1000
+): Promise<Doc<"projects">[]> {
+  const viewerId = await getViewerId(ctx);
+  const open = await ctx.db
+    .query("projects")
+    .withIndex("by_owner", (q) => q.eq("ownerId", undefined))
+    .take(limit);
+  if (!viewerId) return open;
+  const own = await ctx.db
+    .query("projects")
+    .withIndex("by_owner", (q) => q.eq("ownerId", viewerId))
+    .take(limit);
+  return [...open, ...own];
+}
+
+export async function visibleProjectIds(ctx: Ctx): Promise<Set<string>> {
+  return new Set((await visibleProjects(ctx)).map((p) => p._id as string));
+}
+
+/** True once any project carries an owner (i.e. auth is actually in use). */
+async function anyOwnedProject(ctx: Ctx): Promise<boolean> {
+  const owned = await ctx.db
+    .query("projects")
+    .withIndex("by_owner", (q) => q.gte("ownerId", ""))
+    .first();
+  return owned !== null;
+}
+
+/**
+ * The agent / role registry is global (shared by every project). Writes to
+ * it are allowed for a signed-in viewer, or in local single-user mode (no
+ * project has an owner yet). An anonymous caller on a deployment that
+ * already has owned projects is refused.
+ */
+export async function assertRegistryWriteAccess(ctx: Ctx): Promise<void> {
+  const viewerId = await getViewerId(ctx);
+  if (viewerId) return;
+  if (await anyOwnedProject(ctx)) {
+    throw new Error("Unauthorized: sign in to change the agent registry");
+  }
+}
+
 export async function assertAgentAccess(
   ctx: Ctx,
   agentId: Id<"agents">
 ): Promise<Doc<"agents">> {
   const agent = await ctx.db.get(agentId);
   if (!agent) throw new Error("Agent not found");
+  await assertRegistryWriteAccess(ctx);
   return agent;
 }

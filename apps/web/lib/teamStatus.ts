@@ -63,3 +63,39 @@ export const TEAM_STATUS_RANK: Record<TeamStatusWord, number> = {
   elsewhere: 5,
   idle: 6,
 };
+
+/** Team status per agent id. */
+export type StatusMap = Record<string, TeamStatusEntry>;
+
+/** One row of `api.executionView.activeByAgent` (the execution lease view). */
+export type LeaseEntry = { taskId: string; projectId: string; taskTitle: string; subtaskKey?: string; status: string };
+
+/**
+ * Team status derived from execution leases — the fallback when the live
+ * read model (`api.shell.teamStatus`) is unavailable. `otherProjects`
+ * decides whether leases in another project are dropped or shown as
+ * "elsewhere"; `checkFirst` which subtask-key word wins when both match.
+ */
+export function statusFromLeases(
+  active: Record<string, LeaseEntry> | undefined,
+  opts: { projectId?: string; otherProjects: "skip" | "elsewhere"; checkFirst: "qa" | "review" },
+): StatusMap {
+  const map: StatusMap = {};
+  for (const [agentId, a] of Object.entries(active ?? {})) {
+    const elsewhere = opts.otherProjects === "skip" ? a.projectId !== opts.projectId : Boolean(opts.projectId) && a.projectId !== opts.projectId;
+    if (elsewhere && opts.otherProjects === "skip") continue;
+    const qa = a.subtaskKey?.includes("qa");
+    const review = a.subtaskKey?.includes("review");
+    const word: TeamStatusWord = elsewhere
+      ? "elsewhere"
+      : a.status === "waiting_approval"
+        ? "waiting_on_you"
+        : a.status === "queued"
+          ? "queued"
+          : opts.checkFirst === "qa"
+            ? (qa ? "testing" : review ? "reviewing" : "working")
+            : (review ? "reviewing" : qa ? "testing" : "working");
+    map[agentId] = { status: word, taskId: a.taskId, taskTitle: a.taskTitle, projectName: null, subtaskKey: a.subtaskKey ?? null };
+  }
+  return map;
+}

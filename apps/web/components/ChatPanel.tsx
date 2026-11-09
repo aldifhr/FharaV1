@@ -12,7 +12,7 @@ import { roleLabel } from "@/lib/agentRoles";
 import { dispatchChatTyping } from "@/lib/chatTyping";
 import { isClosedStatus } from "@/lib/taskStatus";
 import { readLastRead, writeLastRead } from "@/lib/lastRead";
-import type { TeamStatusEntry } from "@/lib/teamStatus";
+import { statusFromLeases, type LeaseEntry, type StatusMap } from "@/lib/teamStatus";
 import ChatComposer from "./chat/ChatComposer";
 import ChatHeader, { type ChatTab, type HeaderNotification } from "./chat/ChatHeader";
 import ManageProjectModal from "./chat/ManageProjectModal";
@@ -31,8 +31,6 @@ type Props = {
   onOpenAgent?: (agentId: string) => void;
   selectedTaskId: string | null;
 };
-
-type StatusMap = Record<string, TeamStatusEntry>;
 
 /** Lifts the live team status out of a boundary-protected query. */
 function TeamStatusFeed({ projectId, onChange }: { projectId: string; onChange: (s: StatusMap | undefined) => void }) {
@@ -101,18 +99,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const status: StatusMap | undefined = useMemo(() => {
     if (liveStatus) return liveStatus;
     if (!activeByAgent) return undefined;
-    const map: StatusMap = {};
-    for (const [agentId, a] of Object.entries(activeByAgent as Record<string, any>)) {
-      if (a.projectId !== projectId) continue;
-      map[agentId] = {
-        status: a.status === "waiting_approval" ? "waiting_on_you" : a.status === "queued" ? "queued" : a.subtaskKey?.includes("qa") ? "testing" : a.subtaskKey?.includes("review") ? "reviewing" : "working",
-        taskId: a.taskId,
-        taskTitle: a.taskTitle,
-        projectName: null,
-        subtaskKey: a.subtaskKey ?? null,
-      };
-    }
-    return map;
+    return statusFromLeases(activeByAgent as Record<string, LeaseEntry>, { projectId, otherProjects: "skip", checkFirst: "qa" });
   }, [liveStatus, activeByAgent, projectId]);
 
   const subtasksOf = useMemo(() => {

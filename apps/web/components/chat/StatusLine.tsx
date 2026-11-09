@@ -1,9 +1,9 @@
 "use client";
 
 import { roleLabel } from "@/lib/agentRoles";
-import type { TeamStatusEntry } from "@/lib/teamStatus";
+import type { StatusMap, TeamStatusEntry } from "@/lib/teamStatus";
+import type { AgentRef as Agent } from "@/lib/types";
 
-type Agent = { _id: string; role: string };
 type CheckEvent = { taskId?: string; type: string; payload?: { label?: string }; _creationTime: number };
 
 const ORDER = { testing: 0, reviewing: 1, working: 2 } as const;
@@ -30,7 +30,7 @@ export default function StatusLine({
   qaUrl,
 }: {
   agents: Agent[];
-  status?: Record<string, TeamStatusEntry>;
+  status?: StatusMap;
   /** Roles drafting a chat reply (no execution lease). */
   drafting: string[];
   events?: CheckEvent[];

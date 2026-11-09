@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   BarChart3,
   BookOpen,
+  Building2,
   Brain,
   Cpu,
   GitBranch,
@@ -279,6 +280,7 @@ export default function IconRail({
       <span aria-hidden="true" className="my-2 h-px w-6 bg-line max-[979px]:hidden" />
       <RailButton icon={MessagesSquare} label="Chats" href={chatHref} active={inChat} />
       <RailButton icon={Users} label="Team" href={projectId ? `/team?project=${projectId}` : "/team"} active={pathname === "/team"} />
+      <RailButton icon={Building2} label="Office" href={projectId ? `/office?project=${projectId}` : "/office"} active={pathname === "/office"} />
       <RailButton icon={BookOpen} label="Library" href="/library" active={pathname === "/library"} />
       <RailButton icon={Brain} label="Memory" href={projectId ? `/memory?scope=project&project=${projectId}` : "/memory"} active={pathname === "/memory"} />
       <RailButton icon={GitBranch} label="Runs" href={projectId ? `/runs?project=${projectId}` : "/runs"} active={pathname.startsWith("/runs")} />

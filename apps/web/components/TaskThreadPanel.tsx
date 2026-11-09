@@ -15,9 +15,10 @@ import SubtaskLiveOutput from "./SubtaskLiveOutput";
 import ChatCard from "./chat/cards/ChatCard";
 import ReviewSnippet from "./chat/cards/ReviewSnippet";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
+import PauseResumeButton from "./PauseResumeButton";
 import { useToast } from "./Toasts";
 import { Skeleton } from "@/app/WorkspaceContext";
-import { ArrowLeft, ArrowUpRight, AtSign, Check, ChevronLeft, Loader2 as SendLoader, Minimize2, Paperclip, Reply, RotateCcw, SendHorizontal, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, AtSign, Check, ChevronLeft, Loader2 as SendLoader, Minimize2, Paperclip, Reply, RotateCcw, SendHorizontal, Square, X } from "lucide-react";
 import { QuoteBar, QuotedSnippet, quoteOf, type ChatQuote } from "./chat/QuoteBlock";
 import { clockTime } from "@/lib/format";
 import { groupActivity, groupByIndex } from "@/lib/activityGroups";
@@ -404,6 +405,8 @@ export default function TaskThreadPanel({
     ? { label: "Needs you", cls: "bg-warn-soft text-warn" }
     : taskStatus === "running"
       ? { label: "In progress", cls: "bg-brand-soft text-brand-ink" }
+      : taskStatus === "paused"
+        ? { label: "Paused", cls: "bg-hover text-ink-2" }
       : taskStatus === "done"
         ? { label: "Done", cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" }
         : taskStatus === "failed" || taskStatus === "rejected"
@@ -467,6 +470,21 @@ export default function TaskThreadPanel({
             </p>
           </div>
           <span className={`shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-[13px] font-medium leading-none ${pill.cls}`}>{pill.label}</span>
+          {/* Plan 022: Pause / Resume beside Stop. Only Stop confirms. */}
+          {(taskStatus === "running" || taskStatus === "queued" || taskStatus === "paused") && (
+            <div className="flex shrink-0 items-center">
+              <PauseResumeButton task={{ _id: (task as any)._id, title: (task as any).title, status: taskStatus }} size={15} />
+              <button
+                type="button"
+                onClick={askCancel}
+                title="Stop task"
+                aria-label="Stop task"
+                className="rounded-md p-1.5 text-ink-3 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-400/50 dark:hover:bg-red-950/50"
+              >
+                <Square size={14} />
+              </button>
+            </div>
+          )}
           {xButton}
         </header>
 

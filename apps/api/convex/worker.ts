@@ -1,6 +1,12 @@
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import {
+  acceptanceStatusValidator,
+  escalationValidator,
+  gateResultValidator,
+  subtaskContractFields,
+} from "./lib/contractValidators";
 import { assertServiceToken } from "./lib/authz";
 import { permissionArgs } from "./permissionBroker";
 import {
@@ -137,6 +143,7 @@ export const savePlan = action({
         allowedPaths: v.optional(v.array(v.string())),
         origin: v.optional(v.string()),
         reviewRound: v.optional(v.number()),
+        ...subtaskContractFields,
       })
     ),
     degradedReason: v.optional(v.string()),
@@ -172,6 +179,7 @@ export const saveDynamicSubtasks = action({
         allowedPaths: v.optional(v.array(v.string())),
         origin: v.optional(v.string()),
         reviewRound: v.optional(v.number()),
+        ...subtaskContractFields,
       })
     ),
     // Lease fencing: pass the worker id so a displaced worker is refused.
@@ -1078,5 +1086,32 @@ export const requestPlanReview = action({
   },
   handler: async (ctx, args): Promise<any> => {
     return await ctx.runMutation(internal.planReview.requestReview, withoutToken(args));
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Plan 022: subtask acceptance + user pause (worker side).
+// ---------------------------------------------------------------------------
+
+export const recordSubtaskAcceptance = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    key: v.string(),
+    acceptanceStatus: acceptanceStatusValidator,
+    acceptanceReason: v.optional(v.string()),
+    gateResults: v.optional(v.array(gateResultValidator)),
+    escalation: v.optional(escalationValidator),
+    workerId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ applied: boolean; reason?: string }> => {
+    return await ctx.runMutation(internal.contracts.recordSubtaskAcceptance, withoutToken(args));
+  },
+});
+
+export const releasePausedTask = action({
+  args: { ...tokenArg, taskId: v.id("tasks"), workerId: v.string() },
+  handler: async (ctx, args): Promise<{ result: string }> => {
+    return await ctx.runMutation(internal.taskControl.releasePausedTask, withoutToken(args));
   },
 });

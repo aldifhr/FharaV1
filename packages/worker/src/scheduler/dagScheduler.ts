@@ -112,6 +112,10 @@ const PERMANENT_SUBTASK_ERROR_PATTERNS: readonly RegExp[] = [
   // stay retryable: a QA harness exception ("qa-run: ..."), a 5xx while
   // the dev server is still compiling, navigation timeouts, net::ERR_*.
   /^QA failed: (?!qa-run:)(?![\s\S]*(?:Page returned HTTP 5\d\d|Timeout \d+ms exceeded|timed out|net::ERR_))/,
+  // Plan 022: an executor escalation waits for a CTO / user decision;
+  // replaying the same subtask would only escalate again.
+  /^Escalated \(/,
+  /role is read-only/i,
   // Plan validation failures (planValidator messages)
   /^plan\.(goal|subtasks) /i,
   /plan has \d+ subtasks; limit is/i,

@@ -2,12 +2,13 @@ import { internalMutation, internalQuery, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
+import { subtaskContractFields } from "./lib/contractValidators";
 import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver";
 import type { PromptSkill } from "./lib/skills";
 import { loadPromptSkills } from "./skills";
 import { resolveRunMcpServers } from "./mcpServers";
 import { loadMemorySection } from "./memories";
-import { writePlanVersion } from "./lib/planStore";
+import { contractDefinition, writePlanVersion } from "./lib/planStore";
 import { decidePermissionCore, permissionArgs } from "./permissionBroker";
 import { clearSubtaskLive } from "./subtaskLive";
 import { recordAudit } from "./lib/recordAudit";
@@ -346,7 +347,9 @@ export const heartbeat = internalMutation({
     // the same resume after the first lease window.
     const activeIds = args.activeTaskIds ? new Set(args.activeTaskIds) : null;
     let renewedTasks = 0;
-    for (const status of ["running", "needs_approval"] as const) {
+    // "paused" (plan 022): a paused task this worker is still draining
+    // (running subtasks finish) keeps its lease until the worker releases it.
+    for (const status of ["running", "needs_approval", "paused"] as const) {
       const owned = await ctx.db
         .query("tasks")
         .withIndex("by_worker_and_status", (q) =>
@@ -458,6 +461,45 @@ export const recoverStale = internalMutation({
         : [];
       const recoveryCount = task.recoveryCount ?? 0;
 
+      // Plan 022 (ROADMAP "planning-interrupted tasks never recover"): a
+      // worker that died while PLANNING left no plan and no execution, so
+      // there was nothing to resume and the task used to be failed with
+      // "no_valid_stored_plan". Planning is a dispatch too: re-dispatch it
+      // (`${taskId}/plan/attempt-N`) — requeue, and the next claim plans
+      // afresh. Bounded by the same recovery limit.
+      if (!latestPlan && recoveryCount < MAX_TASK_RECOVERIES) {
+        const started = await ctx.db
+          .query("executions")
+          .withIndex("by_task", (q) => q.eq("taskId", task._id))
+          .take(1);
+        if (started.length === 0) {
+          await ctx.db.patch(task._id, {
+            status: "queued",
+            workerId: undefined,
+            leaseExpiresAt: undefined,
+            errorMessage: undefined,
+            completedAt: undefined,
+            recoveryCount: recoveryCount + 1,
+            updatedAt: args.now,
+          });
+          await ctx.db.insert("taskEvents", {
+            taskId: task._id,
+            projectId: task.projectId,
+            type: "task.recovered",
+            payload: {
+              action: "requeued",
+              reason: "planning_interrupted",
+              dispatchKey: dispatchKeyFor(task._id, "plan", recoveryCount + 2),
+              workerId: task.workerId ?? null,
+              recoveryCount: recoveryCount + 1,
+            },
+            level: "warn",
+          });
+          recovered.push(task._id);
+          continue;
+        }
+      }
+
       if (planValid && subtaskRows.length > 0 && recoveryCount < MAX_TASK_RECOVERIES) {
         await ctx.db.patch(task._id, {
           status: "queued",
@@ -529,12 +571,30 @@ export const recoverStale = internalMutation({
         q.eq("status", "running").lt("leaseExpiresAt", args.now)
       )
       .take(RECOVERY_BATCH * 4);
+    let recoveredExecutions = 0;
     for (const execution of executions) {
+      // Lease expiry + no heartbeat (plan 022): the execution lease is
+      // renewed by the same heartbeat as its task's. When the owning
+      // worker still holds a live TASK lease it is alive and heartbeating;
+      // a lapsed execution lease alone is not proof the run is dead.
+      const owner = await ctx.db.get(execution.taskId);
+      if (
+        owner &&
+        owner.workerId === execution.workerId &&
+        (owner.leaseExpiresAt ?? 0) >= args.now &&
+        (owner.status === "running" || owner.status === "needs_approval" || owner.status === "paused")
+      ) {
+        continue;
+      }
       await ctx.db.patch(execution._id, {
         status: "failed",
         error: "Worker lease expired during execution",
         completedAt: args.now,
+        // Ended by recovery, not by its worker: the next dispatch of the
+        // same attempt reclaims this row instead of adding a duplicate.
+        leaseLost: true,
       });
+      recoveredExecutions++;
       await refreshAgentStatus(ctx, execution.agentId);
     }
 
@@ -548,7 +608,7 @@ export const recoverStale = internalMutation({
       await ctx.db.patch(worker._id, { status: "offline", activeTasks: 0 });
     }
 
-    return { recoveredTasks: recovered.length, recoveredExecutions: executions.length };
+    return { recoveredTasks: recovered.length, recoveredExecutions };
   },
 });
 
@@ -596,6 +656,7 @@ export const savePlan = internalMutation({
         // or a plan carrying it fails validation.
         origin: v.optional(v.string()),
         reviewRound: v.optional(v.number()),
+        ...subtaskContractFields,
       })
     ),
     /** Why the plan is a deterministic fallback (shown in the task UI). */
@@ -662,6 +723,7 @@ export const upsertDynamicSubtasks = internalMutation({
         allowedPaths: v.optional(v.array(v.string())),
         origin: v.optional(v.string()),
         reviewRound: v.optional(v.number()),
+        ...subtaskContractFields,
       })
     ),
     workerId: v.optional(v.string()),
@@ -727,6 +789,7 @@ export const upsertDynamicSubtasks = internalMutation({
         order: subtask.order,
         allowedPaths: subtask.allowedPaths,
         reviewRound: subtask.reviewRound,
+        ...contractDefinition(subtask),
         status: "pending",
         origin: subtask.origin ?? "dynamic",
         attempts: 0,
@@ -779,6 +842,82 @@ export const upsertDynamicSubtasks = internalMutation({
   },
 });
 
+/** `${taskId}/${subtaskKey}/attempt-N` (plan 022). */
+export function dispatchKeyFor(taskId: string, subtaskKey: string, attempt: number): string {
+  return `${taskId}/${subtaskKey}/attempt-${attempt}`;
+}
+
+/**
+ * An execution a worker settled itself. `waiting_approval` is finished
+ * work (its output waits for the user); a lease-lost row was ended by
+ * recovery, not by its worker, so it does not count.
+ */
+function settledByWorker(execution: Doc<"executions">): boolean {
+  return (
+    (execution.status === "completed" ||
+      execution.status === "failed" ||
+      execution.status === "cancelled" ||
+      execution.status === "waiting_approval") &&
+    execution.leaseLost !== true
+  );
+}
+
+type DispatchResolution =
+  | { kind: "new"; dispatchKey: string }
+  | {
+      kind: "reuse";
+      dispatchKey: string;
+      execution: Doc<"executions">;
+      /** same_worker: a retried claim; lease_expired: the dead owner's attempt is reclaimed. */
+      reason: "same_worker" | "lease_expired";
+    }
+  | { kind: "in_flight_elsewhere"; dispatchKey: string; workerId: string };
+
+/**
+ * Plan 022: decide what one dispatch claim does. Never duplicates an
+ * attempt: an in-flight row with the same key is reused when it is this
+ * worker's or its lease lapsed (no heartbeat renewed it), refused while
+ * another live worker holds it. A finished attempt advances N, so a
+ * legitimate re-run (QA round, replan) gets a fresh key, and completed
+ * subtasks are skipped earlier by the stored checkpoint.
+ */
+export async function resolveDispatch(
+  ctx: MutationCtx,
+  args: { taskId: Id<"tasks">; subtaskKey: string; workerId: string; now: number }
+): Promise<DispatchResolution> {
+  const prior = (
+    await ctx.db
+      .query("executions")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .collect()
+  ).filter((execution) => execution.subtaskKey === args.subtaskKey);
+  const attempt = prior.filter(settledByWorker).length + 1;
+  const dispatchKey = dispatchKeyFor(args.taskId, args.subtaskKey, attempt);
+  const sameKey = await ctx.db
+    .query("executions")
+    .withIndex("by_dispatch_key", (q) => q.eq("dispatchKey", dispatchKey))
+    .take(5);
+  // Legacy rows (no dispatchKey) that are still in flight count as the
+  // same attempt: they are what a pre-022 worker left behind.
+  const candidates = [
+    ...sameKey,
+    ...prior.filter((execution) => !execution.dispatchKey && !settledByWorker(execution)),
+  ];
+  const existing = candidates
+    .filter((execution) => !settledByWorker(execution))
+    .sort((a, b) => b.createdAt - a.createdAt)[0];
+  if (!existing) return { kind: "new", dispatchKey };
+  const live = existing.status === "running" || existing.status === "queued";
+  const leaseExpired = (existing.leaseExpiresAt ?? 0) < args.now;
+  if (live && !leaseExpired && existing.workerId !== args.workerId) {
+    return { kind: "in_flight_elsewhere", dispatchKey, workerId: existing.workerId };
+  }
+  if (existing.workerId === args.workerId && live && !leaseExpired) {
+    return { kind: "reuse", dispatchKey, execution: existing, reason: "same_worker" };
+  }
+  return { kind: "reuse", dispatchKey, execution: existing, reason: "lease_expired" };
+}
+
 export const startExecution = internalMutation({
   args: {
     taskId: v.id("tasks"),
@@ -806,6 +945,60 @@ export const startExecution = internalMutation({
         q.eq("taskId", args.taskId).eq("key", args.subtaskKey)
       )
       .unique();
+
+    // Plan 022 dispatch idempotency: the claim is keyed
+    // `${taskId}/${subtaskKey}/attempt-N`, N = 1 + the attempts a worker
+    // actually settled (a lease-lost row does not count, so the re-dispatch
+    // after a lease expiry / worker restart lands on the SAME key).
+    const dispatch = await resolveDispatch(ctx, {
+      taskId: args.taskId,
+      subtaskKey: args.subtaskKey,
+      workerId: args.workerId,
+      now,
+    });
+    if (dispatch.kind === "in_flight_elsewhere") {
+      throw new Error(
+        `Dispatch in flight: ${dispatch.dispatchKey} is still running on worker ${dispatch.workerId}`
+      );
+    }
+    if (dispatch.kind === "reuse") {
+      await ctx.db.patch(dispatch.execution._id, {
+        status: "running",
+        dispatchKey: dispatch.dispatchKey,
+        attempt: args.attempt,
+        workerId: args.workerId,
+        agentId: args.agentId,
+        agentName: args.agentName,
+        leaseExpiresAt: now + leaseMs,
+        startedAt: dispatch.execution.startedAt ?? now,
+        completedAt: undefined,
+        error: undefined,
+        leaseLost: undefined,
+      });
+      if (subtask) {
+        await ctx.db.patch(subtask._id, {
+          status: "running",
+          assignedAgentId: args.agentId,
+          assignedAgentName: args.agentName,
+          startedAt: subtask.startedAt ?? now,
+        });
+      }
+      await ctx.db.insert("taskEvents", {
+        taskId: args.taskId,
+        projectId: args.projectId,
+        type: "subtask.dispatch_reused",
+        payload: {
+          subtaskKey: args.subtaskKey,
+          dispatchKey: dispatch.dispatchKey,
+          reason: dispatch.reason,
+          previousWorkerId: dispatch.execution.workerId,
+        },
+        executionId: dispatch.execution._id,
+        subtaskKey: args.subtaskKey,
+        level: dispatch.reason === "lease_expired" ? "warn" : "info",
+      });
+      return dispatch.execution._id;
+    }
 
     if (subtask) {
       await ctx.db.patch(subtask._id, {
@@ -848,6 +1041,7 @@ export const startExecution = internalMutation({
       leaseExpiresAt: now + leaseMs,
       startedAt: now,
       createdAt: now,
+      dispatchKey: dispatch.dispatchKey,
     });
 
     if (args.agentId) {
@@ -866,6 +1060,7 @@ export const startExecution = internalMutation({
         agent: args.agentName,
         capability: args.capability,
         attempt: args.attempt,
+        dispatchKey: dispatch.dispatchKey,
       },
       executionId,
       subtaskKey: args.subtaskKey,
@@ -949,6 +1144,11 @@ export const updateExecution = internalMutation({
             nextStatus === "completed" || nextStatus === "failed"
               ? now
               : undefined,
+          // Plan 022: executor "done" is only delivered; the acceptance
+          // stage evaluates the gates (a fresh delivery re-opens them).
+          ...(args.status === "completed" && nextStatus === "completed"
+            ? { acceptanceStatus: "delivered" as const, acceptanceReason: undefined, gateResults: undefined, escalation: undefined }
+            : {}),
         });
       }
     }

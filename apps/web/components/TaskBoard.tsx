@@ -12,6 +12,7 @@ import SubtaskLiveOutput from "./SubtaskLiveOutput";
 import { NEUTRAL_PILL, TASK_STATUSES, TASK_STATUS_PILL, isClosedStatus, subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
 import { SectionLoading, useWorkspace } from "@/app/WorkspaceContext";
 import ConfirmDialog from "./ConfirmDialog";
+import PauseResumeButton from "./PauseResumeButton";
 
 type TaskRow = any;
 
@@ -290,6 +291,7 @@ export default function TaskBoard({
                 >
                   {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                 </button>
+                {!isClosedStatus(t.status) && <PauseResumeButton task={t} />}
                 {!isClosedStatus(t.status) ? (
                 <button
                   type="button"

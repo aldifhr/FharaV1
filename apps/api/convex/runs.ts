@@ -5,6 +5,8 @@ import { assertProjectAccess, getVisibleTask, visibleProjects } from "./lib/auth
 import { extractRouting } from "./lib/routing";
 import { roleKeyForCapability } from "./lib/planEdit";
 import type { PlanEstimate } from "./lib/estimate";
+import { contractOf } from "./lib/subtaskContract";
+import { normalizeModelTiers, tierForRole } from "./lib/modelTiers";
 
 /**
  * Runs / execution traces: a read-only projection of how the orchestrator
@@ -587,6 +589,21 @@ export const get = query({
       if (cost !== null) a.estimatedCost = (a.estimatedCost ?? 0) + cost;
     }
 
+    // Plan 022: tokens / cost per model tier (planner vs workers vs reviewer).
+    const byTier: Record<"planner" | "worker" | "reviewer" | "other", { inputTokens: number; outputTokens: number; calls: number; estimatedCost: number | null }> = {
+      planner: { inputTokens: 0, outputTokens: 0, calls: 0, estimatedCost: null },
+      worker: { inputTokens: 0, outputTokens: 0, calls: 0, estimatedCost: null },
+      reviewer: { inputTokens: 0, outputTokens: 0, calls: 0, estimatedCost: null },
+      other: { inputTokens: 0, outputTokens: 0, calls: 0, estimatedCost: null },
+    };
+    for (const entry of Object.values(byAgent)) {
+      const bucket = byTier[tierForRole(entry.role) ?? "other"];
+      bucket.inputTokens += entry.inputTokens;
+      bucket.outputTokens += entry.outputTokens;
+      bucket.calls += entry.calls;
+      if (entry.estimatedCost !== null) bucket.estimatedCost = (bucket.estimatedCost ?? 0) + entry.estimatedCost;
+    }
+
     // Routing (Intent & Routing Inspector): read only from existing events.
     const routingEvents = new Map<string, Doc<"taskEvents">>();
     for (const e of [...earlyEvents, ...events]) if (ROUTING_TYPES.has(e.type)) routingEvents.set(e._id as string, e);
@@ -669,6 +686,8 @@ export const get = query({
         estimated: usage.some((row) => row.estimated === true),
         byModel,
         byAgent: Object.values(byAgent).sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens)),
+        byTier,
+        modelTiers: normalizeModelTiers(project?.modelTiers),
         unattributed: unattributed.calls ? unattributed : null,
         usageTruncated: usage.length >= USAGE_CAP,
       },
@@ -692,6 +711,32 @@ export const get = query({
           }
         : null,
       routing,
+      /**
+       * Plan 022: each subtask's contract and acceptance (gate results with
+       * evidence), separate from its execution status.
+       */
+      contracts: subtasks
+        .slice()
+        .sort((a, b) => a.order - b.order)
+        .map((s) => {
+          const contract = contractOf(s);
+          return {
+            key: s.key,
+            title: s.title,
+            kind: s.kind,
+            status: s.status,
+            origin: s.origin ?? null,
+            objective: contract.objective ?? null,
+            scope: s.allowedPaths ?? [],
+            constraints: contract.constraints ?? [],
+            deliverable: contract.deliverable ?? null,
+            acceptance: contract.acceptance,
+            acceptanceStatus: s.acceptanceStatus ?? null,
+            acceptanceReason: cap(s.acceptanceReason, MISC_CAP) ?? null,
+            gateResults: s.gateResults ?? [],
+            escalation: s.escalation ?? null,
+          };
+        }),
       /** DAG nodes for the Decomposer graph (plan subtasks + runner-added nodes). */
       graph: subtasks
         .slice()

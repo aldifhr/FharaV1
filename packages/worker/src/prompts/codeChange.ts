@@ -23,9 +23,38 @@ export const REPAIR_SYSTEM_PROMPT = "You reformat answers into the requested fil
  * The code_change prompt: task, role, repository context, staged edits of
  * earlier subtasks, the two accepted answer formats and the rules.
  */
+/**
+ * Plan 022: the subtask's contract as prompt lines (empty when the plan
+ * carries none). Shared by the code_change and native prompts.
+ */
+export function contractLines(
+  subtask: Pick<PlanSubtask, "objective" | "constraints" | "deliverable" | "acceptance">
+): string[] {
+  const lines: string[] = [];
+  if (subtask.objective) lines.push(`Objective: ${subtask.objective}`);
+  if (subtask.constraints && subtask.constraints.length > 0) {
+    lines.push(`Must not change: ${subtask.constraints.join("; ")}`);
+  }
+  if (subtask.deliverable) lines.push(`Deliverable: ${subtask.deliverable}`);
+  if (subtask.acceptance && subtask.acceptance.length > 0) {
+    lines.push(
+      `Acceptance (checked after you deliver): ${subtask.acceptance
+        .map((gate) => `${gate.criterion} [${gate.check}${gate.target ? `: ${gate.target}` : ""}]`)
+        .join("; ")}`
+    );
+  }
+  return lines.length > 0 ? ["Contract for this subtask:", ...lines] : [];
+}
+
+/** Escalation rules shared by every implement prompt (plan 022). */
+export const ESCALATION_RULES: readonly string[] = [
+  "- STOP and escalate instead of expanding scope when the change needs: a schema/migration change, a new dependency, a security-sensitive choice (auth, secrets, permissions, crypto), a file outside your declared ownership, or a decision on an ambiguous requirement with materially different outcomes.",
+  '  To escalate, return {"files":[],"escalation":{"kind":"schema_change"|"new_dependency"|"security"|"out_of_scope"|"ambiguous","reason":"one sentence","detail":"the file or package","options":["outcome A","outcome B"]}} and nothing else. Do not stage a partial change.',
+];
+
 export function codeChangePrompt(input: {
   command: string;
-  subtask: Pick<PlanSubtask, "title" | "description" | "allowedPaths">;
+  subtask: Pick<PlanSubtask, "title" | "description" | "allowedPaths" | "objective" | "constraints" | "deliverable" | "acceptance">;
   context: string;
   staged: string;
   qaMode?: string;
@@ -36,6 +65,7 @@ export function codeChangePrompt(input: {
     [
       `Task: ${command}`,
       `Your role in the plan: ${subtask.title} — ${subtask.description}`,
+      ...contractLines(subtask),
       `Repository context:\n${context}`,
       ...(staged ? ["", staged] : []),
       "",
@@ -57,6 +87,7 @@ export function codeChangePrompt(input: {
         ? '- "delegationRecommendation":{"targetCapability":"...","reason":"..."} when another capability should take over after you (never browser-testing: browser QA is disabled by policy).'
         : '- "delegationRecommendation":{"targetCapability":"...","reason":"..."} when another capability should take over after you (e.g. browser-testing for QA).',
       '- "findings":["short description", ...] for concrete problems you noticed but did not fix.',
+      '- "escalation":{...} when you must stop for a decision (see the escalation rule below).',
       "",
       "STRICT FORMAT RULES:",
       "- Format A: use exactly the keys \"filePath\" and \"newContent\" (camelCase) on every entry; not \"path\", \"filename\", \"newText\", or \"content\".",
@@ -73,6 +104,7 @@ export function codeChangePrompt(input: {
       "- Do not touch lockfiles, secrets, .env files, or node_modules.",
       "- Keep the change minimal and focused on the task.",
       ...IMPLEMENTATION_RULES,
+      ...ESCALATION_RULES,
       "- Type definitions you need but do not see above: reply with only their paths (e.g. node_modules/<pkg>/dist/index.d.ts) and they will be provided; do not guess the API.",
     ].join("\n") + mcpFindings
   );

@@ -23,6 +23,7 @@ const TASK_STATUS_LABEL: Record<string, string> = {
   running: "Running",
   needs_approval: "Needs approval",
   waiting_input: "Waiting for you",
+  paused: "Paused",
   done: "Done",
   rejected: "Rejected",
   failed: "Failed",

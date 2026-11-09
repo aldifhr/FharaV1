@@ -1,5 +1,21 @@
 import type { MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import type { AcceptanceGate } from "./subtaskContract";
+
+/** Contract columns of a subtask definition (plan 022); absent fields stay absent. */
+export function contractDefinition(subtask: {
+  objective?: string;
+  constraints?: string[];
+  deliverable?: string;
+  acceptance?: AcceptanceGate[];
+}): Pick<Doc<"subtasks">, "objective" | "constraints" | "deliverable" | "acceptance"> {
+  return {
+    objective: subtask.objective,
+    constraints: subtask.constraints,
+    deliverable: subtask.deliverable,
+    acceptance: subtask.acceptance,
+  };
+}
 
 /**
  * Write one plan version: replaces the task's plan row, reconciles subtask
@@ -26,6 +42,10 @@ export interface PlanVersionInput {
     allowedPaths?: string[];
     origin?: string;
     reviewRound?: number;
+    objective?: string;
+    constraints?: string[];
+    deliverable?: string;
+    acceptance?: AcceptanceGate[];
   }>;
   degradedReason?: string;
   estimate?: unknown;
@@ -104,6 +124,7 @@ export async function writePlanVersion(ctx: MutationCtx, args: PlanVersionInput)
         order: subtask.order,
         allowedPaths: subtask.allowedPaths,
         reviewRound: subtask.reviewRound,
+        ...contractDefinition(subtask),
         ...(subtask.origin !== undefined ? { origin: subtask.origin } : {}),
       };
       const prior = oldByKey.get(subtask.key);
@@ -119,6 +140,11 @@ export async function writePlanVersion(ctx: MutationCtx, args: PlanVersionInput)
             error: undefined,
             startedAt: undefined,
             completedAt: undefined,
+            // A new plan version re-opens acceptance for unfinished work.
+            acceptanceStatus: undefined,
+            acceptanceReason: undefined,
+            gateResults: undefined,
+            escalation: undefined,
           });
         }
         continue;

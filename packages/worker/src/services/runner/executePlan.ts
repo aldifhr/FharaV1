@@ -7,6 +7,7 @@ import { createRunContext } from "./runContext";
 import { runReviewLoop } from "./reviewLoop";
 import { runQaLoop } from "./qaLoop";
 import { runVerificationLoop } from "./verifyLoop";
+import { blockRejected, runAcceptanceStage } from "./acceptance";
 import {
   brokerCheckAndApply,
   commitAndMergeWorktree,
@@ -20,7 +21,7 @@ import {
 // `pauseForInput` mutation (plan 013 step 4) — the caller simply ends
 // the invocation; the answer re-queues the task.
 export interface ExecutePlanResult {
-  status: "completed" | "failed" | "waiting_approval" | "cancelled" | "step_limit" | "replan" | "waiting_input";
+  status: "completed" | "failed" | "waiting_approval" | "cancelled" | "step_limit" | "replan" | "waiting_input" | "paused";
   replanFeedback?: string;
 }
 
@@ -32,10 +33,23 @@ export interface ExecutePlanResult {
  */
 function terminalExit(ctx: RunContext): ExecutePlanResult | null {
   if (ctx.waitingForInput !== null) return { status: "waiting_input" };
+  // Plan 022: a user pause ends the invocation at the boundary; the
+  // stored plan + completed rows are the checkpoint Resume continues from.
+  if (ctx.paused && !ctx.taskCancelled()) return { status: "paused" };
   if (ctx.replanFeedback !== null && !ctx.taskCancelled()) {
     return { status: "replan", replanFeedback: ctx.replanFeedback };
   }
   return null;
+}
+
+/**
+ * Plan 022: re-read the task status at a stage boundary so a user pause
+ * that landed while no scheduler was polling (review/apply/QA) is seen.
+ */
+async function observePause(ctx: RunContext): Promise<void> {
+  if (ctx.paused) return;
+  const current = await ctx.deps.api.getContext({ taskId: ctx.taskId }).catch(() => null);
+  if (current?.task.status === "paused") ctx.paused = true;
 }
 
 /** A failure that is really a cancellation reports as cancelled. */
@@ -81,6 +95,12 @@ export async function executePlan(input: ExecutePlanInput): Promise<ExecutePlanR
       // it could replan away.
       return { status: "cancelled" };
     }
+    // Plan 022: an escalation or a user pause decides this invocation's
+    // exit even though the scheduler settled the stopped node as failed.
+    if (ctx.escalated || ctx.paused) {
+      const exit = terminalExit(ctx);
+      if (exit) return exit;
+    }
     if (implementation.status !== "completed") {
       if (implementation.outcomes) {
         for (const [key, o] of implementation.outcomes) {
@@ -92,6 +112,7 @@ export async function executePlan(input: ExecutePlanInput): Promise<ExecutePlanR
     // Engine replan at the stage boundary (plan 013 step 3): abandon the
     // rest of this plan; processTask re-plans (bounded) and re-runs the
     // scheduler. Cancellation already won above.
+    await observePause(ctx);
     {
       const exit = terminalExit(ctx);
       if (exit) return exit;
@@ -108,6 +129,7 @@ export async function executePlan(input: ExecutePlanInput): Promise<ExecutePlanR
       return failedOrCancelled(ctx);
     }
     // Same boundary after the review stage (plan 013 step 3).
+    await observePause(ctx);
     {
       const exit = terminalExit(ctx);
       if (exit) return exit;
@@ -205,6 +227,8 @@ export async function executePlan(input: ExecutePlanInput): Promise<ExecutePlanR
       }
     }
 
+    await observePause(ctx);
+    if (ctx.paused && !ctx.taskCancelled()) return { status: "paused" };
     if (qaNodes.length > 0) {
       await deps.api.logEvent({
         taskId,
@@ -242,6 +266,22 @@ export async function executePlan(input: ExecutePlanInput): Promise<ExecutePlanR
     {
       const exit = terminalExit(ctx);
       if (exit) return exit;
+    }
+
+    // Plan 022 acceptance stage: executor "done" was only "delivered";
+    // the contract's gates decide acceptance. A failed required gate is a
+    // fix iteration (bounded replan) or, with none left, blocks the task.
+    const acceptance = await runAcceptanceStage(ctx);
+    if (acceptance.rejected.length > 0) {
+      const reason = `Acceptance gates failed: ${acceptance.rejected
+        .map((entry) => `${entry.key}: ${entry.reason}`)
+        .join("; ")}`.slice(0, 1500);
+      if ((input.replansLeft ?? 0) > 0) {
+        return { status: "replan", replanFeedback: reason };
+      }
+      await blockRejected(ctx, acceptance.rejected);
+      state.feedback.push(reason);
+      return { status: "failed" };
     }
   } finally {
     await browser.close().catch(() => undefined);

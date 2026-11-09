@@ -82,6 +82,10 @@ export function planningPrompt(input: PlanningPromptInput): string {
     "Rules:",
     `- 1 to ${policy.maxSubtasks} subtasks.`,
     "- Each subtask: key (lowercase slug), title, description, kind, capability, dependencies (keys), order.",
+    "- Each subtask also carries a CONTRACT: objective (ONE concrete outcome), constraints (what must not change), deliverable (what it hands back), and acceptance: a list of gates {id, criterion, check, target?}.",
+    "  check is one of: typecheck, test, file_exists (target = workspace path that must exist), command (target = a package script such as lint or build), review (reviewer verdict; target \"output\" = the subtask's own answer is non-empty, \"output:sources\" = it cites files/URLs), manual (a person checks it; optional).",
+    "  Every code_change needs at least one gate (usually typecheck + test). Research gates: the answer is non-empty and cites sources. Omit acceptance only when the defaults for the kind fit.",
+    "- The scope of a subtask is its allowedPaths. Executors stop and escalate (instead of expanding scope) on a schema change, a new dependency, a security-sensitive choice, a file outside scope, or an ambiguous requirement — so list schema files and package.json explicitly in allowedPaths when the change needs them.",
     "- code_change subtasks must declare allowedPaths: the tightest workspace-relative file/directory scope they may modify (e.g. [\"apps/web\"]). Omit only when the scope is genuinely unknown; the executor refuses files outside the declared scope.",
     "- kind is one of: analysis, code_change, review, qa, research, audit, shell.",
     "- kind shell is ONLY for git read-only commands. File creation/write and",
@@ -118,7 +122,7 @@ export function planningPrompt(input: PlanningPromptInput): string {
     "- Do NOT invent capabilities that are not listed above.",
     "- Keep the plan minimal; do not add decorative steps.",
     "",
-    'Schema: {"goal":"...","strategy":"single"|"dag","requiresApproval":true,"maxConcurrency":1,"subtasks":[{"key":"implement","title":"...","description":"...","kind":"code_change","capability":"frontend-development","dependencies":[],"order":0,"allowedPaths":["apps/web"]}]}',
+    'Schema: {"goal":"...","strategy":"single"|"dag","requiresApproval":true,"maxConcurrency":1,"subtasks":[{"key":"implement","title":"...","description":"...","kind":"code_change","capability":"frontend-development","dependencies":[],"order":0,"allowedPaths":["apps/web"],"objective":"...","constraints":["..."],"deliverable":"...","acceptance":[{"id":"typecheck","criterion":"Typecheck passes","check":"typecheck"},{"id":"tests","criterion":"Relevant tests pass","check":"test"}]}]}',
   ]
     .filter((line) => line !== "")
     .join("\n");

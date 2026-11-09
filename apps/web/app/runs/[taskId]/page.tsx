@@ -17,6 +17,8 @@ import { taskStatusLabel } from "@/lib/taskStatus";
 import { clockTime } from "@/lib/format";
 import RoutingInspector from "@/components/runs/RoutingInspector";
 import PlanGraph from "@/components/runs/PlanGraph";
+import Contracts from "@/components/runs/Contracts";
+import { MODEL_TIER_LABELS, type ModelTierKey } from "@/api/convex/lib/modelTiers";
 import { formatEstimateLine } from "@/api/convex/lib/estimate";
 import {
   formatCost,
@@ -261,12 +263,47 @@ function Waterfall({ run, now }: { run: Run; now: number }) {
   );
 }
 
+/** Plan 022: tokens / cost per model tier (planner vs workers vs reviewer). */
+function TierBreakdown({ run }: { run: Run }) {
+  const tiers = (["planner", "worker", "reviewer"] as const).map((key) => ({ key, ...run.totals.byTier[key] }));
+  const other = run.totals.byTier.other;
+  if (tiers.every((t) => t.calls === 0) && other.calls === 0) return null;
+  return (
+    <ul className="divide-y divide-line border-b border-line">
+      {tiers.map((t) => (
+        <li key={t.key} className="flex items-center gap-3 px-4 py-2 text-[13px]">
+          <span className="min-w-0 flex-1 truncate">
+            {MODEL_TIER_LABELS[t.key as ModelTierKey]}
+            {run.totals.modelTiers[t.key as ModelTierKey] ? <span className="text-ink-3"> · tier model</span> : null}
+          </span>
+          <span className="tabular-nums text-ink-3">{t.calls} calls</span>
+          <span className="w-24 text-right tabular-nums text-ink-2">
+            {formatTokens(t.inputTokens)} / {formatTokens(t.outputTokens)}
+          </span>
+          <span className="w-16 text-right tabular-nums text-ink-3">{formatCost(t.estimatedCost)}</span>
+        </li>
+      ))}
+      {other.calls > 0 && (
+        <li className="flex items-center gap-3 px-4 py-2 text-[13px] text-ink-3">
+          <span className="min-w-0 flex-1 truncate">Other</span>
+          <span className="tabular-nums">{other.calls} calls</span>
+          <span className="w-24 text-right tabular-nums">
+            {formatTokens(other.inputTokens)} / {formatTokens(other.outputTokens)}
+          </span>
+          <span className="w-16 text-right tabular-nums">{formatCost(other.estimatedCost)}</span>
+        </li>
+      )}
+    </ul>
+  );
+}
+
 function Agents({ run }: { run: Run }) {
   const byAgent = run.totals.byAgent;
   if (run.handoffs.length === 0 && byAgent.length === 0) return null;
   return (
     <Section title="Agents">
       <div className="overflow-hidden rounded-xl border border-line bg-panel">
+        <TierBreakdown run={run} />
         {run.handoffs.length > 0 && (
           <ul className="flex flex-wrap gap-x-5 gap-y-2 px-4 py-3">
             {run.handoffs.map((h) => (
@@ -602,6 +639,12 @@ export default function RunTracePage() {
               )}
 
               <EstimateVsActual run={run} />
+
+              {run.contracts.some((c) => c.acceptance.length > 0 || c.objective || c.escalation) && (
+                <Section title="Acceptance">
+                  <Contracts rows={run.contracts} />
+                </Section>
+              )}
 
               <Section title="Routing">
                 <RoutingInspector routing={run.routing} instruction={run.task.command} />

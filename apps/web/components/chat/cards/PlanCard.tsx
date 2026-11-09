@@ -26,7 +26,49 @@ function useReview(taskId: string | undefined) {
   return useQuery(api.planReview.forTask, taskId ? { taskId: taskId as never } : "skip");
 }
 
-type Draft = Record<string, { title: string; description: string; role: string | null; removed: boolean }>;
+type Draft = Record<
+  string,
+  { title: string; description: string; role: string | null; removed: boolean; criteria: Record<string, string> }
+>;
+
+/** Draft row for one subtask (plan 022: acceptance criteria text by gate id). */
+function draftOf(s: PlanSubtask): Draft[string] {
+  return {
+    title: s.title,
+    description: s.description,
+    role: s.role,
+    removed: false,
+    criteria: Object.fromEntries((s.acceptance ?? []).map((gate) => [gate.id, gate.criterion])),
+  };
+}
+
+/** Compact contract line: objective, then "Done when" with the gate criteria. */
+function ContractSummary({ s }: { s: PlanSubtask }) {
+  const gates = s.acceptance ?? [];
+  if (!s.objective && gates.length === 0 && (s.constraints ?? []).length === 0) return null;
+  return (
+    <div className="mt-1 space-y-0.5 text-[12px] text-ink-2">
+      {s.objective && (
+        <p className="break-words">
+          <span className="text-ink-3">Objective </span>
+          {s.objective}
+        </p>
+      )}
+      {(s.constraints ?? []).length > 0 && (
+        <p className="break-words">
+          <span className="text-ink-3">Keep </span>
+          {s.constraints.join("; ")}
+        </p>
+      )}
+      {gates.length > 0 && (
+        <p className="break-words">
+          <span className="text-ink-3">Done when </span>
+          {gates.map((gate) => gate.criterion).join(" · ")}
+        </p>
+      )}
+    </div>
+  );
+}
 
 const BTN = "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-line-strong disabled:cursor-not-allowed disabled:opacity-40";
 const BTN_SOLID = `${BTN} bg-ink text-canvas hover:opacity-90`;
@@ -66,7 +108,7 @@ export default function PlanCard({ data }: { data: PlanCardData }) {
   useEffect(() => {
     if (!plan) return;
     const next: Draft = {};
-    for (const s of plan.subtasks) next[s.key] = { title: s.title, description: s.description, role: s.role, removed: false };
+    for (const s of plan.subtasks) next[s.key] = draftOf(s);
     setDraft(next);
     setErrors([]);
   }, [plan?.version]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -91,7 +133,7 @@ export default function PlanCard({ data }: { data: PlanCardData }) {
 
   const ops = () => {
     const out: Array<
-      | { op: "update"; key: string; title?: string; description?: string }
+      | { op: "update"; key: string; title?: string; description?: string; acceptance?: Array<{ id: string; criterion: string }> }
       | { op: "reassign"; key: string; role: string }
       | { op: "remove"; key: string; dependents: "relink" }
     > = [];
@@ -104,7 +146,12 @@ export default function PlanCard({ data }: { data: PlanCardData }) {
       }
       const title = d.title.trim() !== s.title ? d.title : undefined;
       const description = d.description.trim() !== s.description ? d.description : undefined;
-      if (title !== undefined || description !== undefined) out.push({ op: "update", key: s.key, title, description });
+      const acceptance = (s.acceptance ?? [])
+        .filter((gate) => (d.criteria[gate.id] ?? gate.criterion).trim() !== gate.criterion)
+        .map((gate) => ({ id: gate.id, criterion: d.criteria[gate.id] ?? gate.criterion }));
+      if (title !== undefined || description !== undefined || acceptance.length > 0) {
+        out.push({ op: "update", key: s.key, title, description, ...(acceptance.length > 0 ? { acceptance } : {}) });
+      }
       if (d.role && d.role !== s.role) out.push({ op: "reassign", key: s.key, role: d.role });
     }
     return out;
@@ -228,6 +275,28 @@ export default function PlanCard({ data }: { data: PlanCardData }) {
                         aria-label={`Description of ${s.title}`}
                         maxLength={4000}
                       />
+                      {(s.acceptance ?? []).length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-[12px] text-ink-3">Done when</p>
+                          {s.acceptance.map((gate) => (
+                            <div key={gate.id} className="flex items-center gap-2">
+                              <input
+                                value={d.criteria[gate.id] ?? gate.criterion}
+                                onChange={(e) =>
+                                  setDraft((x) => ({
+                                    ...x,
+                                    [s.key]: { ...x[s.key], criteria: { ...x[s.key].criteria, [gate.id]: e.target.value } },
+                                  }))
+                                }
+                                className={FIELD}
+                                aria-label={`Acceptance criterion ${gate.id} of ${s.title}`}
+                                maxLength={300}
+                              />
+                              <span className="w-20 shrink-0 text-[11.5px] text-ink-3">{gate.check.replace(/_/g, " ")}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <>
@@ -247,6 +316,7 @@ export default function PlanCard({ data }: { data: PlanCardData }) {
                           {s.allowedPaths.join("  ")}
                         </p>
                       )}
+                      <ContractSummary s={s} />
                     </>
                   )}
                 </div>
@@ -311,7 +381,7 @@ export default function PlanCard({ data }: { data: PlanCardData }) {
                     setEditing(false);
                     setErrors([]);
                     const next: Draft = {};
-                    for (const s of plan.subtasks) next[s.key] = { title: s.title, description: s.description, role: s.role, removed: false };
+                    for (const s of plan.subtasks) next[s.key] = draftOf(s);
                     setDraft(next);
                   }}
                 >

@@ -59,7 +59,24 @@ export interface RunState {
   appliedFilesBySubtask: Map<string, string[]>;
   /** Last static verification result, once it has run (Phase 5 Step 5.1). */
   verification?: { status: "passed" | "failed" | "skipped"; details?: string };
+  /**
+   * Plan 022: each node's delivered output in this run (gate evidence).
+   * priorOutputs is not filled on every decision path.
+   */
+  deliveredOutputs?: Map<string, string>;
+  /** Plan 022: the individual checks of that last verification (gate evidence). */
+  verificationChecks?: Array<{ name: string; status: string; details?: string }>;
   feedback: string[];
+  /**
+   * Plan 022: escalations seen in this processTask invocation, by
+   * `${subtaskKey}:${kind}` (a repeat after the CTO's replan goes to the user).
+   */
+  escalationCounts?: Map<string, number>;
+  /**
+   * Plan 022: escalations the CTO (or the user's answer) allowed, so the
+   * executor's deterministic guard does not stop on them again.
+   */
+  allowedEscalations?: Array<{ kind: string; detail?: string }>;
 }
 
 /**
@@ -113,6 +130,8 @@ export interface ExecutePlanInput {
    */
   onTokenUsage?: TokenUsageFn;
   worktree?: { branchName: string; worktreePath: string };
+  /** Plan 022: replans the caller can still afford (escalation routing). Unset = 0. */
+  replansLeft?: number;
   /**
    * Persist dynamically spawned subtasks (Phase 4 hardening): called
    * the moment a delegation/fix/review-fix subtask is added to the
@@ -214,6 +233,10 @@ export interface RunContext {
   };
   /** The question this invocation paused for (plan 013 step 4). */
   waitingForInput: string | null;
+  /** Plan 022: an escalation was routed in this invocation (replan or question). */
+  escalated: boolean;
+  /** Plan 022: the user paused the task; no new subtask starts. */
+  paused: boolean;
   /**
    * Latched when a stage loop (verification / QA fix in ask mode) requested
    * an apply approval and the run must end as `waiting_approval`.

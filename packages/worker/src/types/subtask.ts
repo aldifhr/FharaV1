@@ -1,4 +1,13 @@
 /** One node of an execution plan and the vocabulary around it. */
+import type { AcceptanceGate } from "@/api/convex/lib/subtaskContract";
+
+export type {
+  AcceptanceGate,
+  Escalation,
+  EscalationKind,
+  GateResult,
+  AcceptanceStatus,
+} from "@/api/convex/lib/subtaskContract";
 
 export type SubtaskKind =
   | "analysis"
@@ -21,6 +30,14 @@ export interface PlanSubtask {
   origin?: "planned" | "dynamic";
   /** Review/QA round (1-based). UI composes "Review (round N)" from this, title stays stable. */
   reviewRound?: number;
+  /**
+   * Plan 022 contract (scope = allowedPaths). Optional for back-compat:
+   * plans that predate it get gates derived from the kind by the validator.
+   */
+  objective?: string;
+  constraints?: string[];
+  deliverable?: string;
+  acceptance?: AcceptanceGate[];
 }
 
 /** Why a subtask was added after planning (persisted as its origin). */

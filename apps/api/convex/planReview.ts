@@ -18,6 +18,7 @@ import {
   type PlanEstimate,
 } from "./lib/estimate";
 import { normalizePlanReview } from "./lib/planReviewPolicy";
+import { parseContract, type AcceptanceGate } from "./lib/subtaskContract";
 import { ROLE_KEYS } from "./lib/roles";
 
 /**
@@ -159,6 +160,10 @@ type PlanSubtaskRow = {
   allowedPaths?: string[];
   origin?: string;
   reviewRound?: number;
+  objective?: string;
+  constraints?: string[];
+  deliverable?: string;
+  acceptance?: AcceptanceGate[];
 };
 
 function subtaskRows(payload: unknown): PlanSubtaskRow[] {
@@ -177,6 +182,8 @@ function subtaskRows(payload: unknown): PlanSubtaskRow[] {
       ...(Array.isArray(s.allowedPaths) ? { allowedPaths: (s.allowedPaths as unknown[]).map(String) } : {}),
       ...(typeof s.origin === "string" ? { origin: s.origin } : {}),
       ...(typeof s.reviewRound === "number" ? { reviewRound: s.reviewRound } : {}),
+      // Plan 022 contract (gates derived from the kind when absent).
+      ...parseContract(s, String(s.kind ?? "analysis"), String(s.key ?? "")).contract,
     };
   });
 }
@@ -330,6 +337,10 @@ export const forTask = query({
           dependencies: s.dependencies,
           allowedPaths: s.allowedPaths ?? [],
           role: roles.get(s.key) ?? null,
+          objective: s.objective ?? null,
+          constraints: s.constraints ?? [],
+          deliverable: s.deliverable ?? null,
+          acceptance: s.acceptance ?? [],
         })),
         estimate,
         estimateLine: estimate ? formatEstimateLine(estimate) : null,
@@ -367,6 +378,8 @@ const editOp = v.union(
     key: v.string(),
     title: v.optional(v.string()),
     description: v.optional(v.string()),
+    // Plan 022: edit the criterion text of existing acceptance gates.
+    acceptance: v.optional(v.array(v.object({ id: v.string(), criterion: v.string() }))),
   }),
   v.object({ op: v.literal("reassign"), key: v.string(), role: v.string() }),
   v.object({

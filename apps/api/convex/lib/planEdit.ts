@@ -11,9 +11,17 @@
  */
 import { ROLE_KEYS, ROLES, type RoleKey } from "./roles";
 import { validateStoredPlan, type ValidatedSubtaskKind } from "./planValidation";
+import { defaultGatesForKind, type AcceptanceGate } from "./subtaskContract";
 
 export type PlanEditOp =
-  | { op: "update"; key: string; title?: string; description?: string }
+  | {
+      op: "update";
+      key: string;
+      title?: string;
+      description?: string;
+      /** Plan 022: new criterion text for existing acceptance gates (by id). */
+      acceptance?: Array<{ id: string; criterion: string }>;
+    }
   | { op: "reassign"; key: string; role: string }
   /**
    * Remove a subtask. Its dependents are re-linked to the removed subtask's
@@ -28,6 +36,7 @@ export type PlanEditResult =
 
 const TITLE_MAX = 200;
 const DESCRIPTION_MAX = 4000;
+const CRITERION_MAX = 300;
 
 /** Kinds a reassigned role implies; writer roles fall back to code_change. */
 const ROLE_KIND: Partial<Record<RoleKey, ValidatedSubtaskKind>> = {
@@ -113,6 +122,24 @@ export function applyPlanEdits(input: {
         if (description.length > DESCRIPTION_MAX) {
           errors.push(`subtask ${subtask.key}: description is longer than ${DESCRIPTION_MAX} characters`);
         } else subtask.description = description;
+      }
+      if (op.acceptance !== undefined) {
+        // Only the criterion text is editable; the check, target and ids
+        // stay as planned. A plan that predates contracts edits its
+        // derived default gates (which then become explicit).
+        const gates: AcceptanceGate[] = Array.isArray(subtask.acceptance)
+          ? (JSON.parse(JSON.stringify(subtask.acceptance)) as AcceptanceGate[])
+          : defaultGatesForKind(String(subtask.kind ?? ""));
+        for (const edit of op.acceptance) {
+          const gate = gates.find((candidate) => candidate.id === edit.id);
+          const criterion = edit.criterion.trim();
+          if (!gate) errors.push(`subtask ${subtask.key}: unknown acceptance gate ${edit.id}`);
+          else if (!criterion) errors.push(`subtask ${subtask.key}: acceptance criterion cannot be empty`);
+          else if (criterion.length > CRITERION_MAX) {
+            errors.push(`subtask ${subtask.key}: acceptance criterion is longer than ${CRITERION_MAX} characters`);
+          } else gate.criterion = criterion;
+        }
+        subtask.acceptance = gates;
       }
       changed.add(subtask.key);
       continue;

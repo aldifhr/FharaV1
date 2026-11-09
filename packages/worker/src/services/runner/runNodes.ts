@@ -121,6 +121,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       const outcome = await executeSubtask({
         workspacePath: input.workspacePath,
         command: task.command,
+        allowedEscalations: state.allowedEscalations,
         plan,
         subtask,
         agent,
@@ -348,7 +349,8 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       // to this same invocation, capped per invocation; a budget BLOCKED
       // decision latches the halt so no new nodes start afterwards.
       maxAddedNodes: deps.policy.maxSubtasks,
-      shouldHaltNewNodes: () => ctx.budgetHalt || ctx.stepLimitHit || ctx.decisionTerminal,
+      // Plan 022: a user pause stops new dispatch; running nodes finish.
+      shouldHaltNewNodes: () => ctx.budgetHalt || ctx.stepLimitHit || ctx.decisionTerminal || ctx.paused,
       shouldCancel: async () => {
         // The task deadline fired the shared abort controller (or a
         // cancel already propagated): the task is cancelled NOW. This
@@ -367,6 +369,10 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
           current.task.status === "failed" ||
           current.task.status === "done" ||
           current.task.status === "rejected";
+        // Plan 022: paused is not cancelled — it only halts new dispatch.
+        // A resume that lands while this run drains does not un-halt it;
+        // the run ends at its boundary and the release re-queues it.
+        if (current?.task.status === "paused") ctx.paused = true;
         if (ctx.cancelled) {
           // Propagate beyond this scheduler: in-flight LLM calls, QA
           // and verification observe the same per-task signal.
@@ -437,6 +443,20 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       onOutcome: async (node, outcome, attempt) =>
         handleNodeOutcome(ctx, node, outcome, attempt),
       onBlocked: async (node, reason) => {
+        // Plan 022: nodes held back by a user pause stay pending — they
+        // are the work Resume continues with, not a failure.
+        if (ctx.paused && !ctx.cancelled) {
+          await deps.api
+            .logEvent({
+              taskId,
+              projectId: project._id,
+              type: "subtask.held",
+              payload: { subtaskKey: node.id, reason: "paused_by_user" },
+              subtaskKey: node.id,
+            })
+            .catch(() => undefined);
+          return;
+        }
         // A node blocked while the budget halt is latched (Phase 5):
         // record the budget failure in the run feedback so the runner
         // ends the task as budget.exhausted — a halted node never

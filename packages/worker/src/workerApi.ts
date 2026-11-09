@@ -302,6 +302,23 @@ export class WorkerApi {
     return await this.client.action(api.worker.completeMcpServerTest, this.args(input));
   }
 
+  /** Plan 022: a subtask's acceptance (gate results / escalation). Lease-fenced. */
+  async recordSubtaskAcceptance(
+    input: ActionInput<typeof api.worker.recordSubtaskAcceptance>
+  ): Promise<FunctionReturnType<typeof api.worker.recordSubtaskAcceptance>> {
+    return await this.client.action(
+      api.worker.recordSubtaskAcceptance,
+      this.args({ workerId: this.workerId, ...input })
+    );
+  }
+
+  /** Plan 022: hand a paused task back after its run drained. */
+  async releasePausedTask(
+    input: ActionInput<typeof api.worker.releasePausedTask>
+  ): Promise<FunctionReturnType<typeof api.worker.releasePausedTask>> {
+    return await this.client.action(api.worker.releasePausedTask, this.args(input));
+  }
+
   async logEvent(
     input: ActionInput<typeof api.worker.logEvent>
   ): Promise<FunctionReturnType<typeof api.worker.logEvent>> {

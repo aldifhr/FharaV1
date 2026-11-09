@@ -51,6 +51,9 @@ const SHARED_FOUNDATION = new Set([
   "convex/lib/planValidation",
   "convex/lib/estimate",
   "convex/lib/planReviewPolicy",
+  // Plan 022: contract / gates / escalation and model tiers (pure).
+  "convex/lib/subtaskContract",
+  "convex/lib/modelTiers",
 ]);
 
 const SRC = path.resolve(import.meta.dirname, "../src");

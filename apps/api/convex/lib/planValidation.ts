@@ -6,6 +6,7 @@
  * packages/worker/src/orchestrator/planValidator.ts with its own plan types.
  */
 import { normalizeAllowedPaths } from "./ownershipPaths";
+import { contractGateErrors, parseContract, type AcceptanceGate } from "./subtaskContract";
 
 export type ValidatedSubtaskKind =
   | "analysis"
@@ -25,6 +26,12 @@ export interface ValidatedSubtask {
   dependencies: string[];
   order: number;
   allowedPaths?: string[];
+  // Plan 022 contract (scope = allowedPaths). Gates are always present
+  // after validation: derived from the kind when the plan gave none.
+  objective?: string;
+  constraints?: string[];
+  deliverable?: string;
+  acceptance?: AcceptanceGate[];
 }
 
 export interface ValidatedPlan {
@@ -133,8 +140,14 @@ export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResul
       : [];
     if (dependencies.includes(key)) errors.push(`subtask ${key} depends on itself`);
 
-    const ownership = normalizeAllowedPaths(value.allowedPaths);
+    // Plan 022: `scope` is the contract's name for allowedPaths; it is
+    // accepted as an alias when allowedPaths is absent.
+    const ownership = normalizeAllowedPaths(value.allowedPaths ?? value.scope);
     if (!ownership.ok) errors.push(`subtask ${key}: ${ownership.error}`);
+
+    const contract = parseContract(value, kind, key);
+    errors.push(...contract.errors);
+    errors.push(...contractGateErrors({ key, kind, acceptance: contract.contract.acceptance }));
 
     subtasks.push({
       key,
@@ -149,6 +162,7 @@ export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResul
       dependencies,
       order: typeof value.order === "number" && Number.isFinite(value.order) ? value.order : index,
       ...(ownership.ok && ownership.paths ? { allowedPaths: ownership.paths } : {}),
+      ...contract.contract,
     });
   });
 

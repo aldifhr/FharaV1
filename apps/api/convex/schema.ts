@@ -1,6 +1,13 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { permissionModeValidator } from "./lib/permissionModes";
+import {
+  acceptanceStatusValidator,
+  escalationValidator,
+  gateResultValidator,
+  subtaskContractFields,
+  modelTiersValidator,
+} from "./lib/contractValidators";
 
 export const taskStatus = v.union(
   v.literal("queued"),
@@ -9,6 +16,9 @@ export const taskStatus = v.union(
   // Non-terminal pause (plan 013 step 4): the orchestrator asked the user
   // a question and is waiting for the answer before continuing.
   v.literal("waiting_input"),
+  // Non-terminal user pause (plan 022): no new subtask starts; running
+  // ones finish. Never auto-resumes (scheduler and recovery skip it).
+  v.literal("paused"),
   v.literal("done"),
   v.literal("rejected"),
   v.literal("failed")
@@ -123,6 +133,9 @@ export default defineSchema({
     // Plan Inspector (additive): pause after plan.created for the user's
     // review. Unset = off.
     planReview: v.optional(planReviewSetting),
+    // Plan 022 (additive): model tier per role (llmModels ids). Explicit
+    // agent assignment > tier > default.
+    modelTiers: v.optional(modelTiersValidator),
   }).index("by_owner", ["ownerId"]),
 
   agents: defineTable({
@@ -214,6 +227,10 @@ export default defineSchema({
     // next worker claim plans afresh with it as planner feedback; the next
     // saved planner version clears it.
     planReviewNote: v.optional(v.string()),
+    // Plan 022 (additive): explicit user pause. Set with status "paused";
+    // cleared on resume.
+    pausedBy: v.optional(v.literal("user")),
+    pausedAt: v.optional(v.number()),
     // Agile: the sprint this task belongs to (1-based per project). A
     // sprint groups one planning round and its review/verification.
     sprint: v.optional(v.number()),
@@ -289,6 +306,14 @@ export default defineSchema({
     // ("Reading 4 files", "Running npm test", "Waiting for the model").
     activity: v.optional(v.string()),
     activityAt: v.optional(v.number()),
+    // Plan 022 (additive): the subtask contract (objective, constraints,
+    // deliverable, acceptance gates; scope = allowedPaths) and its
+    // acceptance, separate from the execution status above.
+    ...subtaskContractFields,
+    acceptanceStatus: v.optional(acceptanceStatusValidator),
+    acceptanceReason: v.optional(v.string()),
+    gateResults: v.optional(v.array(gateResultValidator)),
+    escalation: v.optional(escalationValidator),
   })
     .index("by_task", ["taskId"])
     .index("by_task_and_key", ["taskId", "key"])
@@ -327,8 +352,17 @@ export default defineSchema({
     error: v.optional(v.string()),
     meta: v.optional(v.any()),
     createdAt: v.number(),
+    // Plan 022 (additive): idempotent dispatch, `${taskId}/${subtaskKey}/attempt-N`.
+    // A re-dispatch with the same key reuses (in flight / lease lapsed) or
+    // skips (finished) the existing row instead of creating a duplicate.
+    dispatchKey: v.optional(v.string()),
+    // Set when recovery ended this execution because its lease lapsed with
+    // no heartbeat (not a worker-reported failure): the next dispatch of
+    // the same attempt reclaims the row.
+    leaseLost: v.optional(v.boolean()),
   })
     .index("by_task", ["taskId"])
+    .index("by_dispatch_key", ["dispatchKey"])
     .index("by_worker", ["workerId"])
     .index("by_worker_and_status", ["workerId", "status"])
     .index("by_agent", ["agentId"])

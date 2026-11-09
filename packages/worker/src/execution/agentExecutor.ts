@@ -66,6 +66,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
+import { contentReader, detectEscalation, escalatedError, escalationFromAnswer } from "./escalation";
+import type { Escalation } from "@/api/convex/lib/subtaskContract";
 import { runResponsiveQa } from "./qa";
 import { wantsVisualQa } from "@/utils/qaIntent";
 import { getMcpRegistry, sessionAllowedForRole, type McpHooks, type McpRunConfig } from "@/mcp/registry";
@@ -77,6 +79,11 @@ const execFileAsync = promisify(execFile);
 export interface SubtaskExecutionInput {
   workspacePath: string;
   command: string;
+  /**
+   * Plan 022: escalations the CTO / the user already allowed for this run
+   * (kind + detail); the deterministic guard does not stop on them again.
+   */
+  allowedEscalations?: Array<{ kind: string; detail?: string }>;
   plan: ExecutionPlan;
   subtask: PlanSubtask;
   agent: AgentDefinition;
@@ -856,10 +863,37 @@ function baseMessages(input: SubtaskExecutionInput, userContent: string) {
   ];
 }
 
+/**
+ * Plan 022: the escalated result. A failed outcome (permanent: the error
+ * starts with "Escalated (") carrying the escalation in meta; the runner
+ * routes it to the CTO / the user instead of retrying or replanning blindly.
+ */
+async function escalateOutcome(input: SubtaskExecutionInput, escalation: Escalation): Promise<SubtaskExecutionResult> {
+  await input.onEvent(
+    "agent.escalation",
+    { capability: input.subtask.capability, kind: escalation.kind, source: escalation.source ?? "executor" },
+    "warn"
+  );
+  return {
+    status: "failed",
+    error: escalatedError(escalation),
+    meta: { escalation },
+  };
+}
+
+/** Plan 022: roles that never stage file changes or run commands. */
+export const READ_ONLY_ROLES = new Set(["reviewer"]);
+
 async function executeCodeChange(
   input: SubtaskExecutionInput
 ): Promise<SubtaskExecutionResult> {
   const { workspacePath, command, subtask, onEvent, onMessage, signal } = input;
+  if (READ_ONLY_ROLES.has((input.agent.role ?? "").trim().toLowerCase())) {
+    return {
+      status: "failed",
+      error: `Refusing to modify files: the ${input.agent.role} role is read-only`,
+    };
+  }
   const fileHint = extractFileHint(`${subtask.description}\n${command}`);
   const { context } = await exploreRepository(workspacePath, { fileHint });
   await onEvent("agent.context", {
@@ -921,6 +955,13 @@ async function executeCodeChange(
   }
 
   const firstCallMs = Date.now() - firstCallStartedAt;
+  // Plan 022: an executor that met a decision it must not take alone
+  // (schema change, new dependency, security choice, file outside scope,
+  // ambiguous requirement) stops here — nothing is staged.
+  {
+    const asked = escalationFromAnswer(stripToolCallMarkup(response.content));
+    if (asked) return await escalateOutcome(input, asked);
+  }
   let parsedAnswer = parseCodeChangeAnswer(response.content);
   let draft = parsedAnswer.draft;
   if (parsedAnswer.hadMarkup) {
@@ -1079,6 +1120,19 @@ async function executeCodeChange(
     ...(delegation?.delegationRecommendation ? { delegationRecommendation: delegation.delegationRecommendation } : {}),
     ...(delegation?.findings ? { findings: delegation.findings } : {}),
   };
+
+  {
+    // The retry answer may carry the escalation instead of the first one.
+    const asked = escalationFromAnswer(stripToolCallMarkup(response.content));
+    if (asked) return await escalateOutcome(input, asked);
+    const detected = await detectEscalation({
+      subtask,
+      files: draft.files.slice(0, 5),
+      allowed: input.allowedEscalations,
+      currentContent: contentReader(workspacePath, (filePath) => input.getStagedChange?.(filePath) ?? input.fileChanges.find((change) => change.filePath === filePath)),
+    });
+    if (detected) return await escalateOutcome(input, detected);
+  }
 
   const prepared: FileDiff[] = [];
   if (draft.files.length === 0) {

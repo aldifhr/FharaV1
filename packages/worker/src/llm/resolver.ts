@@ -7,6 +7,7 @@ import {
 import type { AgentDefinition } from "@/types";
 import { decryptApiKey } from "./crypto";
 import { providerHealth, type ProviderHealthRegistry } from "./health";
+import { applyModelTier, type ModelTiers } from "@/api/convex/lib/modelTiers";
 
 /**
  * LLM Resolver (spec §4) — turns the backend provider pool (connections +
@@ -113,7 +114,7 @@ export type AgentLlmAssignment = Pick<
   | "llmFallbackProviderId"
   | "llmFallbackModelId"
   | "llmSelectionPolicy"
-> & { name?: string };
+> & { name?: string; role?: string };
 
 /** Glob match for model patterns: only `*` is special (e.g. `gpt-4*`). */
 export function matchesModelPattern(pattern: string, modelId: string): boolean {
@@ -422,14 +423,27 @@ export class TaskLlmResolver {
   constructor(
     private readonly pool: PoolConnection[],
     private readonly health: ProviderHealthRegistry = providerHealth,
-    private readonly options: { random?: () => number } = {}
+    private readonly options: { random?: () => number; tiers?: ModelTiers } = {}
   ) {}
+
+  /**
+   * Plan 022 precedence: an explicit agent assignment beats the project's
+   * model tier for the agent's role, which beats the default pool order.
+   * A tier model that is not in the pool resolves like no tier at all.
+   */
+  assignmentFor(agent?: AgentLlmAssignment): AgentLlmAssignment | undefined {
+    const tiered = applyModelTier(agent, this.options.tiers);
+    if (tiered.source !== "tier") return agent;
+    const modelRowId = tiered.assignment?.llmModelId;
+    const served = this.pool.some((connection) => connection.models.some((model) => model._id === modelRowId));
+    return served ? tiered.assignment : agent;
+  }
 
   resolutionFor(
     agent?: AgentLlmAssignment,
     need: ResolveNeed = {}
   ): AgentResolution {
-    return resolveForAgent(agent, need, this.pool, this.health, this.options);
+    return resolveForAgent(this.assignmentFor(agent), need, this.pool, this.health, this.options);
   }
 
   configFor(agent?: AgentLlmAssignment, need: ResolveNeed = {}): GlobalLLMConfig {
@@ -465,7 +479,7 @@ export class TaskLlmResolver {
     agent?: AgentLlmAssignment
   ): { model: string; inputPricePer1k?: number; outputPricePer1k?: number } | null {
     try {
-      const { primary } = resolveForAgent(agent, {}, this.pool, this.health, { random: () => 0 });
+      const { primary } = resolveForAgent(this.assignmentFor(agent), {}, this.pool, this.health, { random: () => 0 });
       return {
         model: primary.model,
         inputPricePer1k: primary.inputPricePer1k,

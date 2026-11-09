@@ -1,3 +1,4 @@
+import { normalizeModelTiers } from "@/api/convex/lib/modelTiers";
 import * as fs from "node:fs/promises";
 import { classifyCommand } from "@/orchestrator/classifier";
 import { policyForComplexity } from "@/orchestrator/policy";
@@ -29,6 +30,7 @@ import {
 } from "./terminal";
 import { finalize } from "./finalize";
 import { executePlan } from "./executePlan";
+import { releaseAfterPause } from "./pause";
 import {
   createBudgetGate,
   createUsageRecorder,
@@ -118,7 +120,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
   let llmResolver: TaskLlmResolver;
   let llmConfig: GlobalLLMConfig;
   try {
-    llmResolver = await buildTaskLlmResolver(context.llmProviders);
+    llmResolver = await buildTaskLlmResolver(context.llmProviders, normalizeModelTiers((context.project as { modelTiers?: unknown } | null)?.modelTiers));
     llmConfig = llmResolver.defaultConfig();
   } catch (error) {
     taskAbort.dispose();
@@ -219,6 +221,10 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
     // execution could be finalized into "done".
     switch (outcome.status) {
       case "waiting_approval":
+        return;
+      case "paused":
+        // Plan 022: user pause during the resumed execution.
+        await releaseAfterPause(deps, taskId, context.project._id);
         return;
       case "waiting_input":
         // Paused for a user answer (plan 013 step 4): the backend holds

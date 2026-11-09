@@ -24,6 +24,7 @@ import type { WebClientConfig } from "@/tools/webClient";
 import type { NodeOutcome, SchedulerResult } from "@/scheduler/dagScheduler";
 import type { FileDiff } from "@/tools/gitDiff";
 import { appendSkillsToPrompt } from "@/api/convex/lib/skills";
+import type { ModelTiers } from "@/api/convex/lib/modelTiers";
 import { appendMemoryToPrompt } from "@/api/convex/lib/memory";
 import type {
   WorkerRunAgent,
@@ -48,7 +49,9 @@ export { completedSubtasksFor, buildReplanFeedback, type CompletedSubtask } from
  * excluded) — replacing the old single `llmProviders[0]` task config.
  */
 export async function buildTaskLlmResolver(
-  llmProviders: PoolConnectionRow[] | undefined
+  llmProviders: PoolConnectionRow[] | undefined,
+  /** Plan 022: the project's model tier per role (llmModels ids). */
+  tiers?: ModelTiers
 ): Promise<TaskLlmResolver> {
   // Phase 5 observability: register each pool connection's display
   // name on the shared health registry, so the worker's health
@@ -58,7 +61,7 @@ export async function buildTaskLlmResolver(
     providerHealth.registerConnectionName(row._id, row.name);
   }
   const pool = await materializePool(llmProviders);
-  return new TaskLlmResolver(pool, providerHealth);
+  return new TaskLlmResolver(pool, providerHealth, { tiers });
 }
 
 /**

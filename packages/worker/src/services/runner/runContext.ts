@@ -217,6 +217,8 @@ export function createRunContext(input: ExecutePlanInput, browser: WebClient): R
     decisionTerminal: false,
     replanFeedback: null,
     waitingForInput: null,
+    escalated: false,
+    paused: false,
     pendingApproval: false,
     delegationSeq: 0,
     fixSeq: 0,

@@ -92,6 +92,12 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
       status: failedChecks.length > 0 ? "failed" : allPassed ? "passed" : "skipped",
       details: failedChecks.map((c) => `${c.name}: ${c.details ?? ""}`).join("; ") || undefined,
     };
+    // Plan 022: the individual checks are the typecheck / test gate evidence.
+    state.verificationChecks = verification.checks.map((check) => ({
+      name: check.name,
+      status: check.status,
+      ...(check.details ? { details: check.details.slice(0, 500) } : {}),
+    }));
     if (failedChecks.length === 0) break;
     if (verifyIteration >= maxVerifyIters) {
       state.feedback.push(

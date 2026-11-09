@@ -1,3 +1,4 @@
+import { normalizeModelTiers } from "@/api/convex/lib/modelTiers";
 import * as fs from "node:fs/promises";
 import type { WorkerRunAgent, WorkerTask } from "@/workerApi";
 import type { SubtaskKind } from "@/types";
@@ -35,6 +36,8 @@ import { executePlan } from "./runner/executePlan";
 import { createInitialPlan, type PlanningContext } from "./runner/planning";
 import { replanOnce, type ReplanLoopState } from "./runner/replan";
 import { planReviewGate } from "./runner/planReview";
+import { seedAllowedEscalations } from "./runner/escalation";
+import { releaseAfterPause } from "./runner/pause";
 import {
   createBudgetGate,
   createUsageRecorder,
@@ -87,7 +90,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
   let llmResolver: TaskLlmResolver;
   let llmConfig: GlobalLLMConfig;
   try {
-    llmResolver = await buildTaskLlmResolver(llmProviders);
+    llmResolver = await buildTaskLlmResolver(llmProviders, normalizeModelTiers((project as { modelTiers?: unknown }).modelTiers));
     llmConfig = llmResolver.defaultConfig();
   } catch (error) {
     await deps.api.completeTask({
@@ -284,6 +287,16 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     });
     if (review === "paused") return;
 
+    // Plan 022: a pause that landed while planning ran: stop before the
+    // first dispatch (the stored plan is the checkpoint Resume uses).
+    {
+      const now = await deps.api.getContext({ taskId: task._id });
+      if (now?.task.status === "paused") {
+        await releaseAfterPause(deps, task._id, project._id);
+        return;
+      }
+    }
+
     // Recovery (Phase 4): when the stored plan was adopted, this run
     // continues work a previous worker already persisted — seed the
     // execution state from the DB via the ONE builder shared with
@@ -305,6 +318,13 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       appliedFilesBySubtask: new Map(),
       feedback: [],
     };
+    // Plan 022: the user's answer to an escalation question allows the
+    // escalated action for this run (a declining answer keeps the guard).
+    seedAllowedEscalations(
+      state,
+      (context.subtasks ?? []) as Array<{ acceptanceStatus?: string; escalation?: { kind: string; detail?: string } }>,
+      [...sharedContext.decisions].reverse().find((entry) => entry.decision === "user_answer")?.reason
+    );
     const loop: ReplanLoopState = {
       plan: initial.plan,
       planVersion: initial.planVersion,
@@ -354,7 +374,14 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         worktree:
           branchName && worktreePath ? { branchName, worktreePath } : undefined,
         onDynamicSubtasks: dynamicSubtaskPersister(deps, task._id, project._id),
+        replansLeft: Math.max(0, maxPlanningIterations - loop.replans),
       });
+
+      // Plan 022: user pause — running work drained, nothing new started.
+      if (outcome.status === "paused") {
+        await releaseAfterPause(deps, task._id, project._id);
+        return;
+      }
 
       // ask_user pause (plan 013 step 4): the backend already holds the
       // question in `waiting_input`; this invocation just ends. The
@@ -382,8 +409,11 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       if (outcome.status === "replan") {
         const missing = outcome.replanFeedback ?? "objective not satisfied";
         if (canReplan()) {
+          // Plan 022: escalation notes and failed acceptance gates are
+          // their own reasons, not an unmet objective.
+          const own = /^(Escalation from subtask|Acceptance gates failed)/.test(missing);
           const result = await replanOnce(pctx, loop, state, {
-            reason: `Objective not satisfied: ${missing}`,
+            reason: own ? missing : `Objective not satisfied: ${missing}`,
           });
           if (result === "ended") return;
           continue;

@@ -9,6 +9,8 @@ import { toAgentResult } from "./setup";
 import { normalizeCapability, routeCapability } from "@/orchestrator/capabilities";
 import { CAPABILITY } from "@/types";
 import { resolveIssuesForApproval, resolveIssuesForQaPass } from "@/orchestrator/taskContext";
+import type { Escalation } from "@/api/convex/lib/subtaskContract";
+import { handleEscalation } from "./escalation";
 
 export async function handleNodeOutcome(
   ctx: RunContext,
@@ -40,6 +42,12 @@ export async function handleNodeOutcome(
     );
   }
   let dynamicNodes: SchedulerNode[] | undefined;
+  // Plan 022: an escalated executor stopped for a decision. Its meta is
+  // kept on the execution row (the decision engine never judges it).
+  const escalation =
+    outcome.status === "failed"
+      ? ((outcome.meta as { escalation?: Escalation } | undefined)?.escalation ?? null)
+      : null;
   if (!runCompleted.has(node.id) && executionId) {
     const written = (await deps.api.updateExecution({
       executionId,
@@ -47,7 +55,7 @@ export async function handleNodeOutcome(
       status: outcome.status === "completed" ? "completed" : "failed",
       output: outcome.status === "failed" ? undefined : outcome.output,
       error: outcome.status === "failed" ? outcome.error : undefined,
-      meta: outcome.status === "failed" ? undefined : outcome.meta,
+      meta: outcome.status === "failed" ? (escalation ? { escalation } : undefined) : outcome.meta,
     })) as { applied?: boolean; reason?: string } | null | undefined;
     // Lease fencing: another worker owns this task now. Stop this run
     // cleanly (abort) instead of writing over the new owner's state.
@@ -55,10 +63,30 @@ export async function handleNodeOutcome(
       input.taskAbort?.abort(new Error("Lease lost: another worker owns this task"));
     }
   }
+  if (escalation && outcome.status === "failed") {
+    state.feedback.push(`${node.id}: ${outcome.error}`);
+    await handleEscalation(ctx, node.id, escalation, executionId);
+    if (agent) {
+      await deps.api
+        .appendAgentMessage({
+          projectId: project._id,
+          taskId,
+          agentId: agent._id,
+          content: `Subtask ${node.id} stopped for a decision: ${escalation.reason}`,
+          subtaskKey: node.id,
+          executionId,
+        })
+        .catch(() => undefined);
+    }
+    return undefined;
+  }
   // A node that settles completed joins this run's completion set
   // BEFORE the decision engine reads it below, so a finished node is
   // never treated as pending work.
-  if (outcome.status === "completed") runCompleted.add(node.id);
+  if (outcome.status === "completed") {
+    runCompleted.add(node.id);
+    if (!settledEarlier) (state.deliveredOutputs ??= new Map()).set(node.id, outcome.output ?? "");
+  }
   const subtaskKind = plan.subtasks.find((candidate) => candidate.key === node.id)?.kind;
   const meta = outcome.meta as
     | { verdict?: string; findings?: ReviewResult["findings"]; snapshotId?: string }

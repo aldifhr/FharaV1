@@ -15,6 +15,7 @@ import { validatePlan } from "./planValidator";
 import { extractJson } from "@/utils/json";
 import { planningPrompt, PLAN_NODE_INSTRUCTIONS } from "@/prompts/planner";
 import { wantsVisualQa } from "@/utils/qaIntent";
+import { defaultGatesForKind } from "@/api/convex/lib/subtaskContract";
 
 // The visual-QA intent heuristic lives in `@/utils/qaIntent` (the executor
 // reads it too); re-exported for existing importers.
@@ -162,7 +163,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         const routed = ensureRoutable(hinted, input.agents);
         if (routed) {
           return {
-            plan: regateQa(routed.plan, input),
+            plan: withDefaultContracts(regateQa(routed.plan, input)),
             createdBy: "orchestrator",
             notes,
             droppedHintKeys: routed.dropped,
@@ -209,10 +210,25 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   });
   const routedFallback = ensureRoutable(fallback, input.agents);
   return {
-    plan: routedFallback ? regateQa(routedFallback.plan, input) : fallback,
+    plan: withDefaultContracts(routedFallback ? regateQa(routedFallback.plan, input) : fallback),
     createdBy: "fallback",
     notes,
     degradedReason: notes.join("; "),
+  };
+}
+
+/**
+ * Plan 022 back-compat: every node the planner returns carries acceptance
+ * gates. Nodes the planner added itself (review/QA hints, heuristic and
+ * fallback plans) and LLM nodes the validator could not give a contract
+ * get the defaults for their kind; explicit gates are kept as-is.
+ */
+export function withDefaultContracts(plan: ExecutionPlan): ExecutionPlan {
+  return {
+    ...plan,
+    subtasks: plan.subtasks.map((subtask) =>
+      subtask.acceptance ? subtask : { ...subtask, acceptance: defaultGatesForKind(subtask.kind) }
+    ),
   };
 }
 

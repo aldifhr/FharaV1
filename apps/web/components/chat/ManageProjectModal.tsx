@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { useMutation } from "convex/react";
+import { useEffect, useState, type FormEvent } from "react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import Modal from "../Modal";
 import GithubRepoSettings from "../GithubRepoSettings";
@@ -21,6 +21,13 @@ import {
   normalizePlanReview,
   type PlanReviewSetting,
 } from "@/api/convex/lib/planReviewPolicy";
+import {
+  MODEL_TIER_HINTS,
+  MODEL_TIER_KEYS,
+  MODEL_TIER_LABELS,
+  type ModelTierKey,
+  type ModelTiers,
+} from "@/api/convex/lib/modelTiers";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 
@@ -53,6 +60,14 @@ export default function ManageProjectModal({
   const updateTeam = useMutation(api.projects.updateTeam);
   const setPlanReviewSetting = useMutation(api.planReview.setProjectPlanReview);
   const [planReview, setPlanReview] = useState<PlanReviewSetting>(normalizePlanReview(project.planReview));
+  // Plan 022: model tier per role, picked from the models already configured.
+  const tierState = useQuery(api.contracts.getProjectModelTiers, { projectId: projectId as never });
+  const setModelTiers = useMutation(api.contracts.setProjectModelTiers);
+  const [tiers, setTiers] = useState<ModelTiers>({});
+  const [tiersTouched, setTiersTouched] = useState(false);
+  useEffect(() => {
+    if (tierState && !tiersTouched) setTiers(tierState.tiers);
+  }, [tierState, tiersTouched]);
   const [name, setName] = useState(project.name ?? "");
   const [path, setPath] = useState(project.workspacePath ?? "");
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(projectDefaultPermissionMode(project));
@@ -89,6 +104,9 @@ export default function ManageProjectModal({
     try {
       if (planReview !== normalizePlanReview(project.planReview)) {
         await setPlanReviewSetting({ projectId: projectId as never, planReview });
+      }
+      if (tiersTouched) {
+        await setModelTiers({ projectId: projectId as never, modelTiers: tiers as never });
       }
       await updateTeam({ projectId: projectId as never, agentIds: agentIds as never[] });
       toast("success", "Project updated");
@@ -146,6 +164,34 @@ export default function ManageProjectModal({
           </select>
           <span className="text-[12.5px] text-ink-3">{PLAN_REVIEW_HINTS[planReview]}</span>
         </label>
+        <fieldset className="grid gap-2">
+          <legend className="font-medium">Model per role</legend>
+          <span className="text-[12.5px] text-ink-3">
+            An agent with its own model keeps it. Otherwise the tier for its role is used, then the default provider order.
+          </span>
+          {MODEL_TIER_KEYS.map((key: ModelTierKey) => (
+            <label key={key} className="grid gap-1">
+              <span>{MODEL_TIER_LABELS[key]}</span>
+              <select
+                value={tiers[key] ?? ""}
+                disabled={!tierState}
+                onChange={(e) => {
+                  setTiersTouched(true);
+                  setTiers((current) => ({ ...current, [key]: e.target.value || undefined }));
+                }}
+                className={field}
+              >
+                <option value="">Default</option>
+                {(tierState?.options ?? []).map((option) => (
+                  <option key={option._id} value={option._id}>
+                    {option.label} · {option.providerName}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[12.5px] text-ink-3">{MODEL_TIER_HINTS[key]}</span>
+            </label>
+          ))}
+        </fieldset>
         <fieldset className="grid gap-2">
           <legend className="font-medium">Project team</legend>
           <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-line p-2">

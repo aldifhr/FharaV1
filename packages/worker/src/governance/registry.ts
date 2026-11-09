@@ -37,6 +37,10 @@ export interface ToolDefinition {
  */
 const ROLE_DENIED_TOOLS: Array<{ pattern: RegExp; denied: string[] }> = [
   { pattern: /^researcher$/i, denied: ["write_file", "run_command"] },
+  // Plan 022: the reviewer is strictly read-only (it judges diffs; the
+  // runtime verification loop runs the commands). Before this rule a
+  // reviewer that declared write_file/run_command reached them.
+  { pattern: /^reviewer$/i, denied: ["write_file", "run_command"] },
 ];
 
 const TOOL_REGISTRY: ToolDefinition[] = [

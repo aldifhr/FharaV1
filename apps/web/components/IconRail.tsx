@@ -285,7 +285,7 @@ export default function IconRail({
           aria-haspopup="menu"
           aria-expanded={panel === "user"}
           aria-label="Account"
-          className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-hover text-[12px] font-semibold text-ink-2 outline-none ring-1 ring-line transition hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+          className="mt-1 flex h-9 w-9 shrink-0 max-[979px]:hidden items-center justify-center rounded-full bg-hover text-[12px] font-semibold text-ink-2 outline-none ring-1 ring-line transition hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
         >
           OA
         </button>

@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { ReviewerSection, SecondOpinionButton } from "@/components/review/Reviewer";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { api } from "@/api/convex/_generated/api";
@@ -567,6 +568,11 @@ export default function TaskThreadPanel({
                         {agent && <span className="shrink-0 text-[13px] text-ink-3">{roleLabel(agent.role)}</span>}
                         <span className={`w-16 shrink-0 text-right text-[13px] ${meta.cls}`}>{meta.label}</span>
                       </div>
+                      {taskId && (s.status === "completed" || s.status === "failed" || s.status === "blocked") && (
+                        <div className="mt-0.5 pl-[25px]">
+                          <SecondOpinionButton taskId={taskId} subtaskKey={s.key} />
+                        </div>
+                      )}
                       {s.status === "running" && s.activity && (
                         <SubtaskActivity activity={s.activity} at={s.activityAt} />
                       )}
@@ -576,6 +582,19 @@ export default function TaskThreadPanel({
                 })}
               </ul>
             </section>
+          )}
+          {taskId && subtasks.length > 0 && (
+            <ReviewerSection
+              taskId={taskId}
+              subtaskTitles={Object.fromEntries(subtasks.map((s: any) => [s.key, s.title]))}
+              heading={(aside) => (
+                <div className="flex items-center gap-3 text-[13px] text-ink-3">
+                  <span>Reviewer</span>
+                  <span className="h-px flex-1 bg-line" />
+                  {aside}
+                </div>
+              )}
+            />
           )}
           {ctoMessages.length === 0 && fileChanges && fileChanges.length > 0 && (
             <section className="space-y-2">

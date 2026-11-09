@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 
 import { useQuery } from "convex/react";
 import {
   Activity,
+  AlertTriangle,
   BarChart3,
   BookOpen,
   Brain,
@@ -24,6 +25,7 @@ import {
   Search,
   Settings,
   Share2,
+  Sparkles,
   Sun,
   Users,
 } from "lucide-react";
@@ -290,7 +292,7 @@ export default function IconRail({
         label="Insights"
         buttonRef={insightsRef}
         expanded={panel === "insights"}
-        active={pathname === "/evals" || pathname === "/audit"}
+        active={pathname === "/evals" || pathname === "/audit" || pathname.startsWith("/incidents") || pathname === "/improve"}
         onClick={() => setPanel((p) => (p === "insights" ? null : "insights"))}
       />
       <div className="mt-auto flex flex-col items-center gap-1 pt-3 max-[979px]:ml-auto max-[979px]:mt-0 max-[979px]:flex-row max-[979px]:pt-0">
@@ -319,6 +321,8 @@ export default function IconRail({
             {[
               { icon: BarChart3, label: "Evaluations", href: projectId ? `/evals?project=${projectId}` : "/evals", path: "/evals" },
               { icon: ScrollText, label: "Audit log", href: projectId ? `/audit?project=${projectId}` : "/audit", path: "/audit" },
+              { icon: AlertTriangle, label: "Incidents", href: projectId ? `/incidents?project=${projectId}` : "/incidents", path: "/incidents" },
+              { icon: Sparkles, label: "Improve", href: projectId ? `/improve?project=${projectId}` : "/improve", path: "/improve" },
             ].map(({ icon: Icon, label, href, path }) => (
               <Link
                 key={label}

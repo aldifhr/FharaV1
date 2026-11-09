@@ -18,6 +18,7 @@ import { clockTime } from "@/lib/format";
 import RoutingInspector from "@/components/runs/RoutingInspector";
 import PlanGraph from "@/components/runs/PlanGraph";
 import Contracts from "@/components/runs/Contracts";
+import { ReviewerSection, SecondOpinionButton } from "@/components/review/Reviewer";
 import { MODEL_TIER_LABELS, type ModelTierKey } from "@/api/convex/lib/modelTiers";
 import { formatEstimateLine } from "@/api/convex/lib/estimate";
 import {
@@ -175,6 +176,9 @@ function StepDetail({ step, stepByKey, taskId }: { step: Step; stepByKey: Map<st
       )}
       {running && step.type === "execution" && step.subtaskKey && (
         <SubtaskLiveOutput taskId={taskId} subtaskKey={step.subtaskKey} className="" />
+      )}
+      {step.type === "execution" && step.subtaskKey && !running && (step.status === "completed" || step.status === "failed" || step.status === "blocked") && (
+        <SecondOpinionButton taskId={taskId} subtaskKey={step.subtaskKey} />
       )}
       {step.input && <Mono label="Input" text={step.input} defaultOpen={step.input.length < 400} />}
       {step.output && <Mono label="Output" text={step.output} />}
@@ -645,6 +649,17 @@ export default function RunTracePage() {
                   <Contracts rows={run.contracts} />
                 </Section>
               )}
+
+              <ReviewerSection
+                taskId={run.task._id}
+                subtaskTitles={Object.fromEntries(run.steps.filter((st) => st.subtaskKey).map((st) => [st.subtaskKey!, st.title]))}
+                heading={(aside) => (
+                  <h2 className="mb-1 mt-10 flex items-baseline justify-between gap-2 text-[13px] font-medium text-ink-2">
+                    Reviewer
+                    {aside}
+                  </h2>
+                )}
+              />
 
               <Section title="Routing">
                 <RoutingInspector routing={run.routing} instruction={run.task.command} />

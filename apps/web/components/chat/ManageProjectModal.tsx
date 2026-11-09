@@ -39,6 +39,7 @@ type ProjectDoc = {
   agentIds?: string[];
   instructions?: string;
   planReview?: string;
+  shadowAgentDefault?: boolean;
 };
 
 const field = "rounded-lg border border-line bg-panel px-3 py-2 text-ink outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/15";
@@ -60,6 +61,8 @@ export default function ManageProjectModal({
   const updateTeam = useMutation(api.projects.updateTeam);
   const setPlanReviewSetting = useMutation(api.planReview.setProjectPlanReview);
   const [planReview, setPlanReview] = useState<PlanReviewSetting>(normalizePlanReview(project.planReview));
+  const setShadowDefault = useMutation(api.reviewer.setProjectShadowDefault);
+  const [shadowDefault, setShadowDefaultState] = useState(Boolean(project.shadowAgentDefault));
   // Plan 022: model tier per role, picked from the models already configured.
   const tierState = useQuery(api.contracts.getProjectModelTiers, { projectId: projectId as never });
   const setModelTiers = useMutation(api.contracts.setProjectModelTiers);
@@ -104,6 +107,9 @@ export default function ManageProjectModal({
     try {
       if (planReview !== normalizePlanReview(project.planReview)) {
         await setPlanReviewSetting({ projectId: projectId as never, planReview });
+      }
+      if (shadowDefault !== Boolean(project.shadowAgentDefault)) {
+        await setShadowDefault({ projectId: projectId as never, enabled: shadowDefault });
       }
       if (tiersTouched) {
         await setModelTiers({ projectId: projectId as never, modelTiers: tiers as never });
@@ -163,6 +169,20 @@ export default function ManageProjectModal({
             ))}
           </select>
           <span className="text-[12.5px] text-ink-3">{PLAN_REVIEW_HINTS[planReview]}</span>
+        </label>
+        <label className="flex items-start gap-2.5">
+          <input
+            type="checkbox"
+            checked={shadowDefault}
+            onChange={(e) => setShadowDefaultState(e.target.checked)}
+            className="mt-1 h-4 w-4 accent-[var(--shell-brand)]"
+          />
+          <span className="grid gap-0.5">
+            Shadow agent on new tasks
+            <span className="text-[12.5px] text-ink-3">
+              The Reviewer reads each completed subtask and leaves notes. It never runs anything or blocks the task. Off by default; switch it per task in the thread.
+            </span>
+          </span>
         </label>
         <fieldset className="grid gap-2">
           <legend className="font-medium">Model per role</legend>

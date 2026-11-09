@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Brain, Copy, MoreHorizontal, PanelRightOpen, Pin, PinOff, Plus, Reply } from "lucide-react";
+import { Brain, Copy, MoreHorizontal, PanelRightOpen, Pin, PinOff, Plus, Reply, ShieldCheck } from "lucide-react";
 import { useMutation } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -23,6 +23,7 @@ import { groupActivity, groupByIndex } from "@/lib/activityGroups";
 import ActivityGroupRow from "./ActivityGroupRow";
 import { useToast } from "../Toasts";
 import { QuotedSnippet, quoteOf } from "./QuoteBlock";
+import { ChatOpinionLine, useChatOpinions, useRequestMessageOpinion } from "../review/Reviewer";
 
 export type MessageKind = "evaluation" | "planning" | "delegation" | "design" | null;
 
@@ -120,6 +121,10 @@ export default function MessageList(props: Props) {
   } = props;
 
   const listRef = useRef<HTMLDivElement>(null);
+  // Reviewer second opinions on chat replies (one subscription per chat).
+  const chatProjectId = (timeline.find((m: any) => m.projectId) as any)?.projectId as string | undefined;
+  const opinions = useChatOpinions(chatProjectId);
+  const requestOpinion = useRequestMessageOpinion();
   // A reply is live while the action streams it. The age cap keeps a row
   // from an action that died mid-stream from animating forever.
   const isLive = (m: any) =>
@@ -389,6 +394,7 @@ export default function MessageList(props: Props) {
           onTogglePin={() => togglePin(m._id, !m.pinned)}
           onOpenTask={onSelectTask}
           onReply={onReply && m.content?.trim() && !isLive(m) ? () => onReply(m) : undefined}
+          onSecondOpinion={m.content?.trim() && !isLive(m) ? () => void requestOpinion(String(m._id)) : undefined}
         />
         {(() => {
           const showReasoning = !m.card && (m.reasoning || !m.content?.trim());
@@ -420,6 +426,7 @@ export default function MessageList(props: Props) {
               {hasText && !isLive(m) && Array.isArray(m.unverifiedRefs) && m.unverifiedRefs.length > 0 && (
                 <UnverifiedRefsLine refs={m.unverifiedRefs} />
               )}
+              {hasText && !isLive(m) && opinions.get(String(m._id)) && <ChatOpinionLine opinion={opinions.get(String(m._id))!} />}
               {hasText && String(m._id) === suggestTaskId && taskState[String(m._id)] !== "done" && (
                 <button
                   type="button"
@@ -609,10 +616,13 @@ function MessageActions({
   onTogglePin,
   onOpenTask,
   onReply,
+  onSecondOpinion,
   inline = false,
 }: {
   inline?: boolean;
   onReply?: () => void;
+  /** Agent replies only: ask the Reviewer for a second opinion. */
+  onSecondOpinion?: () => void;
   pinned: boolean;
   messageId?: string;
   content: string;
@@ -726,6 +736,11 @@ function MessageActions({
               }}
             >
               <Brain size={15} className="text-ink-3" /> Remember
+            </button>
+          )}
+          {onSecondOpinion && (
+            <button type="button" role="menuitem" className={item} onClick={() => { setOpen(false); onSecondOpinion(); }}>
+              <ShieldCheck size={15} className="text-ink-3" /> Second opinion
             </button>
           )}
           {taskId && (

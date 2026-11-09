@@ -482,11 +482,21 @@ export async function runResponsiveQa(
             const overlay = page.locator(
               "[data-nextjs-dialog-overlay], .vite-error-overlay"
             );
-            if ((await overlay.count()) > 0) {
+            // Only a VISIBLE overlay counts, and its own text is reported:
+            // "overlay is visible" alone told the user nothing about the error.
+            if ((await overlay.count()) > 0 && (await overlay.first().isVisible().catch(() => false))) {
+              const overlayText = await page
+                .locator("[data-nextjs-dialog], [data-nextjs-dialog-overlay], .vite-error-overlay")
+                .first()
+                .innerText({ timeout: 2_000 })
+                .catch(() => "");
+              const summary = overlayText.replace(/\s+/g, " ").trim().slice(0, 400);
               await record({
                 label,
                 status: "failed",
-                details: "Framework error overlay is visible",
+                details: summary
+                  ? `Framework error overlay is visible: ${summary}`
+                  : "Framework error overlay is visible",
               });
               continue;
             }

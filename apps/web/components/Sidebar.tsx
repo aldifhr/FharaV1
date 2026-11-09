@@ -16,7 +16,6 @@ import QueryBoundary from "./shell/QueryBoundary";
 import NeedsYou from "./sidebar/NeedsYou";
 import ProjectList from "./sidebar/ProjectList";
 import TeamList, { type TeamAgent } from "./sidebar/TeamList";
-import UsageMeter from "./sidebar/UsageMeter";
 import { CreateAgentModal, EditAgentModal } from "./sidebar/AgentForms";
 import { roleLabel } from "@/lib/agentRoles";
 import { onFocusTeam } from "@/lib/shellEvents";
@@ -213,12 +212,6 @@ export default function Sidebar({
             onAdd={() => setCreateOpen(true)}
             onOpenAgent={(a) => setDetail(a)}
           />
-        </div>
-
-        <div className="border-t border-line px-4 pb-[max(0.875rem,env(safe-area-inset-bottom))] pt-3">
-          <QueryBoundary fallback={<p className="text-[12.5px] text-ink-3">Usage unavailable</p>}>
-            <UsageMeter />
-          </QueryBoundary>
         </div>
 
         {detail && (

@@ -189,7 +189,9 @@ export function buildAssignmentGuidance(
     requested.length ? `The user asked for ${requested.map((a) => `@${a.name}`).join(", ")}; include them.` : "",
     "Do not tell the user to click Create task and do not claim anything has run.",
     "The task is ALREADY created; the team executes it. Do not solve it yourself: no code, no code blocks, no implementation details, no risk analysis, no mention of being read-only, and never ask anyone to create a task.",
-    "Format: at most 2 sentences, under 40 words. Example: \"Siap. @Frontend tambahkan formatRupiah di utils beserta tesnya, lalu @Reviewer cek hasilnya.\"",
+    // The example must not look like a real request: the model copied the
+    // old one (a formatRupiah task) word for word whenever it was close.
+    "Format: at most 2 sentences, under 40 words, shaped like: \"Siap. @<owner> <their part>, lalu @<checker> <their part>.\" Fill it from THIS request; pick owners by the work (code in the UI: Frontend; API or data: Backend; checks: QA or Reviewer).",
   ].filter(Boolean);
 }
 

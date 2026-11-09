@@ -26,6 +26,17 @@ export interface CompleteResult {
   reasoningDurationMs: number;
 }
 
+/**
+ * Reasoning text of one streamed delta. Some OpenAI-compatible gateways send
+ * the same text in BOTH `reasoning_content` and `reasoning`; adding both
+ * doubled every sentence of the "Thought" trace. Take one field only.
+ */
+export function reasoningDelta(delta: { reasoning_content?: unknown; reasoning?: unknown }): string {
+  if (typeof delta.reasoning_content === "string" && delta.reasoning_content) return delta.reasoning_content;
+  if (typeof delta.reasoning === "string") return delta.reasoning;
+  return "";
+}
+
 export async function completeWithAgent(
   system: string,
   history: { role: string; content: string }[],
@@ -179,8 +190,7 @@ export async function completeWithAgent(
             const d: any = JSON.parse(payload);
             const delta = d.choices?.[0]?.delta ?? {};
             if (typeof delta.content === "string") parts.push(delta.content);
-            if (typeof delta.reasoning_content === "string") reasoning += delta.reasoning_content;
-            if (typeof delta.reasoning === "string") reasoning += delta.reasoning;
+            reasoning += reasoningDelta(delta);
           } catch {}
         }
         if (parts.length) return finish(parts.join(""), reasoning);
@@ -194,8 +204,7 @@ export async function completeWithAgent(
         const d: any = JSON.parse(payload);
         const delta = d.choices?.[0]?.delta ?? {};
         if (typeof delta.content === "string") content += delta.content;
-        if (typeof delta.reasoning_content === "string") reasoning += delta.reasoning_content;
-        if (typeof delta.reasoning === "string") reasoning += delta.reasoning;
+        reasoning += reasoningDelta(delta);
         onChunk?.({ content, reasoning });
       } catch {}
     });

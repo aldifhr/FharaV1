@@ -37,6 +37,41 @@ const CODE_FILE =
 const TESTING = /\b(test|tests|testing|qa|e2e|playwright|vitest|jest|coverage|uji|pengujian)\b/i;
 const SECURITY = /\b(security|vulnerab|authz|xss|csrf|injection|secret)\b/i;
 
+// Explicit "do not change code" / "research only" phrasing (Indonesian and
+// English). The user's own words win over every change verb in the same
+// message: "riset kenapa build lambat, jangan ubah kode" contains "ubah",
+// yet it asks for a read-only answer. The e2e (B3) classified exactly that
+// as code_change and failed with "no file changes".
+const NO_CODE_NEGATION = new RegExp(
+  "\\b(?:jangan|tanpa|tidak (?:perlu|usah)|nggak usah|gak usah|ga usah|ngga usah|tak perlu)\\s+" +
+    "(?:(?:meng|di)?ubah|(?:meng|di)?edit|menyentuh|(?:di)?sentuh|(?:me|di)?modifikasi|(?:meng|di)?ganti|menulis|(?:di)?tulis|bikin|buat)\\w*\\s+" +
+    "(?:(?:apa|apapun|apa pun|satu)\\s+)?(?:kode|code|kodenya|file|berkas|source|repo)\\w*" +
+    "|\\b(?:do not|don'?t|dont|never|without|no need to)\\s+(?:change|changing|modify|modifying|edit|editing|touch|touching|write|writing)\\s+" +
+    "(?:(?:any|the|a)\\s+)?(?:code|files?|source|repo)\\b" +
+    "|\\bno code changes?\\b",
+  "i"
+);
+const RESEARCH_ONLY =
+  /\b(?:research[- ]only|riset saja|riset aja|analisa saja|analisa aja|analisis saja|analisis aja|hanya (?:riset|analisa|analisis)|cuma (?:riset|analisa|analisis)|just (?:research|analy[sz]e))\b/i;
+// A research verb: research unless a real change verb remains once the
+// negated phrases are removed ("riset library X lalu perbaiki Y" is a change).
+const RESEARCH_WORD = /\b(?:riset|research|investigasi|investigate|analisa|analisis|telusuri|kaji)\b/i;
+
+/** The user's own words: attached file contexts and conversation context are not instructions. */
+export function requestText(command: string): string {
+  return command.split(/\n\s*(?:---\s*Conversation context\s*---|Attached file context:|---\s*File:)/i)[0] ?? command;
+}
+
+/** True when the request explicitly asks for no code changes (research/question only). */
+export function isExplicitNoCode(command: string): boolean {
+  const text = requestText(command);
+  return NO_CODE_NEGATION.test(text) || RESEARCH_ONLY.test(text);
+}
+
+function withoutNoCodePhrases(text: string): string {
+  return text.replace(new RegExp(NO_CODE_NEGATION.source, "gi"), " ").replace(new RegExp(RESEARCH_ONLY.source, "gi"), " ");
+}
+
 const QUESTION_START =
   /^(kenapa|mengapa|apa|apakah|bagaimana|gimana|gmn|kapan|dimana|di mana|why|how come|what|when|where)\b/i;
 const REQUEST_MARKER =
@@ -146,6 +181,8 @@ function classifyCommandBase(command: string): Classification {
   }
 
   const hasChangeVerb = CHANGE_VERB.test(text);
+  const request = requestText(text);
+  const explicitNoCode = isExplicitNoCode(text);
   const hasFrontend = FRONTEND.test(text);
   const hasDesign = DESIGN.test(text);
   const hasBackend = BACKEND.test(text);
@@ -165,6 +202,38 @@ function classifyCommandBase(command: string): Classification {
         CAPABILITY.CODE_REVIEW,
       ])
     );
+
+  // Explicit no-code request: always research (read-only, locked plan),
+  // whatever verbs it carries. An audit phrased that way keeps its reviewer
+  // capability but is still research: an audit task may delegate a fix, and
+  // the user said not to change code.
+  if (explicitNoCode) {
+    const auditLike = AUDIT_ONLY.test(request);
+    return {
+      kind: "research",
+      strategy: "single",
+      reasons: [
+        "explicit no-code request (research/question only)",
+        ...(auditLike ? ["read-only audit requested"] : []),
+      ],
+      suggestedCapabilities: Array.from(
+        new Set([
+          ...(auditLike ? [hasSecurity ? CAPABILITY.SECURITY : CAPABILITY.CODE_REVIEW] : []),
+          ...researchCapabilities(),
+        ])
+      ),
+    };
+  }
+
+  // "riset …" / "research …" with no change verb left: a research task.
+  if (RESEARCH_WORD.test(request) && !CHANGE_VERB.test(withoutNoCodePhrases(request))) {
+    return {
+      kind: "research",
+      strategy: "single",
+      reasons: ["research requested without a change request"],
+      suggestedCapabilities: researchCapabilities(),
+    };
+  }
 
   if (AUDIT_ONLY.test(text) && !hasChangeVerb) {
     return {

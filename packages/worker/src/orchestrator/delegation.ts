@@ -9,6 +9,7 @@ import {
 } from "./capabilities";
 import type { AgentResult, DelegationDecision } from "./taskContext";
 import type { BudgetTracker } from "./budget";
+import { isReadOnlyTaskKind } from "./planValidator";
 
 /** DelegationDecision is defined once in taskContext.ts (plan 013 step 7
  *  dedupe) and re-exported here for the engine/evaluation layers. */
@@ -46,6 +47,16 @@ const CAPABILITY_ALIASES: Readonly<Record<string, string>> = {
   security: CAPABILITY.SECURITY,
   reviewer: CAPABILITY.CODE_REVIEW,
 };
+
+/** Capabilities whose delegated node writes code, runs commands, or checks a diff. */
+const WRITE_CAPABILITIES: ReadonlySet<string> = new Set([
+  CAPABILITY.FRONTEND,
+  CAPABILITY.BACKEND,
+  CAPABILITY.GITHUB,
+  CAPABILITY.SHELL_EXECUTION,
+  CAPABILITY.BROWSER_TESTING,
+  CAPABILITY.CODE_REVIEW,
+]);
 
 function canonicalCapability(value: string): string {
   const normalized = normalizeCapability(value);
@@ -180,6 +191,32 @@ export function evaluateDelegation(input: {
       reason: `Agent ${result.agentName} failed: ${result.delegationRecommendation?.reason ?? result.summary}`,
       shouldCallLLM: false,
     };
+  }
+
+  // Read-only task (research/question): no follow-up that writes code,
+  // runs commands, or reviews/tests a diff is ever started on its own. The
+  // agent's recommendation and findings stay in its answer as suggested
+  // follow-up tasks for the user to start.
+  if (isReadOnlyTaskKind(input.classification.kind)) {
+    const proposed = result.delegationRecommendation?.targetCapability;
+    const hasSevere = result.findings?.some((f) => f.severity === "critical" || f.severity === "high");
+    if (hasSevere || (proposed && WRITE_CAPABILITIES.has(canonicalCapability(proposed)))) {
+      return {
+        decision: "REJECT",
+        reason: `read-only ${input.classification.kind} task: follow-up${
+          proposed ? ` (${proposed})` : ""
+        } is reported as a suggestion, not started`,
+        ...(proposed ? { targetCapability: proposed } : {}),
+        shouldCallLLM: false,
+      };
+    }
+    if (!proposed) {
+      return {
+        decision: "COMPLETE",
+        reason: "Read-only task completed; no follow-up is started automatically",
+        shouldCallLLM: false,
+      };
+    }
   }
 
   // Critical/high findings on a completed result -> REVISE back to an

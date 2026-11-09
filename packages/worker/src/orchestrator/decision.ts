@@ -158,8 +158,12 @@ export function evaluateObjective(ctx: DecisionContext): ObjectiveEvaluation {
   // Scaffold evidence (runTeam, from open-multi-agent): a React/Vite
   // migration must leave a real project structure (package.json + entry +
   // App), not a single CDN index.html.
+  // Only when the task's own requirements ask for a framework project: a
+  // goal that merely mentions React ("add a React button") must not grow
+  // an unrequested scaffold requirement (e2e S4 replanned with "objective
+  // unmet" while all 4 requirements were covered).
   const allFiles = Object.values(ev.appliedFiles ?? {}).flat();
-  const needsScaffold = /\b(react|vite|next)\b/i.test(ctx.plan.goal ?? "");
+  const needsScaffold = requiresScaffold(ctx.plan);
   if (needsScaffold && allFiles.length > 0) {
     const hasPkg = allFiles.some((f) => f === "package.json" || f.endsWith("/package.json"));
     const hasApp = allFiles.some((f) => /(src\/(main|App)\.(jsx|tsx|js|ts))$$/.test(f));
@@ -218,6 +222,24 @@ export function evaluateObjective(ctx: DecisionContext): ObjectiveEvaluation {
   }
 
   return { satisfied: missing.length === 0, evidence, missing };
+}
+
+const FRAMEWORK = /\b(react|vite|next(?:\.?js)?)\b/i;
+const SCAFFOLD_INTENT =
+  /\b(scaffold\w*|migrat\w*|migrasi|convert\w*|konversi|port(?:ing)?|rewrite|new (?:react|vite|next)|(?:create|set ?up|init\w*|bootstrap|buat\w*|bikin\w*)\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:react|vite|next(?:\.?js)?)\s*(?:app|project|aplikasi|proyek)?|(?:react|vite|next(?:\.?js)?)\s+(?:app|project|aplikasi|proyek)\s+(?:baru|from scratch))\b/i;
+
+/**
+ * True when one of the task's requirements (or, for plans without a
+ * requirement list, the goal) asks for a framework project: a scaffold,
+ * a migration/conversion, or a new React/Vite/Next app. A requirement that
+ * only mentions the framework (a React component, a Next page) does not.
+ */
+export function requiresScaffold(plan: { goal?: string; requirements?: Array<{ text: string }> }): boolean {
+  const texts =
+    plan.requirements && plan.requirements.length > 0
+      ? plan.requirements.map((requirement) => requirement.text)
+      : [plan.goal ?? ""];
+  return texts.some((text) => FRAMEWORK.test(text) && SCAFFOLD_INTENT.test(text));
 }
 
 export interface DecisionTask {

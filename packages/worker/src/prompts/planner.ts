@@ -1,4 +1,5 @@
 import type { Classification } from "@/types";
+import { isReadOnlyTaskKind } from "@/api/convex/lib/planValidation";
 
 /** What the CTO planning prompt is built from. */
 export interface PlanningPromptInput {
@@ -81,6 +82,17 @@ export function planningPrompt(input: PlanningPromptInput): string {
     ...(input.feedback && /Subtask timed out/.test(input.feedback)
       ? [
           "- A subtask TIMED OUT in the previous attempt: do not plan it again as-is. Split it into smaller subtasks (one per concern or per file group) so every step finishes well inside the time limit.",
+        ]
+      : []),
+    ...(isReadOnlyTaskKind(classification.kind)
+      ? [
+          "",
+          `READ-ONLY TASK (classification: ${classification.kind}). The user asked for research / an answer, not a change.`,
+          "- Use ONLY read-only kinds: research, analysis (audit for a code inspection). NEVER emit code_change, shell, review or qa subtasks: nothing is written, applied, committed, reviewed as a diff or browser-tested.",
+          "- Do not add allowedPaths. Gates: the answer is non-empty and cites its sources.",
+          "- Requirements are what the user asked to learn or decide, not changes to make.",
+          "- If changes would help, the final research subtask ends its answer with a short plain-text \"Suggested follow-up tasks\" list. Do NOT plan those tasks here; the user starts them.",
+          "- requiresApproval is false.",
         ]
       : []),
     "",

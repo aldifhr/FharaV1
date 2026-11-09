@@ -3,6 +3,7 @@ import {
   findCycle,
   SUBTASK_KINDS as SHARED_SUBTASK_KINDS,
   validatePlan as validateSharedPlan,
+  type ValidatePlanOptions,
   validateStoredPlan as validateSharedStoredPlan,
 } from "@/api/convex/lib/planValidation";
 
@@ -12,6 +13,7 @@ import {
 // the worker's import path and plan types.
 
 export { findCycle };
+export { isReadOnlyTaskKind, READ_ONLY_TASK_KINDS, type ValidatePlanOptions } from "@/api/convex/lib/planValidation";
 
 export const SUBTASK_KINDS: SubtaskKind[] = SHARED_SUBTASK_KINDS;
 
@@ -19,10 +21,17 @@ export interface ValidationResult {
   ok: boolean;
   errors: string[];
   plan?: ExecutionPlan;
+  /** Read-only lock changes (converted / dropped nodes). */
+  notes?: string[];
 }
 
-export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResult {
-  return validateSharedPlan(raw, maxSubtasks);
+/**
+ * `options.taskKind` is the task's classification kind: research/question
+ * (and conversation) plans are locked read-only — see the shared
+ * validator.
+ */
+export function validatePlan(raw: unknown, maxSubtasks: number, options: ValidatePlanOptions = {}): ValidationResult {
+  return validateSharedPlan(raw, maxSubtasks, options);
 }
 
 /** See the shared `validateStoredPlan` (planner cap relaxed for runner-added nodes). */

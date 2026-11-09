@@ -172,8 +172,10 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
                 input.command,
             }
           : parsed,
-        input.policy.maxSubtasks
+        input.policy.maxSubtasks,
+        { taskKind: input.classification.kind }
       );
+      if (validation.notes) notes.push(...validation.notes);
       if (validation.ok && validation.plan) {
         const hinted = applyPlanningHints(splitForComplexity(validation.plan, input, notes), input.agents, {
           command: input.command,
@@ -696,7 +698,9 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
         {
           key: "research",
           title: "Answer the question",
-          description: "Read the repository and answer the question with evidence. Do not modify files.",
+          description:
+            "Read the repository and answer the question with evidence. Do not modify files. " +
+            'If code changes would help, end with a short plain-text "Suggested follow-up tasks" list; do not start them.',
           kind: "research",
           capability: hasCapability(CAPABILITY.RESEARCH)
             ? CAPABILITY.RESEARCH

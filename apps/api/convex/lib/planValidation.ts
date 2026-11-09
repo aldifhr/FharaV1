@@ -6,7 +6,12 @@
  * packages/worker/src/orchestrator/planValidator.ts with its own plan types.
  */
 import { normalizeAllowedPaths } from "./ownershipPaths";
-import { contractGateErrors, parseContract, type AcceptanceGate } from "./subtaskContract";
+import {
+  contractGateErrors,
+  defaultGatesForKind,
+  parseContract,
+  type AcceptanceGate,
+} from "./subtaskContract";
 import { parseStoredRequirements, type Requirement } from "./requirements";
 
 export type ValidatedSubtaskKind =
@@ -75,9 +80,136 @@ export interface ValidationResult {
   ok: boolean;
   errors: string[];
   plan?: ValidatedPlan;
+  /** What the read-only lock changed (converted / dropped nodes), for planner notes. */
+  notes?: string[];
 }
 
-export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResult {
+/**
+ * Task types whose plans are read-only: a research task or a question never
+ * gets a node that writes (code_change) or runs mutating commands (shell is
+ * git-only but includes pull-style argv). "question" is accepted for
+ * callers that name it; the worker classifier calls it "research". Audit is
+ * deliberately not here: an audit's critical findings may still delegate a
+ * fix (delegation.ts), which is existing, tested behaviour.
+ */
+export const READ_ONLY_TASK_KINDS: ReadonlySet<string> = new Set(["research", "question", "conversation"]);
+
+/** Subtask kinds that write or apply changes; never allowed in a read-only plan. */
+const WRITE_KINDS: ReadonlySet<string> = new Set(["code_change", "shell"]);
+/** Kinds that only make sense on top of a code change (diff review, browser QA). */
+const CHANGE_FOLLOWUP_KINDS: ReadonlySet<string> = new Set(["review", "qa"]);
+
+export interface ValidatePlanOptions {
+  /**
+   * The task's classification kind. For a read-only kind (research,
+   * question, conversation) write nodes are converted into read-only
+   * research nodes and diff-review / QA nodes are dropped. Omitted: no lock
+   * (user plan edits, stored plans).
+   */
+  taskKind?: string;
+}
+
+export function isReadOnlyTaskKind(kind: string | undefined): boolean {
+  return kind !== undefined && READ_ONLY_TASK_KINDS.has(kind);
+}
+
+const READ_ONLY_PREFIX =
+  "Read-only: investigate and report findings with evidence (file references or URLs). Do not modify, create or delete files and do not run mutating commands.";
+
+export function validatePlan(
+  raw: unknown,
+  maxSubtasks: number,
+  options: ValidatePlanOptions = {}
+): ValidationResult {
+  if (isReadOnlyTaskKind(options.taskKind)) {
+    const locked = lockReadOnly(raw);
+    const result = validatePlanInner(locked.raw, maxSubtasks, true);
+    return locked.notes.length > 0 ? { ...result, notes: locked.notes } : result;
+  }
+  return validatePlanInner(raw, maxSubtasks, false);
+}
+
+/**
+ * Read-only lock (research/question tasks): code_change and shell nodes
+ * become research nodes (no allowedPaths, research gates); review and QA
+ * nodes, which only check a diff or a running change, are dropped and their
+ * dependents inherit their dependencies. Applied to the raw planner output
+ * so every later validation step sees a read-only plan. Malformed input is
+ * passed through for the normal validator to reject.
+ */
+function lockReadOnly(raw: unknown): { raw: unknown; notes: string[] } {
+  const notes: string[] = [];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { raw, notes };
+  const candidate = raw as Record<string, unknown>;
+  if (!Array.isArray(candidate.subtasks)) return { raw, notes };
+  const entries = candidate.subtasks as unknown[];
+
+  const keyOf = (value: Record<string, unknown>) =>
+    typeof value.key === "string" ? value.key.trim().toLowerCase() : "";
+  const depsOf = (value: Record<string, unknown>) =>
+    Array.isArray(value.dependencies)
+      ? (value.dependencies as unknown[])
+          .filter((dependency): dependency is string => typeof dependency === "string")
+          .map((dependency) => dependency.trim().toLowerCase())
+      : [];
+  const isObject = (entry: unknown): entry is Record<string, unknown> =>
+    Boolean(entry) && typeof entry === "object" && !Array.isArray(entry);
+  const kindOf = (value: Record<string, unknown>) =>
+    typeof value.capability === "string" && normalizeCapability(value.capability) === "shell-execution"
+      ? "shell"
+      : String(value.kind ?? "");
+
+  // Drop review/QA nodes (keep at least one node so the plan stays valid).
+  const objects = entries.filter(isObject);
+  const droppable = objects.filter((value) => CHANGE_FOLLOWUP_KINDS.has(kindOf(value)));
+  const dropped = new Map<string, string[]>();
+  if (droppable.length < objects.length) {
+    for (const value of droppable) dropped.set(keyOf(value), depsOf(value));
+  }
+  const resolveDeps = (deps: string[], seen = new Set<string>()): string[] =>
+    deps.flatMap((dependency) => {
+      if (!dropped.has(dependency)) return [dependency];
+      if (seen.has(dependency)) return [];
+      seen.add(dependency);
+      return resolveDeps(dropped.get(dependency) ?? [], seen);
+    });
+
+  const subtasks: unknown[] = [];
+  for (const entry of entries) {
+    if (!isObject(entry)) {
+      subtasks.push(entry);
+      continue;
+    }
+    const key = keyOf(entry);
+    if (dropped.has(key)) {
+      notes.push(`read-only task: dropped ${kindOf(entry)} subtask ${key} (nothing to review or test without code changes)`);
+      continue;
+    }
+    const dependencies = [...new Set(resolveDeps(depsOf(entry)))];
+    const next: Record<string, unknown> = {
+      ...entry,
+      ...(Array.isArray(entry.dependencies) ? { dependencies } : {}),
+    };
+    const kind = kindOf(entry);
+    if (WRITE_KINDS.has(kind)) {
+      const description = typeof entry.description === "string" ? entry.description.trim() : "";
+      next.kind = "research";
+      if (kind === "shell") next.capability = "research";
+      next.description = description ? `${READ_ONLY_PREFIX}\n${description}` : READ_ONLY_PREFIX;
+      next.acceptance = defaultGatesForKind("research");
+      delete next.allowedPaths;
+      delete next.scope;
+      notes.push(`read-only task: converted ${kind} subtask ${key || "(unnamed)"} to research`);
+    }
+    subtasks.push(next);
+  }
+  return {
+    raw: { ...candidate, subtasks, requiresApproval: false },
+    notes,
+  };
+}
+
+function validatePlanInner(raw: unknown, maxSubtasks: number, readOnly: boolean): ValidationResult {
   const errors: string[] = [];
   if (!raw || typeof raw !== "object") {
     return { ok: false, errors: ["plan must be an object"] };
@@ -198,8 +330,9 @@ export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResul
         : "single";
 
   // An explicit `false` can never disable the gate for code changes.
+  // A read-only (research/question) plan has nothing to approve.
   const requiresApproval =
-    candidate.requiresApproval === true ||
+    (!readOnly && candidate.requiresApproval === true) ||
     subtasks.some((subtask) => subtask.kind === "code_change");
 
   const maxConcurrency =
@@ -307,5 +440,5 @@ export function validateStoredPlan(raw: unknown, maxSubtasks: number): Validatio
     raw && typeof raw === "object" && Array.isArray((raw as { subtasks?: unknown }).subtasks)
       ? (raw as { subtasks: unknown[] }).subtasks.length
       : 0;
-  return validatePlan(raw, Math.max(maxSubtasks, count));
+  return validatePlanInner(raw, Math.max(maxSubtasks, count), false);
 }

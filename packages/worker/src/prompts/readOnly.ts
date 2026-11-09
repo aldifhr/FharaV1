@@ -1,4 +1,11 @@
 /**
+ * Research may end with suggested follow-up tasks: plain text the user can
+ * start as new tasks. They are never created or executed automatically.
+ */
+export const SUGGESTED_FOLLOW_UPS =
+  'If code changes would help, end with a short "Suggested follow-up tasks" list (plain text, one task per line). Do not make those changes and do not start them; the user decides.';
+
+/**
  * Instruction for a read-only subtask (audit / research / analysis),
  * including the optional delegation/findings JSON footer.
  */
@@ -18,6 +25,7 @@ export function readOnlyInstruction(mode: "audit" | "research" | "analysis"): st
       "Cite file paths for every claim.",
       "Do not modify files.",
       "If the context is insufficient, say exactly what is missing.",
+      SUGGESTED_FOLLOW_UPS,
     ].join("\n");
   } else {
     instruction = [

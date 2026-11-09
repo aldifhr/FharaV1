@@ -107,7 +107,15 @@ export interface ValidatePlanOptions {
    * (user plan edits, stored plans).
    */
   taskKind?: string;
+  /**
+   * taskKind "command" only: the allowlisted command lines the user asked to
+   * run ("npm run test"). The plan becomes one shell node per command.
+   */
+  commands?: string[];
 }
+
+/** Task kind for "run npm test" / "jalankan tes": a shell-only plan. */
+export const COMMAND_TASK_KIND = "command";
 
 export function isReadOnlyTaskKind(kind: string | undefined): boolean {
   return kind !== undefined && READ_ONLY_TASK_KINDS.has(kind);
@@ -121,6 +129,11 @@ export function validatePlan(
   maxSubtasks: number,
   options: ValidatePlanOptions = {}
 ): ValidationResult {
+  if (options.taskKind === COMMAND_TASK_KIND) {
+    const locked = lockCommand(raw, options.commands ?? []);
+    const result = validatePlanInner(locked.raw, maxSubtasks, false);
+    return locked.notes.length > 0 ? { ...result, notes: locked.notes } : result;
+  }
   if (isReadOnlyTaskKind(options.taskKind)) {
     const locked = lockReadOnly(raw);
     const result = validatePlanInner(locked.raw, maxSubtasks, true);
@@ -207,6 +220,84 @@ function lockReadOnly(raw: unknown): { raw: unknown; notes: string[] } {
     raw: { ...candidate, subtasks, requiresApproval: false },
     notes,
   };
+}
+
+function commandNodeKey(line: string, used: Set<string>): string {
+  const base = `run-${line.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`.slice(0, 60) || "run";
+  let key = base;
+  for (let n = 2; used.has(key); n += 1) key = `${base}-${n}`;
+  used.add(key);
+  return key;
+}
+
+/**
+ * Command lock ("run npm test" / "jalankan tes"): the plan is the shell
+ * nodes that run the requested commands, in request order, and nothing
+ * else. A planner that turned the run into a code_change ("no file changes")
+ * or a report-writing node is overridden; review / QA nodes are dropped.
+ * Without known commands the planner's own shell nodes are kept, code_change
+ * nodes become shell nodes and everything else is dropped. Each command is
+ * approved when it runs (run_command approval), so requiresApproval is false.
+ */
+function lockCommand(raw: unknown, commands: string[]): { raw: unknown; notes: string[] } {
+  const notes: string[] = [];
+  const candidate: Record<string, unknown> =
+    raw && typeof raw === "object" && !Array.isArray(raw) ? { ...(raw as Record<string, unknown>) } : {};
+  const entries = Array.isArray(candidate.subtasks) ? (candidate.subtasks as unknown[]) : [];
+  const isObject = (entry: unknown): entry is Record<string, unknown> =>
+    Boolean(entry) && typeof entry === "object" && !Array.isArray(entry);
+  const kindOf = (value: Record<string, unknown>) =>
+    typeof value.capability === "string" && normalizeCapability(value.capability) === "shell-execution"
+      ? "shell"
+      : String(value.kind ?? "");
+  const keyOf = (value: Record<string, unknown>) =>
+    typeof value.key === "string" && value.key.trim() ? value.key.trim().toLowerCase() : "(unnamed)";
+
+  const lines = [...new Set(commands.map((line) => line.trim()).filter(Boolean))];
+  let subtasks: Record<string, unknown>[];
+  if (lines.length > 0) {
+    for (const entry of entries.filter(isObject)) {
+      if (kindOf(entry) !== "shell") notes.push(`run-command task: replaced ${kindOf(entry) || "unknown"} subtask ${keyOf(entry)} with the requested command`);
+    }
+    const used = new Set<string>();
+    subtasks = lines.map((line, index) => ({
+      key: commandNodeKey(line, used),
+      title: `Run ${line}`,
+      description: `Run exactly: ${line}`,
+      kind: "shell",
+      capability: "shell-execution",
+      dependencies: [],
+      order: index,
+    }));
+    subtasks.forEach((node, index) => {
+      if (index > 0) node.dependencies = [subtasks[index - 1].key];
+    });
+  } else {
+    const kept = entries.filter(isObject).filter((entry) => {
+      const kind = kindOf(entry);
+      if (kind === "shell" || kind === "code_change") return true;
+      notes.push(`run-command task: dropped ${kind || "unknown"} subtask ${keyOf(entry)}`);
+      return false;
+    });
+    const keptKeys = new Set(kept.map(keyOf));
+    subtasks = kept.map((entry) => {
+      const kind = kindOf(entry);
+      const next: Record<string, unknown> = { ...entry, kind: "shell", capability: "shell-execution" };
+      if (Array.isArray(entry.dependencies)) {
+        next.dependencies = (entry.dependencies as unknown[]).filter(
+          (dependency) => typeof dependency === "string" && keptKeys.has(dependency.trim().toLowerCase())
+        );
+      }
+      if (kind === "code_change") {
+        notes.push(`run-command task: converted code_change subtask ${keyOf(entry)} to shell`);
+        delete next.allowedPaths;
+        delete next.scope;
+        delete next.acceptance;
+      }
+      return next;
+    });
+  }
+  return { raw: { ...candidate, subtasks, requiresApproval: false }, notes };
 }
 
 function validatePlanInner(raw: unknown, maxSubtasks: number, readOnly: boolean): ValidationResult {

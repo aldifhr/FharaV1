@@ -95,6 +95,15 @@ export function planningPrompt(input: PlanningPromptInput): string {
           "- requiresApproval is false.",
         ]
       : []),
+    ...(classification.kind === "command"
+      ? [
+          "",
+          `RUN-COMMAND TASK (classification: command). The user asked to RUN: ${(classification.commands ?? []).join(", ")}.`,
+          "- Emit one subtask per command: kind \"shell\", capability \"shell-execution\", description \"Run exactly: <command line>\". Commands run in request order (each depends on the previous one).",
+          "- NEVER emit code_change, review or qa subtasks and do not write report files: the worker runs the command (after command approval) and its output is the result.",
+          "- requiresApproval is false (each command is approved when it runs).",
+        ]
+      : []),
     "",
     "Rules:",
     `- 1 to ${policy.maxSubtasks} subtasks.`,

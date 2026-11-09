@@ -173,7 +173,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
             }
           : parsed,
         input.policy.maxSubtasks,
-        { taskKind: input.classification.kind }
+        { taskKind: input.classification.kind, commands: input.classification.commands }
       );
       if (validation.notes) notes.push(...validation.notes);
       if (validation.ok && validation.plan) {
@@ -606,6 +606,17 @@ function ensureRoutable(
   };
 }
 
+/** Shell-only plan for a run-command task (shared with the validator's command lock). */
+function commandPlan(goal: string, commands: string[]): ExecutionPlan | null {
+  if (commands.length === 0) return null;
+  const plan = validatePlan(
+    { goal, strategy: commands.length > 1 ? "dag" : "single", requiresApproval: false, maxConcurrency: 1, subtasks: [] },
+    Number.MAX_SAFE_INTEGER,
+    { taskKind: "command", commands }
+  );
+  return plan.ok && plan.plan ? plan.plan : null;
+}
+
 export function heuristicPlan(input: PlannerInput): ExecutionPlan {
   const { classification, command, agents } = input;
   const goal = command.slice(0, 500);
@@ -685,6 +696,13 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
         },
       ],
     };
+  }
+
+  if (classification.kind === "command") {
+    // "run npm test" / "jalankan tes": one shell node per allowlisted
+    // command, in request order; each command is approved when it runs.
+    const shellPlan = commandPlan(goal, classification.commands ?? []);
+    if (shellPlan) return shellPlan;
   }
 
   if (classification.kind === "research") {

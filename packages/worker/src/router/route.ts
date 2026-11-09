@@ -108,6 +108,11 @@ export async function routeMessage(input: RouterInput): Promise<RouteResult> {
   if (classification.kind === "conversation") {
     return { intent: "chat", classification, agentIds: chatAgents(), reasons };
   }
+  // Fast path 1b: "run npm test" / "jalankan tes" (the classifier already
+  // ruled out pure questions): a shell task, approved per command.
+  if (classification.kind === "command") {
+    return { intent: "task", classification, agentIds: [], reasons };
+  }
   // Fast path 2: question / advice / capability-confirmation shapes.
   if (QUESTION_SHAPE.test(text) || CONFIRMATION_SHAPE.test(text)) {
     return {

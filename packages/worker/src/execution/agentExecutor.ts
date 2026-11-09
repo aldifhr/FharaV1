@@ -8,7 +8,7 @@ import {
   type FallbackHandle,
   type LlmConcurrencyGate,
 } from "@/effects/llmCall";
-import type { SubtaskTokenUsageFn } from "@/types/llm";
+import type { LLMMessage, SubtaskTokenUsageFn } from "@/types/llm";
 import {
   buildRepairPrompt,
   codeChangeExplorationInstruction,
@@ -24,7 +24,7 @@ import {
   readOnlyUserContent,
   toolLoopSectionFor,
 } from "@/prompts/readOnly";
-import { shellInstruction, shellUserContent } from "@/prompts/shell";
+import { parseShellReply, shellInstruction, shellRepairContent, shellUserContent } from "@/prompts/shell";
 
 // Prompt text lives in `@/prompts`; re-exported for existing importers.
 export { buildRepairPrompt } from "@/prompts/codeChange";
@@ -1730,8 +1730,9 @@ async function executeReadOnly(
  * Shell subtask ("ponytail" scope): the agent does NOT run commands itself.
  * It replies with {"command":"git","args":["pull"]} JSON and the worker
  * executes the allowlisted argv from the task workspace, so the LLM never
- * gets a free-form shell. Only `git pull` is wired — verify pass, then add
- * argv entries to the allowlist (daily limit 500 calls across tasks).
+ * gets a free-form shell. The allowlist (utils/commandAllowlist) is the
+ * single source for both the prompt and the executor; a reply that is not
+ * the JSON contract gets one repair round before the subtask fails.
  */
 async function executeShell(
   input: SubtaskExecutionInput
@@ -1748,29 +1749,58 @@ async function executeShell(
 
   const handles = handlesFor(input);
   const health = healthFor(input);
-  const messages = baseMessages(input, shellUserContent(instruction, command));
-  const { result: response, servedBy } = await runLlmCallWithFallback(handles, messages, {
-    health,
-    signal,
-    timeoutMs: llmCallTimeoutMs(input),
-    taskGate: input.llmTaskGate,
-  });
-  // Every executor path reports its call (the shell path used not to).
-  if (input.onTokenUsage) {
-    await input.onTokenUsage(
-      response.inputTokens ?? 0,
-      response.outputTokens ?? 0,
-      servedBy.config.model,
-      usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
-    );
+  // The task's command is the user's whole request; the subtask description
+  // says which command this node runs (a plan may hold several shell nodes).
+  const task = subtask.description && subtask.description.trim() && subtask.description.trim() !== command.trim()
+    ? `${subtask.description.trim()}\n\nUser request: ${command}`
+    : command;
+  const messages = baseMessages(input, shellUserContent(instruction, task));
+  const ask = async (conversation: LLMMessage[]): Promise<string> => {
+    const { result: response, servedBy } = await runLlmCallWithFallback(handles, conversation, {
+      health,
+      signal,
+      timeoutMs: llmCallTimeoutMs(input),
+      taskGate: input.llmTaskGate,
+    });
+    // Every executor path reports its call (the shell path used not to).
+    if (input.onTokenUsage) {
+      await input.onTokenUsage(
+        response.inputTokens ?? 0,
+        response.outputTokens ?? 0,
+        servedBy.config.model,
+        usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
+      );
+    }
+    return response.content;
+  };
+  const first = await ask(messages);
+  let reply = parseShellReply(first);
+  if (!reply) {
+    // One repair round: re-ask with the exact schema before failing. A model
+    // that answered in prose ("I can't run npm test…") gets one more chance
+    // to give the contract; the JSON never reaches chat either way.
+    if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
+    await onEvent("shell.reply_repair", { preview: first.trim().slice(0, 200) }, "warn");
+    const second = await ask([
+      ...messages,
+      { role: "assistant" as const, content: first.trim() || "(empty)" },
+      { role: "user" as const, content: shellRepairContent(first) },
+    ]);
+    reply = parseShellReply(second);
   }
-  const parsed = parseShellCommand(response.content);
-  if (!parsed) {
+  if (!reply) {
     return {
       status: "failed",
-      error: "Shell agent did not return a valid command JSON",
+      error: "Shell agent did not return a valid command JSON (after one repair attempt)",
     };
   }
+  if (reply.kind === "refusal") {
+    return {
+      status: "failed",
+      error: `Shell agent found no allowlisted command for this task: ${reply.reason}`,
+    };
+  }
+  const parsed = { command: reply.command, args: reply.args };
   // The raw shell-command JSON must never reach chat; narrate the human
   // command line instead (the result summary below follows on completion).
   await input.onMessage(`$ ${parsed.command} ${parsed.args.join(" ")}`);
@@ -1819,23 +1849,6 @@ async function executeShell(
   };
 }
 
-
-function parseShellCommand(content: string): { command: string; args: string[] } | null {
-  const normalized = content.replace(/```json|```/g, "").trim();
-  const match = normalized.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try {
-    const parsed = JSON.parse(match[0]) as { command?: unknown; args?: unknown };
-    if (!Array.isArray(parsed.args)) return null;
-    const command = typeof parsed.command === "string" ? parsed.command.trim() : "";
-    const args = parsed.args.filter((a): a is string => typeof a === "string");
-    if (!command) return null;
-    if (args.length !== parsed.args.length) return null;
-    return { command, args };
-  } catch {
-    return null;
-  }
-}
 
 const FORBIDDEN_PATHS = [
   /(^|\/)\.env(\.|$)/i,

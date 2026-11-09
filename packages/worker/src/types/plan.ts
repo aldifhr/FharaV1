@@ -51,7 +51,7 @@ export interface ExecutionPlan {
 }
 
 export interface Classification {
-  kind: "conversation" | "audit" | "research" | "code_change" | "multi";
+  kind: "conversation" | "audit" | "research" | "code_change" | "multi" | "command";
   strategy: ExecutionPlan["strategy"];
   reasons: string[];
   suggestedCapabilities: string[];
@@ -64,6 +64,11 @@ export interface Classification {
   complexity?: "low" | "medium" | "high" | "ultra";
   /** The separate concerns of a change request, in request order. */
   concerns?: Concern[];
+  /**
+   * kind "command" only: the allowlisted command lines the user asked to run
+   * ("npm run test"), in request order. Each becomes one shell subtask.
+   */
+  commands?: string[];
 }
 
 /** One concern of a multi-part change request ("tambah test", "update README"). */

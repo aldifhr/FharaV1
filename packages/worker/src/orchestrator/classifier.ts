@@ -1,4 +1,5 @@
 import { CAPABILITY, type Classification, type Concern } from "@/types";
+import { ALLOWED_ARGV, allowedCommandLines } from "@/utils/commandAllowlist";
 
 const GREETING = /^(hi|hello|hey|halo|hai|yo|good (morning|afternoon|evening))[!.,?\s]*$/i;
 // Expanded verb coverage (Stage A fast path only — semantic stage below
@@ -87,6 +88,109 @@ function isPureQuestion(text: string): boolean {
   return endsWithQuestion || QUESTION_START.test(trimmed);
 }
 
+
+// ─── Run-command requests ("run npm test", "jalankan tes") ───────────────
+//
+// A request to RUN an allowlisted check is a shell task (run_command, which
+// goes through command approval), not a code change: the live test planned
+// "run npm test" as code_change and failed with "no file changes" (or wrote
+// a TEST_REPORT.md saying the tests were not executed). The targets map onto
+// the shared allowlist (utils/commandAllowlist), so a command is only ever
+// suggested when the shell executor can actually run it.
+
+const RUN_VERB =
+  /\b(?:run|re-?run|execute|exec|jalankan|jalanin|jalankanlah|jalan(?:kan)?in|eksekusi(?:kan)?|lakukan)\b/gi;
+/** Natural-language targets → allowlisted command line (checked against ALLOWED_ARGV below). */
+const RUN_TARGETS: Array<{ pattern: RegExp; line: string }> = [
+  { pattern: /\bnpx\s+tsc(?:\s+--noemit)?\b|\btsc(?:\s+--noemit)?\b/gi, line: "npx tsc --noEmit" },
+  { pattern: /\bnpm\s+(?:run\s+)?typecheck\b|\btype[- ]?check(?:s|ing|nya)?\b|\bcek\s+tipe\b|\bpengecekan\s+tipe\b/gi, line: "npm run typecheck" },
+  { pattern: /\bnpm\s+run\s+build\b|\bbuild(?:nya)?\b/gi, line: "npm run build" },
+  {
+    pattern:
+      /\bnpm\s+(?:run\s+)?test\b|\bnpm\s+t\b|\b(?:the\s+)?(?:unit\s+)?(?:tests?|testing|testnya|tes|tesnya|test\s*suite|pengujian|ujinya|uji\s+unit)\b/gi,
+    line: "npm run test",
+  },
+];
+const NPM_ALIAS = /\bnpm\s+(?:run\s+)?(?:test|build|typecheck)\b|\bnpm\s+t\b|\bnpx\s+tsc\b/i;
+// Words that carry no request of their own once the run verb and target are
+// gone ("tolong jalankan semua tes sekarang ya", "please run the whole test suite").
+const RUN_FILLER =
+  /\b(?:tolong|please|pls|coba|dong|ya|yah|aja|saja|sekarang|now|again|lagi|semua|seluruh|all|the|whole|full|project|proyek|repo|repository|di|in|for|untuk|on|and|dan|lalu|then|kasih|tahu|tau|hasil(?:nya)?|results?|report|laporkan|show|me|tunjukkan|lihat|cek|check|can|could|you|kamu|bisa|bantu|minta|it|them|itu|ini|this|with|pakai|pake|using|via|npm|npx|command|perintah|sekali|once|first|dulu|terus)\b/gi;
+
+function allowlistedLineMatches(text: string): Array<{ index: number; line: string; length: number }> {
+  const hits: Array<{ index: number; line: string; length: number }> = [];
+  // Exact allowlisted lines first, longest first, so "git status --short" wins over "git status".
+  const lines = allowedCommandLines().sort((a, b) => b.length - a.length);
+  const lower = text.toLowerCase();
+  for (const line of lines) {
+    let from = 0;
+    const needle = line.toLowerCase();
+    for (;;) {
+      const at = lower.indexOf(needle, from);
+      if (at < 0) break;
+      const before = at === 0 ? " " : lower[at - 1];
+      const after = lower[at + needle.length] ?? " ";
+      const overlapped = hits.some((hit) => at < hit.index + hit.length && hit.index < at + needle.length);
+      if (/[\s"'`(]/.test(before) && /[\s"'`).,;!?]/.test(after) && !overlapped) {
+        hits.push({ index: at, line, length: needle.length });
+      }
+      from = at + needle.length;
+    }
+  }
+  return hits;
+}
+
+/**
+ * The allowlisted command lines a "run …" request asks for, in request order,
+ * or null when the message is not a plain run request: no run verb (and no
+ * literal allowlisted command), no known target, a question about the
+ * command ("kenapa npm test gagal?"), or a real change request left once the
+ * run phrase is removed ("run the tests and fix the failures" is a change).
+ */
+export function detectRunCommands(command: string): string[] | null {
+  const text = requestText(command).trim();
+  if (!text) return null;
+  if (isPureQuestion(text)) return null;
+
+  const literal = allowlistedLineMatches(text);
+  let rest = text;
+  const found: Array<{ index: number; line: string }> = literal.map((hit) => ({ index: hit.index, line: hit.line }));
+  // Blank out literal matches (same length keeps indexes stable).
+  for (const hit of literal) rest = rest.slice(0, hit.index) + " ".repeat(hit.length) + rest.slice(hit.index + hit.length);
+
+  const hasRunVerb = new RegExp(RUN_VERB.source, "i").test(rest);
+  // A bare npm/npx command line ("npm test") is a run request without a verb.
+  const hasCommandAlias = NPM_ALIAS.test(rest);
+  if (hasRunVerb || hasCommandAlias) {
+    for (const target of RUN_TARGETS) {
+      rest = rest.replace(new RegExp(target.pattern.source, "gi"), (match, ...groups) => {
+        const index = groups[groups.length - 2] as number;
+        found.push({ index, line: target.line });
+        return " ".repeat(match.length);
+      });
+    }
+  }
+  if (found.length === 0) return null;
+  if (literal.length === 0 && !hasRunVerb && !hasCommandAlias) return null;
+
+  // "jalankan tes, jangan ubah kode": the negated change verb is no request.
+  const leftover = withoutNoCodePhrases(rest).replace(RUN_VERB, " ").replace(RUN_FILLER, " ");
+  // A remaining change verb, or any other substantial instruction, means the
+  // run is part of a bigger request: leave it to the normal classification.
+  if (CHANGE_VERB.test(leftover)) return null;
+  const words = leftover.match(/[\p{L}\p{N}]{2,}/gu) ?? [];
+  if (words.length > 2) return null;
+
+  const lines: string[] = [];
+  for (const hit of found.sort((a, b) => a.index - b.index)) {
+    const [binary, ...args] = hit.line.split(" ");
+    const allowed = (ALLOWED_ARGV[binary] ?? []).some(
+      (candidate) => candidate.length === args.length && candidate.every((value, i) => value === args[i])
+    );
+    if (allowed && !lines.includes(hit.line)) lines.push(hit.line);
+  }
+  return lines.length > 0 ? lines : null;
+}
 
 // ─── Complexity / concerns ────────────────────────────────────────────────
 
@@ -177,6 +281,21 @@ function classifyCommandBase(command: string): Classification {
       strategy: "direct",
       reasons: ["greeting"],
       suggestedCapabilities: [CAPABILITY.GENERAL],
+    };
+  }
+
+  // "run npm test" / "jalankan tes": a shell task on the allowlist, checked
+  // before the no-code and change-verb rules ("build" is a change verb, and
+  // running the tests changes no code even when the user adds "jangan ubah
+  // kode").
+  const runCommands = detectRunCommands(text);
+  if (runCommands) {
+    return {
+      kind: "command",
+      strategy: "single",
+      reasons: [`run request for allowlisted command(s): ${runCommands.join(", ")}`],
+      suggestedCapabilities: [CAPABILITY.SHELL_EXECUTION],
+      commands: runCommands,
     };
   }
 

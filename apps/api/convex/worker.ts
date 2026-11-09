@@ -8,6 +8,7 @@ import {
   subtaskContractFields,
 } from "./lib/contractValidators";
 import { assertServiceToken } from "./lib/authz";
+import { snapshotRecordArgs } from "./contextSnapshots";
 import { permissionArgs } from "./permissionBroker";
 import {
   taskStatus,
@@ -632,6 +633,21 @@ export const recordTokenUsage = action({
       internal.orchestration.recordTokenUsage,
       withoutToken(args)
     );
+  },
+});
+
+/**
+ * Context Snapshot of one worker LLM call (planner, decision, executor,
+ * reviewer, QA). Already redacted and capped by the worker; the internal
+ * mutation re-applies both and honors CONTEXT_SNAPSHOTS=0.
+ */
+export const recordContextSnapshot = action({
+  args: {
+    ...tokenArg,
+    ...snapshotRecordArgs,
+  },
+  handler: async (ctx, args): Promise<any> => {
+    await ctx.runMutation(internal.contextSnapshots.record, withoutToken(args));
   },
 });
 

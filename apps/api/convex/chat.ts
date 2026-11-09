@@ -58,6 +58,7 @@ import {
   type CompleteResult,
 } from "./lib/chat/llm";
 import { stripToolCallMarkup } from "./lib/chat/strip";
+import { completeWithSnapshot, type ChatSnapshotScope } from "./lib/chat/snapshot";
 import { readRepoSnapshot } from "./lib/chat/repoSnapshot";
 import { quoteContextLine, quotedResponderId } from "./lib/chat/quote";
 import {
@@ -698,6 +699,19 @@ export const replyToChat = internalAction({
     // or <longcat_tool_call> markup) never gets it shown: it is held back
     // while streaming, the reply is retried once with an explicit "no tools"
     // line, and a reply that is still a call becomes a short fallback.
+    // Context Snapshot scope for one chat LLM call (Inspect context).
+    const snapScope = (
+      agentId: Id<"agents">,
+      messageId: unknown,
+      callRole: ChatSnapshotScope["callRole"]
+    ): ChatSnapshotScope => ({
+      projectId: args.projectId,
+      ...(args.conversationId ? { conversationId: args.conversationId } : {}),
+      agentId,
+      agentRole: [...agents, ...(teamAgents ?? [])].find((a) => String(a._id) === String(agentId))?.role,
+      messageId: messageId as Id<"messages">,
+      callRole,
+    });
     const streamReplyToAgent: StreamReply = async (agentId, config, system, msgs, opts) => {
       const messageId = await ctx.runMutation(internal.chatContext.createStreamingAgentMessage, {
         projectId: args.projectId,
@@ -732,7 +746,7 @@ export const replyToChat = internalAction({
       let content: string;
       let reasoning: string;
       try {
-        raw = await completeWithAgent(system, msgs, config, onChunk);
+        raw = await completeWithSnapshot(ctx, snapScope(agentId, messageId, "chat"), system, msgs, config, onChunk);
         reasoning = joinTrace(note, raw.reasoning);
         if (hasToolCallText(raw.content)) {
           // A tool call with no tools: never shown. Retry once, told plainly.
@@ -747,7 +761,7 @@ export const replyToChat = internalAction({
               })
             )
             .catch(() => {});
-          const retry = await completeWithAgent(`${system}\n${NO_TOOLS_RETRY_LINE}`, msgs, config, onChunk);
+          const retry = await completeWithSnapshot(ctx, snapScope(agentId, messageId, "chat"), `${system}\n${NO_TOOLS_RETRY_LINE}`, msgs, config, onChunk);
           content = resolveNoToolsReply(retry.content, userText);
           reasoning = joinTrace(traceBase, retry.reasoning);
           raw = { ...retry, reasoningDurationMs: raw.reasoningDurationMs + retry.reasoningDurationMs };
@@ -830,7 +844,7 @@ export const replyToChat = internalAction({
               }
             : {}),
           step: async (stepMsgs) => {
-            const raw = await completeWithAgent(system, stepMsgs, config, ({ content: rawContent, reasoning }) => {
+            const raw = await completeWithSnapshot(ctx, snapScope(agentId, messageId, "chat_tool_step"), system, stepMsgs, config, ({ content: rawContent, reasoning }) => {
               const now = Date.now();
               if (now - lastPatchAt < 250) return;
               const content = streamVisibleText(rawContent);

@@ -1,3 +1,4 @@
+import { withSnapshotScope } from "@/llm/snapshots";
 import type {
   PlanSubtask,
 } from "@/types";
@@ -121,7 +122,11 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       // A steer sent mid-run reaches this subtask's prompt (single input
       // guard): fold undelivered inputs now; the prompt acks what it renders.
       if (input.sharedContext) await pullTaskInputs(deps, taskId, input.sharedContext);
-      const outcome = await executeSubtask({
+      // Context Snapshot scope: every LLM call this node makes is attributed
+      // to this task, execution attempt, subtask and agent.
+      const outcome = await withSnapshotScope(
+        { taskId: String(taskId), projectId: String(project._id), executionId: executionId ? String(executionId) : undefined, subtaskKey: node.id, agentId: String(agent._id), agentRole: agent.role },
+        () => executeSubtask({
         workspacePath: input.workspacePath,
         command: task.command,
         allowedEscalations: state.allowedEscalations,
@@ -326,7 +331,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         },
         // Settled (or threw): drop the live tail once pending writes land.
         // Not awaited: a slow cosmetic write must not hold the outcome.
-      }).finally(() => void live.close());
+      })).finally(() => void live.close());
       if (outcome.status === "completed" && subtask.kind === "code_change" && stagedByNode.length > 0) {
         await postStageCard(deps.api, {
           taskId,

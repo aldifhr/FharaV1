@@ -2,6 +2,7 @@ import { extractJson } from "@/utils/json";
 import { decisionAdvisorPrompt } from "@/prompts/decision";
 import { describeCapabilities } from "./capabilities";
 import { pickOrchestrator } from "./planner";
+import { withSnapshotScope } from "@/llm/snapshots";
 import {
   runLlmCallWithFallback,
   usageMetaFor,
@@ -96,7 +97,7 @@ async function runRealCall(input: DecisionAdvisorInput, prompt: string): Promise
       : (() => {
           throw new Error("decision advisor has no task LLM chain");
         })();
-  const { result: response, servedBy } = await runLlmCallWithFallback(
+  const { result: response, servedBy } = await withSnapshotScope({ callRole: "decision", agentId: orchestrator._id, agentRole: orchestrator.role }, () => runLlmCallWithFallback(
     handles,
     [
       ...(orchestrator.systemPrompt
@@ -109,7 +110,7 @@ async function runRealCall(input: DecisionAdvisorInput, prompt: string): Promise
       signal: input.signal,
       taskGate: input.llmTaskGate,
     }
-  );
+  ));
   if (input.onTokenUsage) {
     await input.onTokenUsage(
       response.inputTokens ?? 0,

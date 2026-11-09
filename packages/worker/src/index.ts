@@ -5,6 +5,7 @@ import { createConvexClient } from "./convexClient";
 import { WorkerApi, type WorkerTask } from "./workerApi";
 import { loadPolicy } from "./orchestrator/policy";
 import { setWorkerLlmConcurrencyLimit } from "./effects/llmCall";
+import { setSnapshotSink } from "./llm/snapshots";
 import { providerHealth } from "./llm/health";
 import { getMcpRegistry } from "./mcp/registry";
 import { processTask, resumeTask, type RunnerDeps } from "./services/taskRunner";
@@ -52,6 +53,9 @@ async function main() {
   // limits live on per-run gates inside the runner — no task ever
   // resizes this gate (Phase 4 hardening).
   setWorkerLlmConcurrencyLimit(policy.maxConcurrentLLMCalls);
+  // Context Snapshots: every task LLM call → contextSnapshots (best effort;
+  // CONTEXT_SNAPSHOTS=0 disables).
+  setSnapshotSink((record) => api.recordContextSnapshot(record));
   // Provider health mirror (Phase 5): every circuit outcome the shared
   // registry records is reported to the backend, so the Settings UI
   // can render per-connection circuit state. Connections without a

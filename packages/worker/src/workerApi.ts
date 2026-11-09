@@ -337,6 +337,12 @@ export class WorkerApi {
     return await this.client.action(api.worker.recordAudit, this.args(input));
   }
 
+  async recordContextSnapshot(
+    input: ActionInput<typeof api.worker.recordContextSnapshot>
+  ): Promise<FunctionReturnType<typeof api.worker.recordContextSnapshot>> {
+    return await this.client.action(api.worker.recordContextSnapshot, this.args(input));
+  }
+
   async recordTokenUsage(
     input: ActionInput<typeof api.worker.recordTokenUsage>
   ): Promise<FunctionReturnType<typeof api.worker.recordTokenUsage>> {

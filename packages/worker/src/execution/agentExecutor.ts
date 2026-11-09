@@ -48,6 +48,7 @@ import { classifyToolCalls, parseToolCallMarkup, stripToolCallMarkup } from "@/u
 import { diagnoseDraftParse, parseDraftLenient, type DraftFormat } from "@/utils/draftLenient";
 import { tmpdir } from "node:os";
 import { maskStringSecrets, validateFilePath } from "@/governance/tools";
+import { recordLlmSnapshot, withSnapshotScope } from "@/llm/snapshots";
 import { isPathWithinOwnership } from "@/utils/ownershipPaths";
 import {
   computeDiff,
@@ -593,6 +594,16 @@ export async function executeSubtask(
     return { status: "failed", error: "Execution cancelled" };
   }
 
+  // Context Snapshot: what this subtask's LLM calls are for.
+  const callRole = subtask.kind === "review" ? "reviewer" : subtask.kind === "qa" ? "qa" : "executor";
+  return await withSnapshotScope(
+    { callRole, subtaskKey: subtask.key, agentId: input.agent._id, agentRole: input.agent.role },
+    () => executeSubtaskScoped(input)
+  );
+}
+
+async function executeSubtaskScoped(input: SubtaskExecutionInput): Promise<SubtaskExecutionResult> {
+  const { subtask } = input;
   try {
     const input = await withOnDemandSkills(rawInput);
     // Plan 014: native-provider runtime (provider CLI with its own native
@@ -1596,6 +1607,7 @@ async function executeReadOnly(
   const primary = handles[0];
   if (primary.provider.stream) {
     let chunkEmitted = false;
+    const streamStartedAt = Date.now();
     try {
       // Streaming gate decision (Phase 4 hardening): the read-only
       // streaming path DOES pass through both LLM gates — it is an LLM
@@ -1623,10 +1635,21 @@ async function executeReadOnly(
       // when the stream carried none.
       response = withUsageEstimate(messages, response);
       health?.recordSuccess(primary.connectionId);
+      recordLlmSnapshot({
+        messages,
+        result: response,
+        model: primary.config.model,
+        provider: primary.config.provider,
+        durationMs: Date.now() - streamStartedAt,
+      });
     } catch (error) {
       // A caller abort is not a provider failure and never falls back.
       if (input.signal.aborted) {
+        recordLlmSnapshot({ messages, error, model: primary.config.model, provider: primary.config.provider, durationMs: Date.now() - streamStartedAt });
         throw error;
+      }
+      if (chunkEmitted || !isTransientLlmError(error) || handles.length < 2) {
+        recordLlmSnapshot({ messages, error, model: primary.config.model, provider: primary.config.provider, durationMs: Date.now() - streamStartedAt });
       }
       if (isTransientLlmError(error)) {
         health?.recordFailure(primary.connectionId, { transient: true });

@@ -1,4 +1,5 @@
 import { normalizeModelTiers } from "@/api/convex/lib/modelTiers";
+import { withSnapshotScope } from "@/llm/snapshots";
 import * as fs from "node:fs/promises";
 import { classifyCommand } from "@/orchestrator/classifier";
 import { policyForComplexity } from "@/orchestrator/policy";
@@ -46,6 +47,11 @@ import {
  * applies the approved changes.
  */
 export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void> {
+  // Context Snapshot scope (the project is derived from the task server-side).
+  return await withSnapshotScope({ taskId: String(taskId) }, () => resumeTaskScoped(taskId, deps));
+}
+
+async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void> {
   const context = await deps.api.getContext({ taskId });
   if (!context?.project || context.task.status !== "needs_approval") return;
   const approvals = await deps.api.getApprovals({ taskId });

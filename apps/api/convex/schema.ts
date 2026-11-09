@@ -150,6 +150,8 @@ export default defineSchema({
     // with spare capacity. Unset = the worker's env default
     // (ORCHESTRATOR_LOAD_AWARE_ROUTING, off).
     loadAwareRouting: v.optional(v.boolean()),
+    // Context Snapshot retention in days (additive). Unset = 14.
+    contextSnapshotRetentionDays: v.optional(v.number()),
   }).index("by_owner", ["ownerId"]),
 
   agents: defineTable({
@@ -694,6 +696,9 @@ export default defineSchema({
     // The provider reported no usage: the counts are a chars/4 estimate
     // made by the worker (shown as "≈" in runs/evals).
     estimated: v.optional(v.boolean()),
+    // What made the call (additive). Unset = a task/chat call; "playground"
+    // = an Agent Playground run (never part of a task budget).
+    kind: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_agent", ["agentId"])
@@ -1231,4 +1236,65 @@ export default defineSchema({
     .index("by_scope", ["scope", "pinned"])
     .index("by_project", ["projectId", "scope"])
     .index("by_agent", ["agentId"]),
+
+  // Context Snapshot (additive): one light row per LLM call — who, what for,
+  // model, tokens, per-section token estimates, error. The prompt and
+  // response text live in contextSnapshotBodies so list queries stay light.
+  // Pruned by the daily cron after the project's retention (default 14 days).
+  contextSnapshots: defineTable({
+    projectId: v.id("projects"),
+    taskId: v.optional(v.id("tasks")),
+    subtaskId: v.optional(v.id("subtasks")),
+    subtaskKey: v.optional(v.string()),
+    executionId: v.optional(v.id("executions")),
+    messageId: v.optional(v.id("messages")),
+    conversationId: v.optional(v.id("conversations")),
+    agentId: v.optional(v.id("agents")),
+    agentRole: v.optional(v.string()),
+    callRole: v.string(),
+    source: v.union(v.literal("worker"), v.literal("chat")),
+    model: v.optional(v.string()),
+    provider: v.optional(v.string()),
+    temperature: v.optional(v.number()),
+    inputTokens: v.optional(v.number()),
+    outputTokens: v.optional(v.number()),
+    usageEstimated: v.optional(v.boolean()),
+    durationMs: v.optional(v.number()),
+    error: v.optional(v.string()),
+    sectionStats: v.array(
+      v.object({
+        key: v.string(),
+        label: v.string(),
+        chars: v.number(),
+        tokens: v.number(),
+        truncated: v.optional(v.boolean()),
+      })
+    ),
+    promptTokens: v.number(),
+    toolNames: v.array(v.string()),
+    skillNames: v.array(v.string()),
+    memoryIncluded: v.boolean(),
+    historyMessages: v.number(),
+    truncated: v.boolean(),
+    bytes: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_task", ["taskId", "createdAt"])
+    .index("by_message", ["messageId"])
+    .index("by_project_created", ["projectId", "createdAt"])
+    .index("by_created", ["createdAt"]),
+
+  contextSnapshotBodies: defineTable({
+    snapshotId: v.id("contextSnapshots"),
+    sections: v.array(
+      v.object({
+        key: v.string(),
+        label: v.string(),
+        content: v.string(),
+        truncatedChars: v.optional(v.number()),
+      })
+    ),
+    response: v.string(),
+    responseTruncatedChars: v.optional(v.number()),
+  }).index("by_snapshot", ["snapshotId"]),
 });

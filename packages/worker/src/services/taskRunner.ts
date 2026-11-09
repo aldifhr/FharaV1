@@ -1,4 +1,5 @@
 import { normalizeModelTiers } from "@/api/convex/lib/modelTiers";
+import { withSnapshotScope } from "@/llm/snapshots";
 import * as fs from "node:fs/promises";
 import type { WorkerRunAgent, WorkerTask } from "@/workerApi";
 import type { SubtaskKind } from "@/types";
@@ -64,6 +65,13 @@ export type { ExecutePlanResult } from "./runner/executePlan";
 export type { RunnerDeps, RunState } from "./runner/types";
 
 export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<void> {
+  // Context Snapshot scope: every LLM call of this run belongs to this task.
+  return await withSnapshotScope({ taskId: String(task._id), projectId: String(task.projectId) }, () =>
+    processTaskScoped(task, deps)
+  );
+}
+
+async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<void> {
   const context = await deps.api.getContext({ taskId: task._id });
   if (!context?.project) {
     await deps.api.completeTask({

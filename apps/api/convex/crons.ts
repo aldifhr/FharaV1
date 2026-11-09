@@ -7,4 +7,8 @@ const crons = cronJobs();
 // refreshes a bounded batch (githubPush.listPrsToRefresh), oldest first.
 crons.interval("refresh task pull requests", { minutes: 10 }, internal.githubPush.refreshOpenPrs, {});
 
+// Context Snapshot retention: delete snapshots past each project's
+// retention (default 14 days). Bounded batches; reschedules itself.
+crons.daily("prune context snapshots", { hourUTC: 19, minuteUTC: 30 }, internal.contextSnapshots.prune, {});
+
 export default crons;

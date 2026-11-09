@@ -1,5 +1,6 @@
 import { splitMultiConcernNodes } from "./concernSplit";
 import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig } from "@/llm";
+import { withSnapshotScope } from "@/llm/snapshots";
 import {
   runLlmCallWithFallback,
   usageMetaFor,
@@ -117,7 +118,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
             config: input.llmConfig ?? getGlobalLLMConfig(),
             provider: createProviderForAgent(orchestrator, input.llmConfig),
           }];
-      const { result: response, servedBy } = await runLlmCallWithFallback(handles, [
+      const { result: response, servedBy } = await withSnapshotScope({ callRole: "planner", agentId: orchestrator._id, agentRole: orchestrator.role }, () => runLlmCallWithFallback(handles, [
         ...(orchestrator.systemPrompt
           ? [{ role: "system" as const, content: orchestrator.systemPrompt }]
           : []),
@@ -126,7 +127,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         health: input.llmResolver ? providerHealth : undefined,
         signal: input.signal,
         taskGate: input.llmTaskGate,
-      });
+      }));
       // Usage is always recorded: runLlmCallWithFallback estimates it
       // (flagged) when the provider omitted it.
       if (input.onTokenUsage) {

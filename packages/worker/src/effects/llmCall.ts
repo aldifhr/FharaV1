@@ -2,6 +2,7 @@ import { Effect, Schedule } from "effect";
 import { effectiveLlmTimeoutMs, type GlobalLLMConfig, type LLMMessage, type LLMProvider, type LLMResult } from "@/llm";
 import type { ProviderHealthRegistry } from "@/llm/health";
 import type { TokenUsageMeta } from "@/types/llm";
+import { recordLlmSnapshot } from "@/llm/snapshots";
 
 export type { TokenUsageMeta } from "@/types/llm";
 
@@ -377,6 +378,16 @@ export async function runLlmCallWithFallback(
     throw new Error("No LLM provider handles available for this call");
   }
   let lastError: unknown;
+  const startedAt = Date.now();
+  // Context Snapshot: one record per call (success or final failure).
+  const fail = (error: unknown, handle: FallbackHandle) =>
+    recordLlmSnapshot({
+      messages,
+      error,
+      model: handle.config.model,
+      provider: handle.config.provider,
+      durationMs: Date.now() - startedAt,
+    });
   for (const handle of handles) {
     try {
       const result = await runLlmCall(handle.provider, messages, handle.config.model, {
@@ -387,14 +398,29 @@ export async function runLlmCallWithFallback(
         gate: options.gate,
       });
       options.health?.recordSuccess(handle.connectionId);
-      return { result: withUsageEstimate(messages, result), servedBy: handle };
+      const estimated = withUsageEstimate(messages, result);
+      recordLlmSnapshot({
+        messages,
+        result: estimated,
+        model: handle.config.model,
+        provider: handle.config.provider,
+        durationMs: Date.now() - startedAt,
+      });
+      return { result: estimated, servedBy: handle };
     } catch (error) {
       lastError = error;
       // A caller abort (task cancel / deadline) is not a provider
       // failure: never fall back to the next handle and never count it
       // against the provider's health (Phase 4).
-      if (options.signal?.aborted) throw error;
-      if (!isTransientLlmError(error)) throw error;
+      if (options.signal?.aborted) {
+        fail(error, handle);
+        throw error;
+      }
+      if (!isTransientLlmError(error)) {
+        fail(error, handle);
+        throw error;
+      }
+      if (handle === handles[handles.length - 1]) fail(error, handle);
       options.health?.recordFailure(handle.connectionId, { transient: true });
       // Transient and retries exhausted on this handle: fall through to
       // the next candidate in the chain (same task, same call).

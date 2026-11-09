@@ -11,6 +11,7 @@ import { processTask, resumeTask, type RunnerDeps } from "./services/taskRunner"
 import { isLeaseLostOrShutdown } from "./services/runner/abort";
 import { processNextPushRequest } from "./services/pushRequests";
 import { processNextMcpTest } from "./services/mcpTests";
+import { processNextRepoToolCall } from "./services/repoTools";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
 
@@ -23,6 +24,11 @@ const STALE_GRACE_MS = Number(process.env.WORKER_STALE_GRACE_MS ?? 30_000);
 const PUSH_POLL_MS = Math.max(1000, Number(process.env.WORKER_PUSH_POLL_MS ?? 5000));
 // Integrations: how often an idle worker checks for MCP "Test connection" requests.
 const MCP_TEST_POLL_MS = Math.max(1000, Number(process.env.WORKER_MCP_TEST_POLL_MS ?? 3000));
+// Grounded chat repo tools: a chat reply waits on these, so the poll is
+// fast while a reply is using tools and slower when idle.
+const REPO_TOOL_IDLE_POLL_MS = Math.max(250, Number(process.env.WORKER_REPO_TOOL_POLL_MS ?? 1000));
+const REPO_TOOL_HOT_POLL_MS = 200;
+const REPO_TOOL_HOT_WINDOW_MS = 30_000;
 
 const workerId =
   process.env.WORKER_ID ??
@@ -252,6 +258,24 @@ async function main() {
         mcpTestInFlight = null;
       });
   };
+
+  // Grounded chat: read-only repo tool calls, on their own timer so a busy
+  // task loop never delays a chat reply that is waiting on one.
+  let lastRepoToolAt = 0;
+  const pollRepoTools = async (): Promise<void> => {
+    if (stopping) return;
+    try {
+      while (!stopping && (await processNextRepoToolCall({ api, workerId, workspaceRoot, log }))) {
+        lastRepoToolAt = Date.now();
+      }
+    } catch (error) {
+      log("repo tool poll error", error instanceof Error ? error.message : String(error));
+    }
+    if (stopping) return;
+    const hot = Date.now() - lastRepoToolAt < REPO_TOOL_HOT_WINDOW_MS;
+    setTimeout(() => void pollRepoTools(), hot ? REPO_TOOL_HOT_POLL_MS : REPO_TOOL_IDLE_POLL_MS).unref();
+  };
+  void pollRepoTools();
 
   while (!stopping) {
     pollPushes();

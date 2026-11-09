@@ -931,6 +931,32 @@ export const completeMcpServerTest = action({
   },
 });
 
+// Grounded chat: read-only repo tool calls queued by the chat action
+// (repoTools.ts). The worker runs them inside the project workspace.
+export const claimRepoToolCall = action({
+  args: { ...tokenArg, workerId: v.string() },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ callId: string; tool: string; args: string; workspacePath: string | null } | null> => {
+    return await ctx.runMutation(internal.repoTools.claimNext, withoutToken(args));
+  },
+});
+
+export const completeRepoToolCall = action({
+  args: {
+    ...tokenArg,
+    callId: v.id("repoToolCalls"),
+    workerId: v.string(),
+    ok: v.boolean(),
+    result: v.string(),
+    files: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, args): Promise<boolean> => {
+    return await ctx.runMutation(internal.repoTools.complete, withoutToken(args));
+  },
+});
+
 export const removeMcpServer = action({
   args: { ...tokenArg, serverId: v.id("mcpServers") },
   handler: async (ctx, args): Promise<any> => {

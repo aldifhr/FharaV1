@@ -33,7 +33,7 @@ under `lib/`, so moving logic there never changes a function path.
 | --- | --- |
 | `lib/roles.ts` | Single source for the nine team roles (labels, registry fields, capabilities, tools, chip colours, prompt keys, retired/legacy keys). Pure TS: imported by the web app (`@/api/convex/lib/roles`) and meant for the worker too. |
 | `lib/prompts/` | All backend LLM prompt text: `chat.ts` (chat loop, CTO assignment, classifier, responder chooser), `agents.ts` (seed personas), `enhance.ts` (prompt enhancer). Change wording only here. |
-| `lib/chat/` | `chat.ts` internals: intent shapes/parser, team selection, LLM client, tool-call stripping, repo snapshot (`"use node"`). |
+| `lib/chat/` | `chat.ts` internals: intent shapes/parser, team selection, LLM client, tool-call stripping, repo snapshot (`"use node"`), and `repoTools.ts` (read-only repo tool contract + bounded tool loop for grounded CTO replies). |
 | `lib/authz.ts` | Conditional ownership checks (`assertProjectAccess`, `canViewProject`, …). |
 | `lib/llmResolver.ts`, `lib/llmCrypto.ts`, `lib/llmConfig.ts` | Provider pool assembly, key encryption, env-var fallback config. |
 | `lib/avatar.ts` | Default avatar params (shared with the web app). |
@@ -119,3 +119,16 @@ delete a case to get a green run.
   anything" mutation.
 - Emit `logEvent` / `recordLifecycle` for state the UI must explain. Do not add a
   new logging table.
+
+## Grounded chat (repo tools)
+
+The CTO's chat reply may read the repo with read-only tools (`list_files`,
+`grep`, `read_file`; max 6 calls per reply). A Convex action cannot read the
+user's repository, so each call is queued in `repoToolCalls`
+(`repoTools.ts`), claimed by an online worker through the token-gated
+`worker.claimRepoToolCall` / `completeRepoToolCall`, run in the project
+workspace (`packages/worker/src/tools/repoRead.ts`, sandboxed, capped,
+secret-masked) and read back by the action, which deletes the row. No
+online worker or no workspace → the reply runs without tools and the
+grounding rule makes it say it has not checked ("belum saya cek").
+Files read are stored on the reply as `messages.checkedFiles`.

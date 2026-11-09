@@ -34,6 +34,40 @@ const ADVICE_SHAPE =
 const EXPLICIT_NEGATION =
   /\b(do not|don't|dont|never)\b.*\b(create|make|start|run|execute|buat|bikin|jalankan)\b.*\btask\b|\b(jangan|tidak perlu)\b.*\btask\b/i;
 
+// "baca ulang" / "cek lagi" / "koreksi": re-read and correct the agent's own
+// previous reply. Chat, not a task — unless the same message also asks for a
+// change ("cek lagi lalu perbaiki bug X").
+const SELF_REVIEW_SHAPE =
+  /\b(baca (ulang|lagi)|cek (lagi|ulang)|check (again|ulang|lagi)|periksa (lagi|ulang)|koreksi|ralat|re-?read|re-?check|double[- ]check)\b/i;
+const CHANGE_VERB =
+  /\b(buatin|buat\w*|tambah\w*|implement|build|create|fix|perbaiki|refactor|update|change|add|remove|migrate|hapus|ubah|edit)\b/i;
+
+/** The user asks the agent to re-read and correct its own previous reply. */
+export function isSelfReviewRequest(text: string): boolean {
+  return SELF_REVIEW_SHAPE.test(text) && !CHANGE_VERB.test(text.replace(BUAT_PREPOSITION, " "));
+}
+
+/**
+ * The speaker's own previous reply in this conversation (for "koreksi" /
+ * "cek lagi"): its latest agent message before the user's latest message,
+ * else the latest agent message at all.
+ */
+export function previousReplyOf(
+  history: Array<{ authorType: string; content: string; agentId?: string }>,
+  agentId: string
+): string | null {
+  const before = history.slice(0, -1);
+  for (let i = before.length - 1; i >= 0; i -= 1) {
+    const m = before[i];
+    if (m.authorType === "agent" && String(m.agentId ?? "") === agentId && m.content.trim()) return m.content;
+  }
+  for (let i = before.length - 1; i >= 0; i -= 1) {
+    const m = before[i];
+    if (m.authorType === "agent" && m.content.trim()) return m.content;
+  }
+  return null;
+}
+
 /** Bare greetings/small talk — answered with a brief LLM persona reply on
  *  minimal context (no history, no planning guidance), so old topics cannot
  *  drag a full execution plan into a "hi". */
@@ -83,7 +117,7 @@ export function classifyChatIntent(text: string): { kind: string; frontend: bool
   // Boundary guard (same as worker router): question/advice shapes never
   // become tasks, even when they contain a change verb. Capability/
   // confirmation questions ("can you be X?", "bisa kan?") belong here too.
-  if ((QUESTION_SHAPE.test(text) || QUESTION_SHAPE_ID.test(text)) || ADVICE_SHAPE.test(text) || CONFIRMATION_SHAPE.test(text) || DISCUSSION_SHAPE_ID.test(text.trim())) {
+  if ((QUESTION_SHAPE.test(text) || QUESTION_SHAPE_ID.test(text)) || ADVICE_SHAPE.test(text) || CONFIRMATION_SHAPE.test(text) || DISCUSSION_SHAPE_ID.test(text.trim()) || isSelfReviewRequest(text)) {
     return { kind: "chat", frontend, backend, testing, security };
   }
   const verbs = t.replace(BUAT_PREPOSITION, " ");
@@ -163,7 +197,8 @@ export function hasAskShape(text: string): boolean {
     (QUESTION_SHAPE.test(text) || QUESTION_SHAPE_ID.test(text)) ||
     ADVICE_SHAPE.test(text) ||
     CONFIRMATION_SHAPE.test(text) ||
-    DISCUSSION_SHAPE_ID.test(text.trim())
+    DISCUSSION_SHAPE_ID.test(text.trim()) ||
+    isSelfReviewRequest(text)
   );
 }
 

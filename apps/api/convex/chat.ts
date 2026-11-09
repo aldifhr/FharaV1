@@ -26,6 +26,8 @@ import {
   hasAskShape,
   isOptionPick as isOptionPickText,
   isRefusalReply,
+  isSelfReviewRequest,
+  previousReplyOf,
   targetsOutsideRepo,
   type IntentResult,
 } from "./lib/chat/intent";
@@ -54,15 +56,26 @@ import { stripToolCallMarkup } from "./lib/chat/strip";
 import { readRepoSnapshot } from "./lib/chat/repoSnapshot";
 import { quoteContextLine, quotedResponderId } from "./lib/chat/quote";
 import {
+  MAX_REPO_TOOL_CALLS,
+  describeRepoToolCall,
+  mayBeToolCall,
+  runRepoToolLoop,
+  type RepoToolCall,
+  type RepoToolResult,
+} from "./lib/chat/repoTools";
+import {
   OPTIONS_GUIDANCE,
   buildAnswerGuidance,
   buildChatPersonaLines,
   buildConversationContext,
   buildCtoAssignmentSystem,
   buildGreetingSystem,
+  buildGroundingGuidance,
   buildHandoffGuidance,
   buildHandoffNotice,
   buildPlanningGuidance,
+  buildRepoToolProtocol,
+  buildSelfReviewGuidance,
 } from "./lib/prompts/chat";
 
 
@@ -89,7 +102,7 @@ type ChatContextData = {
   agents: ChatAgent[];
   team?: ChatAgent[];
   projectName: string;
-  history: { authorType: string; content: string }[];
+  history: { authorType: string; content: string; agentId?: string }[];
   contextSummary?: string;
   activeTask?: { title: string; status: string } | null;
   llmProviders?: PoolConnectionPayload[];
@@ -105,6 +118,65 @@ type ReplyArgs = {
 };
 
 const TERMINAL_TASK_STATUSES = ["done", "rejected", "failed"];
+
+/** How long one repo tool call may wait for a worker before it counts as not checked. */
+const REPO_TOOL_WAIT_MS = 20_000;
+const REPO_TOOL_POLL_MS = 250;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Append one reasoning chunk to the reply's trace. */
+function joinTrace(trace: string, next: string | undefined): string {
+  const add = (next ?? "").trim();
+  if (!add) return trace;
+  return trace ? `${trace}\n\n${add}` : add;
+}
+
+/**
+ * Run one read-only repo tool through the worker queue (repoTools.ts):
+ * enqueue, poll for the worker's answer, always delete the row. Never
+ * throws; a timeout or failure comes back as ok:false.
+ */
+async function callRepoToolViaWorker(
+  ctx: ActionCtx,
+  projectId: Id<"projects">,
+  call: RepoToolCall
+): Promise<RepoToolResult> {
+  let callId: Id<"repoToolCalls">;
+  try {
+    callId = await ctx.runMutation(internal.repoTools.enqueue, {
+      projectId,
+      tool: call.tool,
+      args: JSON.stringify(call.args ?? {}),
+    });
+  } catch (error: any) {
+    return { ok: false, text: `Tool unavailable (${error?.message ?? "enqueue failed"}); treat as not checked.` };
+  }
+  try {
+    const deadline = Date.now() + REPO_TOOL_WAIT_MS;
+    while (Date.now() < deadline) {
+      await sleep(REPO_TOOL_POLL_MS);
+      const row = await ctx.runQuery(internal.repoTools.get, { callId });
+      if (!row) break;
+      if (row.status === "done") return { ok: true, text: row.result ?? "", files: row.files ?? [] };
+      if (row.status === "error") return { ok: false, text: row.error ?? "Tool failed." };
+    }
+    return { ok: false, text: "No worker answered this tool call in time; treat it as not checked." };
+  } finally {
+    await ctx.runMutation(internal.repoTools.remove, { callId }).catch(() => undefined);
+  }
+}
+
+/** Repo tools are usable for this reply (workspace set + worker online). Never throws. */
+async function repoToolsAvailable(ctx: ActionCtx, projectId: Id<"projects">): Promise<boolean> {
+  try {
+    const res = await ctx.runQuery(internal.repoTools.availability, { projectId });
+    return res.available;
+  } catch {
+    return false;
+  }
+}
+
 
 /** Repo snapshot for grounding, or null (best-effort, never throws). */
 async function loadRepoSnapshot(ctx: ActionCtx, projectId: Id<"projects">): Promise<string | null> {
@@ -534,6 +606,79 @@ export const replyToChat = internalAction({
       return result;
     };
 
+    // Grounded reply (CTO with repo tools): the same streaming bubble, but
+    // each LLM step may be a JSON tool call instead of the answer. Tool-call
+    // text is never shown; the trace notes each check, and the files read
+    // are stored as `checkedFiles` for the quiet "Checked: …" line.
+    const streamGroundedReply: StreamReply = async (agentId, config, system, msgs) => {
+      const messageId = await ctx.runMutation(internal.chatContext.createStreamingAgentMessage, {
+        projectId: args.projectId,
+        agentId: agentId as any,
+        conversationId: args.conversationId,
+        replyToMessageId: args.userMessageId,
+      });
+      const startedAt = Date.now();
+      let trace = "";
+      let lastPatchAt = 0;
+      let patchChain: Promise<unknown> = Promise.resolve();
+      const patch = (fields: { content?: string; reasoning?: string }) => {
+        patchChain = patchChain
+          .then(() =>
+            ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, { messageId: messageId as any, ...fields })
+          )
+          .catch(() => {});
+      };
+      let loop: Awaited<ReturnType<typeof runRepoToolLoop>>;
+      try {
+        loop = await runRepoToolLoop({
+          messages: msgs,
+          maxCalls: MAX_REPO_TOOL_CALLS,
+          step: async (stepMsgs) => {
+            const raw = await completeWithAgent(system, stepMsgs, config, ({ content: rawContent, reasoning }) => {
+              const now = Date.now();
+              if (now - lastPatchAt < 250) return;
+              const content = mayBeToolCall(rawContent) ? "" : stripToolCallMarkup(rawContent);
+              const liveTrace = joinTrace(trace, reasoning);
+              if (!content.trim() && !liveTrace.trim()) return;
+              lastPatchAt = now;
+              patch({ content, reasoning: liveTrace || undefined });
+            });
+            trace = joinTrace(trace, raw.reasoning);
+            return { content: raw.content };
+          },
+          callTool: (call) => callRepoToolViaWorker(ctx, args.projectId, call),
+          onToolCall: (call, result) => {
+            trace = joinTrace(trace, `Checked ${describeRepoToolCall(call)}${result.ok ? "" : " (failed)"}`);
+            lastPatchAt = Date.now();
+            patch({ content: "", reasoning: trace });
+          },
+        });
+      } catch (error) {
+        await patchChain;
+        await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
+          messageId: messageId as any,
+          streaming: false,
+        });
+        await ctx.runMutation(internal.chatContext.removeEmptyAgentMessage, { messageId: messageId as any });
+        throw error;
+      }
+      await patchChain;
+      const content = stripToolCallMarkup(loop.answer);
+      const reasoningDurationMs = Date.now() - startedAt;
+      await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
+        messageId: messageId as any,
+        content,
+        reasoning: trace || undefined,
+        reasoningDurationMs,
+        streaming: false,
+        ...(loop.checkedFiles.length ? { checkedFiles: loop.checkedFiles.slice(0, 20) } : {}),
+      });
+      if (!content.trim()) {
+        await ctx.runMutation(internal.chatContext.removeEmptyAgentMessage, { messageId: messageId as any });
+      }
+      return { content, reasoning: trace, reasoningDurationMs };
+    };
+
     // Greeting fast-path: a bare "hi" gets a brief LLM persona reply on
     // minimal context (no history, no planning guidance) — previous task
     // commands must not drag an old topic into a full execution plan.
@@ -645,6 +790,14 @@ export const replyToChat = internalAction({
     // Sequential multi-agent replies: each selected agent answers with its persona.
     // The queue grows when the CTO @mentions teammates in its reply (handoff).
     const queue = [...responders];
+    // Repo tools for the CTO's reply: only when a worker can serve them
+    // (the repo lives on the worker's host). Otherwise no tools, and the
+    // grounding rule makes the CTO say it has not checked.
+    const ctoHasRepoTools =
+      orchestrator !== null && !isOptionPick && queue.some((a) => a._id === orchestrator._id)
+        ? await repoToolsAvailable(ctx, args.projectId)
+        : false;
+    const selfReview = isSelfReviewRequest(lastUserContent);
     const answered = new Set<string>();
     const handoffFrom = new Map<string, { by: string; request: string }>();
     let handoffs = 0;
@@ -654,8 +807,9 @@ export const replyToChat = internalAction({
       answered.add(String(agent._id));
       const isCto = orchestrator !== null && agent._id === orchestrator._id;
       const handoffBy = handoffFrom.get(String(agent._id));
+      const useRepoTools = isCto && ctoHasRepoTools;
       const system = [
-        ...buildChatPersonaLines(agent, projectName, queue, repoSnapshot),
+        ...buildChatPersonaLines(agent, projectName, queue, repoSnapshot, useRepoTools),
         ...(intent.intent === "ask" ? buildAnswerGuidance(intent.subtype) : []),
         ...buildPlanningGuidance(agent, { isOrchestrator: isCto, taskIntent }),
         ...(isCto && !isOptionPick ? buildHandoffGuidance(team, String(agent._id)) : []),
@@ -663,6 +817,10 @@ export const replyToChat = internalAction({
           ? ["The user's last message is a button pick ('I choose …'), not their language: reply in the language of their earlier messages, in 2-3 sentences, and do not bring teammates in. Say which roles would do the work (as @Role) and that the Create task button under your reply starts it; never ask them to type a command."]
           : []),
         ...(handoffBy !== undefined ? [buildHandoffNotice(handoffBy.by, handoffBy.request)] : []),
+        ...buildGroundingGuidance(useRepoTools),
+        selfReview && handoffBy === undefined
+          ? buildSelfReviewGuidance(previousReplyOf(history, String(agent._id)), useRepoTools)
+          : "",
         // Questions (compare, explain, recommend) get a prose answer; the
         // options picker is for choosing what to build, not for a verdict.
         intent.intent === "ask" && !wantsOptions(lastUserContent)
@@ -672,7 +830,11 @@ export const replyToChat = internalAction({
         .filter(Boolean)
         .join("\n");
 
-      const systemWithContext = [system, buildConversationContext(conversation)]
+      const systemWithContext = [
+        system,
+        useRepoTools ? buildRepoToolProtocol(MAX_REPO_TOOL_CALLS) : "",
+        buildConversationContext(conversation),
+      ]
         .filter(Boolean)
         .join("\n");
 
@@ -683,7 +845,7 @@ export const replyToChat = internalAction({
           getGlobalLLMConfig(),
           agent as any
         );
-        const result = await streamReplyToAgent(
+        const result = await (useRepoTools ? streamGroundedReply : streamReplyToAgent)(
           agent._id as any,
           perAgentConfig,
           systemWithContext,

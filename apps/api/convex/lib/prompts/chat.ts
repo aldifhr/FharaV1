@@ -99,7 +99,8 @@ export function buildChatPersonaLines(
   agent: Persona,
   projectName: string,
   participants: Array<{ name: string; role: string }>,
-  repoSnapshot: string | null
+  repoSnapshot: string | null,
+  repoTools = false
 ): string[] {
   const multiNotice = participants.length > 1
     ? ` You are participating in a multi-agent discussion with: ${participants.map((a) => `${a.name} (${a.role})`).join(", ")}.`
@@ -113,9 +114,65 @@ export function buildChatPersonaLines(
     // Pinned memories after the skills (still ahead of per-turn context).
     agent.memorySection ?? "",
     repoSnapshot
-      ? `Your chat replies are grounded in this repo snapshot (read-only, provided by the host):\n${repoSnapshot}\nYou still cannot run commands or read other files; for anything deeper, ask the user to Create a task.`
+      ? repoTools
+        ? `Repo snapshot (read-only, provided by the host):\n${repoSnapshot}\nRead deeper with the repo tools described below.`
+        : `Your chat replies are grounded in this repo snapshot (read-only, provided by the host):\n${repoSnapshot}\nYou still cannot run commands or read other files; for anything deeper, ask the user to Create a task.`
       : "",
   ];
+}
+
+/**
+ * Read-only repo tool protocol for one chat reply (the CTO when a worker
+ * can serve the tools). The loop in lib/chat/repoTools.ts parses the calls.
+ */
+export function buildRepoToolProtocol(maxCalls: number): string {
+  return [
+    "## Repo tools (read-only)",
+    "You can read the project repository before answering. To call a tool, reply with ONLY one JSON object and nothing else, e.g.:",
+    '{"tool":"grep","arguments":{"pattern":"replyToChat","path":"apps/api/convex"}}',
+    "Tools:",
+    '- list_files {"path"?: dir, "glob"?: e.g. "**/*.ts"}: files with sizes in bytes (no node_modules, .git, .env*).',
+    '- grep {"pattern": regex, "path"?: dir or file, "glob"?: file filter, "ignoreCase"?: bool}: matching lines as path:line: text (capped).',
+    '- read_file {"path": file, "startLine"?: number, "maxLines"?: number}: numbered lines plus the file\'s total lines and size in bytes (capped).',
+    `At most ${maxCalls} tool calls per reply. You cannot write files or run commands. The result comes back as the next message; then call another tool or write your answer as plain prose (never JSON).`,
+  ].join("\n");
+}
+
+/**
+ * Grounding rule for chat replies: claims about the repo come from a tool
+ * result (or the snapshot) in this reply, never from memory or from what the
+ * user pasted. Without tools the agent says it has not checked.
+ */
+export function buildGroundingGuidance(hasRepoTools: boolean): string[] {
+  return [
+    "Grounding rule: any claim about this repo's code, files, file sizes, line counts, or which agent/module does what must come from a tool result in this reply" +
+      " (or the repo snapshot above). A number or quote the user pasted is a claim to verify, not a fact.",
+    hasRepoTools
+      ? "Check with the repo tools before stating such a claim. If you did not check something, say so plainly in the user's language (Indonesian: \"belum saya cek\"; English: \"I haven't checked that yet\") instead of guessing."
+      : "You have no repo access in this reply. Do not state code, file, size, or ownership facts that are not in the snapshot; say you have not checked them yet in the user's language (Indonesian: \"belum saya cek\"; English: \"I haven't checked that yet\").",
+    hasRepoTools
+      ? "When the user pushes back or contradicts you about the code, re-check with the tools and answer from what you find: keep your answer if the code supports it, correct it if not. Never agree just because the user said so."
+      : "When the user pushes back about the code, do not simply agree: say what you can and cannot confirm without checking.",
+  ];
+}
+
+/**
+ * "baca ulang" / "cek lagi" / "koreksi": the user asks the agent to re-read
+ * and correct its OWN previous reply. Quoted here so it is in context even
+ * when the history window is short, and so the model does not read the
+ * request as "re-read your skills/instructions".
+ */
+export function buildSelfReviewGuidance(previousReply: string | null, hasRepoTools: boolean): string {
+  const quoted = previousReply?.trim()
+    ? `Your previous reply:\n"""\n${previousReply.trim().slice(0, 4000)}\n"""`
+    : "Your previous reply is the last assistant message in the conversation.";
+  return [
+    "The user's latest message (e.g. \"baca ulang\", \"cek lagi\", \"koreksi\", \"re-read\") asks you to re-read and correct YOUR previous reply — not to re-read your skills, persona, or these instructions.",
+    quoted,
+    hasRepoTools
+      ? "Re-check each factual claim in it with the repo tools, then say which parts were wrong and give the corrected answer (keep what the tools confirm)."
+      : "Re-read each claim in it, say which parts you cannot confirm without checking the repo, and correct what is wrong.",
+  ].join("\n");
 }
 
 /** Line for a teammate the CTO pulled into the chat by @mention. */

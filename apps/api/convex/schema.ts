@@ -392,6 +392,9 @@ export default defineSchema({
     // still validate. reasoningDurationMs is measured around the LLM call.
     reasoning: v.optional(v.string()),
     reasoningDurationMs: v.optional(v.number()),
+    // Repo-grounded chat: workspace files the agent read (read_file) while
+    // writing this reply. The bubble shows a quiet "Checked: …" line.
+    checkedFiles: v.optional(v.array(v.string())),
     // Structured chat card rendered next to the text (assignment, push,
     // qa, verification). Optional; plain messages carry none.
     card: v.optional(
@@ -421,6 +424,26 @@ export default defineSchema({
   // independent of project membership (projects.agentIds) and task assignment
   // (tasks.assignedAgentIds / subtasks.assignedAgentId). A conversation is the
   // persisted chat thread; participants are the agents currently in it.
+  // Read-only repo tool calls for grounded chat replies. A Convex chat
+  // action cannot read the project repo (it lives on the worker's host), so
+  // it queues one call here, an online worker claims it, runs it read-only
+  // inside the project workspace and writes the capped result back; the
+  // action polls for it and deletes the row. See lib/chat/repoTools.ts.
+  repoToolCalls: defineTable({
+    projectId: v.id("projects"),
+    tool: v.string(),
+    // JSON-encoded tool arguments (validated by the worker).
+    args: v.string(),
+    status: v.union(v.literal("pending"), v.literal("claimed"), v.literal("done"), v.literal("error")),
+    workerId: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    result: v.optional(v.string()),
+    error: v.optional(v.string()),
+    // Repo-relative files the call read (read_file only).
+    files: v.optional(v.array(v.string())),
+    createdAt: v.number(),
+  }).index("by_status_and_created", ["status", "createdAt"]),
+
   conversations: defineTable({
     projectId: v.id("projects"),
     taskId: v.optional(v.id("tasks")),

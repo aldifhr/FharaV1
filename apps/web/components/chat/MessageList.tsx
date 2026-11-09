@@ -38,6 +38,22 @@ export function delegationParts(content: string) {
   return match ? { from: match[1], to: match[2], capability: match[3], reason: match[4] ?? "" } : null;
 }
 
+/** Files the agent read while writing a grounded reply: one quiet line under the bubble. */
+const CHECKED_FILES_SHOWN = 6;
+export function checkedFilesLabel(files: string[]): string {
+  const shown = files.slice(0, CHECKED_FILES_SHOWN).join(", ");
+  const more = files.length - CHECKED_FILES_SHOWN;
+  return `Checked: ${shown}${more > 0 ? ` +${more} more` : ""}`;
+}
+
+function CheckedFilesLine({ files }: { files: string[] }) {
+  return (
+    <p className="mt-1 max-w-3xl truncate pl-1 text-[12px] text-ink-3" title={files.join("\n")}>
+      {checkedFilesLabel(files)}
+    </p>
+  );
+}
+
 /** Below this many timeline items the plain list is cheaper than the
  *  virtualizer bookkeeping; above it, only the visible window renders. */
 const VIRTUALIZE_THRESHOLD = 40;
@@ -379,6 +395,9 @@ export default function MessageList(props: Props) {
                   <ReasoningLine text={m.reasoning} running={isLive(m)} seconds={m.reasoningDurationMs} />
                 )}
               </div>
+              {hasText && !isLive(m) && Array.isArray(m.checkedFiles) && m.checkedFiles.length > 0 && (
+                <CheckedFilesLine files={m.checkedFiles} />
+              )}
               {hasText && String(m._id) === suggestTaskId && taskState[String(m._id)] !== "done" && (
                 <button
                   type="button"

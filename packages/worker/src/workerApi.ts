@@ -284,6 +284,18 @@ export class WorkerApi {
     return await this.client.action(api.worker.claimMcpServerTest, this.args(input));
   }
 
+  async claimRepoToolCall(
+    input: ActionInput<typeof api.worker.claimRepoToolCall>
+  ): Promise<FunctionReturnType<typeof api.worker.claimRepoToolCall>> {
+    return await this.client.action(api.worker.claimRepoToolCall, this.args(input));
+  }
+
+  async completeRepoToolCall(
+    input: ActionInput<typeof api.worker.completeRepoToolCall>
+  ): Promise<FunctionReturnType<typeof api.worker.completeRepoToolCall>> {
+    return await this.client.action(api.worker.completeRepoToolCall, this.args(input));
+  }
+
   async completeMcpServerTest(
     input: ActionInput<typeof api.worker.completeMcpServerTest>
   ): Promise<FunctionReturnType<typeof api.worker.completeMcpServerTest>> {

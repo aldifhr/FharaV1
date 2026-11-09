@@ -155,6 +155,7 @@ export const updateStreamingAgentMessage = internalMutation({
     reasoning: v.optional(v.string()),
     reasoningDurationMs: v.optional(v.number()),
     streaming: v.optional(v.boolean()),
+    checkedFiles: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const { messageId, ...patch } = args;
@@ -251,6 +252,8 @@ export const getContext = internalQuery({
       .reverse()
       .map((m) => ({
         authorType: m.authorType,
+        // Lets a reply find the speaker's own previous message ("koreksi").
+        agentId: m.agentId,
         // The file attachment appends context the agents do not need to see
         // again; the compacted summary already carries it.
         content: stripFileAttachments(m.content),

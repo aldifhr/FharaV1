@@ -5,6 +5,7 @@ import { FileText, FolderX } from "lucide-react";
 
 export default function FilesView({ project }: { project: any }) {
   const workspacePath = (project as any)?.workspacePath as string | undefined;
+  const projectId = (project as any)?._id as string | undefined;
   const [files, setFiles] = useState<string[] | null>(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -21,7 +22,7 @@ export default function FilesView({ project }: { project: any }) {
   }, [selected]);
 
   useEffect(() => {
-    if (!workspacePath) {
+    if (!workspacePath || !projectId) {
       setFiles(null);
       setSelected(null);
       return;
@@ -33,7 +34,7 @@ export default function FilesView({ project }: { project: any }) {
     setContent(null);
     setImageSrc(null);
     setBinaryNote(null);
-    fetch(`/api/project-files?workspacePath=${encodeURIComponent(workspacePath)}`)
+    fetch(`/api/project-files?projectId=${encodeURIComponent(projectId)}`)
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
@@ -46,17 +47,17 @@ export default function FilesView({ project }: { project: any }) {
     return () => {
       cancelled = true;
     };
-  }, [workspacePath]);
+  }, [workspacePath, projectId]);
 
   const openFile = (filePath: string) => {
-    if (!workspacePath) return;
+    if (!workspacePath || !projectId) return;
     const reqId = ++fileReqId.current;
     setSelected(filePath);
     setContent(null);
     setImageSrc(null);
     setBinaryNote(null);
     fetch(
-      `/api/project-files?workspacePath=${encodeURIComponent(workspacePath)}&filePath=${encodeURIComponent(filePath)}`
+      `/api/project-files?projectId=${encodeURIComponent(projectId)}&filePath=${encodeURIComponent(filePath)}`
     )
       .then((res) => res.json())
       .then((data) => {

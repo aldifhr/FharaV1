@@ -61,14 +61,21 @@ workspace file. It reads Convex state and writes intent (create task, approve,
 cancel, edit agent). Anything that needs a file, a shell, or a provider call
 belongs to `packages/worker`.
 
-`app/api/terminal` and `app/api/project-files` are local-development
-conveniences. They are not an authorization boundary — the app is single-user
-local by design. Do not present them as secure in UI copy.
+`app/api/*` routes have no session; the app is single-user local by design.
+Their guard is `proxy.ts` + `lib/requestGuard.ts` (allowed Host, same-origin
+writes) and the 127.0.0.1 bind in `scripts/next.mjs`. New mutating routes
+should also call `rejectUnsafeRequest` (`lib/apiGuard.ts`) and, if they use
+`CONVEX_SERVICE_TOKEN`, forward a fixed list of fields (`lib/proxyArgs.ts`),
+never the raw body. `app/api/project-files` takes a `projectId` and resolves
+the workspace server-side (`lib/projectFilesPolicy.ts`). There is no
+terminal route; shell work belongs to the worker. Do not present any of
+this as an authorization boundary in UI copy.
 
 ## Checks
 
 ```
 npm run --workspace=@fhara/web typecheck
+npm run --workspace=@fhara/web test      # node:test unit tests for lib/ guards
 npm run --workspace=@fhara/web build     # routing / bundling / server components
 ```
 

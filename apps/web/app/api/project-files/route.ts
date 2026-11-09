@@ -1,26 +1,30 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { ConvexHttpClient } from "convex/browser";
 import { NextRequest, NextResponse } from "next/server";
+import { api } from "@/api/convex/_generated/api";
+import { rejectUnsafeRequest } from "@/lib/apiGuard";
+import {
+  PathPolicyError,
+  isDeniedPath,
+  resolveContainedFile,
+  resolveWorkspaceBase,
+} from "@/lib/projectFilesPolicy";
+
+/**
+ * Read-only file listing / preview for a registered project (release audit
+ * P0-2). The caller names a `projectId`; the workspace directory is looked
+ * up server-side in Convex, never taken from the request. Every file is
+ * realpath-contained under that directory and secret-shaped files
+ * (.env*, .git internals, keys) are neither listed nor read.
+ */
+
+export const runtime = "nodejs";
 
 const IGNORED = new Set([".git", "node_modules", ".next", "dist", "build", ".turbo"]);
 const MAX_FILES = 10_000;
 const MAX_CONTENT = 7_000;
-
-function getBase(workspacePath: string) {
-  const trimmed = workspacePath.trim();
-  if (!trimmed || trimmed.includes("\0") || trimmed.split(/[\\/]+/).includes("..")) {
-    throw new Error("Invalid workspace path");
-  }
-  return path.resolve(trimmed);
-}
-
-function resolveFile(base: string, filePath: string) {
-  const resolved = path.resolve(base, filePath.replace(/^[/\\]+/, ""));
-  if (resolved !== base && !resolved.startsWith(`${base}${path.sep}`)) {
-    throw new Error("File is outside the workspace");
-  }
-  return resolved;
-}
+const MAX_TEXT_READ = 1_000_000;
 
 const IMAGE_MIME: Record<string, string> = {
   ".png": "image/png",
@@ -49,45 +53,82 @@ async function collectFiles(base: string, current = base, result: string[] = [])
   for (const entry of await fs.readdir(current, { withFileTypes: true })) {
     if (IGNORED.has(entry.name) || entry.name === ".DS_Store") continue;
     const absolute = path.join(current, entry.name);
+    const relative = path.relative(base, absolute).split(path.sep).join("/");
+    if (isDeniedPath(relative)) continue;
+    // Symlinks are not followed while listing (entry.isDirectory/isFile are
+    // false for them), so a link cannot pull outside files into the list.
     if (entry.isDirectory()) {
       await collectFiles(base, absolute, result);
     } else if (entry.isFile()) {
-      result.push(path.relative(base, absolute).split(path.sep).join("/"));
+      result.push(relative);
     }
     if (result.length >= MAX_FILES) break;
   }
   return result;
 }
 
-export async function GET(request: NextRequest) {
+class NotFound extends Error {}
+
+/** The project's workspace directory, from Convex, realpath'd. */
+async function projectBase(projectId: string): Promise<string> {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL is not configured on the web server.");
+  const client = new ConvexHttpClient(convexUrl);
+  let project: { workspacePath?: string } | null;
   try {
-    const workspacePath = request.nextUrl.searchParams.get("workspacePath") ?? "";
+    project = (await client.query(api.projects.get, { projectId })) as { workspacePath?: string } | null;
+  } catch {
+    throw new NotFound("Project not found");
+  }
+  if (!project?.workspacePath) throw new NotFound("Project has no workspace");
+  const base = resolveWorkspaceBase(project.workspacePath);
+  try {
+    return await fs.realpath(base);
+  } catch {
+    throw new NotFound("Workspace directory not found");
+  }
+}
+
+export async function GET(request: NextRequest) {
+  const rejected = rejectUnsafeRequest(request);
+  if (rejected) return rejected;
+  try {
+    const projectId = (request.nextUrl.searchParams.get("projectId") ?? "").trim();
+    if (!projectId) {
+      return NextResponse.json({ error: "projectId is required" }, { status: 400 });
+    }
+    const base = await projectBase(projectId);
     const filePath = request.nextUrl.searchParams.get("filePath");
-    const base = getBase(workspacePath);
 
     if (filePath) {
       if (path.basename(filePath) === ".DS_Store") {
         return NextResponse.json({ content: "", binary: true, reason: "System file — preview not available" });
       }
+      const resolved = await resolveContainedFile(base, filePath);
+      const stat = await fs.stat(resolved);
+      if (!stat.isFile()) return NextResponse.json({ error: "Not a file" }, { status: 400 });
       const mime = imageMimeFor(filePath);
-      const resolved = resolveFile(base, filePath);
-      const raw = await fs.readFile(resolved);
       if (mime) {
-        if (raw.length > IMAGE_MAX) {
+        if (stat.size > IMAGE_MAX) {
           return NextResponse.json({ content: "", binary: true, reason: "Image too large to preview" });
         }
-        return NextResponse.json({
-          content: "",
-          image: true,
-          mime,
-          data: raw.toString("base64"),
-        });
+        const raw = await fs.readFile(resolved);
+        return NextResponse.json({ content: "", image: true, mime, data: raw.toString("base64") });
+      }
+      // Read only the head of large text files; the preview is capped anyway.
+      const handle = await fs.open(resolved, "r");
+      let raw: Buffer;
+      try {
+        const buffer = Buffer.alloc(Math.min(stat.size, MAX_TEXT_READ));
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+        raw = buffer.subarray(0, bytesRead);
+      } finally {
+        await handle.close();
       }
       if (isBinary(raw)) {
         return NextResponse.json({ content: "", binary: true, reason: "Binary file — preview not available" });
       }
-      const content = raw.toString("utf8");
-      return NextResponse.json({ content: content.slice(0, MAX_CONTENT) });
+      return NextResponse.json({ content: raw.toString("utf8").slice(0, MAX_CONTENT) });
     }
 
     const query = (request.nextUrl.searchParams.get("q") ?? "").toLowerCase();
@@ -96,9 +137,8 @@ export async function GET(request: NextRequest) {
       .slice(0, 500);
     return NextResponse.json({ files });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unable to read project files" },
-      { status: 400 },
-    );
+    if (error instanceof NotFound) return NextResponse.json({ error: error.message }, { status: 404 });
+    if (error instanceof PathPolicyError) return NextResponse.json({ error: error.message }, { status: 403 });
+    return NextResponse.json({ error: "Unable to read project files" }, { status: 400 });
   }
 }

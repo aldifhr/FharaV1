@@ -101,6 +101,9 @@ export default function BrowserLab() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url, viewport }),
       });
+      // 429: a capture is already running (the server caps concurrency);
+      // the next poll picks it up, so don't toast.
+      if (res.status === 429) return;
       const data = (await res.json().catch(() => ({}))) as BrowserCapture & { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Capture failed");
       setCapture(data);

@@ -1,6 +1,8 @@
 import { ConvexHttpClient } from "convex/browser";
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/api/convex/_generated/api";
+import { rejectUnsafeRequest } from "@/lib/apiGuard";
+import { isHttpUrl, pickFields, readJsonObject } from "@/lib/proxyArgs";
 
 /**
  * Server-side admin route for LLM provider writes and model discovery.
@@ -11,8 +13,51 @@ import { api } from "@/api/convex/_generated/api";
  * reads CONVEX_SERVICE_TOKEN from the web server's own environment and
  * injects it into the Convex call. If the token is not configured on the
  * server, provider writes fail closed with a clear error.
+ *
+ * Release audit P0-3/P0-4: the route only answers same-origin requests on
+ * an allowed Host (lib/requestGuard.ts), and each op forwards a fixed set
+ * of fields; nothing else in the body travels next to the token. The
+ * backend additionally refuses platform-secret `apiKeyEnv` names and sends
+ * a stored key only to the connection's stored baseUrl.
  */
+const PROVIDER_FIELDS = [
+  "name",
+  "provider",
+  "model",
+  "baseUrl",
+  "apiKeyEnv",
+  "apiKey",
+  "priority",
+  "weight",
+  "modelPatterns",
+  "isEnabled",
+] as const;
+const MODEL_FIELDS = [
+  "modelId",
+  "displayName",
+  "contextWindow",
+  "supportsTools",
+  "supportsReasoning",
+  "inputPricePer1k",
+  "outputPricePer1k",
+  "isAvailable",
+] as const;
+
+const OP_FIELDS: Record<string, readonly string[]> = {
+  create: PROVIDER_FIELDS,
+  update: ["id", ...PROVIDER_FIELDS],
+  remove: ["id"],
+  fetchModels: ["baseUrl", "providerId", "apiKey"],
+  createModel: ["providerId", ...MODEL_FIELDS],
+  updateModel: ["id", ...MODEL_FIELDS],
+  removeModel: ["id"],
+  probeModel: ["providerId", "modelId", "projectId"],
+};
+
 export async function POST(request: NextRequest) {
+  const rejected = rejectUnsafeRequest(request);
+  if (rejected) return rejected;
+
   const token = process.env.CONVEX_SERVICE_TOKEN;
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!token) {
@@ -31,19 +76,24 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: { op?: unknown } & Record<string, any>;
-  try {
-    body = (await request.json()) as { op?: unknown } & Record<string, any>;
-  } catch {
+  const body = await readJsonObject(request);
+  if (!body) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  const { op, ...payload } = body;
+  const op = typeof body.op === "string" ? body.op : "";
+  const fields = OP_FIELDS[op];
+  if (!fields) {
+    return NextResponse.json({ error: `Unknown op: ${op.slice(0, 40)}` }, { status: 400 });
+  }
+  const payload = pickFields(body, fields);
+  if (payload.baseUrl !== undefined && !isHttpUrl(payload.baseUrl)) {
+    return NextResponse.json({ error: "Base URL must be an http(s) URL" }, { status: 400 });
+  }
 
   const client = new ConvexHttpClient(convexUrl);
   try {
-    // Proxy route: payload comes from the HTTP request body and Convex
-    // validators enforce the real args at runtime, so args pass through
-    // unchecked here (TS cannot prove them from an open object).
+    // Convex validators enforce the argument types at runtime; the field
+    // names were fixed above, so TS only loses the per-field types here.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const callArgs = { ...payload, token } as any;
     switch (op) {
@@ -82,10 +132,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ probe });
       }
       default:
-        return NextResponse.json(
-          { error: `Unknown op: ${String(op)}` },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: `Unknown op: ${op}` }, { status: 400 });
     }
   } catch (error) {
     return NextResponse.json(

@@ -36,15 +36,15 @@ const KIND_META: Record<PgKind, { label: string; bar: string }> = {
   other: { label: "File", bar: "bg-gray-400" },
 };
 
-async function fetchFileList(workspacePath: string): Promise<string[]> {
-  const res = await fetch(`/api/project-files?workspacePath=${encodeURIComponent(workspacePath)}`);
+async function fetchFileList(projectId: string): Promise<string[]> {
+  const res = await fetch(`/api/project-files?projectId=${encodeURIComponent(projectId)}`);
   const data = (await res.json().catch(() => ({}))) as { files?: string[]; error?: string };
   if (!res.ok) throw new Error(data.error ?? "Couldn't list files");
   return data.files ?? [];
 }
 
-async function fetchContent(workspacePath: string, filePath: string): Promise<string | null> {
-  const res = await fetch(`/api/project-files?workspacePath=${encodeURIComponent(workspacePath)}&filePath=${encodeURIComponent(filePath)}`);
+async function fetchContent(projectId: string, filePath: string): Promise<string | null> {
+  const res = await fetch(`/api/project-files?projectId=${encodeURIComponent(projectId)}&filePath=${encodeURIComponent(filePath)}`);
   const data = (await res.json().catch(() => ({}))) as { content?: string; binary?: boolean };
   if (!res.ok || data.binary) return null;
   return data.content ?? null;
@@ -75,14 +75,14 @@ export default function ProjectIntelligence() {
     setScanning(true);
     setSelected(null);
     try {
-      const all = await fetchFileList(project.workspacePath);
+      const all = await fetchFileList(project._id);
       const codeFiles = all.filter((f) => CODE_EXT.test(f));
       setScanProgress(`Contents 0/${codeFiles.length}`);
       const contents: Array<{ path: string; content?: string }> = [];
       const CHUNK = 25;
       for (let i = 0; i < codeFiles.length; i += CHUNK) {
         const batch = codeFiles.slice(i, i + CHUNK);
-        const results = await Promise.all(batch.map((f) => fetchContent(project.workspacePath, f)));
+        const results = await Promise.all(batch.map((f) => fetchContent(project._id, f)));
         batch.forEach((f, j) => contents.push({ path: f, content: results[j] ?? undefined }));
         setScanProgress(`Contents ${Math.min(i + CHUNK, codeFiles.length)}/${codeFiles.length}`);
         if (i > 300) break;

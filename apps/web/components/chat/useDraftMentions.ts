@@ -20,12 +20,13 @@ export function useDraftMentions(
 
   useEffect(() => {
     const workspacePath = project?.workspacePath;
-    if (!workspacePath) {
+    const projectId = project?._id as string | undefined;
+    if (!workspacePath || !projectId) {
       setWorkspaceFiles([]);
       return;
     }
     let cancelled = false;
-    void fetch(`/api/project-files?workspacePath=${encodeURIComponent(workspacePath)}`)
+    void fetch(`/api/project-files?projectId=${encodeURIComponent(projectId)}`)
       .then(async (response) => {
         if (!response.ok) throw new Error("Unable to list project files");
         return (await response.json()) as { files?: string[] };
@@ -39,7 +40,7 @@ export function useDraftMentions(
     return () => {
       cancelled = true;
     };
-  }, [project?.workspacePath]);
+  }, [project?.workspacePath, project?._id]);
 
   const fileResults = useMemo(() => {
     if (mention === null) return [];
@@ -74,13 +75,14 @@ export function useDraftMentions(
   /** Read `@path` contents from the workspace and append them to `text`. */
   const attachMentionedFiles = async (text: string) => {
     const workspacePath = project?.workspacePath;
-    if (!workspacePath) return text;
+    const projectId = project?._id as string | undefined;
+    if (!workspacePath || !projectId) return text;
     const paths = [...new Set(
       [...text.matchAll(/@([\w./-]+\.[\w]{1,12})/g)].map((match) => match[1]),
     )];
     if (paths.length === 0) return text;
     const contents = await Promise.all(paths.map(async (filePath) => {
-      const params = new URLSearchParams({ workspacePath, filePath });
+      const params = new URLSearchParams({ projectId, filePath });
       const response = await fetch(`/api/project-files?${params}`);
       if (!response.ok) return "";
       const data = (await response.json()) as { content?: string };

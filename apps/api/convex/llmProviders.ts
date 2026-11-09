@@ -2,6 +2,7 @@ import { action, internalQuery, query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertServiceToken } from "./lib/authz";
+import { assertSafeApiKeyEnv, isSafeApiKeyEnv } from "./lib/apiKeyEnv";
 import { changedFields, recordAudit, setFields } from "./lib/recordAudit";
 import { encryptApiKey, decryptApiKey } from "./lib/llmCrypto";
 import { getGlobalLLMConfig } from "./lib/llmConfig";
@@ -64,6 +65,7 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     assertServiceToken(args.token);
+    assertSafeApiKeyEnv(args.apiKeyEnv);
     const { token: _token, apiKey, ...fields } = args;
     const now = Date.now();
     const id = await ctx.db.insert("llmProviders", {
@@ -113,6 +115,7 @@ export const updateProvider = mutation({
   },
   handler: async (ctx, args) => {
     assertServiceToken(args.token);
+    if (args.apiKeyEnv !== undefined) assertSafeApiKeyEnv(args.apiKeyEnv);
     const { id, token: _token, apiKey, ...updates } = args;
     const before = await ctx.db.get(id);
     await ctx.db.patch(id, {
@@ -192,8 +195,7 @@ export const fetchModels = action({
   },
   handler: async (ctx, args): Promise<string[]> => {
     assertServiceToken(args.token);
-    const base = args.baseUrl.trim().replace(/\/$/, "");
-    if (!base) throw new Error("Base URL is required");
+    let base = args.baseUrl.trim().replace(/\/$/, "");
     let apiKey = args.apiKey?.trim() || undefined;
     if (!apiKey && args.providerId) {
       const pool: PoolConnectionPayload[] = await ctx.runQuery(
@@ -201,14 +203,22 @@ export const fetchModels = action({
         {}
       );
       const connection = pool.find((p) => p._id === args.providerId);
-      if (connection?.apiKeyCiphertext) {
-        apiKey = await decryptApiKey(connection.apiKeyCiphertext, connection.name);
-      } else if (connection) {
-        const env: Record<string, string | undefined> =
-          (globalThis as any).process?.env ?? {};
-        apiKey = env[connection.apiKeyEnv]?.trim() || undefined;
+      if (connection) {
+        // A stored key only ever goes to the connection's STORED baseUrl
+        // (release audit P0-3): the caller's baseUrl is ignored here, so a
+        // request cannot redirect a saved credential to another host.
+        base = connection.baseUrl.trim().replace(/\/$/, "");
+        if (connection.apiKeyCiphertext) {
+          apiKey = await decryptApiKey(connection.apiKeyCiphertext, connection.name);
+        } else if (isSafeApiKeyEnv(connection.apiKeyEnv)) {
+          const env: Record<string, string | undefined> =
+            (globalThis as any).process?.env ?? {};
+          apiKey = env[connection.apiKeyEnv]?.trim() || undefined;
+        }
       }
     }
+    if (!base) throw new Error("Base URL is required");
+    if (!/^https?:\/\//i.test(base)) throw new Error("Base URL must be http(s)");
     if (!apiKey) {
       throw new Error(
         "An API key is required (enter one, or fetch models for a saved provider)"

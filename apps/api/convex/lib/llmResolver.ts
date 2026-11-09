@@ -1,3 +1,4 @@
+import { isSafeApiKeyEnv } from "./apiKeyEnv";
 import type { QueryCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { decryptApiKey } from "./llmCrypto";
@@ -140,6 +141,9 @@ export async function resolveConnectionKey(
   if (connection.apiKey) {
     return connection.apiKey.trim();
   }
+  // Never read a platform secret by name (release audit P0-3), even from
+  // a row written before apiKeyEnv was validated.
+  if (!isSafeApiKeyEnv(connection.apiKeyEnv)) return "";
   const env: Record<string, string | undefined> =
     (globalThis as any).process?.env ?? {};
   return env[connection.apiKeyEnv]?.trim() ?? "";

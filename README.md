@@ -341,6 +341,13 @@ Events are recorded (`integrationEvents`) but not acted on yet.
   (`apps/api/convex/lib/authz.ts`); worker ↔ backend calls use the static
   `CONVEX_SERVICE_TOKEN` (timing-safe, fails closed when unset). Do not
   expose a deployment to an untrusted network.
+- **Web server.** `npm run dev`/`start` bind to `127.0.0.1` (override with
+  `FHARA_HOST`). `apps/web/proxy.ts` rejects `/api/*` requests with an
+  unexpected `Host` (DNS rebinding; extend with `FHARA_ALLOWED_HOSTS`) and
+  cross-origin writes. `/api/project-files` serves only a registered
+  project's workspace and never `.env*`, `.git` or key files; Browser Lab
+  refuses private, loopback, link-local and metadata addresses. Custom
+  local (stdio) MCP commands need `FHARA_ALLOW_LOCAL_MCP=1`.
 
 ## Evaluations and audit log
 

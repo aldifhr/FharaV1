@@ -67,6 +67,12 @@ describe("lenient code_change parsing", () => {
     expect(parseFileBlocks(`FILE: src/a.js\n${FENCE}js\nconst a = 1;\n`)).toBeNull();
   });
 
+  it("rejects the whole answer when a later block is cut off (no partial change set)", () => {
+    const content = `FILE: index.html\n\`\`\`\`\n<html></html>\n\`\`\`\nFILE: src/header.js\n\`\`\`\`\nexport const a = "da`;
+    expect(parseFileBlocks(content)).toBeNull();
+    expect(diagnoseDraftParse(content)).toMatch(/not closed/);
+  });
+
   it("ignores headings that are not paths", () => {
     expect(parseFileBlocks(`### Usage\n${FENCE}bash\nnpm test\n${FENCE}`)).toBeNull();
   });

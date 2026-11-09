@@ -112,8 +112,10 @@ export function parseFileBlocks(content: string): { files: DraftFile[] } | null 
     // Models often open with ```` and close with ``` (seen in e2e ULTRA):
     // without a closer of the full length, take the last shorter one.
     if (close < 0) close = shorterClose;
-    // An unclosed last block (answer cut off) is not trusted: partial content would truncate the file.
-    if (close < 0) continue;
+    // An unclosed block means the answer was cut off (output token limit):
+    // reject the whole answer, so a partial change set (a file missing, a
+    // file truncated) is never staged; the retry asks again.
+    if (close < 0) return null;
     const body = lines.slice(header.fenceLine + 1, close).join("\n");
     files.set(header.path, { filePath: header.path, newContent: body.endsWith("\n") || body === "" ? body : `${body}\n` });
   }
@@ -243,6 +245,9 @@ export function parseDraftLenient(content: string): { draft: { files: DraftFile[
 /** Short reason an answer did not parse (for the task events). */
 export function diagnoseDraftParse(content: string): string {
   if (content.trim() === "") return "empty answer";
+  if (/^\s*(?:FILE|File)\s*:/m.test(content) && /^ {0,3}(?:`{3,}|~{3,})/m.test(content)) {
+    return `file blocks found but one is not closed (answer cut off at ${content.length} chars? check the output token limit)`;
+  }
   const first = content.indexOf("{");
   if (first < 0) return "no JSON object and no file blocks found";
   const last = content.lastIndexOf("}");

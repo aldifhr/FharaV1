@@ -60,6 +60,12 @@ import {
   buildPlanningGuidance,
 } from "./lib/prompts/chat";
 
+
+/** The user explicitly asked for alternatives to pick from ("kasih 3 opsi layout"). */
+function wantsOptions(text: string): boolean {
+  return /\b(options?|opsi|pilihan|alternatif|alternatives?|variasi|varian|variants?)\b/i.test(text);
+}
+
 export const getRepoSnapshot = action({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args): Promise<string | null> => {
@@ -609,7 +615,9 @@ export const replyToChat = internalAction({
         ...(handoffBy !== undefined ? [buildHandoffNotice(handoffBy)] : []),
         // Questions (compare, explain, recommend) get a prose answer; the
         // options picker is for choosing what to build, not for a verdict.
-        intent.intent === "ask" ? "Answer in prose. Do not output an [options] block." : OPTIONS_GUIDANCE,
+        intent.intent === "ask" && !wantsOptions(lastUserContent)
+          ? "Answer in prose. Do not output an [options] block."
+          : OPTIONS_GUIDANCE,
       ]
         .filter(Boolean)
         .join("\n");

@@ -203,6 +203,8 @@ export async function persistPlan(
     createdBy: "orchestrator" | "fallback";
     classification: string;
     degradedReason?: string;
+    /** Task Estimator result (apps/api/convex/lib/estimate.ts). */
+    estimate?: unknown;
   }
 ): Promise<void> {
   await deps.api.setPlanning({
@@ -223,5 +225,6 @@ export async function persistPlan(
     ...(input.createdBy === "fallback" && input.degradedReason
       ? { degradedReason: input.degradedReason.slice(0, 500) }
       : {}),
+    ...(input.estimate ? { estimate: input.estimate } : {}),
   });
 }

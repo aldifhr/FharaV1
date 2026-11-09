@@ -236,7 +236,8 @@ export default function MessageList(props: Props) {
         {showTaskCard && (() => {
           const cardTask = (tasks ?? []).find((t: any) => t._id === key);
           if (!cardTask) return null;
-          const pending = pendingItems.filter((a: any) => a.taskId === key && a.status === "pending");
+          // Plan reviews render as their own Plan card message, not here.
+          const pending = pendingItems.filter((a: any) => a.taskId === key && a.status === "pending" && a.kind !== "plan");
           const qaEvents = (projectEvents ?? []).filter((e: any) => e.taskId === key && e.type === "task.check");
           return (
             <div className="space-y-2">

@@ -455,6 +455,27 @@ export class TaskLlmResolver {
     }));
   }
 
+  /**
+   * The model an agent's first call would use, picked WITHOUT the weighted
+   * random draw (first candidate of the winning tier), for the Task
+   * Estimator. Deterministic for a given pool + health state. Null when
+   * nothing can serve the agent.
+   */
+  expectedModelFor(
+    agent?: AgentLlmAssignment
+  ): { model: string; inputPricePer1k?: number; outputPricePer1k?: number } | null {
+    try {
+      const { primary } = resolveForAgent(agent, {}, this.pool, this.health, { random: () => 0 });
+      return {
+        model: primary.model,
+        inputPricePer1k: primary.inputPricePer1k,
+        outputPricePer1k: primary.outputPricePer1k,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   /** Task-level default (agent-less callers: planner fallback, Stagehand). */
   defaultConfig(): GlobalLLMConfig {
     return this.configFor(undefined);

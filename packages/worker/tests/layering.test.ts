@@ -43,7 +43,15 @@ const LAYERS: Record<string, number> = {
 };
 
 /** apps/api modules that are pure TypeScript and safe at the foundation layer. */
-const SHARED_FOUNDATION = new Set(["convex/lib/roles"]);
+const SHARED_FOUNDATION = new Set([
+  "convex/lib/roles",
+  // Pure shared helpers (no Convex APIs): plan validation + estimate +
+  // plan-review policy run on both sides.
+  "convex/lib/ownershipPaths",
+  "convex/lib/planValidation",
+  "convex/lib/estimate",
+  "convex/lib/planReviewPolicy",
+]);
 
 const SRC = path.resolve(import.meta.dirname, "../src");
 

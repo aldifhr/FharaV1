@@ -2,6 +2,7 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { assertProjectAccess, canViewProject, getViewerId, getVisibleTask } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
+import { onPlanApproved, onPlanRejected } from "./planReview";
 
 export const listPendingAll = query({
   args: {},
@@ -35,6 +36,8 @@ export const approve = mutation({
     }
     const now = Date.now();
     await ctx.db.patch(args.approvalId, { status: "approved", resolvedAt: now });
+    // Plan Inspector: an approved plan re-queues its task (planReview.ts).
+    if (approval.kind === "plan") await onPlanApproved(ctx, approval);
     await ctx.db.insert("taskEvents", {
       taskId: approval.taskId,
       projectId: approval.projectId,
@@ -67,6 +70,8 @@ export const reject = mutation({
     }
     const now = Date.now();
     await ctx.db.patch(args.approvalId, { status: "rejected", resolvedAt: now });
+    // Plan Inspector: a rejected plan ends its task as rejected.
+    if (approval.kind === "plan") await onPlanRejected(ctx, approval);
     await ctx.db.insert("taskEvents", {
       taskId: approval.taskId,
       projectId: approval.projectId,

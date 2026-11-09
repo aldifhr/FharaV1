@@ -7,6 +7,7 @@ import type { PromptSkill } from "./lib/skills";
 import { loadPromptSkills } from "./skills";
 import { resolveRunMcpServers } from "./mcpServers";
 import { loadMemorySection } from "./memories";
+import { writePlanVersion } from "./lib/planStore";
 import { decidePermissionCore, permissionArgs } from "./permissionBroker";
 import { recordAudit } from "./lib/recordAudit";
 import {
@@ -598,6 +599,8 @@ export const savePlan = internalMutation({
     ),
     /** Why the plan is a deterministic fallback (shown in the task UI). */
     degradedReason: v.optional(v.string()),
+    /** Task Estimator result (lib/estimate.ts), computed before execution. */
+    estimate: v.optional(v.any()),
     workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -606,111 +609,8 @@ export const savePlan = internalMutation({
     if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
       throw new Error(LEASE_LOST_ERROR);
     }
-    const now = Date.now();
-    const existing = await ctx.db
-      .query("plans")
-      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
-      .collect();
-    for (const plan of existing) await ctx.db.delete(plan._id);
-
-    await ctx.db.insert("plans", {
-      taskId: args.taskId,
-      projectId: args.projectId,
-      version: args.version,
-      strategy: args.strategy,
-      createdBy: args.createdBy,
-      goal: args.goal,
-      payload: args.payload,
-      ...(args.degradedReason ? { degradedReason: args.degradedReason } : {}),
-      createdAt: now,
-    });
-
-    // Replan semantics (core M5): rows whose key persists into the new plan
-    // are UPDATED IN PLACE — their definition follows the new plan, but a
-    // finished row (completed/skipped) keeps its status, output and
-    // timestamps, so the dashboard does not show finished work as pending
-    // and a crash after the replan does not re-execute (and re-pay for)
-    // carried work. Their _id is kept, so executions.subtaskId stays valid.
-    // Unfinished rows go back to pending; rows dropped by the new plan are
-    // deleted.
-    const oldSubtasks = await ctx.db
-      .query("subtasks")
-      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
-      .collect();
-    const oldByKey = new Map<string, Doc<"subtasks">>();
-    for (const row of oldSubtasks) {
-      if (oldByKey.has(row.key)) {
-        // Duplicate key rows (legacy data): keep one.
-        await ctx.db.delete(row._id);
-        continue;
-      }
-      oldByKey.set(row.key, row);
-    }
-    const newKeys = new Set(args.subtasks.map((subtask) => subtask.key));
-    for (const [key, row] of oldByKey) {
-      if (!newKeys.has(key)) await ctx.db.delete(row._id);
-    }
-
-    const preserved: string[] = [];
-    for (const subtask of args.subtasks) {
-      const definition = {
-        title: subtask.title,
-        description: subtask.description,
-        kind: subtask.kind,
-        capability: subtask.capability,
-        dependencies: subtask.dependencies,
-        order: subtask.order,
-        allowedPaths: subtask.allowedPaths,
-        reviewRound: subtask.reviewRound,
-        ...(subtask.origin !== undefined ? { origin: subtask.origin } : {}),
-      };
-      const prior = oldByKey.get(subtask.key);
-      if (prior) {
-        if (prior.status === "completed" || prior.status === "skipped") {
-          await ctx.db.patch(prior._id, definition);
-          preserved.push(subtask.key);
-        } else {
-          await ctx.db.patch(prior._id, {
-            ...definition,
-            status: "pending",
-            attempts: 0,
-            error: undefined,
-            startedAt: undefined,
-            completedAt: undefined,
-          });
-        }
-        continue;
-      }
-      await ctx.db.insert("subtasks", {
-        taskId: args.taskId,
-        projectId: args.projectId,
-        key: subtask.key,
-        ...definition,
-        status: "pending",
-        attempts: 0,
-      });
-    }
-
-    await ctx.db.patch(args.taskId, {
-      planVersion: args.version,
-      strategy: args.strategy,
-      updatedAt: now,
-      errorMessage: undefined,
-    });
-    await ctx.db.insert("taskEvents", {
-      taskId: args.taskId,
-      projectId: args.projectId,
-      type: "plan.created",
-      payload: {
-        version: args.version,
-        strategy: args.strategy,
-        createdBy: args.createdBy,
-        subtasks: args.subtasks.map((subtask) => subtask.key),
-        ...(preserved.length > 0 ? { preservedCompleted: preserved } : {}),
-      },
-      level: "info",
-    });
-    return args.version;
+    const { workerId: _workerId, ...plan } = args;
+    return await writePlanVersion(ctx, plan);
   },
 });
 

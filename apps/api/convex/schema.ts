@@ -61,7 +61,16 @@ export const approvalKind = v.union(
   v.literal("apply_changes"),
   v.literal("git_push"),
   v.literal("run_command"),
-  v.literal("merge_pr")
+  v.literal("merge_pr"),
+  // Plan Inspector: the plan waits for the user's review before execution.
+  v.literal("plan")
+);
+
+/** Plan Inspector project setting (lib/planReviewPolicy.ts). Unset = off. */
+export const planReviewSetting = v.union(
+  v.literal("off"),
+  v.literal("medium_plus"),
+  v.literal("always")
 );
 
 export const approvalStatus = v.union(
@@ -111,6 +120,9 @@ export default defineSchema({
     // Plan 020 (additive): permission mode new tasks start in. Unset =
     // supervised. The legacy `approvalMode` switch above is kept as-is.
     defaultPermissionMode: v.optional(permissionModeValidator),
+    // Plan Inspector (additive): pause after plan.created for the user's
+    // review. Unset = off.
+    planReview: v.optional(planReviewSetting),
   }).index("by_owner", ["ownerId"]),
 
   agents: defineTable({
@@ -198,6 +210,10 @@ export default defineSchema({
     // Plan 020 (additive): this task's permission mode, chosen in the
     // composer. Unset (pre-020 tasks) = supervised.
     permissionMode: v.optional(permissionModeValidator),
+    // Plan Inspector (additive): the user's "Replan with note" text. The
+    // next worker claim plans afresh with it as planner feedback; the next
+    // saved planner version clears it.
+    planReviewNote: v.optional(v.string()),
     // Agile: the sprint this task belongs to (1-based per project). A
     // sprint groups one planning round and its review/verification.
     sprint: v.optional(v.number()),
@@ -229,11 +245,15 @@ export default defineSchema({
     projectId: v.id("projects"),
     version: v.number(),
     strategy: v.string(),
-    createdBy: v.union(v.literal("orchestrator"), v.literal("fallback")),
+    // "user": a version produced by editing the plan on the Plan card.
+    createdBy: v.union(v.literal("orchestrator"), v.literal("fallback"), v.literal("user")),
     goal: v.string(),
     payload: v.any(),
     /** Set when the plan is a deterministic fallback: why (task UI). */
     degradedReason: v.optional(v.string()),
+    // Task Estimator (additive): lib/estimate.ts PlanEstimate, computed
+    // before execution. An estimate, never a guarantee.
+    estimate: v.optional(v.any()),
     createdAt: v.number(),
   })
     .index("by_task", ["taskId"])
@@ -368,7 +388,9 @@ export default defineSchema({
           v.literal("qa"),
           v.literal("verification"),
           // Plan 019: "Changed N files" diff card after a code change.
-          v.literal("changes")
+          v.literal("changes"),
+          // Plan Inspector: the plan waiting for review (reads live state).
+          v.literal("plan")
         ),
         data: v.any(),
       })

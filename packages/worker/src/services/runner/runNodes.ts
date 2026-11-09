@@ -392,6 +392,12 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
             capability: subtask.capability,
             agent: agent.name,
             capabilities: capabilitiesOf(agent),
+            // Routing Inspector: role + whether the agent declares the
+            // capability or was the closest available fallback.
+            role: agent.role,
+            match: capabilitiesOf(agent).includes(subtask.capability.trim().toLowerCase().replace(/\s+/g, "-"))
+              ? "exact"
+              : "fallback",
           },
         });
         const executionId = await deps.api.startExecution({

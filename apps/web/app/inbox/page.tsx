@@ -14,6 +14,7 @@ const KIND_LABEL: Record<string, string> = {
   apply_changes: "Apply changes",
   git_push: "Git push",
   run_command: "Run command",
+  plan: "Review plan",
 };
 
 function Section({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {

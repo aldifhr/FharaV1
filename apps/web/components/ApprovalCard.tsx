@@ -16,6 +16,7 @@ import {
   type StepStatus,
 } from "./chat/cards/primitives";
 import { clockTime } from "@/lib/format";
+import PlanCard from "./chat/cards/PlanCard";
 
 type Approval = {
   _id: string;
@@ -32,6 +33,7 @@ const KIND_LABEL: Record<string, string> = {
   git_push: "Git push",
   run_command: "Run command",
   merge_pr: "Merge PR",
+  plan: "Review plan",
 };
 
 type Handler = (approvalId: string) => unknown;
@@ -56,7 +58,13 @@ function metricStatus(value: unknown): StepStatus {
  *
  * Handlers may return a promise; a rejection surfaces as an error toast.
  */
-export default function ApprovalCard({
+/** Plan reviews have their own card (Plan Inspector); everything else renders below. */
+export default function ApprovalCard(props: Parameters<typeof GenericApprovalCard>[0]) {
+  if (props.approval.kind === "plan") return <PlanCard data={{ taskId: props.approval.taskId }} />;
+  return <GenericApprovalCard {...props} />;
+}
+
+function GenericApprovalCard({
   approval,
   taskTitle,
   busy,

@@ -2,6 +2,9 @@ import { query, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { assertProjectAccess, getVisibleTask, visibleProjects } from "./lib/authz";
+import { extractRouting } from "./lib/routing";
+import { roleKeyForCapability } from "./lib/planEdit";
+import type { PlanEstimate } from "./lib/estimate";
 
 /**
  * Runs / execution traces: a read-only projection of how the orchestrator
@@ -21,6 +24,18 @@ const SUBTASK_CAP = 500;
 const EXECUTION_CAP = 1000;
 const USAGE_CAP = 5000;
 const EVENT_CAP = 300;
+/** Early events read for the Routing section (classification, plan, first routes). */
+const ROUTING_EARLY_CAP = 400;
+const ROUTING_TYPES = new Set([
+  "task.classified",
+  "orchestrator.plan",
+  "plan.created",
+  "plan.planner_fallback",
+  "plan.degraded",
+  "subtask.routed",
+  "orchestrator.decision",
+  "orchestrator.decision_fallback",
+]);
 const INPUT_CAP = 4_000;
 const OUTPUT_CAP = 8_000;
 const MISC_CAP = 2_000;
@@ -31,6 +46,10 @@ function cap(text: string | undefined | null, max: number): string | undefined {
   if (text === undefined || text === null) return undefined;
   const s = String(text);
   return s.length > max ? `${s.slice(0, max)}\n… [truncated ${s.length - max} chars]` : s;
+}
+
+function estimateOf(value: unknown): PlanEstimate | null {
+  return value && typeof value === "object" && (value as PlanEstimate).version === 1 ? (value as PlanEstimate) : null;
 }
 
 function taskStart(task: Doc<"tasks">): number {
@@ -171,6 +190,12 @@ export const list = query({
       const errorCount = failedExecs + (task.status === "failed" && failedExecs === 0 ? 1 : 0);
       const startedAt = taskStart(task);
       const endedAt = taskEnd(task);
+      const latestPlan = await ctx.db
+        .query("plans")
+        .withIndex("by_task", (q) => q.eq("taskId", task._id))
+        .order("desc")
+        .take(1);
+      const estimate = estimateOf(latestPlan[0]?.estimate);
       runs.push({
         taskId: task._id,
         projectId: task.projectId,
@@ -190,6 +215,9 @@ export const list = query({
         errorCount,
         subtasksDone: subtasks.filter((s) => s.status === "completed" || s.status === "skipped").length,
         subtasksTotal: subtasks.length,
+        estimate: estimate
+          ? { tokens: estimate.tokens.total, cost: estimate.cost, costPartial: estimate.costPartial, durationMs: estimate.durationMs }
+          : null,
       });
     }
     return {
@@ -247,6 +275,11 @@ export const get = query({
         .order("desc")
         .take(EVENT_CAP + 1),
     ]);
+    const earlyEvents = await ctx.db
+      .query("taskEvents")
+      .withIndex("by_task_and_sequence", (q) => q.eq("taskId", task._id))
+      .order("asc")
+      .take(ROUTING_EARLY_CAP);
     const eventsTruncated = eventsDesc.length > EVENT_CAP;
     const events = eventsDesc.slice(0, EVENT_CAP).reverse();
     plans.sort((a, b) => a.version - b.version);
@@ -554,6 +587,59 @@ export const get = query({
       if (cost !== null) a.estimatedCost = (a.estimatedCost ?? 0) + cost;
     }
 
+    // Routing (Intent & Routing Inspector): read only from existing events.
+    const routingEvents = new Map<string, Doc<"taskEvents">>();
+    for (const e of [...earlyEvents, ...events]) if (ROUTING_TYPES.has(e.type)) routingEvents.set(e._id as string, e);
+    const roleByAgentName: Record<string, string> = {};
+    for (const exec of executions) {
+      if (exec.agentName && !roleByAgentName[exec.agentName]) roleByAgentName[exec.agentName] = await roleOf(exec.agentId, exec.agentName);
+    }
+    for (const s of subtasks) {
+      if (s.assignedAgentName && !roleByAgentName[s.assignedAgentName]) roleByAgentName[s.assignedAgentName] = roleByKey.get(s.key) ?? "agent";
+    }
+    const delegationRoles = [];
+    for (const d of delegations) {
+      delegationRoles.push({
+        fromRole: d.fromAgentId ? await roleOf(d.fromAgentId) : plannerRole,
+        toRole: d.toAgentId ? await roleOf(d.toAgentId) : d.capability ?? "agent",
+        decision: d.decision,
+        reason: cap(d.reason, MISC_CAP) ?? null,
+        capability: d.capability ?? null,
+        createdAt: d.createdAt,
+      });
+    }
+    const latestPlanRow = plans[plans.length - 1];
+    const latestEstimate = estimateOf(latestPlanRow?.estimate);
+    // Assigned subtasks show their agent's role; not-yet-run ones the role
+    // the estimate routed them to, else the role seeding the capability.
+    const subtaskRole = (s: Doc<"subtasks">): string | null =>
+      s.assignedAgentId || s.assignedAgentName
+        ? roleByKey.get(s.key) ?? null
+        : latestEstimate?.perSubtask.find((p) => p.key === s.key)?.role ?? roleKeyForCapability(s.capability);
+    const routing = extractRouting({
+      events: [...routingEvents.values()].map((e) => ({
+        type: e.type,
+        payload: e.payload,
+        subtaskKey: e.subtaskKey ?? null,
+        createdAt: e.createdAt ?? e._creationTime,
+      })),
+      subtasks: subtasks
+        .slice()
+        .sort((a, b) => a.order - b.order)
+        .map((s) => ({
+          key: s.key,
+          title: s.title,
+          capability: s.capability,
+          kind: s.kind,
+          dependencies: s.dependencies,
+          role: subtaskRole(s),
+          origin: s.origin ?? null,
+        })),
+      delegations: delegationRoles,
+      roleByAgentName,
+      plannerRole,
+    });
+
     return {
       task: {
         _id: task._id,
@@ -597,6 +683,28 @@ export const get = query({
         createdAt: e.createdAt ?? e._creationTime,
       })),
       eventsTruncated,
+      plan: latestPlanRow
+        ? {
+            version: latestPlanRow.version,
+            createdBy: latestPlanRow.createdBy,
+            degradedReason: latestPlanRow.degradedReason ?? null,
+            estimate: latestEstimate,
+          }
+        : null,
+      routing,
+      /** DAG nodes for the Decomposer graph (plan subtasks + runner-added nodes). */
+      graph: subtasks
+        .slice()
+        .sort((a, b) => a.order - b.order)
+        .map((s) => ({
+          key: s.key,
+          title: s.title,
+          kind: s.kind,
+          status: s.status,
+          role: subtaskRole(s),
+          dependencies: s.dependencies,
+          origin: s.origin ?? null,
+        })),
     };
   },
 });

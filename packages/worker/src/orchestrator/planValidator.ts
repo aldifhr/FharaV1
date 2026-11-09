@@ -1,18 +1,19 @@
-import type { ExecutionPlan, PlanSubtask, SubtaskKind } from "@/types";
-import { normalizeCapability } from "./capabilities";
-import { normalizeAllowedPaths } from "./ownership";
+import type { ExecutionPlan, SubtaskKind } from "@/types";
+import {
+  findCycle,
+  SUBTASK_KINDS as SHARED_SUBTASK_KINDS,
+  validatePlan as validateSharedPlan,
+  validateStoredPlan as validateSharedStoredPlan,
+} from "@/api/convex/lib/planValidation";
 
-export const SUBTASK_KINDS: SubtaskKind[] = [
-  "analysis",
-  "code_change",
-  "review",
-  "qa",
-  "research",
-  "audit",
-  "shell",
-];
+// The validator itself lives in the shared backend lib
+// (apps/api/convex/lib/planValidation.ts) so user plan edits are checked by
+// the SAME rules on the backend before they are stored. This module keeps
+// the worker's import path and plan types.
 
-const KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+export { findCycle };
+
+export const SUBTASK_KINDS: SubtaskKind[] = SHARED_SUBTASK_KINDS;
 
 export interface ValidationResult {
   ok: boolean;
@@ -21,189 +22,10 @@ export interface ValidationResult {
 }
 
 export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResult {
-  const errors: string[] = [];
-  if (!raw || typeof raw !== "object") {
-    return { ok: false, errors: ["plan must be an object"] };
-  }
-  const candidate = raw as Record<string, unknown>;
-
-  const goal = typeof candidate.goal === "string" ? candidate.goal.trim() : "";
-  if (!goal) errors.push("plan.goal is required");
-
-  const rawSubtasks = candidate.subtasks;
-  if (!Array.isArray(rawSubtasks) || rawSubtasks.length === 0) {
-    errors.push("plan.subtasks must be a non-empty array");
-    return { ok: false, errors };
-  }
-  if (rawSubtasks.length > maxSubtasks) {
-    errors.push(`plan has ${rawSubtasks.length} subtasks; limit is ${maxSubtasks}`);
-  }
-
-  const subtasks: PlanSubtask[] = [];
-  const seen = new Set<string>();
-  rawSubtasks.forEach((entry, index) => {
-    if (!entry || typeof entry !== "object") {
-      errors.push(`subtask[${index}] must be an object`);
-      return;
-    }
-    const value = entry as Record<string, unknown>;
-    const key = typeof value.key === "string" ? value.key.trim().toLowerCase() : "";
-    if (!KEY_PATTERN.test(key)) {
-      errors.push(`subtask[${index}].key is invalid (use lowercase letters, digits, - or _)`);
-      return;
-    }
-    if (seen.has(key)) {
-      errors.push(`duplicate subtask key: ${key}`);
-      return;
-    }
-    seen.add(key);
-
-    const capability =
-      typeof value.capability === "string" ? normalizeCapability(value.capability) : "";
-    if (!capability) errors.push(`subtask ${key}: capability is required`);
-    // ponytail: shell-execution always runs the "shell" executor. Planner
-    // sometimes emits kind "audit"/"analysis" for it, which routes to the
-    // read-only executor (no shell access). Coerce at validation.
-    const kind = (capability === "shell-execution"
-      ? "shell"
-      : (value.kind as SubtaskKind)) as SubtaskKind;
-    // Shell executor is git-only exact-argv (see isCommandAllowed). A shell
-    // subtask whose description asks for file creation / write (e.g.
-    // "Create hello.txt", "printf '...' > file") can never succeed — the
-    // shell agent replies with a self-delegation loop. Reject at validation
-    // so the planner falls back to the heuristic code_change plan instead
-    // of emitting a doomed shell DAG.
-    if (capability === "shell-execution") {
-      const desc = typeof value.description === "string" ? value.description : "";
-      if (/\b(create|write|touch|echo|printf|mkdir|cp|mv|rm)\b.*\bfile\b|\bfile\b.*\b(create|write)|>|printf|hello\.txt/i.test(desc)) {
-        errors.push(
-          `subtask ${key}: shell-execution cannot create/write files (git-only allowlist); use code_change`
-        );
-      }
-    }
-    if (!SUBTASK_KINDS.includes(kind)) {
-      errors.push(`subtask ${key}: kind must be one of ${SUBTASK_KINDS.join(", ")}`);
-    }
-
-    const dependencies = Array.isArray(value.dependencies)
-      ? (value.dependencies as unknown[])
-          .filter((dependency): dependency is string => typeof dependency === "string")
-          .map((dependency) => dependency.trim().toLowerCase())
-      : [];
-    if (dependencies.includes(key)) errors.push(`subtask ${key} depends on itself`);
-
-    const ownership = normalizeAllowedPaths(value.allowedPaths);
-    if (!ownership.ok) errors.push(`subtask ${key}: ${ownership.error}`);
-
-    subtasks.push({
-      key,
-      title:
-        typeof value.title === "string" && value.title.trim()
-          ? value.title.trim().slice(0, 200)
-          : key,
-      description:
-        typeof value.description === "string" ? value.description.trim().slice(0, 4000) : "",
-      kind,
-      capability,
-      dependencies,
-      order: typeof value.order === "number" && Number.isFinite(value.order) ? value.order : index,
-      ...(ownership.ok && ownership.paths ? { allowedPaths: ownership.paths } : {}),
-    });
-  });
-
-  for (const subtask of subtasks) {
-    for (const dependency of subtask.dependencies) {
-      if (!seen.has(dependency)) {
-        errors.push(`subtask ${subtask.key} depends on unknown subtask ${dependency}`);
-      }
-    }
-  }
-
-  const cycle = findCycle(subtasks);
-  if (cycle) errors.push(`dependency cycle detected: ${cycle.join(" -> ")}`);
-
-  const strategy =
-    candidate.strategy === "direct" || candidate.strategy === "dag" || candidate.strategy === "single"
-      ? candidate.strategy
-      : subtasks.length > 1
-        ? "dag"
-        : "single";
-
-  // An explicit `false` can never disable the gate for code changes.
-  const requiresApproval =
-    candidate.requiresApproval === true ||
-    subtasks.some((subtask) => subtask.kind === "code_change");
-
-  const maxConcurrency =
-    typeof candidate.maxConcurrency === "number" && Number.isFinite(candidate.maxConcurrency)
-      ? Math.max(1, Math.floor(candidate.maxConcurrency))
-      : 2;
-
-  if (errors.length > 0) return { ok: false, errors };
-
-  return {
-    ok: true,
-    errors: [],
-    plan: {
-      version: 1,
-      goal,
-      strategy,
-      requiresApproval,
-      maxConcurrency,
-      subtasks: subtasks
-        .slice()
-        .sort((a, b) => a.order - b.order)
-        .map((subtask, index) => ({ ...subtask, order: index })),
-    },
-  };
+  return validateSharedPlan(raw, maxSubtasks);
 }
 
-export function findCycle(subtasks: PlanSubtask[]): string[] | null {
-  const byKey = new Map(subtasks.map((subtask) => [subtask.key, subtask]));
-  const state = new Map<string, 0 | 1 | 2>();
-  const stack: string[] = [];
-
-  const visit = (key: string): string[] | null => {
-    const current = state.get(key) ?? 0;
-    if (current === 2) return null;
-    if (current === 1) {
-      const start = stack.indexOf(key);
-      return [...stack.slice(start), key];
-    }
-    state.set(key, 1);
-    stack.push(key);
-    const subtask = byKey.get(key);
-    for (const dependency of subtask?.dependencies ?? []) {
-      if (!byKey.has(dependency)) continue;
-      const cycle = visit(dependency);
-      if (cycle) return cycle;
-    }
-    stack.pop();
-    state.set(key, 2);
-    return null;
-  };
-
-  for (const subtask of subtasks) {
-    const cycle = visit(subtask.key);
-    if (cycle) return cycle;
-  }
-  return null;
-}
-
-/**
- * Validate a plan read back from storage (resume after approval, lease
- * recovery). The planner's subtask cap applies to what a PLANNER may
- * propose; the stored plan also carries the nodes the runner itself added
- * during the run (review/QA/verification fix nodes, delegations), each
- * bounded by its own loop limit. Re-applying the planner cap here failed a
- * review-approved e2e ULTRA task right after the user approved its diff
- * ("plan has 9 subtasks; limit is 8" -> "Stored plan is missing or
- * invalid"). Structure is still fully validated.
- */
+/** See the shared `validateStoredPlan` (planner cap relaxed for runner-added nodes). */
 export function validateStoredPlan(raw: unknown, maxSubtasks: number): ValidationResult {
-  const count =
-    raw && typeof raw === "object" && Array.isArray((raw as { subtasks?: unknown }).subtasks)
-      ? (raw as { subtasks: unknown[] }).subtasks.length
-      : 0;
-  return validatePlan(raw, Math.max(maxSubtasks, count));
+  return validateSharedStoredPlan(raw, maxSubtasks);
 }

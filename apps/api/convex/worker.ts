@@ -140,6 +140,8 @@ export const savePlan = action({
       })
     ),
     degradedReason: v.optional(v.string()),
+    // Task Estimator result (lib/estimate.ts).
+    estimate: v.optional(v.any()),
     // Lease fencing: pass the worker id so a displaced worker is refused.
     workerId: v.optional(v.string()),
   },
@@ -993,5 +995,30 @@ export const completePushRequest = action({
   },
   handler: async (ctx, args): Promise<any> => {
     return await ctx.runMutation(internal.githubPush.completePushRequest, withoutToken(args));
+  },
+});
+
+// ─── Plan Inspector + Task Estimator (planReview.ts) ─────────────────────
+
+/** Recent per-subtask usage samples for the estimator (lib/estimate.ts). */
+export const getEstimateSamples = action({
+  args: { ...tokenArg, projectId: v.id("projects") },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runQuery(internal.planReview.estimateSamples, withoutToken(args));
+  },
+});
+
+/** Pause the run after plan.created: a `plan` approval + the Plan card. */
+export const requestPlanReview = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    planVersion: v.number(),
+    reason: v.optional(v.string()),
+    workerId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.planReview.requestReview, withoutToken(args));
   },
 });

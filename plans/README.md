@@ -29,6 +29,7 @@ execution order and a definition of done.
 | 018 | [Path ownership, review snapshot binding, worktree isolation](018-path-ownership-review-snapshot-worktree.md) | P1 | M | 012, 013 | IN PROGRESS (Steps 1-4 implemented, Step 4 default-off; live smoke pending) |
 | 019 | [Chat cards and the GitHub push / PR flow](019-chat-cards-and-github-push.md) | P1 | L | 018 | IN PROGRESS (implemented with unit tests; live GitHub smoke pending) |
 | 020 | [Permission modes and the compact activity log](020-permission-modes.md) | P1 | M | 015, 019 | IN PROGRESS (implemented with unit tests; browser check pending) |
+| 021 | [Decision visibility: Plan Inspector, Task Estimator, Routing, Decomposer graph](021-decision-visibility.md) | P1 | L | 019, 020 | IN PROGRESS (implemented with unit tests; live smoke pending) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

@@ -14,6 +14,9 @@ import webPackage from "../../../package.json";
 import { roleLabel } from "@/lib/agentRoles";
 import { taskStatusLabel } from "@/lib/taskStatus";
 import { clockTime } from "@/lib/format";
+import RoutingInspector from "@/components/runs/RoutingInspector";
+import PlanGraph from "@/components/runs/PlanGraph";
+import { formatEstimateLine } from "@/api/convex/lib/estimate";
 import {
   formatCost,
   formatDuration,
@@ -330,6 +333,65 @@ function Events({ run }: { run: Run }) {
   );
 }
 
+/** "+12%" / "−8%" relative to the estimate; null when it would mislead. */
+function delta(actual: number, estimate: number): string | null {
+  if (!estimate || !Number.isFinite(actual)) return null;
+  const pct = Math.round(((actual - estimate) / estimate) * 100);
+  if (pct === 0) return "on estimate";
+  return `${pct > 0 ? "+" : "−"}${Math.abs(pct)}%`;
+}
+
+/** After the run: what the estimate said next to what happened. */
+function EstimateVsActual({ run }: { run: Run }) {
+  const estimate = run.plan?.estimate;
+  if (!estimate || run.task.endedAt === null) return null;
+  const actualTokens = run.totals.inputTokens + run.totals.outputTokens;
+  const duration = run.totals.durationMs;
+  const inRange =
+    duration !== null && duration >= estimate.durationMs.low && duration <= estimate.durationMs.high;
+  const rows: Array<{ label: string; est: string; actual: string; note: string | null }> = [
+    {
+      label: "Tokens",
+      est: `~${formatTokens(estimate.tokens.total)}`,
+      actual: `${run.totals.estimated ? "≈" : ""}${formatTokens(actualTokens)}`,
+      note: delta(actualTokens, estimate.tokens.total),
+    },
+    {
+      label: "Cost",
+      est: estimate.cost === null ? "—" : `~${formatCost(estimate.cost)}${estimate.costPartial ? "+" : ""}`,
+      actual: formatCost(run.totals.estimatedCost),
+      note:
+        estimate.cost !== null && run.totals.estimatedCost !== null ? delta(run.totals.estimatedCost, estimate.cost) : null,
+    },
+    {
+      label: "Duration",
+      est: `${formatDuration(estimate.durationMs.low)} – ${formatDuration(estimate.durationMs.high)}`,
+      actual: formatDuration(duration),
+      note: duration === null ? null : inRange ? "within range" : duration < estimate.durationMs.low ? "faster" : "slower",
+    },
+  ];
+  return (
+    <Section title="Estimate vs actual">
+      <div className="overflow-hidden rounded-xl border border-line bg-panel">
+        <ul className="divide-y divide-line">
+          {rows.map((r) => (
+            <li key={r.label} className="grid grid-cols-[6rem_1fr_1fr_6rem] items-center gap-3 px-4 py-2 text-[13px] max-sm:grid-cols-[5rem_1fr_1fr]">
+              <span className="text-ink-2">{r.label}</span>
+              <span className="tabular-nums text-ink-3">est. {r.est}</span>
+              <span className="tabular-nums text-ink">{r.actual}</span>
+              <span className="text-right text-[12px] tabular-nums text-ink-3 max-sm:hidden">{r.note ?? ""}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <p className="mt-2 text-[12px] text-ink-3">
+        An estimate from this project&apos;s recent runs ({estimate.basis.fromRole + estimate.basis.fromKind} of {estimate.subtaskCount} subtasks from history), not a guarantee. Review, QA and fix rounds added during the run, retries and planning are not in it.
+        {(estimate as { carriedOver?: boolean }).carriedOver ? " The run was replanned; this is the first plan's estimate." : ""}
+      </p>
+    </Section>
+  );
+}
+
 const APP_VERSION: string | null = typeof webPackage.version === "string" ? webPackage.version : null;
 
 function downloadText(text: string, filename: string, type: string) {
@@ -422,6 +484,7 @@ export default function RunTracePage() {
   const params = useParams<{ taskId: string }>();
   const taskId = params?.taskId;
   const run = useQuery(api.runs.get, taskId ? { taskId: taskId as never } : "skip");
+  const [view, setView] = useState<"timeline" | "graph">("timeline");
   const live = run ? run.task.endedAt === null : false;
   const now = useNow(live);
 
@@ -487,13 +550,38 @@ export default function RunTracePage() {
                   )}
                 </p>
                 {models.length > 0 && <p className="mt-1 truncate text-[12.5px] text-ink-3">{models.join(", ")}</p>}
+                {run.plan?.estimate && (
+                  <p className="mt-1 text-[12.5px] tabular-nums text-ink-3" title="An estimate from this project's recent runs, not a guarantee">
+                    {formatEstimateLine(run.plan.estimate)}
+                  </p>
+                )}
                 {run.task.errorMessage && (
                   <p className="mt-3 rounded-lg border border-line px-3 py-2 text-[13px] text-red-600 dark:text-red-400">{run.task.errorMessage}</p>
                 )}
               </header>
 
-              <Section title="Timeline" aside={run.steps.length}>
-                <Waterfall run={run} now={now} />
+              <section className="mt-10">
+                <div className="mb-3 flex items-baseline justify-between gap-2">
+                  <h2 className="flex items-baseline gap-2 text-[13px] font-medium text-ink-2">
+                    {view === "timeline" ? "Timeline" : "Graph"}
+                    <span className="tabular-nums text-ink-3">{view === "timeline" ? run.steps.length : run.graph.length}</span>
+                  </h2>
+                  <div className="flex gap-3 text-[12.5px]" role="tablist" aria-label="Run view">
+                    {(["timeline", "graph"] as const).map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        role="tab"
+                        aria-selected={view === v}
+                        onClick={() => setView(v)}
+                        className={view === v ? "text-ink underline decoration-line-strong underline-offset-4" : "text-ink-3 hover:text-ink"}
+                      >
+                        {v === "timeline" ? "Timeline" : "Graph"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {view === "graph" ? <PlanGraph nodes={run.graph} /> : <Waterfall run={run} now={now} />}
                 {(run.steps.some((s) => s.tokens?.approximate) || run.totals.unattributed) && (
                   <p className="mt-2 text-[12px] text-ink-3">
                     * tokens matched by agent and time.
@@ -502,11 +590,17 @@ export default function RunTracePage() {
                       : ""}
                   </p>
                 )}
-              </Section>
+              </section>
 
               {run.totals.estimated && (
                 <p className="-mt-2 text-[12px] text-ink-3">≈ the provider reported no token usage for some calls; those counts are estimated (chars/4).</p>
               )}
+
+              <EstimateVsActual run={run} />
+
+              <Section title="Routing">
+                <RoutingInspector routing={run.routing} instruction={run.task.command} />
+              </Section>
 
               <Agents run={run} />
               <Events run={run} />

@@ -21,6 +21,7 @@ import type { RecordUsageFn } from "./session";
 import { resolveQaBaseUrl, resolveWorkspacePath } from "./setup";
 import { finishBudgetExhaustedTask, finishCancelledTask } from "./terminal";
 import { persistPlan } from "./finalize";
+import { computePlanEstimate, type PlanCreator } from "./planReview";
 
 export type { AuthoritativePlanResult };
 
@@ -125,13 +126,30 @@ export async function finishOnPlanningError(pctx: PlanningContext, error: unknow
 /** Stored plan row as returned by `getContext`. */
 export interface StoredPlanRow {
   version: number;
-  createdBy: "orchestrator" | "fallback";
+  /** "user": a version edited on the Plan card (Plan Inspector). */
+  createdBy: PlanCreator;
 }
 
 export interface InitialPlan {
   plan: ExecutionPlan;
-  createdBy: "orchestrator" | "fallback";
+  createdBy: PlanCreator;
   planVersion: number;
+}
+
+/** The planner contract knows orchestrator | fallback; a user edit adopts as orchestrator-made. */
+const plannerCreator = (createdBy: PlanCreator): "orchestrator" | "fallback" =>
+  createdBy === "fallback" ? "fallback" : "orchestrator";
+
+/** Estimate for a fresh plan (best-effort; null never blocks the run). */
+async function estimateFor(pctx: PlanningContext, plan: ExecutionPlan) {
+  return computePlanEstimate({
+    deps: pctx.deps,
+    taskId: pctx.task._id,
+    projectId: pctx.project._id,
+    plan,
+    agents: pctx.agents,
+    llmResolver: pctx.llmResolver,
+  });
 }
 
 /**
@@ -147,7 +165,9 @@ export interface InitialPlan {
 export async function createInitialPlan(
   pctx: PlanningContext,
   storedPlan: ExecutionPlan | null,
-  storedRow: StoredPlanRow | null | undefined
+  storedRow: StoredPlanRow | null | undefined,
+  /** Plan Inspector "Replan with note": planner feedback for a fresh plan. */
+  feedback?: string
 ): Promise<InitialPlan | null> {
   const { deps, task, project, classification } = pctx;
   if (!storedPlan) await logPlannerFallback(pctx);
@@ -156,14 +176,16 @@ export async function createInitialPlan(
     try {
       authoritative = await requestPlan(pctx, {
         storedPlan,
-        storedCreatedBy: storedPlan ? storedRow!.createdBy : undefined,
+        storedCreatedBy: storedPlan ? plannerCreator(storedRow!.createdBy) : undefined,
+        ...(!storedPlan && feedback ? { feedback } : {}),
       });
     } catch (error) {
       await finishOnPlanningError(pctx, error);
       return null;
     }
     const plan = authoritative.plan;
-    const createdBy = authoritative.createdBy;
+    // An adopted user-edited version keeps its creator.
+    const createdBy: PlanCreator = storedPlan ? storedRow!.createdBy : authoritative.createdBy;
     const planVersion = storedPlan
       ? storedRow!.version
       : (storedRow?.version ?? 0) + 1;
@@ -203,9 +225,10 @@ export async function createInitialPlan(
         projectId: project._id,
         plan,
         version: planVersion,
-        createdBy,
+        createdBy: authoritative.createdBy,
         classification: classification.kind,
         degradedReason: authoritative.degradedReason,
+        estimate: (await estimateFor(pctx, plan)) ?? undefined,
       });
     }
     return { plan, createdBy, planVersion };
@@ -239,7 +262,7 @@ export async function createInitialPlan(
   }
   let created: AuthoritativePlanResult;
   try {
-    created = await requestPlan(pctx);
+    created = await requestPlan(pctx, feedback ? { feedback } : {});
   } catch (error) {
     await finishOnPlanningError(pctx, error);
     return null;
@@ -273,6 +296,7 @@ export async function createInitialPlan(
     createdBy,
     classification: classification.kind,
     degradedReason: created.degradedReason,
+    estimate: (await estimateFor(pctx, plan)) ?? undefined,
   });
   return { plan, createdBy, planVersion };
 }

@@ -428,4 +428,21 @@ export class WorkerApi {
   ): Promise<FunctionReturnType<typeof api.worker.completePushRequest>> {
     return await this.client.action(api.worker.completePushRequest, this.args(input));
   }
+
+  // Plan Inspector + Task Estimator (apps/api/convex/planReview.ts).
+  async getEstimateSamples(
+    input: ActionInput<typeof api.worker.getEstimateSamples>
+  ): Promise<FunctionReturnType<typeof api.worker.getEstimateSamples>> {
+    return await this.client.action(api.worker.getEstimateSamples, this.args(input));
+  }
+
+  async requestPlanReview(
+    input: ActionInput<typeof api.worker.requestPlanReview>
+  ): Promise<FunctionReturnType<typeof api.worker.requestPlanReview>> {
+    // Lease fencing: a displaced worker cannot pause the new owner's run.
+    return await this.client.action(
+      api.worker.requestPlanReview,
+      this.args({ workerId: this.workerId, ...input })
+    );
+  }
 }

@@ -4,6 +4,7 @@ import { ArrowUpRight, Users } from "lucide-react";
 import type {
   AssignmentCardData,
   ChangesCardData,
+  PlanCardData,
   PushCardData,
   QaCardData,
   VerificationCardData,
@@ -12,6 +13,7 @@ import { ROLE_COLORS, roleKeyForMention, roleLabel, NEUTRAL_MENTION_COLOR } from
 import TaskCard from "../TaskCard";
 import { useCardSurface } from "./CardContext";
 import ChangesCard from "./ChangesCard";
+import PlanCard from "./PlanCard";
 import PushCard from "./PushCard";
 import QaCard from "./QaCard";
 import VerificationCard from "./VerificationCard";
@@ -36,6 +38,8 @@ export default function ChatCard({ card }: { card: MessageCard | undefined | nul
       return <PushCard data={card.data as PushCardData} />;
     case "changes":
       return <ChangesCard data={card.data as ChangesCardData} />;
+    case "plan":
+      return <PlanCard data={card.data as PlanCardData} />;
     default:
       return null;
   }

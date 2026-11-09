@@ -14,6 +14,13 @@ import {
   projectDefaultPermissionMode,
   type PermissionMode,
 } from "@/api/convex/lib/permissionModes";
+import {
+  PLAN_REVIEW_HINTS,
+  PLAN_REVIEW_LABELS,
+  PLAN_REVIEW_SETTINGS,
+  normalizePlanReview,
+  type PlanReviewSetting,
+} from "@/api/convex/lib/planReviewPolicy";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 
@@ -24,6 +31,7 @@ type ProjectDoc = {
   defaultPermissionMode?: PermissionMode;
   agentIds?: string[];
   instructions?: string;
+  planReview?: string;
 };
 
 const field = "rounded-lg border border-line bg-panel px-3 py-2 text-ink outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/15";
@@ -43,6 +51,8 @@ export default function ManageProjectModal({
   const toast = useToast();
   const updateProject = useMutation(api.projects.update);
   const updateTeam = useMutation(api.projects.updateTeam);
+  const setPlanReviewSetting = useMutation(api.planReview.setProjectPlanReview);
+  const [planReview, setPlanReview] = useState<PlanReviewSetting>(normalizePlanReview(project.planReview));
   const [name, setName] = useState(project.name ?? "");
   const [path, setPath] = useState(project.workspacePath ?? "");
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(projectDefaultPermissionMode(project));
@@ -77,6 +87,9 @@ export default function ManageProjectModal({
       return;
     }
     try {
+      if (planReview !== normalizePlanReview(project.planReview)) {
+        await setPlanReviewSetting({ projectId: projectId as never, planReview });
+      }
       await updateTeam({ projectId: projectId as never, agentIds: agentIds as never[] });
       toast("success", "Project updated");
       onClose();
@@ -121,6 +134,17 @@ export default function ManageProjectModal({
             placeholder="Durable project instructions loaded into planning every run (e.g. architecture rules, conventions)."
             className={field}
           />
+        </label>
+        <label className="grid gap-1">
+          Plan review
+          <select value={planReview} onChange={(e) => setPlanReview(e.target.value as PlanReviewSetting)} className={field}>
+            {PLAN_REVIEW_SETTINGS.map((setting) => (
+              <option key={setting} value={setting}>
+                {PLAN_REVIEW_LABELS[setting]}
+              </option>
+            ))}
+          </select>
+          <span className="text-[12.5px] text-ink-3">{PLAN_REVIEW_HINTS[planReview]}</span>
         </label>
         <fieldset className="grid gap-2">
           <legend className="font-medium">Project team</legend>

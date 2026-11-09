@@ -34,6 +34,7 @@ import { finalize } from "./runner/finalize";
 import { executePlan } from "./runner/executePlan";
 import { createInitialPlan, type PlanningContext } from "./runner/planning";
 import { replanOnce, type ReplanLoopState } from "./runner/replan";
+import { planReviewGate } from "./runner/planReview";
 import {
   createBudgetGate,
   createUsageRecorder,
@@ -245,10 +246,41 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       signal,
       llmTaskGate,
     };
-    const stored = context.plan ? validateStoredPlan(context.plan.payload, deps.policy.maxSubtasks) : null;
+    // Plan Inspector "Replan with note": the user discarded the plan under
+    // review; plan afresh with the note as planner feedback (the next
+    // saved planner version clears the note).
+    const replanNote = (context.task as { planReviewNote?: string }).planReviewNote?.trim() || undefined;
+    const stored =
+      context.plan && !replanNote ? validateStoredPlan(context.plan.payload, deps.policy.maxSubtasks) : null;
+    if (stored && !stored.ok && context.plan?.createdBy === "user") {
+      // A user-edited version that no longer validates is never executed:
+      // a fresh plan is made and (when review applies) reviewed again.
+      await deps.api.logEvent({
+        taskId: task._id,
+        projectId: project._id,
+        type: "plan.user_version_invalid",
+        payload: { version: context.plan.version, errors: stored.errors.slice(0, 10) },
+        level: "warn",
+      });
+    }
     const storedPlan = stored?.ok && stored.plan ? stored.plan : null;
-    const initial = await createInitialPlan(pctx, storedPlan, context.plan);
+    const initial = await createInitialPlan(pctx, storedPlan, context.plan, replanNote);
     if (!initial) return;
+
+    // Plan Inspector: pause after plan.created for the user's review when
+    // the project setting applies. Approval re-queues the task; this run
+    // then adopts the approved stored plan and passes the gate.
+    const review = await planReviewGate({
+      deps,
+      task: context.task,
+      project,
+      planVersion: initial.planVersion,
+      classification,
+      executionStarted:
+        (context.executions ?? []).length > 0 ||
+        (context.subtasks ?? []).some((subtask: { status: string }) => subtask.status !== "pending"),
+    });
+    if (review === "paused") return;
 
     // Recovery (Phase 4): when the stored plan was adopted, this run
     // continues work a previous worker already persisted — seed the

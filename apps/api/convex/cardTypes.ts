@@ -7,7 +7,7 @@
  * every field optional-safe on the reader side (old rows predate fields).
  */
 
-export type CardKind = "assignment" | "push" | "qa" | "verification" | "changes";
+export type CardKind = "assignment" | "push" | "qa" | "verification" | "changes" | "plan";
 
 export interface AssignmentCardData {
   taskId: string;
@@ -105,4 +105,13 @@ export interface ChangesCardData {
   additions: number;
   deletions: number;
   idempotencyKey?: string;
+}
+
+/**
+ * Plan Inspector card. Only the task id is stored: the card reads the live
+ * plan, estimate and review approval (`planReview.forTask`), so an edit or
+ * a decision shows on the same card.
+ */
+export interface PlanCardData {
+  taskId: string;
 }

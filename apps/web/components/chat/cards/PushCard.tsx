@@ -227,7 +227,7 @@ export default function PushCard({ data }: { data: PushCardData }) {
                   type="checkbox"
                   checked={openPr}
                   onChange={(event) => setOpenPr(event.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-[#d5d3dd] accent-[#635bff]"
+                  className="h-3.5 w-3.5 rounded border-line-strong accent-[#635bff]"
                 />
                 Open draft PR
               </label>
@@ -279,11 +279,11 @@ export default function PushCard({ data }: { data: PushCardData }) {
         </>
       }
     >
-      <div className={`grid grid-cols-2 border-t sm:grid-cols-4 ${CARD_DIVIDER} [&>*]:border-[#efeef3] dark:[&>*]:border-white/[0.07] [&>*:nth-child(2n)]:border-l sm:[&>*:not(:first-child)]:border-l [&>*:nth-child(n+3)]:border-t sm:[&>*:nth-child(n+3)]:border-t-0`}>
+      <div className={`grid grid-cols-2 border-t sm:grid-cols-4 ${CARD_DIVIDER} [&>*]:border-line dark:[&>*]:border-white/[0.07] [&>*:nth-child(2n)]:border-l sm:[&>*:not(:first-child)]:border-l [&>*:nth-child(n+3)]:border-t sm:[&>*:nth-child(n+3)]:border-t-0`}>
         {cell(
           "Files",
           <span className="tabular-nums">
-            <span className="text-[#26242e] dark:text-neutral-100">{view.filesChanged}</span>
+            <span className="text-ink">{view.filesChanged}</span>
             {typeof additions === "number" && <span className="ml-1.5 text-[#1f9d55] dark:text-emerald-400">+{additions}</span>}
             {typeof deletions === "number" && <span className="ml-1.5 text-[#d83a3a] dark:text-rose-400">−{deletions}</span>}
           </span>

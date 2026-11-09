@@ -50,9 +50,9 @@ export default function ReviewSnippet({ files, approved, completed }: { files: F
 
   return (
     <div className="mt-2 space-y-2">
-      <div className="overflow-hidden rounded-xl border border-[#e9e8ef] bg-white dark:border-white/10 dark:bg-[#1c1c1f]">
+      <div className="overflow-hidden rounded-xl border border-line bg-panel">
         <div className="flex items-center gap-2 px-3 py-2 text-[12px]">
-          <span className="min-w-0 flex-1 truncate font-mono text-[#4c4a55] dark:text-neutral-300">{lead.filePath}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-ink-2">{lead.filePath}</span>
           <span className="shrink-0 tabular-nums font-semibold">
             <span className="text-[#1f9d55] dark:text-emerald-400">+{stats.added}</span>{" "}
             <span className="text-[#d83a3a] dark:text-rose-400">−{stats.removed}</span>
@@ -86,7 +86,7 @@ export default function ReviewSnippet({ files, approved, completed }: { files: F
             type="button"
             onClick={() => setShowAll((value) => !value)}
             aria-expanded={showAll}
-            className="ml-auto rounded-md px-1.5 py-0.5 text-[12px] font-medium text-[#5148e0] outline-none hover:underline focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-indigo-300"
+            className="ml-auto rounded-md px-1.5 py-0.5 text-[12px] font-medium text-brand-ink outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand/40 dark:text-indigo-300"
           >
             {showAll ? "Hide diff" : `Show full diff (${files.length} ${files.length === 1 ? "file" : "files"})`}
           </button>

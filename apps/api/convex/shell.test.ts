@@ -74,6 +74,34 @@ describe("shell.teamStatus", () => {
   });
 });
 
+describe("shell.needsYou task pushes", () => {
+  test("lists ready and failed task pushes, not requested/pushed ones or other owners", async () => {
+    const { t, projectId, otherId } = await seed();
+    const ids = await t.run(async (ctx) => {
+      const now = Date.now();
+      const task = await ctx.db.insert("tasks", { projectId, title: "Dark mode", command: "x", status: "done" });
+      const otherTask = await ctx.db.insert("tasks", { projectId: otherId, title: "Ledger push", command: "x", status: "done" });
+      const hidden = await ctx.db.insert("projects", { name: "Nope", workspacePath: "/tmp/n", ownerId: "someone-else" });
+      const hiddenTask = await ctx.db.insert("tasks", { projectId: hidden, title: "Hidden push task", command: "x", status: "done" });
+      const base = { branchName: "moagent/t", commitSha: "a".repeat(40), commitMessage: "m", filesChanged: 3, attempts: 0, createdAt: now, updatedAt: now };
+      const ready = await ctx.db.insert("taskPushes", { ...base, taskId: task, projectId, status: "ready" });
+      const failed = await ctx.db.insert("taskPushes", { ...base, taskId: otherTask, projectId: otherId, status: "failed", error: "denied" });
+      await ctx.db.insert("taskPushes", { ...base, taskId: task, projectId, status: "pushed" });
+      await ctx.db.insert("taskPushes", { ...base, taskId: task, projectId, status: "requested", requestedAt: now });
+      await ctx.db.insert("taskPushes", { ...base, taskId: hiddenTask, projectId: hidden, status: "ready" });
+      return { ready, failed };
+    });
+    const { items, total } = await t.query(api.shell.needsYou, {});
+    expect(total).toBe(5);
+    expect(items.find((i) => i.key === `push:${ids.ready}`)).toMatchObject({ kind: "push", title: "Push Dark mode", note: "3 files ready" });
+    expect(items.find((i) => i.key === `push:${ids.failed}`)).toMatchObject({ kind: "push", note: "push failed" });
+    expect(items.some((i) => i.title.includes("Hidden"))).toBe(false);
+    const counts = await t.query(api.shell.projectCounts, {});
+    expect(counts[projectId as string].needsYou).toBe(3);
+    expect(counts[otherId as string].needsYou).toBe(1);
+  });
+});
+
 describe("shell.projectCounts", () => {
   test("counts open tasks and needs-you per visible project", async () => {
     const { t, projectId, otherId } = await seed();

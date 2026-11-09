@@ -11,16 +11,16 @@ import { roleLabel } from "@/lib/agentRoles";
  * surface (not blue-grey) with white/10 hairlines.
  */
 export const CARD_SURFACE =
-  "overflow-hidden rounded-xl border border-[#e9e8ef] bg-white shadow-[0_1px_2px_rgba(30,25,60,.04)] dark:border-white/10 dark:bg-[#1c1c1f] dark:shadow-none";
-export const CARD_DIVIDER = "border-[#efeef3] dark:border-white/[0.07]";
-export const MUTED = "text-[#8a8796] dark:text-neutral-400";
-export const TITLE = "text-[13px] font-semibold text-[#26242e] dark:text-neutral-100";
+  "overflow-hidden rounded-xl border border-line bg-panel shadow-[0_1px_2px_rgba(30,25,60,.04)] dark:shadow-none";
+export const CARD_DIVIDER = "border-line";
+export const MUTED = "text-ink-3";
+export const TITLE = "text-[13px] font-semibold text-ink";
 
 export const BTN_BASE =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-[#635bff]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-[#1c1c1f]";
-export const BTN_PRIMARY = `${BTN_BASE} bg-[#635bff] text-white shadow-sm hover:bg-[#5346d8]`;
-export const BTN_OUTLINE = `${BTN_BASE} border border-[#e3e1ea] bg-white text-[#34323d] hover:bg-[#f7f6fa] dark:border-white/15 dark:bg-transparent dark:text-neutral-100 dark:hover:bg-white/5`;
-export const BTN_TEXT = `${BTN_BASE} px-2.5 text-[#55525f] hover:text-[#26242e] dark:text-neutral-300 dark:hover:text-white`;
+  "inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-50";
+export const BTN_PRIMARY = `${BTN_BASE} bg-brand text-white shadow-sm hover:bg-brand-hover`;
+export const BTN_OUTLINE = `${BTN_BASE} border border-line bg-panel text-ink hover:bg-hover dark:bg-transparent`;
+export const BTN_TEXT = `${BTN_BASE} px-2.5 text-ink-2 hover:text-ink`;
 
 export type PillTone = "orange" | "blue" | "green" | "red" | "gray" | "indigo";
 
@@ -29,8 +29,8 @@ const PILL: Record<PillTone, string> = {
   blue: "bg-[#eaf1ff] text-[#2f6fe0] dark:bg-blue-500/15 dark:text-blue-300",
   green: "bg-[#e9f8ef] text-[#1f8a4c] dark:bg-emerald-500/15 dark:text-emerald-300",
   red: "bg-[#fdecec] text-[#c43333] dark:bg-rose-500/15 dark:text-rose-300",
-  gray: "bg-[#f2f1f5] text-[#6b6876] dark:bg-white/10 dark:text-neutral-300",
-  indigo: "bg-[#eeedff] text-[#5148e0] dark:bg-indigo-500/20 dark:text-indigo-300",
+  gray: "bg-hover text-ink-2",
+  indigo: "bg-brand-soft text-brand-ink dark:bg-indigo-500/20 dark:text-indigo-300",
 };
 
 export function Pill({ tone, children, className = "" }: { tone: PillTone; children: ReactNode; className?: string }) {
@@ -76,7 +76,7 @@ export function StatusWord({ status, label, size = 14 }: { status: StepStatus; l
     ) : status === "running" ? (
       <Loader2 size={size} strokeWidth={2.5} className="animate-spin text-[#e5671f] dark:text-orange-400" aria-hidden="true" />
     ) : (
-      <Minus size={size} strokeWidth={2.5} className="text-[#a3a0ad] dark:text-neutral-500" aria-hidden="true" />
+      <Minus size={size} strokeWidth={2.5} className="text-ink-3" aria-hidden="true" />
     );
   return (
     <span className="inline-flex items-center gap-1.5">
@@ -84,8 +84,8 @@ export function StatusWord({ status, label, size = 14 }: { status: StepStatus; l
       <span
         className={
           status === "not_run" || status === "pending"
-            ? "text-[#8a8796] dark:text-neutral-400"
-            : "text-[#26242e] dark:text-neutral-100"
+            ? "text-ink-3"
+            : "text-ink"
         }
       >
         {text}
@@ -156,7 +156,7 @@ export function CardShell({
       {agent && (
         <div className={`flex items-center gap-2 border-b px-4 py-2 text-[12px] ${CARD_DIVIDER} ${MUTED}`}>
           <RoleAvatar role={agent.role} size={18} />
-          <span className="font-medium text-[#4c4a55] dark:text-neutral-200">{roleLabel(agent.role)}</span>
+          <span className="font-medium text-ink-2">{roleLabel(agent.role)}</span>
           {agent.label && <span>· {agent.label}</span>}
         </div>
       )}

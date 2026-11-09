@@ -38,7 +38,7 @@ export default function VerificationCard({ data }: { data: VerificationCardData 
           {checks.map((check, index) => (
             <li key={`${check.target ?? ""}:${check.name}:${index}`} className="flex items-center gap-3 py-1.5 text-[13px]">
               <span className="min-w-0 flex-1 truncate">
-                <span className="font-medium capitalize text-[#34323d] dark:text-neutral-100">{check.name}</span>
+                <span className="font-medium capitalize text-ink">{check.name}</span>
                 {targets.size > 1 && check.target && <span className={`ml-1.5 font-mono text-[11px] ${MUTED}`}>{check.target}</span>}
                 {check.detail && check.status !== "passed" && (
                   <span className={`ml-2 text-[12px] ${MUTED}`}>{check.detail}</span>
@@ -68,13 +68,13 @@ export default function VerificationCard({ data }: { data: VerificationCardData 
             type="button"
             onClick={() => setShowLog((v) => !v)}
             aria-expanded={showLog}
-            className={`flex w-full items-center gap-1.5 px-4 py-2 text-left text-[12px] font-medium outline-none hover:text-[#26242e] focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:hover:text-white ${MUTED}`}
+            className={`flex w-full items-center gap-1.5 px-4 py-2 text-left text-[12px] font-medium outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 ${MUTED}`}
           >
             {showLog ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
             Log tail
           </button>
           {showLog && (
-            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words bg-[#fafafc] px-4 py-3 font-mono text-[11px] leading-5 text-[#4c4a55] dark:bg-black/30 dark:text-neutral-300">
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words bg-panel-2 px-4 py-3 font-mono text-[11px] leading-5 text-ink-2">
               {data.logTail}
             </pre>
           )}

@@ -101,7 +101,7 @@ export default function ApprovalCard({
       <p className={`text-[12px] ${MUTED}`}>{label}</p>
       <div className="mt-1 truncate text-[15px] font-semibold" title={value == null ? "No result reported for this check" : undefined}>
         {neutral ? (
-          <span className="text-[#26242e] dark:text-neutral-100">{value == null || value === "" ? "—" : String(value)}</span>
+          <span className="text-ink">{value == null || value === "" ? "—" : String(value)}</span>
         ) : (
           <StatusWord
             status={metricStatus(value)}
@@ -177,7 +177,7 @@ export default function ApprovalCard({
       {metrics && (
         // Only what the worker reported: a missing check reads "Not run" in
         // grey, never a green "passed".
-        <div className={`grid grid-cols-2 border-t sm:grid-cols-4 ${CARD_DIVIDER} [&>*]:border-[#efeef3] dark:[&>*]:border-white/[0.07] [&>*:nth-child(2n)]:border-l sm:[&>*:not(:first-child)]:border-l [&>*:nth-child(n+3)]:border-t sm:[&>*:nth-child(n+3)]:border-t-0`}>
+        <div className={`grid grid-cols-2 border-t sm:grid-cols-4 ${CARD_DIVIDER} [&>*]:border-line dark:[&>*]:border-white/[0.07] [&>*:nth-child(2n)]:border-l sm:[&>*:not(:first-child)]:border-l [&>*:nth-child(n+3)]:border-t sm:[&>*:nth-child(n+3)]:border-t-0`}>
           {metricCell("Files", metrics.files ?? null, true)}
           {metricCell("Build", metrics.build)}
           {metricCell("Tests", metrics.tests)}

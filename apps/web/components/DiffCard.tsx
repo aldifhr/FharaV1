@@ -87,8 +87,8 @@ export function PathLabel({ path }: { path: string }) {
   const file = at >= 0 ? path.slice(at + 1) : path;
   return (
     <span className="min-w-0 flex-1 truncate font-mono text-[12px]" title={path}>
-      {dir && <span className="text-[#8a8796] dark:text-neutral-500">{dir}</span>}
-      <span className="font-semibold text-[#26242e] dark:text-neutral-100">{file}</span>
+      {dir && <span className="text-ink-3">{dir}</span>}
+      <span className="font-semibold text-ink">{file}</span>
     </span>
   );
 }
@@ -138,11 +138,11 @@ export default function DiffCard({
     <div
       className={
         variant === "flush"
-          ? "border-t border-[#efeef3] dark:border-white/[0.07]"
-          : "mt-2 overflow-hidden rounded-xl border border-[#e9e8ef] bg-white shadow-[0_1px_2px_rgba(30,25,60,.04)] dark:border-white/10 dark:bg-[#1c1c1f]"
+          ? "border-t border-line"
+          : "mt-2 overflow-hidden rounded-xl border border-line bg-panel shadow-[0_1px_2px_rgba(30,25,60,.04)]"
       }
     >
-      <div className={`flex items-center gap-2 px-3 py-2 ${variant === "flush" ? "bg-white dark:bg-[#1c1c1f]" : "border-b border-[#efeef3] bg-[#fbfbfd] dark:border-white/[0.07] dark:bg-white/[0.03]"}`}>
+      <div className={`flex items-center gap-2 px-3 py-2 ${variant === "flush" ? "bg-panel" : "border-b border-line bg-panel-2"}`}>
         <button
           type="button"
           onClick={() => {
@@ -151,7 +151,7 @@ export default function DiffCard({
           }}
           aria-expanded={isExpanded}
           aria-label={isExpanded ? `Collapse ${filePath}` : `Expand ${filePath}`}
-          className="rounded p-1 text-[#8a8796] outline-none hover:bg-[#f3f2f7] focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-neutral-400 dark:hover:bg-white/10"
+          className="rounded p-1 text-ink-3 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
         >
           {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
@@ -179,7 +179,7 @@ export default function DiffCard({
               disabled={busy}
               onClick={() => onReject?.(approvalId)}
               title="Rejects the whole change set this file belongs to"
-              className="rounded-lg bg-gray-200 px-2 py-1 text-[11px] font-semibold disabled:opacity-50 dark:bg-gray-700 dark:text-white"
+              className="rounded-lg bg-line px-2 py-1 text-[11px] font-semibold text-ink disabled:opacity-50"
             >
               Reject all
             </button>
@@ -208,12 +208,12 @@ export default function DiffCard({
             />
           </div>
         ) : (
-          <div className={`${variant === "flush" ? "max-h-[28rem]" : "max-h-72"} overflow-auto border-t border-[#efeef3] font-mono text-[12px] leading-[1.75] dark:border-white/[0.07]`}>
+          <div className={`${variant === "flush" ? "max-h-[28rem]" : "max-h-72"} overflow-auto border-t border-line font-mono text-[12px] leading-[1.75]`}>
             {rows.map((row, i) => {
               if (row.type === "hunk") {
                 // A gap between hunks; the first hunk needs no separator.
                 return i === 0 ? null : (
-                  <div key={i} className="flex bg-[#f7f7fa] text-[11px] text-[#a3a0ad] dark:bg-white/[0.03] dark:text-neutral-500">
+                  <div key={i} className="flex bg-panel-2 text-[11px] text-ink-3">
                     <span className="w-10 shrink-0 select-none px-2 text-right">⋯</span>
                     <span className="w-10 shrink-0 select-none px-2 text-right" />
                     <span className="px-2">@@ {row.oldStart},{row.newStart}</span>
@@ -234,12 +234,12 @@ export default function DiffCard({
                     : "text-transparent";
               return (
                 <div key={i} className={`flex min-w-max ${bg}`}>
-                  <span className="w-10 shrink-0 select-none px-2 text-right text-[#a3a0ad] dark:text-neutral-500">{row.oldNo ?? ""}</span>
-                  <span className="w-10 shrink-0 select-none px-2 text-right text-[#a3a0ad] dark:text-neutral-500">{row.newNo ?? ""}</span>
+                  <span className="w-10 shrink-0 select-none px-2 text-right text-ink-3">{row.oldNo ?? ""}</span>
+                  <span className="w-10 shrink-0 select-none px-2 text-right text-ink-3">{row.newNo ?? ""}</span>
                   <span className={`w-5 shrink-0 select-none text-center ${signColor}`}>
                     {row.type === "add" ? "+" : row.type === "del" ? "−" : ""}
                   </span>
-                  <span className="whitespace-pre pr-4 text-[#34323d] dark:text-neutral-200">{row.text}</span>
+                  <span className="whitespace-pre pr-4 text-ink">{row.text}</span>
                 </div>
               );
             })}

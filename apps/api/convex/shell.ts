@@ -145,13 +145,52 @@ const tasksAwaitingApproval: NeedsYouSource = async ({ ctx, visible, agentRole }
   return items;
 };
 
+const PUSH_LIMIT = 100;
+
 /**
- * Ordered sources. Add a new kind of "needs you" (e.g. the task-push rows
- * from the GitHub push flow) by appending one function here; an item whose
- * task is already covered by an earlier source is dropped.
+ * Committed task branches waiting on the user's Push click (plan 019
+ * `taskPushes`): `ready` rows (held or not) and pushes that failed. A
+ * `requested`/`pushing` row is already in the worker's hands.
+ */
+const pendingPushes: NeedsYouSource = async ({ ctx, visible }) => {
+  const items: NeedsYouItem[] = [];
+  for (const status of ["ready", "failed"] as const) {
+    const rows = await ctx.db
+      .query("taskPushes")
+      .withIndex("by_status_and_requested", (q) => q.eq("status", status))
+      .order("desc")
+      .take(PUSH_LIMIT);
+    for (const p of rows) {
+      const project = visible.get(p.projectId as string);
+      if (!project) continue;
+      const task = await ctx.db.get(p.taskId);
+      // A finished-then-rejected/abandoned task no longer asks for a push.
+      if (task?.status === "rejected") continue;
+      items.push({
+        key: `push:${p._id}`,
+        kind: "push",
+        title: `Push ${task?.title ?? p.branchName}`,
+        agentRole: null,
+        note: status === "failed" ? "push failed" : p.heldAt ? "on hold" : `${p.filesChanged} file${p.filesChanged === 1 ? "" : "s"} ready`,
+        projectId: p.projectId,
+        projectName: project.name,
+        taskId: p.taskId,
+        approvalId: null,
+        at: p.updatedAt ?? p.createdAt,
+      });
+    }
+  }
+  return items;
+};
+
+/**
+ * Ordered sources. Add a new kind of "needs you" by appending one function
+ * here; a "review" item whose task is already covered by an earlier source
+ * is dropped.
  */
 export const NEEDS_YOU_SOURCES: NeedsYouSource[] = [
   pendingApprovals,
+  pendingPushes,
   openQuestions,
   tasksAwaitingApproval,
 ];
@@ -211,6 +250,13 @@ export const projectCounts = query({
       .order("desc")
       .take(APPROVAL_LIMIT);
     for (const a of approvals) bump(a.projectId as string, "needsYou");
+    for (const status of ["ready", "failed"] as const) {
+      const pushes = await ctx.db
+        .query("taskPushes")
+        .withIndex("by_status_and_requested", (q) => q.eq("status", status))
+        .take(PUSH_LIMIT);
+      for (const p of pushes) bump(p.projectId as string, "needsYou");
+    }
     return counts;
   },
 });

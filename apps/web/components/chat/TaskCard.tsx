@@ -109,24 +109,24 @@ export default function TaskCard({
           }
         }}
         aria-label={`Open task ${task.title}`}
-        className={`${CARD_SURFACE} max-w-xl cursor-pointer outline-none transition hover:border-[#d6d2f3] focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:hover:border-white/20`}
+        className={`${CARD_SURFACE} max-w-xl cursor-pointer outline-none transition hover:border-brand/40 focus-visible:ring-2 focus-visible:ring-brand/40 dark:hover:border-white/20`}
       >
         <div className="flex items-center gap-2.5 px-4 pt-3.5">
           {statusIcon}
-          <p className="min-w-0 flex-1 truncate text-[14px] font-semibold text-[#26242e] dark:text-neutral-100">{task.title}</p>
-          <ArrowUpRight size={16} aria-hidden="true" className="shrink-0 text-[#8a8796] dark:text-neutral-400" />
+          <p className="min-w-0 flex-1 truncate text-[14px] font-semibold text-ink">{task.title}</p>
+          <ArrowUpRight size={16} aria-hidden="true" className="shrink-0 text-ink-3" />
         </div>
         <div className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 px-4 pb-3 pt-2 text-[12px] ${MUTED}`}>
           {owners.slice(0, 3).map((owner) => (
             <span key={owner.agentId} className="inline-flex items-center gap-1.5">
               <RoleAvatar role={owner.role} size={18} />
-              <span className="text-[#4c4a55] dark:text-neutral-300">{roleLabel(owner.role)}</span>
+              <span className="text-ink-2">{roleLabel(owner.role)}</span>
             </span>
           ))}
           {task.branchName && (
             <>
               <span aria-hidden="true">·</span>
-              <span className="max-w-[14rem] truncate rounded-md bg-[#f3f2f7] px-1.5 py-0.5 font-mono text-[11px] text-[#55525f] dark:bg-white/10 dark:text-neutral-300">
+              <span className="max-w-[14rem] truncate rounded-md bg-hover px-1.5 py-0.5 font-mono text-[11px] text-ink-2">
                 {task.branchName}
               </span>
             </>
@@ -141,17 +141,17 @@ export default function TaskCard({
             <Pill tone={badgeTone}>{badgeLabel}</Pill>
           </span>
         </div>
-        <div className="mx-4 mb-3 h-1 overflow-hidden rounded-full bg-[#eeedf3] dark:bg-white/10" role="progressbar" aria-label="Task progress" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+        <div className="mx-4 mb-3 h-1 overflow-hidden rounded-full bg-hover" role="progressbar" aria-label="Task progress" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
           <div className={`h-full rounded-full transition-all ${task.status === "done" ? "bg-[#1f9d55]" : "bg-[#2f6fe0]"}`} style={{ width: `${progress}%` }} />
         </div>
       </div>
       {waitingForInput && (
         <div className={`${CARD_SURFACE} max-w-xl px-4 py-3`}>
           <div className="flex items-center gap-2">
-            <p className="min-w-0 flex-1 text-[13px] font-semibold text-[#26242e] dark:text-neutral-100">The team asked you</p>
+            <p className="min-w-0 flex-1 text-[13px] font-semibold text-ink">The team asked you</p>
             <Pill tone="orange">Needs you</Pill>
           </div>
-          <p className="mt-1 whitespace-pre-wrap text-[13px] text-[#4c4a55] dark:text-neutral-300">{task.pendingQuestion}</p>
+          <p className="mt-1 whitespace-pre-wrap text-[13px] text-ink-2">{task.pendingQuestion}</p>
           {hasOptions ? (
             <OptionCards
               options={options.map((option, index) => ({
@@ -177,7 +177,7 @@ export default function TaskCard({
                 }}
                 aria-label="Answer the team"
                 placeholder="Reply to continue the task…"
-                className="min-w-0 flex-1 rounded-lg border border-[#e3e1ea] bg-white px-2.5 py-1.5 text-base text-[#26242e] placeholder:text-[#a3a0ad] focus:border-[#c9c4f5] focus:outline-none sm:text-[13px] dark:border-white/15 dark:bg-transparent dark:text-neutral-100"
+                className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-base text-ink placeholder:text-ink-3 focus:border-brand/40 focus:outline-none sm:text-[13px] dark:bg-transparent"
               />
               <button
                 type="button"

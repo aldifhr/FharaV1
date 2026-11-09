@@ -15,7 +15,7 @@ function RowIcon({ status }: { status: QaCardRow["status"] }) {
   if (status === "passed") return <Check size={15} strokeWidth={2.5} className="text-[#1f9d55] dark:text-emerald-400" aria-hidden="true" />;
   if (status === "failed") return <X size={15} strokeWidth={2.5} className="text-[#d83a3a] dark:text-rose-400" aria-hidden="true" />;
   if (status === "running") return <Loader2 size={15} strokeWidth={2.5} className="animate-spin text-[#e5671f] dark:text-orange-400" aria-hidden="true" />;
-  return <Minus size={15} strokeWidth={2.5} className="text-[#b9b6c2] dark:text-neutral-600" aria-hidden="true" />;
+  return <Minus size={15} strokeWidth={2.5} className="text-ink-3" aria-hidden="true" />;
 }
 
 const ROW_WORD: Record<QaCardRow["status"], string> = {
@@ -58,14 +58,14 @@ export default function QaCard({ data }: { data: QaCardData }) {
     <CardShell>
       <div className="flex items-start gap-3 px-4 pt-3.5">
         <div className="min-w-0 flex-1">
-          <p className="text-[14px] font-semibold text-[#26242e] dark:text-neutral-100">
+          <p className="text-[14px] font-semibold text-ink">
             {intro}
             {data.iteration > 0 ? <span className={`ml-1.5 text-[12px] font-normal ${MUTED}`}>after fix {data.iteration}</span> : null}
           </p>
           {urls.length > 0 && (
             <p className={`mt-0.5 truncate text-[12px] ${MUTED}`}>
               {urls.map((url) => (
-                <code key={url} className="mr-1.5 rounded bg-[#f3f2f7] px-1 py-px font-mono text-[11px] text-[#4c4a55] dark:bg-white/10 dark:text-neutral-200">
+                <code key={url} className="mr-1.5 rounded bg-hover px-1 py-px font-mono text-[11px] text-ink-2">
                   {hostOf(url)}
                 </code>
               ))}
@@ -80,7 +80,7 @@ export default function QaCard({ data }: { data: QaCardData }) {
           {rows.map((row, index) => (
             <li key={`${row.label}-${index}`} className="flex items-center gap-2.5 py-1 text-[13px]">
               <RowIcon status={row.status} />
-              <span className="min-w-0 flex-1 truncate text-[#34323d] dark:text-neutral-100" title={row.detail}>
+              <span className="min-w-0 flex-1 truncate text-ink" title={row.detail}>
                 {row.label}
               </span>
               <span
@@ -99,7 +99,7 @@ export default function QaCard({ data }: { data: QaCardData }) {
           <p className={`text-[11px] font-semibold uppercase tracking-wide ${MUTED}`}>Issues</p>
           <ul className="mt-1 space-y-1">
             {issues.map((issue, index) => (
-              <li key={index} className="flex gap-2 text-[12px] text-[#4c4a55] dark:text-neutral-300">
+              <li key={index} className="flex gap-2 text-[12px] text-ink-2">
                 <X size={13} className="mt-0.5 shrink-0 text-[#d83a3a] dark:text-rose-400" aria-hidden="true" />
                 <span className="min-w-0 break-words">{issue}</span>
               </li>
@@ -116,7 +116,7 @@ export default function QaCard({ data }: { data: QaCardData }) {
                 alt={shot.label ?? "QA screenshot"}
                 loading="lazy"
                 referrerPolicy="no-referrer"
-                className="h-20 w-auto rounded-md border border-[#e9e8ef] object-cover dark:border-white/10"
+                className="h-20 w-auto rounded-md border border-line object-cover"
               />
             </a>
           ))}

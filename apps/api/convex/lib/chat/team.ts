@@ -33,6 +33,19 @@ export function pickConversationalAgent(
   return [notCto[0]];
 }
 
+/** Who answers a bare greeting: the mentioned agents, else the CTO (the
+ *  default chat participant), else the conversational fallback. Before
+ *  this, greetings skipped the CTO and the Researcher answered "hello". */
+export function pickGreetingResponders<T extends ChatAgent>(
+  mentioned: T[],
+  orchestrator: T | null,
+  team: T[]
+): T[] {
+  if (mentioned.length > 0) return mentioned;
+  if (orchestrator) return [orchestrator];
+  return pickConversationalAgent(team) as T[];
+}
+
 /** Max teammates the CTO can pull into one chat turn by @mention. */
 export const MAX_CTO_HANDOFFS = 3;
 

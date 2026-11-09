@@ -34,6 +34,7 @@ import {
   ORCHESTRATOR_ROLE,
   extractAgentMentions,
   pickConversationalAgent,
+  pickGreetingResponders,
   resolveAssignees,
   suggestAssigneesByKeywords,
   type ChatAgent,
@@ -479,7 +480,13 @@ export const replyToChat = internalAction({
     const lastContent = history[history.length - 1]?.content ?? "";
     if (GREETING.test(lastContent.trim())) {
       const greetingHistory = [{ role: "user", content: lastContent.trim() }];
-      for (const agent of pickConversationalAgent(team)) {
+      // Same speaker rule as ASK: an @mention wins, else the CTO (the
+      // default chat participant), else the deterministic fallback.
+      const greetingMentions = (args.preferredAgentIds ?? [])
+        .map((id) => agents.find((a) => a._id === String(id)))
+        .filter((a): a is ChatAgent => Boolean(a));
+      const greeters = pickGreetingResponders(greetingMentions, orchestrator, team);
+      for (const agent of greeters) {
         try {
           const perAgentConfig = await resolveConfigFromProviders(
             llmProviders,

@@ -2,7 +2,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test, it } from "vitest";
 import { classifyChatIntent, parseIntentResult } from "./lib/chat/intent";
-import { resolveAssignees, suggestAssigneesByKeywords, extractAgentMentions, parseResponderSelection, pickConversationalAgent } from "./lib/chat/team";
+import { resolveAssignees, suggestAssigneesByKeywords, extractAgentMentions, parseResponderSelection, pickConversationalAgent, pickGreetingResponders } from "./lib/chat/team";
 import { stripToolCallMarkup } from "./lib/chat/strip";
 import { buildAssignmentGuidance, buildHandoffGuidance } from "./lib/prompts/chat";
 import schema from "./schema";
@@ -176,5 +176,24 @@ describe("chat dispatch safety (e2e safety probe)", () => {
     expect(isRefusalReply("Plan: @Frontend adds the dark-mode toggle, @Support updates the README.")).toBe(false);
     expect(isRefusalReply("I can't wait to ship this", 2)).toBe(false);
     expect(isRefusalReply("Sounds good — @Frontend will build the header component.", 1)).toBe(false);
+  });
+});
+
+describe("pickGreetingResponders", () => {
+  const cto = { _id: "c", name: "CTO", role: "cto" };
+  const researcher = { _id: "r", name: "Researcher", role: "researcher" };
+  const frontend = { _id: "f", name: "Frontend", role: "frontend" };
+  const team = [cto, researcher, frontend];
+
+  it("lets the CTO answer a bare greeting, not the Researcher", () => {
+    expect(pickGreetingResponders([], cto, team)).toEqual([cto]);
+  });
+
+  it("an @mention wins", () => {
+    expect(pickGreetingResponders([frontend], cto, team)).toEqual([frontend]);
+  });
+
+  it("falls back to the conversational agent when no CTO is in the chat", () => {
+    expect(pickGreetingResponders([], null, [researcher, frontend])).toEqual([researcher]);
   });
 });

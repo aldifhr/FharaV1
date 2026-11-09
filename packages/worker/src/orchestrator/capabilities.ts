@@ -18,6 +18,13 @@ export function isAgentEnabled(agent: AgentDefinition): boolean {
  * writer ever sets them, must be honored instead of routing work to an
  * agent that has signalled it cannot take it.
  */
+const WRITE_CAPABILITIES = new Set([
+  "frontend-development",
+  "backend-development",
+  "ui-ux-design",
+  "documentation-support",
+]);
+
 const UNAVAILABLE_STATUSES = new Set(["offline", "disabled", "unavailable"]);
 
 export function isAgentAvailable(agent: AgentDefinition): boolean {
@@ -69,8 +76,14 @@ export function routeCapability(
 
   if (scored.length > 0) return scored[0].agent;
   if (options.allowFallback === false) return null;
+  // Code-writing capabilities fall back only to an agent that can write
+  // files: a read-only QA/Researcher/Reviewer handed "frontend-development"
+  // cannot do the work (seen when a task's pool had no Frontend).
+  const writers = WRITE_CAPABILITIES.has(normalized)
+    ? enabled.filter((agent) => (agent.supportedTools ?? []).includes("write_file"))
+    : [];
   return (
-    enabled
+    (writers.length > 0 ? writers : enabled)
       .slice()
       .sort(
         (a, b) =>

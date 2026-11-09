@@ -1,241 +1,271 @@
 # MOAgent
 
-Multi-agent orchestrator: a planner builds a DAG of subtasks, agents execute
-them (code change, review, QA, audit/research), file changes go through a
-human approval gate, and results are verified before a task is marked done.
+MOAgent is a multi-agent software team you talk to in chat. You describe a
+change to your project; the CTO agent plans it and assigns it to teammates
+by `@mention`; agents write the code in your repository; the change is
+reviewed, approved by you, verified (typecheck / lint / test / build) and
+checked in a real browser before the task is done. With GitHub connected, the
+result can be pushed as a branch with a draft PR.
 
-Workspaces:
-
-- `apps/web` — Next.js UI (`@moagent/web`)
-- `apps/api` — Convex backend (`@moagent/api`, code in `apps/api/convex`)
-- `packages/worker` — the worker that claims and executes tasks (`@moagent/worker`)
-- `electron/` — optional desktop shell
+It is a **single-user, local-first prototype** (no login, no rate limiting —
+see [Safety model](#safety-model)). Open work is tracked in
+[ROADMAP.md](ROADMAP.md).
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  UI["Web UI (Next.js)<br/>Settings · Tasks · Analytics"] -->|public queries / mutations| BE
-  UI -->|provider writes via server-side route<br/>apps/web/app/api/llm-providers| BE
-  BE[("Convex backend<br/>apps/api/convex")]
-  W["Worker (packages/worker)"] -->|service-token actions<br/>claim · run context · usage| BE
-  W --> ORC["Orchestrator<br/>single planning authority"]
-  ORC --> PLN["Planner<br/>(plan subroutine)"]
-  PLN --> SCH["DAG scheduler<br/>dynamic nodes · per-agent gates"]
-  SCH --> EXE["Agent executor"]
-  EXE --> GATE{"Budget gate<br/>assertLlmCallAllowed"}
-  GATE --> RES["LLM resolver + provider pool<br/>priority → weighted · modelPatterns"]
-  RES --> HEALTH["Provider health<br/>circuit breaker · fallback chain"]
-  HEALTH --> LLM["LLM providers<br/>OpenAI-compatible · Anthropic"]
-  EXE --> QA["QA / verification<br/>explicit base URL per task"]
-  BE -.->|provider health snapshots| UI
+```
+ Browser ──► apps/web (Next.js)  ──queries/mutations──►  apps/api (Convex)
+                │ server routes (token-gated writes)          ▲
+                └────────────────────────────────────────────┤ service-token actions
+                                                              │ (claim · run context · events · cards)
+                                     packages/worker (Node) ──┘
+                                       plan → DAG → agents → review → verify → QA
+                                       works in the project's git repo on disk
 ```
 
-- **Planning authority.** One brain decides: the orchestrator owns
-  execution decisions and flow; the planner is its subroutine that builds
-  the `ExecutionPlan` the scheduler actually runs (behind the
-  `ORCHESTRATOR_AUTHORITATIVE` flag, default on). Post-execution
-  evaluations act inside the same scheduler invocation: APPROVE spawns a
-  real delegation subtask, REVISE (non-review) spawns a fix subtask with
-  structured findings, BLOCKED halts new scheduling gracefully. Dynamic
-  subtasks are persisted, so recovery does not lose them.
-- **LLM resolver & provider pool.** Provider *connections*
-  (`llmProviders`) are separate from the *model registry* (`llmModels`):
-  one connection offers many models, and each agent may prefer a
-  provider/model with a fallback assignment. Selection consumes priority,
-  then weighted choice among equals, filtered by `modelPatterns` and by
-  health: a per-connection circuit breaker (3 consecutive transient
-  failures → 60 s open → half-open probe) excludes failing connections,
-  and the next candidate in the fallback chain serves the same task.
-- **Credential security.** Provider keys are encrypted at rest with
-  AES-256-GCM (`PROVIDER_ENCRYPTION_KEY`, see Setup §2). Plaintext exists
-  only transiently: writes encrypt before storing, public queries return
-  only `apiKeyConfigured`, and the worker receives ciphertext and decrypts
-  on its side. Legacy agent key fields never leave the backend.
-- **Execution reliability.** Per-agent concurrency gates, a two-tier LLM
-  concurrency gate (per-task + worker-wide), one `AbortController` per
-  task (user cancel and the task deadline share it) threaded into LLM
-  calls, QA, commands and verification, permanent-vs-transient retry
-  classification with a budget/deadline veto, stale-task recovery that
-  requeues tasks with a valid checkpoint (bounded), and a backend
-  write-layer guard: once a task reaches a terminal status, late
-  completions are refused with a value, never applied.
-- **Budget enforcement.** One `BudgetTracker` per task gates every LLM
-  call *before* it happens (`canCallLLM` + token budget). Exhaustion in
-  `enforce` mode ends the task with a `budget.exhausted` event and
-  preserves completed outputs; the shipped default is `budgetMode:
-  "warn"` (set `ORCHESTRATOR_BUDGET_MODE=enforce` to hard-stop), which
-  emits a warning event and lets the run continue. Usage is recorded per
-  agent, per provider and per model, with `estimatedCost` computed only
-  when registry pricing exists — never guessed.
-- **Observability.** Token usage aggregates by agent / provider / model
-  in Analytics; provider circuit state is mirrored to the backend and
-  rendered as a health badge per connection in Settings; delegation
-  metrics come from the real `delegations` table. There is no separate
-  tracing system — the existing `taskEvents` / lifecycle history is the
-  trail.
+| Workspace | Package | What it holds |
+|---|---|---|
+| `apps/web` | `@moagent/web` | Next.js UI: projects, chat + task threads, cards, team, Settings (LLM providers, MCP), Inbox, Analytics |
+| `apps/api` | `@moagent/api` | Convex backend in `apps/api/convex`: schema, chat + CTO assignment, tasks, approvals, permission broker, GitHub push, provider pool |
+| `packages/worker` | `@moagent/worker` | Claims tasks from Convex and runs them end to end |
+| `electron/` | — | Optional desktop shell (`npm run electron:dev`) |
 
-## Setup
+Module map (details in each `AGENTS.md`):
+
+- **`apps/api/convex/lib/`** — function-less shared code: `roles.ts` (the
+  single source of truth for the team roles, used by Convex, web and worker),
+  `authz.ts` (project access, service-token check), `llmCrypto.ts`
+  (AES-256-GCM provider keys), `llmResolver.ts` / `llmConfig.ts` (provider
+  pool), `chat/` and `prompts/`.
+- **`packages/worker/src/`** — layered, enforced by `tests/layering.test.ts`:
+  `types/ prompts/ utils/` ← `llm/ effects/ governance/ context/ workerApi` ←
+  `tools/ mcp/` ← `execution/` ← `orchestrator/ scheduler/ router/` ←
+  `services/` (task lifecycle: `taskRunner` + `runner/` stages) ← `index`.
+- **`apps/web`** — `app/` routes, `components/` (chat, cards, sidebar),
+  `lib/` (shared UI types, formatting, task status).
+
+## The team
+
+Every project gets the same fixed team of nine roles
+(`apps/api/convex/lib/roles.ts`):
+
+| Role | Does | Writes code |
+|---|---|---|
+| **CTO** | Answers by default, plans, assigns work by `@mention`, decides architecture and risk | no |
+| **Designer** | Implementable design specs (layout, tokens, states, accessibility) | no |
+| **Frontend** | React / Next.js / UI implementation | yes |
+| **Backend** | API, Convex functions, schema, server logic | yes |
+| **QA** | Browser checks and test evidence | no |
+| **Support** | Documentation and how-to answers | docs |
+| **DevOps** | CI/CD, Docker, deployment (policy-gated) | via commands |
+| **Reviewer** | Independent code review | no |
+| **Researcher** | Technical research with sources | no |
+
+**How the CTO assigns.** When you ask for a change in chat, the CTO replies
+with a short plan and `@mentions` the teammates who own each part
+(`@Frontend`, `@Backend`, …). Those mentions — plus anyone you `@mention`
+yourself — become the task's assignees. If the CTO names nobody, owners are
+picked from the request by keywords. A question without a change gets an
+answer, not a task.
+
+## Task lifecycle
+
+1. **Plan** — the worker claims the task, classifies it (low / medium / high /
+   ultra) and the orchestrator builds an execution plan: a DAG of subtask
+   nodes, each with an owner role and its `allowedPaths`.
+2. **Nodes** — the scheduler runs ready nodes (per-agent concurrency, LLM
+   gates, per-subtask timeouts). Code changes are *staged*, not written yet.
+3. **Review** — the Reviewer checks the staged diff when the change is risky
+   or multi-domain (`ORCHESTRATOR_REVIEW_MODE=auto`); "changes requested"
+   spawns a fix round.
+4. **Approval** — in the default `ask` mode you approve the change set on the
+   approval card; the permission broker decides allow / ask / deny.
+5. **Apply + verify** — approved files are written, then typecheck / lint /
+   test / build run; failures get a bounded fix round.
+6. **QA** — for applied UI changes in a browser-runnable project, Chromium
+   opens the app and checks it (live QA card). An environment problem
+   (no Chromium) is reported as "QA skipped", not as a code defect.
+7. **Commit** — with worktree isolation on (`ORCHESTRATOR_WORKTREE_ISOLATION=1`)
+   the task runs on its own branch, which is committed and merged.
+8. **Push card / draft PR** — the commit shows up as a push card. Clicking
+   Push is the approval: the worker pushes the branch and opens a **draft PR**.
+
+Progress shows in chat as cards: task, changed files, verification, QA,
+push.
+
+## Quickstart
+
+Requires Node ≥ 20.9 (`.nvmrc`: 24) and git.
 
 ```bash
-git clone <this repo>
-cd MOAgent
+git clone <this repo> MOAgent && cd MOAgent
 npm install
+
+cp .env.example .env                          # worker + shared settings
+cp apps/web/.env.example apps/web/.env.local  # web app
+
+cd apps/api && npx convex dev --once && cd ../..   # log in / pick a deployment, push functions, generate convex/_generated
+npm run doctor                                     # checks the setup, prints ✓ / ! / ✗ with fixes
+npm run dev                                        # Convex dev + web (http://localhost:3000) + worker
 ```
 
-### 1. Convex backend (one-time login + codegen)
+`npx convex dev` writes the deployment to `apps/api/.env.local`; copy its
+URL into `NEXT_PUBLIC_CONVEX_URL` in both `.env` and `apps/web/.env.local`.
+For a self-hosted backend set `CONVEX_SELF_HOSTED_URL` /
+`CONVEX_SELF_HOSTED_ADMIN_KEY` instead (see `apps/api/.env.example`).
 
-The Convex generated client (`apps/api/convex/_generated/`) is **gitignored**
-and does not exist in a fresh clone. Without it, typecheck and the backend
-cannot run. Generate it once:
-
-```bash
-npx convex dev
-```
-
-This opens a browser login (Convex account), links or creates a deployment,
-writes `NEXT_PUBLIC_CONVEX_URL` to `.env.local`, and generates
-`convex/_generated/`. Leave it running while you develop — it also pushes
-schema/function changes live. For a fully local backend, `npx convex dev`
-offers an anonymous local deployment instead of a cloud one.
-
-### 2. Environment
-
-Create a root `.env` (the worker loads `../../.env` relative to
-`packages/worker`). Variable names only — never commit real values:
-
-```bash
-NEXT_PUBLIC_CONVEX_URL=   # written by `npx convex dev`
-CONVEX_SERVICE_TOKEN=     # shared secret between worker and backend actions
-PROVIDER_ENCRYPTION_KEY=  # base64 32-byte key for provider-key encryption (see §2b)
-LLM_PROVIDER=             # e.g. anthropic | openai-compatible
-LLM_MODEL=                # fallback model when no provider is set in Settings
-LLM_BASE_URL=             # fallback base URL (OpenAI-compatible endpoint)
-LLM_API_KEY=              # fallback API key; per-provider keys live in Settings
-WORKSPACE_ROOT=./workspaces
-```
-
-### 2a. Browser QA (Chromium)
-
-Browser QA is **on by default** (`ORCHESTRATOR_QA_MODE=auto`): after changes
-are applied and verified (tsc/lint/test), QA opens the app in Chromium when
-the change touches UI or you ask for QA/e2e/browser testing. Install the
-browser once on every worker machine:
-
-```bash
-cd packages/worker && npx playwright install chromium   # add --with-deps on Debian/Ubuntu
-```
-
-On linux-arm64 Playwright's CDN has no Chromium build: install a system
-Chromium and set `QA_CHROMIUM_PATH=/path/to/chromium` (also honoured:
-`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`). `--no-sandbox` is added when running
-as root or in a container, or with `QA_CHROMIUM_NO_SANDBOX=1`. Without a
-browser, QA is reported as skipped ("blocked") and the task still completes,
-unless `ORCHESTRATOR_QA_REQUIRED=1`. Set `ORCHESTRATOR_QA_MODE=never` to turn
-browser QA off. See `packages/worker/AGENTS.md` for all QA variables.
-
-The LLM provider used per task is normally configured in the web UI
-(Settings -> LLM providers, stored in the `llmProviders` table); the `LLM_*`
-env values are only the fallback when no provider row exists.
-
-### 2b. Provider encryption key + deploying backend updates
-
-Provider API keys are encrypted at rest (AES-256-GCM). The encryption key
-lives **outside** the database and must be set, with the **same value**, in
-two places: the Convex deployment env (encrypts on write) and the worker
-env (decrypts on use). If the two differ, every provider call fails with
-an explicit decryption error naming the provider.
-
-```bash
-# 1. Generate the key once (keep it somewhere safe; losing it means
-#    re-entering every provider key)
-openssl rand -base64 32
-
-# 2. Set it on the Convex deployment
-cd apps/api
-npx convex env set PROVIDER_ENCRYPTION_KEY <the generated value>
-
-# 3. Set the same value in the worker's environment (root .env)
-#    PROVIDER_ENCRYPTION_KEY=<the generated value>
-```
-
-Deploying backend changes and running the credential migration — required
-once after upgrading to the encrypted schema, and the deploy step after
-any later backend change:
+Then set the Convex deployment env once (same values as your `.env`):
 
 ```bash
 cd apps/api
-npx convex dev        # dev: watch + push functions/schema (or `npx convex deploy` for a hosted deployment)
-
-# Encrypt existing plaintext provider keys + build the model registry
-# (idempotent — safe to run again; also clears legacy agent key fields)
-npx convex run migrations:migrateProvidersAndAgents
-
-# Verify: reports zero plaintext keys remaining
-npx convex run migrations:verifyMigration
+npx convex env set CONVEX_SERVICE_TOKEN "$(openssl rand -hex 32)"   # also put it in .env and apps/web/.env.local
+npx convex env set PROVIDER_ENCRYPTION_KEY "$(openssl rand -base64 32)"  # also in .env
 ```
 
-Restart the worker after a backend deploy so it picks up the new
-contracts. Key rotation, when needed:
-`npx convex run migrations:rotateEncryptionKeys` with the new key already
-set as above — it re-encrypts every stored key.
+Add an LLM provider in **Settings → LLM** (or set the `LLM_*` fallback in
+`.env` and in the Convex env), create a project pointing at a local git
+repository, and send a request in its chat.
 
-## Authentication & security limitations
+`npm run dev` runs three processes with prefixed logs (`[api]`, `[web]`,
+`[worker]`). The worker runs under `scripts/supervise.mjs`, which restarts it
+on a crash with backoff (1 s → 30 s) and stops it cleanly on Ctrl-C. Single
+pieces: `npm run dev:web`, `npm run dev:api`, `npm run worker`,
+`npm run worker:supervised`, `npm run convex` (Convex dev + worker).
 
-MOAgent is currently a **single-user, local-development prototype**. There
-is deliberately **no login and no rate limiting** — that is an accepted
-decision by the owner for this prototype, not an oversight — and it must
-not be exposed to an untrusted network as-is. The concrete model today:
+## Configuration
 
-- **Ownership is conditional.** Project ownership (`projects.ownerId`) is
-  enforced only when a project carries an `ownerId` *and* a viewer identity
-  exists (`apps/api/convex/authz.ts`). Projects without an owner — every
-  project in local mode — are accessible to anyone who can reach the
-  deployment.
-- **Worker ↔ backend** calls use one static shared secret,
-  `CONVEX_SERVICE_TOKEN`. The comparison is timing-safe and fails closed
-  when unset, but the token is not bound to a worker id and there is no
-  rotation mechanism.
-- **Provider administration is token-gated.** The `llmProviders`
-  create/update/remove mutations require the service token. The Settings UI
-  calls them through a server-side Next route
-  (`apps/web/app/api/llm-providers`) that holds the token in the web
-  server's environment — so the web server needs `CONVEX_SERVICE_TOKEN`
-  set (server-side only, never a `NEXT_PUBLIC_*` variable) for Settings
-  writes and model discovery to work. Provider read queries are public but
-  never return the key (only `apiKeyConfigured`).
-- **Credentials are encrypted at rest.** Provider API keys are stored
-  only as AES-256-GCM ciphertext (`apiKeyCiphertext`); see Setup §2b for
-  the key setup and the one-time migration
-  (`migrations:migrateProvidersAndAgents`, verified by
-  `migrations:verifyMigration` reporting zero plaintext). Until that
-  migration has been run on a deployment, pre-upgrade rows may still hold
-  plaintext — run it before trusting a deployment. Internal run contexts
-  strip the legacy agent key fields before anything reaches the worker,
-  only ciphertext crosses to the worker (it decrypts locally), public
-  queries return only `apiKeyConfigured`, and the browser never sends a
-  provider key to a provider base URL directly (model discovery runs on
-  the backend).
+Worker settings live in the root `.env`; the web app reads
+`apps/web/.env.local`; backend settings live in the **Convex deployment env**
+(`npx convex env set`). All are listed in the `.env.example` files.
 
-### 3. Run
+| Variable | Where | Default | What it does |
+|---|---|---|---|
+| `NEXT_PUBLIC_CONVEX_URL` | `.env`, web | — (required) | Convex deployment URL (`CONVEX_URL` also accepted by the worker) |
+| `CONVEX_SERVICE_TOKEN` | `.env`, web (server-only), Convex | — (required) | Shared secret for worker actions and token-gated web routes |
+| `PROVIDER_ENCRYPTION_KEY` | `.env`, Convex | — | Encrypts provider keys saved in Settings (base64, 32 bytes) |
+| `LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | `.env`, Convex | anthropic | Fallback LLM when no provider is configured in Settings |
+| `WORKSPACE_ROOT` | `.env` | `./workspaces` | Base for relative project paths |
+| `ORCHESTRATOR_LLM_MAX_TOKENS` | `.env` | `8192` | Max output tokens per LLM call |
+| `ORCHESTRATOR_LLM_TIMEOUT_MS` | `.env` | `300000` | Ceiling for one LLM request |
+| `ORCHESTRATOR_SUBTASK_TIMEOUT_MS` | `.env` | `300000` | Subtask budget, low/medium tasks |
+| `ORCHESTRATOR_SUBTASK_TIMEOUT_HIGH_MS` | `.env` | `900000` | Subtask budget, high/ultra tasks |
+| `ORCHESTRATOR_TASK_TIMEOUT_MS` | `.env` | `1200000` | Task deadline, low/medium |
+| `ORCHESTRATOR_TASK_TIMEOUT_HIGH_MS` | `.env` | `2400000` | Task deadline, high/ultra |
+| `ORCHESTRATOR_EXECUTION_RUNTIME` | `.env` | `api` | `api` or `opencode` (legacy `ORCHESTRATOR_RUNTIME`) |
+| `ORCHESTRATOR_NATIVE_PROVIDER_COMMAND` | `.env` | `opencode` | OpenCode CLI binary |
+| `ORCHESTRATOR_NATIVE_TIMEOUT_MS` | `.env` | `600000` | Wall-clock limit per OpenCode run |
+| `ORCHESTRATOR_REVIEW_MODE` / `ORCHESTRATOR_QA_MODE` | `.env` | `auto` | `always` / `auto` / `never` |
+| `ORCHESTRATOR_QA_REQUIRED` | `.env` | `0` | `1` = environment-blocked QA fails the task |
+| `QA_CHROMIUM_PATH` | `.env` | Playwright's Chromium | System Chromium (fallback `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`) |
+| `QA_CHROMIUM_NO_SANDBOX` | `.env` | auto | `1` = `--no-sandbox` (auto as root / in containers) |
+| `ORCHESTRATOR_WORKTREE_ISOLATION` | `.env` | `0` | Run each task on its own branch (needed for push / PR) |
+| `ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK` | `.env` | `2000000` | Per-task token budget |
+| `ORCHESTRATOR_BUDGET_MODE` | `.env` | warn | `enforce` = hard stop at the budget |
+| `WORKER_POLL_INTERVAL_MS` | `.env` | `1500` | Task poll interval |
+| `MOAGENT_WEEKLY_TOKEN_BUDGET` | Convex | — | Weekly budget shown in the usage meter (display only) |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Convex | — | GitHub OAuth app (push / draft PR) |
+| `GITHUB_OAUTH_CALLBACK_URL` | Convex | `http://localhost:3000/api/integrations/github/callback` | OAuth redirect |
+| `CONVEX_SITE_URL` | web | derived | Convex HTTP actions URL for the OAuth callback forwarder |
+
+Every limit is read in one place, `packages/worker/src/orchestrator/policy.ts`.
+
+### Provider keys and migrations
+
+Provider API keys saved in Settings are stored only as AES-256-GCM
+ciphertext. `PROVIDER_ENCRYPTION_KEY` must be the same in the Convex env
+(encrypts on write) and the worker `.env` (decrypts on use); if they differ,
+provider calls fail with an error naming the provider. After upgrading an
+older deployment:
 
 ```bash
-npm run convex     # terminal 1: Convex dev + worker
-npm run dev        # terminal 2: web UI on http://localhost:3000
+cd apps/api
+npx convex run migrations:migrateProvidersAndAgents   # idempotent
+npx convex run migrations:verifyMigration             # reports zero plaintext keys
 ```
 
-Or run the pieces separately: `npm run worker`, plus `npx convex dev` inside
-`apps/api`.
+Key rotation: set the new key, then `npx convex run migrations:rotateEncryptionKeys`.
 
-### 4. Verify
+## OpenCode runtime
+
+Agents can run on two runtimes:
+
+- **`api`** (default) — the agent's LLM (provider pool or `LLM_*`) with
+  MOAgent's own host tools, every action gated.
+- **`opencode`** — the [OpenCode](https://opencode.ai) CLI
+  (`npm i -g opencode-ai`) runs its own tools in the task worktree. Its
+  changes still pass the staging and approval gate.
+
+Set the global default with `ORCHESTRATOR_EXECUTION_RUNTIME`, or per agent in
+the agent form (Runtime, optional OpenCode `provider/model`). Without an
+OpenCode model the CLI is pointed at the agent's resolved MOAgent LLM through
+a temporary config; the key travels only in the child process env
+(`MOAGENT_OPENCODE_API_KEY`). Each run is killed after
+`ORCHESTRATOR_NATIVE_TIMEOUT_MS`.
+
+## GitHub push and draft PRs
+
+1. Create a GitHub OAuth app with the callback
+   `http://localhost:3000/api/integrations/github/callback`.
+2. `npx convex env set GITHUB_CLIENT_ID …` and `GITHUB_CLIENT_SECRET …` in
+   `apps/api`. For a non-cloud backend set `CONVEX_SITE_URL` in
+   `apps/web/.env.local` if the HTTP actions do not run on the API port + 1.
+3. Turn on `ORCHESTRATOR_WORKTREE_ISOLATION=1` so every task gets a
+   committed branch.
+4. In the project's **Manage project → GitHub**, connect and pick the repo
+   and base branch.
+
+After a task commits, its push card offers **Push**. The click records an
+approved `git_push` approval; the worker pushes `<sha>:refs/heads/<branch>`
+with the token passed only through `GIT_CONFIG_*` env (never argv, git
+config or logs) and opens a draft PR. A cron refreshes PR state. MOAgent
+never pushes without that click.
+
+## Safety model
+
+- **Repository boundary.** A request that targets a path outside the
+  project repository (`../…`, `~/…`, `/etc/…`) is refused in chat before
+  any task is created.
+- **`allowedPaths`.** Each subtask may only change files inside its
+  `allowedPaths`; anything else is dropped from its output and reported.
+  Forbidden files (`.env*`, secrets) are never written.
+- **Permission broker** (`apps/api/convex/permissionBroker.ts`). One
+  server-side decision for risky actions: *allow* (a live approval covers
+  this task, plan version and every target file), *ask* (request approval),
+  *deny* (target outside the workspace, terminal task, or a standing
+  rejection). Applying a change set goes through it; a push needs an
+  approved `git_push` row, re-checked when the worker claims it.
+- **Approval gate.** Projects default to `ask`: no file is written until you
+  approve. Pushes need an explicit click.
+- **Commands** run through an argv allowlist in a sandbox; tool calls are
+  audited and secret-shaped arguments are redacted.
+- **Credentials.** Provider keys are encrypted at rest and only ciphertext
+  reaches the worker; public queries return `apiKeyConfigured`, never a key.
+  GitHub tokens reach the worker only through a token-gated claim.
+- **Auth.** There is deliberately no login and no rate limiting in this
+  prototype. Ownership is enforced only when a project has an owner
+  (`apps/api/convex/lib/authz.ts`); worker ↔ backend calls use the static
+  `CONVEX_SERVICE_TOKEN` (timing-safe, fails closed when unset). Do not
+  expose a deployment to an untrusted network.
+
+## Testing
 
 ```bash
-npm test           # worker unit/integration tests (vitest)
-npm run --workspace=@moagent/api test   # backend tests (convex-test, in-memory — no deployment needed)
-npm run typecheck  # web + api + worker (requires step 1: _generated)
+npm run doctor                             # setup checks (exit 1 on a required failure)
+npm run typecheck                          # web + api + worker (needs convex/_generated)
+npm test                                   # worker unit/integration tests (vitest)
+npm run --workspace=@moagent/api test      # backend tests (convex-test, in-memory)
+npm run test:scripts                       # doctor / supervisor unit tests (node:test)
+cd apps/web && npx next build              # production build (needs NEXT_PUBLIC_CONVEX_URL)
+npm run knip                               # unused files / dependencies
 ```
 
-`npm test` does not need Convex codegen. `npm run typecheck` fails in
-`apps/api` and `packages/worker` until `convex/_generated/` has been
-generated at least once — that is expected on a fresh clone, not a code
-error.
+`npm test` does not need Convex codegen; `npm run typecheck` fails in
+`apps/api` and `packages/worker` until `apps/api/convex/_generated/` exists
+(`npx convex dev --once`).
+
+## More
+
+- [ROADMAP.md](ROADMAP.md) — open work, grouped Now / Next / Later.
+- `AGENTS.md` (root, `apps/web`, `apps/api/convex`, `packages/worker`) —
+  contributor rules and module contracts.
+- `plans/` — design notes for larger changes.

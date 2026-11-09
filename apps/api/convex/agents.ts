@@ -200,6 +200,13 @@ export const create = mutation({
     llmSelectionPolicy: v.optional(
       v.union(v.literal("fixed"), v.literal("priority"), v.literal("weighted"))
     ),
+    // Avatar picked in the New agent modal (shuffle / template); unset =
+    // derived from the name.
+    avatarParams: v.optional(v.any()),
+    // Library skills prefilled from a template (order = prompt order).
+    skillIds: v.optional(v.array(v.id("skills"))),
+    executionRuntime: v.optional(v.union(v.literal("api"), v.literal("opencode"))),
+    opencodeModel: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // Agents are a global registry: signed-in viewer or local mode only.
@@ -211,13 +218,22 @@ export const create = mutation({
     const systemPrompt = args.systemPrompt?.trim() || defaultSystemPromptForRole(role);
     if (!name) throw new Error("Agent name is required");
     if (!role) throw new Error("Agent role is required");
+    const skillIds = Array.from(new Set(args.skillIds ?? []));
+    for (const id of skillIds) {
+      if (!(await ctx.db.get(id))) throw new Error("Skill not found");
+    }
+    const opencodeModel =
+      args.opencodeModel !== undefined ? normalizeOpencodeModel(args.opencodeModel) : undefined;
 
     const agentId = await ctx.db.insert("agents", {
       name,
       role,
       ...(systemPrompt ? { systemPrompt } : {}),
       status: "idle",
-      avatarParams: defaultAvatarParams(name),
+      avatarParams: args.avatarParams ?? defaultAvatarParams(name),
+      ...(skillIds.length ? { skillIds } : {}),
+      ...(args.executionRuntime ? { executionRuntime: args.executionRuntime } : {}),
+      ...(opencodeModel ? { opencodeModel } : {}),
       ...(args.description?.trim() ? { description: args.description.trim() } : {}),
       ...(normalizeCapabilities(args.capabilities)
         ? { capabilities: normalizeCapabilities(args.capabilities) }

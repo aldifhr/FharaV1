@@ -1,8 +1,11 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { Suspense, useMemo, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { Plus } from "lucide-react";
+import Segmented from "@/components/ui/segmented";
+import { TemplatesTab } from "./TemplatesTab";
 import { api } from "@/api/convex/_generated/api";
 import IconRail from "@/components/IconRail";
 import Modal from "@/components/Modal";
@@ -35,7 +38,59 @@ function rolesText(usedBy: Skill["usedBy"]): string {
  * to agents; at run time it is appended to the agent's prompt as
  * "## Skill: <name>".
  */
+type Tab = "skills" | "templates";
+
 export default function LibraryPage() {
+  return (
+    <Suspense fallback={null}>
+      <LibraryInner />
+    </Suspense>
+  );
+}
+
+function LibraryInner() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const tab: Tab = params.get("tab") === "templates" ? "templates" : "skills";
+  const projectId = params.get("project") ?? undefined;
+  const setTab = (next: Tab) => {
+    const q = new URLSearchParams(params.toString());
+    if (next === "skills") q.delete("tab");
+    else q.set("tab", next);
+    const qs = q.toString();
+    router.replace(qs ? `/library?${qs}` : "/library");
+  };
+  return (
+    <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
+      <IconRail projectId={projectId} />
+      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
+        <div className="mx-auto max-w-3xl">
+          {tab === "skills" ? (
+            <SkillsTab tabs={<LibraryTabs tab={tab} onChange={setTab} />} />
+          ) : (
+            <TemplatesTab projectId={projectId} tabs={<LibraryTabs tab={tab} onChange={setTab} />} />
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function LibraryTabs({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => void }) {
+  return (
+    <Segmented
+      label="Library section"
+      value={tab}
+      onChange={onChange}
+      options={[
+        { value: "skills", label: "Skills" },
+        { value: "templates", label: "Templates" },
+      ]}
+    />
+  );
+}
+
+function SkillsTab({ tabs }: { tabs: React.ReactNode }) {
   const skills = useQuery(api.skills.list, {}) as Skill[] | undefined;
   const agents = useQuery(api.agents.list, {}) as Agent[] | undefined;
   const seedDefaults = useMutation(api.skills.seedDefaults);
@@ -45,10 +100,7 @@ export default function LibraryPage() {
   const current = editing && editing !== "new" ? (skills ?? []).find((s) => s._id === editing._id) ?? editing : editing;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
-      <IconRail />
-      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
-        <div className="mx-auto max-w-3xl">
+    <>
           <header className="flex items-end justify-between gap-4">
             <h1 className="mt-1 text-[26px] font-semibold tracking-tight">Library</h1>
             <button
@@ -59,6 +111,7 @@ export default function LibraryPage() {
               <Plus size={14} /> Skill
             </button>
           </header>
+          <div className="mt-5">{tabs}</div>
           <p className="mt-6 text-[15px] text-ink-2">
             {skills === undefined
               ? "Loading…"
@@ -120,8 +173,6 @@ export default function LibraryPage() {
               ))}
             </ul>
           )}
-        </div>
-      </main>
 
       {current && (
         <SkillModal
@@ -131,7 +182,7 @@ export default function LibraryPage() {
           onClose={() => setEditing(null)}
         />
       )}
-    </div>
+    </>
   );
 }
 

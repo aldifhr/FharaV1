@@ -862,4 +862,25 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_name", ["name"]),
+
+  // Custom agent templates (built-ins live in code: lib/agentTemplates.ts).
+  // A template prefills a new agent: role, instructions, library skills,
+  // optional LLM preference, runtime and avatar.
+  agentTemplates: defineTable({
+    name: v.string(),
+    role: v.string(),
+    description: v.string(),
+    systemPrompt: v.string(),
+    skillIds: v.optional(v.array(v.id("skills"))),
+    llmProviderId: v.optional(v.id("llmProviders")),
+    llmModelId: v.optional(v.id("llmModels")),
+    runtime: v.optional(v.union(v.literal("api"), v.literal("opencode"))),
+    opencodeModel: v.optional(v.string()),
+    avatarParams: v.optional(v.any()),
+    tags: v.optional(v.array(v.string())),
+    // Always false for rows; built-in templates are never stored.
+    builtIn: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_name", ["name"]),
 });

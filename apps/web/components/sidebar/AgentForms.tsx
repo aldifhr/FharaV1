@@ -3,14 +3,16 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
-import { Dices } from "lucide-react";
+import { BookmarkPlus, Dices } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "../AgentAvatar";
 import Modal from "../Modal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
-import { randomAvatartion, type AvatartionAvatar } from "../ui/avatartion";
+import { deserializeAvatartion, randomAvatartion, type AvatartionAvatar } from "../ui/avatartion";
 import type { AvatarParams } from "@/api/convex/lib/avatar";
+import { nextAgentName } from "@/api/convex/lib/agentTemplates";
 import { AGENT_ROLES, ROLE_DEFAULT_PROMPTS, roleLabel } from "@/lib/agentRoles";
+import { useToast } from "../Toasts";
 
 type AgentDoc = {
   _id: string;
@@ -27,6 +29,58 @@ type AgentDoc = {
   avatarParams?: unknown;
   skillIds?: string[];
 };
+
+/** Template as agentTemplates.list returns it (built-in or custom). */
+export type TemplateView = {
+  id: string;
+  builtIn: boolean;
+  name: string;
+  role: string;
+  description: string;
+  systemPrompt: string;
+  skillIds: string[];
+  suggestedSkills: string[];
+  llmProviderId?: string;
+  llmModelId?: string;
+  runtime?: "api" | "opencode";
+  opencodeModel?: string;
+  avatarParams?: unknown;
+  tags: string[];
+  updatedAt?: number;
+};
+
+type LibrarySkill = { _id: string; name: string; description?: string };
+
+/** Checkbox list of library skills (order of picking = prompt order). */
+function SkillPicker({
+  skills,
+  value,
+  onChange,
+}: {
+  skills: LibrarySkill[] | undefined;
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const hint = "text-[12px] text-ink-3";
+  if (skills === undefined) return <p className={hint}>Loading…</p>;
+  if (skills.length === 0) return <p className={hint}>No skills in the library yet.</p>;
+  return (
+    <div className="grid max-h-40 gap-1.5 overflow-y-auto rounded-lg border border-line p-3">
+      {skills.map((skill) => (
+        <label key={skill._id} className="flex min-w-0 cursor-pointer items-center gap-2 text-[13px] text-ink">
+          <input
+            type="checkbox"
+            checked={value.includes(skill._id)}
+            onChange={() => onChange(value.includes(skill._id) ? value.filter((id) => id !== skill._id) : [...value, skill._id])}
+            className="accent-current"
+          />
+          <span className="truncate">{skill.name}</span>
+          {skill.description && <span className="truncate text-ink-3">· {skill.description}</span>}
+        </label>
+      ))}
+    </div>
+  );
+}
 
 function avatarArgs(seed: AvatartionAvatar | null) {
   return seed
@@ -52,6 +106,13 @@ function roleOptionsFor(agentRole: string): string[] {
 
 export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onClose: () => void }) {
   const createAgent = useMutation(api.agents.create);
+  const templates = useQuery(api.agentTemplates.list, {}) as TemplateView[] | undefined;
+  const librarySkills = useQuery(api.skills.list, {}) as LibrarySkill[] | undefined;
+  // "" = Blank. A picked template prefills role, instructions, skills and
+  // avatar (all still editable) and carries its LLM/runtime preference.
+  const [templateId, setTemplateId] = useState("");
+  const [skillIds, setSkillIds] = useState<string[]>([]);
+  const template = templateId ? (templates ?? []).find((t) => t.id === templateId) ?? null : null;
   const [agentRole, setAgentRole] = useState("");
   const [agentPrompt, setAgentPrompt] = useState("");
   const [agentError, setAgentError] = useState("");
@@ -65,6 +126,14 @@ export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onCl
     setAgentPrompt(value ? (ROLE_DEFAULT_PROMPTS[value] ?? "") : "");
     if (value) setAgentError("");
   };
+  const handlePickTemplate = (next: TemplateView | null) => {
+    setTemplateId(next?.id ?? "");
+    setAgentError("");
+    setAgentRole(next?.role ?? "");
+    setAgentPrompt(next?.systemPrompt ?? "");
+    setSkillIds(next?.skillIds ?? []);
+    setAvatarSeed(next ? deserializeAvatartion(next.avatarParams) : null);
+  };
 
   async function handleCreateAgent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -76,13 +145,17 @@ export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onCl
     setSavingAgent(true);
     try {
       // Role-only: the name is the role label plus a suffix when taken ("Frontend 2").
-      const sameRoleCount = agents.filter((a) => a.role === agentRole).length;
-      const baseName = roleLabel(agentRole);
       await createAgent({
-        name: sameRoleCount === 0 ? baseName : `${baseName} ${sameRoleCount + 1}`,
+        name: nextAgentName(agentRole, agents),
         role: agentRole,
         ...(agentPrompt.trim() ? { systemPrompt: agentPrompt } : {}),
         ...avatarArgs(avatarSeed),
+        ...(skillIds.length ? { skillIds: skillIds as never } : {}),
+        // The template's model/runtime preference rides along (edit later).
+        ...(template?.llmProviderId ? { llmProviderId: template.llmProviderId as never } : {}),
+        ...(template?.llmModelId ? { llmModelId: template.llmModelId as never } : {}),
+        ...(template?.runtime ? { executionRuntime: template.runtime } : {}),
+        ...(template?.opencodeModel ? { opencodeModel: template.opencodeModel } : {}),
       });
       onClose();
     } catch (err) {
@@ -92,18 +165,43 @@ export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onCl
     }
   }
 
-  const autoName = agentRole
-    ? (() => {
-        const sameRoleCount = agents.filter((a) => a.role === agentRole).length;
-        const baseName = roleLabel(agentRole);
-        return sameRoleCount === 0 ? baseName : `${baseName} ${sameRoleCount + 1}`;
-      })()
-    : "";
+  const autoName = agentRole ? nextAgentName(agentRole, agents) : "";
+  const tile = (selected: boolean) =>
+    `flex min-w-0 flex-col items-start rounded-lg border px-2.5 py-1.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-brand/40 ${
+      selected ? "border-ink-3 bg-hover text-ink" : "border-line text-ink-2 hover:bg-hover hover:text-ink"
+    }`;
   const field = "w-full rounded-lg border border-line bg-transparent px-3 py-2 text-[14px] text-ink outline-none transition focus:border-ink-3";
 
   return (
     <Modal title="New agent" onClose={onClose} maxWidth="max-w-md">
       <form onSubmit={handleCreateAgent} className="mt-5 grid gap-5">
+        <fieldset className="grid gap-2">
+          <legend className="mb-1.5 flex w-full justify-between text-[12.5px] text-ink-3">
+            Start from template
+            <Link href="/library?tab=templates" className="text-ink-3 underline-offset-2 hover:text-ink hover:underline">Templates</Link>
+          </legend>
+          <div role="radiogroup" aria-label="Template" className="grid max-h-[124px] grid-cols-3 gap-1.5 overflow-y-auto">
+            <button type="button" role="radio" aria-checked={!templateId} onClick={() => handlePickTemplate(null)} className={tile(!templateId)}>
+              <span className="w-full truncate text-[12.5px] font-medium">Blank</span>
+              <span className="w-full truncate text-[11.5px] text-ink-3">Role defaults</span>
+            </button>
+            {(templates ?? []).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="radio"
+                aria-checked={templateId === t.id}
+                title={t.description || t.name}
+                onClick={() => handlePickTemplate(t)}
+                className={tile(templateId === t.id)}
+              >
+                <span className="w-full truncate text-[12.5px] font-medium">{t.name}</span>
+                <span className="w-full truncate text-[11.5px] text-ink-3">{roleLabel(t.role)}</span>
+              </button>
+            ))}
+          </div>
+        </fieldset>
+
         <div className="flex items-center gap-4">
           <button
             type="button"
@@ -140,7 +238,7 @@ export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onCl
         <details className="group rounded-lg border border-line">
           <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[13px] text-ink-2 [&::-webkit-details-marker]:hidden">
             Instructions
-            <span className="text-[12.5px] text-ink-3">Prefilled from the role</span>
+            <span className="text-[12.5px] text-ink-3">{template ? `From ${template.name}` : "Prefilled from the role"}</span>
           </summary>
           <div className="border-t border-line p-3">
             <textarea
@@ -150,6 +248,16 @@ export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onCl
               placeholder="Leave empty to use the role's default instructions."
               className={`${field} resize-y leading-relaxed`}
             />
+          </div>
+        </details>
+
+        <details className="group rounded-lg border border-line">
+          <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[13px] text-ink-2 [&::-webkit-details-marker]:hidden">
+            Skills
+            <span className="text-[12.5px] text-ink-3">{skillIds.length ? `${skillIds.length} selected` : "None"}</span>
+          </summary>
+          <div className="border-t border-line p-3">
+            <SkillPicker skills={librarySkills} value={skillIds} onChange={setSkillIds} />
           </div>
         </details>
 
@@ -175,7 +283,10 @@ export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onCl
 export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: () => void }) {
   const updateAgent = useMutation(api.agents.update);
   const setAgentSkills = useMutation(api.agents.setSkills);
-  const librarySkills = useQuery(api.skills.list, {});
+  const saveAsTemplate = useMutation(api.agentTemplates.saveFromAgent);
+  const toast = useToast();
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const librarySkills = useQuery(api.skills.list, {}) as LibrarySkill[] | undefined;
   const [skillIds, setSkillIds] = useState<string[]>(agent.skillIds ?? []);
   const llmProviders = useQuery(api.llmProviders.list, {});
   const llmModels = useQuery(api.llmModels.list, {});
@@ -310,28 +421,7 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
             Skills
             <Link href="/library" className="text-ink-3 underline-offset-2 hover:text-ink hover:underline">Library</Link>
           </legend>
-          {librarySkills === undefined ? (
-            <p className={hint}>Loading…</p>
-          ) : librarySkills.length === 0 ? (
-            <p className={hint}>No skills in the library yet.</p>
-          ) : (
-            <div className="grid max-h-40 gap-1.5 overflow-y-auto rounded-lg border border-line p-3">
-              {librarySkills.map((skill: any) => (
-                <label key={skill._id} className="flex min-w-0 cursor-pointer items-center gap-2 text-[13px] text-ink">
-                  <input
-                    type="checkbox"
-                    checked={skillIds.includes(skill._id)}
-                    onChange={() =>
-                      setSkillIds((prev) => (prev.includes(skill._id) ? prev.filter((id) => id !== skill._id) : [...prev, skill._id]))
-                    }
-                    className="accent-current"
-                  />
-                  <span className="truncate">{skill.name}</span>
-                  {skill.description && <span className="truncate text-ink-3">· {skill.description}</span>}
-                </label>
-              ))}
-            </div>
-          )}
+          <SkillPicker skills={librarySkills} value={skillIds} onChange={setSkillIds} />
         </fieldset>
 
         <details className="group rounded-lg border border-line">
@@ -407,17 +497,38 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
 
         {agentError && <p role="alert" className="text-[13px] text-red-600 dark:text-red-400">{agentError}</p>}
 
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-[13px] text-ink-2 transition hover:bg-hover">
-            Cancel
-          </button>
+        <div className="flex items-center justify-between gap-2">
           <button
-            type="submit"
-            disabled={savingAgent}
-            className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-40"
+            type="button"
+            disabled={savingTemplate}
+            title="Saves this agent's last saved settings as a reusable template"
+            onClick={async () => {
+              setSavingTemplate(true);
+              try {
+                const result = await saveAsTemplate({ agentId: agent._id as never });
+                toast("success", "Saved as template", `${result.name} · in Library → Templates`);
+              } catch (err) {
+                setAgentError(err instanceof Error ? err.message : "Failed to save template");
+              } finally {
+                setSavingTemplate(false);
+              }
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] text-ink-2 transition hover:bg-hover hover:text-ink disabled:opacity-40"
           >
-            {savingAgent ? "Saving…" : "Save"}
+            <BookmarkPlus size={14} /> {savingTemplate ? "Saving…" : "Save as template"}
           </button>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-[13px] text-ink-2 transition hover:bg-hover">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={savingAgent}
+              className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-40"
+            >
+              {savingAgent ? "Saving…" : "Save"}
+            </button>
+          </div>
         </div>
       </form>
     </Modal>

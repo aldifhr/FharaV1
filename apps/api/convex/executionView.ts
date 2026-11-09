@@ -84,7 +84,7 @@ export const activeByAgent = query({
       // Only executions whose task is still live count as active — a
       // cancelled/terminal task leaves orphaned queued/running executions
       // that must not surface as "X is thinking" in an unrelated project.
-      if (task.status === "failed" || task.status === "done" || task.status === "rejected") continue;
+      if (task.status === "failed" || task.status === "done" || task.status === "rejected" || task.status === "cancelled") continue;
       const projectKey = task.projectId as string;
       if (!projectVisible.has(projectKey)) {
         projectVisible.set(projectKey, canViewProject(viewerId, await ctx.db.get(task.projectId)));

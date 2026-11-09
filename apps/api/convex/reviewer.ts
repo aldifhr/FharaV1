@@ -34,7 +34,7 @@ import { findPendingPlanApproval, replanPendingPlan } from "./planReview";
 import { requeueForRetry, steerWith } from "./tasks";
 
 const FINISHED_SUBTASK = new Set(["completed", "failed", "blocked", "skipped"]);
-const TERMINAL_TASK = new Set(["done", "rejected", "failed"]);
+const TERMINAL_TASK = new Set(["done", "rejected", "failed", "cancelled"]);
 const REVIEWER_NAME = "Reviewer";
 
 // ─── Public: request ───────────────────────────────────────────────────────

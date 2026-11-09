@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
 
   const client = new ConvexHttpClient(convexUrl);
   try {
-    const enhanced = await client.action(api.llmProviders.enhancePrompt, {
+    const enhanced = await client.action(api.llmProvidersNode.enhancePrompt, {
       token,
       prompt,
     });

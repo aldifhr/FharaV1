@@ -189,7 +189,7 @@ export default function OptionCards({
             >
               {taskStatus === "done" ? (
                 <CheckCircle2 size={11} />
-              ) : taskStatus === "failed" || taskStatus === "rejected" ? (
+              ) : taskStatus === "failed" || taskStatus === "rejected" || taskStatus === "cancelled" ? (
                 <XCircle size={11} />
               ) : taskStatus === "needs_approval" || taskStatus === "waiting_input" ? (
                 <Bell size={11} />
@@ -204,6 +204,8 @@ export default function OptionCards({
                   ? "Failed"
                   : taskStatus === "rejected"
                     ? "Rejected"
+                    : taskStatus === "cancelled"
+                      ? "Cancelled"
                     : taskStatus === "needs_approval" || taskStatus === "waiting_input"
                       ? "Needs you"
                       : taskStatus === "running"

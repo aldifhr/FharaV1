@@ -11,4 +11,9 @@ crons.interval("refresh task pull requests", { minutes: 10 }, internal.githubPus
 // retention (default 14 days). Bounded batches; reschedules itself.
 crons.daily("prune context snapshots", { hourUTC: 19, minuteUTC: 30 }, internal.contextSnapshots.prune, {});
 
+// Task watchdog: recover lapsed leases without a live worker, and fail
+// running tasks with no progress for TASK_WATCHDOG_STUCK_MS (30 min default)
+// so nothing stays in planning/replanning limbo (taskWatchdog.ts).
+crons.interval("task watchdog", { minutes: 5 }, internal.taskWatchdog.run, {});
+
 export default crons;

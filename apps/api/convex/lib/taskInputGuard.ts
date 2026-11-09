@@ -29,7 +29,7 @@ export type TaskInputRefusal =
 
 export type TaskInputAdmission = { ok: true } | { ok: false; reason: TaskInputRefusal };
 
-const TERMINAL = new Set(["done", "rejected", "failed"]);
+const TERMINAL = new Set(["done", "rejected", "failed", "cancelled"]);
 /**
  * A steer may land on a task the worker holds or is about to pick up.
  * Plan 022: a user-`paused` task also takes steers — pausing is the natural

@@ -15,6 +15,8 @@ import CollaborationSection from "@/components/team/CollaborationSection";
 import { CreateAgentModal, EditAgentModal } from "@/components/sidebar/AgentForms";
 import { roleLabel } from "@/lib/agentRoles";
 import { projectMembers } from "@/lib/projectMembers";
+import { teamHeadline, teamLoaded } from "@/lib/teamHeadline";
+import { useHydrated } from "@/lib/useHydrated";
 import {
   TEAM_STATUS_RANK,
   statusFromLeases,
@@ -60,6 +62,10 @@ function TeamPage() {
   const [detail, setDetail] = useState<Agent | null>(null);
   const [editing, setEditing] = useState<Agent | null>(null);
   const [creating, setCreating] = useState(false);
+  // The server always renders the loading state; the client's first render
+  // must match it even when the query already has data (hydration).
+  const hydrated = useHydrated();
+  const loaded = teamLoaded(hydrated, allAgents);
 
   const status = useMemo(
     () => statusFromLeases(active, { projectId, otherProjects: "elsewhere", checkFirst: "review" }),
@@ -81,7 +87,7 @@ function TeamPage() {
         <div className="mx-auto max-w-3xl">
           <header className="flex items-end justify-between gap-4">
             <div className="min-w-0">
-              {projectName && <p className="truncate text-[13px] text-ink-3">{projectName}</p>}
+              {hydrated && projectName && <p className="truncate text-[13px] text-ink-3">{projectName}</p>}
               <h1 className="mt-1 text-[26px] font-semibold tracking-tight">Team</h1>
             </div>
             <button
@@ -93,12 +99,10 @@ function TeamPage() {
             </button>
           </header>
           <p className="mt-6 text-[15px] text-ink-2">
-            {allAgents === undefined
-              ? "Loading…"
-              : `${agents.length} ${agents.length === 1 ? "agent" : "agents"} · ${busy ? `${busy} working now` : "all idle"}`}
+            {teamHeadline(loaded, agents.length, busy)}
           </p>
 
-          {allAgents === undefined ? (
+          {!loaded ? (
             <div className="mt-10 space-y-3" aria-label="Loading team">
               {[0, 1, 2, 3].map((i) => (
                 <div key={i} className="h-14 animate-pulse rounded-xl bg-hover" />

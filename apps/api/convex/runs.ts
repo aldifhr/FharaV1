@@ -43,7 +43,7 @@ const INPUT_CAP = 4_000;
 const OUTPUT_CAP = 8_000;
 const MISC_CAP = 2_000;
 
-const TERMINAL = new Set(["done", "failed", "rejected"]);
+const TERMINAL = new Set(["done", "failed", "rejected", "cancelled"]);
 
 function cap(text: string | undefined | null, max: number): string | undefined {
   if (text === undefined || text === null) return undefined;
@@ -509,7 +509,14 @@ export const get = query({
       ordered.push({
         id: "final",
         type: "final",
-        title: task.status === "done" ? "Done" : task.status === "failed" ? "Failed" : "Rejected",
+        title:
+          task.status === "done"
+            ? "Done"
+            : task.status === "failed"
+              ? "Failed"
+              : task.status === "cancelled"
+                ? "Cancelled"
+                : "Rejected",
         status: task.status === "done" ? "completed" : task.status,
         startedAt: endedAt ?? undefined,
         completedAt: endedAt ?? undefined,

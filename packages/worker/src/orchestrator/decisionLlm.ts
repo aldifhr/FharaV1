@@ -1,7 +1,7 @@
 import { extractJson } from "@/utils/json";
 import { decisionAdvisorPrompt } from "@/prompts/decision";
 import { describeCapabilities } from "./capabilities";
-import { pickOrchestrator } from "./planner";
+import { pickPlanner } from "./planner";
 import { withSnapshotScope } from "@/llm/snapshots";
 import {
   runLlmCallWithFallback,
@@ -15,6 +15,7 @@ import { providerHealth } from "@/llm/health";
 import type { TaskLlmResolver } from "@/llm/resolver";
 import { CALL_SITE_NEEDS } from "@/api/convex/lib/modelCapabilities";
 import type { DecisionContext, DecisionObservation } from "./decision";
+import type { AgentDefinition } from "@/types";
 
 /**
  * Plan 005 Step 2.3: the optional LLM advisor.
@@ -45,10 +46,25 @@ export interface DecisionAdvisorInput {
   llmTaskGate?: LlmConcurrencyGate;
   onTokenUsage?: TokenUsageFn;
   /**
+   * Planner-only fallback CTO (getRunContext.plannerAgent): the advisor
+   * runs on it when the run's own agents have no CTO/orchestrator, the
+   * same rule the planner follows (pickPlanner). Without either, the
+   * advisor throws and `decide()` records the deterministic fallback.
+   */
+  plannerAgent?: AgentDefinition | null;
+  /**
    * Injected provider call for tests (live calls are opt-in and never in
    * the default suite). When set, it replaces the real call.
    */
   ask?: (prompt: string) => Promise<string>;
+}
+
+/** The agent the decision advisor speaks as: the run's CTO, else the planner fallback CTO. */
+export function pickDecisionAdvisor(
+  agents: AgentDefinition[],
+  plannerAgent?: AgentDefinition | null
+): AgentDefinition | null {
+  return pickPlanner(agents, plannerAgent);
 }
 
 export function buildDecisionPrompt(ctx: DecisionContext, observation: DecisionObservation): string {
@@ -60,13 +76,20 @@ export async function decideWithLlm(input: DecisionAdvisorInput): Promise<unknow
   if (input.signal?.aborted) {
     throw new Error("Decision aborted: the task was cancelled or timed out");
   }
+  // No CTO in the run and no planner fallback CTO: there is nobody to
+  // advise. Fail fast (before the budget gate and prompt) so `decide()`
+  // records the deterministic fallback with this reason.
+  const advisor = input.ask ? null : pickDecisionAdvisor(ctx.agents, input.plannerAgent);
+  if (!input.ask && !advisor) {
+    throw new Error("no orchestrator-capable agent available for the decision advisor");
+  }
   // Pre-call budget gate, before any request is issued.
   input.assertBudgetForCall?.();
 
   const prompt = buildDecisionPrompt(ctx, observation);
   const text = input.ask
     ? await input.ask(prompt)
-    : await runRealCall(input, prompt);
+    : await runRealCall(input, prompt, advisor!);
   const parsed = extractJson(text);
   if (parsed === null) {
     throw new Error("decision advisor returned unparseable JSON");
@@ -74,12 +97,7 @@ export async function decideWithLlm(input: DecisionAdvisorInput): Promise<unknow
   return parsed;
 }
 
-async function runRealCall(input: DecisionAdvisorInput, prompt: string): Promise<string> {
-  const { ctx } = input;
-  const orchestrator = pickOrchestrator(ctx.agents);
-  if (!orchestrator) {
-    throw new Error("no orchestrator-capable agent available for the decision advisor");
-  }
+async function runRealCall(input: DecisionAdvisorInput, prompt: string, orchestrator: AgentDefinition): Promise<string> {
   // The advisor runs on the task's own chain ONLY (plan 013): an
   // env-only config with a hardcoded model would spend quota on a
   // provider/model the user never picked, unmetered. `decide()` turns

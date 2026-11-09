@@ -4,8 +4,11 @@
  * proposes a concrete change to one prompt, skill or role config, stored
  * as a diff against the current text. The user applies it (audited) or
  * dismisses it; nothing is ever applied automatically.
+ *
+ * The LLM call itself (runSuggestion) lives in improveNode.ts ("use node"):
+ * from the default runtime a plain http://<ip>:<port> gateway answered 404.
  */
-import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -13,21 +16,15 @@ import { internal } from "./_generated/api";
 import { assertAgentAccess, assertProjectAccess, assertRegistryWriteAccess, assertTaskAccess, visibleProjectIds } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
 import { loadProviderPool } from "./lib/llmResolver";
-import { completeWithAgent, getGlobalLLMConfig, resolveConfigFromProviders } from "./lib/chat/llm";
-import { estimateTokens } from "./lib/reviewer/opinion";
 import { eventText } from "./lib/incidents";
 import {
   SUGGESTION_EVENTS,
   SUGGESTION_MAX_CANDIDATES,
-  buildSuggestionPrompt,
-  resolveSuggestion,
   type SuggestionCandidate,
   type SuggestionTargetKind,
 } from "./lib/improve/suggest";
 import { reviewerIdentity } from "./reviewer";
 
-/** Token cap for the one suggestion call (pre-call gate, estimated). */
-const SUGGESTION_TOKEN_CAP = 40_000;
 const targetKind = v.union(v.literal("agent_prompt"), v.literal("skill"), v.literal("role_prompt"));
 
 // ─── Request / read ────────────────────────────────────────────────────────
@@ -68,7 +65,8 @@ export const requestSuggestion = mutation({
       taskId: task._id,
       details: { suggestionId, ...(incident ? { incidentId: incident._id } : {}) },
     });
-    await ctx.scheduler.runAfter(0, internal.improve.runSuggestion, { suggestionId });
+    // The LLM call runs in the Node runtime (improveNode.ts).
+    await ctx.scheduler.runAfter(0, internal.improveNode.runSuggestion, { suggestionId });
     return suggestionId;
   },
 });
@@ -127,7 +125,7 @@ export const listFailedRuns = query({
       .order("desc")
       .take(50);
     return failed
-      .filter((task) => visible.has(task.projectId) && task.errorMessage !== "Cancelled by user")
+      .filter((task) => visible.has(task.projectId) && task.status !== "cancelled" && task.errorMessage !== "Cancelled by user")
       .slice(0, 20)
       .map((task) => ({
         _id: task._id,
@@ -365,59 +363,3 @@ export const finishSuggestion = internalMutation({
   },
 });
 
-export const runSuggestion = internalAction({
-  args: { suggestionId: v.id("improvementSuggestions") },
-  handler: async (ctx, args) => {
-    const context = await ctx.runQuery(internal.improve.getSuggestionContext, { suggestionId: args.suggestionId });
-    const finish = (fields: Omit<Parameters<typeof ctx.runMutation<typeof internal.improve.finishSuggestion>>[1], "suggestionId">) =>
-      ctx.runMutation(internal.improve.finishSuggestion, { suggestionId: args.suggestionId, ...fields });
-    if (!context) {
-      await finish({ status: "error", error: "The run is gone", inputTokens: 0, outputTokens: 0 });
-      return null;
-    }
-    if (context.candidates.length === 0) {
-      await finish({ status: "no_change", rationale: "No agent prompt, skill or role took part in this run.", inputTokens: 0, outputTokens: 0 });
-      return null;
-    }
-    const { system, user } = buildSuggestionPrompt(context.run, context.candidates);
-    const inputTokens = estimateTokens(system) + estimateTokens(user);
-    if (inputTokens > SUGGESTION_TOKEN_CAP) {
-      await finish({ status: "error", error: `The run is too large to analyse (${inputTokens} tokens)`, inputTokens: 0, outputTokens: 0 });
-      return null;
-    }
-    let model: string | undefined;
-    try {
-      const config = await resolveConfigFromProviders(context.providers, getGlobalLLMConfig(), context.prefs);
-      model = config.model;
-      const reply = (await completeWithAgent(system, [{ role: "user", content: user }], config)).content;
-      const outputTokens = estimateTokens(reply);
-      const outcome = resolveSuggestion(reply, context.candidates);
-      if (!outcome.ok) {
-        await finish({ status: "no_change", rationale: outcome.rationale, error: outcome.reason, model, inputTokens, outputTokens });
-        return null;
-      }
-      await finish({
-        status: "ready",
-        targetKind: outcome.target.kind,
-        targetId: outcome.target.id,
-        targetLabel: outcome.target.label,
-        baseText: outcome.target.text,
-        proposedText: outcome.proposedText,
-        diff: outcome.diff,
-        rationale: outcome.rationale,
-        model,
-        inputTokens,
-        outputTokens,
-      });
-    } catch (error) {
-      await finish({
-        status: "error",
-        error: `The suggestion failed: ${error instanceof Error ? error.message : String(error)}`,
-        model,
-        inputTokens: 0,
-        outputTokens: 0,
-      });
-    }
-    return null;
-  },
-});

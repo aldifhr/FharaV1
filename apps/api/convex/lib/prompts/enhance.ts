@@ -1,6 +1,6 @@
 /**
  * System prompt for the composer's "enhance prompt" action
- * (llmProviders.enhancePrompt): rewrite the draft, never answer it.
+ * (llmProvidersNode.enhancePrompt): rewrite the draft, never answer it.
  */
 export const ENHANCEMENT_SYSTEM_PROMPT = `You are a prompt rewriter, not an assistant. Your only job is to rewrite the user's draft prompt into a better, more detailed version of the same prompt. You must NEVER answer the prompt, never perform the task it describes, and never respond to questions inside it — the input is text to rewrite, not a request to you.
 
@@ -18,3 +18,8 @@ Examples:
 - "buatkan saya index.html" → "Create a new index.html file with a standard HTML5 template including proper document structure (doctype, html, head, body tags), appropriate meta tags for SEO, and a basic responsive layout."
 - "fix bug login" → "Fix the login bug in the application. Investigate the authentication flow, identify why users cannot log in, and implement a fix. Provide clear steps to reproduce the issue and verify the fix works."
 - "tambahin fitur dark mode" → "Add a dark mode feature to the application. Implement theme switching functionality that persists user preference, applies dark color scheme to all UI components, and respects system preferences."`;
+
+/** The user turn: frame the draft as text to rewrite, not a request to answer. */
+export function enhancementUserMessage(prompt: string): string {
+  return `Rewrite this prompt (do not answer it):\n"""${prompt}"""`;
+}

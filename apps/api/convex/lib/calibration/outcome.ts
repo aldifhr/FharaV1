@@ -54,7 +54,7 @@ export const NOTE_RATIO = 2;
 /** Prior labelled picks of the same agent × capability before the history factor is shown. */
 export const HISTORY_MIN = 3;
 
-const TERMINAL_TASK = new Set(["done", "failed", "rejected"]);
+const TERMINAL_TASK = new Set(["done", "failed", "rejected", "cancelled"]);
 const TERMINAL_SUBTASK = new Set(["completed", "failed", "blocked", "skipped"]);
 
 // ─── Raw rows (plain shapes of the tables read) ───────────────────────────

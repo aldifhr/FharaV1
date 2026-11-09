@@ -136,6 +136,48 @@ describe("section split", () => {
     expect(sections.map((s) => s.key)).toEqual(["system", "shared", "skills", "memory", "history", "tools", "task", "user"]);
   });
 
+  test("headings inside a skill body stay under Skills (not Shared instructions)", () => {
+    const sections = splitPromptSections([
+      {
+        role: "system",
+        content: [
+          "You are the Backend developer.",
+          "## Working rules\nKeep diffs small.",
+          "## Skill: release-checklist\nFollow these steps.",
+          "## Steps\n1. Bump the version.\n2. Tag.",
+          "### Tools you may use\nnpm, git.",
+          "## Task hygiene\nOne commit per change.",
+          "## Skill: testing\nWrite tests.",
+          "## Notes\nPrefer vitest.",
+          "## Memory\nStanding notes.\n- prefer pnpm",
+          "## Repo tools (read-only)\nTools:\n- grep {\"pattern\": regex}",
+        ].join("\n\n"),
+      },
+      { role: "user", content: "Do it." },
+    ]);
+    const by = Object.fromEntries(sections.map((s) => [s.key, s.content]));
+    expect(by.shared).toBe("## Working rules\nKeep diffs small.");
+    for (const text of ["Bump the version.", "Tools you may use", "One commit per change.", "Prefer vitest."]) {
+      expect(by.skills).toContain(text);
+      expect(by.shared).not.toContain(text);
+    }
+    expect(by.task ?? "").not.toContain("One commit per change.");
+    expect(by.memory).toContain("prefer pnpm");
+    expect(by.memory).not.toContain("Prefer vitest.");
+    expect(by.tools).toContain("grep");
+  });
+
+  test("the on-demand skill index counts as Skills", () => {
+    const sections = splitPromptSections([
+      { role: "system", content: "Persona.\n\n## Skills (load on demand)\n- tailwind: styling\n\n## Usage\nCall load_skill." },
+      { role: "user", content: "hi" },
+    ]);
+    const by = Object.fromEntries(sections.map((s) => [s.key, s.content]));
+    expect(by.skills).toContain("tailwind: styling");
+    expect(by.skills).toContain("Call load_skill.");
+    expect(by.shared).toBeUndefined();
+  });
+
   test("snapshot meta lists skills, tools, memory and history; shares sum to ~100", () => {
     const { meta } = buildContextSnapshot({
       callRole: "chat",

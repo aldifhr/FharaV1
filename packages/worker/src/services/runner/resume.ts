@@ -203,6 +203,7 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
       project: context.project,
       workspacePath,
       agents,
+      plannerAgent: context.plannerAgent ? toAgentDefinition(context.plannerAgent as Parameters<typeof toAgentDefinition>[0]) : null,
       plan,
       planVersion,
       state,

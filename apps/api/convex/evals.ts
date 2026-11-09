@@ -57,7 +57,7 @@ const CAPS = {
 
 type Table = keyof typeof CAPS;
 
-const FINISHED_TASK = new Set(["done", "failed", "rejected"]);
+const FINISHED_TASK = new Set(["done", "failed", "rejected", "cancelled"]);
 const EXCLUDED_AUDIT_TOOLS = new Set(["config", "approval"]);
 
 export function median(values: number[]): number | null {

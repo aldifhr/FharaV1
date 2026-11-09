@@ -140,7 +140,7 @@ type ReplyArgs = {
   permissionMode?: PermissionMode;
 };
 
-const TERMINAL_TASK_STATUSES = ["done", "rejected", "failed"];
+const TERMINAL_TASK_STATUSES = ["done", "rejected", "failed", "cancelled"];
 
 /** How long one repo tool call may wait for a worker before it counts as not checked. */
 const REPO_TOOL_WAIT_MS = 20_000;

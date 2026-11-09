@@ -371,6 +371,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
         project,
         workspacePath,
         agents: runAgents,
+        plannerAgent: pctx.plannerAgent,
         plan: loop.plan,
         planVersion: loop.planVersion,
         state,

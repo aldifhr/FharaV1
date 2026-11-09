@@ -45,7 +45,9 @@ export default function TaskCard({
   const waitingForInput = task.status === "waiting_input" && Boolean(task.pendingQuestion);
   const options: string[] = Array.isArray(task.pendingOptions) ? task.pendingOptions : [];
   const hasOptions = options.length >= 2;
-  const isFailed = task.status === "failed" || task.status === "rejected";
+  const isCancelled = task.status === "cancelled";
+  // Failed, rejected and user-stopped tasks all offer Retry.
+  const isFailed = task.status === "failed" || task.status === "rejected" || isCancelled;
   const sendAnswer = async (value: string) => {
     const trimmed = value.trim();
     if (!trimmed || answering) return;
@@ -73,7 +75,7 @@ export default function TaskCard({
         ? ("red" as const)
         : needsYou
           ? ("orange" as const)
-          : task.status === "queued"
+          : task.status === "queued" || isCancelled
             ? ("gray" as const)
             : ("blue" as const);
   const badgeLabel =
@@ -83,6 +85,8 @@ export default function TaskCard({
         ? "Failed"
         : task.status === "rejected"
           ? "Rejected"
+          : isCancelled
+            ? "Cancelled"
           : needsYou
             ? "Needs you"
             : task.status === "queued"
@@ -103,6 +107,8 @@ export default function TaskCard({
       ? <CheckCircle2 size={16} className="shrink-0 text-[#1f9d55] dark:text-emerald-400" />
       : task.status === "failed" || task.status === "rejected"
         ? <XCircle size={16} className="shrink-0 text-[#d83a3a] dark:text-rose-400" />
+        : isCancelled
+          ? <XCircle size={16} className="shrink-0 text-ink-3" />
         : <Loader2 size={16} strokeWidth={2.5} className="shrink-0 animate-spin text-[#2f6fe0] dark:text-blue-400" />;
 
   return (
@@ -207,7 +213,7 @@ export default function TaskCard({
       )}
       {isFailed && (
         <div className={`${CARD_SURFACE} max-w-xl px-4 py-3 text-[13px]`}>
-          <p className="font-semibold text-[#c43333] dark:text-rose-300">{task.status === "rejected" ? "Task rejected" : "Task failed"}{task.errorMessage ? `: ${task.errorMessage}` : ""}</p>
+          <p className={isCancelled ? "font-semibold text-ink-2" : "font-semibold text-[#c43333] dark:text-rose-300"}>{task.status === "rejected" ? "Task rejected" : isCancelled ? "Task cancelled" : "Task failed"}{task.errorMessage ? `: ${task.errorMessage}` : ""}</p>
           <div className="mt-2 flex items-center gap-2">
             <button
               type="button"

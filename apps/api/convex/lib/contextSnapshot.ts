@@ -238,6 +238,31 @@ function pushSection(out: Map<SectionKey, string[]>, key: SectionKey, text: stri
   out.set(key, list);
 }
 
+/**
+ * Headings the app itself renders AFTER the skills block (lib/memory.ts,
+ * lib/prompts/chat.ts, lib/skillRuntime.ts). Inside a skill, only these
+ * (and the next `## Skill:` header) end the skill; any other heading is
+ * part of the skill's own body.
+ */
+const AFTER_SKILLS_HEADINGS = new Set(["memory", "repo tools (read-only)", "skill tool (read-only)"]);
+
+function isSkillHeading(title: string): boolean {
+  const t = title.trim().toLowerCase();
+  return t.startsWith("skill:") || t === "skills" || t.startsWith("skills (");
+}
+
+/**
+ * The section a heading opens, given the section it appears in. A skill's
+ * body routinely has its own `##` / `###` headings ("## Steps", "## Tools",
+ * "### Task"); those stay under Skills instead of being reclassified as
+ * Shared instructions / Tools / Task.
+ */
+export function sectionForHeading(title: string, current: SectionKey): SectionKey {
+  if (isSkillHeading(title)) return "skills";
+  if (current === "skills" && !AFTER_SKILLS_HEADINGS.has(title.trim().toLowerCase())) return "skills";
+  return classifyHeading(title);
+}
+
 /** Split one system prompt: persona first, then headed blocks. */
 function splitSystem(content: string, out: Map<SectionKey, string[]>) {
   const lines = content.split("\n");
@@ -256,8 +281,13 @@ function splitSystem(content: string, out: Map<SectionKey, string[]>) {
   for (const line of lines) {
     const heading = line.match(HEADING);
     if (heading) {
-      flush();
-      current = classifyHeading(heading[1]);
+      const next = sectionForHeading(heading[1], current);
+      // A heading inside a skill body keeps the skill in one piece; only a
+      // new skill header or a section after the skills block splits it.
+      if (!(current === "skills" && next === "skills" && !isSkillHeading(heading[1]))) {
+        flush();
+        current = next;
+      }
     }
     buffer.push(line);
   }

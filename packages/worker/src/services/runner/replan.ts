@@ -205,7 +205,7 @@ export async function replanOnce(
         : `${loop.feedback}\nYour previous replan was REJECTED by the quality check: ${rejected.at(-1)}. Fix exactly these problems.`;
     let replanned: AuthoritativePlanResult;
     try {
-      replanned = await requestPlan(pctx, { feedback });
+      replanned = await requestPlan(pctx, { feedback, stage: "replanning" });
     } catch (error) {
       await finishOnPlanningError(pctx, error);
       return "ended";

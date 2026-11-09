@@ -36,7 +36,7 @@ import { ROLE_KEYS } from "./lib/roles";
  * re-queues the task with the note as planner feedback.
  */
 
-const TERMINAL = new Set(["done", "failed", "rejected"]);
+const TERMINAL = new Set(["done", "failed", "rejected", "cancelled"]);
 /** Upper bound on edit operations per request (the card sends a handful). */
 const MAX_OPS = 50;
 const NOTE_MAX = 2000;

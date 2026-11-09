@@ -42,6 +42,13 @@ export interface ExecutionPolicy {
    * this long, instead of a fixed wall-clock deadline. 0 disables it.
    */
   idleTimeoutMs?: number;
+  /**
+   * Planning watchdog: one planner call (initial plan or a replan) that
+   * has not returned after this long is treated as stalled; the task is
+   * failed with a visible reason instead of staying in planning. 0
+   * disables it.
+   */
+  planningStallMs?: number;
   verificationEnabled: boolean;
   verificationIncludeBuild: boolean;
   verificationTimeoutMs: number;
@@ -246,6 +253,9 @@ export function loadPolicy(): ExecutionPolicy {
     // MausBot mechanism: progress-based termination. Build steps keep the
     // task alive; only true inactivity trips this. 0 = disabled.
     idleTimeoutMs: intFromEnv("ORCHESTRATOR_IDLE_TIMEOUT_MS", 10 * 60_000, 60_000, 24 * 60 * 60_000),
+    // Planning watchdog (e2e 2026-11-09: a task sat in planning after a
+    // stall-triggered replan). 0 = disabled.
+    planningStallMs: intFromEnv("ORCHESTRATOR_PLANNING_STALL_MS", 12 * 60_000, 0, 3 * 60 * 60_000),
     verificationEnabled: boolFromEnv("ORCHESTRATOR_VERIFICATION_ENABLED", true),
     verificationIncludeBuild: boolFromEnv("ORCHESTRATOR_VERIFICATION_BUILD", true),
     verificationTimeoutMs: intFromEnv("ORCHESTRATOR_VERIFICATION_TIMEOUT_MS", 300_000, 30_000, 300_000),

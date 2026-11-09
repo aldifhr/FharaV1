@@ -320,7 +320,7 @@ describe("backend terminal guards (Phase 4 hardening)", () => {
     const cancelled = await callHandler(cancelTask, ctx, { taskId });
     expect(cancelled).toBe(true);
     const afterCancel = await db.get(taskId);
-    expect(afterCancel?.status).toBe("failed");
+    expect(afterCancel?.status).toBe("cancelled");
     expect(afterCancel?.errorMessage).toBe("Cancelled by user");
     const cancelCompletedAt = afterCancel?.completedAt;
 
@@ -332,7 +332,7 @@ describe("backend terminal guards (Phase 4 hardening)", () => {
     })) as CompleteResult;
     expect(late.applied).toBe(false);
     expect(late.reason).toBe("task_already_terminal");
-    expect(late.status).toBe("failed");
+    expect(late.status).toBe("cancelled");
 
     // A late failure with a different message is refused too: the
     // first terminal outcome (the cancellation) wins.
@@ -344,7 +344,7 @@ describe("backend terminal guards (Phase 4 hardening)", () => {
     expect(lateFail.applied).toBe(false);
 
     const after = await db.get(taskId);
-    expect(after?.status).toBe("failed");
+    expect(after?.status).toBe("cancelled");
     expect(after?.errorMessage).toBe("Cancelled by user");
     expect(after?.completedAt).toBe(cancelCompletedAt);
   });

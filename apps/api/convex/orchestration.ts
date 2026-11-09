@@ -59,8 +59,7 @@ const MAX_TASK_RECOVERIES = 3;
 
 /**
  * Terminal task statuses are ABSORBING (Phase 4 hardening): once a task
- * is done, failed or rejected — user cancellation lands on "failed" via
- * tasks.cancel — no late write (a zombie worker finishing after the
+ * is done, failed, rejected or cancelled (tasks.cancel) — no late write (a zombie worker finishing after the
  * fact, a stale completion racing the cancel) may move it back to a
  * live state or overwrite the terminal outcome. The write-layer guards
  * below enforce this in completeTask / setTaskStatus / requestApproval
@@ -71,6 +70,7 @@ const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set([
   "done",
   "failed",
   "rejected",
+  "cancelled",
 ]);
 
 /**
@@ -419,10 +419,13 @@ export const markWorkerOffline = internalMutation({
 
 export const recoverStale = internalMutation({
   args: {
-    now: v.number(),
+    // Optional so the backend watchdog cron (taskWatchdog.ts) can run the
+    // same recovery without a worker: a dead worker never leaves limbo.
+    now: v.optional(v.number()),
     staleGraceMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
     const staleGraceMs = args.staleGraceMs ?? 30_000;
     const recovered: string[] = [];
 
@@ -441,7 +444,7 @@ export const recoverStale = internalMutation({
     const expiredLease = await ctx.db
       .query("tasks")
       .withIndex("by_status_and_lease", (q) =>
-        q.eq("status", "running").lt("leaseExpiresAt", args.now)
+        q.eq("status", "running").lt("leaseExpiresAt", now)
       )
       .take(RECOVERY_BATCH);
     const seen = new Set<string>();
@@ -451,7 +454,7 @@ export const recoverStale = internalMutation({
       return true;
     });
     for (const task of running) {
-      const leaseExpired = !task.leaseExpiresAt || task.leaseExpiresAt < args.now;
+      const leaseExpired = !task.leaseExpiresAt || task.leaseExpiresAt < now;
       if (!leaseExpired) continue;
 
       // Phase 4 recovery semantics: a stale task is only a loss when
@@ -502,7 +505,7 @@ export const recoverStale = internalMutation({
             errorMessage: undefined,
             completedAt: undefined,
             recoveryCount: recoveryCount + 1,
-            updatedAt: args.now,
+            updatedAt: now,
           });
           await ctx.db.insert("taskEvents", {
             taskId: task._id,
@@ -530,7 +533,7 @@ export const recoverStale = internalMutation({
           errorMessage: undefined,
           completedAt: undefined,
           recoveryCount: recoveryCount + 1,
-          updatedAt: args.now,
+          updatedAt: now,
         });
         // Subtasks left "running" by the dead worker have no executor
         // anymore: return them to pending so the resumed run (and the
@@ -567,8 +570,8 @@ export const recoverStale = internalMutation({
           : "Worker lease missing",
         workerId: undefined,
         leaseExpiresAt: undefined,
-        completedAt: args.now,
-        updatedAt: args.now,
+        completedAt: now,
+        updatedAt: now,
       });
       await ctx.db.insert("taskEvents", {
         taskId: task._id,
@@ -591,7 +594,7 @@ export const recoverStale = internalMutation({
     const executions = await ctx.db
       .query("executions")
       .withIndex("by_status_and_lease", (q) =>
-        q.eq("status", "running").lt("leaseExpiresAt", args.now)
+        q.eq("status", "running").lt("leaseExpiresAt", now)
       )
       .take(RECOVERY_BATCH * 4);
     let recoveredExecutions = 0;
@@ -604,7 +607,7 @@ export const recoverStale = internalMutation({
       if (
         owner &&
         owner.workerId === execution.workerId &&
-        (owner.leaseExpiresAt ?? 0) >= args.now &&
+        (owner.leaseExpiresAt ?? 0) >= now &&
         (owner.status === "running" || owner.status === "needs_approval" || owner.status === "paused")
       ) {
         continue;
@@ -612,7 +615,7 @@ export const recoverStale = internalMutation({
       await ctx.db.patch(execution._id, {
         status: "failed",
         error: "Worker lease expired during execution",
-        completedAt: args.now,
+        completedAt: now,
         // Ended by recovery, not by its worker: the next dispatch of the
         // same attempt reclaims this row instead of adding a duplicate.
         leaseLost: true,
@@ -624,7 +627,7 @@ export const recoverStale = internalMutation({
     const staleWorkers = await ctx.db
       .query("workers")
       .withIndex("by_status_and_heartbeat", (q) =>
-        q.eq("status", "online").lt("lastHeartbeatAt", args.now - staleGraceMs)
+        q.eq("status", "online").lt("lastHeartbeatAt", now - staleGraceMs)
       )
       .take(RECOVERY_BATCH);
     for (const worker of staleWorkers) {

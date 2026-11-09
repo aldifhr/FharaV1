@@ -20,7 +20,7 @@ import type { TaskLlmResolver } from "@/llm/resolver";
 import type { RunnerDeps } from "./types";
 import type { RecordUsageFn } from "./session";
 import { resolveQaBaseUrl, resolveWorkspacePath } from "./setup";
-import { finishBudgetExhaustedTask, finishCancelledTask } from "./terminal";
+import { failTaskWithError, finishBudgetExhaustedTask, finishCancelledTask } from "./terminal";
 import { persistPlan } from "./finalize";
 import { computePlanEstimate, type PlanCreator } from "./planReview";
 
@@ -60,9 +60,70 @@ export interface PlanningContext {
 }
 
 /**
+ * Planning watchdog (e2e 2026-11-09, task B2): a planner call that has not
+ * returned after `policy.planningStallMs` is a stall. The call is aborted
+ * and this error ends the run; `finishOnPlanningError` fails the task with
+ * a visible reason, so it never sits in planning/replanning forever.
+ */
+export class PlanningStalledError extends Error {
+  readonly stage: "planning" | "replanning";
+  readonly stallMs: number;
+  constructor(stage: "planning" | "replanning", stallMs: number) {
+    const minutes = Math.round((stallMs / 60_000) * 10) / 10;
+    super(
+      `${stage === "replanning" ? "Replanning" : "Planning"} stalled: the planner made no progress for ${minutes} min, ` +
+        "so the task was stopped instead of staying in planning. Retry to plan again."
+    );
+    this.name = "PlanningStalledError";
+    this.stage = stage;
+    this.stallMs = stallMs;
+  }
+}
+
+export function isPlanningStalledError(error: unknown): error is PlanningStalledError {
+  return error instanceof PlanningStalledError;
+}
+
+/**
+ * Run `call` under the planning watchdog. The call gets a signal that
+ * aborts on the task signal OR the watchdog; the watchdog also rejects the
+ * race itself, so a planner that ignores its signal still cannot hold the
+ * task. `stallMs` <= 0 disables the watchdog (the call runs as is).
+ */
+export async function withPlanningWatchdog<T>(
+  taskSignal: AbortSignal,
+  stage: "planning" | "replanning",
+  stallMs: number | undefined,
+  call: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  if (!stallMs || stallMs <= 0) return call(taskSignal);
+  const watchdog = new AbortController();
+  const signal = AbortSignal.any([taskSignal, watchdog.signal]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stalled = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new PlanningStalledError(stage, stallMs);
+      // Settle the race first, then abort the in-flight call.
+      reject(error);
+      watchdog.abort(error);
+    }, stallMs);
+    timer.unref?.();
+  });
+  const running = call(signal);
+  // The losing branch must never surface as an unhandled rejection.
+  running.catch(() => undefined);
+  try {
+    return await Promise.race([running, stalled]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * One planner call (the orchestrator's authoritative planner subroutine)
  * over the run's wiring. `extra` carries what differs per call: the
  * stored plan to adopt (initial authoritative pass) or replan feedback.
+ * Runs under the planning watchdog (policy.planningStallMs).
  */
 export async function requestPlan(
   pctx: PlanningContext,
@@ -70,7 +131,24 @@ export async function requestPlan(
     storedPlan?: ExecutionPlan | null;
     storedCreatedBy?: "orchestrator" | "fallback";
     feedback?: string;
+    /** "replanning" for replanOnce; default "planning". */
+    stage?: "planning" | "replanning";
   } = {}
+): Promise<AuthoritativePlanResult> {
+  const { stage = "planning", ...planExtra } = extra;
+  return withPlanningWatchdog(pctx.signal, stage, pctx.deps.policy.planningStallMs, (signal) =>
+    callPlanner(pctx, planExtra, signal)
+  );
+}
+
+async function callPlanner(
+  pctx: PlanningContext,
+  extra: {
+    storedPlan?: ExecutionPlan | null;
+    storedCreatedBy?: "orchestrator" | "fallback";
+    feedback?: string;
+  },
+  signal: AbortSignal
 ): Promise<AuthoritativePlanResult> {
   const { deps, task, project } = pctx;
   return createAuthoritativePlan({
@@ -90,7 +168,7 @@ export async function requestPlan(
     llmResolver: pctx.llmResolver,
     onTokenUsage: pctx.recordUsage,
     assertBudgetForCall: pctx.assertBudgetForCall,
-    signal: pctx.signal,
+    signal,
     llmTaskGate: pctx.llmTaskGate,
     hasQaUrl: Boolean(resolveQaBaseUrl(project)),
     workspaceLayout: await listWorkspaceLayout(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath)),
@@ -103,12 +181,26 @@ export async function requestPlan(
  * Planner failure handling, shared by the initial plan and every replan.
  * Budget exhausted (Phase 5): the task ends with the explicit
  * budget.exhausted status. Planning aborted (cancel/deadline): the task
- * ends as cancelled and NO plan is executed. Either way this resolves
+ * ends as cancelled and NO plan is executed. A stalled planner (planning
+ * watchdog) fails the task with a visible reason. Either way this resolves
  * (the caller ends its invocation). Any other planning failure is
  * re-thrown — it propagates to the worker loop, which fails the task.
  */
 export async function finishOnPlanningError(pctx: PlanningContext, error: unknown): Promise<void> {
   const { deps, task, project } = pctx;
+  if (isPlanningStalledError(error) && !pctx.signal.aborted) {
+    await deps.api
+      .logEvent({
+        taskId: task._id,
+        projectId: project._id,
+        type: "task.planning_stalled",
+        payload: { stage: error.stage, stallMs: error.stallMs },
+        level: "error",
+      })
+      .catch(() => undefined);
+    await failTaskWithError({ deps, taskId: task._id, projectId: project._id, message: error.message });
+    return;
+  }
   if (isBudgetExhaustedError(error)) {
     await finishBudgetExhaustedTask({
       deps,

@@ -290,10 +290,11 @@ export const cancel = mutation({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
     const task = await assertTaskAccess(ctx, args.taskId);
-    if (task.status === "done" || task.status === "rejected") return false;
+    if (task.status === "done" || task.status === "rejected" || task.status === "cancelled") return false;
     const now = Date.now();
     await ctx.db.patch(args.taskId, {
-      status: "failed",
+      // A user stop is its own terminal status, never a failure.
+      status: "cancelled",
       errorMessage: "Cancelled by user",
       completedAt: now,
       updatedAt: now,

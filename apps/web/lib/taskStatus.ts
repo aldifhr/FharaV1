@@ -10,6 +10,7 @@ export const TASK_STATUSES = [
   "done",
   "failed",
   "rejected",
+  "cancelled",
 ] as const;
 
 export const TASK_STATUS_LABEL: Record<string, string> = {
@@ -21,6 +22,7 @@ export const TASK_STATUS_LABEL: Record<string, string> = {
   done: "Done",
   failed: "Failed",
   rejected: "Rejected",
+  cancelled: "Cancelled",
 };
 
 export function taskStatusLabel(status: string | undefined): string {
@@ -38,13 +40,14 @@ export const TASK_STATUS_PILL: Record<string, string> = {
   done: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
   failed: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
   rejected: "bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+  cancelled: "bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
 };
 
 export const NEUTRAL_PILL = "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300";
 
 /** Terminal task statuses: the task will not progress on its own. */
 export function isClosedStatus(status: string | undefined): boolean {
-  return status === "done" || status === "failed" || status === "rejected";
+  return status === "done" || status === "failed" || status === "rejected" || status === "cancelled";
 }
 
 /** Subtask statuses from `schema.ts` `subtaskStatus`. */

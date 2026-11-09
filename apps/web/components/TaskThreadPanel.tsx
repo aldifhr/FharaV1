@@ -499,10 +499,16 @@ export default function TaskThreadPanel({
         </header>
 
         <div className="shell-scroll h-0 min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-5">
-          {(taskStatus === "failed" || taskStatus === "rejected") && (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-3.5 text-[14px] text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300">
+          {(taskStatus === "failed" || taskStatus === "rejected" || taskStatus === "cancelled") && (
+            <div
+              className={
+                taskStatus === "cancelled"
+                  ? "rounded-xl border border-line bg-hover p-3.5 text-[14px] text-ink-2"
+                  : "rounded-xl border border-red-200 bg-red-50 p-3.5 text-[14px] text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300"
+              }
+            >
               <p className="font-medium">
-                {taskStatus === "rejected" ? "Task rejected" : "Task failed"}
+                {taskStatus === "rejected" ? "Task rejected" : taskStatus === "cancelled" ? "Task cancelled" : "Task failed"}
                 {(task as any).errorMessage ? `: ${(task as any).errorMessage}` : ""}
               </p>
               <button

@@ -172,7 +172,7 @@ describe("Self-Improvement Lab", () => {
       })
     );
     const suggestionId = await env.t.mutation(api.improve.requestSuggestion, { incidentId: incident._id });
-    await env.t.action(internal.improve.runSuggestion, { suggestionId });
+    await env.t.action(internal.improveNode.runSuggestion, { suggestionId });
     return { ...env, incident, suggestionId };
   }
 

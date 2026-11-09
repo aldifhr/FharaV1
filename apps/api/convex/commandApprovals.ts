@@ -29,7 +29,7 @@ import {
   type CommandDecision,
 } from "./lib/commandRules";
 
-const TERMINAL = new Set(["done", "failed", "rejected"]);
+const TERMINAL = new Set(["done", "failed", "rejected", "cancelled"]);
 const LEASE_LOST = "Lease lost: this task is no longer owned by this worker";
 /** Note recorded when a chat message declines a waiting command (threadbear behaviour). */
 export const USER_REPLIED_NOTE = "user replied instead";

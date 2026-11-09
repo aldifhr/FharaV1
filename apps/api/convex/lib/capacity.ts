@@ -11,7 +11,7 @@
 import { roleBucket } from "./workload";
 
 export const ACTIVE_EXECUTION_STATUSES = ["running", "waiting_approval"] as const;
-const TERMINAL_TASK_STATUSES = new Set(["done", "failed", "rejected"]);
+const TERMINAL_TASK_STATUSES = new Set(["done", "failed", "rejected", "cancelled"]);
 
 export interface CapacityExecutionInput {
   agentId: string | null;

@@ -30,7 +30,7 @@ import { assertProjectAccess, getVisibleTask } from "./lib/authz";
 export type PermissionDecision = "allow" | "deny" | "ask";
 
 const RISKY_KINDS = new Set(["apply_changes", "git_push", "run_command", "merge_pr"]);
-const TERMINAL_TASK_STATUSES = new Set(["done", "failed", "rejected"]);
+const TERMINAL_TASK_STATUSES = new Set(["done", "failed", "rejected", "cancelled"]);
 
 // ---------------------------------------------------------------------------
 // Path handling. The backend cannot use node:path (default runtime), and the

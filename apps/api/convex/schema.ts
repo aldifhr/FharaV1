@@ -41,7 +41,11 @@ export const taskStatus = v.union(
   v.literal("paused"),
   v.literal("done"),
   v.literal("rejected"),
-  v.literal("failed")
+  v.literal("failed"),
+  // Terminal: the user stopped the task (tasks.cancel). Distinct from
+  // "failed" so filters, incidents and success rates do not count a
+  // deliberate stop as a failure.
+  v.literal("cancelled")
 );
 
 export const agentStatus = v.union(

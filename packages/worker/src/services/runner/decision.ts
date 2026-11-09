@@ -298,6 +298,7 @@ export async function handleNodeOutcome(
                 llmConfig: input.llmConfig,
                 llmTaskGate: input.llmTaskGate,
                 onTokenUsage: input.onTokenUsage,
+                plannerAgent: input.plannerAgent,
                 signal: input.taskAbort?.signal,
                 assertBudgetForCall: () => input.budget!.assertLlmCallAllowed(),
               }),

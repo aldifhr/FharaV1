@@ -95,6 +95,11 @@ export interface ExecutePlanInput {
   project: WorkerProject;
   workspacePath: string;
   agents: AgentDefinition[];
+  /**
+   * Planner-only fallback CTO (getRunContext): the decision advisor runs on
+   * it when `agents` has no CTO. Never an executor.
+   */
+  plannerAgent?: AgentDefinition | null;
   plan: ExecutionPlan;
   state: RunState;
   feedback?: string;

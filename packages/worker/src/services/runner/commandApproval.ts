@@ -120,7 +120,7 @@ export async function waitForCommandApproval(
         return { allowed: false, via: "cancelled", reason: row.note ?? "Approval was cancelled" };
       }
       if (row.taskStatus === "paused") return giveUp("paused", "Task paused while the command waited for approval");
-      if (row.taskStatus && ["done", "failed", "rejected"].includes(row.taskStatus)) {
+      if (row.taskStatus && ["done", "failed", "rejected", "cancelled"].includes(row.taskStatus)) {
         return giveUp("cancelled", `Task is ${row.taskStatus}`);
       }
     }

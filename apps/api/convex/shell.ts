@@ -19,7 +19,7 @@ const WORKER_LIMIT = 50;
 const WORKER_FRESH_MS = 90_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const TERMINAL = new Set(["done", "failed", "rejected"]);
+const TERMINAL = new Set(["done", "failed", "rejected", "cancelled"]);
 
 // ─── Needs you ─────────────────────────────────────────────────────────────
 

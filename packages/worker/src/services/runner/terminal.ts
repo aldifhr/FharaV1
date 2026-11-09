@@ -5,7 +5,7 @@ import { isLeaseLostOrShutdown } from "./abort";
 
 /** Terminal task statuses: a task in one of these is finished for good. */
 export function isTerminalTaskStatus(status: string | undefined): boolean {
-  return status === "done" || status === "failed" || status === "rejected";
+  return status === "done" || status === "failed" || status === "rejected" || status === "cancelled";
 }
 
 /**
@@ -71,12 +71,11 @@ export function budgetReasonFromSummary(summary: string): string {
 }
 
 /**
- * End a task run as cancelled (Phase 4 hardening). The backend has no
- * "cancelled" task status — tasks.cancel itself stores a user
- * cancellation as status "failed" + "Cancelled by user" — so the
- * outcome maps to completeTask("failed") with a cancellation message,
- * while the dedicated `task.cancelled` event preserves the distinction
- * (user cancel vs deadline) in the task timeline. The backend
+ * End a task run as cancelled (Phase 4 hardening). A user stop lands on
+ * the terminal "cancelled" status (tasks.cancel already wrote it, so this
+ * call is usually a no-op); a deadline is a real failure and lands on
+ * "failed" with the deadline message. The dedicated `task.cancelled`
+ * event records which of the two it was in the task timeline. The backend
  * completeTask guard makes this call a no-op when the task already
  * reached a terminal status by another path, so a late cancel ending
  * can never overwrite a real completion either.
@@ -105,8 +104,11 @@ export async function finishCancelledTask(input: {
       .catch(() => undefined);
     return;
   }
-  const timedOut = reasonText.startsWith("Task deadline exceeded");
-  const errorMessage = timedOut ? reasonText : "Task cancelled";
+  // Deadline and idle watchdog aborts are failures with a visible reason,
+  // never a silent "cancelled": only a user stop is a cancellation.
+  const timedOut =
+    reasonText.startsWith("Task deadline exceeded") || reasonText.startsWith("Task idle exceeded");
+  const errorMessage = timedOut ? reasonText : "Cancelled by user";
   await deps.api.logEvent({
     taskId: task._id,
     projectId: project._id,
@@ -118,13 +120,13 @@ export async function finishCancelledTask(input: {
     .recordLifecycle?.({
       taskId: task._id,
       projectId: project._id,
-      state: "FAILED",
+      state: timedOut ? "FAILED" : "CANCELLED",
       prevState: "RUNNING",
     })
     ?.catch(() => undefined);
   await deps.api.completeTask({
     taskId: task._id,
-    status: "failed",
+    status: timedOut ? "failed" : "cancelled",
     errorMessage,
   });
 }

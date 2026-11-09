@@ -1,4 +1,5 @@
 "use client";
+import GithubRepoSettings from "./GithubRepoSettings";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -177,7 +178,10 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const timeline = useMemo(
     () =>
       (messages ?? [])
-        .filter((message: any) => !message.taskId)
+        // Plan 019: task cards posted into this chat (assignment, changes,
+        // verification, QA, push) carry taskId AND conversationId — they
+        // belong in the chat as well as in the task thread.
+        .filter((message: any) => !message.taskId || (message.card && message.conversationId))
         .sort((a: any, b: any) => a._creationTime - b._creationTime),
     [messages],
   );
@@ -1047,6 +1051,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
               {savingManage ? "Saving…" : "Save project"}
             </button>
           </form>
+          <GithubRepoSettings projectId={projectId} />
         </Modal>
       )}
       {tab === "chat" && (

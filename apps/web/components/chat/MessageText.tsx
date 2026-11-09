@@ -7,7 +7,7 @@ import { cjk } from "@streamdown/cjk";
 import "katex/dist/katex.min.css";
 import "streamdown/styles.css";
 import { useToast } from "../Toasts";
-import { NEUTRAL_MENTION_COLOR, ROLE_COLORS, roleKeyForMention } from "@/lib/agentRoles";
+import { roleKeyForMention } from "@/lib/agentRoles";
 
 /**
  * `@Role` mentions (from the user, or the CTO handing off to "@QA",
@@ -38,10 +38,11 @@ function Strong({ children, className }: { children?: ReactNode; className?: str
   const text = textOf(children).trim();
   if (/^@[A-Za-z][\w-]*$/.test(text)) {
     const roleKey = roleKeyForMention(text);
+    // Plain indigo text (design reference), not a filled chip.
     return (
       <span
         data-mention={roleKey ?? text.slice(1).toLowerCase()}
-        className={`mx-px inline-flex items-center rounded-md px-1.5 py-px align-baseline text-[0.95em] font-semibold leading-[1.35] ring-1 ring-inset ${roleKey ? ROLE_COLORS[roleKey] : NEUTRAL_MENTION_COLOR}`}
+        className="font-medium text-[#5148e0] dark:text-indigo-300"
       >
         {text}
       </span>

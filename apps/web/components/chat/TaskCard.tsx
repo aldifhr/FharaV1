@@ -2,8 +2,9 @@ import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { api } from "@/api/convex/_generated/api";
 import { roleLabel } from "@/lib/agentRoles";
-import AgentAvatar from "../AgentAvatar";
-import { Bell, Check, CheckCircle2, ExternalLink, Loader2, RotateCcw, XCircle } from "lucide-react";
+import { ArrowUpRight, Bell, Check, CheckCircle2, Loader2, RotateCcw, XCircle } from "lucide-react";
+import OptionCards from "./OptionCards";
+import { BTN_OUTLINE, BTN_PRIMARY, CARD_SURFACE, MUTED, Pill, RoleAvatar } from "./cards/primitives";
 import { useToast } from "../Toasts";
 import { isClosedStatus } from "@/lib/taskStatus";
 
@@ -16,6 +17,7 @@ export default function TaskCard({
   onOpen,
   agents,
   approvalMode,
+  assignees,
 }: {
   task: any;
   subtasks: any[];
@@ -23,6 +25,8 @@ export default function TaskCard({
   onOpen: (taskId: string) => void;
   agents: any[];
   approvalMode: "ask" | "auto";
+  /** Owners named at assignment (assignment card); else the running subtask's agent. */
+  assignees?: Array<{ agentId: string; name: string; role: string }>;
 }) {
   const toast = useToast();
   const retryTask = useMutation(api.tasks.retry);
@@ -53,14 +57,16 @@ export default function TaskCard({
       setAnswering(false);
     }
   };
-  const badge =
+  const badgeTone =
     task.status === "done"
-      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
+      ? ("green" as const)
       : task.status === "failed" || task.status === "rejected"
-        ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+        ? ("red" as const)
         : needsYou
-          ? "bg-[#fff0df] text-[#bd6c23] dark:bg-orange-950 dark:text-orange-300"
-          : "bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300";
+          ? ("orange" as const)
+          : task.status === "queued"
+            ? ("gray" as const)
+            : ("blue" as const);
   const badgeLabel =
     task.status === "done"
       ? "Done"
@@ -78,13 +84,17 @@ export default function TaskCard({
   // currently working the task (first running subtask, else first).
   const primarySubtask = subtasks.find((s) => s.status === "running") ?? subtasks[0];
   const primaryAgent = agents.find((a) => a._id === (primarySubtask as any)?.assignedAgentId);
+  const owners =
+    primaryAgent
+      ? [{ agentId: String(primaryAgent._id), role: primaryAgent.role as string }]
+      : (assignees ?? []).map((a) => ({ agentId: a.agentId, role: a.role }));
   const statusIcon = needsYou
-    ? <Bell size={15} className="shrink-0 text-orange-500" />
+    ? <Bell size={16} className="shrink-0 text-[#e5671f] dark:text-orange-400" />
     : task.status === "done"
-      ? <CheckCircle2 size={15} className="shrink-0 text-emerald-600" />
+      ? <CheckCircle2 size={16} className="shrink-0 text-[#1f9d55] dark:text-emerald-400" />
       : task.status === "failed" || task.status === "rejected"
-        ? <XCircle size={15} className="shrink-0 text-red-500" />
-        : <Loader2 size={15} className="shrink-0 animate-spin text-[#635bff]" />;
+        ? <XCircle size={16} className="shrink-0 text-[#d83a3a] dark:text-rose-400" />
+        : <Loader2 size={16} strokeWidth={2.5} className="shrink-0 animate-spin text-[#2f6fe0] dark:text-blue-400" />;
 
   return (
     <div className="space-y-1.5">
@@ -99,56 +109,61 @@ export default function TaskCard({
           }
         }}
         aria-label={`Open task ${task.title}`}
-        className="cursor-pointer overflow-hidden rounded-xl border border-[#e5e3eb] bg-white shadow-[0_1px_2px_rgba(30,25,60,.04)] outline-none transition hover:border-[#cfc9f5] focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-indigo-800"
+        className={`${CARD_SURFACE} max-w-xl cursor-pointer outline-none transition hover:border-[#d6d2f3] focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:hover:border-white/20`}
       >
-        <div className="flex items-center gap-2 px-3.5 pt-3">
+        <div className="flex items-center gap-2.5 px-4 pt-3.5">
           {statusIcon}
-          <p className="min-w-0 flex-1 truncate text-[13px] font-semibold dark:text-white">{task.title}</p>
-          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge}`}>{badgeLabel}</span>
-          <ExternalLink size={13} aria-hidden="true" className="shrink-0 text-gray-400 dark:text-gray-500" />
+          <p className="min-w-0 flex-1 truncate text-[14px] font-semibold text-[#26242e] dark:text-neutral-100">{task.title}</p>
+          <ArrowUpRight size={16} aria-hidden="true" className="shrink-0 text-[#8a8796] dark:text-neutral-400" />
         </div>
-        <div className="flex items-center gap-1.5 px-3.5 pb-3 pt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
-          {primaryAgent && (
+        <div className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 px-4 pb-3 pt-2 text-[12px] ${MUTED}`}>
+          {owners.slice(0, 3).map((owner) => (
+            <span key={owner.agentId} className="inline-flex items-center gap-1.5">
+              <RoleAvatar role={owner.role} size={18} />
+              <span className="text-[#4c4a55] dark:text-neutral-300">{roleLabel(owner.role)}</span>
+            </span>
+          ))}
+          {task.branchName && (
             <>
-              <AgentAvatar name={roleLabel(primaryAgent.role)} size={16} avatarParams={primaryAgent.avatarParams} />
-              <span>{roleLabel(primaryAgent.role)}</span>
+              <span aria-hidden="true">·</span>
+              <span className="max-w-[14rem] truncate rounded-md bg-[#f3f2f7] px-1.5 py-0.5 font-mono text-[11px] text-[#55525f] dark:bg-white/10 dark:text-neutral-300">
+                {task.branchName}
+              </span>
             </>
           )}
-          {task.branchName && (
-            <span className="rounded-md bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-              {task.branchName}
-            </span>
-          )}
           {subtasks.length > 0 && (
-            <span>· {doneSubs} of {subtasks.length} subtasks</span>
+            <>
+              <span aria-hidden="true">·</span>
+              <span>{doneSubs} of {subtasks.length} steps</span>
+            </>
           )}
+          <span className="ml-auto">
+            <Pill tone={badgeTone}>{badgeLabel}</Pill>
+          </span>
         </div>
-        <div className="h-1 bg-gray-100 dark:bg-gray-800" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
-          <div className="h-full bg-[#635bff] transition-all" style={{ width: `${progress}%` }} />
+        <div className="mx-4 mb-3 h-1 overflow-hidden rounded-full bg-[#eeedf3] dark:bg-white/10" role="progressbar" aria-label="Task progress" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+          <div className={`h-full rounded-full transition-all ${task.status === "done" ? "bg-[#1f9d55]" : "bg-[#2f6fe0]"}`} style={{ width: `${progress}%` }} />
         </div>
       </div>
       {waitingForInput && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300">
-          <p className="font-semibold">The team asked you:</p>
-          <p className="mt-0.5 whitespace-pre-wrap">{task.pendingQuestion}</p>
+        <div className={`${CARD_SURFACE} max-w-xl px-4 py-3`}>
+          <div className="flex items-center gap-2">
+            <p className="min-w-0 flex-1 text-[13px] font-semibold text-[#26242e] dark:text-neutral-100">The team asked you</p>
+            <Pill tone="orange">Needs you</Pill>
+          </div>
+          <p className="mt-1 whitespace-pre-wrap text-[13px] text-[#4c4a55] dark:text-neutral-300">{task.pendingQuestion}</p>
           {hasOptions ? (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {options.map((option, index) => (
-                <button
-                  key={`${index}-${option}`}
-                  type="button"
-                  disabled={answering}
-                  onClick={() => void sendAnswer(option)}
-                  className="rounded-xl border border-amber-300 bg-white/80 px-3 py-2 text-[13px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-gray-900 dark:text-amber-300 dark:hover:bg-amber-950/40"
-                >
-                  <span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-                    {String.fromCharCode(65 + index)}
-                  </span>
-                  {option}
-                </button>
-              ))}
-            </div>
-          ) : (
+            <OptionCards
+              options={options.map((option, index) => ({
+                id: String.fromCharCode(65 + index),
+                title: option,
+                summary: "",
+                preview: "plain",
+              }))}
+              disabled={answering}
+              compact
+              onPick={(option) => void sendAnswer(option.title)}
+            />          ) : (
             <div className="mt-2 flex items-center gap-2">
               <input
                 type="text"
@@ -162,13 +177,13 @@ export default function TaskCard({
                 }}
                 aria-label="Answer the team"
                 placeholder="Reply to continue the task…"
-                className="min-w-0 flex-1 rounded-lg border border-amber-200 bg-white/80 px-2.5 py-1.5 text-base sm:text-[13px] text-gray-800 placeholder:text-amber-400 focus:border-amber-300 focus:outline-none dark:border-amber-800 dark:bg-gray-900 dark:text-gray-100"
+                className="min-w-0 flex-1 rounded-lg border border-[#e3e1ea] bg-white px-2.5 py-1.5 text-base text-[#26242e] placeholder:text-[#a3a0ad] focus:border-[#c9c4f5] focus:outline-none sm:text-[13px] dark:border-white/15 dark:bg-transparent dark:text-neutral-100"
               />
               <button
                 type="button"
                 disabled={answering || answer.trim().length === 0}
                 onClick={() => void sendAnswer(answer)}
-                className="flex items-center gap-1.5 rounded-xl bg-[#635bff] px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-[#5346d8] disabled:opacity-50"
+                className={BTN_PRIMARY}
               >
                 <Check size={14} /> Send
               </button>
@@ -177,8 +192,8 @@ export default function TaskCard({
         </div>
       )}
       {isFailed && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300">
-          <p className="font-semibold">{task.status === "rejected" ? "Task rejected" : "Task failed"}{task.errorMessage ? `: ${task.errorMessage}` : ""}</p>
+        <div className={`${CARD_SURFACE} max-w-xl px-4 py-3 text-[13px]`}>
+          <p className="font-semibold text-[#c43333] dark:text-rose-300">{task.status === "rejected" ? "Task rejected" : "Task failed"}{task.errorMessage ? `: ${task.errorMessage}` : ""}</p>
           <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
@@ -193,11 +208,11 @@ export default function TaskCard({
                   setRetrying(false);
                 }
               }}
-              className="flex items-center gap-1.5 rounded-xl bg-[#635bff] px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-[#5346d8] disabled:opacity-50"
+              className={BTN_PRIMARY}
             >
               <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
             </button>
-            <button type="button" onClick={() => onOpen(task._id)} className="rounded-xl border border-red-200 bg-white/60 px-3.5 py-2 text-[13px] font-semibold text-red-700 hover:bg-white dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
+            <button type="button" onClick={() => onOpen(task._id)} className={BTN_OUTLINE}>
               View thread
             </button>
           </div>
@@ -205,15 +220,8 @@ export default function TaskCard({
       )}
       {/* Approve lives on the ApprovalCard(s) rendered below this card —
           one control per approval, not a second button for pending[0]. */}
-      {!isClosedStatus(task.status) && (
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => onOpen(task._id)} className="rounded-xl border border-[#e5e3eb] px-3.5 py-2 text-[13px] font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
-            Open thread
-          </button>
-          {pending.length === 0 && task.status !== "done" && approvalMode === "ask" && (
-            <span className="ml-auto text-[11px] text-gray-500 dark:text-gray-400">Waits for approval before push</span>
-          )}
-        </div>
+      {!isClosedStatus(task.status) && pending.length === 0 && task.status !== "done" && approvalMode === "ask" && (
+        <p className={`pl-1 text-[11px] ${MUTED}`}>Waits for your approval before anything is pushed</p>
       )}
     </div>
   );

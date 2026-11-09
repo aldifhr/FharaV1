@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import { Pin } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useRef, type MutableRefObject, type RefObject } from "react";
+import { useEffect, useMemo, useRef, type MutableRefObject, type RefObject } from "react";
 import { parseOptions } from "@/lib/options";
 import { roleLabel } from "@/lib/agentRoles";
 import ApprovalCard from "../ApprovalCard";
@@ -13,6 +13,10 @@ import { ReasoningLine } from "../ui/trace";
 import MessageText from "./MessageText";
 import OptionCards from "./OptionCards";
 import TaskCard from "./TaskCard";
+import ChatCard from "./cards/ChatCard";
+import { CardSurfaceProvider } from "./cards/CardContext";
+import { qaStatusLine } from "./cards/QaCard";
+import InitialAvatar from "../InitialAvatar";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { SectionLoading } from "@/app/WorkspaceContext";
 
@@ -74,6 +78,32 @@ export default function MessageList(props: Props) {
   } = props;
 
   const listRef = useRef<HTMLDivElement>(null);
+  // Plan 019: what the cards need from this surface.
+  const cardSurface = useMemo(
+    () => ({
+      agents,
+      tasks,
+      subtasksOf,
+      pendingApprovals: pendingItems,
+      approvalMode: projectApprovalMode,
+      onOpenTask: onSelectTask,
+    }),
+    [agents, tasks, subtasksOf, pendingItems, projectApprovalMode, onSelectTask]
+  );
+  // Tasks whose QA reports as a card: the older event-derived QA panel
+  // would show the same checks twice.
+  const tasksWithQaCard = useMemo(
+    () => new Set(timeline.filter((m: any) => m.card?.kind === "qa" && m.taskId).map((m: any) => String(m.taskId))),
+    [timeline]
+  );
+  // "QA is checking <url> at 375 px": the newest QA card still running.
+  const liveQa = useMemo(() => {
+    for (let i = timeline.length - 1; i >= 0; i -= 1) {
+      const m = timeline[i];
+      if (m?.card?.kind === "qa") return qaStatusLine(m.card.data);
+    }
+    return null;
+  }, [timeline]);
   const virtualized = timeline.length >= VIRTUALIZE_THRESHOLD;
   const virtualizer = useVirtualizer({
     count: virtualized ? timeline.length : 0,
@@ -137,18 +167,22 @@ export default function MessageList(props: Props) {
           const qaEvents = (projectEvents ?? []).filter((e: any) => e.taskId === key && e.type === "task.check");
           return (
             <div className="space-y-2">
-              <TaskCard
-                task={cardTask}
-                subtasks={subtasksOf.get(key) ?? []}
-                pending={pending}
-                onOpen={onSelectTask}
-                agents={agents}
-                approvalMode={projectApprovalMode}
-              />
+              {/* An assignment card IS the task card; do not draw it twice. */}
+              {m.card?.kind !== "assignment" && (
+                <TaskCard
+                  task={cardTask}
+                  subtasks={subtasksOf.get(key) ?? []}
+                  pending={pending}
+                  onOpen={onSelectTask}
+                  agents={agents}
+                  approvalMode={projectApprovalMode}
+                />
+              )}
               {pending.map((a: any) => (
                 <ApprovalCard
                   key={a._id}
                   approval={a}
+                  agent={(agents as any)?.find((agent: any) => agent._id === a.requestedByAgentId) ?? null}
                   taskTitle={cardTask.title}
                   onApprove={approve}
                   onReject={reject}
@@ -156,7 +190,7 @@ export default function MessageList(props: Props) {
                   onReview={onSelectTask}
                 />
               ))}
-              {qaEvents.length > 0 && <QaPanel events={qaEvents} />}
+              {qaEvents.length > 0 && !tasksWithQaCard.has(String(key)) && <QaPanel events={qaEvents} />}
             </div>
           );
         })()}
@@ -188,11 +222,7 @@ export default function MessageList(props: Props) {
   const renderMessageBody = (m: any, index: number, messageAgent: any) => (
     <>
       {m.authorType === "agent" ? (
-        <AgentAvatar
-          name={roleLabel(messageAgent?.role)}
-          size={32}
-          avatarParams={messageAgent?.avatarParams}
-        />
+        <InitialAvatar name={roleLabel(messageAgent?.role)} size={32} />
       ) : (
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#eceaf3] text-[11px] font-bold text-[#5147b4] dark:bg-white/15 dark:text-white">
           You
@@ -238,14 +268,14 @@ export default function MessageList(props: Props) {
           </button>
         </div>
         <div className="mt-1.5">
-          {m.authorType === "agent" && (m.reasoning || !m.content?.trim()) && (
+          {m.authorType === "agent" && !m.card && (m.reasoning || !m.content?.trim()) && (
             <ReasoningLine
               text={m.reasoning}
               running={!m.content?.trim() && conversationTyping && index === timeline.length - 1}
               seconds={m.reasoningDurationMs}
             />
           )}
-          {messageKindOf(m.content) === "delegation" ? null : (
+          {messageKindOf(m.content) === "delegation" || (m.card && !m.content?.trim()) ? null : (
             <Bubble variant={m.authorType === "user" ? "tinted" : "ghost"} align={m.authorType === "user" ? "end" : "start"} className="max-w-full">
               <BubbleContent>
                 <MessageText
@@ -256,6 +286,11 @@ export default function MessageList(props: Props) {
             </Bubble>
           )}
         </div>
+        {m.card && (
+          <div className="mt-2 max-w-3xl">
+            <ChatCard card={m.card} />
+          </div>
+        )}
         {(() => {
           if (m.authorType !== "agent") return null;
           const { options } = parseOptions(m.content);
@@ -330,7 +365,7 @@ export default function MessageList(props: Props) {
   );
 
   return (
-    <>
+    <CardSurfaceProvider value={cardSurface}>
       {loading && <SectionLoading rows={2} />}
       {virtualized ? (
         <div ref={listRef} style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
@@ -356,6 +391,26 @@ export default function MessageList(props: Props) {
         </div>
       ) : (
         <div ref={listRef}>{timeline.map((m: any, index: number) => renderItem(m, index, true))}</div>
+      )}
+      {liveQa && (
+        <div role="status" aria-live="polite" className="flex min-w-0 items-center gap-2 pl-1 text-[12px] text-[#8a8796] dark:text-neutral-400">
+          <span className="flex shrink-0 gap-0.5" aria-hidden="true">
+            <i className="h-1 w-1 animate-bounce rounded-full bg-current" />
+            <i className="h-1 w-1 animate-bounce rounded-full bg-current [animation-delay:120ms]" />
+            <i className="h-1 w-1 animate-bounce rounded-full bg-current [animation-delay:240ms]" />
+          </span>
+          <span className="min-w-0 truncate">
+            QA is checking{" "}
+            {liveQa.url ? (
+              <code className="rounded bg-[#f3f2f7] px-1 py-px font-mono text-[11px] text-[#4c4a55] dark:bg-white/10 dark:text-neutral-200">
+                {liveQa.url.replace(/^https?:\/\//, "")}
+              </code>
+            ) : (
+              "the app"
+            )}
+            {liveQa.width ? ` at ${liveQa.width} px` : liveQa.label ? ` (${liveQa.label})` : ""}
+          </span>
+        </div>
       )}
       {/* Generic chat-reply indicator. Per-agent status (Working now
           / X is thinking) is more specific: when either is visible,
@@ -426,7 +481,7 @@ export default function MessageList(props: Props) {
           </div>
         )
       )}
-    </>
+    </CardSurfaceProvider>
   );
 }
 

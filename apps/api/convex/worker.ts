@@ -237,10 +237,30 @@ export const requestApproval = action({
     planVersion: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<any> => {
-    return await ctx.runMutation(
-      internal.orchestration.requestApproval,
-      withoutToken(args)
-    );
+    return await ctx.runMutation(internal.orchestration.requestApproval, {
+      ...withoutToken(args),
+    });
+  },
+});
+
+/** Plan 015: broker verdict for a risky action (Allow/Deny/Ask). */
+export const checkPermission = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    kind: v.union(
+      v.literal("apply_changes"),
+      v.literal("git_push"),
+      v.literal("run_command"),
+      v.literal("merge_pr")
+    ),
+    targetPath: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ decision: "allow" | "deny" | "ask"; reason: string; approvalId?: string }> => {
+    return await ctx.runQuery(internal.orchestration.checkPermission, {
+      ...withoutToken(args),
+    });
   },
 });
 
@@ -361,13 +381,15 @@ export const pauseForInput = action({
     ...tokenArg,
     taskId: v.id("tasks"),
     question: v.string(),
+    options: v.optional(v.array(v.string())),
     workerId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
-    const { taskId, question, workerId } = withoutToken(args);
+    const { taskId, question, options, workerId } = withoutToken(args);
     return await ctx.runMutation(internal.orchestration.pauseForInput, {
       taskId,
       question,
+      options,
       workerId,
     });
   },

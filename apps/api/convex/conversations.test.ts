@@ -75,8 +75,8 @@ function participantRows(t: T, conversationId: string) {
 }
 
 describe("ensureForChat: resolve-or-create + seed", () => {
-  test("creates the active conversation and seeds the lead by default", async () => {
-    const { t, projectId, leadId } = await setup();
+  test("creates the active conversation and seeds the conversational agent by default (never the CTO)", async () => {
+    const { t, projectId, leadId, feId } = await setup();
 
     const conversationId = await t.mutation(internal.conversations.ensureForChat, {
       projectId,
@@ -85,11 +85,28 @@ describe("ensureForChat: resolve-or-create + seed", () => {
     const participants = await t.query(api.conversations.getParticipants, {
       conversationId,
     });
-    expect(participants.map((p) => p.agentId)).toEqual([leadId]);
+    // The lead/architect is excluded from ASK: the first non-CTO agent answers.
+    expect(participants.map((p) => p.agentId)).toEqual([feId]);
+    expect(participants.map((p) => p.agentId)).not.toContain(leadId);
 
     const active = await t.query(api.conversations.getActive, { projectId });
     expect(active?.conversation._id).toBe(conversationId);
-    expect(active?.participants.map((p) => p.agentId)).toEqual([leadId]);
+    expect(active?.participants.map((p) => p.agentId)).toEqual([feId]);
+  });
+
+  test("a general-purpose agent wins the default conversational selection", async () => {
+    const t = makeT();
+    const ids = await t.run(async (ctx) => {
+      const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p" });
+      const cto = await ctx.db.insert("agents", { name: "CTO", role: "cto", status: "idle", isEnabled: true });
+      const general = await ctx.db.insert("agents", { name: "General", role: "assistant", status: "idle", isEnabled: true });
+      const fe = await ctx.db.insert("agents", { name: "Frontend", role: "frontend developer", status: "idle", isEnabled: true });
+      return { projectId, cto, general, fe };
+    });
+    await t.mutation(api.projects.updateTeam, { projectId: ids.projectId, agentIds: [ids.cto, ids.general, ids.fe] });
+    const conversationId = await t.mutation(internal.conversations.ensureForChat, { projectId: ids.projectId });
+    const participants = await t.query(api.conversations.getParticipants, { conversationId });
+    expect(participants.map((p) => p.agentId)).toEqual([ids.general]);
   });
 
   test("is idempotent: a second send neither duplicates rows nor conversations", async () => {
@@ -110,9 +127,11 @@ describe("ensureForChat: resolve-or-create + seed", () => {
   test("an explicit selection replaces the participant set and soft-leaves the rest", async () => {
     const { t, projectId, leadId, feId } = await setup();
 
-    // Seed the lead first, then re-select: the replace path must soft-leave.
+    // Seed the lead first (explicit), then re-select: the replace path must
+    // soft-leave the previous participant.
     const conversationId = await t.mutation(internal.conversations.ensureForChat, {
       projectId,
+      preferredAgentIds: [leadId],
     });
     await t.mutation(internal.conversations.ensureForChat, {
       projectId,
@@ -256,17 +275,18 @@ describe("participation gate: membership + enabled", () => {
 });
 
 describe("getContext fallback preserves the historical selection", () => {
-  test("no conversationId: preferred first, else lead, else first enabled", async () => {
+  test("no conversationId: preferred first, else the conversational agent", async () => {
     const { t, projectId, leadId, feId } = await setup();
 
-    const byLead = await t.query(internal.chatContext.getContext, { projectId });
-    expect(byLead.agents.map((a) => a._id)).toEqual([leadId]);
+    // Default is the conversational agent (first non-CTO), not the lead.
+    const byDefault = await t.query(internal.chatContext.getContext, { projectId });
+    expect(byDefault.agents.map((a) => a._id)).toEqual([feId]);
 
     const byPreferred = await t.query(internal.chatContext.getContext, {
       projectId,
-      preferredAgentIds: [feId],
+      preferredAgentIds: [leadId],
     });
-    expect(byPreferred.agents.map((a) => a._id)).toEqual([feId]);
+    expect(byPreferred.agents.map((a) => a._id)).toEqual([leadId]);
   });
 });
 

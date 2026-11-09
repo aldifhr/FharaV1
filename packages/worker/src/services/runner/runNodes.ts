@@ -66,6 +66,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
     nodes.map((subtask) => ({
       id: subtask.key,
       dependencies: subtask.dependencies.filter((dependency) => subsetKeys.has(dependency)),
+      paths: subtask.allowedPaths,
     })),
     async (node, signal): Promise<NodeOutcome> => {
       const subtask = plan.subtasks.find((candidate) => candidate.key === node.id)!;
@@ -104,6 +105,8 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         llmTaskGate: input.llmTaskGate,
         qaBaseUrl: input.qaBaseUrl,
         mcp: input.mcp,
+        runtime: deps.policy.executionRuntime ?? "api",
+        nativeProviderCommand: process.env.ORCHESTRATOR_NATIVE_PROVIDER_COMMAND,
         taskContext: input.sharedContext,
         priorOutputs: state.priorOutputs,
         fileChanges: Array.from(state.fileChanges.values()),
@@ -115,6 +118,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         // every LLM call this subtask makes.
         assertBudgetForCall: input.assertBudgetForCall,
         onEvent: async (type, payload, level) => {
+          input.taskAbort?.bump?.();
           await deps.api.logEvent({
             taskId,
             projectId: project._id,
@@ -126,6 +130,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
           });
         },
         onMessage: async (content) => {
+          input.taskAbort?.bump?.();
           // Suppress exact-duplicate consecutive postings per agent+subtask
           // (QA loops and fix loops re-execute identical summary text — the
           // conversation showed the same QA verdict 4x in a row).
@@ -166,6 +171,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
           const produced = state.appliedFilesBySubtask.get(node.id) ?? [];
           if (!produced.includes(change.filePath)) produced.push(change.filePath);
           state.appliedFilesBySubtask.set(node.id, produced);
+          input.taskAbort?.bump?.();
           await deps.api.logEvent({
             taskId,
             projectId: project._id,
@@ -176,6 +182,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
           });
         },
         onTokenUsage: async (inputTokens, outputTokens, model, meta) => {
+          input.taskAbort?.bump?.();
           // Feed the shared budget tracker with every real LLM call.
           input.budget?.recordLLMCall({
             inputTokens,
@@ -208,7 +215,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       });
     },
     {
-      maxConcurrency: Math.min(plan.maxConcurrency, deps.policy.maxConcurrency),
+      maxConcurrency: 1, // FIFO: one subtask at a time, in DAG order (dependencies + stable order)
       timeoutMs: deps.policy.subtaskTimeoutMs,
       retries: deps.policy.subtaskRetries,
       // Phase 3 dynamic work: onOutcome may add delegation/fix subtasks
@@ -311,6 +318,10 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
             );
           }
         }
+        // Any block is actionable feedback, not just the budget case —
+        // without this the task failed with the generic "Execution failed
+        // without a detailed error" message.
+        state.feedback.push(`${node.id}: ${reason}`);
         // Dynamic subtasks (Phase 3 delegation/fix) have no persisted
         // subtask row; a failed status write for them must not take the
         // scheduler down — the event below still records the block.

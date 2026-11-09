@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { Home, Inbox, MessageSquare, Plus, Settings, Cpu, Search, Share2 } from "lucide-react";
+import { Home, Inbox, Lightbulb, MessageSquare, Plus, Settings, Cpu, Search, Share2 } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
@@ -15,6 +15,7 @@ const MENU = [
   { icon: Home, label: "Home", href: "/" },
   { icon: Inbox, label: "Inbox", href: "/inbox" },
   { icon: MessageSquare, label: "Chat", href: "/chats" },
+  { icon: Lightbulb, label: "Ideas", href: "/ideas" },
 ];
 
 export default function IconRail({

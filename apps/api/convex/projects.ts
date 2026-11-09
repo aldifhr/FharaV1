@@ -75,6 +75,7 @@ export const update = mutation({
     qaUrl: v.optional(v.string()),
     devUrl: v.optional(v.string()),
     approvalMode: v.optional(v.union(v.literal("ask"), v.literal("auto"))),
+    instructions: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await assertProjectAccess(ctx, args.projectId);
@@ -84,6 +85,7 @@ export const update = mutation({
       qaUrl?: string;
       devUrl?: string;
       approvalMode?: "ask" | "auto";
+      instructions?: string;
     } = {};
     if (args.name !== undefined) {
       const name = args.name.trim();
@@ -101,6 +103,9 @@ export const update = mutation({
     }
     if (args.approvalMode !== undefined) {
       patch.approvalMode = args.approvalMode;
+    }
+    if (args.instructions !== undefined) {
+      patch.instructions = args.instructions;
     }
     await ctx.db.patch(args.projectId, patch);
   },

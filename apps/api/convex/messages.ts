@@ -318,6 +318,7 @@ export const send = action({
       projectId: args.projectId,
       conversationId,
       userMessageId: messageId,
+      preferredAgentIds: args.preferredAgentIds,
     });
     return { messageId: messageId as string, conversationId: conversationId as string };
   },

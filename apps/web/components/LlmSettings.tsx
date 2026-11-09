@@ -430,6 +430,14 @@ function LlmSettingsModal({
                   />
                 </label>
                 <label className="grid gap-1">
+                  Provider
+                  <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} className={inputCls}>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="openai-compatible">OpenAI-compatible</option>
+                  </select>
+                </label>
+                <label className="grid gap-1">
                   Base URL
                   <input
                     value={form.baseUrl}
@@ -468,18 +476,6 @@ function LlmSettingsModal({
                 <details className="col-span-2 rounded-xl border border-gray-200 px-3 py-2 dark:border-gray-700">
                   <summary className="cursor-pointer text-xs font-medium text-gray-500 dark:text-gray-400">Advanced</summary>
                   <div className="mt-3 grid grid-cols-2 gap-3">
-                    <label className="grid gap-1">
-                      Provider
-                      <select
-                        value={form.provider}
-                        onChange={(e) => setForm({ ...form, provider: e.target.value })}
-                        className={inputCls}
-                      >
-                        <option value="anthropic">Anthropic</option>
-                        <option value="openai">OpenAI</option>
-                        <option value="openai-compatible">OpenAI-compatible</option>
-                      </select>
-                    </label>
                     <label className="grid gap-1">
                       Priority (lower = first)
                       <input

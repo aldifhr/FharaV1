@@ -81,6 +81,9 @@ export default defineSchema({
     approvalMode: v.optional(v.union(v.literal("ask"), v.literal("auto"))),
     mainBranch: v.optional(v.string()),
     worktreesPath: v.optional(v.string()),
+    // Plan 015 (additive): durable shared instructions loaded into the
+    // planning prompt on every run, surviving recovery.
+    instructions: v.optional(v.string()),
   }).index("by_owner", ["ownerId"]),
 
   agents: defineTable({
@@ -130,6 +133,11 @@ export default defineSchema({
     // a stale lease. Past the recovery bound the task is failed instead
     // of being requeued forever.
     recoveryCount: v.optional(v.number()),
+    // Idempotency (plan 016): a retried/duplicate dispatch with the same key
+    // reuses the existing task instead of creating a duplicate.
+    idempotencyKey: v.optional(v.string()),
+    // Monotonic per-task counter for taskEvents ordering (plan 016).
+    eventSequence: v.optional(v.number()),
     strategy: v.optional(v.string()),
     classification: v.optional(v.string()),
     replanCount: v.optional(v.number()),
@@ -145,11 +153,29 @@ export default defineSchema({
     // separately (taskContext decision `user_answer`) — this field holds
     // ONLY the pending question.
     pendingQuestion: v.optional(v.string()),
+    // Optional A/B/C-style choices the UI offers instead of free text.
+    // Empty/absent = the free-text answer box.
+    pendingOptions: v.optional(v.array(v.string())),
+    // Agile: the sprint this task belongs to (1-based per project). A
+    // sprint groups one planning round and its review/verification.
+    sprint: v.optional(v.number()),
+    // Agile: the phase within the sprint. The board shows these as columns;
+    // the DAG scheduler still owns the true ordering.
+    phase: v.optional(
+      v.union(
+        v.literal("planning"),
+        v.literal("implementation"),
+        v.literal("review"),
+        v.literal("verification"),
+        v.literal("done")
+      )
+    ),
   })
     .index("by_project", ["projectId"])
     .index("by_status", ["status"])
     .index("by_status_and_updated", ["status", "updatedAt"])
-    .index("by_worker", ["workerId"]),
+    .index("by_worker", ["workerId"])
+    .index("by_idempotency", ["idempotencyKey"]),
 
   plans: defineTable({
     taskId: v.id("tasks"),
@@ -175,6 +201,7 @@ export default defineSchema({
     capability: v.string(),
     dependencies: v.array(v.string()),
     order: v.number(),
+    allowedPaths: v.optional(v.array(v.string())),
     status: subtaskStatus,
     // Phase 4 hardening (additive): how this row entered the DAG —
     // "plan" rows come from savePlan; dynamically spawned work is
@@ -261,6 +288,11 @@ export default defineSchema({
     leaseExpiresAt: v.optional(v.number()),
     attempts: v.optional(v.number()),
     error: v.optional(v.string()),
+    // Streaming reasoning trace captured while the agent replies. Persisted
+    // so the UI can render a "Thought" collapsible; optional so old rows
+    // still validate. reasoningDurationMs is measured around the LLM call.
+    reasoning: v.optional(v.string()),
+    reasoningDurationMs: v.optional(v.number()),
   })
     .index("by_project", ["projectId"])
     .index("by_task", ["taskId"])
@@ -310,6 +342,14 @@ export default defineSchema({
     planVersion: v.optional(v.number()),
     status: approvalStatus,
     resolvedAt: v.optional(v.number()),
+    // Plan 015 (additive, audit trail): the permission layer records the
+    // requested tool, arguments, workspace, requester, expiry, and history.
+    toolName: v.optional(v.string()),
+    arguments: v.optional(v.any()),
+    workspacePath: v.optional(v.string()),
+    principalAgentId: v.optional(v.id("agents")),
+    expiresAt: v.optional(v.number()),
+    history: v.optional(v.array(v.any())),
   })
     .index("by_status", ["status"])
     .index("by_task", ["taskId"])
@@ -346,9 +386,38 @@ export default defineSchema({
     level: v.optional(v.union(v.literal("info"), v.literal("warn"), v.literal("error"))),
     agentId: v.optional(v.id("agents")),
     message: v.optional(v.string()),
+    // Monotonic per-task ordering (plan 016): UI sorts by this, not by
+    // timestamp, so late-arriving events never reorder the trace.
+    sequence: v.optional(v.number()),
     metadata: v.optional(v.any()),
     createdAt: v.optional(v.number()),
   })
+    .index("by_task", ["taskId"])
+    .index("by_task_and_sequence", ["taskId", "sequence"])
+    .index("by_project", ["projectId"]),
+
+  /**
+   * Canonical agent/task event stream (plan 016). One row per canonical event
+   * (`message.created`, `agent.started`, `agent.thinking`, `agent.tool.started`,
+   * `agent.tool.completed`, `agent.waiting_approval`, `agent.completed`,
+   * `agent.failed`, `task.updated`, `task.completed`, `task.failed`). The
+   * provider-specific `taskEvents` stay the raw log; the UI subscribes to this
+   * one, so it never needs to understand worker/provider vocabulary.
+   */
+  agentEvents: defineTable({
+    projectId: v.id("projects"),
+    conversationId: v.optional(v.id("conversations")),
+    taskId: v.optional(v.id("tasks")),
+    executionId: v.optional(v.id("executions")),
+    agentId: v.optional(v.id("agents")),
+    type: v.string(),
+    payload: v.optional(v.any()),
+    // Per-conversation monotonic order for UI rendering.
+    sequence: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_conversation", ["conversationId"])
+    .index("by_conversation_and_sequence", ["conversationId", "sequence"])
     .index("by_task", ["taskId"])
     .index("by_project", ["projectId"]),
 

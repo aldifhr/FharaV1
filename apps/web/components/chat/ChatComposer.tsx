@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { AtSign, ChevronDown, ChevronUp, Edit2, Loader2, Mic, Paperclip, Send, Sparkles, Type, X } from "lucide-react";
+import { AtSign, ChevronDown, ChevronUp, Edit2, Loader2, Mic, Paperclip, Send, Sparkles, X } from "lucide-react";
 import InitialAvatar from "../InitialAvatar";
 import { roleLabel } from "@/lib/agentRoles";
 import { useAutoGrowRef, type QueuedMessage } from "./useChatQueue";
@@ -15,7 +15,9 @@ export default function ChatComposer({
   error,
   mention,
   mentionResults,
+  agentResults,
   onInsertMention,
+  onInsertAgent,
   queue,
   editingId,
   onEdit,
@@ -36,7 +38,9 @@ export default function ChatComposer({
   error: string;
   mention: string | null;
   mentionResults: string[];
+  agentResults: Array<{ _id: string; name: string; role: string }>;
   onInsertMention: (path: string) => void;
+  onInsertAgent: (agent: { _id: string; name: string; role: string }) => void;
   queue: QueuedMessage[];
   editingId: string | null;
   onEdit: (id: string | null) => void;
@@ -52,8 +56,20 @@ export default function ChatComposer({
   return (
     <div className="border-t border-[#ebe9f0] bg-white/80 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80">
       <div className="relative flex flex-col gap-2">
-        {mention !== null && mentionResults.length > 0 && (
+        {mention !== null && (mentionResults.length > 0 || agentResults.length > 0) && (
           <ul className="absolute bottom-full left-0 z-30 mb-2 max-h-52 w-full overflow-y-auto rounded-xl border border-[#e5e3eb] bg-white py-1 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+            {agentResults.map((agent) => (
+              <li key={agent._id}>
+                <button
+                  type="button"
+                  onClick={() => onInsertAgent(agent)}
+                  className="block w-full truncate px-3 py-1.5 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  <span className="font-semibold text-[#5147b4] dark:text-indigo-300">@{roleLabel(agent.role)}</span>
+                  <span className="ml-2 text-gray-500 dark:text-gray-400">{roleLabel(agent.role)}</span>
+                </button>
+              </li>
+            ))}
             {mentionResults.map((path) => (
               <li key={path}>
                 <button
@@ -155,7 +171,7 @@ export default function ChatComposer({
         <ComposerInput
           draft={draft}
           projectName={projectName}
-          mentionActive={mention !== null && mentionResults.length > 0}
+          mentionActive={mention !== null && (mentionResults.length > 0 || agentResults.length > 0)}
           onChange={onDraftChange}
           onSend={onSend}
           onQueue={onQueue}
@@ -163,7 +179,6 @@ export default function ChatComposer({
         />
 
         <div className="mt-2 flex items-center gap-1.5">
-          <button type="button" title="Formatting (not available)" aria-label="Formatting (not available)" disabled className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 dark:text-gray-600 cursor-not-allowed"><Type size={16} /></button>
           <button type="button" title="Attach a file (not available)" aria-label="Attach a file (not available)" disabled className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 dark:text-gray-600 cursor-not-allowed"><Paperclip size={16} /></button>
           <button
             type="button"
@@ -175,21 +190,6 @@ export default function ChatComposer({
             <AtSign size={15} />
           </button>
           <button type="button" title="Voice input (not available)" aria-label="Voice input (not available)" disabled className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 dark:text-gray-600 cursor-not-allowed"><Mic size={16} /></button>
-          <select value="" onChange={(event) => { if (event.target.value) onToggleAgent(event.target.value); }} aria-label="Select agents to route to" className="h-7 max-w-28 rounded-full border border-[#e5e3eb] bg-white px-2 text-xs text-gray-500 outline-none focus:border-[#a29ae8] dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"><option value="">Route to…</option>{agents.filter((a: any) => !chatAgentIds.includes(a._id)).map((a: any) => <option key={a._id} value={a._id}>{roleLabel(a.role)}</option>)}</select>
-          {(() => { const cto = agents.find((a: any) => /^(cto|orchestrator|planner|architect)$/i.test(a.role ?? "")); return cto && !chatAgentIds.includes(cto._id) ? <button type="button" onClick={() => onToggleAgent(cto._id)} className="h-7 rounded-full border border-[#e5e3eb] px-2.5 text-xs font-semibold text-gray-600 hover:border-[#a29ae8] hover:text-[#5147b4] dark:border-gray-700 dark:text-gray-300" aria-label="Delegate to CTO">Delegate to CTO</button> : null; })()}
-          {agents
-            .filter((a: any) => chatAgentIds.includes(a._id))
-            .map((a: any) => (
-              <button
-                key={a._id}
-                type="button"
-                onClick={() => onToggleAgent(a._id)}
-                title={`Stop routing to ${roleLabel(a.role)}`}
-                className="flex h-7 items-center gap-1.5 rounded-full bg-[#eeecfb] px-2.5 py-1 text-xs font-semibold text-[#5147b4] transition hover:bg-[#e2defa] dark:bg-indigo-950 dark:text-indigo-300 dark:hover:bg-indigo-900"
-              >
-                <InitialAvatar name={roleLabel(a.role)} size={16} /> To {roleLabel(a.role)} <X size={11} />
-              </button>
-            ))}
           <span className="ml-auto hidden text-[11px] text-gray-400 sm:block">Enter to send</span>
           {queue.length > 0 ? (
             <button

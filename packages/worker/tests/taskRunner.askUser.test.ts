@@ -33,6 +33,7 @@ vi.mock("../src/orchestrator/decision", async (importOriginal) => {
               action: "ask_user",
               reasoning: "no other path",
               question: "Which style do you prefer for the landing page?",
+              options: ["Bold wireframe", "Minimal card grid", "Editorial long-form"],
               decidedBy: "llm",
               planVersion: 1,
               createdAt: Date.now(),
@@ -106,7 +107,7 @@ afterEach(async () => {
 
 function createDeps() {
   const completions: Array<Record<string, unknown>> = [];
-  const pauses: Array<{ taskId: string; question: string; workerId?: string }> = [];
+  const pauses: Array<{ taskId: string; question: string; options?: string[]; workerId?: string }> = [];
   const contextUpserts: Array<Array<Record<string, unknown>>> = [];
   const task = {
     _id: "task-1",
@@ -156,7 +157,7 @@ function createDeps() {
       contextUpserts.push(input.decisions);
     },
     getTaskContext: async () => ({ decisions: knobs.contextDecisions }),
-    pauseForInput: async (input: { taskId: string; question: string; workerId?: string }) => {
+    pauseForInput: async (input: { taskId: string; question: string; options?: string[]; workerId?: string }) => {
       pauses.push(input);
       return { applied: true, status: "waiting_input" as const };
     },
@@ -205,6 +206,7 @@ describe("processTask ask_user (plan 013 step 4)", () => {
 
     expect(pauses).toHaveLength(1);
     expect(pauses[0]?.question).toContain("Which style do you prefer");
+    expect(pauses[0]?.options).toEqual(["Bold wireframe", "Minimal card grid", "Editorial long-form"]);
     // The pause is NOT a completion — the task stays for the user.
     expect(completions).toHaveLength(0);
   });

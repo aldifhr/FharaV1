@@ -65,8 +65,10 @@ import { evaluateTask } from "@/orchestrator/evaluator";
 import {
   applyFileChange,
   hashContent,
+  snapshotIdForChanges,
   type FileDiff,
 } from "@/tools/gitDiff";
+import { commitWorktree } from "@/tools/gitWorktree";
 import type { RunnerDeps, RunState } from "./runner/types";
 import {
   buildStateFromDb,
@@ -214,15 +216,29 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       .catch(() => undefined)
   );
 
-  // ponytail: worktree isolation is disabled for daily dev — the worktree is
-  // created from HEAD while apply writes to the main workspace, so the diff
-  // baseline (worktree) diverges from the apply target (dirty main workspace)
-  // and apply fails with "created after approval". Working directly in the
-  // main workspace keeps staging/apply/verify on one baseline. Upgrade path:
-  // re-enable worktree + wire merge (worktreeNode.mergeBranch) so the
-  // worktree branch is integrated instead of overwriting the main workspace.
   let branchName: string | undefined;
   let worktreePath: string | undefined;
+  if (deps.policy.worktreeIsolation) {
+    try {
+      const created = await deps.api.createBranch({
+        taskId: task._id,
+        projectId: project._id,
+      });
+      branchName = created.branchName;
+      worktreePath = resolveWorkspacePath(deps.workspaceRoot, created.worktreePath);
+      workspacePath = worktreePath;
+      await fs.mkdir(workspacePath, { recursive: true });
+    } catch (error) {
+      await deps.api.completeTask({
+        taskId: task._id,
+        status: "failed",
+        errorMessage: `Worktree isolation requested but unavailable: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+      return;
+    }
+  }
 
   const runAgents = (agents as WorkerAgent[]).map(toAgentDefinition);
   const command = await withFileContexts(deps.workspaceRoot, project.workspacePath, task.command);
@@ -303,6 +319,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     originalRequest: command,
     title: task.title,
     classification,
+    instructions: (project as { instructions?: string }).instructions,
   });
   // Plan 013 step 4: a re-queued run threads the user's answer(s) into
   // the shared context before planning/execution reads it.
@@ -601,7 +618,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         feedback,
         approvalMode,
         completedKeys,
-        taskAbort: taskAbort.controller,
+        taskAbort: Object.assign(taskAbort.controller, { bump: taskAbort.bump }),
         budget,
         assertBudgetForCall,
         sharedContext,
@@ -612,6 +629,8 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         onTokenUsage: recordUsage,
         qaBaseUrl,
         mcp,
+        worktree:
+          branchName && worktreePath ? { branchName, worktreePath } : undefined,
         onDynamicSubtasks: async ({ added, origin, plan: currentPlan, version }) => {
           await deps.api.saveDynamicSubtasks?.({
             taskId: task._id,
@@ -626,6 +645,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
               capability: subtask.capability,
               dependencies: subtask.dependencies,
               order: subtask.order,
+              allowedPaths: subtask.allowedPaths,
               origin,
             })),
           });
@@ -1090,6 +1110,7 @@ async function executePlan(input: {
     writeTools: boolean;
     maxIterations: number;
   };
+  worktree?: { branchName: string; worktreePath: string };
   /**
    * Usage sink for plan-level LLM calls (the decision advisor). Threaded
    * from the caller's recorder so advisor spend is metered in the same
@@ -1312,7 +1333,7 @@ async function executePlan(input: {
     actor: "user" | "orchestrator"
   ): Promise<{ applied: string[] } | { stop: "cancelled" | "failed" }> => {
     if (changes.length === 0) return { applied: [] };
-    const wp = resolveWorkspacePath(deps.workspaceRoot, project.workspacePath);
+    const wp = input.workspacePath;
     const appliedPaths: string[] = [];
     for (const change of changes) {
       // A cancel/deadline that landed while the scheduler was running
@@ -1504,6 +1525,30 @@ async function executePlan(input: {
   }
 
   const preparedChanges = Array.from(state.fileChanges.values());
+  const reviewSnapshotId = snapshotIdForChanges(preparedChanges);
+  const approvedVerdicts = Object.values(state.reviewVerdicts).filter(
+    (verdict) => verdict.verdict === "approved" && verdict.snapshotId
+  );
+  if (
+    preparedChanges.length > 0 &&
+    approvedVerdicts.length > 0 &&
+    approvedVerdicts.some((verdict) => verdict.snapshotId !== reviewSnapshotId)
+  ) {
+    await deps.api.logEvent({
+      taskId,
+      projectId: project._id,
+      type: "review.snapshot_mismatch",
+      payload: {
+        expected: approvedVerdicts.map((verdict) => verdict.snapshotId),
+        actual: reviewSnapshotId,
+      },
+      level: "error",
+    });
+    state.feedback.push(
+      "Changes changed after review approval; re-review required before apply"
+    );
+    return { status: taskCancelled() ? "cancelled" : "failed" };
+  }
 
   let dryRunSummary:
     | { filePaths: string[]; count: number; changes: string[] }
@@ -1544,6 +1589,7 @@ async function executePlan(input: {
       payload: {
         filePaths: preparedChanges.map((change) => change.filePath),
         planVersion: plan.version,
+        reviewSnapshotId: approvedVerdicts.length > 0 ? reviewSnapshotId : undefined,
         policyDryRun: dryRunSummary,
         metrics: {
           files: preparedChanges.length,
@@ -1588,6 +1634,48 @@ async function executePlan(input: {
   }
 
   if (preparedChanges.length > 0) {
+    // Plan 015: broker pre-check before applying. Deny → stop with an
+    // audit event; Ask (auto-mode project or no live row needed) →
+    // request approval wait; Allow → apply.
+    const firstApplied = preparedChanges[0];
+    // The broker compares absolute paths (`mainWorkspaceEscape`); the staged
+    // `filePath` is workspace-relative, so a raw relative path would always
+    // "escape" and deny every apply. Resolve it first; the sandbox relabels
+    // each file again at apply time via resolveSandboxPathAsync.
+    const brokerTarget =
+      firstApplied && project
+        ? path.join(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath), firstApplied.filePath)
+        : (project.workspacePath ?? ".");
+    const broker = await deps.api.checkPermission({
+      taskId,
+      projectId: project._id,
+      kind: "apply_changes",
+      targetPath: brokerTarget,
+    });
+    if (broker.decision === "deny") {
+      await deps.api.recordAudit({
+        taskId,
+        projectId: project._id,
+        workerId: deps.workerId,
+        actor: "permission-broker",
+        tool: "apply_changes",
+        action: "deny",
+        decision: "denied",
+        target: firstApplied?.filePath ?? project.workspacePath ?? ".",
+        details: { reason: broker.reason },
+      });
+      await deps.api.logEvent({
+        taskId,
+        projectId: project._id,
+        type: "permission.denied",
+        payload: { action: "apply_changes", reason: broker.reason },
+        level: "error",
+      });
+      return { status: "failed" };
+    }
+    if (broker.decision === "ask" && input.approvalMode !== "auto") {
+      return { status: "waiting_approval" };
+    }
     const applied = await applyStaged(
       preparedChanges,
       input.approvalResolved ? "user" : "orchestrator"
@@ -1633,6 +1721,33 @@ async function executePlan(input: {
       const stop = await runVerificationLoop(ctx);
       if (stop) {
         return { status: taskCancelled() ? "cancelled" : stop };
+      }
+    }
+    if (input.worktree && preparedChanges.length > 0) {
+      try {
+        await commitWorktree(
+          input.worktree.worktreePath,
+          `MOAgent: ${task.title}`,
+          preparedChanges.map((change) => change.filePath)
+        );
+        await deps.api.mergeBranch({ taskId });
+        await deps.api.logEvent({
+          taskId,
+          projectId: project._id,
+          type: "branch.merged",
+          payload: { branchName: input.worktree.branchName },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await deps.api.logEvent({
+          taskId,
+          projectId: project._id,
+          type: "branch.merge_failed",
+          payload: { branchName: input.worktree.branchName, message },
+          level: "error",
+        });
+        state.feedback.push(`Worktree merge failed: ${message}`);
+        return { status: taskCancelled() ? "cancelled" : "failed" };
       }
     }
     // Final boundary before completing (plan 013 step 3): a replan
@@ -1707,7 +1822,10 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
   // try/finally around executePlan).
   const llmTaskGate = new LlmConcurrencyGate(deps.policy.maxConcurrentLLMCalls);
   const taskAbort = armTaskAbort(deps.policy);
-  const workspacePath = resolveWorkspacePath(deps.workspaceRoot, context.project.workspacePath);
+  const persistedWorktree = context.task.worktreePath
+    ? resolveWorkspacePath(deps.workspaceRoot, context.task.worktreePath)
+    : undefined;
+  const workspacePath = persistedWorktree ?? resolveWorkspacePath(deps.workspaceRoot, context.project.workspacePath);
   await fs.mkdir(workspacePath, { recursive: true });
 
   // Plan 009: seed the shared MCP registry (see processTask).
@@ -1859,6 +1977,10 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
       onTokenUsage: recordUsage,
       qaBaseUrl: resolveQaBaseUrl(context.project),
       mcp,
+      worktree:
+        context.task.branchName && persistedWorktree
+          ? { branchName: context.task.branchName, worktreePath: persistedWorktree }
+          : undefined,
       onDynamicSubtasks: async ({ added, origin, plan: currentPlan, version }) => {
         await deps.api.saveDynamicSubtasks?.({
           taskId,
@@ -1873,6 +1995,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
             capability: subtask.capability,
             dependencies: subtask.dependencies,
             order: subtask.order,
+            allowedPaths: subtask.allowedPaths,
             origin,
           })),
         });

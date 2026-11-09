@@ -26,6 +26,12 @@ export interface ExecutionPolicy {
    * verification are aborted and the task ends instead of running on.
    */
   taskTimeoutMs: number;
+  /**
+   * MausBot-style turn timeout: the task aborts only when it made NO
+   * observable progress (any backend event, usage, or staged change) for
+   * this long, instead of a fixed wall-clock deadline. 0 disables it.
+   */
+  idleTimeoutMs?: number;
   verificationEnabled: boolean;
   verificationIncludeBuild: boolean;
   verificationTimeoutMs: number;
@@ -78,6 +84,17 @@ export interface ExecutionPolicy {
   routerLlmMode?: "off" | "ambiguous" | "always";
   /** Plan 006 Phase 1: cap on agents answering one chat message. */
   chatMaxAgents?: number;
+  /**
+   * Plan 014 (provider-native runtime): which execution runtime serves
+   * subtasks.
+   *  - "api" (default): the agent's LLM calls drive MOAgent's own host
+   *    tools (governance registry, sandbox, allowlist) — fully gated.
+   *  - "native-provider": the provider CLI runs its own native tools in
+   *    the task workspace (danger-full-access per the recorded Plan 014
+   *    decision). Host tools stay for the `api` path.
+   */
+  executionRuntime?: "api" | "native-provider";
+  worktreeIsolation?: boolean;
   /**
    * Plan 006 Phase 2: when the decision advisor is consulted.
    *  - "off": never (pure deterministic engine).
@@ -132,17 +149,17 @@ function boolFromEnv(name: string, fallback: boolean): boolean {
   return !["0", "false", "off", "no"].includes(raw.trim().toLowerCase());
 }
 
-/** "always" | "auto" | "never" from env, defaulting to "auto". */
-function planningModeFromEnv(name: string): "always" | "auto" | "never" {
+/** "always" | "auto" | "never" from env, defaulting to fallback ("auto"). */
+function planningModeFromEnv(name: string, fallback: "auto" | "never" = "auto"): "always" | "auto" | "never" {
   const raw = (process.env[name] ?? "").trim().toLowerCase();
-  return raw === "always" || raw === "auto" || raw === "never" ? raw : "auto";
+  return raw === "always" || raw === "auto" || raw === "never" ? raw : fallback;
 }
 
 export function loadPolicy(): ExecutionPolicy {
   const maxReplans = intFromEnv("ORCHESTRATOR_MAX_REPLANS", 1, 0, 3);
   return {
     maxSubtasks: intFromEnv("ORCHESTRATOR_MAX_SUBTASKS", 8, 1, 20),
-    maxConcurrency: intFromEnv("ORCHESTRATOR_MAX_CONCURRENCY", 2, 1, 8),
+    maxConcurrency: intFromEnv("ORCHESTRATOR_MAX_CONCURRENCY", 1, 1, 8),
     maxReplans,
     // Spec alias: defaults to the maxReplans value so the two never drift;
     // ORCHESTRATOR_MAX_PLANNING_ITERATIONS overrides the iteration bound
@@ -157,7 +174,10 @@ export function loadPolicy(): ExecutionPolicy {
     subtaskTimeoutMs: intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", 300_000, 30_000, 300_000),
     subtaskRetries: intFromEnv("ORCHESTRATOR_SUBTASK_RETRIES", 1, 0, 3),
     approvalTimeoutMs: intFromEnv("ORCHESTRATOR_APPROVAL_TIMEOUT_MS", 30 * 60_000, 60_000, 24 * 60 * 60_000),
-    taskTimeoutMs: intFromEnv("ORCHESTRATOR_TASK_TIMEOUT_MS", 5 * 60_000, 60_000, 5 * 60_000),
+    taskTimeoutMs: intFromEnv("ORCHESTRATOR_TASK_TIMEOUT_MS", 20 * 60_000, 60_000, 20 * 60_000),
+    // MausBot mechanism: progress-based termination. Build steps keep the
+    // task alive; only true inactivity trips this. 0 = disabled.
+    idleTimeoutMs: intFromEnv("ORCHESTRATOR_IDLE_TIMEOUT_MS", 10 * 60_000, 60_000, 24 * 60 * 60_000),
     verificationEnabled: boolFromEnv("ORCHESTRATOR_VERIFICATION_ENABLED", true),
     verificationIncludeBuild: boolFromEnv("ORCHESTRATOR_VERIFICATION_BUILD", true),
     verificationTimeoutMs: intFromEnv("ORCHESTRATOR_VERIFICATION_TIMEOUT_MS", 300_000, 30_000, 300_000),
@@ -166,7 +186,7 @@ export function loadPolicy(): ExecutionPolicy {
     // Default raised 5 -> 12: a healthy task spends calls on planning, one
     // implementation attempt + retry, review, and possible fix rounds, so a
     // limit of 5 killed normal tasks once the tracker was actually fed.
-    maxLLMCallsPerTask: intFromEnv("ORCHESTRATOR_MAX_LLM_CALLS_PER_TASK", 12, 1, 50),
+    maxLLMCallsPerTask: intFromEnv("ORCHESTRATOR_MAX_LLM_CALLS_PER_TASK", 400, 1, 1_000),
     maxDelegationDepth: intFromEnv("ORCHESTRATOR_MAX_DELEGATION_DEPTH", 2, 0, 10),
     maxDelegations: intFromEnv("ORCHESTRATOR_MAX_DELEGATIONS", 10, 0, 100),
     // Phase 5: warn-only by default for ONE release cycle — the pre-call
@@ -185,12 +205,12 @@ export function loadPolicy(): ExecutionPolicy {
     // pressure across tasks) is worker configuration: the
     // WORKER_LLM_MAX_CONCURRENCY env var, bootstrapped once from this
     // policy value by the worker entrypoint — never resized per task.
-    // Default 2: a limit of 1 serialized every LLM call of a task
-    // (planner, parallel subtasks, review) behind a single slot, which
-    // silently defeated the plan's own DAG parallelism; 2 keeps a real
-    // bound on provider pressure without serializing the graph.
-    maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", 2, 1, 8),
-    maxTokenBudgetPerTask: intFromEnv("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK", 50_000, 1_000, 500_000),
+    // Sequential-by-default: a limit of 1 keeps LLM calls one-by-one so
+    // tasks and subtasks never overlap (WORKER_CONCURRENCY=1 + FIFO
+    // scheduler). Raise ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS for
+    // provider-parallel work.
+    maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", 1, 1, 8),
+    maxTokenBudgetPerTask: intFromEnv("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK", 10_000_000, 1_000, 100_000_000),
     allowFallback: boolFromEnv("ORCHESTRATOR_ALLOW_FALLBACK", true),
     orchestratorAuthoritative: boolFromEnv("ORCHESTRATOR_AUTHORITATIVE", true),
     // Plan 006 Phase 1: the router is deterministic by default; the advisor
@@ -204,6 +224,11 @@ export function loadPolicy(): ExecutionPolicy {
           ? "ambiguous"
           : "off",
     chatMaxAgents: intFromEnv("ORCHESTRATOR_CHAT_MAX_AGENTS", 1, 1, 5),
+    executionRuntime:
+      (process.env.ORCHESTRATOR_RUNTIME ?? "").trim().toLowerCase() === "native-provider"
+        ? "native-provider"
+        : "api",
+    worktreeIsolation: boolFromEnv("ORCHESTRATOR_WORKTREE_ISOLATION", false),
     // Plan 013 step 7: the decision engine is the only orchestrator path
     // (flag deleted; default is irrevocably on).
     // Plan 005 Phase 4 Step 4.3 (enabled once Phase 4 tests went green):
@@ -223,6 +248,6 @@ export function loadPolicy(): ExecutionPolicy {
     mcpTimeoutMs: intFromEnv("ORCHESTRATOR_MCP_TIMEOUT_MS", 30_000, 1_000, 300_000),
     mcpMaxResultChars: intFromEnv("ORCHESTRATOR_MCP_MAX_RESULT_CHARS", 8_000, 500, 200_000),
     reviewMode: planningModeFromEnv("ORCHESTRATOR_REVIEW_MODE"),
-    qaMode: planningModeFromEnv("ORCHESTRATOR_QA_MODE"),
+    qaMode: planningModeFromEnv("ORCHESTRATOR_QA_MODE", "never"),
   };
 }

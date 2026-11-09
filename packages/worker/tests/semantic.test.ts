@@ -8,36 +8,61 @@ describe("semantic: Stage B", () => {
     expect(classifyCommand("Migrate this project to React.").kind).toBe("code_change");
     expect(classifyCommand("Can we move the frontend to Vue?").kind).toBe("code_change");
   });
-  it("parseIntentResult accepts execute_task JSON", () => {
-    const r = parseIntentResult('{"intent":"execute_task","confidence":0.9,"summary":"migrate"}');
-    expect(r?.intent).toBe("execute_task");
+  it("parseIntentResult accepts task JSON", () => {
+    const r = parseIntentResult('{"intent":"task","subtype":"implementation","confidence":0.9,"reasoning":"migrate"}');
+    expect(r?.intent).toBe("task");
+    expect(r?.subtype).toBe("implementation");
     expect(r?.confidence).toBe(0.9);
+    expect(r?.requiresExecution).toBe(true);
   });
-  it("parseIntentResult rejects garbage", () => {
+  it("parseIntentResult accepts ask JSON and rejects garbage", () => {
+    const r = parseIntentResult('{"intent":"ask","subtype":"explanation","confidence":0.7}');
+    expect(r?.intent).toBe("ask");
     expect(parseIntentResult("not json")).toBeNull();
   });
-  it("advisor IntentResult execute_task → task intent", async () => {
+  it("parseIntentResult accepts lifecycle intents", () => {
+    const cancel = parseIntentResult('{"intent":"cancel","subtype":"cancel","confidence":0.9}');
+    expect(cancel?.intent).toBe("cancel");
+    expect(cancel?.requiresExecution).toBe(false);
+    const approve = parseIntentResult('{"intent":"approve","subtype":"approve","confidence":0.9}');
+    expect(approve?.requiresExecution).toBe(true);
+  });
+  it("advisor IntentResult task → task intent", async () => {
     const r = await routeMessage({
       text: "something-weird-xyz",
       agents: [],
-      advise: async () => ({ intent: "execute_task", confidence: 0.92, actionability: "implied" as const, projectScope: "current_project" as const, requiresConfirmation: false, summary: "migrate" }),
+      advise: async () => ({
+        intent: "task" as const,
+        subtype: "implementation" as const,
+        requiresWorkspace: true,
+        requiresExecution: true,
+        confidence: 0.92,
+        reasoning: "migrate",
+      }),
     });
     expect(r.intent).toBe("task");
   });
-  it("advisor clarify stays chat", async () => {
+  it("advisor ask stays chat", async () => {
     const r = await routeMessage({
       text: "something-weird-xyz",
       agents: [],
-      advise: async () => ({ intent: "clarify", confidence: 0.4, actionability: "uncertain" as const, projectScope: "current_project" as const, requiresConfirmation: true, clarificationQuestion: "Which stack?", summary: "ambiguous" }),
+      advise: async () => ({
+        intent: "ask" as const,
+        subtype: "explanation" as const,
+        requiresWorkspace: false,
+        requiresExecution: false,
+        confidence: 0.4,
+        reasoning: "capability question",
+      }),
     });
-    expect(r.intent).toBe("chat");
-    expect(r.reasons.join(" ")).toContain("clarify");
+    expect(r.intent).toBe("question");
+    expect(r.reasons.join(" ")).toContain("ask/explanation");
   });
   it("advisor invalid output fails closed to chat", async () => {
     const r = await routeMessage({
       text: "something-weird-xyz",
       agents: [],
-      advise: async () => "TASK", // uppercase — not in ALL_INTENTS
+      advise: async () => "TASK", // uppercase — not a valid legacy intent
     });
     expect(r.intent).toBe("chat");
   });

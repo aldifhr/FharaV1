@@ -142,6 +142,13 @@ describe("validation-unit: policy env parsing", () => {
     expect(loadPolicy().maxSubtasks).toBe(3);
     delete process.env.ORCHESTRATOR_MAX_SUBTASKS;
   });
+  it("defaults to sequential: one subtask and one LLM call at a time", () => {
+    delete process.env.ORCHESTRATOR_MAX_CONCURRENCY;
+    delete process.env.ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS;
+    const p = loadPolicy();
+    expect(p.maxConcurrency).toBe(1);
+    expect(p.maxConcurrentLLMCalls).toBe(1);
+  });
   it("boolFromEnv false vocab", () => {
     process.env.ORCHESTRATOR_VERIFICATION_ENABLED = "off";
     expect(loadPolicy().verificationEnabled).toBe(false);

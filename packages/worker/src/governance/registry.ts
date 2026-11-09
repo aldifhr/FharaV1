@@ -29,6 +29,16 @@ export interface ToolDefinition {
   execute: (ctx: ToolContext, args: Record<string, unknown>) => Promise<ToolResult>;
 }
 
+/**
+ * Permission matrix per role family (least privilege):
+ *  - write-capable tools require a matching capability — read-only roles
+ *    (researcher/support/growth) are refused at the broker even if an
+ *    agent declares the tool, and every denial is audited.
+ */
+const ROLE_DENIED_TOOLS: Array<{ pattern: RegExp; denied: string[] }> = [
+  { pattern: /^(researcher|product-analyst)$/i, denied: ["write_file", "run_command"] },
+];
+
 const TOOL_REGISTRY: ToolDefinition[] = [
   {
     name: "read_file",
@@ -123,6 +133,14 @@ export async function tool_call(input: {
     return { ok: false, reason };
   };
   if (!def) return denied(REASON_TOOL_UNKNOWN);
+  // Role matrix denial (least privilege), enforced at the broker layer.
+  const roleName = input.ctx.agentRole ?? "";
+  const matrixDenial = ROLE_DENIED_TOOLS.find(
+    (rule) => rule.pattern.test(roleName) && rule.denied.includes(def.name)
+  );
+  if (matrixDenial) {
+    return denied(`denied:${roleName ? `${roleName}:` : ""}${def.name}:read-only-role`);
+  }
   // Search scope enforced.
   if (
     input.supportedTools &&

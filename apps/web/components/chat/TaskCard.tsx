@@ -33,6 +33,8 @@ export default function TaskCard({
     task.status === "waiting_input" ||
     pending.length > 0;
   const waitingForInput = task.status === "waiting_input" && Boolean(task.pendingQuestion);
+  const options: string[] = Array.isArray(task.pendingOptions) ? task.pendingOptions : [];
+  const hasOptions = options.length >= 2;
   const isFailed = task.status === "failed" || task.status === "rejected";
   const badge =
     task.status === "done"
@@ -101,44 +103,72 @@ export default function TaskCard({
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300">
           <p className="font-semibold">The team asked you:</p>
           <p className="mt-0.5 whitespace-pre-wrap">{task.pendingQuestion}</p>
-          <div className="mt-2 flex items-center gap-2">
-            <input
-              type="text"
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && answer.trim().length > 0 && !answering) {
-                  setAnswering(true);
-                  answerQuestion({ taskId: task._id as any, answer: answer.trim() })
-                    .catch(() => undefined)
-                    .finally(() => {
+          {hasOptions ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {options.map((option, index) => (
+                <button
+                  key={`${index}-${option}`}
+                  type="button"
+                  disabled={answering}
+                  onClick={async () => {
+                    setAnswering(true);
+                    try {
+                      await answerQuestion({ taskId: task._id as any, answer: option });
+                    } catch {
+                      /* status flips via the query stream */
+                    } finally {
                       setAnswering(false);
-                      setAnswer("");
-                    });
-                }
-              }}
-              placeholder="Reply to continue the task…"
-              className="min-w-0 flex-1 rounded-lg border border-amber-200 bg-white/80 px-2.5 py-1.5 text-[13px] text-gray-800 placeholder:text-amber-400 focus:border-amber-300 focus:outline-none dark:border-amber-800 dark:bg-gray-900 dark:text-gray-100"
-            />
-            <button
-              type="button"
-              disabled={answering || answer.trim().length === 0}
-              onClick={async () => {
-                setAnswering(true);
-                try {
-                  await answerQuestion({ taskId: task._id as any, answer: answer.trim() });
-                  setAnswer("");
-                } catch {
-                  /* status flips via the query stream */
-                } finally {
-                  setAnswering(false);
-                }
-              }}
-              className="flex items-center gap-1.5 rounded-xl bg-[#635bff] px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-[#5346d8] disabled:opacity-50"
-            >
-              <Check size={14} /> Send
-            </button>
-          </div>
+                    }
+                  }}
+                  className="rounded-xl border border-amber-300 bg-white/80 px-3 py-2 text-[13px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-gray-900 dark:text-amber-300 dark:hover:bg-amber-950/40"
+                >
+                  <span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                    {String.fromCharCode(65 + index)}
+                  </span>
+                  {option}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="text"
+                value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && answer.trim().length > 0 && !answering) {
+                    setAnswering(true);
+                    answerQuestion({ taskId: task._id as any, answer: answer.trim() })
+                      .catch(() => undefined)
+                      .finally(() => {
+                        setAnswering(false);
+                        setAnswer("");
+                      });
+                  }
+                }}
+                placeholder="Reply to continue the task…"
+                className="min-w-0 flex-1 rounded-lg border border-amber-200 bg-white/80 px-2.5 py-1.5 text-[13px] text-gray-800 placeholder:text-amber-400 focus:border-amber-300 focus:outline-none dark:border-amber-800 dark:bg-gray-900 dark:text-gray-100"
+              />
+              <button
+                type="button"
+                disabled={answering || answer.trim().length === 0}
+                onClick={async () => {
+                  setAnswering(true);
+                  try {
+                    await answerQuestion({ taskId: task._id as any, answer: answer.trim() });
+                    setAnswer("");
+                  } catch {
+                    /* status flips via the query stream */
+                  } finally {
+                    setAnswering(false);
+                  }
+                }}
+                className="flex items-center gap-1.5 rounded-xl bg-[#635bff] px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-[#5346d8] disabled:opacity-50"
+              >
+                <Check size={14} /> Send
+              </button>
+            </div>
+          )}
         </div>
       )}
       {isFailed && (

@@ -78,6 +78,7 @@ export type ReviewFinding = {
 export type ReviewResult = {
   verdict: "approved" | "changes_requested";
   findings: ReviewFinding[];
+  snapshotId?: string;
 };
 
 export function parseReview(content: string): ReviewResult | null {

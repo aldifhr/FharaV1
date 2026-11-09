@@ -18,14 +18,12 @@ type Ctx = QueryCtx | MutationCtx;
 type WriteCtx = MutationCtx;
 type AgentDoc = Doc<"agents">;
 
-const LEAD_ROLE = /cto|lead|manager|planner|architect/i;
-
 /**
  * Default chat selection, preserved verbatim from the pre-Plan-007
  * `chatContext.getContext` (and mirrored by
  * `packages/worker/tests/chatAndTasks.test.ts`): explicit selection first,
- * then the CTO/lead by role, then the first enabled member. An empty team never
- * falls back to global agents.
+ * then the general-purpose conversational agent (General/Assistant →
+ * Researcher → Support), never the CTO/lead. The CTO owns TASK only.
  */
 export function selectDefaultChatAgents(
   projectAgentIds: Id<"agents">[] | undefined,
@@ -44,10 +42,22 @@ export function selectDefaultChatAgents(
 
   if (preferred.length > 0) return preferred;
   if (enabled.length > 0) {
-    const lead = enabled.find((a) => LEAD_ROLE.test(a.role));
-    return [lead ?? enabled[0]];
+    return [pickConversationalAgent(enabled)];
   }
   return [];
+}
+
+/** One conversational agent (plan 016): General → Researcher → Support → first
+ *  non-CTO. CTO/Lead/Orchestrator never answer ASK. */
+function pickConversationalAgent(agents: AgentDoc[]): AgentDoc {
+  const notCto = agents.filter((a) => !/(cto|architect|lead|orchestrator|planner|manager)/i.test(a.role));
+  const general = notCto.find((a) => /^(general|assistant)/i.test(a.role));
+  if (general) return general;
+  const researcher = notCto.find((a) => /^researcher/i.test(a.role));
+  if (researcher) return researcher;
+  const support = notCto.find((a) => /^support/i.test(a.role));
+  if (support) return support;
+  return notCto[0] ?? agents[0];
 }
 
 /** Active (not left) participant rows of a conversation, oldest join first. */

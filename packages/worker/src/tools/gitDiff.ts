@@ -28,6 +28,13 @@ export function hashContent(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
+export function snapshotIdForChanges(changes: FileDiff[]): string {
+  const lines = changes
+    .map((change) => `${change.filePath}:${change.oldContentHash ?? ""}->${change.newContentHash ?? ""}`)
+    .sort();
+  return hashContent(lines.join("\n"));
+}
+
 export async function computeDiff(
   workspaceRoot: string,
   filePath: string,

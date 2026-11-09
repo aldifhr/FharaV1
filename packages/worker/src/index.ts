@@ -14,7 +14,7 @@ dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
 const POLL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1500);
 const HEARTBEAT_MS = Number(process.env.WORKER_HEARTBEAT_MS ?? 10_000);
 const LEASE_MS = Number(process.env.WORKER_LEASE_MS ?? 60_000);
-const CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY ?? 2));
+const CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY ?? 1));
 const STALE_GRACE_MS = Number(process.env.WORKER_STALE_GRACE_MS ?? 30_000);
 
 const workerId =

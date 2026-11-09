@@ -98,4 +98,24 @@ describe("plan validator", () => {
     );
     expect(result.ok).toBe(false);
   });
+
+  it("keeps declared path ownership and rejects escaping entries", () => {
+    const subtasks = [
+      { ...validPlan.subtasks[0], allowedPaths: ["apps/web"] },
+      validPlan.subtasks[1],
+    ];
+    const ok = validatePlan({ ...validPlan, subtasks }, 8);
+    expect(ok.ok).toBe(true);
+    expect(ok.plan?.subtasks[0].allowedPaths).toEqual(["apps/web"]);
+
+    const bad = validatePlan(
+      {
+        ...validPlan,
+        subtasks: [{ ...validPlan.subtasks[0], allowedPaths: ["../secret"] }, validPlan.subtasks[1]],
+      },
+      8
+    );
+    expect(bad.ok).toBe(false);
+    expect(bad.errors.join(" ")).toContain("allowedPaths");
+  });
 });

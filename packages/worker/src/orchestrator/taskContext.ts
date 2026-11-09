@@ -14,6 +14,7 @@ export type TaskDecisionValue =
   | DelegationDecision
   | "execute"
   | "delegate"
+  | "call_agent"
   | "parallel"
   | "replan"
   | "complete"
@@ -137,6 +138,8 @@ export interface SharedTaskContext {
   title: string;
   classification: Classification;
   status: string;
+  /** Plan 015: durable shared instructions from the project record. */
+  instructions?: string;
   decisions: TaskDecision[];
   agentExecutions: ExecutionHistoryEntry[];
   artifacts: TaskArtifact[];
@@ -152,6 +155,7 @@ export function createSharedTaskContext(input: {
   title: string;
   classification: Classification;
   objective?: string;
+  instructions?: string;
   priorExecutions?: ExecutionHistoryEntry[];
 }): SharedTaskContext {
   return {
@@ -162,6 +166,7 @@ export function createSharedTaskContext(input: {
     title: input.title,
     classification: input.classification,
     status: "RUNNING",
+    instructions: input.instructions,
     decisions: [],
     agentExecutions: input.priorExecutions ?? [],
     artifacts: [],

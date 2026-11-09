@@ -1,26 +1,46 @@
 "use client";
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { create } from "zustand";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 
 export type ToastKind = "success" | "error" | "info";
 type Toast = { id: number; kind: ToastKind; title: string; message?: string };
 
-const Ctx = createContext<(kind: ToastKind, title: string, message?: string) => void>(() => {});
+type ToastState = {
+  toasts: Toast[];
+  push: (kind: ToastKind, title: string, message?: string) => void;
+  dismiss: (id: number) => void;
+};
 
-export const useToast = () => useContext(Ctx);
+const AUTO_DISMISS_MS = 4200;
+
+export const useToastStore = create<ToastState>()((set) => ({
+  toasts: [],
+  push: (kind, title, message) => {
+    const id = Date.now() + Math.random();
+    set((s) => ({ toasts: [...s.toasts, { id, kind, title, message }] }));
+    setTimeout(
+      () => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
+      AUTO_DISMISS_MS
+    );
+  },
+  dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
+}));
+
+/** Same call signature as before: `toast(kind, title, message?)`. */
+export function useToast() {
+  return useToastStore((s) => s.push);
+}
+
+const icons = { success: <CheckCircle2 size={16} />, error: <AlertTriangle size={16} />, info: <Info size={16} /> };
+const styles = { success: "text-emerald-600 dark:text-emerald-400", error: "text-red-600 dark:text-red-400", info: "text-sky-600 dark:text-sky-400" };
 
 export function ToastProvider({ children }: { children: ReactNode }) {
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const push = useCallback((kind: ToastKind, title: string, message?: string) => {
-    const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, kind, title, message }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200);
-  }, []);
-  const icons = { success: <CheckCircle2 size={16} />, error: <AlertTriangle size={16} />, info: <Info size={16} /> };
-  const styles = { success: "text-emerald-600 dark:text-emerald-400", error: "text-red-600 dark:text-red-400", info: "text-sky-600 dark:text-sky-400" };
+  const toasts = useToastStore((s) => s.toasts);
+  const dismiss = useToastStore((s) => s.dismiss);
   return (
-    <Ctx.Provider value={push}>
+    <>
       {children}
       <div className="pointer-events-none fixed bottom-4 right-4 z-[70] flex w-[min(92vw,360px)] flex-col gap-2">
         <AnimatePresence>
@@ -40,13 +60,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 <p className="text-sm font-semibold dark:text-white">{t.title}</p>
                 {t.message && <p className="mt-0.5 break-words text-xs text-gray-500 dark:text-gray-400">{t.message}</p>}
               </div>
-              <button type="button" aria-label="Dismiss notification" onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))} className="shrink-0 rounded p-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+              <button type="button" aria-label="Dismiss notification" onClick={() => dismiss(t.id)} className="shrink-0 rounded p-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
                 <X size={14} />
               </button>
             </motion.div>
           ))}
         </AnimatePresence>
       </div>
-    </Ctx.Provider>
+    </>
   );
 }

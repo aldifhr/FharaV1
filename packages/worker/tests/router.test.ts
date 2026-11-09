@@ -72,7 +72,7 @@ describe("router: R1-R7 intent routing", () => {
       advise: async () => "task",
     });
     expect(result.intent).toBe("task");
-    expect(result.reasons.join(" ")).toMatch(/advisor: task|semantic: execute_task/);
+    expect(result.reasons.join(" ")).toMatch(/advisor: task|semantic: task\//);
   });
 
   it("R6c: a throwing advisor fails closed to chat", async () => {

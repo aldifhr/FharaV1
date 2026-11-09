@@ -3,11 +3,11 @@ import { CAPABILITY, type AgentDefinition } from "./types";
 const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   {
     pattern: /\b(lead|coordinator|project lead|orchestrator|planner|manager)\b/i,
-    capabilities: [CAPABILITY.COORDINATION, CAPABILITY.RESEARCH, CAPABILITY.GENERAL],
+    capabilities: [CAPABILITY.COORDINATION, CAPABILITY.GENERAL],
   },
   {
     pattern: /\b(designer|design|wireframe|ui-ux|figma)\b/i,
-    capabilities: [CAPABILITY.DESIGN, CAPABILITY.FRONTEND],
+    capabilities: [CAPABILITY.DESIGN],
   },
   {
     pattern: /\b(frontend|front-end|ui|ux|react|web)\b/i,
@@ -15,27 +15,31 @@ const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   },
   {
     pattern: /\b(backend|back-end|api|server|database|db)\b/i,
-    capabilities: [CAPABILITY.BACKEND, CAPABILITY.SHELL_EXECUTION],
+    capabilities: [CAPABILITY.BACKEND],
   },
   {
     pattern: /\b(qa|test|testing|quality|e2e)\b/i,
-    capabilities: [CAPABILITY.BROWSER_TESTING, CAPABILITY.CODE_REVIEW],
+    capabilities: [CAPABILITY.BROWSER_TESTING],
+  },
+  {
+    pattern: /\b(reviewer|code-?review)\b/i,
+    capabilities: [CAPABILITY.CODE_REVIEW],
   },
   {
     pattern: /\b(cto|architect|architecture|tech lead|principal)\b/i,
-    capabilities: [CAPABILITY.ARCHITECTURE, CAPABILITY.CODE_REVIEW, CAPABILITY.SECURITY],
+    capabilities: [CAPABILITY.ARCHITECTURE, CAPABILITY.SECURITY],
   },
   {
     pattern: /\b(growth|seo|marketing|analytics)\b/i,
-    capabilities: [CAPABILITY.GROWTH, CAPABILITY.RESEARCH],
+    capabilities: [CAPABILITY.GROWTH],
   },
   {
     pattern: /\b(support|documentation|docs|technical-writer|writer)\b/i,
-    capabilities: [CAPABILITY.DOCUMENTATION, CAPABILITY.RESEARCH, CAPABILITY.GENERAL],
+    capabilities: [CAPABILITY.DOCUMENTATION],
   },
   {
     pattern: /\b(security|audit|pentest|appsec)\b/i,
-    capabilities: [CAPABILITY.SECURITY, CAPABILITY.CODE_REVIEW],
+    capabilities: [CAPABILITY.SECURITY],
   },
   {
     pattern: /\b(research|analyst|investigator)\b/i,

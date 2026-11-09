@@ -157,7 +157,7 @@ function workerGateLimitFromEnv(): number {
     process.env.WORKER_LLM_MAX_CONCURRENCY ??
     process.env.ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS;
   const parsed = raw ? Number(raw) : Number.NaN;
-  return Number.isFinite(parsed) ? parsed : 2;
+  return Number.isFinite(parsed) ? parsed : 1;
 }
 
 const workerLlmGate = new LlmConcurrencyGate(workerGateLimitFromEnv());

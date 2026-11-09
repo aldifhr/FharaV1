@@ -84,7 +84,7 @@ export interface ExecutePlanInput {
    * the cancel polling below fires it when the task row turns terminal,
    * and its signal is combined into every subtask execution.
    */
-  taskAbort?: AbortController;
+  taskAbort?: AbortController & { bump?: () => void };
   /** Orchestrator wiring: budget + shared context + classification (both processTask and resumeTask pass them since Phase 4). */
   budget?: BudgetTracker;
   /**
@@ -123,6 +123,7 @@ export interface ExecutePlanInput {
     agentId?: string,
     meta?: TokenUsageMeta
   ) => Promise<void>;
+  worktree?: { branchName: string; worktreePath: string };
   /**
    * Persist dynamically spawned subtasks (Phase 4 hardening): called
    * the moment a delegation/fix/review-fix subtask is added to the

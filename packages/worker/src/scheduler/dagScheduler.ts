@@ -1,8 +1,10 @@
 import { isTransientLlmError } from "@/effects/llmCall";
+import { pathsOverlap } from "@/orchestrator/ownership";
 
 export interface SchedulerNode {
   id: string;
   dependencies: string[];
+  paths?: string[];
 }
 
 export type NodeOutcome =
@@ -78,6 +80,7 @@ export interface SchedulerResult {
 const PERMANENT_SUBTASK_ERROR_PATTERNS: readonly RegExp[] = [
   // Forbidden / protected paths (governance validateFilePath, executor guards)
   /refusing to modify protected path/i,
+  /outside declared ownership/i,
   /file[- ]path[- ]forbidden/i,
   /forbidden path/i,
   // No agent can serve the requested capability (routing is deterministic)
@@ -350,20 +353,41 @@ export async function runScheduler(
         // It becomes runnable again as soon as a same-agent node
         // settles and frees a slot.
         if (hooks.canStartNode && !hooks.canStartNode(node)) continue;
+        const ownedOverlap = Array.from(running.keys()).some((runningId) =>
+          pathsOverlap(node.paths, byId.get(runningId)?.paths)
+        );
+        if (ownedOverlap) continue;
         start(node);
       }
     }
 
     if (running.size === 0) {
+      // A node in "waiting" means approval is pending — that's a halt, not a
+      // failure. Everything else that cannot run is a failure.
+      const hasWaiting = Array.from(states.values()).some((state) => state === "waiting");
+      if (hasWaiting) {
+        return { status: "halted", outcomes, failed };
+      }
       if (haltLatched) {
         // Graceful stop: running work has drained; pending work is
-        // blocked with the halt reason instead of being executed.
+        // blocked with the halt reason instead of being executed. When
+        // the halt only landed after every node had already settled
+        // (e.g. a "complete" decision latching decisionTerminal after
+        // the final node), nothing was blocked — this is a success.
         await blockAllPending("Scheduling halted before this subtask could run");
-        break;
+        if (failed.length === 0) {
+          return { status: "completed", outcomes, failed };
+        }
+        return { status: "halted", outcomes, failed };
       }
       await markBlocked("Dependency failed");
       const pendingLeft = Array.from(states.values()).some((state) => state === "pending");
-      if (halted || cancelled || !pendingLeft) break;
+      // A dependency that never ran (missing dep, cycle) blocks dependents
+      // via markBlocked above; anything still pending after that is stalled
+      // on the start gate. Either way the DAG cannot proceed.
+      if (failed.length > 0 || !pendingLeft) {
+        return { status: failed.length ? "failed" : "completed", outcomes, failed };
+      }
       // Nothing is running and nothing can start, yet nodes remain
       // pending: their dependencies can never be satisfied (a cycle the
       // validator missed) or every runnable node is deferred by the
@@ -384,7 +408,7 @@ export async function runScheduler(
           ? "Start gate never freed a slot for this subtask (agent concurrency limit)"
           : "Dependency could not run"
       );
-      break;
+      return { status: "failed", outcomes, failed };
     }
 
     const result = await Promise.race(running.values());

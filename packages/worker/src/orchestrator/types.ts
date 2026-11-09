@@ -57,6 +57,8 @@ export interface PlanSubtask {
   capability: string;
   dependencies: string[];
   order: number;
+  allowedPaths?: string[];
+  origin?: "planned" | "dynamic";
 }
 
 export interface ExecutionPlan {

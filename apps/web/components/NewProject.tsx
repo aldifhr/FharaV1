@@ -163,7 +163,24 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
           <>
             <p className="text-sm text-gray-500">Choose agents for the team <span className="font-medium dark:text-white">{name}</span>.</p>
             <fieldset className="grid gap-2">
-              <legend className="text-sm font-medium">Team project</legend>
+              <div className="flex items-center justify-between">
+                <legend className="text-sm font-medium">Team project</legend>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedAgentIds((current) =>
+                      current.length === (agents ?? []).length
+                        ? []
+                        : (agents ?? []).map((agent) => agent._id)
+                    )
+                  }
+                  className="text-xs font-medium text-[#635bff] hover:underline"
+                >
+                  {(agents ?? []).length > 0 && selectedAgentIds.length === (agents ?? []).length
+                    ? "Deselect all"
+                    : "Select all"}
+                </button>
+              </div>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2 dark:border-gray-700">
                 {(agents ?? []).length === 0 && <p className="text-xs text-gray-400">No agents yet. Create one from the Teams page first.</p>}
                 {(agents ?? []).map((agent, index) => {
@@ -203,7 +220,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
         <button
           type="submit"
           disabled={saving}
-          className="mt-1 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="mt-1 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
         >
           {saving ? "Saving..." : step === "project" ? "Next" : "Create project"}
         </button>

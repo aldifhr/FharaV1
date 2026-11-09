@@ -15,11 +15,19 @@ import {
   buildAgentExecutionContext,
   formatAgentContextForPrompt,
 } from "@/orchestrator/agentContext";
+import {
+  runNativeProvider,
+  buildNativePrompt,
+  isNativeProviderAvailable,
+} from "./nativeProvider";
 import type { SharedTaskContext } from "@/orchestrator/taskContext";
 import { extractFileHint, parseDelegation, parseDraft, parseReview, sanitizeForChat } from "@/utils/json";
 import { validateFilePath } from "@/governance/tools";
-import { computeDiff, type FileDiff } from "@/tools/gitDiff";
+import { isPathWithinOwnership } from "@/orchestrator/ownership";
+import { computeDiff, snapshotIdForChanges, type FileDiff } from "@/tools/gitDiff";
 import { isCommandAllowed, runCommand } from "@/tools/runCommand";
+import { resolveSandboxPathAsync } from "@/tools/sandbox";
+import { promises as fs } from "node:fs";
 import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
 import { runResponsiveQa } from "./qa";
@@ -92,6 +100,14 @@ export interface SubtaskExecutionInput {
     writeTools?: boolean;
     maxIterations?: number;
   };
+  /**
+   * Plan 014 runtime: "api" (default, host tools + gated LLM) or
+   * "native-provider" (provider CLI with its own native tools in the
+   * workspace; full-access per the recorded decision).
+   */
+  runtime?: "api" | "native-provider";
+  /** Optional CLI binary override for the native-provider runtime. */
+  nativeProviderCommand?: string;
 }
 
 /**
@@ -209,6 +225,21 @@ export async function executeSubtask(
   }
 
   try {
+    // Plan 014: native-provider runtime (provider CLI with its own native
+    // tools in the task workspace). Falls back to the API path when the
+    // provider binary is unavailable.
+    if (input.runtime === "native-provider") {
+      const available = await isNativeProviderAvailable(input.nativeProviderCommand);
+      if (!available) {
+        await input.onEvent(
+          "native.runtime.unavailable",
+          { provider: input.nativeProviderCommand ?? "native-provider" },
+          "warn"
+        );
+      } else {
+        return await executeNativeProvider(input);
+      }
+    }
     switch (subtask.kind) {
       case "code_change":
         return await executeCodeChange(input);
@@ -236,6 +267,124 @@ export async function executeSubtask(
     }
     throw error;
   }
+}
+
+/**
+ * Plan 014 native-provider runtime: run the subtask through the provider
+ * CLI in the task workspace (the provider owns its native tools there),
+ * then stage any workspace changes it made through the normal host diff
+ * pipeline so verification and the approval flow still see them. Budget
+ * gate is waived per the recorded Plan 014 decision; usage is reported
+ * for observability when the provider reports it.
+ */
+async function executeNativeProvider(input: SubtaskExecutionInput): Promise<SubtaskExecutionResult> {
+  const {
+    workspacePath,
+    command,
+    agent,
+    subtask,
+    signal,
+    onEvent,
+    onMessage,
+  } = input;
+
+  const fileHint = extractFileHint(`${subtask.description}\n${command}`);
+  const { context } = await exploreRepository(workspacePath, { fileHint });
+  await onEvent("native.context", {
+    capability: subtask.capability,
+    mode: "native-provider",
+  });
+
+  if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
+
+  let prior = "";
+  if (input.taskContext) {
+    const curated = buildAgentExecutionContext({
+      taskContext: input.taskContext,
+      agent,
+      assignment: `${subtask.title} — ${subtask.description}`,
+    });
+    prior = `Shared task context:\n${formatAgentContextForPrompt(curated)}`;
+  } else if (input.priorOutputs.size > 0) {
+    const raw = Array.from(input.priorOutputs.entries())
+      .map(([key, value]) => `### ${key}\n${value.slice(0, 4000)}`)
+      .join("\n\n");
+    prior = `Previous subtask outputs:\n${raw}`;
+  }
+
+  const prompt = buildNativePrompt({
+    title: subtask.title,
+    description: subtask.description,
+    command,
+    systemPrompt: agent.systemPrompt,
+    priorContext: prior || undefined,
+    fileContext: context,
+  });
+
+  const result = await runNativeProvider({
+    workspacePath,
+    prompt,
+    command: input.nativeProviderCommand,
+    signal,
+    onEvent,
+    onMessage,
+  });
+
+  if (input.onTokenUsage && (result.inputTokens > 0 || result.outputTokens > 0)) {
+    await input.onTokenUsage(result.inputTokens, result.outputTokens, "native-provider", undefined);
+  }
+
+  if (result.status !== "completed") {
+    return { status: "failed", error: result.output || "Native provider run failed" };
+  }
+
+  // Stage whatever the provider changed in the workspace so the
+  // verification and approval flows still review it.
+  const prepared: { filePath: string }[] = [];
+  if (subtask.kind === "code_change" || subtask.kind === "shell") {
+    try {
+      const { stdout } = await runCommand(workspacePath, "git", ["status", "--short"], { signal });
+      const changedPaths = stdout
+        .split(/\r?\n/)
+        .map((line) => line.slice(3).trim())
+        .filter(Boolean)
+        .slice(0, 50);
+      for (const filePath of changedPaths) {
+        if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
+        if (isForbiddenPath(filePath)) continue;
+        const check = validateFilePath(filePath);
+        if (!check.ok) continue;
+        if (!isPathWithinOwnership(filePath, subtask.allowedPaths)) continue;
+        try {
+          const resolved = await resolveSandboxPathAsync(workspacePath, filePath);
+          const newContent = await fs.readFile(resolved, "utf-8");
+          const diff = await computeDiff(workspacePath, filePath, newContent);
+          await input.saveFileChange(diff);
+          prepared.push({ filePath });
+        } catch {
+          // Per-file staging failures are best-effort; the summary stands.
+        }
+      }
+    } catch {
+      // Workspace may not be a git repo; the provider's own output stands.
+    }
+  }
+
+  const output = [
+    result.output,
+    prepared.length > 0 ? `Staged ${prepared.length} file change(s): ${prepared.map((c) => c.filePath).join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return {
+    status: "completed",
+    output,
+    meta: {
+      runtime: "native-provider",
+      provider: input.nativeProviderCommand ?? "opencode",
+      stagedFiles: prepared.map((c) => c.filePath),
+    },
+  };
 }
 
 function baseMessages(input: SubtaskExecutionInput, userContent: string) {
@@ -322,6 +471,9 @@ async function executeCodeChange(
     "- If no files need changing, return exactly {\"files\":[]}.",
     "",
     "Rules:",
+    ...(subtask.allowedPaths && subtask.allowedPaths.length > 0
+      ? [`- Declared ownership for this subtask: ${subtask.allowedPaths.join(", ")}. Only modify files inside it.`]
+      : []),
     "- Only relative paths inside the workspace.",
     "- Preserve unrelated behavior and code.",
     "- Do not touch lockfiles, secrets, .env files, or node_modules.",
@@ -408,6 +560,9 @@ async function executeCodeChange(
     if (!filePathCheck.ok) {
       return { status: "failed", error: `Refusing to modify protected path (${filePathCheck.reason}): ${file.filePath}` };
     }
+    if (!isPathWithinOwnership(file.filePath, subtask.allowedPaths)) {
+      return { status: "failed", error: `Refusing to modify path outside declared ownership: ${file.filePath}` };
+    }
     try {
       const diff = await computeDiff(workspacePath, file.filePath, file.newContent);
       await input.saveFileChange(diff);
@@ -444,6 +599,7 @@ async function executeReview(
     };
   }
 
+  const snapshotId = snapshotIdForChanges(fileChanges);
   const diffText = fileChanges
     .map((change) => `### ${change.filePath} (${change.changeType})\n${change.diff}`)
     .join("\n\n")
@@ -459,6 +615,7 @@ async function executeReview(
       [
         `Review these prepared changes for: ${input.command}`,
         `Review scope: ${subtask.description}`,
+        `Change-set snapshot id: ${snapshotId}. Review exactly this frozen set.`,
         diffText,
         "",
         "Return JSON only:",
@@ -501,19 +658,20 @@ async function executeReview(
   await input.onEvent("review.completed", {
     verdict: review.verdict,
     findings: review.findings,
+    snapshotId,
   });
 
   if (review.verdict !== "approved") {
     return {
       status: "completed",
       output: `Review requested changes:\n\n${formatFindings(review.findings)}`,
-      meta: { verdict: review.verdict, findings: review.findings },
+      meta: { verdict: review.verdict, findings: review.findings, snapshotId },
     };
   }
   return {
     status: "completed",
     output: "Review approved.",
-    meta: { verdict: review.verdict, findings: review.findings },
+    meta: { verdict: review.verdict, findings: review.findings, snapshotId },
   };
 }
 

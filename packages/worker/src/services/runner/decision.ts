@@ -51,7 +51,7 @@ export async function handleNodeOutcome(
   if (outcome.status === "completed") runCompleted.add(node.id);
   const subtaskKind = plan.subtasks.find((candidate) => candidate.key === node.id)?.kind;
   const meta = outcome.meta as
-    | { verdict?: string; findings?: ReviewResult["findings"] }
+    | { verdict?: string; findings?: ReviewResult["findings"]; snapshotId?: string }
     | undefined;
   if (
     subtaskKind === "review" &&
@@ -61,6 +61,7 @@ export async function handleNodeOutcome(
     state.reviewVerdicts[node.id] = {
       verdict: meta.verdict,
       findings: Array.isArray(meta.findings) ? meta.findings : [],
+      ...(typeof meta.snapshotId === "string" ? { snapshotId: meta.snapshotId } : {}),
     };
   }
   if (
@@ -378,6 +379,7 @@ export async function handleNodeOutcome(
               dynamicNodes = applied.nodes.map((dynamic) => ({
                 id: dynamic.key,
                 dependencies: dynamic.dependencies,
+                paths: dynamic.allowedPaths,
               }));
             }
             break;
@@ -456,6 +458,7 @@ export async function handleNodeOutcome(
                 .pauseForInput({
                   taskId,
                   question: applied.question,
+                  options: applied.options,
                   workerId: deps.workerId,
                 })
                 .catch(() => null);
@@ -464,6 +467,29 @@ export async function handleNodeOutcome(
                 ctx.decisionTerminal = true;
               }
             }
+            break;
+          }
+          case "call_agent": {
+            // Ephemeral invocation: the runner's LLM call path invoked the
+            // routed agent directly — no subtask row, no DAG change, no
+            // persistence. The answer already exists in the agent output; we
+            // just log the call for the trace.
+            input.budget.incrementDelegation();
+            const invoked = decision.target?.capability
+              ? routeCapability(decision.target.capability, input.agents, {
+                  allowFallback: deps.policy.allowFallback,
+                })
+              : undefined;
+            await deps.api
+              .appendAgentMessage({
+                projectId: project._id,
+                taskId: task._id as any,
+                agentId: invoked?._id as any,
+                content: `[call_agent: ${invoked?.name ?? applied.capability}] ${applied.reasoning.slice(0, 300)}`,
+                subtaskKey: node.id,
+                executionId,
+              })
+              .catch(() => undefined);
             break;
           }
         }

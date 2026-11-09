@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import * as net from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chromium, type Browser } from "playwright";
@@ -64,7 +65,17 @@ export async function runResponsiveQa(
   workspaceRoot: string,
   options: QaOptions = {}
 ): Promise<QaReport> {
-  const baseUrl = options.baseUrl ?? process.env.QA_BASE_URL ?? "http://127.0.0.1:3000";
+  // QA must run the TARGET project itself: when no URL is explicitly
+  // given, allocate a free port and let the auto-start dev server run
+  // there. Defaulting silently to a fixed port (historically 3000) made
+  // QA pass against whatever foreign app happened to sit on it.
+  let explicitBaseUrl = options.baseUrl ?? process.env.QA_BASE_URL;
+  let baseUrl = explicitBaseUrl;
+  if (!baseUrl) {
+    const freePort = await getFreePort();
+    baseUrl = `http://127.0.0.1:${freePort}`;
+  }
+  explicitBaseUrl = baseUrl;
   const screenshotsDir = path.join(workspaceRoot, ".qa", "screenshots");
   const baselinesDir = path.join(workspaceRoot, ".qa", "baselines");
   await fs.mkdir(screenshotsDir, { recursive: true });
@@ -112,13 +123,23 @@ export async function runResponsiveQa(
           details: `No server reachable at ${baseUrl}`,
         });
       } else {
+        // Derive the dev-server port from the resolved URL so the
+        // auto-started server (and the checks below) target the same
+        // app. Allowing a stale default here would QA whichever foreign
+        // process happens to sit on that port.
+        let targetPort = "3000";
+        try {
+          targetPort = new URL(baseUrl).port || targetPort;
+        } catch {
+          // Malformed qaUrl/host: keep the historical default port.
+        }
         const isWin = process.platform === "win32";
         server = spawn(
           isWin ? "cmd.exe" : "npm",
           isWin ? ["/c", "npm.cmd", "run", "dev"] : ["run", "dev"],
           {
             cwd: workspaceRoot,
-            env: { ...process.env, PORT: "3000" },
+            env: { ...process.env, PORT: targetPort },
             windowsHide: true,
             stdio: "ignore",
             // Own process group on POSIX so the finally/abort cleanup
@@ -371,6 +392,21 @@ async function compareScreenshot(
       details: `Screenshot comparison failed (${digest}): ${error instanceof Error ? error.message : String(error)}`,
     };
   }
+}
+
+/** First free TCP port for the auto-started dev server. */
+async function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      server.close(() => {
+        if (address && typeof address === "object") resolve(address.port);
+        else reject(new Error("Could not allocate a free port"));
+      });
+    });
+  });
 }
 
 async function canReach(url: string): Promise<boolean> {

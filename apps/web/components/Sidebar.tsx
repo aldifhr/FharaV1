@@ -1,5 +1,5 @@
 "use client";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
@@ -21,7 +21,8 @@ import { Card, CardContent } from "./ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { usePathname } from "next/navigation";
 import { randomAvatartion, type AvatartionAvatar } from "./ui/avatartion";
-import { roleLabel } from "@/lib/agentRoles";
+import { roleLabel, ROLE_DEFAULT_PROMPTS } from "@/lib/agentRoles";
+import { subscribeChatTyping } from "@/lib/chatTyping";
 import { SkeletonBox } from "skullet/react";
 
 const AGENT_ROLES = [
@@ -48,6 +49,8 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   const llmProviders = useQuery(api.llmProviders.list, {});
   const llmModels = useQuery(api.llmModels.list, {});
   const activeByAgent = useQuery(api.executionView.activeByAgent, {});
+  const activeTaskProjects = useQuery(api.tasks.activeTaskProjectIds, {});
+  const hasActiveTask = new Set((activeTaskProjects ?? []).map((id: string) => String(id)));
   const pending = useQuery(api.approvals.listPendingAll, {});
   const approve = useMutation(api.approvals.approve);
   const reject = useMutation(api.approvals.reject);
@@ -72,8 +75,18 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
   const [removingAgentId, setRemovingAgentId] = useState<string | null>(null);
   const [openSections, setOpenSections] = useState({ needsYou: true, projects: true, team: true });
   const [teamShowAll, setTeamShowAll] = useState(false);
+  const [projectsShowAll, setProjectsShowAll] = useState(false);
   const { openNewProject } = useNewProject();
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
+  const [draftingAgentIds, setDraftingAgentIds] = useState<string[]>([]);
+
+  // Chat replies do not create execution leases; ChatPanel signals the selected
+  // agents currently drafting a reply via a window event.
+  useEffect(
+    () => subscribeChatTyping((detail) => setDraftingAgentIds(detail.active ? detail.agentIds : [])),
+    []
+  );
+
   const [detailAgent, setDetailAgent] = useState<any>(null);
   const removeProject = useMutation(api.projects.remove);
   const router = useRouter();
@@ -91,6 +104,10 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
 
   const handleSelectRole = (value: string | null) => {
     setAgentRole(value ?? "");
+    // Prefill the role's default system prompt so the user sees and can
+    // tweak it before creating; the backend applies the same default
+    // when the field is empty.
+    setAgentPrompt(value ? (ROLE_DEFAULT_PROMPTS[value] ?? "") : "");
     if (value) setAgentError("");
   };
 
@@ -344,10 +361,17 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
         )}
         {openSections.projects && projects !== undefined && filteredProjects.length === 0 && <p className="px-1 pt-2 text-xs text-gray-400">No projects yet.</p>}
         <AnimatePresence initial={false}>
-        {openSections.projects && filteredProjects.map((p: any) => {
+        {openSections.projects && (projectsShowAll ? filteredProjects : filteredProjects.slice(0, 7)).map((p: any) => {
           const isSelected = projectId === p._id;
           const pendingCount = pendingByProject.get(p._id);
-          const badgeText = pendingCount ? `${pendingCount} pending` : isSelected ? "current" : "in progress";
+          const isActive = hasActiveTask.has(String(p._id));
+          const badgeText = pendingCount
+            ? `${pendingCount} pending`
+            : isSelected
+              ? "current"
+              : isActive
+                ? "in progress"
+                : "";
           return (
           <motion.div
             key={p._id}
@@ -365,13 +389,15 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
               {p.name}
             </Link>
             <span className="ml-2 flex shrink-0 items-center gap-1.5">
-              <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+              {badgeText && (
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
                 isSelected
                   ? "bg-white/80 text-[#5147b4] shadow-xs dark:bg-gray-700 dark:text-indigo-200"
                   : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
               }`}>
                 {badgeText}
               </span>
+              )}
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -394,6 +420,16 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
           );
         })}
         </AnimatePresence>
+        {openSections.projects && !projectsShowAll && filteredProjects.length > 7 && (
+          <button type="button" onClick={() => setProjectsShowAll(true)} className="mt-1.5 flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-400 hover:text-[#5147b4]">
+            <span className="text-[9px]">▶</span> {filteredProjects.length - 7} more
+          </button>
+        )}
+        {openSections.projects && projectsShowAll && filteredProjects.length > 7 && (
+          <button type="button" onClick={() => setProjectsShowAll(false)} className="mt-1.5 flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-400 hover:text-[#5147b4]">
+            <span className="inline-block rotate-90 text-[9px]">▶</span> Show less
+          </button>
+        )}
       </div>
 
       <div>
@@ -437,7 +473,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
           </div>
         )}
         {(() => {
-          const shown = teamShowAll ? visibleAgents : visibleAgents.slice(0, 10);
+          const shown = teamShowAll ? visibleAgents : visibleAgents.slice(0, 7);
           const remaining = visibleAgents.length - shown.length;
           return (
           <>
@@ -446,7 +482,12 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
           const active = (activeByAgent as any)?.[a._id as string] as { taskId: string; taskTitle: string; subtaskKey?: string; status: string } | undefined;
           // Status is derived from the backend execution lease, not the
           // persisted `agents.status` (which lumps idle agents as "working").
-          const status = statusFromActive(active);
+          // A chat reply has no execution lease; surface it as drafting so
+          // the row stops showing idle mid-reply.
+          const draftingReply = !active && draftingAgentIds.includes(a._id as string);
+          const status = draftingReply
+            ? { label: "Drafting reply", avatar: "working" as const }
+            : statusFromActive(active);
           const isDisabled = a.isEnabled === false;
           const expanded = expandedAgentId === a._id;
           const projectCount = (projects ?? []).filter((p: any) => p.agentIds?.includes(a._id)).length;
@@ -528,9 +569,6 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                 <button type="button" onClick={() => setDetailAgent(a)} className="block w-full px-2 pb-2 pl-12 text-left text-[11px] text-gray-500 hover:text-[#5147b4] dark:text-gray-400">
                   <span className="block">{roleLabel(a.role)} · {status.label}</span>
                   {active && <span className="block truncate">On: {active.taskTitle}{active.subtaskKey ? ` · ${active.subtaskKey}` : ""}</span>}
-                  <span className="block">
-                    {projectCount} project{projectCount === 1 ? "" : "s"} · {(a.supportedTools ?? a.capabilities ?? []).length} tool/capability entries · click for full detail
-                  </span>
                 </button>
               </motion.div>
             )}
@@ -543,7 +581,7 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
             <span className="text-[9px]">▶</span> {remaining} more
           </button>
         )}
-        {openSections.team && teamShowAll && visibleAgents.length > 10 && (
+        {openSections.team && teamShowAll && visibleAgents.length > 7 && (
           <button type="button" onClick={() => setTeamShowAll(false)} className="mt-1.5 flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-400 hover:text-[#5147b4]">
             <span className="inline-block rotate-90 text-[9px]">▶</span> Show less
           </button>
@@ -609,6 +647,15 @@ export default function Sidebar({ projectId, onSelectProject }: { projectId?: st
                   Generate
                 </button>
               </div>
+              <label className="grid gap-1 text-sm">System prompt
+                <textarea
+                  value={agentPrompt}
+                  onChange={(event) => setAgentPrompt(event.target.value)}
+                  rows={5}
+                  placeholder="Persona for this agent — prefilled from the selected role, editable before create. Leave empty to use the role default."
+                  className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+                />
+              </label>
               <button type="submit" disabled={savingAgent} className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
                 {savingAgent ? "Creating…" : "Create agent"}
               </button>

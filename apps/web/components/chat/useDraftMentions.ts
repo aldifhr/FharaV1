@@ -1,13 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { roleLabel } from "@/lib/agentRoles";
 
 /**
- * File `@mention` state for the composer. Tracks the token being typed, the
- * workspace file list, and powers insertion + file-content attachment when a
- * message is sent.
+ * `@mention` state for the composer. One token drives both:
+ *  - agent mentions (`@CTO who are you`) → routing
+ *  - file mentions (`@src/app/page.tsx`) → file-content attachment on send
  */
-export function useDraftMentions(draft: string, setDraft: (v: string) => void, project: any, projectFiles: any[] | undefined) {
+export function useDraftMentions(
+  draft: string,
+  setDraft: (v: string) => void,
+  project: any,
+  projectFiles: any[] | undefined,
+  agents: Array<{ _id: string; name: string; role: string }> = []
+) {
   const [mention, setMention] = useState<string | null>(null);
   const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
 
@@ -34,7 +41,7 @@ export function useDraftMentions(draft: string, setDraft: (v: string) => void, p
     };
   }, [project?.workspacePath]);
 
-  const results = useMemo(() => {
+  const fileResults = useMemo(() => {
     if (mention === null) return [];
     const q = mention.toLowerCase();
     const changedFiles = (projectFiles ?? []).map((f: any) => f.filePath as string);
@@ -42,6 +49,17 @@ export function useDraftMentions(draft: string, setDraft: (v: string) => void, p
       .filter((p) => p.toLowerCase().includes(q))
       .slice(0, 30);
   }, [mention, projectFiles, workspaceFiles]);
+
+  const agentResults = useMemo(() => {
+    if (mention === null) return [];
+    const q = mention.toLowerCase();
+    return agents
+      .filter((a) => {
+        const label = roleLabel(a.role).toLowerCase();
+        return label.includes(q) || a.name.toLowerCase().includes(q);
+      })
+      .slice(0, 6);
+  }, [mention, agents]);
 
   /** Read `@path` contents from the workspace and append them to `text`. */
   const attachMentionedFiles = async (text: string) => {
@@ -61,10 +79,23 @@ export function useDraftMentions(draft: string, setDraft: (v: string) => void, p
     return `${text}${contents.join("")}`.slice(0, 8000);
   };
 
+  /** Agent ids mentioned in the text (`@CTO`, `@Frontend`, …). */
+  const mentionedAgentIds = (text: string): string[] =>
+    agents
+      .filter((a) => new RegExp(`@${escapeRegExp(roleLabel(a.role))}\\b`, "i").test(text))
+      .map((a) => a._id);
+
   const insert = (path: string) => {
     const at = draft.lastIndexOf("@");
     const before = draft.slice(0, at);
     setDraft(`${before}@${path} `);
+    setMention(null);
+  };
+
+  const insertAgent = (agent: { _id: string; name: string; role: string }) => {
+    const at = draft.lastIndexOf("@");
+    const before = draft.slice(0, at);
+    setDraft(`${before}@${roleLabel(agent.role)} `);
     setMention(null);
   };
 
@@ -76,5 +107,19 @@ export function useDraftMentions(draft: string, setDraft: (v: string) => void, p
     setMention(token !== null && !/\s/.test(token) ? token : null);
   };
 
-  return { mention, setMention, results, insert, handleInput, attachMentionedFiles };
+  return {
+    mention,
+    setMention,
+    results: fileResults,
+    agentResults,
+    insert,
+    insertAgent,
+    mentionedAgentIds,
+    handleInput,
+    attachMentionedFiles,
+  };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

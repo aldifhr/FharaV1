@@ -30,6 +30,7 @@ import type { DelegationDecision } from "./delegation";
 export type DecisionAction =
   | "execute" // run the selected agent on one node
   | "delegate" // add work for another capability
+  | "call_agent" // invoke an agent once (ephemeral, no subtask row)
   | "parallel" // add independent nodes in one batch
   | "replan" // replace the remaining graph, keep completed work
   | "complete" // objective evidence satisfied
@@ -38,6 +39,7 @@ export type DecisionAction =
 export const DECISION_ACTIONS: readonly DecisionAction[] = [
   "execute",
   "delegate",
+  "call_agent",
   "parallel",
   "replan",
   "complete",
@@ -105,6 +107,17 @@ export interface ObjectiveEvaluation {
  *  budget-exhausted path, not via objective evaluation. */
 const UNMET_OUTCOMES = new Set(["retry", "recovery", "decision:step_limit"]);
 
+export function isRecoveryNode(subtask: { origin?: string; key: string }, dynamicKeys?: Set<string> | ReadonlySet<string>): boolean {
+  if (subtask.origin === "dynamic") return true;
+  if (subtask.origin === "planned") return false;
+  if (dynamicKeys?.has(subtask.key)) return true;
+  return /^(decision_delegate|fix_qa|delegate_)/.test(subtask.key);
+}
+
+export function isPlannedNode(subtask: { origin?: string; key: string }, dynamicKeys?: Set<string> | ReadonlySet<string>): boolean {
+  return !isRecoveryNode(subtask, dynamicKeys);
+}
+
 /**
  * Plan 005 Phase 5 Step 5.1: is the task objective satisfied? Pure: it reads
  * the plan, completed keys, open issues, and the runner-supplied evidence.
@@ -169,7 +182,7 @@ export function evaluateObjective(ctx: DecisionContext): ObjectiveEvaluation {
     // objective requirements. The runner marks them explicitly; the planned
     // QA node is the only authoritative one, otherwise every retry creates
     // another required verdict and the task can never complete.
-    if (ctx.dynamicKeys?.has(subtask.key)) continue;
+    if (isRecoveryNode(subtask, ctx.dynamicKeys)) continue;
     const verdict = ev.qaVerdicts?.[subtask.key];
     if (verdict === "passed") {
       evidence.push(`${subtask.key}: QA passed`);
@@ -222,6 +235,7 @@ export interface OrchestratorDecision {
   dependencies?: string[];
   expectedOutcome?: string;
   question?: string;
+  options?: string[];
   constraints?: {
     maxConcurrency?: number;
     deadlineMs?: number;
@@ -287,6 +301,7 @@ interface NormalizedDecision {
   dependencies?: string[];
   expectedOutcome?: string;
   question?: string;
+  options?: string[];
   constraints?: OrchestratorDecision["constraints"];
 }
 
@@ -331,6 +346,9 @@ function normalizeRawDecision(raw: unknown): { ok: true; value: NormalizedDecisi
     typeof record.question === "string" && record.question.trim().length > 0
       ? record.question
       : undefined;
+  const options = Array.isArray(record.options)
+    ? record.options.filter((option): option is string => typeof option === "string" && option.trim().length > 0)
+    : undefined;
   const constraints =
     record.constraints && typeof record.constraints === "object" && !Array.isArray(record.constraints)
       ? (record.constraints as OrchestratorDecision["constraints"])
@@ -346,6 +364,7 @@ function normalizeRawDecision(raw: unknown): { ok: true; value: NormalizedDecisi
       dependencies,
       expectedOutcome,
       question,
+      options,
       constraints,
     },
   };
@@ -397,6 +416,9 @@ export function validateDecision(
     if (!decision.question) {
       return { ok: false, reason: "ask_user requires a question", violated: "contract" };
     }
+    if (decision.options !== undefined && decision.options.length > 6) {
+      return { ok: false, reason: "ask_user allows at most 6 options", violated: "contract" };
+    }
   }
 
   const tasks: DecisionTask[] =
@@ -406,12 +428,38 @@ export function validateDecision(
         ? [decision.task]
         : [];
 
-  if (decision.action === "execute" || decision.action === "delegate" || decision.action === "parallel") {
+  if (decision.action === "execute" || decision.action === "delegate" || decision.action === "parallel" || decision.action === "call_agent") {
     if (decision.action === "parallel" && tasks.length === 0) {
       return { ok: false, reason: "parallel requires at least one task", violated: "contract" };
     }
-    if (decision.action !== "parallel" && tasks.length === 0) {
+    if (decision.action !== "parallel" && decision.action !== "call_agent" && tasks.length === 0) {
       return { ok: false, reason: `${decision.action} requires a task`, violated: "contract" };
+    }
+    // call_agent: LLM-only invocation. No subtask, no DAG change.
+    if (decision.action === "call_agent") {
+      const capability = decision.target?.capability ?? decision.task?.capability;
+      if (!capability || !routeCapability(capability, ctx.agents, { allowFallback: false })) {
+        return { ok: false, reason: "call_agent: no enabled agent serves the capability", violated: "routing" };
+      }
+      return {
+        ok: true,
+        decision: {
+          id: meta.id,
+          action: decision.action,
+          reasoning: decision.reasoning,
+          target: decision.target,
+          task: decision.task,
+          tasks: decision.tasks,
+          dependencies: decision.dependencies,
+          expectedOutcome: decision.expectedOutcome,
+          question: decision.question,
+          options: decision.options,
+          constraints: decision.constraints,
+          decidedBy: meta.decidedBy,
+          planVersion: ctx.planVersion,
+          createdAt: Date.now(),
+        },
+      };
     }
 
     const existingKeys = new Set(ctx.plan.subtasks.map((subtask) => subtask.key));
@@ -542,6 +590,7 @@ export function validateDecision(
       dependencies: decision.dependencies,
       expectedOutcome: decision.expectedOutcome,
       question: decision.question,
+      options: decision.options,
       constraints: decision.constraints,
       decidedBy: meta.decidedBy,
       planVersion: ctx.planVersion,
@@ -785,7 +834,8 @@ export type AppliedDecision =
   | { kind: "replan"; reason: string }
   | { kind: "complete"; expectedOutcome?: string }
   | { kind: "halt"; reason: string }
-  | { kind: "ask_user"; question: string };
+  | { kind: "ask_user"; question: string; options?: string[] }
+  | { kind: "call_agent"; capability: string; reasoning: string };
 
 /**
  * Pure applier: turn a validated decision into what the runner must do.
@@ -843,7 +893,11 @@ export function applyDecision(
       return { kind: "complete", expectedOutcome: decision.expectedOutcome };
     case "ask_user":
       // Recorded no-op until step 4 wires the question into `waiting_input`.
-      return { kind: "ask_user", question: decision.question ?? decision.reasoning };
+      return { kind: "ask_user", question: decision.question ?? decision.reasoning, options: decision.options };
+    case "call_agent": {
+      const capability = decision.target?.capability ?? decision.task?.capability ?? CAPABILITY.GENERAL;
+      return { kind: "call_agent", capability, reasoning: decision.reasoning };
+    }
     default:
       return { kind: "nodes", nodes: [] };
   }

@@ -50,6 +50,7 @@ export interface DecisionAdvisorInput {
 const ACTION_LIST = [
   "execute — run the selected agent on one node",
   "delegate — add work for another capability",
+  "call_agent — invoke an agent once (ephemeral, no new subtask)",
   "parallel — add independent nodes in one batch",
   "replan — replace the remaining graph, keep completed work",
   "complete — objective evidence satisfied (requires expectedOutcome)",
@@ -102,8 +103,9 @@ export function buildDecisionPrompt(ctx: DecisionContext, observation: DecisionO
     "Rules:",
     `- reasoning must be <= 500 characters.`,
     "- for execute/delegate/parallel: task is required, capability must be in the agent list, dependencies must reference existing subtask keys or keys in the same decision.",
+    "- for call_agent: target.capability is required, capability must be in the agent list. No subtask is created.",
     "- for complete: expectedOutcome is required.",
-    "- for ask_user: question is required.",
+    "- for ask_user: question is required. Add `options` (2-6 short strings) when the answer is a choice between known alternatives — the UI then offers A/B/C buttons instead of a text box.",
   ]
     .filter((line) => line !== "")
     .join("\n");

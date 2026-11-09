@@ -50,9 +50,10 @@ import backend internals.
   replan or a question, never a silent done.
 - Dynamic subtasks must be persisted (`upsertDynamicSubtasks`) so recovery keeps
   them. In-memory-only plan mutation is a bug.
-- Review/QA nodes are conditional (plan 005 Phase 3): `reviewMode` / `qaMode`
-  (`ORCHESTRATOR_REVIEW_MODE` / `ORCHESTRATOR_QA_MODE`, default `"auto"`) decide
-  when `applyPlanningHints` adds them — a risk signal (auth/security/payments/
+- Review/QA nodes are conditional (plan 005 Phase 3): `reviewMode` defaults to
+  `"auto"`, `qaMode` defaults to `"never"` (browser QA disabled by default
+  until it gets faster) (`ORCHESTRATOR_REVIEW_MODE` / `ORCHESTRATOR_QA_MODE`)
+  decide when `applyPlanningHints` adds them — a risk signal (auth/security/payments/
   migrations/concurrency, multi-domain, multi-capability) or a verification
   request/URL. There is no always-review/always-QA pipeline anymore; `"always"`
   restores the legacy mandate for one knob at a time.
@@ -128,7 +129,7 @@ import backend internals.
 | --- | --- | --- |
 | `CONVEX_SERVICE_TOKEN` | — | Must match the deployment; fails closed when unset |
 | `PROVIDER_ENCRYPTION_KEY` | — | Must match the deployment |
-| `WORKER_CONCURRENCY` | 2 | Tasks in flight |
+| `WORKER_CONCURRENCY` | 1 | Tasks in flight (sequential by default) |
 | `WORKER_POLL_INTERVAL_MS` | 1500 | Claim loop cadence |
 | `WORKER_HEARTBEAT_MS` | 10000 | Lease heartbeat |
 | `WORKER_LEASE_MS` | 60000 | Claim lease |
@@ -137,7 +138,8 @@ import backend internals.
 | `ORCHESTRATOR_DECISION_ENGINE` | — | **Deleted** (plan 013 step 7): the decision engine is the only path; the env var is no longer read. |
 | `ORCHESTRATOR_DECISION_LLM` | `ambiguous` | `off` / `ambiguous` / `always` — when the LLM decision advisor is consulted |
 | `ORCHESTRATOR_MAX_DECISION_STEPS` | `20` | Decision-step bound per task run |
-| `ORCHESTRATOR_REVIEW_MODE` / `ORCHESTRATOR_QA_MODE` | `auto` | `always` / `auto` / `never` — when planning adds review/QA nodes |
+| `ORCHESTRATOR_REVIEW_MODE` | `auto` | `always` / `auto` / `never` — when planning adds review nodes |
+| `ORCHESTRATOR_QA_MODE` | `never` | `always` / `auto` / `never` — when planning adds QA nodes (browser QA off by default) |
 | `ORCHESTRATOR_MCP_TOOL_LOOP` | `true` | Read-only agents may use discovered MCP tools mid-task |
 | `ORCHESTRATOR_MCP_WRITE_TOOLS` | `false` | Expose write/move MCP tools to developers (delete stays denied) |
 | `ORCHESTRATOR_MCP_MAX_TOOL_ITERATIONS` | `6` | Bound on tool-loop rounds per subtask |

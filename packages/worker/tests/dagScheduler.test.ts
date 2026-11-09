@@ -453,6 +453,34 @@ describe("DAG scheduler dynamic nodes (Phase 3)", () => {  it("schedules nodes r
     expect(executed).toHaveLength(3);
   });
 
+  it("reports completed when the halt latches only after the final node settles", async () => {
+    const executed: string[] = [];
+    let halt = false;
+    const result = await runScheduler(
+      nodes([
+        ["a", []],
+      ]),
+      async (node) => {
+        executed.push(node.id);
+        return { status: "completed" };
+      },
+      {
+        maxConcurrency: 1,
+        timeoutMs: 2000,
+        retries: 0,
+        shouldHaltNewNodes: () => halt,
+        onStart: async () => undefined,
+        onOutcome: async (node) => {
+          if (node.id === "a") halt = true;
+          return undefined;
+        },
+      }
+    );
+    expect(executed).toEqual(["a"]);
+    expect(result.failed).toEqual([]);
+    expect(result.status).toBe("completed");
+  });
+
   it("halts new scheduling gracefully: running work drains, pending nodes are blocked", async () => {
     const executed: string[] = [];
     const blocked: string[] = [];
@@ -650,5 +678,37 @@ describe("DAG scheduler per-agent concurrency gate (Phase 4)", () => {
     );
     expect(result.status).toBe("completed");
     expect(attempts).toBe(2);
+  });
+
+  it("defers a node while a running node owns overlapping paths", async () => {
+    let active = 0;
+    let peak = 0;
+    const result = await runScheduler(
+      [
+        { id: "a", dependencies: [], paths: ["apps/web"] },
+        { id: "b", dependencies: [], paths: ["apps/web/features"] },
+        { id: "c", dependencies: [], paths: ["apps/api"] },
+      ],
+      async () => {
+        active += 1;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        active -= 1;
+        return { status: "completed" };
+      },
+      {
+        maxConcurrency: 3,
+        timeoutMs: 2000,
+        retries: 0,
+        onStart: async () => undefined,
+        onOutcome: async () => undefined,
+      }
+    );
+    expect(result.status).toBe("completed");
+    expect(peak).toBe(2);
+  });
+
+  it("classifies ownership refusals as permanent", () => {
+    expect(isPermanentSubtaskError("Refusing to modify path outside declared ownership: x.ts")).toBe(true);
   });
 });

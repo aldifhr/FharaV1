@@ -121,6 +121,13 @@ export class WorkerApi {
     return await this.client.action(api.worker.requestApproval, this.args(input));
   }
 
+  /** Plan 015: central broker verdict (Allow/Deny/Ask) for a risky action. */
+  async checkPermission(
+    input: ActionInput<typeof api.worker.checkPermission>
+  ): Promise<FunctionReturnType<typeof api.worker.checkPermission>> {
+    return await this.client.action(api.worker.checkPermission, this.args(input));
+  }
+
   async getResumable(): Promise<FunctionReturnType<typeof api.worker.getResumable>> {
     return await this.client.action(api.worker.getResumable, this.args({}));
   }

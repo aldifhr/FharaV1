@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { assertProjectAccess, assertTaskAccess, getViewerId } from "./authz";
 import { taskStatus } from "./schema";
 
@@ -44,6 +45,26 @@ export const get = query({
     if (!task) return null;
     await assertProjectAccess(ctx, task.projectId);
     return task;
+  },
+});
+
+/**
+ * Project ids that have a task in flight (queued/running/needs_approval/
+ * waiting_input). The sidebar badge uses it so an idle project does not read
+ * "in progress".
+ */
+export const activeTaskProjectIds = query({
+  args: {},
+  handler: async (ctx) => {
+    const ids = new Set<string>();
+    for (const status of ["queued", "running", "needs_approval", "waiting_input"] as const) {
+      const rows = await ctx.db
+        .query("tasks")
+        .withIndex("by_status", (q) => q.eq("status", status))
+        .collect();
+      for (const row of rows) ids.add(row.projectId as string);
+    }
+    return [...ids];
   },
 });
 
@@ -260,24 +281,7 @@ export const answerQuestion = mutation({
     // resumed run threads it into the shared context (a `user_answer`
     // entry), so the answer influences the continued work. pendingQuestion
     // is cleared — it only ever holds the PENDING question.
-    const contexts = await ctx.db
-      .query("taskContexts")
-      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
-      .order("desc")
-      .take(1);
-    const existing = contexts[0];
-    const answerDecision = {
-      decision: "user_answer",
-      reason: answer.slice(0, 2000),
-      fromAgent: "user",
-      createdAt: now,
-    };
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        decisions: [...(existing.decisions ?? []), answerDecision],
-        updatedAt: now,
-      });
-    }
+    await appendUserAnswer(ctx, args.taskId, answer, now);
     await ctx.db.insert("taskEvents", {
       taskId: task._id,
       projectId: task.projectId,
@@ -285,9 +289,11 @@ export const answerQuestion = mutation({
       payload: { answer: answer.slice(0, 500) },
       level: "info",
     });
+    await emitCanonical(ctx, task.projectId, task._id, undefined, undefined, "message.created", { answer: answer.slice(0, 500) });
     await ctx.db.patch(args.taskId, {
       status: "queued",
       pendingQuestion: undefined,
+      pendingOptions: undefined,
       workerId: undefined,
       leaseExpiresAt: undefined,
       updatedAt: now,
@@ -295,3 +301,87 @@ export const answerQuestion = mutation({
     return { applied: true as const };
   },
 });
+
+/** Steering: append a user instruction to the running task's context.
+ *  The worker folds `user_answer` decisions into sharedContext on its next
+ *  read, so the in-flight agent adjusts instead of a new task being made. */
+export const steerTask = mutation({
+  args: { taskId: v.id("tasks"), instruction: v.string() },
+  handler: async (ctx, args) => {
+    const task = await assertTaskAccess(ctx, args.taskId);
+    if (task.status === "done" || task.status === "rejected" || task.status === "failed") {
+      return { applied: false as const, reason: "task_already_terminal" as const };
+    }
+    const instruction = args.instruction.trim();
+    if (instruction.length === 0) {
+      return { applied: false as const, reason: "empty_instruction" as const };
+    }
+    const now = Date.now();
+    await appendUserAnswer(ctx, args.taskId, instruction, now);
+    await ctx.db.insert("taskEvents", {
+      taskId: task._id,
+      projectId: task.projectId,
+      type: "task.steered",
+      payload: { instruction: instruction.slice(0, 500) },
+      level: "info",
+    });
+    await emitCanonical(ctx, task.projectId, task._id, undefined, undefined, "message.created", { instruction: instruction.slice(0, 500) });
+    return { applied: true as const };
+  },
+});
+
+/** Append one canonical event with a monotonic sequence. */
+async function emitCanonical(
+  ctx: any,
+  projectId: Id<"projects">,
+  taskId: Id<"tasks">,
+  executionId: Id<"executions"> | undefined,
+  agentId: Id<"agents"> | undefined,
+  type: string,
+  payload: any
+): Promise<Id<"agentEvents">> {
+  let sequence = 1;
+  const existing = await ctx.db
+    .query("agentEvents")
+    .withIndex("by_task", (q: any) => q.eq("taskId", taskId))
+    .order("desc")
+    .take(1);
+  if (existing[0]?.sequence) sequence = existing[0].sequence + 1;
+  return ctx.db.insert("agentEvents", {
+    projectId,
+    taskId,
+    executionId,
+    agentId,
+    type,
+    payload,
+    sequence,
+    createdAt: Date.now(),
+  });
+}
+
+/** Shared persistence for ask_user answers and steering instructions. */
+async function appendUserAnswer(
+  ctx: any,
+  taskId: Id<"tasks">,
+  reason: string,
+  now: number
+): Promise<void> {
+  const contexts = await ctx.db
+    .query("taskContexts")
+    .withIndex("by_task", (q: any) => q.eq("taskId", taskId))
+    .order("desc")
+    .take(1);
+  const existing = contexts[0];
+  const decision = {
+    decision: "user_answer",
+    reason: reason.slice(0, 2000),
+    fromAgent: "user",
+    createdAt: now,
+  };
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      decisions: [...(existing.decisions ?? []), decision],
+      updatedAt: now,
+    });
+  }
+}

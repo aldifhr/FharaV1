@@ -5,20 +5,20 @@ import { v } from "convex/values";
 // plus legacy roles for backwards compatibility.
 // Kept in sync with packages/worker/src/orchestrator/roles.ts ROLE_DEFINITIONS.
 export const DEFAULT_ROLES = [
-  { key: "lead", name: "Lead", category: "Leadership", description: "Project coordination, task analysis, delegation, collaboration tracking.", capabilities: ["project-coordination", "architecture", "research", "general"], defaultTools: ["read_file"], enabled: true },
-  { key: "cto", name: "CTO", category: "Leadership", description: "Technical architecture, technical decisions, code review.", capabilities: ["architecture", "code-review", "security-audit", "research"], defaultTools: ["read_file"], enabled: true },
-  { key: "designer", name: "Designer", category: "Product", description: "UI/UX, wireframes, design system, component specifications.", capabilities: ["ui-ux-design", "frontend-development"], defaultTools: ["read_file", "write_file"], enabled: true },
+  { key: "lead", name: "Lead", category: "Leadership", description: "Project coordination, task analysis, delegation, collaboration tracking.", capabilities: ["project-coordination", "general"], defaultTools: ["read_file"], enabled: true },
+  { key: "cto", name: "CTO", category: "Leadership", description: "Technical architecture, technical decisions, risk evaluation.", capabilities: ["architecture", "security-audit"], defaultTools: ["read_file"], enabled: true },
+  { key: "designer", name: "Designer", category: "Product", description: "UI/UX, wireframes, design system, component specifications.", capabilities: ["ui-ux-design"], defaultTools: ["read_file", "write_file"], enabled: true },
   { key: "frontend", name: "Frontend Developer", category: "Engineering", description: "Frontend implementation, React, Next.js, responsive UI.", capabilities: ["frontend-development"], defaultTools: ["read_file", "write_file", "run_command"], enabled: true },
-  { key: "backend", name: "Backend Developer", category: "Engineering", description: "Backend, API, database, server-side logic.", capabilities: ["backend-development", "shell-execution"], defaultTools: ["read_file", "write_file", "run_command"], enabled: true },
-  { key: "qa", name: "QA Engineer", category: "Quality", description: "Testing, bug detection, quality assurance, verification.", capabilities: ["browser-testing", "code-review"], defaultTools: ["read_file", "run_command"], enabled: true },
-  { key: "growth", name: "Growth Specialist", category: "Growth", description: "SEO, product growth, analytics, metrics, user engagement.", capabilities: ["growth-marketing", "research"], defaultTools: ["read_file"], enabled: true },
-  { key: "support", name: "Support Specialist", category: "Operations", description: "Documentation, user support, operational assistance, troubleshooting.", capabilities: ["documentation-support", "research", "general"], defaultTools: ["read_file", "write_file"], enabled: true },
+  { key: "backend", name: "Backend Developer", category: "Engineering", description: "Backend, API, database, server-side logic.", capabilities: ["backend-development"], defaultTools: ["read_file", "write_file", "run_command"], enabled: true },
+  { key: "qa", name: "QA Engineer", category: "Quality", description: "Testing, bug detection, quality assurance, verification.", capabilities: ["browser-testing"], defaultTools: ["read_file", "run_command"], enabled: true },
+  { key: "growth", name: "Growth Specialist", category: "Growth", description: "SEO, product growth, analytics, metrics, user engagement.", capabilities: ["growth-marketing"], defaultTools: ["read_file"], enabled: true },
+  { key: "support", name: "Support Specialist", category: "Operations", description: "Documentation, user support, operational assistance, troubleshooting.", capabilities: ["documentation-support"], defaultTools: ["read_file", "write_file"], enabled: true },
   // Legacy role definitions
-  { key: "devops", name: "DevOps Engineer", category: "Engineering", description: "Docker, CI/CD, deployment, infrastructure.", capabilities: ["shell-execution", "backend-development"], defaultTools: ["read_file", "run_command"], enabled: true },
+  { key: "devops", name: "DevOps Engineer", category: "Engineering", description: "Docker, CI/CD, deployment, infrastructure.", capabilities: ["github", "shell-execution"], defaultTools: ["read_file", "run_command"], enabled: true },
   { key: "reviewer", name: "Reviewer", category: "Quality", description: "Independent code review.", capabilities: ["code-review"], defaultTools: ["read_file"], enabled: true },
   { key: "researcher", name: "Researcher", category: "Research", description: "Technical research.", capabilities: ["research"], defaultTools: ["read_file"], enabled: true },
   { key: "product-analyst", name: "Product Analyst", category: "Product", description: "Requirement analysis.", capabilities: ["research"], defaultTools: ["read_file"], enabled: true },
-  { key: "ui-ux", name: "UI/UX Designer", category: "Product", description: "User experience and interface design.", capabilities: ["frontend-development"], defaultTools: ["read_file"], enabled: true },
+  { key: "ui-ux", name: "UI/UX Designer", category: "Product", description: "User experience and interface design.", capabilities: ["ui-ux-design"], defaultTools: ["read_file"], enabled: true },
 ] as const;
 
 export const list = query({
@@ -58,6 +58,48 @@ export const seedDefaults = internalMutation({
       }
     }
     return { created };
+  },
+});
+
+/**
+ * Upserts DEFAULT_ROLES capabilities/tools into existing roleDefinitions
+ * rows (idempotent). Run once after matrix changes so the DB registry
+ * never diverges from source.
+ */
+export const syncDefaults = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let updated = 0;
+    let created = 0;
+    for (const role of DEFAULT_ROLES) {
+      const existing = await ctx.db.query("roleDefinitions").withIndex("by_key", (q) => q.eq("key", role.key)).take(1);
+      if (existing.length === 0) {
+        await ctx.db.insert("roleDefinitions", {
+          key: role.key,
+          name: role.name,
+          category: role.category,
+          description: role.description,
+          capabilities: [...role.capabilities],
+          defaultTools: [...role.defaultTools],
+          enabled: role.enabled,
+          createdAt: Date.now(),
+        });
+        created++;
+      } else {
+        const current = existing[0];
+        const sameCaps = JSON.stringify([...(current.capabilities ?? [])]) === JSON.stringify([...role.capabilities]);
+        const sameTools = JSON.stringify([...(current.defaultTools ?? [])]) === JSON.stringify([...role.defaultTools]);
+        if (!sameCaps || !sameTools) {
+          await ctx.db.patch(current._id, {
+            capabilities: [...role.capabilities],
+            defaultTools: [...role.defaultTools],
+            updatedAt: Date.now(),
+          } as never);
+          updated++;
+        }
+      }
+    }
+    return { updated, created };
   },
 });
 

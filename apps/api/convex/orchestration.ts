@@ -3,6 +3,7 @@ import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { loadProviderPool, type PoolConnectionPayload } from "./llmResolver";
+import { decidePermissionCore } from "./permissionBroker";
 import {
   taskStatus,
   subtaskKind,
@@ -467,6 +468,7 @@ export const savePlan = internalMutation({
         capability: v.string(),
         dependencies: v.array(v.string()),
         order: v.number(),
+        allowedPaths: v.optional(v.array(v.string())),
       })
     ),
   },
@@ -506,6 +508,7 @@ export const savePlan = internalMutation({
         capability: subtask.capability,
         dependencies: subtask.dependencies,
         order: subtask.order,
+        allowedPaths: subtask.allowedPaths,
         status: "pending",
         attempts: 0,
       });
@@ -573,6 +576,7 @@ export const upsertDynamicSubtasks = internalMutation({
         capability: v.string(),
         dependencies: v.array(v.string()),
         order: v.number(),
+        allowedPaths: v.optional(v.array(v.string())),
         origin: v.optional(v.string()),
       })
     ),
@@ -602,6 +606,7 @@ export const upsertDynamicSubtasks = internalMutation({
         capability: subtask.capability,
         dependencies: subtask.dependencies,
         order: subtask.order,
+        allowedPaths: subtask.allowedPaths,
         status: "pending",
         origin: subtask.origin ?? "dynamic",
         attempts: 0,
@@ -939,6 +944,26 @@ export const requestApproval = internalMutation({
   },
 });
 
+/** Plan 015: worker-side permission decision (internal; surfaced to the
+ *  worker through its token-gated action). Uses the same core as the
+ *  public `permissionBroker.decidePermission` query. */
+export const checkPermission = internalQuery({
+  args: {
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    kind: v.union(
+      v.literal("apply_changes"),
+      v.literal("git_push"),
+      v.literal("run_command"),
+      v.literal("merge_pr")
+    ),
+    targetPath: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await decidePermissionCore(ctx, args);
+  },
+});
+
 export const claimResumableTask = internalMutation({
   args: {
     taskId: v.id("tasks"),
@@ -1149,6 +1174,7 @@ export const pauseForInput = internalMutation({
   args: {
     taskId: v.id("tasks"),
     question: v.string(),
+    options: v.optional(v.array(v.string())),
     workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -1173,9 +1199,17 @@ export const pauseForInput = internalMutation({
       };
     }
     const now = Date.now();
+    // Options are optional A/B/C-style choices: deduped, trimmed, bounded
+    // (2..6), and only kept when the question is a real question. Absent or
+    // too few = the UI falls back to the free-text answer box.
+    const options = (args.options ?? [])
+      .map((option) => option.trim())
+      .filter((option) => option.length > 0);
+    const uniqueOptions = [...new Set(options)].slice(0, 6);
     await ctx.db.patch(args.taskId, {
       status: "waiting_input",
       pendingQuestion: args.question.slice(0, 2000),
+      pendingOptions: uniqueOptions.length >= 2 ? uniqueOptions : undefined,
       updatedAt: now,
     });
     await ctx.db.insert("taskEvents", {
@@ -1256,6 +1290,155 @@ export const recordEvaluation = internalMutation({
   },
 });
 
+/**
+ * Canonical event vocabulary (plan 016 P0). The UI subscribes to these and
+ * never sees provider/worker-specific event names. The map mirrors the raw
+ * `taskEvents` vocabulary the worker actually emits; `canonicalEvent()` in
+ * `chatContext` is the single source of truth.
+ */
+const CANONICAL_MAP: Record<string, string> = {
+  "task.stage": "task.updated",
+  "task.classified": "task.updated",
+  "task.claimed": "agent.started",
+  "subtask.started": "agent.started",
+  "subtask.routed": "agent.started",
+  "subtask.blocked": "agent.waiting_approval",
+  "agent.started": "agent.started",
+  "orchestrator.decision": "agent.thinking",
+  "orchestrator.plan": "agent.thinking",
+  "orchestrator.delegation": "agent.thinking",
+  "orchestrator.decision_fallback": "agent.thinking",
+  "orchestrator.objective_unmet": "agent.thinking",
+  "orchestrator.budget_blocked": "agent.failed",
+  "orchestrator.step_limit": "agent.failed",
+  "orchestrator.evaluation_failed": "agent.failed",
+  "approval.requested": "agent.waiting_approval",
+  "approval.approved": "agent.approved",
+  "approval.rejected": "agent.rejected",
+  "approval.held": "agent.waiting_approval",
+  "task.waiting_approval": "agent.waiting_approval",
+  "qa.passed": "agent.completed",
+  "qa.failed": "agent.failed",
+  "qa.fix_started": "agent.thinking",
+  "review.approved": "agent.completed",
+  "review.requested_changes": "agent.failed",
+  "review.fix_started": "agent.thinking",
+  "orchestrator.completed": "task.completed",
+  "task.completed": "task.completed",
+  "task.done": "task.completed",
+  "task.failed": "task.failed",
+  "task.error": "task.failed",
+  "task.cancelled": "task.failed",
+  "task.recovered": "task.failed",
+  "task.retried": "task.updated",
+  "task.input_asked": "agent.waiting_approval",
+  "task.input_answered": "message.created",
+  "task.steered": "message.created",
+  "task.policy_dry_run": "task.updated",
+  "verification.fix_started": "tool.started",
+  "task.check": "tool.completed",
+  "budget.exhausted": "task.failed",
+  "budget.warning": "task.updated",
+  "budget.seed_failed": "agent.failed",
+  "plan.created": "task.updated",
+  "plan.degraded": "task.updated",
+  "plan.replanned": "task.updated",
+  "plan.hint_dropped": "task.updated",
+  "plan.dynamic_persist_failed": "agent.failed",
+  "plan.dynamic_subtasks_persisted": "task.updated",
+  "fileChanges.applied": "tool.completed",
+  "fileChanges.apply_failed": "tool.failed",
+  "fileChanges.updated": "tool.completed",
+  "permission.denied": "agent.failed",
+  "branch.created": "tool.completed",
+  "branch.discarded": "tool.completed",
+  "branch.merged": "tool.completed",
+  "branch.merge_conflict": "tool.failed",
+  "execution.started": "agent.started",
+  "execution.completed": "agent.completed",
+  "execution.failed": "agent.failed",
+  "tool.started": "tool.started",
+  "tool.completed": "tool.completed",
+  "tool.failed": "tool.failed",
+};
+
+export function canonicalEvent(type: string): string | null {
+  return CANONICAL_MAP[type] ?? null;
+}
+
+/** Append one canonical event with a monotonic sequence. */
+export const appendAgentEvent = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    conversationId: v.optional(v.id("conversations")),
+    taskId: v.optional(v.id("tasks")),
+    executionId: v.optional(v.id("executions")),
+    agentId: v.optional(v.id("agents")),
+    type: v.string(),
+    payload: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    let sequence = 1;
+    if (args.conversationId) {
+      const existing = await ctx.db
+        .query("agentEvents")
+        .withIndex("by_conversation_and_sequence", (q) =>
+          q.eq("conversationId", args.conversationId!)
+        )
+        .order("desc")
+        .take(1);
+      if (existing[0]?.sequence) sequence = existing[0].sequence + 1;
+    }
+    return await ctx.db.insert("agentEvents", {
+      projectId: args.projectId,
+      conversationId: args.conversationId,
+      taskId: args.taskId,
+      executionId: args.executionId,
+      agentId: args.agentId,
+      type: args.type,
+      payload: args.payload,
+      sequence,
+      createdAt: now,
+    });
+  },
+});
+
+export const listAgentEvents = query({
+  args: {
+    conversationId: v.optional(v.id("conversations")),
+    taskId: v.optional(v.id("tasks")),
+    projectId: v.optional(v.id("projects")),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    if (args.conversationId) {
+      return await ctx.db
+        .query("agentEvents")
+        .withIndex("by_conversation_and_sequence", (q) =>
+          q.eq("conversationId", args.conversationId!)
+        )
+        .order("asc")
+        .take(Math.min(Math.max(args.limit ?? 200, 1), 1000));
+    }
+    if (args.taskId) {
+      return await ctx.db
+        .query("agentEvents")
+        .withIndex("by_task", (q) => q.eq("taskId", args.taskId!))
+        .order("asc")
+        .take(Math.min(Math.max(args.limit ?? 200, 1), 1000));
+    }
+    if (args.projectId) {
+      return await ctx.db
+        .query("agentEvents")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId!))
+        .order("asc")
+        .take(Math.min(Math.max(args.limit ?? 200, 1), 1000));
+    }
+    return [];
+  },
+});
+
 export const logEvent = internalMutation({
   args: {
     taskId: v.id("tasks"),
@@ -1270,9 +1453,63 @@ export const logEvent = internalMutation({
     metadata: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    const now = Date.now();
     await ctx.db.insert("taskEvents", {
       ...args,
-      createdAt: Date.now(),
+      createdAt: now,
+    });
+    // Emit the canonical event the UI subscribes to.
+    const type = canonicalEvent(args.type);
+    if (type) {
+      let sequence = 1;
+      const existing = await ctx.db
+        .query("agentEvents")
+        .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+        .order("desc")
+        .take(1);
+      if (existing[0]?.sequence) sequence = existing[0].sequence + 1;
+      await ctx.db.insert("agentEvents", {
+        projectId: args.projectId,
+        taskId: args.taskId,
+        executionId: args.executionId,
+        agentId: args.agentId,
+        type,
+        payload: args.payload,
+        sequence,
+        createdAt: now,
+      });
+    }
+  },
+});
+
+/** Emit a canonical event directly (used by steer/answer paths). */
+export const emitCanonical = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    taskId: v.id("tasks"),
+    executionId: v.optional(v.id("executions")),
+    agentId: v.optional(v.id("agents")),
+    type: v.string(),
+    payload: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    let sequence = 1;
+    const existing = await ctx.db
+      .query("agentEvents")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .order("desc")
+      .take(1);
+    if (existing[0]?.sequence) sequence = existing[0].sequence + 1;
+    return await ctx.db.insert("agentEvents", {
+      projectId: args.projectId,
+      taskId: args.taskId,
+      executionId: args.executionId,
+      agentId: args.agentId,
+      type: args.type,
+      payload: args.payload,
+      sequence,
+      createdAt: now,
     });
   },
 });

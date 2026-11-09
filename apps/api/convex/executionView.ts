@@ -69,13 +69,18 @@ export const activeByAgent = query({
       .query("executions")
       .withIndex("by_status", (q) => q.eq("status", "queued"))
       .collect();
-    const map = new Map<string, { taskId: string; taskTitle: string; subtaskKey?: string; status: string }>();
+    const map = new Map<string, { taskId: string; projectId: string; taskTitle: string; subtaskKey?: string; status: string }>();
     for (const exec of [...active, ...waiting, ...queued]) {
       if (!exec.agentId) continue;
       const task = await ctx.db.get(exec.taskId);
       if (!task) continue;
+      // Only executions whose task is still live count as active — a
+      // cancelled/terminal task leaves orphaned queued/running executions
+      // that must not surface as "X is thinking" in an unrelated project.
+      if (task.status === "failed" || task.status === "done" || task.status === "rejected") continue;
       map.set(exec.agentId as string, {
         taskId: exec.taskId as string,
+        projectId: task.projectId as string,
         taskTitle: task.title,
         subtaskKey: exec.subtaskKey,
         status: exec.status,

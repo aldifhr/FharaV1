@@ -53,6 +53,8 @@ export interface PlannerInput {
    * config behave as if the project had no URL.
    */
   hasQaUrl?: boolean;
+  /** Plan 015: durable shared instructions from the project record. */
+  sharedInstructions?: string;
 }
 
 export interface PlannerResult {
@@ -204,6 +206,9 @@ export function buildPlanningPrompt(input: PlannerInput): string {
   const { command, classification, agents, policy } = input;
   return [
     "You are the CTO decision-maker for the multi-agent software engineering workspace.",
+    ...(input.sharedInstructions
+      ? [`Durable shared instructions for this project (must follow): ${input.sharedInstructions}`]
+      : []),
     "Your team consists of specialized agents: Lead, CTO, Designer, Frontend, Backend, QA, Growth, Support.",
     "Analyze the user task, identify which agents are strictly relevant, and produce an execution plan as STRICT JSON.",
     "Do NOT force all agents into every task. Only assign agents whose capabilities match the requirements.",
@@ -213,15 +218,19 @@ export function buildPlanningPrompt(input: PlannerInput): string {
     "Role collaboration patterns:",
     "- When design, visual layout, or pricing directions are needed:",
     "  Designer (ui-ux-design) drafts layout options / proposals (Option A vs Option B).",
-    "- CTO (architecture, code-review): technical architecture review, task decomposition, and code review.",
+    "- Reviewer (code-review): independent code review of implementation diffs.",
+    "- CTO (architecture, security-audit): technical architecture decisions, decomposition, and risk evaluation; oversees but does not perform code review itself.",
     "- CTO must verify before approval: frontend/backend boundaries are sensible; project-standard technologies are used consistently; database and API designs are correct; service-to-service communication is explicit; no duplicate implementation is introduced; the solution is scalable and maintainable; and architectural changes are justified, minimal, and reversible.",
     "- CTO must reject or request revision when any of those checks fail or when the plan lacks enough evidence to decide. Do not approve by default just because an agent completed.",
     "- Technical-debt findings must include evidence, root cause, impact, and a durable remediation owner. The CTO directs the Lead to coordinate cross-agent fixes; do not hide debt behind a local patch or add a second orchestration path.",
     "- Frontend (frontend-development): UI components, tokens, styling, and client implementation.",
-    "- Backend (backend-development, shell-execution): APIs, schema, integration, server logic.",
+    "- Backend (backend-development): APIs, schema, integration, server logic.",
+    "- DevOps (github, shell-execution): repositories, issues/PRs, CI, infra commands.",
     "- QA (browser-testing): perform only the verification explicitly requested. Structural QA checks HTML, browser reachability, console, and network errors. Responsive viewport and screenshot-baseline checks are opt-in only; never add them when the user says not to.",
-    "- Growth (growth-marketing, research): analytics, funnels, SEO, conversion copy.",
-    "- Support (documentation-support, general): documentation, customer communication, release notes.",
+    "- Growth (growth-marketing): analytics, funnels, SEO, conversion copy.",
+    "- Support (documentation-support): documentation, customer communication, release notes.",
+    "- Researcher (research): technical research, evidence gathering, fact vs assumption separation.",
+    "- Lead (project-coordination, general): coordination, planning support, delegation, summaries.",
     "Agents available (only use capabilities listed here):",
     describeCapabilities(agents),
     "",
@@ -235,6 +244,7 @@ export function buildPlanningPrompt(input: PlannerInput): string {
     "Rules:",
     `- 1 to ${policy.maxSubtasks} subtasks.`,
     "- Each subtask: key (lowercase slug), title, description, kind, capability, dependencies (keys), order.",
+    "- code_change subtasks must declare allowedPaths: the tightest workspace-relative file/directory scope they may modify (e.g. [\"apps/web\"]). Omit only when the scope is genuinely unknown; the executor refuses files outside the declared scope.",
     "- kind is one of: analysis, code_change, review, qa, research, audit, shell.",
     "- kind shell is ONLY for git read-only commands. File creation/write and",
     "  running tests/build must use code_change, never shell.",
@@ -246,14 +256,14 @@ export function buildPlanningPrompt(input: PlannerInput): string {
     // hints layer does, instead of mandating a review for every change.
     ...(policy.reviewMode === "always"
       ? [
-          "- Add a review node assigned to CTO for every code change. The CTO is the final technical quality gate (policy reviewMode=always).",
+          "- Add a review node served by the Reviewer agent for every code change. (policy reviewMode=always).",
         ]
       : policy.reviewMode === "never"
         ? [
             "- Do NOT add a review node: policy reviewMode=never forbids it. The CTO quality gate still verifies the plan outcome, but the plan carries no review subtask.",
           ]
         : [
-            "- Add a review node assigned to CTO only for risky changes: auth, security, payments, migrations, concurrency, multi-domain, or multi-capability work. Simple single-capability changes get no review node. (policy reviewMode=auto: risk signal, not a mandate.)",
+            "- Add a review node served by the Reviewer agent only for risky changes: auth, security, payments, migrations, concurrency, multi-domain, or multi-capability work. Simple single-capability changes get no review node. (policy reviewMode=auto: risk signal, not a mandate.)",
           ]),
     ...(policy.qaMode === "always"
       ? [
@@ -269,7 +279,7 @@ export function buildPlanningPrompt(input: PlannerInput): string {
     "- Do NOT invent capabilities that are not listed above.",
     "- Keep the plan minimal; do not add decorative steps.",
     "",
-    'Schema: {"goal":"...","strategy":"single"|"dag","requiresApproval":true,"maxConcurrency":2,"subtasks":[{"key":"implement","title":"...","description":"...","kind":"code_change","capability":"frontend-development","dependencies":[],"order":0}]}',
+    'Schema: {"goal":"...","strategy":"single"|"dag","requiresApproval":true,"maxConcurrency":1,"subtasks":[{"key":"implement","title":"...","description":"...","kind":"code_change","capability":"frontend-development","dependencies":[],"order":0,"allowedPaths":["apps/web"]}]}',
   ]
     .filter((line) => line !== "")
     .join("\n");
@@ -524,7 +534,7 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
         goal,
         strategy: "dag",
         requiresApproval: false,
-        maxConcurrency: 3,
+        maxConcurrency: 1,
         subtasks,
       };
     }
@@ -600,7 +610,7 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
     // QA when a QA agent exists and a signal fires).
     const multiSubtasks = [frontendTask, backendTask];
     const hinted = applyPlanningHints(
-      { version: 1, goal, strategy: "dag", requiresApproval: true, maxConcurrency: 2, subtasks: multiSubtasks },
+      { version: 1, goal, strategy: "dag", requiresApproval: true, maxConcurrency: 1, subtasks: multiSubtasks },
       agents,
       {
         command,

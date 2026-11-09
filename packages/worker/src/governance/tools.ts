@@ -32,6 +32,8 @@ export interface ToolContext {
   executionId?: string;
   workerId?: string;
   audit?: (entry: AuditInput) => Promise<void> | void;
+  /** Agent role ("researcher", "cto", "frontend", …) — the permission broker reads this. */
+  agentRole?: string;
 }
 
 export interface ToolResult<T = unknown> {

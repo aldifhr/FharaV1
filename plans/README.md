@@ -22,6 +22,11 @@ execution order and a definition of done.
 | 011 | [Orchestrator lifecycle correctness](011-orchestrator-lifecycle-correctness.md) | P1 | L | 005, 006, 010 | DONE |
 | 012 | [Split `taskRunner.ts`](012-split-taskRunner.md) | P1 | L | — | DONE (split landed by delegation; Steps 2-3 extracted with test evidence) |
 | 013 | [Real orchestrator decisions and effective completion guards](013-real-decisions-and-guards.md) | P1 | L | 011, 012 | IN PROGRESS (Steps 1-7 landed; live smoke pending) |
+| 014 | [Provider-native execution runtime (hybrid)](014-provider-native-runtime.md) | P1 | L | 011, 012 | IN PROGRESS (plan recorded; rule decisions pending) |
+| 015 | [Central authorization broker (runtime prompt sufficiency)](015-central-authorization-broker.md) | P2 | S | — | DONE |
+| 016 | [LLM intent router (structured classifier + answer engine)](016-llm-intent-router.md) | P1 | M | 013, 006 | DONE (implemented; live smoke pending) |
+| 017 | [Orchestrator / Executor / Lead management through a single thread/UI](017-single-thread-agent-management.md) | P2 | M | 007 | TODO |
+| 018 | [Path ownership, review snapshot binding, worktree isolation](018-path-ownership-review-snapshot-worktree.md) | P1 | M | 012, 013 | IN PROGRESS (Steps 1-4 implemented, Step 4 default-off; live smoke pending) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

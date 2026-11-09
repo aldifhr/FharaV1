@@ -311,6 +311,7 @@ export async function createAuthoritativePlan(
       signal: input.signal,
       llmTaskGate: input.llmTaskGate,
       hasQaUrl: input.hasQaUrl,
+      sharedInstructions: input.sharedContext.instructions,
     });
     plan = created.plan;
     createdBy = created.createdBy;

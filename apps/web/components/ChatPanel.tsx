@@ -13,6 +13,7 @@ import { useToast } from "./Toasts";
 import { Bell, Check, Copy, GitBranch, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { roleLabel } from "@/lib/agentRoles";
+import { dispatchChatTyping } from "@/lib/chatTyping";
 import ChatComposer from "./chat/ChatComposer";
 import MessageList from "./chat/MessageList";
 import { useChatQueue } from "./chat/useChatQueue";
@@ -150,11 +151,12 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const selectedTaskMessages = selectedTask
     ? (messages ?? []).filter((message: any) => message.taskId === selectedTask._id)
     : [];
-  // One chronological timeline: every project message, with task agent
-  // reports inline. Task user copies (same content as the conversation
+  // Chat timeline = conversation messages only. Task-linked messages
+  // (taskId set) belong to the task thread and must not leak into the
+  // chat as reports. Task user copies (same content as the conversation
   // message) are skipped to avoid duplicates.
   const timeline = (messages ?? [])
-    .filter((message: any) => !message.taskId || message.authorType === "agent")
+    .filter((message: any) => !message.taskId)
     .sort((a: any, b: any) => a._creationTime - b._creationTime);
   const lastMessage = timeline[timeline.length - 1];
 
@@ -233,7 +235,27 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   );
   const wasAgentTypingRef = useRef(false);
 
-  const conversationTyping = lastMessage?.authorType === "user";
+  // A chat reply is expected while the last message is the user's. But a
+  // task-intent message is auto-dispatched and returns early without a chat
+  // reply — the pill would then sit there forever next to the task card.
+  // `tasks` is already in scope from the board query.
+  //
+  // The typing signal is ALSO time-bounded (300s, matching LLM_TIMEOUT_MS):
+  // chat replies have no execution lease, so nothing else terminates the
+  // pill. Without the bound, deleting the task that suppressed the pill via
+  // the title check below would resurrect "X is drafting a reply" forever —
+  // the conversation message survives (it has no taskId), but its task row
+  // is gone. The clock ticks so the pill retires on its own when stale.
+  const [typingNow, setTypingNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setTypingNow(Date.now()), 5_000);
+    return () => clearInterval(id);
+  }, []);
+  const fresh = lastMessage ? typingNow - lastMessage._creationTime < 300_000 : false;
+  const conversationTyping =
+    lastMessage?.authorType === "user" &&
+    fresh &&
+    !(tasks ?? []).some((t: any) => t.title === lastMessage?.content);
 
   const latestAgentMessage = [...selectedTaskMessages].reverse().find((message: any) => message.authorType === "agent");
   const taskTitle = (taskId: string) => (tasks ?? []).find((task) => task._id === taskId)?.title ?? "task";
@@ -253,6 +275,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const [managePath, setManagePath] = useState("");
   const [manageApprovalMode, setManageApprovalMode] = useState<"ask" | "auto">("ask");
   const [manageAgentIds, setManageAgentIds] = useState<string[]>([]);
+  const [manageInstructions, setManageInstructions] = useState("");
   const [manageError, setManageError] = useState("");
   const [savingManage, setSavingManage] = useState(false);
 
@@ -264,6 +287,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     setManagePath((project as any).workspacePath ?? "");
     setManageApprovalMode((project as any).approvalMode ?? "ask");
     setManageAgentIds(((project as any).agentIds ?? []) as string[]);
+    setManageInstructions((project as any).instructions ?? "");
     setIsManageOpen(true);
   }
 
@@ -282,6 +306,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         name: manageName,
         workspacePath: managePath,
         approvalMode: manageApprovalMode,
+        instructions: manageInstructions,
       });
       await updateTeam({ projectId: projectId as never, agentIds: manageAgentIds as never[] });
       setIsManageOpen(false);
@@ -317,14 +342,20 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     .map((a: any) => roleLabel(a.role));
   const [chatError, setChatError] = useState("");
   const [chatSending, setChatSending] = useState(false);
+  const [dismissedErrors, setDismissedErrors] = useState<Set<number>>(() => new Set());
 
-  const mentions = useDraftMentions(draft, setDraft, project, projectFiles);
+  const mentions = useDraftMentions(draft, setDraft, project, projectFiles, agents as any[]);
   const queue = useChatQueue(
     async (content) => {
+      const mentionedIds = mentions.mentionedAgentIds(content);
       await sendMessage({
         projectId: projectId as any,
         content,
-        preferredAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
+        preferredAgentIds: mentionedIds.length
+          ? (mentionedIds as any)
+          : chatAgentIds.length
+            ? (chatAgentIds as any)
+            : undefined,
       });
     },
     (message) => setChatError(message),
@@ -342,10 +373,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const handleChooseProposal = async (choice: string) => {
     setChatSending(true);
     try {
+      const mentionedIds = mentions.mentionedAgentIds(choice);
       await sendMessage({
         projectId: projectId as any,
         content: choice,
-        preferredAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
+        preferredAgentIds: mentionedIds.length
+          ? (mentionedIds as any)
+          : chatAgentIds.length
+            ? (chatAgentIds as any)
+            : undefined,
       });
     } catch (err) {
       toast("error", "Failed to select option", err instanceof Error ? err.message : "Error");
@@ -362,10 +398,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     setChatSending(true);
     try {
       const content = await mentions.attachMentionedFiles(text);
+      const mentionedIds = mentions.mentionedAgentIds(content);
       await sendMessage({
         projectId: projectId as any,
         content,
-        preferredAgentIds: chatAgentIds.length ? (chatAgentIds as any) : undefined,
+        preferredAgentIds: mentionedIds.length
+          ? (mentionedIds as any)
+          : chatAgentIds.length
+            ? (chatAgentIds as any)
+            : undefined,
       });
       setDraft("");
       mentions.setMention(null);
@@ -385,6 +426,19 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       setChatSending(false);
     }
   };
+
+  // Signal the sidebar's team list that selected agents are drafting a
+  // chat reply (backend execution leases do not cover chat replies).
+  useEffect(() => {
+    if (!conversationTyping) {
+      dispatchChatTyping({ agentIds: [], active: false });
+      return;
+    }
+    const ids = chatAgentIds.length
+      ? chatAgentIds
+      : agents.map((agent: any) => agent._id);
+    dispatchChatTyping({ agentIds: ids as string[], active: true });
+  }, [conversationTyping, chatAgentIds, agents]);
 
   // Auto-dispatch queue after agent finishes responding
   const queuedCount = queue.items.filter((m) => m.status === "queued").length;
@@ -413,7 +467,12 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   }, [agents, activeByAgent, selectedTask]);
   // Status comes from the backend execution lease, not the persisted
   // `agents.status` (which keeps idle agents flagged as "working").
-  const workingAgents = (agents as any[]).filter((agent: any) => (activeByAgent as any)?.[agent._id as string] !== undefined);
+  // Scoped to this project: an active task in another project must not
+  // put "X is thinking" into this project's chat.
+  const workingAgents = (agents as any[]).filter((agent: any) => {
+    const active = (activeByAgent as any)?.[agent._id as string];
+    return active && active.projectId === projectId;
+  });
   const taskErrors = (taskEvents ?? []).filter((event: any) => event.type === "task.error");
   const diffStats = (fileChangesByTask ?? []).reduce(
     (stats, fileChange: any) => {
@@ -704,14 +763,16 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       </header>
 
       <div ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (!el) return; const dist = el.scrollHeight - el.scrollTop - el.clientHeight; nearBottomRef.current = dist <= 120; setShowScrollDown(dist > 120); if (dist <= 120) markSeen(); }} className="flex-1 space-y-5 overflow-y-auto bg-transparent px-5 py-6">
-        {taskErrors.map((event: any, index: number) => (
-          <div key={`task-error-${index}`} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            <span className="font-semibold">Agent error:</span> {event.payload?.message ?? "Task failed to process."}
+        {taskErrors.filter((_, i) => !dismissedErrors.has(i)).map((event: any, index: number) => (
+          <div key={`task-error-${index}`} className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <span className="min-w-0 flex-1"><span className="font-semibold">Agent error:</span> {event.payload?.message ?? "Task failed to process."}</span>
+            <button type="button" aria-label="Dismiss error" onClick={() => setDismissedErrors((dismissed) => new Set(dismissed).add(index))} className="rounded p-0.5 text-red-400 hover:text-red-600">×</button>
           </div>
         ))}
         {tab === "chat" ? (
             <MessageList
               timeline={timeline}
+              scrollRef={scrollRef}
               firstNewIndex={firstNewIndex}
               agents={agents}
               tasks={tasks}
@@ -794,6 +855,16 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
                 <option value="auto">Auto-approve</option>
               </select>
             </label>
+            <label className="grid gap-1 text-sm">
+              Shared instructions
+              <textarea
+                value={manageInstructions}
+                onChange={(event) => setManageInstructions(event.target.value)}
+                rows={4}
+                placeholder="Durable project instructions loaded into planning every run (e.g. architecture rules, conventions)."
+                className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+              />
+            </label>
             <fieldset className="grid gap-2">
               <legend className="text-sm font-medium">Team project</legend>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2 dark:border-gray-700">
@@ -837,7 +908,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
           error={chatError}
           mention={mentions.mention}
           mentionResults={mentions.results}
+          agentResults={mentions.agentResults}
           onInsertMention={mentions.insert}
+          onInsertAgent={mentions.insertAgent}
           queue={queue.items}
           editingId={editingId}
           onEdit={setEditingId}

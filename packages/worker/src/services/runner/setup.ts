@@ -105,14 +105,18 @@ export function resolveQaBaseUrl(
 
 /**
  * One AbortController per task run (Phase 4): fired by the runner's
- * cancel polling when the task row turns terminal, and by the
- * policy.taskTimeoutMs deadline armed here. Every consumer — scheduler
- * node signals, LLM calls, QA, verification — observes this one signal,
- * so a cancel or a timeout stops the whole task, not just whichever
- * node happens to be scheduled. dispose() disarms the deadline.
+ * cancel polling when the task row turns terminal, by the
+ * policy.taskTimeoutMs wall-clock deadline, and by the MausBot-style
+ * idle watchdog — the task aborts only after policy.idleTimeoutMs of NO
+ * observable progress (bump() is called on every logged event, usage
+ * record, and staged change). Every consumer — scheduler node signals,
+ * LLM calls, QA, verification — observes this one signal, so a cancel
+ * or a timeout stops the whole task, not just whichever node happens to
+ * be scheduled. dispose() disarms everything.
  */
 export function armTaskAbort(policy: ExecutionPolicy): {
   controller: AbortController;
+  bump: () => void;
   dispose: () => void;
 } {
   const controller = new AbortController();
@@ -122,7 +126,31 @@ export function armTaskAbort(policy: ExecutionPolicy): {
     );
   }, policy.taskTimeoutMs);
   timer.unref?.();
-  return { controller, dispose: () => clearTimeout(timer) };
+  let lastActivity = Date.now();
+  const bump = () => {
+    lastActivity = Date.now();
+  };
+  const idleMs = policy.idleTimeoutMs ?? 0;
+  const idleTimer =
+    idleMs > 0
+      ? setInterval(() => {
+          if (controller.signal.aborted) return;
+          if (Date.now() - lastActivity > idleMs) {
+            controller.abort(
+              new Error(`Task idle exceeded (${idleMs}ms)`)
+            );
+          }
+        }, Math.min(5_000, Math.max(1_000, idleMs / 4)))
+      : undefined;
+  idleTimer?.unref?.();
+  return {
+    controller,
+    bump,
+    dispose: () => {
+      clearTimeout(timer);
+      if (idleTimer) clearInterval(idleTimer);
+    },
+  };
 }
 
 /** A signal that fires when ANY of the given signals fires. */

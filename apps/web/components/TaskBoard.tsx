@@ -27,6 +27,36 @@ const SUBTASK_STATUS: Record<string, { label: string; cls: string; icon: typeof 
   blocked: { label: "blocked", cls: "text-amber-600", icon: Clock },
 };
 
+// Agile phases: derived from subtask kind + task status, never from a stale
+// stored phase. Order matches the sprint flow.
+const PHASES = [
+  { key: "planning", label: "Planning" },
+  { key: "implementation", label: "Implementation" },
+  { key: "review", label: "Review" },
+  { key: "verification", label: "Verification" },
+  { key: "done", label: "Done" },
+] as const;
+
+function phaseOf(t: any, subtasks: any[]): string {
+  if (t.status === "done" || t.status === "failed") return t.status === "done" ? "done" : "implementation";
+  // A subtask is actively running right now → its phase is current.
+  const running = subtasks.find((s) => s.status === "running");
+  if (running) return kindToPhase(running.kind);
+  // Nothing running: the earliest pending kind marks the phase.
+  const earliest = subtasks.find((s) => s.status === "pending" || s.status === "blocked");
+  if (earliest) return kindToPhase(earliest.kind);
+  const done = subtasks.filter((s) => s.status === "completed").length;
+  if (done > 0) return "implementation";
+  return "planning";
+}
+
+function kindToPhase(kind: string): string {
+  if (kind === "review") return "review";
+  if (kind === "qa") return "verification";
+  if (kind === "analysis" || kind === "research") return "planning";
+  return "implementation";
+}
+
 export default function TaskBoard({
   projectId,
   selectedTaskId,
@@ -170,8 +200,23 @@ export default function TaskBoard({
         <p className="py-8 text-center text-sm text-gray-400">No tasks match.</p>
       )}
 
-      {visible.map((t: TaskRow) => {
-        const subtasks = subtasksOf.get(t._id) ?? [];
+      {/* Sprint board: agile phases as swimlanes. Each task is indivisible —
+          it lives in exactly one phase, derived from its subtasks. */}
+      <div className="space-y-4">
+        {PHASES.map((phase) => {
+          const inPhase = visible
+            .map((t) => ({ t, subtasks: subtasksOf.get(t._id) ?? [] }))
+            .filter(({ t, subtasks }) => phaseOf(t, subtasks) === phase.key);
+          if (inPhase.length === 0) return null;
+          return (
+            <section key={phase.key} className="space-y-2">
+              <header className="flex items-center gap-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  {phase.label}
+                </h3>
+                <span className="text-[11px] text-gray-400">{inPhase.length}</span>
+              </header>
+              {inPhase.map(({ t, subtasks }) => {
         const done = subtasks.filter((s) => s.status === "completed").length;
         const plan = planOf.get(t._id);
         const pending = (pendingApprovals ?? []).filter((a: any) => a.taskId === t._id && a.status === "pending");
@@ -257,7 +302,7 @@ export default function TaskBoard({
                   const agent = s.assignedAgentName ? agentNameById.get(s.assignedAgentId) : null;
                   return (
                     <div key={s._id} className="flex items-center gap-2 text-xs">
-                      <Icon size={13} className={meta.cls} />
+                      <Icon size={13} className={`${meta.cls}${s.status === "running" ? " animate-spin" : ""}`} />
                       <span className="min-w-0 flex-1 truncate font-medium text-gray-700 dark:text-gray-200">
                         {s.title}
                       </span>
@@ -276,11 +321,40 @@ export default function TaskBoard({
                 {t.errorMessage && (
                   <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] text-red-600 dark:bg-red-950/40">{t.errorMessage}</p>
                 )}
+                {/* Agile phase flow */}
+                <div className="flex items-center gap-1 pt-2">
+                  {PHASES.map((phase, i) => {
+                    const current = phaseOf(t, subtasks);
+                    const active = phase.key === current;
+                    const passed = PHASES.findIndex((p) => p.key === current) > i;
+                    return (
+                      <span key={phase.key} className="flex items-center gap-1">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            active
+                              ? "bg-[#5147b4] text-white"
+                              : passed
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-gray-100 text-gray-400"
+                          }`}
+                        >
+                          {phase.label}
+                        </span>
+                        {i < PHASES.length - 1 && <span className="text-gray-300">→</span>}
+                      </span>
+                    );
+                  })}
+                  {t.sprint && <span className="ml-auto text-[10px] text-gray-400">Sprint {t.sprint}</span>}
+                </div>
               </div>
             )}
           </motion.div>
         );
       })}
+            </section>
+          );
+        })}
+      </div>
 
     </div>
   );

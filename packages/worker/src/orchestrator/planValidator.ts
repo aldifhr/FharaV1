@@ -1,5 +1,6 @@
 import type { ExecutionPlan, PlanSubtask, SubtaskKind } from "./types";
 import { normalizeCapability } from "./capabilities";
+import { normalizeAllowedPaths } from "./ownership";
 
 export const SUBTASK_KINDS: SubtaskKind[] = [
   "analysis",
@@ -91,6 +92,9 @@ export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResul
       : [];
     if (dependencies.includes(key)) errors.push(`subtask ${key} depends on itself`);
 
+    const ownership = normalizeAllowedPaths(value.allowedPaths);
+    if (!ownership.ok) errors.push(`subtask ${key}: ${ownership.error}`);
+
     subtasks.push({
       key,
       title:
@@ -103,6 +107,7 @@ export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResul
       capability,
       dependencies,
       order: typeof value.order === "number" && Number.isFinite(value.order) ? value.order : index,
+      ...(ownership.ok && ownership.paths ? { allowedPaths: ownership.paths } : {}),
     });
   });
 

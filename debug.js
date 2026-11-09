@@ -11,7 +11,7 @@
     { _id: "cto", name: "CTO", role: "cto", capabilities: ["architecture", "code-review", "security-audit"] },
     { _id: "frontend", name: "Frontend", role: "frontend", capabilities: ["frontend-development"] },
     { _id: "backend", name: "Backend", role: "backend", capabilities: ["backend-development", "shell-execution"] },
-    { _id: "designer", name: "Designer", role: "designer", capabilities: ["ui-ux-design", "frontend-development"] },
+    { _id: "designer", name: "Designer", role: "designer", capabilities: ["ui-ux-design"] },
     { _id: "qa", name: "QA", role: "qa", capabilities: ["browser-testing", "code-review"] },
   ];
   const classification = classifyCommand(command);

@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { motion } from "framer-motion";
 import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
+import MessageText from "./chat/MessageText";
 import { roleLabel } from "@/lib/agentRoles";
 import ApprovalCard from "./ApprovalCard";
 import DiffCard from "./DiffCard";
@@ -72,7 +73,9 @@ export default function TaskThreadPanel({
   const taskExists = Boolean(task);
   const project = useQuery(api.projects.get, task?.projectId ? { projectId: task.projectId } : "skip");
   const messages = useQuery(api.messages.listByTask, taskExists ? { taskId: taskId as any } : "skip");
-  const events = useQuery(api.taskEvents.listByTask, taskExists ? { taskId: taskId as any } : "skip");
+  // Canonical event stream (plan 016): the UI reads this instead of the raw
+  // worker/provider vocabulary.
+  const agentEvents = useQuery(api.orchestration.listAgentEvents, taskExists ? { taskId: taskId as any } : "skip");
   const fileChanges = useQuery(api.fileChanges.listByTask, taskExists ? { taskId: taskId as any } : "skip");
   const agents = useQuery(api.agents.list, {});
   const execution = useQuery(
@@ -108,13 +111,31 @@ export default function TaskThreadPanel({
   // task.check events exist. Verification is disabled in dev
   // (ORCHESTRATOR_VERIFICATION_ENABLED=false) so the section was always
   // empty. Add when verification is re-enabled.
-  const checks = (events ?? []).filter((e: any) => e.type === "task.check");
-  const errors = (events ?? []).filter((e: any) => e.type === "task.error");
-  const workingAgent = (agents ?? []).find((agent: any) => agent.status === "working");
+  const checks = (agentEvents ?? []).filter((e: any) => e.type === "tool.completed");
+  const errors = (agentEvents ?? []).filter((e: any) => e.type === "task.failed");
   const taskStatus = (task as any)?.status;
+  // Scope the "thinking" banner to THIS task: a globally-working agent from
+  // an old/failed task (stale `status` in the DB) used to leak "Backend is
+  // thinking" into every thread of the project.
+  const assignedIds = (task as any)?.assignedAgentIds as string[] | undefined;
+  const workingAgent =
+    taskStatus === "running"
+      ? (agents ?? []).find(
+          (agent: any) =>
+            agent.status === "working" &&
+            (!assignedIds?.length || assignedIds.includes(agent._id))
+        )
+      : undefined;
+  const threadOptions: string[] = Array.isArray((task as any)?.pendingOptions)
+    ? (task as any).pendingOptions
+    : [];
   const sendThreadMessage = useMutation(api.messages.insertThreadMessage);
   const retryTask = useMutation(api.tasks.retry);
+  const cancelTask = useMutation(api.tasks.cancel);
+  const answerQuestion = useMutation(api.tasks.answerQuestion);
+  const steerTask = useMutation(api.tasks.steerTask);
   const [retrying, setRetrying] = useState(false);
+  const [steering, setSteering] = useState(false);
   const approve = useMutation(api.approvals.approve);
   const reject = useMutation(api.approvals.reject);
   const hold = useMutation(api.approvals.hold);
@@ -131,6 +152,32 @@ export default function TaskThreadPanel({
       setReply("");
     } finally {
       setSendingReply(false);
+    }
+  };
+  const submitAnswer = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || !task) return;
+    setSendingReply(true);
+    try {
+      await answerQuestion({ taskId: task._id as any, answer: trimmed });
+      setReply("");
+    } catch {
+      /* status flips via the query stream */
+    } finally {
+      setSendingReply(false);
+    }
+  };
+  const submitSteer = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || !task) return;
+    setSteering(true);
+    try {
+      await steerTask({ taskId: task._id as any, instruction: trimmed });
+      setReply("");
+    } catch {
+      /* status flips via the query stream */
+    } finally {
+      setSteering(false);
     }
   };
   const statusLabel = taskStatus === "done"
@@ -152,8 +199,13 @@ export default function TaskThreadPanel({
   });
   // Agent activity only: the user's own messages live in chat, not the
   // thread. The replies divider counts agent replies only.
+  // Delegation handoff rows (`@Reviewer <reasoning>`, written by the
+  // worker for agent-to-agent addressing) are not replies: counting them
+  // inflated the divider and printed a raw `@Mention` bubble. Exclude them;
+  // the handoff itself is recorded via `recordDelegation`.
+  const isDelegationHandoff = (m: any) => typeof m.content === "string" && /^@[\w-]+\s/.test(m.content);
   const agentReplies = (messages ?? []).filter(
-    (m: any) => m.authorType === "agent" && !ctoMessages.includes(m)
+    (m: any) => m.authorType === "agent" && !ctoMessages.includes(m) && !isDelegationHandoff(m)
   );
   return (
     <div className="relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-[#ebe9f0] bg-white/90 shadow-[-8px_0_24px_rgba(40,35,80,0.04)] backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80 max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-l-0 max-[979px]:border-t max-[979px]:flex-row">
@@ -185,13 +237,7 @@ export default function TaskThreadPanel({
         </div>
       </header>
 
-      <div className="flex items-center gap-1.5 px-4 pt-3">
-        {(agents as any)?.find((a: any) => a.role === "cto") && (
-          <span className="flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-700 dark:text-white">
-            <AgentAvatar name="CTO" size={16} avatarParams={(agents as any)?.find((a: any) => a.role === "cto")?.avatarParams} /> CTO · review
-          </span>
-        )}
-      </div>
+      <div className="flex items-center gap-1.5 px-4 pt-3" />
       {workingAgent && (
         <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-700">
           <span>{roleLabel(workingAgent.role)} is thinking</span>
@@ -234,6 +280,12 @@ export default function TaskThreadPanel({
             <p className="mt-1 break-words">{errors[errors.length - 1].payload?.message ?? "Task failed to process."}</p>
           </div>
         )}
+        {taskStatus === "running" && (
+          <div className="mx-4 mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-900/60 dark:bg-sky-950/20 dark:text-sky-300">
+            <p className="font-semibold">Task is running</p>
+            <p className="mt-0.5">Reply below steers the in-flight agent — it adjusts its next step without a new task.</p>
+          </div>
+        )}
         {pendingApprovals.map((a: any) => (
           <ApprovalCard
             key={a._id}
@@ -244,6 +296,35 @@ export default function TaskThreadPanel({
             onHold={(approvalId) => hold({ approvalId: approvalId as any })}
           />
         ))}
+        {taskStatus === "waiting_input" && (task as any)?.pendingQuestion && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300">
+            <p className="font-semibold">The team asked you:</p>
+            <p className="mt-1 whitespace-pre-wrap break-words">{(task as any).pendingQuestion}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {threadOptions.map((option, index) => (
+                <button
+                  key={`${index}-${option}`}
+                  type="button"
+                  disabled={sendingReply}
+                  onClick={() => void submitAnswer(option)}
+                  className="rounded-xl border border-amber-300 bg-white/80 px-3 py-2 text-[13px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-gray-900 dark:text-amber-300 dark:hover:bg-amber-950/40"
+                >
+                  <span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                    {String.fromCharCode(65 + index)}
+                  </span>
+                  {option}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => task && void cancelTask({ taskId: task._id as any })}
+                className="rounded-xl border border-amber-300 px-3 py-2 text-[13px] font-semibold text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/40"
+              >
+                Cancel task
+              </button>
+            </div>
+          </div>
+        )}
         {/* Diffs render inline under the CTO summary (see ctoMessages).
             This top section is only the fallback for tasks with no CTO
             messages at all. */}
@@ -281,7 +362,7 @@ export default function TaskThreadPanel({
                   <span className="rounded-full border border-gray-200 px-1.5 py-px text-[10px] font-medium text-gray-400 dark:border-gray-700">review</span>
                   <span className="font-normal text-gray-400">{m._creationTime ? new Date(m._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""}</span>
                 </p>
-                <p className="mt-0.5 whitespace-pre-wrap break-words text-sm dark:text-white">{m.content}</p>
+                <MessageText content={m.content} />
                 {/* The CTO's summary message carries the run's file diffs
                     inline, like a review note — not in a separate panel. */}
                 {isLastCto && fileChanges && fileChanges.length > 0 && (
@@ -297,7 +378,7 @@ export default function TaskThreadPanel({
                       />
                     ))}
                     <div className="flex flex-wrap gap-1.5">
-                      {(events ?? []).some((e: any) => e.type === "review.approved") && (
+                      {(agentEvents ?? []).some((e: any) => e.type === "agent.completed") && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                           <Check size={11} /> Approved
                         </span>
@@ -329,9 +410,9 @@ export default function TaskThreadPanel({
               <p className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500">
                 {roleLabel(msgAgent?.role)}
               </p>
-              <div className="flex items-center gap-2">
-                <p className="whitespace-pre-wrap break-words text-sm dark:text-white">{m.content}</p>
-                <span className="shrink-0 text-[10px] text-gray-400">
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1"><MessageText content={m.content} /></div>
+                <span className="shrink-0 pt-0.5 text-[10px] text-gray-400">
                   {m._creationTime ? new Date(m._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""}
                 </span>
               </div>
@@ -341,8 +422,9 @@ export default function TaskThreadPanel({
         })}
         {checks.length > 0 && (
           <section className="border-t border-gray-200 pt-3 dark:border-gray-800">
-            <div className="flex items-center gap-2 text-[11px] text-gray-400">
-              <span>Checks</span><span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Checks</span>
+              <span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
             </div>
             <div className="mt-3 space-y-2">
               {Array.from(new Map(checks.map((event: any) => [event.payload?.label, event])).values()).map((event: any) => {
@@ -356,7 +438,12 @@ export default function TaskThreadPanel({
 
       <form
         className="shrink-0 border-t border-[#ebe9f0] bg-white/80 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80"
-        onSubmit={(event) => { event.preventDefault(); void submitReply(); }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (taskStatus === "waiting_input") void submitAnswer(reply);
+          else if (taskStatus === "running") void submitSteer(reply);
+          else void submitReply();
+        }}
       >
         <div className="rounded-2xl border border-[#e5e3eb] bg-white px-4 pb-3 pt-3.5 shadow-sm transition focus-within:border-[#a29ae8] focus-within:ring-2 focus-within:ring-[#e5e1ff] dark:border-gray-700 dark:bg-gray-900 dark:focus-within:border-indigo-400 dark:focus-within:ring-indigo-900">
           <textarea
@@ -365,30 +452,46 @@ export default function TaskThreadPanel({
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
-                void submitReply();
+                if (taskStatus === "waiting_input") void submitAnswer(reply);
+                else if (taskStatus === "running") void submitSteer(reply);
+                else void submitReply();
               }
             }}
             rows={2}
-            placeholder="Reply to the thread"
+            placeholder={
+              taskStatus === "waiting_input"
+                ? "Answer to continue the task…"
+                : taskStatus === "running"
+                  ? "Steer the running task…"
+                  : "Reply to the thread"
+            }
             className="w-full resize-none bg-transparent px-0.5 text-[15px] leading-6 text-gray-900 outline-none placeholder:text-gray-400 dark:text-white"
           />
           <div className="mt-1 flex items-center gap-2">
-            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-              <input
-                type="checkbox"
-                checked={alsoSendToChat}
-                onChange={(event) => setAlsoSendToChat(event.target.checked)}
-                className="rounded"
-              />
-              Also send to chat
-            </label>
+            {taskStatus !== "waiting_input" && taskStatus !== "running" && (
+              <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={alsoSendToChat}
+                  onChange={(event) => setAlsoSendToChat(event.target.checked)}
+                  className="rounded"
+                />
+                Also send to chat
+              </label>
+            )}
             <button
               type="submit"
-              disabled={sendingReply || !reply.trim()}
-              aria-label="Send reply"
+              disabled={sendingReply || steering || !reply.trim()}
+              aria-label={
+                taskStatus === "waiting_input"
+                  ? "Send answer"
+                  : taskStatus === "running"
+                    ? "Steer task"
+                    : "Send reply"
+              }
               className="ml-auto flex h-8 w-8 items-center justify-center rounded-xl bg-[#635bff] text-white shadow-sm transition hover:bg-[#5346d8] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {sendingReply ? <SendLoader size={14} className="animate-spin" /> : <Send size={14} />}
+              {sendingReply || steering ? <SendLoader size={14} className="animate-spin" /> : <Send size={14} />}
             </button>
           </div>
         </div>

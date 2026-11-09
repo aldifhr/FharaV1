@@ -1,5 +1,4 @@
 import * as fs from "node:fs/promises";
-import * as path from "node:path";
 import { hashContent } from "@/tools/gitDiff";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import type { EvaluationCheck, EvaluationVerdict } from "@/types/execution";
@@ -205,8 +204,4 @@ async function verifyOnDisk(
         ? `Verified ${changes.filter((change) => change.appliedAt).length} applied file(s)`
         : problems.join("; "),
   };
-}
-
-export function relativeToWorkspace(workspacePath: string, target: string): string {
-  return path.relative(workspacePath, target).replace(/\\/g, "/");
 }

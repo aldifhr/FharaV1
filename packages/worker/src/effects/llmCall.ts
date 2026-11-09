@@ -165,10 +165,6 @@ function workerGateLimitFromEnv(): number {
 
 const workerLlmGate = new LlmConcurrencyGate(workerGateLimitFromEnv());
 
-export function getWorkerLlmGate(): LlmConcurrencyGate {
-  return workerLlmGate;
-}
-
 /**
  * Bootstrap-only: size the worker-wide gate from the worker's loaded
  * policy. Called ONCE by the worker entrypoint (index.ts) at process

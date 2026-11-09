@@ -460,12 +460,3 @@ export class TaskLlmResolver {
     return this.configFor(undefined);
   }
 }
-
-/**
- * Thin wrapper kept for the call sites that historically used a single
- * task config: the task default is simply the resolver's agent-less
- * primary over the materialized pool.
- */
-export function resolveTaskLlmConfig(pool: PoolConnection[]): GlobalLLMConfig {
-  return new TaskLlmResolver(pool).defaultConfig();
-}

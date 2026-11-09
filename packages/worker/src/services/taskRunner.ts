@@ -12,7 +12,6 @@ import type { TaskLlmResolver } from "@/llm/resolver";
 import type { RunnerDeps, RunState } from "./runner/types";
 import { buildStateFromDb } from "./runner/state";
 import {
-  armTaskAbort,
   buildTaskLlmResolver,
   mcpForTask,
   resolveQaBaseUrl,
@@ -21,6 +20,7 @@ import {
   toAgentDefinition,
   withFileContexts,
 } from "./runner/setup";
+import { armTaskAbort } from "./runner/abort";
 import {
   budgetReasonFromSummary,
   failStepLimit,

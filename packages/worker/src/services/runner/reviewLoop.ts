@@ -27,7 +27,6 @@ export async function runReviewLoop(ctx: RunContext): Promise<boolean> {
     fixDepthByKey,
     persistDynamic,
     deps,
-    input,
     taskId,
     project,
     agents,

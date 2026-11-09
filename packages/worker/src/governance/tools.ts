@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 
 export const REASON_FILE_ESCAPES_WORKSPACE = "file-escapes-workspace";
 export const REASON_FILE_PATH_FORBIDDEN = "file-path-forbidden";
@@ -91,9 +90,6 @@ const SENSITIVE_PATTERNS = [
   /^-----BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----/i,
 ];
 
-const SAFE_ISSUER_PATTERN =
-  /^(?:sk-|ghp_|github_pat_|xox[bpas]-|AKIA|-----BEGIN)/i;
-
 function redact(value: unknown): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value === "object") {
@@ -138,10 +134,6 @@ export function maskStringSecrets(value: string): string {
   return result;
 }
 
-export function hashForAudit(value: string): string {
-  return createHash("sha256").update(value).digest("hex").slice(0, 16);
-}
-
 export function redactAuditDetails(details: unknown): unknown {
   if (details === undefined || details === null) return details;
   const masked = redact(details);
@@ -157,11 +149,6 @@ export function redactAuditDetails(details: unknown): unknown {
     return safe;
   }
   return masked;
-}
-
-function errorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return maskStringSecrets(message);
 }
 
 export function isPrivateHostname(hostname: string): boolean {
@@ -309,12 +296,6 @@ export async function runGovernedCommandTool(
   });
   return { ok: true, reason: "dry-run" };
 }
-
-export function resolveTools(): Record<string, unknown> {
-  return {};
-}
-
-export function resolveToolsUnused(): void {}
 
 export interface GitHubToolArgs {
   owner?: string;

@@ -417,9 +417,6 @@ function applyPlanningHintsInner(
 const RISK_SIGNAL =
   /\b(auth(?:entication|orization|entication)?|login|sign-?in|password|token|session|oauth|jwt|permission|rbac|acl|security|vulnerab|xss|csrf|injection|secret|payment|billing|checkout|stripe|invoice|migrat(?:e|ion)|schema|concurr(?:ent|ency)|race|lock|transaction|balance)\b/i;
 
-const VERIFICATION_REQUESTED =
-  /\b(test|tests|qa|e2e|playwright|vitest|coverage|verify|verification|verify in browser|manual check|smoke)\b/i;
-
 /**
  * Legacy entry point: every code change gets a review node, and QA when a
  * QA agent exists. Kept for the callers/tests that still express the old

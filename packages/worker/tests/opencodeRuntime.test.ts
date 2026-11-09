@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { promises as fs, statSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";

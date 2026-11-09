@@ -15,7 +15,6 @@ import type { LLMMessage } from "@/llm";
 import { extractJson } from "@/utils/json";
 import type { McpToolDefinition } from "./types";
 import {
-  mcpToolLoopInstruction,
   mcpToolLoopPrompt,
   mcpToolResultMessage,
   mcpToolUnavailable,

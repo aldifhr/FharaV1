@@ -60,24 +60,6 @@ export interface RouterInput {
   advise?: (text: string, capabilities: string[]) => Promise<IntentResult | string>;
 }
 
-const ALL_INTENTS: RouterIntent[] = [
-  "chat",
-  "question",
-  "advice",
-  "research",
-  "audit",
-  "task",
-  "ambiguous",
-];
-
-const CHAT_INTENTS: ReadonlySet<RouterIntent> = new Set([
-  "chat",
-  "question",
-  "advice",
-  "research",
-  "audit",
-]);
-
 // Boundary guard: imperative change requests ("Add a login form") do not
 // match; question/advice shapes ("How do I add…?", "Should I use…?") do —
 // even when they contain a change verb. This is the platform rule that

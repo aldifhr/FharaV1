@@ -1,4 +1,4 @@
-import { CAPABILITY, type AgentDefinition } from "@/types";
+import type { AgentDefinition } from "@/types";
 
 import { capabilitiesOf, normalizeCapability } from "@/utils/agentCapabilities";
 

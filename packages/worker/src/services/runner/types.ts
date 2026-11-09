@@ -23,11 +23,7 @@ import type { DynamicSubtaskOrigin } from "@/types/subtask";
 import type { WebClient } from "@/tools/webClient";
 import type { LlmConcurrencyGate } from "@/effects/llmCall";
 import type { McpRunConfig } from "@/mcp/registry";
-import type {
-  NodeOutcome,
-  SchedulerNode,
-  SchedulerResult,
-} from "@/scheduler/dagScheduler";
+import type { SchedulerResult } from "@/scheduler/dagScheduler";
 
 /**
  * Runtime dependencies the runner needs. One sink per concern: every

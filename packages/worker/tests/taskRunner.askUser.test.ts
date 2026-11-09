@@ -2,10 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ExecutionPolicy } from "@/orchestrator/policy";
 import type {
   WorkerAgent,
-  WorkerApi,
   WorkerTask,
 } from "@/workerApi";
 import { createFakeApi, createRunnerDeps, testPolicy, testTask } from "./helpers";

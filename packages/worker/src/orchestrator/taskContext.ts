@@ -1,6 +1,4 @@
-import type { AgentDefinition, Classification } from "@/types";
-import { classifyCommand } from "./classifier";
-import { routeCapability, capabilitiesOf, isAgentEnabled } from "./capabilities";
+import type { Classification } from "@/types";
 import type { ReviewFinding } from "../utils/json";
 import type {
   AgentResult,

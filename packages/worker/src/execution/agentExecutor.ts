@@ -67,7 +67,7 @@ import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
 import { runResponsiveQa } from "./qa";
 import { wantsVisualQa } from "@/utils/qaIntent";
-import { getMcpRegistry, type McpHooks, type McpRunConfig, type McpSession } from "@/mcp/registry";
+import { getMcpRegistry, type McpHooks, type McpRunConfig } from "@/mcp/registry";
 import { runMcpToolLoop } from "@/mcp/toolLoop";
 import type { McpToolDefinition } from "@/mcp/types";
 
@@ -516,7 +516,7 @@ export function canAffordRetry(
 export async function executeSubtask(
   input: SubtaskExecutionInput
 ): Promise<SubtaskExecutionResult> {
-  const { subtask, agent } = input;
+  const { subtask } = input;
   if (input.signal.aborted) {
     return { status: "failed", error: "Execution cancelled" };
   }
@@ -843,7 +843,7 @@ function baseMessages(input: SubtaskExecutionInput, userContent: string) {
 async function executeCodeChange(
   input: SubtaskExecutionInput
 ): Promise<SubtaskExecutionResult> {
-  const { workspacePath, command, agent, subtask, onEvent, onMessage, signal } = input;
+  const { workspacePath, command, subtask, onEvent, onMessage, signal } = input;
   const fileHint = extractFileHint(`${subtask.description}\n${command}`);
   const { context } = await exploreRepository(workspacePath, { fileHint });
   await onEvent("agent.context", {
@@ -1168,7 +1168,7 @@ async function executeCodeChange(
 async function executeReview(
   input: SubtaskExecutionInput
 ): Promise<SubtaskExecutionResult> {
-  const { agent, subtask, fileChanges } = input;
+  const { subtask, fileChanges } = input;
   if (fileChanges.length === 0) {
     return {
       status: "completed",
@@ -1374,7 +1374,7 @@ async function executeReadOnly(
   input: SubtaskExecutionInput,
   mode: "audit" | "research" | "analysis"
 ): Promise<SubtaskExecutionResult> {
-  const { workspacePath, command, agent, subtask } = input;
+  const { workspacePath, command, subtask } = input;
   const fileHint = extractFileHint(subtask.description);
   const { context } = await exploreRepository(workspacePath, {
     fileHint,
@@ -1561,7 +1561,7 @@ async function executeReadOnly(
 async function executeShell(
   input: SubtaskExecutionInput
 ): Promise<SubtaskExecutionResult> {
-  const { workspacePath, command, agent, subtask, signal, onEvent, onMessage } = input;
+  const { workspacePath, command, subtask, signal, onEvent, onMessage } = input;
   await onEvent("agent.context", {
     capability: subtask.capability,
     mode: "shell (allowlisted)",

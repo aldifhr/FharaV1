@@ -5,7 +5,7 @@ import { runScheduler, type NodeOutcome, type SchedulerResult } from "@/schedule
 import { executeSubtask } from "@/execution/agentExecutor";
 import { resolveExecutionRuntime } from "@/execution/nativeProvider";
 import { capabilitiesOf } from "@/orchestrator/capabilities";
-import { combineSignals } from "./setup";
+import { combineSignals } from "./abort";
 import type { FallbackHandle } from "@/effects/llmCall";
 import type { WorkerApi } from "@/workerApi";
 import { handleNodeOutcome } from "./decision";

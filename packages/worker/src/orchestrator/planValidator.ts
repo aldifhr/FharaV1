@@ -190,25 +190,6 @@ export function findCycle(subtasks: PlanSubtask[]): string[] | null {
   return null;
 }
 
-export function topologicalOrder(subtasks: PlanSubtask[]): PlanSubtask[] {
-  const remaining = new Map(subtasks.map((subtask) => [subtask.key, subtask]));
-  const result: PlanSubtask[] = [];
-  const done = new Set<string>();
-  while (remaining.size > 0) {
-    let progressed = false;
-    for (const [key, subtask] of Array.from(remaining.entries())) {
-      if (subtask.dependencies.every((dependency) => done.has(dependency))) {
-        result.push(subtask);
-        done.add(key);
-        remaining.delete(key);
-        progressed = true;
-      }
-    }
-    if (!progressed) break;
-  }
-  return result;
-}
-
 /**
  * Validate a plan read back from storage (resume after approval, lease
  * recovery). The planner's subtask cap applies to what a PLANNER may

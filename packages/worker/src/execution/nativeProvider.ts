@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { EventSink } from "@/types/events";
-import { NATIVE_PROMPT_MESSAGE, workspaceHeader, buildNativePrompt } from "@/prompts/native";
+import { NATIVE_PROMPT_MESSAGE, workspaceHeader } from "@/prompts/native";
 
 // Prompt text lives in `@/prompts/native`; re-exported for existing importers.
 export { NATIVE_PROMPT_MESSAGE, workspaceHeader, buildNativePrompt } from "@/prompts/native";

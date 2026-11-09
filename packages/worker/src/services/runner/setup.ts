@@ -5,13 +5,10 @@ import {
   type AgentDefinition,
   type ExecutionPlan,
   type PlanSubtask,
-  type SubtaskKind,
 } from "@/types";
-import { classifyCommand } from "@/orchestrator/classifier";
-import { heuristicPlan } from "@/orchestrator/planner";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
 import type { BudgetSnapshot, BudgetTracker } from "@/orchestrator/budget";
-import type { AgentResult, SharedTaskContext } from "@/orchestrator/taskContext";
+import type { AgentResult } from "@/orchestrator/taskContext";
 import { normalizeFindings } from "@/orchestrator/taskContext";
 import type { GlobalLLMConfig } from "@/llm";
 import {
@@ -33,27 +30,8 @@ import type {
 } from "@/workerApi";
 import type { RunnerDeps, RunState } from "./types";
 
-// Re-exports: these helpers moved to focused modules (abort / terminal /
-// replan); `./setup` stays a stable import path for callers and tests.
-export {
-  SHUTDOWN_ABORT_MESSAGE,
-  LEASE_LOST_PREFIX,
-  isLeaseLostOrShutdown,
-  armTaskAbort,
-  combineSignals,
-} from "./abort";
-export {
-  isTerminalTaskStatus,
-  finishBudgetExhaustedTask,
-  summaryHasBudgetFailure,
-  budgetReasonFromSummary,
-  finishCancelledTask,
-} from "./terminal";
-export {
-  completedSubtasksFor,
-  buildReplanFeedback,
-  type CompletedSubtask,
-} from "./replan";
+// Re-exported for tests that import the replan feedback helpers from here.
+export { completedSubtasksFor, buildReplanFeedback, type CompletedSubtask } from "./replan";
 
 /**
  * Build the per-task LLM resolver from the DB provider pool (Settings
@@ -385,11 +363,11 @@ export function implementerAgent(
   return routeCapability(CAPABILITY.GENERAL, agents);
 }
 
-export function normalizeFileChangePath(filePath: string): string {
+function normalizeFileChangePath(filePath: string): string {
   return filePath.replace(/\\\\/g, "/").replace(/^\/+/, "");
 }
 
-export function isForbiddenFilePath(filePath: string): boolean {
+function isForbiddenFilePath(filePath: string): boolean {
   const normalized = normalizeFileChangePath(filePath).toLowerCase();
   return (
     normalized === ".env" ||

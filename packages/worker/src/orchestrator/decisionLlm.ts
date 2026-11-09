@@ -8,7 +8,7 @@ import {
   type LlmConcurrencyGate,
 } from "@/effects/llmCall";
 import type { TokenUsageFn } from "@/types/llm";
-import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig } from "@/llm";
+import { createProviderForAgent, type GlobalLLMConfig } from "@/llm";
 import { providerHealth } from "@/llm/health";
 import type { TaskLlmResolver } from "@/llm/resolver";
 import type { DecisionContext, DecisionObservation } from "./decision";

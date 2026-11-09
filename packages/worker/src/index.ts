@@ -8,7 +8,7 @@ import { setWorkerLlmConcurrencyLimit } from "./effects/llmCall";
 import { providerHealth } from "./llm/health";
 import { getMcpRegistry } from "./mcp/registry";
 import { processTask, resumeTask, type RunnerDeps } from "./services/taskRunner";
-import { isLeaseLostOrShutdown } from "./services/runner/setup";
+import { isLeaseLostOrShutdown } from "./services/runner/abort";
 import { processNextPushRequest } from "./services/pushRequests";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });

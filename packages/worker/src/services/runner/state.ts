@@ -6,7 +6,7 @@ import type {
   ExecutionPlan,
 } from "@/types";
 import { normalizeCapability } from "@/orchestrator/capabilities";
-import type { ReviewFinding, ReviewResult } from "@/utils/json";
+import type { ReviewResult } from "@/utils/json";
 import type { FileDiff } from "@/tools/gitDiff";
 import type { RunState } from "./types";
 import type { QaVerdict } from "@/types/qa";

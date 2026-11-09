@@ -6,7 +6,6 @@ import type { ExecutionPolicy } from "@/orchestrator/policy";
 import type { ExecutionPlan } from "@/orchestrator/types";
 import type {
   WorkerAgent,
-  WorkerApi,
   WorkerTask,
 } from "@/workerApi";
 import { createFakeApi, createRunnerDeps, testPolicy, testTask } from "./helpers";

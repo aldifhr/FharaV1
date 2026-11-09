@@ -5,7 +5,6 @@ import * as path from "node:path";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
 import type {
   WorkerAgent,
-  WorkerApi,
   WorkerTask,
 } from "@/workerApi";
 

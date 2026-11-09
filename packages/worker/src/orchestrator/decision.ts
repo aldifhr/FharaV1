@@ -117,10 +117,6 @@ export function isRecoveryNode(subtask: { origin?: string; key: string }, dynami
   return /^(decision_delegate|fix_qa|delegate_)/.test(subtask.key);
 }
 
-export function isPlannedNode(subtask: { origin?: string; key: string }, dynamicKeys?: Set<string> | ReadonlySet<string>): boolean {
-  return !isRecoveryNode(subtask, dynamicKeys);
-}
-
 /**
  * Plan 005 Phase 5 Step 5.1: is the task objective satisfied? Pure: it reads
  * the plan, completed keys, open issues, and the runner-supplied evidence.

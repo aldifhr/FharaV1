@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { roleLabel } from "@/lib/agentRoles";
 import InitialAvatar from "../InitialAvatar";
+import { QuoteBar, type ChatQuote } from "./QuoteBlock";
 import { useToast } from "../Toasts";
 import { useAutoGrowRef, type QueuedMessage } from "./useChatQueue";
 import { useMediaQuery } from "@/lib/useMediaQuery";
@@ -98,6 +99,8 @@ export default function ChatComposer({
   onTargetChange,
   permissionMode,
   onPermissionModeChange,
+  quote = null,
+  onCancelQuote,
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -127,6 +130,9 @@ export default function ChatComposer({
   /** Plan 020: permission mode for tasks this composer dispatches. */
   permissionMode?: PermissionMode;
   onPermissionModeChange?: (mode: PermissionMode) => void;
+  /** Message being replied to (quote bar above the input); Esc or × cancels. */
+  quote?: ChatQuote | null;
+  onCancelQuote?: () => void;
 }) {
   const toast = useToast();
   const textareaRef = useAutoGrowRef([draft], 200);
@@ -145,6 +151,12 @@ export default function ChatComposer({
   const narrow = useMediaQuery("(max-width: 639px)", false);
   const draftRef = useRef(draft);
   draftRef.current = draft;
+
+  // Reply: focus the input so the user can type right away.
+  const quoteId = quote?.messageId;
+  useEffect(() => {
+    if (quoteId) textareaRef.current?.focus();
+  }, [quoteId, textareaRef]);
 
   // Feature-detect after mount (SSR has no window): no mic button without the API.
   useEffect(() => setSpeechSupported(speechCtor() !== null), []);
@@ -308,6 +320,11 @@ export default function ChatComposer({
         return;
       }
     }
+    if (e.key === "Escape" && quote && onCancelQuote) {
+      e.preventDefault();
+      onCancelQuote();
+      return;
+    }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
       const key = e.key.toLowerCase();
       if (key === "b" || key === "i" || key === "e") {
@@ -454,6 +471,7 @@ export default function ChatComposer({
         )}
 
         <div className="rounded-2xl border border-line-strong bg-panel shadow-[0_1px_2px_rgba(20,20,40,0.04)] transition focus-within:border-brand/50 focus-within:ring-4 focus-within:ring-brand/10">
+          {quote && onCancelQuote && <QuoteBar quote={quote} onCancel={onCancelQuote} />}
           {formatOpen && (
             <div className="flex items-center gap-0.5 border-b border-line px-2 py-1" role="toolbar" aria-label="Formatting">
               <button type="button" className={rowBtn} aria-label="Bold (⌘B)" title="Bold (⌘B)" onClick={() => insertAtCursor("**", "**", "bold")}>

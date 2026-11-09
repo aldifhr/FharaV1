@@ -307,6 +307,8 @@ export const send = action({
     conversationId: v.optional(v.id("conversations")),
     /** Plan 020: permission mode for a task this message dispatches. */
     permissionMode: v.optional(permissionModeValidator),
+    /** Chat "Reply": the earlier message this one quotes. */
+    quotedMessageId: v.optional(v.id("messages")),
   },
   handler: async (ctx, args): Promise<{ messageId: string; conversationId: string }> => {
     // Authorization (core H5): the caller's identity propagates into
@@ -327,6 +329,7 @@ export const send = action({
       projectId: args.projectId,
       content: args.content,
       conversationId,
+      ...(args.quotedMessageId ? { quotedMessageId: args.quotedMessageId } : {}),
     });
     await ctx.scheduler.runAfter(0, internal.chat.replyToChat, {
       projectId: args.projectId,
@@ -351,6 +354,8 @@ export const insertThreadMessage = mutation({
     taskId: v.id("tasks"),
     content: v.string(),
     alsoSendToChat: v.optional(v.boolean()),
+    /** Thread "Reply": the earlier message in this task thread it quotes. */
+    quotedMessageId: v.optional(v.id("messages")),
   },
   handler: async (ctx, args) => {
     const content = args.content.trim();
@@ -359,11 +364,16 @@ export const insertThreadMessage = mutation({
     const task = await getVisibleTask(ctx, args.taskId);
     if (!task) throw new Error("Task not found");
     if (task.projectId !== args.projectId) throw new Error("Task does not belong to this project");
+    if (args.quotedMessageId) {
+      const quoted = await ctx.db.get(args.quotedMessageId);
+      if (!quoted || quoted.projectId !== args.projectId) throw new Error("Quoted message not found");
+    }
     const messageId = await ctx.db.insert("messages", {
       projectId: args.projectId,
       taskId: args.taskId,
       authorType: "user",
       content,
+      ...(args.quotedMessageId ? { quotedMessageId: args.quotedMessageId } : {}),
     });
     if (args.alsoSendToChat) {
       await ctx.db.insert("messages", {

@@ -17,6 +17,7 @@ import ChatComposer from "./chat/ChatComposer";
 import ChatHeader, { type ChatTab, type HeaderNotification } from "./chat/ChatHeader";
 import ManageProjectModal from "./chat/ManageProjectModal";
 import MessageList from "./chat/MessageList";
+import { quoteOf, type ChatQuote } from "./chat/QuoteBlock";
 import StatusLine from "./chat/StatusLine";
 import FilesView from "./chat/FilesView";
 import { useChatQueue } from "./chat/useChatQueue";
@@ -202,6 +203,16 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const conversationTyping =
     lastMessage?.authorType === "user" && fresh && !(tasks ?? []).some((t: any) => t.title === lastMessage?.content);
 
+  // A reply to a teammate's message (no @mention) is answered by that
+  // teammate (chat.ts replyToChat); the ghost bubble shows who.
+  const quotedResponder = (() => {
+    if (!conversationTyping || !lastMessage?.quotedMessageId) return undefined;
+    if (/(^|[^\w@])@\w/.test(lastMessage.content ?? "")) return undefined;
+    const quoted = timeline.find((m: any) => m._id === lastMessage.quotedMessageId);
+    const agent = quoted?.authorType === "agent" ? agents.find((a: any) => a._id === quoted.agentId) : undefined;
+    return agent && !/^(cto|architect)$/i.test(agent.role ?? "") ? agent : undefined;
+  })();
+
   const taskTitle = (taskId: string) => (tasks ?? []).find((task) => task._id === taskId)?.title ?? "task";
   const taskFromPlan = (content: string) => content.match(/^Plan dibuat\. Task (\S+)/)?.[1];
   const replyToTask = new Map<string, string>();
@@ -213,6 +224,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
 
   // ── Composer: draft, mentions, queue, target ("To <Agent>") ────────────
   const [draft, setDraft] = useState("");
+  // "Reply": the message the next send quotes (quote bar above the composer).
+  const [quote, setQuote] = useState<ChatQuote | null>(null);
+  useEffect(() => setQuote(null), [projectId]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [chatError, setChatError] = useState("");
   const [chatSending, setChatSending] = useState(false);
@@ -356,8 +370,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     try {
       if (!(await runSlash(text))) {
         const content = await mentions.attachMentionedFiles(text);
-        await sendMessage({ projectId: projectId as any, content, preferredAgentIds: recipientsFor(content) as any, permissionMode });
+        await sendMessage({
+          projectId: projectId as any,
+          content,
+          preferredAgentIds: recipientsFor(content) as any,
+          permissionMode,
+          ...(quote ? { quotedMessageId: quote.messageId as any } : {}),
+        });
       }
+      setQuote(null);
       setDraft("");
       mentions.setMention(null);
       setDividerAt(Number.POSITIVE_INFINITY);
@@ -462,6 +483,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     try {
       await clearChat({ projectId: projectId as never });
       setDraft("");
+      setQuote(null);
       queue.clear();
       mentions.setMention(null);
       toast("success", "Chat cleared");
@@ -578,7 +600,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             scrollToMessageRef={scrollToMessageRef}
             chatSending={chatSending}
             conversationTyping={conversationTyping}
-            typingAgent={targetAgent ?? agents.find((a: any) => a.role === "cto")}
+            typingAgent={quotedResponder ?? targetAgent ?? agents.find((a: any) => a.role === "cto")}
             onSelectTask={onSelectTask}
             approve={(approvalId) => approve({ approvalId: approvalId as any })}
             reject={(approvalId) => reject({ approvalId: approvalId as any })}
@@ -586,6 +608,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             togglePin={(messageId, pinned) => void togglePin({ messageId: messageId as never, pinned })}
             onPickProposal={(choice) => void handleChooseProposal(choice)}
             onCreateTaskFrom={createTaskFromMessage}
+            onReply={(m) => setQuote(quoteOf(m, agents))}
             formatTime={formatMessageTime}
             taskTitle={taskTitle}
             blockKey={blockKey}
@@ -624,7 +647,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
           <StatusLine
             agents={agents}
             status={status}
-            drafting={conversationTyping ? [roleLabel(targetAgent?.role ?? "cto")] : []}
+            drafting={conversationTyping ? [roleLabel((quotedResponder ?? targetAgent)?.role ?? "cto")] : []}
             events={projectEvents as any}
             qaUrl={(project as any)?.qaUrl ?? (project as any)?.devUrl}
           />
@@ -658,6 +681,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             onTargetChange={setTargetId}
             permissionMode={permissionMode}
             onPermissionModeChange={setPermissionModeChoice}
+            quote={quote}
+            onCancelQuote={() => setQuote(null)}
           />
         </>
       )}

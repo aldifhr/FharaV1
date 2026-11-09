@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Brain, Copy, MoreHorizontal, PanelRightOpen, Pin, PinOff, Plus } from "lucide-react";
+import { Brain, Copy, MoreHorizontal, PanelRightOpen, Pin, PinOff, Plus, Reply } from "lucide-react";
 import { useMutation } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -22,6 +22,7 @@ import { SectionLoading } from "@/app/WorkspaceContext";
 import { groupActivity, groupByIndex } from "@/lib/activityGroups";
 import ActivityGroupRow from "./ActivityGroupRow";
 import { useToast } from "../Toasts";
+import { QuotedSnippet, quoteOf } from "./QuoteBlock";
 
 export type MessageKind = "evaluation" | "planning" | "delegation" | "design" | null;
 
@@ -68,6 +69,8 @@ type Props = {
   onPickProposal: (choice: string) => void;
   /** Turns an agent's recommendation into a task (button under it). */
   onCreateTaskFrom?: (messageId: string) => Promise<unknown>;
+  /** "Reply": quote this message in the composer. */
+  onReply?: (message: any) => void;
   formatTime: (createdAt: number) => string;
   taskTitle: (taskId: string) => string;
   blockKey: (m: any) => string;
@@ -78,7 +81,7 @@ export default function MessageList(props: Props) {
     timeline, firstNewIndex, agents, tasks = [], subtasksOf, pendingItems, projectEvents = [],
     projectApprovalMode, loading = false, chatSending,
     conversationTyping, typingAgent, scrollRef, scrollToMessageRef,
-    onSelectTask, approve, reject, hold, togglePin, onPickProposal, onCreateTaskFrom, formatTime, taskTitle, blockKey,
+    onSelectTask, approve, reject, hold, togglePin, onPickProposal, onCreateTaskFrom, onReply, formatTime, taskTitle, blockKey,
   } = props;
 
   const listRef = useRef<HTMLDivElement>(null);
@@ -163,24 +166,41 @@ export default function MessageList(props: Props) {
     getItemKey: (index) => blockKey(timeline[index]) + String(index),
   });
 
+  const toast = useToast();
+  // The message a jump landed on gets a brief highlight.
+  const [flashId, setFlashId] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+  }, []);
+  const scrollToMessage = (messageId: string) => {
+    const index = timeline.findIndex((m: any) => m._id === messageId);
+    if (index < 0) return false;
+    if (virtualized) {
+      virtualizer.scrollToIndex(index, { align: "center" });
+      // Re-run once rows are measured so the target lands centred.
+      requestAnimationFrame(() => virtualizer.scrollToIndex(index, { align: "center" }));
+    } else {
+      document.getElementById(`message-${messageId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    setFlashId(messageId);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlashId(null), 1600);
+    return true;
+  };
+  const scrollToMessageLatest = useRef(scrollToMessage);
+  scrollToMessageLatest.current = scrollToMessage;
+  const jumpToQuoted = (messageId: string) => {
+    if (!scrollToMessageLatest.current(messageId)) toast("info", "That message is no longer in the loaded chat history.");
+  };
+
   useEffect(() => {
     if (!scrollToMessageRef) return;
-    scrollToMessageRef.current = (messageId: string) => {
-      const index = timeline.findIndex((m: any) => m._id === messageId);
-      if (index < 0) return false;
-      if (virtualized) {
-        virtualizer.scrollToIndex(index, { align: "center" });
-        // Re-run once rows are measured so the target lands centred.
-        requestAnimationFrame(() => virtualizer.scrollToIndex(index, { align: "center" }));
-        return true;
-      }
-      document.getElementById(`message-${messageId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-      return true;
-    };
+    scrollToMessageRef.current = (messageId: string) => scrollToMessageLatest.current(messageId);
     return () => {
       if (scrollToMessageRef) scrollToMessageRef.current = null;
     };
-  }, [scrollToMessageRef, timeline, virtualized, virtualizer]);
+  }, [scrollToMessageRef]);
 
   const renderItem = (m: any, index: number, animate: boolean) => {
     const previous = timeline[index - 1];
@@ -263,7 +283,7 @@ export default function MessageList(props: Props) {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
-            className="group relative mt-5 flex gap-3.5"
+            className={`group relative mt-5 flex gap-3.5 rounded-xl transition-colors duration-700 ${flashId === String(m._id) ? "bg-hover" : ""}`}
           >
             {renderMessageBody(m, index, messageAgent)}
           </motion.div>
@@ -271,7 +291,7 @@ export default function MessageList(props: Props) {
           <div
             key={m._id}
             id={`message-${m._id}`}
-            className="group relative mt-5 flex gap-3.5"
+            className={`group relative mt-5 flex gap-3.5 rounded-xl transition-colors duration-700 ${flashId === String(m._id) ? "bg-hover" : ""}`}
           >
             {renderMessageBody(m, index, messageAgent)}
           </div>
@@ -296,8 +316,13 @@ export default function MessageList(props: Props) {
           taskId={blockKey(m) !== "conversation" ? blockKey(m) : undefined}
           onTogglePin={() => togglePin(m._id, !m.pinned)}
           onOpenTask={onSelectTask}
+          onReply={onReply && m.content?.trim() ? () => onReply(m) : undefined}
         />
         <div className="min-w-0 rounded-2xl rounded-tr-md bg-brand-soft px-4 py-2.5 text-ink [&_p]:my-0">
+          {m.quotedMessageId && (() => {
+            const quoted = timeline.find((q: any) => q._id === m.quotedMessageId);
+            return <QuotedSnippet quote={quoted ? quoteOf(quoted, agents) : null} onJump={jumpToQuoted} />;
+          })()}
           <MessageText content={m.content ?? ""} />
         </div>
       </div>
@@ -308,7 +333,7 @@ export default function MessageList(props: Props) {
     <>
       <InitialAvatar agent avatarParams={messageAgent?.avatarParams} name={roleLabel(messageAgent?.role)} size={32} />
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2 pr-9">
+        <div className={`flex items-baseline gap-2 ${onReply ? "pr-16" : "pr-9"}`}>
           <p className="flex flex-wrap items-center gap-1.5 text-[14px] font-semibold text-ink">
             {roleLabel(messageAgent?.role)}
             {(() => {
@@ -327,6 +352,7 @@ export default function MessageList(props: Props) {
           taskId={blockKey(m) !== "conversation" ? blockKey(m) : undefined}
           onTogglePin={() => togglePin(m._id, !m.pinned)}
           onOpenTask={onSelectTask}
+          onReply={onReply && m.content?.trim() && !isLive(m) ? () => onReply(m) : undefined}
         />
         {(() => {
           const showReasoning = !m.card && (m.reasoning || !m.content?.trim());
@@ -540,9 +566,11 @@ function MessageActions({
   taskId,
   onTogglePin,
   onOpenTask,
+  onReply,
   inline = false,
 }: {
   inline?: boolean;
+  onReply?: () => void;
   pinned: boolean;
   messageId?: string;
   content: string;
@@ -597,20 +625,26 @@ function MessageActions({
   }, []);
 
   const item = "flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-ink hover:bg-hover";
+  const hoverBtn = `flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-ink-3 outline-none transition hover:border-line hover:bg-panel hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand/40 ${open ? "opacity-100" : "opacity-0 group-hover:opacity-100"} [@media(hover:none)]:hidden`;
   return (
-    <div ref={ref} className={inline ? "relative shrink-0 self-center" : "absolute right-0 top-0"}>
+    <div ref={ref} className={`flex items-center gap-0.5 ${inline ? "relative shrink-0 self-center" : "absolute right-0 top-0"}`}>
+      {onReply && (
+        <button type="button" aria-label="Reply" title="Reply" onClick={onReply} className={hoverBtn}>
+          <Reply size={15} />
+        </button>
+      )}
       <button
         type="button"
         aria-label="Message actions"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className={`flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-ink-3 outline-none transition hover:border-line hover:bg-panel hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand/40 ${open ? "opacity-100" : "opacity-0 group-hover:opacity-100"} [@media(hover:none)]:hidden`}
+        className={hoverBtn}
       >
         <MoreHorizontal size={16} />
       </button>
       {open && (
-        <div role="menu" className="absolute right-0 z-30 mt-1 w-48 overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-[0_12px_32px_-12px_rgba(20,20,40,0.3)]">
+        <div role="menu" className="absolute right-0 top-full z-30 mt-1 w-48 overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-[0_12px_32px_-12px_rgba(20,20,40,0.3)]">
           <button type="button" role="menuitem" className={item} onClick={() => { setOpen(false); onTogglePin(); }}>
             {pinned ? <PinOff size={15} className="text-ink-3" /> : <Pin size={15} className="text-ink-3" />}
             {pinned ? "Unpin message" : "Pin message"}
@@ -629,6 +663,11 @@ function MessageActions({
           >
             <Copy size={15} className="text-ink-3" /> Copy text
           </button>
+          {onReply && (
+            <button type="button" role="menuitem" className={item} onClick={() => { setOpen(false); onReply(); }}>
+              <Reply size={15} className="text-ink-3" /> Reply
+            </button>
+          )}
           {messageId && content?.trim() && (
             <button
               type="button"

@@ -16,7 +16,8 @@ import ReviewSnippet from "./chat/cards/ReviewSnippet";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
 import { Skeleton } from "@/app/WorkspaceContext";
-import { ArrowLeft, ArrowUpRight, AtSign, Check, ChevronLeft, Loader2 as SendLoader, Minimize2, Paperclip, RotateCcw, SendHorizontal, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, AtSign, Check, ChevronLeft, Loader2 as SendLoader, Minimize2, Paperclip, Reply, RotateCcw, SendHorizontal, X } from "lucide-react";
+import { QuoteBar, QuotedSnippet, quoteOf, type ChatQuote } from "./chat/QuoteBlock";
 import { clockTime } from "@/lib/format";
 import { groupActivity, groupByIndex } from "@/lib/activityGroups";
 import ActivityGroupRow from "./chat/ActivityGroupRow";
@@ -79,6 +80,29 @@ export default function TaskThreadPanel({
   const [steering, setSteering] = useState(false);
   const [reply, setReply] = useState("");
   const [alsoSendToChat, setAlsoSendToChat] = useState(false);
+  // Thread "Reply": the message the next reply quotes.
+  const [quote, setQuote] = useState<ChatQuote | null>(null);
+  useEffect(() => setQuote(null), [taskId]);
+  const [flashId, setFlashId] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+  }, []);
+  const startReply = (m: any) => {
+    setQuote(quoteOf(m, agents as any));
+    requestAnimationFrame(() => replyRef.current?.focus());
+  };
+  const jumpTo = (messageId: string) => {
+    const el = document.getElementById(`thread-message-${messageId}`);
+    if (!el) {
+      toast("info", "That message is not shown in this thread.");
+      return;
+    }
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFlashId(messageId);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlashId(null), 1600);
+  };
   const [sendingReply, setSendingReply] = useState(false);
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
@@ -254,8 +278,15 @@ export default function TaskThreadPanel({
         const res = await steerTask({ taskId: task._id as any, instruction: text });
         if (!res.applied) throw new Error("The task is no longer running.");
       }
-      await sendThreadMessage({ projectId: task.projectId, taskId: task._id, content: text, alsoSendToChat });
+      await sendThreadMessage({
+        projectId: task.projectId,
+        taskId: task._id,
+        content: text,
+        alsoSendToChat,
+        ...(quote ? { quotedMessageId: quote.messageId as any } : {}),
+      });
       setReply("");
+      setQuote(null);
       if (steer) toast("success", "Sent to the running agent");
     } catch (err) {
       toast("error", answer ? "Couldn't send answer" : steer ? "Couldn't steer the task" : "Couldn't send reply", errorText(err));
@@ -365,6 +396,27 @@ export default function TaskThreadPanel({
           : { label: taskStatusLabel(taskStatus), cls: "bg-hover text-ink-2" };
   const placeholder =
     taskStatus === "waiting_input" ? "Answer to continue the task" : taskStatus === "running" ? "Steer the running task" : "Reply to the thread";
+  /** Hover Reply on a thread message (text messages only). */
+  const replyButton = (m: any) =>
+    m.content?.trim() ? (
+      <button
+        type="button"
+        aria-label="Reply"
+        title="Reply"
+        onClick={() => startReply(m)}
+        className="absolute right-0 top-0 flex h-7 w-7 items-center justify-center rounded-md text-ink-3 opacity-0 outline-none transition hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand/40 group-hover:opacity-100 [@media(hover:none)]:hidden"
+      >
+        <Reply size={15} />
+      </button>
+    ) : null;
+  const rowClass = (m: any) =>
+    `group relative flex gap-3 rounded-xl transition-colors duration-700 ${flashId === String(m._id) ? "bg-hover" : ""}`;
+  const quoteFor = (m: any) => {
+    if (!m.quotedMessageId) return null;
+    const quoted = (messages ?? []).find((q: any) => q._id === m.quotedMessageId);
+    return <QuotedSnippet quote={quoted ? quoteOf(quoted, agents as any) : null} onJump={jumpTo} />;
+  };
+
   const nameRow = (role: string | undefined, at: number, tag?: string) => (
     <p className="flex items-center gap-2 text-[15px] font-semibold text-ink">
       {roleLabel(role)}
@@ -499,7 +551,8 @@ export default function TaskThreadPanel({
             const isLastCto = index === ctoMessages.length - 1;
             const isReview = !m.card;
             return (
-              <div key={m._id} className="flex gap-3">
+              <div key={m._id} id={`thread-message-${m._id}`} className={rowClass(m)}>
+                {replyButton(m)}
                 <InitialAvatar agent avatarParams={msgAgent?.avatarParams} name={roleLabel(msgAgent?.role)} size={30} />
                 <div className="min-w-0 flex-1">
                   {nameRow(msgAgent?.role, m._creationTime, isReview ? "review" : undefined)}
@@ -547,7 +600,8 @@ export default function TaskThreadPanel({
               ) : null;
             if (!open) return summaryRow;
             const row = (
-              <div key={m._id} className="flex gap-3">
+              <div key={m._id} id={`thread-message-${m._id}`} className={rowClass(m)}>
+                {replyButton(m)}
                 <InitialAvatar agent={!isUser} avatarParams={isUser ? undefined : msgAgent?.avatarParams} name={isUser ? "You" : roleLabel(msgAgent?.role)} size={30} />
                 <div className="min-w-0 flex-1">
                   {isUser ? (
@@ -557,6 +611,7 @@ export default function TaskThreadPanel({
                   ) : (
                     nameRow(msgAgent?.role, m._creationTime)
                   )}
+                  {quoteFor(m)}
                   {m.content?.trim() ? <MessageText content={m.content} size="sm" /> : null}
                   {m.card && (
                     <div className="mt-2.5">
@@ -605,12 +660,19 @@ export default function TaskThreadPanel({
           }}
         >
           <div className="rounded-2xl border border-line-strong bg-panel transition focus-within:border-brand/50 focus-within:ring-4 focus-within:ring-brand/10">
+            {quote && <QuoteBar quote={quote} onCancel={() => setQuote(null)} />}
             <textarea
               ref={replyRef}
               value={reply}
               onChange={(event) => setReply(event.target.value)}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                if (event.key === "Escape" && quote) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setQuote(null);
+                  return;
+                }
                 if (event.key === "Enter" && !event.shiftKey) {
                   const touch = window.matchMedia?.("(hover: none) and (pointer: coarse)").matches;
                   if (touch) return;

@@ -6,6 +6,7 @@ import { activeParticipantRows, selectDefaultChatAgents } from "./conversations"
 import { formatSkillsSection } from "./lib/skills";
 import { loadPromptSkills } from "./skills";
 import { loadMemorySection } from "./memories";
+import { extractAgentMentions } from "./lib/chat/team";
 
 /** Drop the `--- File: <path> ---` blocks `attachMentionedFiles` appends so
  *  repeated file context does not accumulate in the chat prompt. */
@@ -18,11 +19,16 @@ export const insertUserMessage = internalMutation({
     projectId: v.id("projects"),
     content: v.string(),
     conversationId: v.optional(v.id("conversations")),
+    quotedMessageId: v.optional(v.id("messages")),
   },
   handler: async (ctx, args) => {
     const content = args.content.trim();
     if (!content) throw new Error("Message is required");
     if (content.length > 8000) throw new Error("Message is too long");
+    if (args.quotedMessageId) {
+      const quoted = await ctx.db.get(args.quotedMessageId);
+      if (!quoted || quoted.projectId !== args.projectId) throw new Error("Quoted message not found");
+    }
     // Durable FIFO queue (plan 016 P0): the row is claimed by the worker with
     // the task lease pattern. Task-linked agent messages never enter the
     // queue (queueStatus undefined) — only conversation user messages do.
@@ -31,6 +37,7 @@ export const insertUserMessage = internalMutation({
       authorType: "user",
       content,
       conversationId: args.conversationId,
+      ...(args.quotedMessageId ? { quotedMessageId: args.quotedMessageId } : {}),
       queueStatus: "pending",
       attempts: 0,
     });
@@ -65,6 +72,41 @@ export const insertAgentMessage = internalMutation({
       conversationId: args.conversationId,
       ...(args.card ? { card: args.card } : {}),
     });
+  },
+});
+
+/**
+ * The message a user message quotes (chat "Reply"), with what routing needs:
+ * the author's role, whether it is still an enabled team member, and how
+ * many teammates the user @mentioned in the reply text.
+ */
+export const getQuoteForReply = internalQuery({
+  args: { userMessageId: v.id("messages") },
+  handler: async (ctx, args) => {
+    const message = await ctx.db.get(args.userMessageId);
+    if (!message?.quotedMessageId) return null;
+    const quoted = await ctx.db.get(message.quotedMessageId);
+    if (!quoted || quoted.projectId !== message.projectId) return null;
+    const project = await ctx.db.get(message.projectId);
+    const teamIds = project?.agentIds ?? [];
+    const team = (await Promise.all(teamIds.map((id) => ctx.db.get(id)))).filter(
+      (a): a is Doc<"agents"> => a !== null && a.isEnabled !== false
+    );
+    const agent = quoted.agentId ? team.find((a) => a._id === quoted.agentId) ?? (await ctx.db.get(quoted.agentId)) : null;
+    const mentions = extractAgentMentions(
+      message.content,
+      team.map((a) => ({ _id: String(a._id), name: a.name, role: a.role }))
+    );
+    return {
+      quote: {
+        authorType: quoted.authorType,
+        agentId: quoted.agentId ? String(quoted.agentId) : undefined,
+        role: agent?.role,
+        content: quoted.content,
+        inTeam: quoted.agentId ? team.some((a) => a._id === quoted.agentId) : undefined,
+      },
+      userMentionCount: mentions.length,
+    };
   },
 });
 

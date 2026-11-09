@@ -322,6 +322,10 @@ export default defineSchema({
     subtaskKey: v.optional(v.string()),
     executionId: v.optional(v.id("executions")),
     replyToMessageId: v.optional(v.id("messages")),
+    // Reply quote: the message the user replied to (chat "Reply" action).
+    // Distinct from replyToMessageId, which links an agent reply to the
+    // user message it answers.
+    quotedMessageId: v.optional(v.id("messages")),
     // Plan 007 (additive): the conversation this message belongs to. Optional
     // so pre-conversation messages still validate; task-thread messages keep
     // taskId and need no conversation.

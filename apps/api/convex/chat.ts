@@ -51,6 +51,7 @@ import {
 } from "./lib/chat/llm";
 import { stripToolCallMarkup } from "./lib/chat/strip";
 import { readRepoSnapshot } from "./lib/chat/repoSnapshot";
+import { quoteContextLine, quotedResponderId } from "./lib/chat/quote";
 import {
   OPTIONS_GUIDANCE,
   buildAnswerGuidance,
@@ -377,12 +378,24 @@ export const replyToChat = internalAction({
     userMessageId: v.id("messages"),
     permissionMode: v.optional(permissionModeValidator),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, rawArgs) => {
     // Concurrency guard: check if this message was already answered
     const alreadyReplied = await ctx.runQuery(internal.chatContext.checkAlreadyReplied, {
-      userMessageId: args.userMessageId,
+      userMessageId: rawArgs.userMessageId,
     });
     if (alreadyReplied) return;
+
+    // Reply quote: replying to a teammate's message (no @mention) routes the
+    // answer to that teammate, as if the user had @mentioned it. The CTO and
+    // the user's own messages route as usual; either way the quoted text
+    // rides into the context below.
+    const quoteInfo = await ctx.runQuery(internal.chatContext.getQuoteForReply, {
+      userMessageId: rawArgs.userMessageId,
+    });
+    const quotedResponder = quoteInfo ? quotedResponderId(quoteInfo.quote, quoteInfo.userMentionCount) : null;
+    const args: ReplyArgs = quotedResponder
+      ? { ...rawArgs, preferredAgentIds: [quotedResponder as Id<"agents">] }
+      : rawArgs;
 
     const data = (await ctx.runQuery(internal.chatContext.getContext, {
       projectId: args.projectId,
@@ -420,6 +433,15 @@ export const replyToChat = internalAction({
         role: "system",
         content: `Conversation summary: ${data.contextSummary}`,
       });
+    }
+    // The quoted message sits right before the user's reply so the agent
+    // knows what "this"/"ini" refers to, even when it is older than the
+    // history window.
+    if (quoteInfo) {
+      const line = { role: "system", content: quoteContextLine(quoteInfo.quote) };
+      const last = conversation.length - 1;
+      if (last >= 0 && conversation[last].role === "user") conversation.splice(last, 0, line);
+      else conversation.push(line);
     }
 
     // Only an agent whose ROLE is exactly "cto" may act as the orchestrator

@@ -324,7 +324,9 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_task", ["taskId"])
     .index("by_reply_to", ["replyToMessageId"])
-    .index("by_queue", ["queueStatus", "projectId"]),
+    .index("by_queue", ["queueStatus", "projectId"])
+    // Header pin chip: pinned messages of one project without a scan.
+    .index("by_project_and_pinned", ["projectId", "pinned"]),
 
   // Plan 007 (addendum §2): conversation participation is its own concept,
   // independent of project membership (projects.agentIds) and task assignment

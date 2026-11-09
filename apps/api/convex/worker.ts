@@ -1139,6 +1139,22 @@ export const recordSubtaskAcceptance = action({
   },
 });
 
+/** Plan 025: the requirement coverage check before "done". Lease-fenced. */
+export const recordRequirementCoverage = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    outcome: v.union(v.literal("covered"), v.literal("gaps"), v.literal("completed_with_gaps")),
+    covered: v.array(v.string()),
+    missingEvidence: v.array(v.string()),
+    uncovered: v.array(v.string()),
+    workerId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ applied: boolean; reason?: string }> => {
+    return await ctx.runMutation(internal.traceability.recordRequirementCoverage, withoutToken(args));
+  },
+});
+
 export const releasePausedTask = action({
   args: { ...tokenArg, taskId: v.id("tasks"), workerId: v.string() },
   handler: async (ctx, args): Promise<{ result: string }> => {

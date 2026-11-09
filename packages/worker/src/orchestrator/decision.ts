@@ -1,3 +1,4 @@
+import type { ExecutionObservation } from "@/api/convex/lib/observations";
 import {
   CAPABILITY,
   type AgentDefinition,
@@ -276,6 +277,13 @@ export interface DecisionObservation {
    * deferring evidence instead of a fabricated unmet verdict.
    */
   objective?: { met: boolean; missing: string[]; evidence: string[] };
+  /**
+   * Plan 025: the typed execution observations behind this decision
+   * (deterministic mapping of the execution outcome; see
+   * `@/api/convex/lib/observations`). Additive: every field above keeps
+   * its meaning, and a caller that sets none behaves as before.
+   */
+  observations?: ExecutionObservation[];
 }
 
 const MAX_REASONING = 500;

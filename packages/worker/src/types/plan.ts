@@ -1,4 +1,7 @@
 import type { PlanSubtask } from "./subtask";
+import type { Requirement } from "@/api/convex/lib/requirements";
+
+export type { Requirement } from "@/api/convex/lib/requirements";
 
 export const CAPABILITY = {
   COORDINATION: "project-coordination",
@@ -39,6 +42,12 @@ export interface ExecutionPlan {
   replanRemovals?: Array<{ key: string; reasoning: string }>;
   /** Set on a replanned version: the diff, scope and reasoning (Replan Intelligence). */
   replan?: ReplanRecord;
+  /**
+   * Plan 025: the requirements extracted from the user's request at plan
+   * time (LLM, with a deterministic fallback). Subtasks map to them by
+   * `requirementIds`; the coverage check before "done" reads them.
+   */
+  requirements?: Requirement[];
 }
 
 export interface Classification {

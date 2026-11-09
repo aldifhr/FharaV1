@@ -1,6 +1,7 @@
 import type { MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { AcceptanceGate } from "./subtaskContract";
+import { parseStoredRequirements } from "./requirements";
 
 /** Contract columns of a subtask definition (plan 022); absent fields stay absent. */
 export function contractDefinition(subtask: {
@@ -8,12 +9,14 @@ export function contractDefinition(subtask: {
   constraints?: string[];
   deliverable?: string;
   acceptance?: AcceptanceGate[];
-}): Pick<Doc<"subtasks">, "objective" | "constraints" | "deliverable" | "acceptance"> {
+  requirementIds?: string[];
+}): Pick<Doc<"subtasks">, "objective" | "constraints" | "deliverable" | "acceptance" | "requirementIds"> {
   return {
     objective: subtask.objective,
     constraints: subtask.constraints,
     deliverable: subtask.deliverable,
     acceptance: subtask.acceptance,
+    requirementIds: subtask.requirementIds,
   };
 }
 
@@ -46,6 +49,7 @@ export interface PlanVersionInput {
     constraints?: string[];
     deliverable?: string;
     acceptance?: AcceptanceGate[];
+    requirementIds?: string[];
   }>;
   degradedReason?: string;
   estimate?: unknown;
@@ -55,6 +59,7 @@ export interface PlanVersionInput {
 
 export async function writePlanVersion(ctx: MutationCtx, args: PlanVersionInput): Promise<number> {
     const now = Date.now();
+    const requirements = parseStoredRequirements((args.payload as { requirements?: unknown } | null)?.requirements);
     const existing = await ctx.db
       .query("plans")
       .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
@@ -166,6 +171,9 @@ export async function writePlanVersion(ctx: MutationCtx, args: PlanVersionInput)
       errorMessage: undefined,
       // A planner version consumes the pending "Replan with note" text.
       ...(args.createdBy !== "user" ? { planReviewNote: undefined } : {}),
+      // Plan 025: the plan carries the task's requirements; a version that
+      // carries none (a user edit) keeps the stored list.
+      ...(requirements.length > 0 ? { requirements } : {}),
     });
     await ctx.db.insert("taskEvents", {
       taskId: args.taskId,

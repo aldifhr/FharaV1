@@ -44,6 +44,8 @@ export interface PlanSubtask {
    * persisted (it lives on the plan version's `replan` record instead).
    */
   replanReasoning?: string;
+  /** Plan 025: ids of the task requirements this subtask serves. */
+  requirementIds?: string[];
 }
 
 /** Why a subtask was added after planning (persisted as its origin). */

@@ -8,6 +8,11 @@ import {
   subtaskContractFields,
   modelTiersValidator,
 } from "./lib/contractValidators";
+import {
+  observationFields,
+  requirementCoverageValidator,
+  requirementValidator,
+} from "./lib/traceValidators";
 
 /** file:line evidence on a Reviewer opinion or shadow note. */
 const reviewEvidenceValidator = v.object({
@@ -257,6 +262,10 @@ export default defineSchema({
     // Shadow Agent (additive): the Reviewer observes this task and leaves
     // notes after each completed subtask. Never executes or blocks.
     shadowAgent: v.optional(v.boolean()),
+    // Plan 025 (additive): requirements extracted from the request at plan
+    // time, and the last deterministic coverage check before "done".
+    requirements: v.optional(v.array(requirementValidator)),
+    requirementCoverage: v.optional(requirementCoverageValidator),
     // Agile: the sprint this task belongs to (1-based per project). A
     // sprint groups one planning round and its review/verification.
     sprint: v.optional(v.number()),
@@ -590,6 +599,14 @@ export default defineSchema({
     appliedAt: v.optional(v.number()),
     appliedByWorkerId: v.optional(v.string()),
   }).index("by_task", ["taskId"]).index("by_project", ["projectId"]),
+
+  // Plan 025: typed execution observations, derived deterministically from
+  // the run's events (executions, checks, QA, acceptance, scope checks).
+  executionObservations: defineTable({
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    ...observationFields,
+  }).index("by_task", ["taskId"]),
 
   taskEvents: defineTable({
     taskId: v.id("tasks"),

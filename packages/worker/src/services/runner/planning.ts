@@ -4,6 +4,7 @@ import type {
   AgentDefinition,
   Classification,
   ExecutionPlan,
+  Requirement,
 } from "@/types";
 import { isBudgetExhaustedError, type BudgetTracker } from "@/orchestrator/budget";
 import {
@@ -51,6 +52,11 @@ export interface PlanningContext {
   assertBudgetForCall: () => void;
   signal: AbortSignal;
   llmTaskGate: LlmConcurrencyGate;
+  /**
+   * Plan 025: the task's requirements once known (stored on the task, or
+   * extracted by the first plan). Replans keep them, so ids stay stable.
+   */
+  requirements?: Requirement[];
 }
 
 /**
@@ -88,6 +94,8 @@ export async function requestPlan(
     llmTaskGate: pctx.llmTaskGate,
     hasQaUrl: Boolean(resolveQaBaseUrl(project)),
     workspaceLayout: await listWorkspaceLayout(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath)),
+    request: task.command,
+    requirements: pctx.requirements,
   });
 }
 
@@ -231,6 +239,7 @@ export async function createInitialPlan(
         estimate: (await estimateFor(pctx, plan)) ?? undefined,
       });
     }
+    if (plan.requirements?.length) pctx.requirements = plan.requirements;
     return { plan, createdBy, planVersion };
   }
 
@@ -298,6 +307,7 @@ export async function createInitialPlan(
     degradedReason: created.degradedReason,
     estimate: (await estimateFor(pctx, plan)) ?? undefined,
   });
+  if (plan.requirements?.length) pctx.requirements = plan.requirements;
   return { plan, createdBy, planVersion };
 }
 

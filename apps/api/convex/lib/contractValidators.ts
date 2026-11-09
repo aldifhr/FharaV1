@@ -63,6 +63,8 @@ export const subtaskContractFields = {
   constraints: v.optional(v.array(v.string())),
   deliverable: v.optional(v.string()),
   acceptance: v.optional(v.array(acceptanceGateValidator)),
+  // Plan 025 (additive): the task requirements this subtask serves.
+  requirementIds: v.optional(v.array(v.string())),
 };
 
 

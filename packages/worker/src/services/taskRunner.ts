@@ -1,5 +1,6 @@
 import { normalizeModelTiers } from "@/api/convex/lib/modelTiers";
 import { withSnapshotScope } from "@/llm/snapshots";
+import { parseStoredRequirements } from "@/api/convex/lib/requirements";
 import * as fs from "node:fs/promises";
 import type { WorkerRunAgent, WorkerTask } from "@/workerApi";
 import type { SubtaskKind } from "@/types";
@@ -258,6 +259,8 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
       assertBudgetForCall,
       signal,
       llmTaskGate,
+      // Plan 025: requirements a previous run stored keep their ids.
+      requirements: parseStoredRequirements((context.task as { requirements?: unknown }).requirements),
     };
     // Plan Inspector "Replan with note": the user discarded the plan under
     // review; plan afresh with the note as planner feedback (the next
@@ -419,7 +422,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
         if (canReplan()) {
           // Plan 022: escalation notes and failed acceptance gates are
           // their own reasons, not an unmet objective.
-          const own = /^(Escalation from subtask|Acceptance gates failed)/.test(missing);
+          const own = /^(Escalation from subtask|Acceptance gates failed|Requirements not covered)/.test(missing);
           const result = await replanOnce(pctx, loop, state, {
             reason: own ? missing : `Objective not satisfied: ${missing}`,
           });

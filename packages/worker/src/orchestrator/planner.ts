@@ -17,6 +17,12 @@ import { extractJson } from "@/utils/json";
 import { planningPrompt, PLAN_NODE_INSTRUCTIONS } from "@/prompts/planner";
 import { wantsVisualQa } from "@/utils/qaIntent";
 import { defaultGatesForKind } from "@/api/convex/lib/subtaskContract";
+import {
+  extractRequirementsFallback,
+  linkSubtasksToRequirements,
+  normalizeLlmRequirements,
+  type Requirement,
+} from "@/api/convex/lib/requirements";
 
 // The visual-QA intent heuristic lives in `@/utils/qaIntent` (the executor
 // reads it too); re-exported for existing importers.
@@ -77,6 +83,14 @@ export interface PlannerInput {
    * must be declared against these, not guessed.
    */
   workspaceLayout?: string[];
+  /**
+   * Plan 025: the user's own request (without attached file contexts),
+   * the text requirements are extracted from and spans point into.
+   * Defaults to `command`.
+   */
+  request?: string;
+  /** Plan 025: requirements already fixed for this task (replans keep their ids). */
+  requirements?: Requirement[];
 }
 
 export interface PlannerResult {
@@ -164,7 +178,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         const routed = ensureRoutable(hinted, input.agents);
         if (routed) {
           return {
-            plan: withDefaultContracts(regateQa(routed.plan, input)),
+            plan: withRequirements(withDefaultContracts(regateQa(routed.plan, input)), input, parsed),
             createdBy: "orchestrator",
             notes,
             droppedHintKeys: routed.dropped,
@@ -211,7 +225,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   });
   const routedFallback = ensureRoutable(fallback, input.agents);
   return {
-    plan: withDefaultContracts(routedFallback ? regateQa(routedFallback.plan, input) : fallback),
+    plan: withRequirements(withDefaultContracts(routedFallback ? regateQa(routedFallback.plan, input) : fallback), input, null),
     createdBy: "fallback",
     notes,
     degradedReason: notes.join("; "),
@@ -230,6 +244,38 @@ export function withDefaultContracts(plan: ExecutionPlan): ExecutionPlan {
     subtasks: plan.subtasks.map((subtask) =>
       subtask.acceptance ? subtask : { ...subtask, acceptance: defaultGatesForKind(subtask.kind) }
     ),
+  };
+}
+
+/**
+ * Plan 025: attach the task's requirements and map every subtask to them.
+ * Requirements already fixed for the task (a replan) keep their ids; else
+ * the planner's own `requirements` (same LLM response) are normalized,
+ * and when they are missing or unusable the deterministic splitter runs.
+ * Subtask ids the planner declared are kept (translated to r1…rn); a
+ * requirement no subtask declared is linked by name where a subtask names
+ * it, and otherwise stays unmapped for the coverage check to report.
+ */
+export function withRequirements(plan: ExecutionPlan, input: Pick<PlannerInput, "command" | "request" | "requirements">, parsed: unknown): ExecutionPlan {
+  const request = input.request ?? input.command;
+  let requirements: Requirement[];
+  let idMap: Map<string, string> | undefined;
+  if (input.requirements && input.requirements.length > 0) {
+    requirements = input.requirements;
+  } else {
+    const raw =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>).requirements
+        : undefined;
+    const normalized = normalizeLlmRequirements(raw, request);
+    requirements = normalized?.requirements ?? extractRequirementsFallback(request);
+    idMap = normalized?.idMap;
+  }
+  if (requirements.length === 0) return plan;
+  return {
+    ...plan,
+    requirements,
+    subtasks: linkSubtasksToRequirements(plan.subtasks, requirements, idMap),
   };
 }
 
@@ -269,7 +315,11 @@ export function pickPlanner(
 
 /** Builds the CTO planning prompt. Exported for prompt-shape tests. */
 export function buildPlanningPrompt(input: PlannerInput): string {
-  return planningPrompt({ ...input, capabilityList: describeCapabilities(input.agents) });
+  return planningPrompt({
+    ...input,
+    capabilityList: describeCapabilities(input.agents),
+    requirements: input.requirements?.map((requirement) => ({ id: requirement.id, text: requirement.text })),
+  });
 }
 
 /**

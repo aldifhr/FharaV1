@@ -74,7 +74,18 @@ import backend internals.
   heuristic plans, browser-testing delegation); `"always"` adds it to every
   code change.
 - Stage order after apply: verification loop → QA loop → worktree
-  commit/merge → final decision boundary. None of these is gated on QA.
+  commit/merge → final decision boundary → acceptance stage (plan 022) →
+  requirement coverage check (plan 025). None of these is gated on QA.
+- Plan 025: requirements come from the request at plan time (planner
+  JSON `requirements` in the same call, deterministic fallback
+  `extractRequirementsFallback`); every subtask maps to `requirementIds`.
+  `runner/coverage.ts` runs `computeRequirementCoverage` before "done": a
+  requirement with no subtask or no passing evidence is a bounded replan
+  (`Requirements not covered: …`), and with no replan left the task ends
+  "completed with gaps" = status `failed` + `requirementCoverage.outcome`.
+  `DecisionObservation.observations` carries typed `ExecutionObservation`s
+  (`@/api/convex/lib/observations`); the backend derives and stores the
+  same observations from events (`executionObservations`).
 - QA outcomes: `passed`; `failed` (app defect → at most
   `ORCHESTRATOR_QA_MAX_FIX_ITERATIONS`, default 1, fix round, routed to the UI
   owner with its `allowedPaths`; in ask mode the fix is put up for approval);

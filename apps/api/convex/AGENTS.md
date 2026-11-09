@@ -159,3 +159,16 @@ secret-masked) and read back by the action, which deletes the row.
   file:line references the answer cites that no tool result (or the
   snapshot) showed are stored as `messages.unverifiedRefs` and shown as a
   quiet "Unverified: …" line (`lib/chat/refCheck.ts`).
+
+## Traceability and observations (plan 025)
+
+- `lib/requirements.ts` (pure): requirement extraction fallback, mapping,
+  and `computeRequirementCoverage` — the same check the worker runs before
+  "done" and `traceability.requirements` computes for the UI.
+- `tasks.requirements` is written by `writePlanVersion` from the plan
+  payload; a version that carries none keeps the stored list.
+- "Completed with gaps" is status `failed` + `tasks.requirementCoverage.outcome
+  = "completed_with_gaps"` (no new task status).
+- `executionObservations` rows are derived deterministically from events
+  (`lib/observations.ts#observationsFromEvent`) inside `logEvent` and
+  `updateExecution`. Add a row to the mapping table there, not a new sink.

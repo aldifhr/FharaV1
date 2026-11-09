@@ -1,3 +1,4 @@
+import { describeObservation, type ExecutionObservation } from "@/api/convex/lib/observations";
 import type { ExecutionHistoryEntry, ExecutionPlan, OutstandingIssue } from "@/types";
 
 /** The decision-context fields the advisor prompt reads. */
@@ -26,6 +27,8 @@ export interface DecisionPromptObservation {
   decision: string;
   reason: string;
   delegationRecommendation?: { targetCapability: string; reason: string } | null;
+  /** Plan 025: typed execution observations behind it. */
+  observations?: ExecutionObservation[];
 }
 
 export const DECISION_ACTION_LIST = [
@@ -77,6 +80,9 @@ export function decisionAdvisorPrompt(ctx: DecisionPromptContext, observation: D
     proposal,
     "",
     `Latest observation: ${observation.outcome}; ${observation.decision}; ${observation.reason}`,
+    ...(observation.observations && observation.observations.length > 0
+      ? ["Structured observations:", ...observation.observations.slice(-8).map((entry) => `- ${describeObservation(entry)}`)]
+      : []),
     "",
     "Choose exactly one action:",
     DECISION_ACTION_LIST,

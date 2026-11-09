@@ -17,6 +17,7 @@ import ChatCard from "./chat/cards/ChatCard";
 import ReviewSnippet from "./chat/cards/ReviewSnippet";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import PauseResumeButton from "./PauseResumeButton";
+import Requirements from "./runs/Requirements";
 import { useToast } from "./Toasts";
 import { Skeleton } from "@/app/WorkspaceContext";
 import { ArrowLeft, ArrowUpRight, AtSign, Check, ChevronLeft, Loader2 as SendLoader, Minimize2, Paperclip, Reply, RotateCcw, SendHorizontal, Square, X } from "lucide-react";
@@ -596,6 +597,7 @@ export default function TaskThreadPanel({
               )}
             />
           )}
+          {taskId && subtasks.length > 0 && <Requirements taskId={taskId} variant="thread" />}
           {ctoMessages.length === 0 && fileChanges && fileChanges.length > 0 && (
             <section className="space-y-2">
               <p className="text-[13px] text-ink-3">

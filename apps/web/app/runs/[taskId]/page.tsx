@@ -22,6 +22,8 @@ import { ReviewerSection, SecondOpinionButton } from "@/components/review/Review
 import ReplaySession from "@/components/runs/ReplaySession";
 import RunContext from "@/components/context/RunContext";
 import ReplanDiff from "@/components/runs/ReplanDiff";
+import Requirements from "@/components/runs/Requirements";
+import Observations from "@/components/runs/Observations";
 import { MODEL_TIER_LABELS, type ModelTierKey } from "@/api/convex/lib/modelTiers";
 import { formatEstimateLine } from "@/api/convex/lib/estimate";
 import {
@@ -663,6 +665,7 @@ export default function RunTracePage() {
                   </h2>
                 )}
               />
+              <Requirements taskId={run.task._id} />
 
               {run.replans.length > 0 && (
                 <Section title="Replan" aside={run.replans.length}>
@@ -678,6 +681,7 @@ export default function RunTracePage() {
               <RunContext taskId={String(run.task._id)} />
 
               <Agents run={run} />
+              <Observations taskId={run.task._id} />
               <Events run={run} />
             </>
           )}

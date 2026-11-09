@@ -312,6 +312,16 @@ export class WorkerApi {
     );
   }
 
+  /** Plan 025: the requirement coverage check before "done". Lease-fenced. */
+  async recordRequirementCoverage(
+    input: ActionInput<typeof api.worker.recordRequirementCoverage>
+  ): Promise<FunctionReturnType<typeof api.worker.recordRequirementCoverage>> {
+    return await this.client.action(
+      api.worker.recordRequirementCoverage,
+      this.args({ workerId: this.workerId, ...input })
+    );
+  }
+
   /** Plan 022: hand a paused task back after its run drained. */
   async releasePausedTask(
     input: ActionInput<typeof api.worker.releasePausedTask>

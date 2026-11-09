@@ -1,3 +1,4 @@
+import { observationFromOutcome } from "@/api/convex/lib/observations";
 import type { RunContext, RunState } from "./types";
 import type { SchedulerNode, NodeOutcome } from "@/scheduler/dagScheduler";
 import type { PlanSubtask } from "@/types";
@@ -195,6 +196,18 @@ export async function handleNodeOutcome(
           delegationRecommendation: agentResult.delegationRecommendation,
           error: outcome.status === "failed" ? outcome.error : undefined,
           retryable: false,
+          // Plan 025: the same typed observation the backend derives from
+          // this execution settling, with the files it staged.
+          observations: [
+            observationFromOutcome({
+              subtaskKey: node.id,
+              agentId: agent._id,
+              status: outcome.status === "completed" ? "completed" : "failed",
+              error: outcome.status === "failed" ? outcome.error : undefined,
+              affectedFiles: state.appliedFilesBySubtask.get(node.id),
+              executionId: executionId ?? undefined,
+            }),
+          ],
         };
          const decisionContext: DecisionContext = {
           taskId,

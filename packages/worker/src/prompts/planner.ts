@@ -15,6 +15,11 @@ export interface PlanningPromptInput {
   workspaceLayout?: string[];
   /** describeCapabilities(agents): one line per available agent. */
   capabilityList: string;
+  /**
+   * Plan 025: requirements already fixed for this task (a replan). When
+   * absent the planner extracts them itself in the same response.
+   */
+  requirements?: Array<{ id: string; text: string }>;
 }
 
 /** The CTO planning prompt (strict-JSON execution plan). */
@@ -81,7 +86,16 @@ export function planningPrompt(input: PlanningPromptInput): string {
     "",
     "Rules:",
     `- 1 to ${policy.maxSubtasks} subtasks.`,
-    "- Each subtask: key (lowercase slug), title, description, kind, capability, dependencies (keys), order.",
+    "- Each subtask: key (lowercase slug), title, description, kind, capability, dependencies (keys), order, requirementIds.",
+    ...(input.requirements && input.requirements.length > 0
+      ? [
+          `- The user's requirements are fixed for this task: ${input.requirements
+            .map((requirement) => `${requirement.id} "${requirement.text}"`)
+            .join("; ")}. Do not add a "requirements" field. Every subtask lists the requirement ids it serves in requirementIds, and every requirement must be served by at least one implementing subtask.`,
+        ]
+      : [
+          "- REQUIREMENTS: first list every distinct thing the user asked for as requirements: [{id: \"r1\", text, quote}], where quote is the exact words of the user task it came from (one entry per list item, e.g. \"login, register, logout and refresh token\" is four requirements). Every subtask lists the requirement ids it serves in requirementIds, and every requirement must be served by at least one implementing subtask.",
+        ]),
     "- Each subtask also carries a CONTRACT: objective (ONE concrete outcome), constraints (what must not change), deliverable (what it hands back), and acceptance: a list of gates {id, criterion, check, target?}.",
     "  check is one of: typecheck, test, file_exists (target = workspace path that must exist), command (target = a package script such as lint or build), review (reviewer verdict; target \"output\" = the subtask's own answer is non-empty, \"output:sources\" = it cites files/URLs), manual (a person checks it; optional).",
     "  Every code_change needs at least one gate (usually typecheck + test). Research gates: the answer is non-empty and cites sources. Omit acceptance only when the defaults for the kind fit.",
@@ -122,7 +136,7 @@ export function planningPrompt(input: PlanningPromptInput): string {
     "- Do NOT invent capabilities that are not listed above.",
     "- Keep the plan minimal; do not add decorative steps.",
     "",
-    'Schema: {"goal":"...","strategy":"single"|"dag","requiresApproval":true,"maxConcurrency":1,"subtasks":[{"key":"implement","title":"...","description":"...","kind":"code_change","capability":"frontend-development","dependencies":[],"order":0,"allowedPaths":["apps/web"],"objective":"...","constraints":["..."],"deliverable":"...","acceptance":[{"id":"typecheck","criterion":"Typecheck passes","check":"typecheck"},{"id":"tests","criterion":"Relevant tests pass","check":"test"}]}]}',
+    'Schema: {"goal":"...","strategy":"single"|"dag","requiresApproval":true,"maxConcurrency":1,"requirements":[{"id":"r1","text":"...","quote":"..."}],"subtasks":[{"key":"implement","requirementIds":["r1"],"title":"...","description":"...","kind":"code_change","capability":"frontend-development","dependencies":[],"order":0,"allowedPaths":["apps/web"],"objective":"...","constraints":["..."],"deliverable":"...","acceptance":[{"id":"typecheck","criterion":"Typecheck passes","check":"typecheck"},{"id":"tests","criterion":"Relevant tests pass","check":"test"}]}]}',
   ]
     .filter((line) => line !== "")
     .join("\n");

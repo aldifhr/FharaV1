@@ -8,6 +8,7 @@ import { runReviewLoop } from "./reviewLoop";
 import { runQaLoop } from "./qaLoop";
 import { runVerificationLoop } from "./verifyLoop";
 import { blockRejected, runAcceptanceStage } from "./acceptance";
+import { recordCoverage, runCoverageCheck } from "./coverage";
 import {
   brokerCheckAndApply,
   commitAndMergeWorktree,
@@ -283,6 +284,22 @@ export async function executePlan(input: ExecutePlanInput): Promise<ExecutePlanR
       state.feedback.push(reason);
       return { status: "failed" };
     }
+
+    // Plan 025 coverage check: every requirement from the request needs a
+    // subtask and passing evidence before the task may be "done". A gap is
+    // a bounded replan with the uncovered list; with no replan left the
+    // task ends "completed with gaps" (status failed + coverage outcome).
+    const coverage = await runCoverageCheck(ctx);
+    if (coverage.status === "gaps") {
+      if ((input.replansLeft ?? 0) > 0) {
+        await recordCoverage(ctx, coverage.report, "gaps");
+        return { status: "replan", replanFeedback: coverage.note };
+      }
+      await recordCoverage(ctx, coverage.report, "completed_with_gaps");
+      state.feedback.push(`Completed with gaps. ${coverage.note}`);
+      return { status: "failed" };
+    }
+    if (coverage.status === "covered") await recordCoverage(ctx, coverage.report, "covered");
   } finally {
     await browser.close().catch(() => undefined);
   }

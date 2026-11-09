@@ -7,6 +7,7 @@
  */
 import { normalizeAllowedPaths } from "./ownershipPaths";
 import { contractGateErrors, parseContract, type AcceptanceGate } from "./subtaskContract";
+import { parseStoredRequirements, type Requirement } from "./requirements";
 
 export type ValidatedSubtaskKind =
   | "analysis"
@@ -34,6 +35,8 @@ export interface ValidatedSubtask {
   acceptance?: AcceptanceGate[];
   /** Replan Reasoning (planner output in a replan; stripped before persist). */
   replanReasoning?: string;
+  /** Plan 025: the task requirements (ids) this subtask serves. */
+  requirementIds?: string[];
 }
 
 export interface ValidatedPlan {
@@ -47,6 +50,8 @@ export interface ValidatedPlan {
   visualQa?: boolean;
   /** Planner output in a replan: why nodes were removed (stripped before persist). */
   replanRemovals?: Array<{ key: string; reasoning: string }>;
+  /** Plan 025: the requirements extracted from the request at plan time. */
+  requirements?: Requirement[];
 }
 
 /** Same normalisation as the worker's `normalizeCapability`. */
@@ -170,6 +175,7 @@ export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResul
       ...(typeof value.replanReasoning === "string" && value.replanReasoning.trim()
         ? { replanReasoning: value.replanReasoning.trim().slice(0, 1000) }
         : {}),
+      ...requirementIdsOf(value.requirementIds),
     });
   });
 
@@ -202,6 +208,7 @@ export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResul
       : 2;
 
   if (errors.length > 0) return { ok: false, errors };
+  const requirements = parseStoredRequirements(candidate.requirements);
 
   return {
     ok: true,
@@ -214,6 +221,7 @@ export function validatePlan(raw: unknown, maxSubtasks: number): ValidationResul
       maxConcurrency,
       ...(typeof candidate.visualQa === "boolean" ? { visualQa: candidate.visualQa } : {}),
       ...replanRemovalsOf(candidate.replanRemovals),
+      ...(requirements.length > 0 ? { requirements } : {}),
       subtasks: subtasks
         .slice()
         .sort((a, b) => a.order - b.order)
@@ -235,6 +243,19 @@ function replanRemovalsOf(raw: unknown): { replanRemovals?: Array<{ key: string;
     .filter((entry) => entry.key && entry.reasoning)
     .slice(0, 40);
   return removals.length > 0 ? { replanRemovals: removals } : {};
+}
+
+/** Plan 025: requirement ids a subtask declares (strings, lowercased, deduped, ≤ 12). */
+function requirementIdsOf(raw: unknown): { requirementIds?: string[] } {
+  if (!Array.isArray(raw)) return {};
+  const ids = [
+    ...new Set(
+      raw
+        .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+        .map((id) => id.trim().toLowerCase().slice(0, 32))
+    ),
+  ].slice(0, 12);
+  return ids.length > 0 ? { requirementIds: ids } : {};
 }
 
 export function findCycle<T extends { key: string; dependencies: string[] }>(

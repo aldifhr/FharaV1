@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { openIncident } from "./lib/incidents";
 import { scheduleShadowReview } from "./lib/reviewer/shadowSchedule";
 import { subtaskContractFields } from "./lib/contractValidators";
+import { recordObservationsForEvent } from "./lib/observationStore";
 import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver";
 import type { PromptSkill } from "./lib/skills";
 import { loadPromptSkills } from "./skills";
@@ -1176,6 +1177,15 @@ export const updateExecution = internalMutation({
       subtaskKey: subtaskKey ?? undefined,
       level: args.status === "failed" ? "error" : "info",
     });
+    // Plan 025: agent_completed / agent_failed / provider_error / no_progress.
+    await recordObservationsForEvent(ctx, execution.taskId, execution.projectId, {
+      type: `subtask.${args.status}`,
+      payload: { subtaskKey, ...(args.error ? { error: args.error } : {}) },
+      subtaskKey: subtaskKey ?? undefined,
+      executionId: args.executionId,
+      agentId: execution.agentId,
+      createdAt: now,
+    });
     return { applied: true as const };
   },
 });
@@ -2023,6 +2033,15 @@ export const logEvent = internalMutation({
     const now = Date.now();
     await ctx.db.insert("taskEvents", {
       ...args,
+      createdAt: now,
+    });
+    // Plan 025: the typed execution observations this event carries.
+    await recordObservationsForEvent(ctx, args.taskId, args.projectId, {
+      type: args.type,
+      payload: args.payload,
+      subtaskKey: args.subtaskKey,
+      executionId: args.executionId,
+      agentId: args.agentId,
       createdAt: now,
     });
     // Emit the canonical event the UI subscribes to.

@@ -1,4 +1,4 @@
-import type { AgentDefinition, Classification, ExecutionPlan } from "@/types";
+import type { AgentDefinition, Classification, ExecutionPlan, Requirement } from "@/types";
 import { classifyCommand } from "./classifier";
 import { routeCapability } from "./capabilities";
 import { BudgetTracker } from "./budget";
@@ -238,6 +238,10 @@ export interface AuthoritativePlanInput {
   hasQaUrl?: boolean;
   /** Real workspace paths for the planner prompt (allowedPaths grounding). */
   workspaceLayout?: string[];
+  /** Plan 025: the user's own request (requirement extraction source). */
+  request?: string;
+  /** Plan 025: requirements already fixed for this task. */
+  requirements?: Requirement[];
 }
 
 export interface AuthoritativePlanResult {
@@ -299,7 +303,12 @@ export async function createAuthoritativePlan(
   let droppedHintKeys: string[] | undefined;
 
   if (input.storedPlan) {
-    plan = input.storedPlan;
+    // Plan 025: a stored version that lost its requirement list (an older
+    // payload) adopts the task's stored list; ids are unchanged.
+    plan =
+      !input.storedPlan.requirements && input.requirements && input.requirements.length > 0
+        ? { ...input.storedPlan, requirements: input.requirements }
+        : input.storedPlan;
     createdBy = input.storedCreatedBy ?? "orchestrator";
   } else {
     const created = await createPlan({
@@ -319,6 +328,8 @@ export async function createAuthoritativePlan(
       hasQaUrl: input.hasQaUrl,
       sharedInstructions: input.sharedContext.instructions,
       workspaceLayout: input.workspaceLayout,
+      request: input.request,
+      requirements: input.requirements,
     });
     plan = created.plan;
     createdBy = created.createdBy;

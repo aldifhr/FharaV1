@@ -686,12 +686,15 @@ export function nextDeterministicDecision(
       };
     }
     case "REJECT":
-      // A rejected proposal requests no new work; the plan continues.
+      // The finished subtask's DELEGATION proposal was declined (e.g. the
+      // proposer can serve it itself): no new work, the subtask itself is
+      // complete and the plan continues. Named for what was declined — the
+      // old "proposal:rejected" read as if the subtask had been rejected.
       return {
         ...base,
         action: "complete",
         reasoning: clampReasoning(observation.reason).slice(0, MAX_REASONING),
-        expectedOutcome: "proposal:rejected",
+        expectedOutcome: "delegation:declined",
       };
     case "COMPLETE":
       return {
@@ -767,7 +770,7 @@ export async function decide(
     // objective never completes — missing work → replan; no concrete gap
     // (nothing missing but not satisfied) → no path → ask_user. Every
     // completion except a budget veto counts (objective:met, ambiguous
-    // no-op, proposal:rejected alike — the retired downgrade treated
+    // no-op, delegation:declined alike — the retired downgrade treated
     // them all this way). When the runner did not attach objective
     // state (legacy callers/tests) the deterministic mapping stands.
     if (objectiveUnmet && base.action === "complete" && base.expectedOutcome !== "policy:budget") {

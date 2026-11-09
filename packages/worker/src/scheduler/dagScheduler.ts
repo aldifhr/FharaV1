@@ -106,7 +106,12 @@ const PERMANENT_SUBTASK_ERROR_PATTERNS: readonly RegExp[] = [
   // A failed QA verdict on unchanged code: the QA loop owns the fix round;
   // a blind retry only re-ran the same browser check (two identical
   // "QA verdict: failed" messages on different ports).
-  /^QA failed: .*Framework error overlay is visible/,
+  // Every deterministic QA check failure (structural/viewport checks,
+  // console errors, overlay, empty body, 4xx) re-runs identically, so it
+  // goes straight to qa.failed / the fix round. Environment-flaky signals
+  // stay retryable: a QA harness exception ("qa-run: ..."), a 5xx while
+  // the dev server is still compiling, navigation timeouts, net::ERR_*.
+  /^QA failed: (?!qa-run:)(?![\s\S]*(?:Page returned HTTP 5\d\d|Timeout \d+ms exceeded|timed out|net::ERR_))/,
   // Plan validation failures (planValidator messages)
   /^plan\.(goal|subtasks) /i,
   /plan has \d+ subtasks; limit is/i,

@@ -2,6 +2,18 @@ export interface QaCheck {
   label: string;
   status: "passed" | "failed" | "inconclusive";
   details?: string;
+  /**
+   * Workspace-relative source file the failure points at (derived from a
+   * console error's stack / source location), so the fix agent gets a
+   * file hint instead of an empty path.
+   */
+  filePath?: string;
+  /**
+   * Console errors classified as pre-existing (hydration-mismatch warnings
+   * or errors whose stack names no file this task changed). They never fail
+   * the check; they are surfaced as a warning.
+   */
+  preExisting?: string[];
 }
 
 export interface QaReport {
@@ -26,4 +38,6 @@ export interface QaCheckRecord {
   label: string;
   status: string;
   details?: string;
+  filePath?: string;
+  preExisting?: string[];
 }

@@ -4,6 +4,7 @@ import {
   runLlmCallWithFallback,
   runWithLlmGates,
   usageMetaFor,
+  withUsageEstimate,
   type FallbackHandle,
   type LlmConcurrencyGate,
 } from "@/effects/llmCall";
@@ -261,7 +262,7 @@ async function runMcpExploration(
           llmResult.inputTokens ?? 0,
           llmResult.outputTokens ?? 0,
           servedBy.config.model,
-          usageMetaFor(servedBy, llmResult.inputTokens ?? 0, llmResult.outputTokens ?? 0)
+          usageMetaFor(servedBy, llmResult.inputTokens ?? 0, llmResult.outputTokens ?? 0, llmResult.usageEstimated)
         );
       }
       return llmResult.content;
@@ -318,7 +319,9 @@ export async function requestedFilesContext(
   for (const match of answer.matchAll(/<[\w-]*tool_call[^>]*>([\s\S]*?)<\/[\w-]*tool_call>/gi)) {
     for (const token of match[1].split(/[\s,"'{}:\[\]<>]+/)) if (/\.[A-Za-z0-9]{1,6}$/.test(token)) candidates.add(token);
   }
-  for (const match of answer.matchAll(/(?:^|[\s`"'(])((?:[\w.-]+\/)*[\w.-]+\.(?:[jt]sx?|mjs|cjs|css|scss|html?|json|md|vue|svelte))(?=$|[\s`"'),:;])/g)) candidates.add(match[1]);
+  // `@` admits scoped packages (node_modules/@scope/pkg/dist/index.d.ts):
+  // the implement prompt asks for library type definitions by path.
+  for (const match of answer.matchAll(/(?:^|[\s`"'(])((?:[\w.@-]+\/)*[\w.-]+\.(?:[jt]sx?|mjs|cjs|css|scss|html?|json|md|vue|svelte))(?=$|[\s`"'),:;])/g)) candidates.add(match[1]);
   const sections: string[] = [];
   const root = path.resolve(workspacePath);
   for (const raw of Array.from(candidates).slice(0, 12)) {
@@ -902,7 +905,7 @@ async function executeCodeChange(
       response.inputTokens ?? 0,
       response.outputTokens ?? 0,
       servedBy.config.model,
-      usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0)
+      usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
     );
   }
 
@@ -976,7 +979,7 @@ async function executeCodeChange(
               response.inputTokens ?? 0,
               response.outputTokens ?? 0,
               servedBy.config.model,
-              usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0)
+              usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
             );
           }
           parsedAnswer = parseCodeChangeAnswer(response.content);
@@ -1037,7 +1040,7 @@ async function executeCodeChange(
         response.inputTokens ?? 0,
         response.outputTokens ?? 0,
         servedBy.config.model,
-        usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0)
+        usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
       );
     }
     parsedAnswer = parseCodeChangeAnswer(response.content);
@@ -1200,7 +1203,7 @@ async function executeReview(
       response.inputTokens ?? 0,
       response.outputTokens ?? 0,
       servedBy.config.model,
-      usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0)
+      usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
     );
   };
   await reportUsage();
@@ -1295,6 +1298,9 @@ async function executeQa(
     // "no screenshots / no viewport testing" request can never fall through
     // to visual regression in the executor.
     visualRegression,
+    // Console errors that name none of these files (or are hydration
+    // mismatches) are reported as pre-existing, not as a failed check.
+    changedFiles: input.fileChanges.map((change) => change.filePath),
     onCheck: async (check) => {
       await input.onEvent(
         "task.check",
@@ -1492,6 +1498,9 @@ async function executeReadOnly(
           ),
         { signal: input.signal, taskGate: input.llmTaskGate }
       );
+      // Streaming bypasses runLlmCallWithFallback: estimate usage here too
+      // when the stream carried none.
+      response = withUsageEstimate(messages, response);
       health?.recordSuccess(primary.connectionId);
     } catch (error) {
       // A caller abort is not a provider failure and never falls back.
@@ -1533,7 +1542,7 @@ async function executeReadOnly(
       response.inputTokens ?? 0,
       response.outputTokens ?? 0,
       servedModel,
-      usageMetaFor(servedHandle, response.inputTokens ?? 0, response.outputTokens ?? 0)
+      usageMetaFor(servedHandle, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
     );
   }
 
@@ -1576,12 +1585,21 @@ async function executeShell(
   const handles = handlesFor(input);
   const health = healthFor(input);
   const messages = baseMessages(input, shellUserContent(instruction, command));
-  const { result: response } = await runLlmCallWithFallback(handles, messages, {
+  const { result: response, servedBy } = await runLlmCallWithFallback(handles, messages, {
     health,
     signal,
     timeoutMs: llmCallTimeoutMs(input),
     taskGate: input.llmTaskGate,
   });
+  // Every executor path reports its call (the shell path used not to).
+  if (input.onTokenUsage) {
+    await input.onTokenUsage(
+      response.inputTokens ?? 0,
+      response.outputTokens ?? 0,
+      servedBy.config.model,
+      usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
+    );
+  }
   const parsed = parseShellCommand(response.content);
   if (!parsed) {
     return {

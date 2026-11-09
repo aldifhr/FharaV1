@@ -63,6 +63,7 @@ export const listPlansByProject = query({
       version: plan.version,
       strategy: plan.strategy,
       createdBy: plan.createdBy,
+      degradedReason: plan.degradedReason,
       goal: plan.goal,
       payload: plan.payload,
     }));

@@ -7,6 +7,12 @@ export interface LLMResult {
   content: string;
   inputTokens?: number;
   outputTokens?: number;
+  /**
+   * True when the provider reported no usage and the token counts were
+   * estimated (chars/4) by runLlmCallWithFallback. Recorded as
+   * `estimated` on the tokenUsage row and shown as "≈" in the UI.
+   */
+  usageEstimated?: boolean;
 }
 
 /**
@@ -19,6 +25,8 @@ export interface TokenUsageMeta {
   providerId?: string;
   modelRowId?: string;
   estimatedCost?: number;
+  /** Token counts are a chars/4 estimate (the provider reported no usage). */
+  estimated?: boolean;
 }
 
 /**

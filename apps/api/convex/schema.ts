@@ -225,6 +225,8 @@ export default defineSchema({
     createdBy: v.union(v.literal("orchestrator"), v.literal("fallback")),
     goal: v.string(),
     payload: v.any(),
+    /** Set when the plan is a deterministic fallback: why (task UI). */
+    degradedReason: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_task", ["taskId"])
@@ -544,6 +546,9 @@ export default defineSchema({
     // per-agent time-window match for those).
     executionId: v.optional(v.id("executions")),
     subtaskKey: v.optional(v.string()),
+    // The provider reported no usage: the counts are a chars/4 estimate
+    // made by the worker (shown as "≈" in runs/evals).
+    estimated: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_agent", ["agentId"])

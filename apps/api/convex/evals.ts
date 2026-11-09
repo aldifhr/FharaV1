@@ -283,7 +283,9 @@ export const summary = query({
     let totalIn = 0;
     let totalOut = 0;
     let executionIdAttributed = 0;
+    let estimatedCalls = 0;
     for (const u of usage) {
+      if (u.estimated) estimatedCalls++;
       const row = acc(u.agentId, u.agentName);
       row.calls++;
       row.inputTokens += u.inputTokens;
@@ -456,6 +458,8 @@ export const summary = query({
         unpricedCalls,
         inputTokens: totalIn,
         outputTokens: totalOut,
+        /** Calls whose token counts are a worker estimate (provider sent no usage). */
+        estimatedCalls,
         tasksWithCost: taskCosts.length,
         avgPerTask: taskCosts.length ? taskCosts.reduce((s, c) => s + c, 0) / taskCosts.length : null,
         medianPerTask: median(taskCosts),
@@ -466,7 +470,9 @@ export const summary = query({
               ? "No pricing: no model call carried an estimated cost. Add input/output prices to the models in LLM settings."
               : unpricedCalls > 0
                 ? `${unpricedCalls} of ${usage.length} calls had no pricing and are left out of cost.`
-                : null,
+                : estimatedCalls > 0
+                  ? `≈ ${estimatedCalls} of ${usage.length} calls reported no token usage; their counts are estimated (chars/4).`
+                  : null,
       },
       agents: agentRows,
       models: modelRows,

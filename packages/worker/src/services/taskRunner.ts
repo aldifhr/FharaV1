@@ -231,6 +231,10 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       project,
       command,
       agents: runAgents,
+      plannerAgent: context.plannerAgent
+        ? toAgentDefinition(context.plannerAgent as WorkerRunAgent)
+        : null,
+      plannerFallbackReason: context.plannerFallbackReason ?? null,
       classification,
       budget,
       sharedContext,

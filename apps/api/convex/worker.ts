@@ -139,6 +139,7 @@ export const savePlan = action({
         reviewRound: v.optional(v.number()),
       })
     ),
+    degradedReason: v.optional(v.string()),
     // Lease fencing: pass the worker id so a displaced worker is refused.
     workerId: v.optional(v.string()),
   },
@@ -556,6 +557,8 @@ export const recordTokenUsage = action({
     // Runs trace: which execution attempt / subtask made the call.
     executionId: v.optional(v.id("executions")),
     subtaskKey: v.optional(v.string()),
+    /** Counts are a chars/4 estimate (provider omitted usage). */
+    estimated: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<any> => {
     await ctx.runMutation(

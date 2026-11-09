@@ -53,10 +53,12 @@ type Tokens = {
   models: string[];
   /** True when at least one call was matched by agent + time window instead of executionId. */
   approximate: boolean;
+  /** True when at least one call's counts are a worker estimate (provider sent no usage). */
+  estimated: boolean;
 };
 
 function emptyTokens(): Tokens {
-  return { inputTokens: 0, outputTokens: 0, calls: 0, estimatedCost: null, models: [], approximate: false };
+  return { inputTokens: 0, outputTokens: 0, calls: 0, estimatedCost: null, models: [], approximate: false, estimated: false };
 }
 
 function addUsage(t: Tokens, row: Doc<"tokenUsage">, approximate: boolean) {
@@ -66,6 +68,7 @@ function addUsage(t: Tokens, row: Doc<"tokenUsage">, approximate: boolean) {
   if (typeof row.estimatedCost === "number") t.estimatedCost = (t.estimatedCost ?? 0) + row.estimatedCost;
   if (!t.models.includes(row.model)) t.models.push(row.model);
   if (approximate) t.approximate = true;
+  if (row.estimated) t.estimated = true;
 }
 
 function makeRoleResolver(ctx: QueryCtx) {
@@ -182,6 +185,7 @@ export const list = query({
         inputTokens,
         outputTokens,
         estimatedCost,
+        tokensEstimated: usage.some((row) => row.estimated === true),
         roles,
         errorCount,
         subtasksDone: subtasks.filter((s) => s.status === "completed" || s.status === "skipped").length,
@@ -219,6 +223,8 @@ type Step = {
   origin?: string;
   reviewRound?: number;
   detail?: string;
+  /** Approval steps: the duration is time spent waiting on the user, not agent work. */
+  waiting?: boolean;
   plans?: { version: number; strategy: string; createdBy: string; goal: string; createdAt: number; subtaskCount: number | null }[];
 };
 
@@ -421,13 +427,19 @@ export const get = query({
     }
 
     for (const a of approvals) {
-      const role = a.requestedByAgentId || a.principalAgentId ? await roleOf(a.requestedByAgentId ?? a.principalAgentId) : undefined;
+      // The user decides an approval: attributing its wait to the agent
+      // that requested it (e.g. "Frontend 3m 17s") read as agent work.
+      const requestedBy = a.requestedByAgentId || a.principalAgentId
+        ? await roleOf(a.requestedByAgentId ?? a.principalAgentId)
+        : undefined;
       steps.push({
         id: a._id,
         type: "approval",
         title: `Approval · ${a.kind.replace(/_/g, " ")}`,
         status: a.status,
-        role,
+        role: "you",
+        agentName: requestedBy ? `requested by ${requestedBy}` : undefined,
+        waiting: true,
         subtaskKey: a.subtaskKey,
         startedAt: a._creationTime,
         completedAt: a.resolvedAt,
@@ -567,6 +579,7 @@ export const get = query({
         outputTokens,
         calls: usage.length,
         estimatedCost,
+        estimated: usage.some((row) => row.estimated === true),
         byModel,
         byAgent: Object.values(byAgent).sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens)),
         unattributed: unattributed.calls ? unattributed : null,

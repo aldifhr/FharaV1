@@ -3,6 +3,19 @@ import type { PlanSubtask } from "@/types";
 /** Max characters of an invalid answer handed to the cheap repair retry. */
 export const REPAIR_MAX_ANSWER_CHARS = 120_000;
 
+/**
+ * Implementation quality rules shared by every implement/fix prompt
+ * (code_change, native runtime). Each one closes a failure seen in a real
+ * run: an unwired component, guessed library props, a hydration warning
+ * "fixed" by hiding it, stray placeholder comments.
+ */
+export const IMPLEMENTATION_RULES: readonly string[] = [
+  "- If you create a component, also edit the file that renders it (the existing page / layout / entry point that should use it); an unused component is not done.",
+  "- When a typecheck error involves a library API, read the library's installed type definitions (node_modules/<pkg>/package.json \"types\" entry, node_modules/<pkg>/dist/*.d.ts) before retrying. Do not guess props or signatures.",
+  "- Never fix a hydration warning by gating render on a mounted flag, calling setState in an effect to defer rendering, or putting suppressHydrationWarning on wrappers. Find the real server/client mismatch (time, randomness, locale, window/localStorage reads during render, invalid HTML nesting) and fix it; if it is not caused by this change, report it as pre-existing in findings instead.",
+  "- Do not leave placeholder comments (\"TODO: implement\", \"... existing code ...\", \"rest unchanged\") in the files you return.",
+];
+
 /** System message of the cheap repair retry. */
 export const REPAIR_SYSTEM_PROMPT = "You reformat answers into the requested file-block format. Never change code.";
 
@@ -59,6 +72,8 @@ export function codeChangePrompt(input: {
       "- Preserve unrelated behavior and code.",
       "- Do not touch lockfiles, secrets, .env files, or node_modules.",
       "- Keep the change minimal and focused on the task.",
+      ...IMPLEMENTATION_RULES,
+      "- Type definitions you need but do not see above: reply with only their paths (e.g. node_modules/<pkg>/dist/index.d.ts) and they will be provided; do not guess the API.",
     ].join("\n") + mcpFindings
   );
 }

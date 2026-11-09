@@ -26,6 +26,11 @@ export async function handleNodeOutcome(
 {
   const agent = agentByKey.get(node.id);
   const executionId = executionIds.get(node.id);
+  // A node that was already complete when it settled (skipped as
+  // "Previously completed" on an approval resume / recovery) was decided by
+  // the run that executed it: re-judging it re-emitted one
+  // orchestrator.decision per finished subtask on every resume.
+  const settledEarlier = outcome.status === "completed" && runCompleted.has(node.id);
   // The node has settled: it no longer counts as active work for
   // its agent (a scheduler retry re-enters via onStart).
   if (agent && !runCompleted.has(node.id)) {
@@ -123,7 +128,7 @@ export async function handleNodeOutcome(
   // and BLOCKED (budget) halts new scheduling. With the flag off
   // the behavior is the legacy record-only one. Any orchestrator
   // failure is logged, never propagated.
-  if (input.budget && input.sharedContext && input.classification && agent) {
+  if (input.budget && input.sharedContext && input.classification && agent && !settledEarlier) {
     try {
       const subtaskDef = plan.subtasks.find((candidate) => candidate.key === node.id);
       if (subtaskDef) {

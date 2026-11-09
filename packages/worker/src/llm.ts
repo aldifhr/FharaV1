@@ -119,13 +119,23 @@ export class AnthropicProvider implements LLMProvider {
       stream: true,
     }, { signal: opts?.signal, timeout: effectiveLlmTimeoutMs(opts?.timeoutMs) });
     let full = "";
+    let inputTokens: number | undefined;
+    let outputTokens: number | undefined;
     for await (const event of stream) {
       if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
         full += event.delta.text;
         onChunk(event.delta.text);
+      } else if (event.type === "message_start") {
+        // Streaming usage: input tokens arrive on message_start, output
+        // tokens (cumulative) on message_delta. Without this the streamed
+        // path recorded no usage at all.
+        inputTokens = event.message.usage?.input_tokens ?? inputTokens;
+        outputTokens = event.message.usage?.output_tokens ?? outputTokens;
+      } else if (event.type === "message_delta") {
+        outputTokens = event.usage?.output_tokens ?? outputTokens;
       }
     }
-    return { content: full };
+    return { content: full, inputTokens, outputTokens };
   }
 }
 
@@ -196,18 +206,25 @@ export class OpenAICompatibleProvider implements LLMProvider {
     } catch (error) {
       if (!(error instanceof SyntaxError)) throw error;
 
+      // A server that answers with SSE even without `stream: true`: the
+      // usage (when sent) rides on the last chunk(s). `stream_options` is
+      // deliberately not sent — strict OpenAI rejects it on a non-stream
+      // request; missing usage is estimated upstream (withUsageEstimate).
+      let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
       const content = normalizedBody
         .split(/\r?\n/)
         .filter((line) => line.startsWith("data:") && line.slice(5).trim() !== "[DONE]")
         .map((line) => {
           const payload = JSON.parse(line.slice(5).trim()) as {
             choices?: { delta?: { content?: string }; message?: { content?: string } }[];
+            usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
           };
+          if (payload.usage) usage = payload.usage;
           return payload.choices?.[0]?.delta?.content ?? payload.choices?.[0]?.message?.content ?? "";
         })
         .join("");
 
-      return { content };
+      return { content, inputTokens: usage?.prompt_tokens, outputTokens: usage?.completion_tokens };
     }
   }
 

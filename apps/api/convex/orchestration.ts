@@ -149,6 +149,16 @@ export const getRunContext = internalQuery({
     llmProviders: PoolConnectionPayload[];
     /** Enabled MCP server configs for this project (Plan 009). Config-only. */
     mcpServers: Doc<"mcpServers">[];
+    /**
+     * Planner fallback: when the run's agent list has no enabled CTO, the
+     * global enabled CTO is delivered here so the planner is never
+     * degraded to the heuristic plan just because the CTO is missing from
+     * the project team. Planner ONLY — it is not part of `agents`, so it
+     * is never routed a subtask as an executor.
+     */
+    plannerAgent: (Doc<"agents"> & { attachedSkills: PromptSkill[] }) | null;
+    /** Why `plannerAgent` was needed ("CTO not in project team", ...). */
+    plannerFallbackReason: string | null;
   } | null> => {
     const task = await ctx.db.get(args.taskId);
     if (!task) return null;
@@ -160,6 +170,7 @@ export const getRunContext = internalQuery({
     const agents = assigned?.length
       ? allAgents.filter((agent) => assigned.includes(agent._id) && agent.isEnabled !== false)
       : [];
+    const fallback = resolvePlannerFallback(allAgents, agents, assigned ?? []);
     const plans = await ctx.db
       .query("plans")
       .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
@@ -209,9 +220,42 @@ export const getRunContext = internalQuery({
       approvalMode: project?.approvalMode === "auto" ? "auto" : "ask",
       llmProviders,
       mcpServers,
+      plannerAgent: fallback.agent
+        ? {
+            ...projectAgentForWorker(fallback.agent),
+            attachedSkills: await loadPromptSkills(ctx, fallback.agent),
+          }
+        : null,
+      plannerFallbackReason: fallback.reason,
     };
   },
 });
+
+const isCtoRole = (role: string | undefined) => /^cto$/i.test((role ?? "").trim());
+
+/**
+ * Pick the global CTO as planner when the run's own agents have no
+ * enabled CTO. Exported for tests.
+ */
+export function resolvePlannerFallback(
+  allAgents: Doc<"agents">[],
+  runAgents: Doc<"agents">[],
+  assigned: Id<"agents">[]
+): { agent: Doc<"agents"> | null; reason: string | null } {
+  if (runAgents.some((agent) => isCtoRole(agent.role))) return { agent: null, reason: null };
+  const assignedCto = allAgents.find(
+    (agent) => isCtoRole(agent.role) && assigned.includes(agent._id)
+  );
+  const reason = assignedCto
+    ? "CTO is disabled in the project team"
+    : "CTO not in project team";
+  const globalCto =
+    allAgents.find((agent) => isCtoRole(agent.role) && agent.isEnabled !== false) ?? null;
+  return {
+    agent: globalCto,
+    reason: globalCto ? reason : `${reason}; no enabled CTO agent exists`,
+  };
+}
 
 export const claimNextTask = internalMutation({
   args: {
@@ -546,6 +590,8 @@ export const savePlan = internalMutation({
         reviewRound: v.optional(v.number()),
       })
     ),
+    /** Why the plan is a deterministic fallback (shown in the task UI). */
+    degradedReason: v.optional(v.string()),
     workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -569,6 +615,7 @@ export const savePlan = internalMutation({
       createdBy: args.createdBy,
       goal: args.goal,
       payload: args.payload,
+      ...(args.degradedReason ? { degradedReason: args.degradedReason } : {}),
       createdAt: now,
     });
 
@@ -1580,6 +1627,7 @@ const CANONICAL_MAP: Record<string, string> = {
   "approval.held": "agent.waiting_approval",
   "task.waiting_approval": "agent.waiting_approval",
   "qa.passed": "agent.completed",
+  "qa.warning": "task.updated",
   "qa.failed": "agent.failed",
   "qa.fix_started": "agent.thinking",
   "review.approved": "agent.completed",
@@ -1604,6 +1652,7 @@ const CANONICAL_MAP: Record<string, string> = {
   "budget.seed_failed": "agent.failed",
   "plan.created": "task.updated",
   "plan.degraded": "task.updated",
+  "plan.planner_fallback": "task.updated",
   "plan.replanned": "task.updated",
   "plan.hint_dropped": "task.updated",
   "plan.dynamic_persist_failed": "agent.failed",
@@ -1859,6 +1908,8 @@ export const recordTokenUsage = internalMutation({
     // Runs trace: which execution attempt / subtask made the call.
     executionId: v.optional(v.id("executions")),
     subtaskKey: v.optional(v.string()),
+    /** Counts are a chars/4 estimate (provider omitted usage). */
+    estimated: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("tokenUsage", {
@@ -1874,6 +1925,7 @@ export const recordTokenUsage = internalMutation({
       outputTokens: args.outputTokens,
       executionId: args.executionId,
       subtaskKey: args.subtaskKey,
+      ...(args.estimated ? { estimated: true } : {}),
       createdAt: Date.now(),
     });
   },

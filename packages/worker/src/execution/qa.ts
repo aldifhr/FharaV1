@@ -44,6 +44,115 @@ export interface QaOptions {
   preflight?: boolean;
   /** Dev-server startup timeout; defaults to QA_STARTUP_TIMEOUT_MS or 90s. */
   startupTimeoutMs?: number;
+  /**
+   * Workspace-relative files this task changed. Console errors whose
+   * stack/source names none of them (and hydration-mismatch warnings)
+   * are classified pre-existing: a warning, never a failed check.
+   */
+  changedFiles?: string[];
+}
+
+/** One console/page error as captured: its text plus stack/source location. */
+export interface ConsoleErrorEntry {
+  text: string;
+  /** Stack trace and/or source URL (location of the console call). */
+  source?: string;
+}
+
+const HYDRATION_PATTERNS = [
+  /hydration failed/i,
+  /hydration (mismatch|error)/i,
+  /did(?:n't| not) match\.?\s*server/i,
+  /hydrated but some attributes/i,
+  /server rendered (html|text)[^.]*(didn't|did not|does not|doesn't) match/i,
+  /text content does not match server-rendered html/i,
+  /there was an error while hydrating/i,
+];
+
+/** React's hydration-mismatch warning/error (usually a pre-existing SSR issue). */
+export function isHydrationMismatch(text: string): boolean {
+  return HYDRATION_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+const SOURCE_PATH_RE =
+  /(?:^|[\s(@"'`])\.?\/?((?:[\w@.\-\[\]()]+\/)+[\w@.\-\[\]]+\.(?:tsx|ts|jsx|js|mjs|cjs|vue|svelte|astro))(?=[:\s)"'`?]|$)/g;
+
+function normalizeRel(filePath: string): string {
+  return filePath
+    .replace(/\\/g, "/")
+    .replace(/\/\.\//g, "/")
+    .replace(/^(\.?\/)+/, "");
+}
+
+/**
+ * Source files named in an error's text/stack, workspace-relative where
+ * possible. Bundler chunks, node_modules and Next/Vite internals are
+ * dropped: they say nothing about which project file failed.
+ */
+export function sourcePathsIn(text: string): string[] {
+  const cleaned = text
+    // Next/webpack dev frames: webpack-internal:///(app-pages-browser)/./components/x.tsx
+    .replace(/webpack-internal:\/\/\/(?:\([^)\/]*\)\/)?/g, " ")
+    // http://127.0.0.1:3000/src/x.tsx (Vite serves sources by path)
+    .replace(/https?:\/\/[^/\s]+/g, " ")
+    .replace(/file:\/\//g, " ");
+  const out: string[] = [];
+  for (const match of cleaned.matchAll(SOURCE_PATH_RE)) {
+    const candidate = normalizeRel(match[1] ?? "");
+    if (!candidate.includes("/")) continue;
+    if (/(^|\/)node_modules\//.test(candidate)) continue;
+    if (/^(_next|@vite|@fs|@id|@react-refresh|__vite|static\/chunks)\b/.test(candidate)) continue;
+    if (!out.includes(candidate)) out.push(candidate);
+  }
+  return out;
+}
+
+/** The changed file an error references (path, or path without extension), if any. */
+export function changedFileReferenced(text: string, changedFiles: string[]): string | undefined {
+  for (const file of changedFiles) {
+    const rel = normalizeRel(file);
+    if (!rel) continue;
+    const noExt = rel.replace(/\.[a-z0-9]+$/i, "");
+    if (text.includes(rel) || (noExt.includes("/") && text.includes(noExt))) return rel;
+  }
+  return undefined;
+}
+
+/**
+ * Split captured console errors into the ones this change plausibly
+ * caused and pre-existing ones. Pre-existing = names no changed file AND
+ * (a hydration-mismatch warning, or its stack names only files the task
+ * did not change). An error with no source path at all is NOT assumed
+ * pre-existing (we cannot tell where it came from), unless it is a
+ * hydration mismatch. Also derives the most likely file for the caused
+ * errors (a changed file first, else the first project source path).
+ */
+export function classifyConsoleErrors(
+  entries: ConsoleErrorEntry[],
+  changedFiles: string[]
+): { caused: string[]; preExisting: string[]; filePath?: string } {
+  const caused: string[] = [];
+  const preExisting: string[] = [];
+  let filePath: string | undefined;
+  let fallbackPath: string | undefined;
+  for (const entry of entries) {
+    const haystack = `${entry.text}\n${entry.source ?? ""}`;
+    const changed = changedFileReferenced(haystack, changedFiles);
+    const paths = sourcePathsIn(haystack);
+    if (changed) {
+      caused.push(entry.text);
+      filePath ??= changed;
+      continue;
+    }
+    const fromUnchanged = changedFiles.length > 0 && paths.length > 0;
+    if (isHydrationMismatch(entry.text) || fromUnchanged) {
+      preExisting.push(entry.text);
+      continue;
+    }
+    caused.push(entry.text);
+    fallbackPath ??= paths[0];
+  }
+  return { caused, preExisting, ...(filePath ?? fallbackPath ? { filePath: filePath ?? fallbackPath } : {}) };
 }
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 90_000;
@@ -418,7 +527,7 @@ export async function runResponsiveQa(
           // structural pass over the page. Naming it a "viewport" check
           // would claim responsive coverage that never ran (plan 011).
           const label = checkLabelFor(viewport.label, options.visualRegression ?? false);
-          const consoleErrors: string[] = [];
+          const consoleErrors: ConsoleErrorEntry[] = [];
           const networkErrors: string[] = [];
           const page = await browser.newPage({
             viewport: { width: viewport.width, height: viewport.height },
@@ -431,7 +540,11 @@ export async function runResponsiveQa(
             // URL; HTTP failures are reported (with their URL) by the
             // response listener below instead.
             if (/^Failed to load resource/i.test(text)) return;
-            consoleErrors.push(text);
+            const location = message.location();
+            consoleErrors.push({
+              text,
+              source: location?.url ? `${location.url}:${location.lineNumber ?? 0}` : undefined,
+            });
           });
           const origin = new URL(baseUrl).origin;
           page.on("response", (response) => {
@@ -445,7 +558,10 @@ export async function runResponsiveQa(
           });
           // Uncaught exceptions arrive as `pageerror`, not console errors.
           page.on("pageerror", (error) => {
-            consoleErrors.push(`Uncaught: ${error.message}`.slice(0, 300));
+            consoleErrors.push({
+              text: `Uncaught: ${error.message}`.slice(0, 300),
+              source: (error.stack ?? "").slice(0, 2_000),
+            });
           });
           page.on("requestfailed", (request) => {
             const url = request.url();
@@ -501,11 +617,22 @@ export async function runResponsiveQa(
               continue;
             }
 
-            if (consoleErrors.length > 0) {
+            // Deterministic split (no blind retry can change it): errors
+            // this change plausibly caused fail the check; pre-existing
+            // ones (hydration mismatch, stack only in unchanged files)
+            // are carried as a warning on an otherwise-passing check.
+            const consoleSplit = classifyConsoleErrors(consoleErrors, options.changedFiles ?? []);
+            const preExisting = consoleSplit.preExisting.length > 0 ? consoleSplit.preExisting : undefined;
+            const preExistingNote = preExisting
+              ? `; pre-existing, not caused by this change: ${preExisting.join(" | ")}`
+              : "";
+            if (consoleSplit.caused.length > 0) {
               await record({
                 label,
                 status: "failed",
-                details: `Console errors: ${consoleErrors.join(" | ")}`,
+                details: `Console errors: ${consoleSplit.caused.join(" | ")}${preExistingNote}`,
+                ...(consoleSplit.filePath ? { filePath: consoleSplit.filePath } : {}),
+                ...(preExisting ? { preExisting } : {}),
               });
               continue;
             }
@@ -525,9 +652,19 @@ export async function runResponsiveQa(
                 screenshotPath,
                 path.join(baselinesDir, `${viewport.label}.png`)
               );
-              await record({ label, status: baseline.status, details: baseline.details });
+              await record({
+                label,
+                status: baseline.status,
+                details: `${baseline.details}${preExistingNote}`,
+                ...(preExisting ? { preExisting } : {}),
+              });
             } else {
-              await record({ label, status: "passed", details: "Page rendered with visible body; no screenshot or visual comparison" });
+              await record({
+                label,
+                status: "passed",
+                details: `Page rendered with visible body; no screenshot or visual comparison${preExistingNote}`,
+                ...(preExisting ? { preExisting } : {}),
+              });
             }
           } catch (error) {
             await record({

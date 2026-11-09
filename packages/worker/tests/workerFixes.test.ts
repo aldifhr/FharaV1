@@ -488,3 +488,52 @@ describe("QA policy", () => {
     expect(captured.events.find((e) => e.type === "qa.passed")).toBeDefined();
   });
 });
+
+describe("verification fix budget is per phase (initial apply, then after each QA fix round)", () => {
+  it("a new failure after a QA fix round gets its own attempts instead of the exhausted task-wide count", async () => {
+    // Phase 0 already spent both verify fixes; a QA fix round happened
+    // since. The next verification failure must get a fresh budget.
+    mock.verifyResults = ["failed", "passed"];
+    const done = ["implement", "fix_verify_1", "fix_verify_2", "fix_qa_1"];
+    const { deps, captured, task } = createDeps({
+      plan: planOf([
+        node("implement", "code_change", "frontend-development"),
+        node("fix_verify_1", "code_change", "frontend-development"),
+        node("fix_verify_2", "code_change", "frontend-development"),
+        node("fix_qa_1", "code_change", "frontend-development"),
+      ]),
+      agents: [FRONTEND],
+      completed: done,
+      stagedFiles: ["implement.txt"],
+    });
+    await processTask(task, deps);
+    expect(mock.executed.map((e) => e.key)).toEqual(["fix_verify_qa1_1"]);
+    const started = captured.events.find((e) => e.type === "verification.fix_started");
+    expect(started?.payload).toMatchObject({ iteration: 1, phase: 1 });
+    expect(captured.completions.at(-1)?.status).toBe("done");
+  });
+});
+
+describe("approval resume: decisions only for subtasks newly completed in this run", () => {
+  it("does not re-emit orchestrator.decision for subtasks completed before the resume", async () => {
+    mock.qaVerdicts = ["passed"];
+    const { deps, captured } = createDeps({
+      plan: planOf([
+        node("implement", "code_change", "frontend-development"),
+        node("qa", "qa", "browser-testing", ["implement"]),
+      ]),
+      agents: [FRONTEND, QA],
+      approvalMode: "ask",
+      broker: "allow",
+      resumeApproved: true,
+      completed: ["implement"],
+      stagedFiles: ["implement.txt"],
+    });
+    await resumeTask("task-1", deps);
+    const decided = captured.events
+      .filter((e) => e.type === "orchestrator.decision")
+      .map((e) => e.payload?.subtaskKey);
+    expect(decided).not.toContain("implement");
+    expect(decided).toContain("qa");
+  });
+});

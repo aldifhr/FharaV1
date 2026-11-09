@@ -311,12 +311,40 @@ export function estimateUsageCost(
 export function usageMetaFor(
   handle: FallbackHandle,
   inputTokens: number,
-  outputTokens: number
+  outputTokens: number,
+  estimated?: boolean
 ): TokenUsageMeta {
   return {
     providerId: handle.connectionId ? handle.connectionId : undefined,
     modelRowId: handle.modelRowId,
     estimatedCost: estimateUsageCost(handle, inputTokens, outputTokens),
+    ...(estimated ? { estimated: true } : {}),
+  };
+}
+
+/** Rough token estimate (chars/4) for providers that report no usage. */
+export function estimateTokens(text: string): number {
+  return Math.max(1, Math.ceil(text.length / 4));
+}
+
+/**
+ * Fill in missing usage. OpenAI-compatible servers (and some streaming
+ * paths) may omit `usage`; every such call used to record NO tokenUsage
+ * row at all (cost "—"). Missing counts become a chars/4 estimate of the
+ * prompt and completion, flagged `usageEstimated`. Reported counts are
+ * kept as-is. Exported for tests.
+ */
+export function withUsageEstimate(messages: LLMMessage[], result: LLMResult): LLMResult {
+  const missingIn = typeof result.inputTokens !== "number";
+  const missingOut = typeof result.outputTokens !== "number";
+  if (!missingIn && !missingOut) return result;
+  return {
+    ...result,
+    inputTokens: missingIn
+      ? estimateTokens(messages.map((message) => message.content).join("\n"))
+      : result.inputTokens,
+    outputTokens: missingOut ? (result.content ? estimateTokens(result.content) : 0) : result.outputTokens,
+    usageEstimated: true,
   };
 }
 
@@ -359,7 +387,7 @@ export async function runLlmCallWithFallback(
         gate: options.gate,
       });
       options.health?.recordSuccess(handle.connectionId);
-      return { result, servedBy: handle };
+      return { result: withUsageEstimate(messages, result), servedBy: handle };
     } catch (error) {
       lastError = error;
       // A caller abort (task cancel / deadline) is not a provider

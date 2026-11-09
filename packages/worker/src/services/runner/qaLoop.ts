@@ -231,11 +231,29 @@ export async function runQaLoop(ctx: RunContext): Promise<boolean> {
                   .map((check) => check.label)
                   .join(", ")}.`
               : "";
+          const preExisting = [
+            ...new Set(ranChecks.flatMap((check) => check.preExisting ?? [])),
+          ];
+          const preExistingNote = preExisting.length > 0
+            ? ` Warning: ${preExisting.length} console error(s) are pre-existing, not caused by this change: ${preExisting
+                .join(" | ")
+                .slice(0, 600)}.`
+            : "";
+          if (preExisting.length > 0) {
+            await deps.api.logEvent({
+              taskId,
+              projectId: project._id,
+              type: "qa.warning",
+              payload: { iteration, preExisting: preExisting.slice(0, 10) },
+              message: "QA found pre-existing console errors (not caused by this change).",
+              level: "warn",
+            });
+          }
           await deps.api.appendAgentMessage({
             projectId: project._id,
             taskId,
             agentId: qaAgentDef._id as any,
-            content: `QA checks passed. ${detail}${
+            content: `QA checks passed. ${detail}${preExistingNote}${
               visualQa
                 ? baselineOnly
                   ? " Visual baseline created, no comparison yet (first visual run)."

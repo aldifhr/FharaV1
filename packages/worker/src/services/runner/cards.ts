@@ -35,7 +35,7 @@ function splitName(full: string): { target?: string; name: string } {
 
 export function buildVerificationCard(
   result: VerificationResult,
-  options: { iteration: number; durationMs?: number; steps?: string[]; idempotencyKey?: string }
+  options: { iteration: number; phase?: number; durationMs?: number; steps?: string[]; idempotencyKey?: string }
 ): VerificationCardData {
   const steps = options.steps ?? ["typecheck", "lint", "test", "build"];
   const checks: VerificationCardCheck[] = [];
@@ -98,6 +98,7 @@ export function buildVerificationCard(
   return {
     taskId: "",
     iteration: options.iteration,
+    ...(options.phase ? { phase: options.phase } : {}),
     outcome,
     checks,
     ...(typeof options.durationMs === "number" ? { durationMs: options.durationMs } : {}),

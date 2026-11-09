@@ -199,6 +199,9 @@ export interface AuthoritativePlanInput {
   command: string;
   title: string;
   agents: AgentDefinition[];
+  /** Planner-only fallback CTO (see PlannerInput.plannerAgent). */
+  plannerAgent?: AgentDefinition | null;
+  plannerFallbackReason?: string | null;
   classification?: Classification;
   /** The runner's budget tracker — never a throwaway instance. */
   budget: BudgetTracker;
@@ -303,6 +306,8 @@ export async function createAuthoritativePlan(
       command: input.command,
       classification,
       agents: input.agents,
+      plannerAgent: input.plannerAgent,
+      plannerFallbackReason: input.plannerFallbackReason,
       policy: input.policy,
       feedback: input.feedback,
       llmConfig: input.llmConfig,

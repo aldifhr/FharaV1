@@ -43,9 +43,14 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
   } = ctx;
   const runNodes = (nodes: PlanSubtask[]) => ctx.runNodes(nodes);
   const maxVerifyIters = deps.policy.maxReviewIterations;
-  // A resumed run (after an ask-mode fix approval) continues the count, so
-  // the bound holds across pauses and fix keys never collide.
-  let verifyIteration = plan.subtasks.filter((c) => c.key.startsWith("fix_verify_")).length;
+  // The fix budget is PER verification phase (initial apply, then after
+  // each QA fix round): a new failure surfacing after a QA fix gets its own
+  // attempts instead of inheriting an exhausted task-wide count. A resumed
+  // run (after an ask-mode fix approval) continues its phase's count, so
+  // the bound holds across pauses; keys encode the phase, so they never
+  // collide across phases.
+  const phase = verificationPhase(plan.subtasks);
+  let verifyIteration = verifyFixesInPhase(plan.subtasks, phase);
   while (verifyIteration <= maxVerifyIters) {
     const startedAt = Date.now();
     const verification = await runVerification({
@@ -71,11 +76,12 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
       kind: "verification",
       data: buildVerificationCard(verification, {
         iteration: verifyIteration,
+        phase,
         durationMs: Date.now() - startedAt,
         steps: deps.policy.verificationIncludeBuild === false
           ? ["typecheck", "lint", "test"]
           : ["typecheck", "lint", "test", "build"],
-        idempotencyKey: `verify:${verifyIteration}:${startedAt}`,
+        idempotencyKey: `verify:${phase}:${verifyIteration}:${startedAt}`,
       }),
     });
     const failedChecks = verification.checks.filter((c) => c.status === "failed");
@@ -89,7 +95,9 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
     if (failedChecks.length === 0) break;
     if (verifyIteration >= maxVerifyIters) {
       state.feedback.push(
-        `Verification still failing after ${maxVerifyIters} fix attempt(s): ${failedChecks.map((c) => c.name).join(", ")}`
+        `Verification still failing after ${maxVerifyIters} fix attempt(s)${
+          phase > 0 ? ` (after QA fix round ${phase})` : ""
+        }: ${failedChecks.map((c) => c.name).join(", ")}`
       );
       return "failed";
     }
@@ -105,8 +113,8 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
     const owner = pickFixOwner(plan.subtasks, findings);
     const fixSubtask = {
       ...buildFixSubtask({
-        key: ctx.uniqueSubtaskKey(`fix_verify_${verifyIteration + 1}`),
-        title: `Address verification failures (iteration ${verifyIteration + 1})`,
+        key: ctx.uniqueSubtaskKey(verifyFixKey(phase, verifyIteration + 1)),
+        title: `Address verification failures (${phase > 0 ? `after QA fix ${phase}, ` : ""}iteration ${verifyIteration + 1})`,
         intro: VERIFY_FIX_INTRO,
         findings,
         capability: owner?.capability ?? CAPABILITY.GENERAL,
@@ -122,7 +130,7 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
       taskId,
       projectId: project._id,
       type: "verification.fix_started",
-      payload: { iteration: verifyIteration + 1, findings: findings.length },
+      payload: { iteration: verifyIteration + 1, phase, findings: findings.length },
       level: "warn",
     });
     const fixRun = await runNodes([fixSubtask]);
@@ -133,4 +141,25 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
     verifyIteration += 1;
   }
   return null;
+}
+
+/**
+ * Verification phase of the current pass: the number of QA fix rounds
+ * already in the plan (0 = the initial apply). Exported for tests.
+ */
+export function verificationPhase(subtasks: Pick<PlanSubtask, "key">[]): number {
+  return subtasks.filter((s) => s.key.startsWith("fix_qa_")).length;
+}
+
+/** Fix key for the n-th verification fix of a phase (phase 0 keeps the legacy `fix_verify_<n>`). */
+export function verifyFixKey(phase: number, n: number): string {
+  return phase > 0 ? `fix_verify_qa${phase}_${n}` : `fix_verify_${n}`;
+}
+
+/** How many verification fixes the given phase already spent. Exported for tests. */
+export function verifyFixesInPhase(subtasks: Pick<PlanSubtask, "key">[], phase: number): number {
+  const pattern = phase > 0
+    ? new RegExp(`^fix_verify_qa${phase}_\\d+(_\\d+)?$`)
+    : /^fix_verify_\d+(_\d+)?$/;
+  return subtasks.filter((s) => pattern.test(s.key)).length;
 }

@@ -3,9 +3,11 @@ import type { ReviewFinding } from "@/utils/json";
 /** Intro of the review loop's fix subtask. */
 export const REVIEW_FIX_INTRO = "The reviewer requested changes to the prepared work.";
 /** Intro of the QA loop's fix subtask. */
-export const QA_FIX_INTRO = "QA reported failures on the prepared work.";
+export const QA_FIX_INTRO =
+  "QA reported failures on the prepared work. A hydration warning is fixed at its real server/client mismatch, never by a mounted flag, a setState-in-effect render gate, or suppressHydrationWarning on wrappers; if it is not caused by this change, report it as pre-existing instead of editing around it.";
 /** Intro of the verification loop's fix subtask. */
-export const VERIFY_FIX_INTRO = "Static verification reported failures.";
+export const VERIFY_FIX_INTRO =
+  "Static verification reported failures. For a typecheck error on a library API, base the fix on the library's installed type definitions (node_modules/<pkg>/package.json \"types\", node_modules/<pkg>/dist/*.d.ts), never on guessed props.";
 
 export function formatReviewFindings(findings: ReviewFinding[]): string {
   if (findings.length === 0) return "No concrete findings were provided.";

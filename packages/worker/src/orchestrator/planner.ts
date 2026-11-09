@@ -25,6 +25,14 @@ export interface PlannerInput {
   command: string;
   classification: Classification;
   agents: AgentDefinition[];
+  /**
+   * Planner fallback: the global CTO, delivered by getRunContext when the
+   * run's own agents have no enabled CTO. Used ONLY as the planner when
+   * `agents` has no planner-capable agent; never routed a subtask.
+   */
+  plannerAgent?: AgentDefinition | null;
+  /** Why the run's agents had no CTO (for degraded notes). */
+  plannerFallbackReason?: string | null;
   policy: ExecutionPolicy;
   feedback?: string;
   /** Explicit per-task LLM config (resolved by the runner); env is the fallback. */
@@ -90,7 +98,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   if (input.signal?.aborted) {
     throw new Error("Planning aborted: the task was cancelled or timed out");
   }
-  const orchestrator = pickOrchestrator(input.agents);
+  const orchestrator = pickPlanner(input.agents, input.plannerAgent);
   if (orchestrator) {
     // Pre-call budget gate (Phase 5) — OUTSIDE the try below on purpose:
     // the catch treats call errors as planner unavailability and degrades
@@ -118,7 +126,9 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         signal: input.signal,
         taskGate: input.llmTaskGate,
       });
-      if (input.onTokenUsage && response.inputTokens !== undefined) {
+      // Usage is always recorded: runLlmCallWithFallback estimates it
+      // (flagged) when the provider omitted it.
+      if (input.onTokenUsage) {
         const model = servedBy.config.model;
         await input.onTokenUsage(
           response.inputTokens ?? 0,
@@ -126,7 +136,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
           model,
           orchestrator.name,
           orchestrator._id,
-          usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0)
+          usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
         );
       }
       const parsed = extractJson(response.content);
@@ -176,7 +186,11 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
       );
     }
   } else {
-    notes.push("no planner-capable agent found; using deterministic plan");
+    notes.push(
+      `no planner-capable agent found (${
+        input.plannerFallbackReason ?? "CTO not in project team"
+      }); using deterministic plan`
+    );
   }
   // The abort may have landed while a successful response was being
   // processed: the plan it produced must not be used either.
@@ -222,6 +236,18 @@ export function pickOrchestrator(agents: AgentDefinition[]): AgentDefinition | n
   const cto = enabled.find((agent) => /^cto$/i.test(agent.role.trim()));
   if (cto) return cto;
   return enabled.find((agent) => /^orchestrator$/i.test(agent.role.trim())) ?? null;
+}
+
+/**
+ * The planner for a run: the run's own CTO/orchestrator, else the global
+ * fallback CTO (planner only — it stays out of `agents`, so routing never
+ * assigns it an executor subtask).
+ */
+export function pickPlanner(
+  agents: AgentDefinition[],
+  fallback?: AgentDefinition | null
+): AgentDefinition | null {
+  return pickOrchestrator(agents) ?? (fallback && isAgentEnabled(fallback) ? fallback : null);
 }
 
 /** Builds the CTO planning prompt. Exported for prompt-shape tests. */

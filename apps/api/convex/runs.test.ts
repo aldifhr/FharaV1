@@ -139,3 +139,27 @@ describe("runs.get", () => {
     await expect(t.query(api.runs.get, { taskId: hiddenTask })).rejects.toThrow(/Unauthorized/);
   });
 });
+
+describe("runs: approval wait and estimated tokens", () => {
+  test("approval steps belong to the user and are marked as waiting; estimated usage is flagged", async () => {
+    const { t, taskId, projectId, t0 } = await seed();
+    await t.run(async (ctx) => {
+      const fe = (await ctx.db.query("agents").collect()).find((a) => a.role === "frontend")!;
+      await ctx.db.insert("approvals", {
+        taskId, projectId, kind: "apply_changes", summary: "Apply changes to 2 file(s)",
+        requestedByAgentId: fe._id, status: "approved", resolvedAt: t0 + 200_000,
+      } as never);
+      await ctx.db.insert("tokenUsage", {
+        projectId, taskId, agentName: "CTO", model: "nous", inputTokens: 40, outputTokens: 10, estimated: true, createdAt: t0 + 3_000,
+      });
+    });
+    const run = await t.query(api.runs.get, { taskId });
+    const approval = run!.steps.find((s) => s.type === "approval")!;
+    expect(approval.role).toBe("you");
+    expect(approval.waiting).toBe(true);
+    expect(approval.agentName).toBe("requested by frontend");
+    expect(run!.totals.estimated).toBe(true);
+    const { runs } = await t.query(api.runs.list, {});
+    expect(runs.find((r) => r.taskId === taskId)!.tokensEstimated).toBe(true);
+  });
+});

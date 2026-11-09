@@ -66,7 +66,7 @@ function RunsPage() {
                   projectId ? null : r.projectName,
                   r.roles.length ? r.roles.map(roleLabel).join(", ") : null,
                   r.durationMs !== null ? formatDuration(r.durationMs) : taskStatusLabel(r.status),
-                  tokens ? `${formatTokens(tokens)} tok` : null,
+                  tokens ? `${r.tokensEstimated ? "≈" : ""}${formatTokens(tokens)} tok` : null,
                   r.subtasksTotal ? `${r.subtasksDone}/${r.subtasksTotal} steps` : null,
                   r.errorCount ? `${r.errorCount} ${r.errorCount === 1 ? "error" : "errors"}` : null,
                 ].filter(Boolean);

@@ -34,8 +34,16 @@ export interface VerificationCardCheck {
 
 export interface VerificationCardData {
   taskId: string;
-  /** 0 for the first run, n for the run after the n-th fix round. */
+  /**
+   * 0 for the phase's first run, n for the run after the phase's n-th
+   * verification fix. Counted per phase (see `phase`).
+   */
   iteration: number;
+  /**
+   * Verification phase: 0 = after the initial apply, k = after the k-th
+   * QA fix round. Absent on legacy cards (treated as 0).
+   */
+  phase?: number;
   outcome: "passed" | "failed" | "inconclusive";
   checks: VerificationCardCheck[];
   durationMs?: number;

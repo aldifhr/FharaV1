@@ -4,6 +4,7 @@ import { describeCapabilities } from "./capabilities";
 import { pickOrchestrator } from "./planner";
 import {
   runLlmCallWithFallback,
+  usageMetaFor,
   type FallbackHandle,
   type LlmConcurrencyGate,
 } from "@/effects/llmCall";
@@ -109,13 +110,14 @@ async function runRealCall(input: DecisionAdvisorInput, prompt: string): Promise
       taskGate: input.llmTaskGate,
     }
   );
-  if (input.onTokenUsage && response.inputTokens !== undefined) {
+  if (input.onTokenUsage) {
     await input.onTokenUsage(
       response.inputTokens ?? 0,
       response.outputTokens ?? 0,
       servedBy.config.model,
       orchestrator.name,
-      orchestrator._id
+      orchestrator._id,
+      usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
     );
   }
   return response.content;

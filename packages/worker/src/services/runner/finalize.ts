@@ -202,6 +202,7 @@ export async function persistPlan(
     version: number;
     createdBy: "orchestrator" | "fallback";
     classification: string;
+    degradedReason?: string;
   }
 ): Promise<void> {
   await deps.api.setPlanning({
@@ -219,5 +220,8 @@ export async function persistPlan(
     goal: input.plan.goal,
     payload: input.plan,
     subtasks: input.plan.subtasks,
+    ...(input.createdBy === "fallback" && input.degradedReason
+      ? { degradedReason: input.degradedReason.slice(0, 500) }
+      : {}),
   });
 }

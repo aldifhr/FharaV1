@@ -12,6 +12,7 @@ import {
   type AuthoritativePlanResult,
 } from "@/orchestrator/orchestrator";
 import type { SharedTaskContext } from "@/orchestrator/taskContext";
+import { pickOrchestrator } from "@/orchestrator/planner";
 import type { GlobalLLMConfig } from "@/llm";
 import type { LlmConcurrencyGate } from "@/effects/llmCall";
 import type { TaskLlmResolver } from "@/llm/resolver";
@@ -34,6 +35,12 @@ export interface PlanningContext {
   project: WorkerProject;
   command: string;
   agents: AgentDefinition[];
+  /**
+   * Planner-only fallback CTO from getRunContext (the run's agents have no
+   * enabled CTO). Never an executor.
+   */
+  plannerAgent?: AgentDefinition | null;
+  plannerFallbackReason?: string | null;
   classification: Classification;
   budget: BudgetTracker;
   sharedContext: SharedTaskContext;
@@ -65,6 +72,8 @@ export async function requestPlan(
     command: pctx.command,
     title: task.title,
     agents: pctx.agents,
+    plannerAgent: pctx.plannerAgent,
+    plannerFallbackReason: pctx.plannerFallbackReason,
     classification: pctx.classification,
     budget: pctx.budget,
     sharedContext: pctx.sharedContext,
@@ -141,6 +150,7 @@ export async function createInitialPlan(
   storedRow: StoredPlanRow | null | undefined
 ): Promise<InitialPlan | null> {
   const { deps, task, project, classification } = pctx;
+  if (!storedPlan) await logPlannerFallback(pctx);
   if (deps.policy.orchestratorAuthoritative === true) {
     let authoritative: AuthoritativePlanResult;
     try {
@@ -195,6 +205,7 @@ export async function createInitialPlan(
         version: planVersion,
         createdBy,
         classification: classification.kind,
+        degradedReason: authoritative.degradedReason,
       });
     }
     return { plan, createdBy, planVersion };
@@ -261,6 +272,29 @@ export async function createInitialPlan(
     version: planVersion,
     createdBy,
     classification: classification.kind,
+    degradedReason: created.degradedReason,
   });
   return { plan, createdBy, planVersion };
+}
+
+/**
+ * plan.planner_fallback: the run's agents have no enabled CTO, so the
+ * global CTO plans this run (planner only, never an executor). Logged
+ * once per fresh plan.
+ */
+async function logPlannerFallback(pctx: PlanningContext): Promise<void> {
+  if (!pctx.plannerFallbackReason || pickOrchestrator(pctx.agents)) return;
+  const usable = Boolean(pctx.plannerAgent);
+  await pctx.deps.api.logEvent({
+    taskId: pctx.task._id,
+    projectId: pctx.project._id,
+    type: "plan.planner_fallback",
+    payload: {
+      reason: pctx.plannerFallbackReason,
+      planner: usable ? pctx.plannerAgent!.name : null,
+      plannerAgentId: usable ? pctx.plannerAgent!._id : null,
+      role: "planner-only",
+    },
+    level: usable ? "info" : "warn",
+  });
 }

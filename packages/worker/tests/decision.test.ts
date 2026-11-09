@@ -255,10 +255,10 @@ describe("decision: nextDeterministicDecision", () => {
     }
   });
 
-  it("maps REJECT to complete (proposal:rejected)", () => {
+  it("maps REJECT to complete (delegation:declined)", () => {
     const det = nextDeterministicDecision(context(), observation({ decision: "REJECT" }));
     expect(det).not.toBe("ambiguous");
-    if (det !== "ambiguous") expect(det.expectedOutcome).toBe("proposal:rejected");
+    if (det !== "ambiguous") expect(det.expectedOutcome).toBe("delegation:declined");
   });
 
   it("maps COMPLETE to complete (objective:met)", () => {

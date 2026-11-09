@@ -73,6 +73,7 @@ export function createUsageRecorder(
           | Parameters<WorkerApi["recordTokenUsage"]>[0]["modelId"]
           | undefined,
         estimatedCost: meta?.estimatedCost,
+        ...(meta?.estimated ? { estimated: true } : {}),
       });
     }
   };

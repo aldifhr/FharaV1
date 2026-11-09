@@ -342,14 +342,17 @@ export function qaFindings(run: SchedulerResult, nodes: PlanSubtask[]): ReviewFi
   const findings: ReviewFinding[] = [];
   for (const node of nodes) {
     const outcome = run.outcomes.get(node.key);
-    const checks = (outcome?.meta as { checks?: { label: string; status: string; details?: string }[] } | undefined)
-      ?.checks;
+    const checks = (outcome?.meta as
+      | { checks?: { label: string; status: string; details?: string; filePath?: string }[] }
+      | undefined)?.checks;
     const failedChecks = (checks ?? []).filter((check) => check.status === "failed");
     if (failedChecks.length > 0) {
       for (const check of failedChecks) {
         findings.push({
           severity: "high",
-          filePath: "",
+          // Derived from the console error's stack by the QA harness, so
+          // the fix agent gets a file hint (was always "").
+          filePath: check.filePath ?? "",
           description: `QA ${check.label}: ${check.details ?? "failed"}`,
           suggestion: "Fix the reported QA failure and re-run QA.",
         });

@@ -319,6 +319,11 @@ export default function TaskBoard({
                   <p className="text-[11px] text-ink-3">
                     <span className="font-semibold text-ink-2">Goal:</span> {plan.goal}
                     <span className="ml-2 text-ink-3">v{plan.version} · {plan.createdBy}</span>
+                    {plan.createdBy === "fallback" && plan.degradedReason && (
+                      <span className="mt-0.5 block text-amber-700 dark:text-amber-400">
+                        Deterministic plan: {plan.degradedReason}
+                      </span>
+                    )}
                   </p>
                 )}
                 {subtasks.length === 0 && (

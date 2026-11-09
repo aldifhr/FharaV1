@@ -274,7 +274,7 @@ describe("phase6 delegation: scenario E (unnecessary delegation)", () => {
     expect(mockState.executed).toEqual(["impl"]);
     const decisionEvent = captured.events.find((event) => event.type === "orchestrator.decision");
     expect(decisionEvent?.payload.action).toBe("complete");
-    expect(decisionEvent?.payload.expectedOutcome).toBe("proposal:rejected");
+    expect(decisionEvent?.payload.expectedOutcome).toBe("delegation:declined");
     expect(String(decisionEvent?.payload.reasoning)).toContain(
       "proposing agent can serve this capability"
     );

@@ -1,3 +1,5 @@
+import { IMPLEMENTATION_RULES } from "./codeChange";
+
 /** Short message passed verbatim on the provider CLI argv; the full prompt
  *  travels via an attached file (`-f`) so argv stays well under the Windows
  *  limit (~32k) regardless of audit/repository context size. Message first,
@@ -34,6 +36,7 @@ export function buildNativePrompt(input: {
     "",
     "You have full workspace access (the current working directory is the task workspace). Make the changes yourself; do not ask for approval.",
     "Only touch files inside the current working directory; use relative paths. Do not commit or push.",
+    ...IMPLEMENTATION_RULES,
     "When done, write a short summary: what you changed, files touched, and anything that needs follow-up.",
   ]
     .filter(Boolean)

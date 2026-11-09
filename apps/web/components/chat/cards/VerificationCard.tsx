@@ -12,6 +12,17 @@ const OUTCOME = {
 } as const;
 
 /** Build / test / lint results per check. A step that did not run says so. */
+/**
+ * Per-phase label: the fix count restarts after each QA fix round, so a
+ * re-verification after QA reads "after QA fix", not "after fix 2" again.
+ */
+function verificationTitle(data: VerificationCardData): string {
+  const phase = typeof data.phase === "number" ? data.phase : 0;
+  const base = phase > 0 ? `Verification after QA fix${phase > 1 ? ` ${phase}` : ""}` : "Verification";
+  if (data.iteration > 0) return phase > 0 ? `${base} · fix ${data.iteration}` : `Verification after fix ${data.iteration}`;
+  return base;
+}
+
 export default function VerificationCard({ data }: { data: VerificationCardData }) {
   const [showLog, setShowLog] = useState(false);
   const outcome = OUTCOME[data.outcome] ?? OUTCOME.inconclusive;
@@ -27,7 +38,7 @@ export default function VerificationCard({ data }: { data: VerificationCardData 
               <ShieldCheck size={15} />
             </IconTile>
           }
-          title={data.iteration > 0 ? `Verification after fix ${data.iteration}` : "Verification"}
+          title={verificationTitle(data)}
           subtitle={[duration && `took ${duration}`, checks.length === 0 && "no checks reported"].filter(Boolean).join(" · ") || undefined}
           pill={<Pill tone={outcome.tone}>{outcome.label}</Pill>}
         />

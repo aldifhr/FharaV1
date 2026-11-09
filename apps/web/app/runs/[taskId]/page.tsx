@@ -38,6 +38,8 @@ const STEP_KIND_LABEL: Record<string, string> = {
 
 /** Display by role only; non-agent steps get their kind. */
 function stepLabel(step: Step): string {
+  // Approvals wait on the user, not on the agent that asked.
+  if (step.type === "approval") return "You";
   if (step.role) return roleLabel(step.role);
   return STEP_KIND_LABEL[step.type] ?? "Step";
 }
@@ -111,7 +113,9 @@ function StepDetail({ step, stepByKey }: { step: Step; stepByKey: Map<string, St
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
         <Field label="Status">{step.status.replace(/_/g, " ")}</Field>
         {step.startedAt !== undefined && <Field label="Started">{clockTime(step.startedAt)}</Field>}
-        {step.durationMs !== undefined && <Field label="Duration">{formatDuration(step.durationMs)}</Field>}
+        {step.durationMs !== undefined && (
+          <Field label={step.waiting ? "Waiting" : "Duration"}>{formatDuration(step.durationMs)}</Field>
+        )}
         {step.attempt !== undefined && <Field label="Attempt">{step.attempt}</Field>}
         {step.capability && <Field label="Capability">{step.capability}</Field>}
         {step.subtaskKind && <Field label="Kind">{step.subtaskKind.replace(/_/g, " ")}</Field>}
@@ -121,7 +125,7 @@ function StepDetail({ step, stepByKey }: { step: Step; stepByKey: Map<string, St
           <>
             <Field label="Model">{t.models.join(", ") || "—"}</Field>
             <Field label="Tokens in / out">
-              {formatTokens(t.inputTokens)} / {formatTokens(t.outputTokens)}
+              {t.estimated ? "≈" : ""}{formatTokens(t.inputTokens)} / {formatTokens(t.outputTokens)}
             </Field>
             <Field label="Calls">{t.calls}</Field>
             <Field label="Est. cost">{formatCost(t.estimatedCost)}</Field>
@@ -215,11 +219,15 @@ function Waterfall({ run, now }: { run: Run; now: number }) {
                 {start !== undefined &&
                   (hasBar ? (
                     <span
-                      className={`absolute inset-y-1 rounded ${error ? "bg-red-500" : running ? "text-ink-3" : "bg-ink/70"}`}
+                      className={`absolute inset-y-1 rounded ${
+                        step.waiting
+                          ? "border border-dashed border-ink-3 bg-ink/10"
+                          : error ? "bg-red-500" : running ? "text-ink-3" : "bg-ink/70"
+                      }`}
                       style={{
                         left: pct(start),
                         width: `max(3px, calc(${pct(end!)} - ${pct(start)}))`,
-                        ...(running && !error ? STRIPES : {}),
+                        ...(running && !error && !step.waiting ? STRIPES : {}),
                       }}
                     />
                   ) : (
@@ -230,10 +238,10 @@ function Waterfall({ run, now }: { run: Run; now: number }) {
                   ))}
               </span>
               <span className="text-right text-[12px] tabular-nums leading-tight">
-                <span className="block text-ink-2">
+                <span className={`block ${step.waiting ? "text-ink-3" : "text-ink-2"}`} title={step.waiting ? "Waiting for your approval" : undefined}>
                   {running ? formatDuration(now - (start ?? now)) : step.durationMs !== undefined && step.durationMs > 0 ? formatDuration(step.durationMs) : ""}
                 </span>
-                <span className="block text-ink-3">{tokens ? `${formatTokens(tokens)} tok${step.tokens?.approximate ? "*" : ""}` : ""}</span>
+                <span className="block text-ink-3">{tokens ? `${step.tokens?.estimated ? "≈" : ""}${formatTokens(tokens)} tok${step.tokens?.approximate ? "*" : ""}` : ""}</span>
               </span>
             </button>
             {expanded && <StepDetail step={step} stepByKey={stepByKey} />}
@@ -460,7 +468,7 @@ export default function RunTracePage() {
                   <span className="tabular-nums">{formatDuration(duration)}</span>
                   <span className="text-ink-3">·</span>
                   <span className="tabular-nums">
-                    {formatTokens(run.totals.inputTokens)} in / {formatTokens(run.totals.outputTokens)} out
+                    {run.totals.estimated ? "≈" : ""}{formatTokens(run.totals.inputTokens)} in / {formatTokens(run.totals.outputTokens)} out
                   </span>
                   <span className="text-ink-3">·</span>
                   <span className="tabular-nums">{formatCost(run.totals.estimatedCost)}</span>
@@ -490,6 +498,10 @@ export default function RunTracePage() {
                   </p>
                 )}
               </Section>
+
+              {run.totals.estimated && (
+                <p className="-mt-2 text-[12px] text-ink-3">≈ the provider reported no token usage for some calls; those counts are estimated (chars/4).</p>
+              )}
 
               <Agents run={run} />
               <Events run={run} />

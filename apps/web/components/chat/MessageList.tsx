@@ -87,8 +87,8 @@ export default function MessageList(props: Props) {
   const isLive = (m: any) =>
     m.authorType === "agent" && m.streaming === true && Date.now() - m._creationTime < 180_000;
 
-  // The newest agent reply offers "Create task" when it is the answer to an
-  // option pick or it recommends making a task itself.
+  // The CTO's newest reply offers "Create task" when it answers an option
+  // pick or recommends making a task itself.
   const [taskState, setTaskState] = useState<Record<string, "busy" | "done">>({});
   const suggestTaskId = (() => {
     if (!onCreateTaskFrom) return null;
@@ -100,6 +100,10 @@ export default function MessageList(props: Props) {
       let prevUser: any = null;
       for (let j = i - 1; j >= 0; j--) if (timeline[j].authorType === "user") { prevUser = timeline[j]; break; }
       const afterPick = /^i choose\b/i.test(prevUser?.content?.trim() ?? "");
+      // Only the CTO's own reply offers the button. A teammate it pulled in
+      // for a question (or that merely says "create task") never does.
+      const role = String((agents as any[])?.find((a: any) => a._id === m.agentId)?.role ?? "").toLowerCase();
+      if (role !== "cto") continue;
       const recommends = /\b(create|bikin|buat)\s+task\b/i.test(m.content);
       return afterPick || recommends ? String(m._id) : null;
     }

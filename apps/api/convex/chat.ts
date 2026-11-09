@@ -34,6 +34,8 @@ import {
   ORCHESTRATOR_LIKE_ROLE,
   ORCHESTRATOR_ROLE,
   extractAgentMentions,
+  selectHandoffs,
+  handoffRequestFor,
   pickConversationalAgent,
   pickGreetingResponders,
   resolveAssignees,
@@ -608,7 +610,7 @@ export const replyToChat = internalAction({
     // The queue grows when the CTO @mentions teammates in its reply (handoff).
     const queue = [...responders];
     const answered = new Set<string>();
-    const handoffFrom = new Map<string, string>();
+    const handoffFrom = new Map<string, { by: string; request: string }>();
     let handoffs = 0;
     for (let turn = 0; turn < queue.length; turn += 1) {
       const agent = queue[turn];
@@ -624,7 +626,7 @@ export const replyToChat = internalAction({
         ...(isOptionPick
           ? ["The user's last message is a button pick ('I choose …'), not their language: reply in the language of their earlier messages, in 2-3 sentences, and do not bring teammates in. Say which roles would do the work (as @Role) and that the Create task button under your reply starts it; never ask them to type a command."]
           : []),
-        ...(handoffBy !== undefined ? [buildHandoffNotice(handoffBy)] : []),
+        ...(handoffBy !== undefined ? [buildHandoffNotice(handoffBy.by, handoffBy.request)] : []),
         // Questions (compare, explain, recommend) get a prose answer; the
         // options picker is for choosing what to build, not for a verdict.
         intent.intent === "ask" && !wantsOptions(lastUserContent)
@@ -668,12 +670,12 @@ export const replyToChat = internalAction({
         conversation.push({ role: "assistant", content: `${agent.name}: ${content.trim()}` });
         // CTO handoff: teammates it @mentioned answer next, in order.
         if (isCto && !isOptionPick) {
-          for (const mentioned of extractAgentMentions(content, team, String(agent._id))) {
+          for (const mentioned of selectHandoffs(content, team, String(agent._id))) {
             if (handoffs >= MAX_CTO_HANDOFFS) break;
             if (answered.has(String(mentioned._id))) continue;
             if (queue.some((queued, index) => index > turn && queued._id === mentioned._id)) continue;
             queue.push(mentioned);
-            handoffFrom.set(String(mentioned._id), agent.name);
+            handoffFrom.set(String(mentioned._id), { by: agent.name, request: handoffRequestFor(content, mentioned) });
             handoffs += 1;
           }
         }

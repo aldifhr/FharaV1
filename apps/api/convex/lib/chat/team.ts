@@ -83,6 +83,35 @@ export function extractAgentMentions<T extends { _id: string; name: string; role
   return hits.sort((a, b) => a.index - b.index).map((hit) => hit.agent);
 }
 
+/**
+ * Teammates the CTO actually handed part of the turn to. Mentions only count
+ * as a handoff when the CTO addressed at most MAX_CTO_HANDOFFS teammates;
+ * a reply that names more (e.g. "@Designer for UX, @Frontend for code, @QA
+ * ...") is describing the team, not asking them anything, so nobody is
+ * pulled in. Exported for unit tests.
+ */
+export function selectHandoffs<T extends { _id: string; name: string; role: string }>(
+  text: string,
+  team: T[],
+  speakerId?: string
+): T[] {
+  const mentioned = extractAgentMentions(text, team, speakerId);
+  return mentioned.length > MAX_CTO_HANDOFFS ? [] : mentioned;
+}
+
+/** The sentence(s) of the CTO reply addressed to one teammate. */
+export function handoffRequestFor(text: string, agent: { name: string; role: string }): string {
+  const labels = Array.from(new Set([agent.name, agent.role].filter(Boolean)))
+    .map((l) => l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+"));
+  const re = new RegExp(`(^|[^\\w@])@(${labels.join("|")})(?![\\w-])`, "i");
+  return text
+    .split(/(?<=[.?!])\s+|\n+/)
+    .filter((sentence) => re.test(sentence))
+    .join(" ")
+    .trim()
+    .slice(0, 400);
+}
+
 /** Roles that always stay in an assigned task's pool so review and QA still run. */
 const ALWAYS_IN_POOL = /^(reviewer|qa)$/i;
 

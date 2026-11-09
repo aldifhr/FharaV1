@@ -119,8 +119,12 @@ export function buildChatPersonaLines(
 }
 
 /** Line for a teammate the CTO pulled into the chat by @mention. */
-export function buildHandoffNotice(ctoName: string): string {
-  return `${ctoName} (CTO) brought you into this chat with an @mention. Answer only the part addressed to you, briefly, in the user's language. Do not repeat what the CTO already said.`;
+export function buildHandoffNotice(ctoName: string, request = ""): string {
+  return [
+    `${ctoName} (CTO) brought you into this chat with an @mention.`,
+    request ? `What the CTO asked you: "${request}"` : "",
+    "Answer only that, briefly (2-4 sentences), in the user's language, and only about the user's LATEST message. Do not pick up earlier topics or tasks from the conversation unless the latest message is about them. Do not repeat what the CTO said, do not @mention anyone, and do not tell the user to create a task.",
+  ].filter(Boolean).join(" ");
 }
 
 /** The transcript appended to the system prompt, in turn order. */
@@ -149,7 +153,7 @@ export function buildPlanningGuidance(agent: { role: string }, opts: { isOrchest
   return [
     "Answer the user's chat message helpfully and completely from your perspective in the same language as the user.",
     "You can answer structural questions (architecture, folders, features) from the repo snapshot given when present — cite actual paths you see there. You still cannot run commands, modify files, or read beyond the snapshot.",
-    "For anything that needs workspace access (audit, review, run code), tell the user to Create task so the worker (which CAN read the workspace) can do it.",
+    "Only when the user asked for work that needs workspace access (audit, review, run code) say that it needs a task; for plain questions never mention creating a task.",
     "Do not pretend to have executed code. Respond in plain text.",
   ];
 }
@@ -177,6 +181,7 @@ export function buildHandoffGuidance(team: Array<{ _id: string; name: string; ro
   return [
     `Teammates you can bring into this chat: ${others.map((a) => `@${a.name}`).join(", ")}.`,
     `When part of the question needs a teammate's expertise, address them with @Name and say exactly what you need from them (at most ${MAX_CTO_HANDOFFS}). They reply right after you, in this chat. Do not mention teammates for greetings or when you can answer fully yourself.`,
+    "Writing @Name always pulls that teammate into the chat. When you only describe or list the team (who does what), write their role names WITHOUT @.",
   ];
 }
 

@@ -2,7 +2,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test, it } from "vitest";
 import { classifyChatIntent, parseIntentResult } from "./lib/chat/intent";
-import { resolveAssignees, suggestAssigneesByKeywords, extractAgentMentions, parseResponderSelection, pickConversationalAgent, pickGreetingResponders } from "./lib/chat/team";
+import { resolveAssignees, suggestAssigneesByKeywords, extractAgentMentions, selectHandoffs, handoffRequestFor, parseResponderSelection, pickConversationalAgent, pickGreetingResponders } from "./lib/chat/team";
 import { stripToolCallMarkup } from "./lib/chat/strip";
 import { buildAssignmentGuidance, buildHandoffGuidance } from "./lib/prompts/chat";
 import schema from "./schema";
@@ -93,6 +93,18 @@ describe("CTO @mention handoff", () => {
   test("finds teammates mentioned by name or role, in order of appearance", () => {
     const text = "Saya usul begini. @Backend tolong cek skema, lalu @frontend sesuaikan form. @QA nanti tes.";
     expect(extractAgentMentions(text, team, "cto").map((a) => a._id)).toEqual(["be", "fe", "qa"]);
+  });
+
+  test("a roster of the whole team is not a handoff", () => {
+    const big = [...team, { _id: "ds", name: "Designer", role: "designer" }];
+    const text = "Bisa. Saya koordinasi dengan @Designer untuk UX, @Frontend untuk UI, @QA untuk tes, @Backend untuk server.";
+    expect(selectHandoffs(text, big, "cto")).toEqual([]);
+    expect(selectHandoffs("@Backend tolong cek skema. @QA nanti tes.", big, "cto").map((a) => a._id)).toEqual(["be", "qa"]);
+  });
+
+  test("handoff request is the sentence addressed to the teammate", () => {
+    const text = "Saya usul begini. @Backend tolong cek skema users. @QA nanti tes.";
+    expect(handoffRequestFor(text, { name: "Backend", role: "backend" })).toBe("@Backend tolong cek skema users.");
   });
 
   test("ignores the speaker, emails, unknown names and partial words", () => {

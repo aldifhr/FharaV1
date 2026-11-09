@@ -30,6 +30,21 @@ const CODE_FILE =
 const TESTING = /\b(test|tests|qa|e2e|playwright|vitest|coverage)\b/i;
 const SECURITY = /\b(security|vulnerab|authz|xss|csrf|injection|secret)\b/i;
 
+const QUESTION_START =
+  /^(kenapa|mengapa|apa|apakah|bagaimana|gimana|gmn|kapan|dimana|di mana|why|how come|what|when|where)\b/i;
+const REQUEST_MARKER =
+  /\b(tolong|please|pls|coba|minta|bisa(kah)? (kamu|tolong|bantu)|bantu|can you|could you|would you|can we|could we|shall we|bisakah|bisa nggak|bisa gak|silakan)\b/i;
+
+function isPureQuestion(text: string): boolean {
+  if (REQUEST_MARKER.test(text)) return false;
+  const trimmed = text.trim();
+  const endsWithQuestion = trimmed.endsWith("?");
+  // A "?" in the middle means a question followed by an instruction.
+  const innerQuestion = trimmed.slice(0, -1).includes("?");
+  if (innerQuestion) return false;
+  return endsWithQuestion || QUESTION_START.test(trimmed);
+}
+
 export function classifyCommand(command: string): Classification {
   const text = command.trim();
 
@@ -69,14 +84,17 @@ export function classifyCommand(command: string): Classification {
     };
   }
 
-  // Question-first: "Kenapa ... menggunakan ...?" is research even if a
-  // weak verb matched. Strong change verbs still win when both match and
-  // no question marker exists (handled above).
-  if (QUESTION.test(text) && !/\b(add|create|build|implement|fix|refactor|tambah|buat|ubah|perbaiki|hapus)\b/i.test(text)) {
+  // Pure question: "Kenapa kita perlu refactor ini?" asks about a change,
+  // it does not request one. A change verb alone is not enough to start a
+  // code-change plan when the whole message is a single question (starts
+  // with a question word or ends with "?") and carries no request marker
+  // ("tolong", "please", "can you", ...). "Kenapa lambat? ganti ke postgres"
+  // does not end with "?", so its trailing instruction still wins.
+  if (hasChangeVerb && isPureQuestion(text)) {
     return {
       kind: "research",
       strategy: "single",
-      reasons: ["question pattern detected"],
+      reasons: ["question about a change, not a change request"],
       suggestedCapabilities: [CAPABILITY.RESEARCH, CAPABILITY.CODE_REVIEW],
     };
   }

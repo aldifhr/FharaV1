@@ -74,4 +74,25 @@ describe("classifier", () => {
     );
     expect(frontend.suggestedCapabilities[0]).toBe("frontend-development");
   });
+
+  describe("questions about a change vs change requests (Indonesian)", () => {
+    it.each([
+      "Kenapa API ini menggunakan Convex?",
+      "Kenapa kita perlu refactor taskRunner?",
+      "Apakah sebaiknya pindah ke postgres?",
+      "why did we switch to convex?",
+    ])("treats %s as research", (text) => {
+      expect(classifyCommand(text).kind).toBe("research");
+    });
+
+    it.each([
+      "tolong tambah tombol logout di navbar",
+      "Kenapa lambat? ganti ke postgres",
+      "can you fix the login button?",
+      "update modal explain di halaman settings",
+      "hapus komponen lama di app/page.tsx",
+    ])("treats %s as a change request", (text) => {
+      expect(classifyCommand(text).kind).not.toBe("research");
+    });
+  });
 });

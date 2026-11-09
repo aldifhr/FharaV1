@@ -33,9 +33,9 @@ describe("validation-unit: classifier edges", () => {
     const r = classifyCommand("add a security audit to the auth flow");
     expect(r.kind).not.toBe("audit");
   });
-  it("question with change verb is code_change in classifier, question in router", async () => {
+  it("a how-to question with a change verb is research in classifier and a question in router", async () => {
     const r = classifyCommand("How do I create a new API endpoint?");
-    expect(r.kind).toBe("code_change"); // classifier is naive
+    expect(r.kind).toBe("research"); // pure question: asks how, requests nothing
     const { routeMessage } = await import("@/router/route");
     const routed = await routeMessage({ text: "How do I create a new API endpoint?", agents });
     expect(routed.intent).toBe("question");

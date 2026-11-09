@@ -392,6 +392,37 @@ export function slugifyKeyPart(value: string): string {
 }
 
 /**
+ * The subtasks of `plan` that already produced output, in the shape the
+ * replan feedback lists them. Keys with no matching subtask in the plan
+ * (stale state) are skipped: their output text is not a task description,
+ * and without kind/capability carry-forward could never match them anyway.
+ */
+export function completedSubtasksFor(
+  plan: Pick<ExecutionPlan, "subtasks">,
+  state: Pick<RunState, "priorOutputs">
+): CompletedSubtask[] {
+  const completed: CompletedSubtask[] = [];
+  for (const key of state.priorOutputs.keys()) {
+    const subtask = plan.subtasks.find((candidate) => candidate.key === key);
+    if (!subtask) continue;
+    completed.push({
+      key: subtask.key,
+      kind: subtask.kind,
+      capability: subtask.capability,
+      description: subtask.description,
+    });
+  }
+  return completed;
+}
+
+export type CompletedSubtask = {
+  key: string;
+  kind: string;
+  capability: string;
+  description: string;
+};
+
+/**
  * Replan feedback (Phase 3): the deterministic evaluator's summary plus
  * what the orchestrator itself decided and found along the way — the
  * decisions and open findings accumulated in the shared task context —

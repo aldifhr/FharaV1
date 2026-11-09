@@ -613,10 +613,17 @@ export const ensureFixedTeam = mutation({
         createdAgentIds.push(id);
       } else {
         createdAgentIds.push(match._id);
-        // Ensure capabilities and instructions are kept up-to-date
-        if (!match.capabilities || match.capabilities.length === 0) {
+        // Union capabilities so existing rows gain new defaults
+        // (e.g. Support gains "general", a legacy Reviewer gains
+        // "code-review") without overwriting custom entries.
+        const merged = Array.from(new Set([...(match.capabilities ?? []), ...def.capabilities]));
+        const needsPatch =
+          merged.length !== (match.capabilities?.length ?? 0) ||
+          match.description !== def.description ||
+          match.systemPrompt !== def.systemPrompt;
+        if (needsPatch) {
           await ctx.db.patch(match._id, {
-            capabilities: def.capabilities,
+            capabilities: merged,
             description: def.description,
             systemPrompt: def.systemPrompt,
           });

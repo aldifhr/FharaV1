@@ -469,6 +469,7 @@ export const savePlan = internalMutation({
         dependencies: v.array(v.string()),
         order: v.number(),
         allowedPaths: v.optional(v.array(v.string())),
+        reviewRound: v.optional(v.number()),
       })
     ),
   },
@@ -509,6 +510,7 @@ export const savePlan = internalMutation({
         dependencies: subtask.dependencies,
         order: subtask.order,
         allowedPaths: subtask.allowedPaths,
+        reviewRound: subtask.reviewRound,
         status: "pending",
         attempts: 0,
       });
@@ -578,6 +580,7 @@ export const upsertDynamicSubtasks = internalMutation({
         order: v.number(),
         allowedPaths: v.optional(v.array(v.string())),
         origin: v.optional(v.string()),
+        reviewRound: v.optional(v.number()),
       })
     ),
   },
@@ -607,6 +610,7 @@ export const upsertDynamicSubtasks = internalMutation({
         dependencies: subtask.dependencies,
         order: subtask.order,
         allowedPaths: subtask.allowedPaths,
+        reviewRound: subtask.reviewRound,
         status: "pending",
         origin: subtask.origin ?? "dynamic",
         attempts: 0,

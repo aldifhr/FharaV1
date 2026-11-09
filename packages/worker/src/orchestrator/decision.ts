@@ -15,6 +15,7 @@ import {
   normalizeCapability,
 } from "./capabilities";
 import { findCycle } from "./planValidator";
+import { pickFixOwner } from "./ownership";
 import { preventCircularDelegation } from "./delegation";
 import type { DelegationDecision } from "./delegation";
 
@@ -848,7 +849,7 @@ export function applyDecision(
 ): AppliedDecision {
   const order = ctx.plan.subtasks.length;
   const toNode = (task: DecisionTask, index: number): PlanSubtask => {
-    const implementer = ctx.plan.subtasks.find((s) => s.kind === "code_change");
+    const implementer = pickFixOwner(ctx.plan.subtasks, []);
     const capability = task.capability ?? decision.target?.capability ?? implementer?.capability ?? CAPABILITY.GENERAL;
     const key = task.key && task.key.trim().length > 0 ? task.key : uniqueKey(`decision_${decision.action}`);
     return {

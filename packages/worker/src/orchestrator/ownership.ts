@@ -52,3 +52,48 @@ export function pathsOverlap(a?: string[], b?: string[]): boolean {
     b.some((scopeB) => scopeA === scopeB || scopeA.startsWith(`${scopeB}/`) || scopeB.startsWith(`${scopeA}/`))
   );
 }
+
+function normalizePathPrefix(raw: string): string {
+  return raw.trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/\*\*$/, "").replace(/\/$/, "");
+}
+
+export interface FixCandidate {
+  key: string;
+  kind: string;
+  capability: string;
+  allowedPaths?: string[];
+}
+
+/**
+ * Pick the fix owner for review findings: the code_change subtask whose
+ * allowedPaths is the LONGEST prefix of a finding file. Ties fall back to
+ * the most recent (last) code_change, never the first — a first code_change
+ * is often a Backend type-only node while findings live in Frontend files.
+ */
+export function pickFixOwner(
+  candidates: FixCandidate[],
+  findings: Array<{ filePath?: string }>
+): FixCandidate | undefined {
+  const codeChanges = candidates.filter((s) => s.kind === "code_change");
+  if (codeChanges.length === 0) return undefined;
+  const files = findings
+    .map((f) => (f.filePath ?? "").trim().replace(/\\/g, "/").replace(/^\.\//, ""))
+    .filter(Boolean)
+    .map((f) => f.toLowerCase());
+
+  let best: FixCandidate | undefined;
+  let bestLen = -1;
+  for (const candidate of codeChanges) {
+    for (const scopeRaw of candidate.allowedPaths ?? []) {
+      const scope = normalizePathPrefix(scopeRaw).toLowerCase();
+      if (!scope || scope === "src") continue; // generic src/ matches everything — skip
+      if (files.some((file) => file === scope || file.startsWith(`${scope}/`))) {
+        if (scope.length > bestLen) {
+          bestLen = scope.length;
+          best = candidate;
+        }
+      }
+    }
+  }
+  return best ?? codeChanges.at(-1) ?? codeChanges[0];
+}

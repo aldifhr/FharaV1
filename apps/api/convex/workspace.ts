@@ -34,6 +34,7 @@ export const listSubtasksByProject = query({
         output: s.output,
         error: s.error,
         attempts: s.attempts,
+        reviewRound: (s as any).reviewRound,
         completedAt: s.completedAt,
       })),
     }));

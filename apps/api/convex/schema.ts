@@ -202,6 +202,7 @@ export default defineSchema({
     dependencies: v.array(v.string()),
     order: v.number(),
     allowedPaths: v.optional(v.array(v.string())),
+    reviewRound: v.optional(v.number()),
     status: subtaskStatus,
     // Phase 4 hardening (additive): how this row entered the DAG —
     // "plan" rows come from savePlan; dynamically spawned work is

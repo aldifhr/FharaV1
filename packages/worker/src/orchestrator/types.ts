@@ -59,6 +59,8 @@ export interface PlanSubtask {
   order: number;
   allowedPaths?: string[];
   origin?: "planned" | "dynamic";
+  /** Review/QA round (1-based). UI composes "Review (round N)" from this, title stays stable. */
+  reviewRound?: number;
 }
 
 export interface ExecutionPlan {

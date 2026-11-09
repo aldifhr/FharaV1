@@ -59,10 +59,15 @@ describe("integration #6-8: registry / consulting / orchestrator", () => {
 });
 
 describe("integration #9-11: planning", () => {
-  it("#9 simple code_change → single node, direct, no review/QA in auto mode", () => {
+  it("#9 simple code_change → single implementation node, no review; QA only for UI in auto mode", () => {
     const plan = heuristicPlan({ command: "fix the button label", classification: classifyCommand("fix the button label"), agents: AGENTS, policy: loadPolicy() });
-    expect(plan.subtasks.length).toBe(1);
-    expect(plan.subtasks[0]!.kind).toBe("code_change");
+    const impl = plan.subtasks.filter((s) => s.kind !== "qa");
+    expect(impl).toHaveLength(1);
+    expect(impl[0]!.kind).toBe("code_change");
+    expect(plan.subtasks.filter((s) => s.kind === "review")).toHaveLength(0);
+    // qaMode=never really drops QA.
+    const never = heuristicPlan({ command: "fix the button label", classification: classifyCommand("fix the button label"), agents: AGENTS, policy: { ...loadPolicy(), qaMode: "never" } });
+    expect(never.subtasks).toHaveLength(1);
   });
   it("#10 complex auth delegates only when capability missing", () => {
     // FE-only agent proposing backend work is REJECTed via selfServe (covered), but
@@ -73,7 +78,9 @@ describe("integration #9-11: planning", () => {
   it("#11 review/QA conditional on risk signal", () => {
     // simple plan has no review/QA hints in auto mode; risk plan does via applyPlanningHints
     const simple = heuristicPlan({ command: "fix button", classification: classifyCommand("fix button"), agents: AGENTS, policy: loadPolicy() });
-    expect(simple.subtasks.filter((s) => s.kind === "review" || s.kind === "qa")).toHaveLength(0);
+    // Auto mode adds browser QA for UI work (default since 2026-11-09), never review.
+    expect(simple.subtasks.filter((s) => s.kind === "review")).toHaveLength(0);
+    expect(simple.subtasks.filter((s) => s.kind === "qa").length).toBeLessThanOrEqual(1);
     expect(simple.subtasks.length).toBeGreaterThan(0);
   });
 });

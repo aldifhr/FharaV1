@@ -123,6 +123,8 @@ export const createFromCommand = mutation({
     command: v.string(),
     title: v.optional(v.string()),
     assignedAgentIds: v.optional(v.array(v.id("agents"))),
+    /** Chat the command came from; its context is taken from that chat only. */
+    conversationId: v.optional(v.id("conversations")),
   },
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
@@ -168,6 +170,8 @@ export const createFromCommand = mutation({
     const conversationMsgs = history.filter(
       (m) =>
         !m.taskId &&
+        // Never borrow context from another chat in the same project.
+        (!args.conversationId || m.conversationId === args.conversationId) &&
         !isErrorChatter(m.content) &&
         m.authorType === "user" &&
         m.content.trim() !== rawCommand.trim()
@@ -197,7 +201,9 @@ export const createFromCommand = mutation({
       projectId: args.projectId,
       taskId,
       authorType: "user",
-      content: command,
+      // The thread shows what the user asked; the context block lives on the
+      // task command for the worker only.
+      content: rawCommand,
     });
     return taskId;
   },

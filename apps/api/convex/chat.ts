@@ -1122,6 +1122,7 @@ export const replyToChat = internalAction({
           projectId: args.projectId,
           command: lastUserContent,
           title: lastUserContent.slice(0, 80),
+          conversationId: args.conversationId,
           ...(assignees.length ? { assignedAgentIds: assignees.map((a) => a._id) } : {}),
         });
         if (orchestrator) {

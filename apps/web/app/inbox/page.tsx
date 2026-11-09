@@ -1,14 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import Link from "next/link";
+import { ArrowUpRight, Check, Inbox as InboxIcon } from "lucide-react";
 import IconRail from "@/components/IconRail";
+import InitialAvatar from "@/components/InitialAvatar";
 import { roleLabel } from "@/lib/agentRoles";
-import AgentAvatar from "@/components/AgentAvatar";
-import { BlurFade } from "@/components/ui/blur-fade";
-import { ShimmerButton } from "@/components/ui/shimmer-button";
-import { Skeleton, SkeletonBox } from "skullet/react";
+import { useToast } from "@/components/Toasts";
 
 const KIND_LABEL: Record<string, string> = {
   apply_changes: "Apply changes",
@@ -16,174 +16,146 @@ const KIND_LABEL: Record<string, string> = {
   run_command: "Run command",
 };
 
-function InboxSkeleton() {
+function Section({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
   return (
-    <div aria-hidden className="pointer-events-none">
-      <SkeletonBox height={28} width={80} radius={8} />
-      <SkeletonBox height={14} width={220} className="mt-3" />
-
-      {["Needs approval", "Tasks", "Agents"].map((heading, i) => (
-        <div key={heading} className="mt-6">
-          <SkeletonBox height={12} width={100 + i * 16} />
-          <div className="mt-2 grid gap-2">
-            {Array.from({ length: i === 0 ? 2 : 1 }).map((_, j) => (
-              <div key={j} className="rounded-xl border border-[#ebe9f0] bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="w-full">
-                    <SkeletonBox height={14} width={i === 0 ? "60%" : "45%"} />
-                    <SkeletonBox height={12} width="40%" className="mt-2" />
-                    <SkeletonBox height={18} width={100} radius={999} className="mt-3" />
-                  </div>
-                  <SkeletonBox height={28} width={56} radius={8} />
-                </div>
-                {i === 0 && (
-                  <div className="mt-3 flex gap-2">
-                    <SkeletonBox height={30} width={80} radius={8} />
-                    <SkeletonBox height={30} width={70} radius={8} />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
+    <section className="mt-10">
+      <h2 className="mb-3 flex items-baseline gap-2 text-[13px] font-medium text-ink-2">
+        {title}
+        <span className="tabular-nums text-ink-3">{count}</span>
+      </h2>
+      <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">{children}</ul>
+    </section>
   );
 }
 
+/**
+ * Inbox: everything that waits on the user, across projects. Approvals
+ * first (they block work), then stopped tasks, then agents asking.
+ */
 export default function InboxPage() {
   const inbox = useQuery(api.inbox.list, {});
   const approve = useMutation(api.approvals.approve);
   const reject = useMutation(api.approvals.reject);
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
 
-  if (inbox === undefined) {
-    return (
-      <div className="flex h-screen overflow-hidden bg-transparent text-gray-900 dark:text-gray-100 max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
-        <IconRail />
-        <main className="min-w-0 flex-1 overflow-y-auto p-6 max-[979px]:p-4">
-          <div className="mx-auto max-w-2xl">
-            <Skeleton loading skeleton={<InboxSkeleton />} label="Loading inbox">
-              {null}
-            </Skeleton>
-          </div>
-        </main>
-      </div>
-    );
-  }
+  const act = async (id: string, fn: typeof approve, done: string) => {
+    setBusy(id);
+    try {
+      await fn({ approvalId: id as never });
+      toast("success", done);
+    } catch (err) {
+      toast("error", "Couldn't update the approval", err instanceof Error ? err.message : undefined);
+    } finally {
+      setBusy(null);
+    }
+  };
 
-  const total = inbox.approvals.length + inbox.tasks.length + inbox.agents.length;
+  const total = inbox ? inbox.approvals.length + inbox.tasks.length + inbox.agents.length : 0;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-transparent text-gray-900 dark:text-gray-100 max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
+    <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
       <IconRail />
-      <main className="min-w-0 flex-1 overflow-y-auto p-6 max-[979px]:p-4">
-        <div className="mx-auto max-w-2xl">
-            <h1 className="text-xl font-semibold">Inbox</h1>
-            <p className="mt-1 text-sm text-gray-500">
-              {total ? `${total} item(s) need your attention across projects.` : "Nothing is waiting for you."}
+      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
+        <div className="mx-auto max-w-3xl">
+          <header>
+            <h1 className="text-[26px] font-semibold tracking-tight">Inbox</h1>
+            <p className="mt-1 text-[15px] text-ink-2">
+              {inbox === undefined
+                ? "Loading…"
+                : total
+                  ? `${total} ${total === 1 ? "thing waits" : "things wait"} on you`
+                  : "Nothing waits on you"}
             </p>
+          </header>
 
-            {inbox.approvals.length > 0 && (
-              <section className="mt-6">
-                <h2 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  Needs approval ({inbox.approvals.length})
-                </h2>
-                <div className="mt-2 grid gap-2">
-                  {inbox.approvals.map((a, i) => (
-                    <BlurFade key={a._id} delay={i * 0.05} inView>
-                      <div className="rounded-xl border border-[#ebe9f0] bg-white p-4 shadow-[0_1px_2px_rgba(30,25,60,.03)] dark:border-gray-800 dark:bg-gray-900">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="font-medium">{a.summary}</p>
-                            <p className="mt-1 text-xs text-gray-500">
-                              {a.projectName}
-                              {a.taskTitle ? ` · ${a.taskTitle}` : ""}
-                              {a.requestedByAgentName ? ` · requested by ${roleLabel(a.requestedByAgentName)}` : ""}
-                            </p>
-                            <span className="mt-2 inline-block rounded-full bg-[#eeecfb] px-2 py-0.5 text-[11px] font-semibold text-[#4c42a3] dark:bg-gray-800">
-                              {KIND_LABEL[a.kind] ?? a.kind}
-                            </span>
-                          </div>
-                          <Link
-                            href={`/chats/${a.projectId}`}
-                            className="shrink-0 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
-                          >
-                            Open project
-                          </Link>
-                        </div>
-                        <div className="mt-3 flex gap-2">
-                          <ShimmerButton
-                            shimmerDuration="2.5s"
-                            onClick={() => approve({ approvalId: a._id })}
-                            className="rounded-lg px-3 py-1.5 text-sm font-semibold"
-                          >
-                            Approve
-                          </ShimmerButton>
-                          <button
-                            onClick={() => reject({ approvalId: a._id })}
-                            className="rounded-lg bg-gray-200 px-3 py-1.5 text-sm font-semibold dark:bg-gray-800 dark:text-white"
-                          >
-                            Reject
-                          </button>
-                        </div>
+          {inbox === undefined ? (
+            <div className="mt-10 space-y-3" aria-label="Loading inbox">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-16 animate-pulse rounded-xl bg-hover" />
+              ))}
+            </div>
+          ) : total === 0 ? (
+            <div className="mt-16 flex flex-col items-center text-center">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-hover text-ink-3">
+                <InboxIcon size={18} />
+              </span>
+              <p className="mt-4 text-[14px] text-ink-2">You're all caught up.</p>
+              <p className="mt-1 text-[13px] text-ink-3">Approvals and stopped tasks show up here.</p>
+            </div>
+          ) : (
+            <>
+              {inbox.approvals.length > 0 && (
+                <Section title="Approvals" count={inbox.approvals.length}>
+                  {inbox.approvals.map((a) => (
+                    <li key={a._id} className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:gap-4">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[14px] leading-snug">{a.summary}</p>
+                        <p className="mt-0.5 truncate text-[12.5px] text-ink-3">
+                          {KIND_LABEL[a.kind] ?? a.kind}
+                          {" · "}
+                          <Link href={`/chats/${a.projectId}`} className="hover:text-ink">{a.projectName}</Link>
+                          {a.taskTitle ? ` · ${a.taskTitle}` : ""}
+                          {a.requestedByAgentName ? ` · ${roleLabel(a.requestedByAgentName)}` : ""}
+                        </p>
                       </div>
-                    </BlurFade>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={busy === a._id}
+                          onClick={() => void act(a._id, reject, "Rejected")}
+                          className="rounded-lg px-2.5 py-1 text-[13px] text-ink-2 transition hover:bg-hover disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy === a._id}
+                          onClick={() => void act(a._id, approve, "Approved")}
+                          className="inline-flex items-center gap-1 rounded-lg bg-ink px-2.5 py-1 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-50"
+                        >
+                          <Check size={13} /> Approve
+                        </button>
+                      </div>
+                    </li>
                   ))}
-                </div>
-              </section>
-            )}
+                </Section>
+              )}
 
-            {inbox.tasks.length > 0 && (
-              <section className="mt-6">
-                <h2 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  Task needs attention ({inbox.tasks.length})
-                </h2>
-                <div className="mt-2 grid gap-2">
+              {inbox.tasks.length > 0 && (
+                <Section title="Stopped tasks" count={inbox.tasks.length}>
                   {inbox.tasks.map((t) => (
-                    <Link
-                      key={t._id}
-                      href={`/chats/${t.projectId}`}
-                      className="rounded-xl border border-[#ebe9f0] bg-white p-4 hover:bg-[#fbfbfd] dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-900"
-                    >
-                      <p className="font-medium">{t.title}</p>
-                      <p className="mt-1 text-xs text-gray-500">{t.projectName}</p>
-                      <span
-                        className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                          t.status === "failed" ? "bg-red-50 text-red-600 dark:bg-red-950" : "bg-amber-50 text-amber-600 dark:bg-amber-950"
-                        }`}
-                      >
-                        {t.status === "failed" ? "Failed" : "Pending approval"}
-                      </span>
-                    </Link>
+                    <li key={t._id}>
+                      <Link href={`/chats/${t.projectId}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
+                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.status === "failed" ? "bg-red-500" : "bg-orange-500"}`} />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[14px]">{t.title}</p>
+                          <p className="truncate text-[12.5px] text-ink-3">
+                            {t.status === "failed" ? "Failed" : "Waiting for approval"} · {t.projectName}
+                          </p>
+                        </div>
+                        <ArrowUpRight size={14} className="shrink-0 text-ink-3" />
+                      </Link>
+                    </li>
                   ))}
-                </div>
-              </section>
-            )}
+                </Section>
+              )}
 
-            {inbox.agents.length > 0 && (
-              <section className="mt-6">
-                <h2 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  Agents waiting for you ({inbox.agents.length})
-                </h2>
-                <div className="mt-2 grid gap-2">
+              {inbox.agents.length > 0 && (
+                <Section title="Agents asking" count={inbox.agents.length}>
                   {inbox.agents.map((a) => (
-                    <div key={a._id} className="flex items-center gap-3 rounded-xl border border-[#ebe9f0] bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
-                      <AgentAvatar name={roleLabel(a.role)} size={32} status={a.status} avatarParams={a.avatarParams} />
-                      <div className="min-w-0">
-                        <p className="font-medium">{roleLabel(a.role)}</p>
-                        <p className="text-xs text-gray-500">needs_you</p>
-                      </div>
-                    </div>
+                    <li key={a._id} className="flex items-center gap-3 px-4 py-3">
+                      <InitialAvatar agent avatarParams={a.avatarParams} name={roleLabel(a.role)} size={28} status="needs_you" />
+                      <p className="min-w-0 flex-1 truncate text-[14px]">
+                        <span className="font-medium">{roleLabel(a.role)}</span>
+                        <span className="text-ink-3"> needs your input</span>
+                      </p>
+                    </li>
                   ))}
-                </div>
-              </section>
-            )}
-
-            {total === 0 && (
-              <div className="mt-10 rounded-xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-400 dark:border-gray-700">
-                Inbox is empty. All approvals have been processed.
-              </div>
-            )}
+                </Section>
+              )}
+            </>
+          )}
         </div>
       </main>
     </div>

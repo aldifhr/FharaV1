@@ -8,6 +8,7 @@ import AgentAvatar from "../AgentAvatar";
 import Modal from "../Modal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { randomAvatartion, type AvatartionAvatar } from "../ui/avatartion";
+import type { AvatarParams } from "@/api/convex/lib/avatar";
 import { AGENT_ROLES, ROLE_DEFAULT_PROMPTS, roleLabel } from "@/lib/agentRoles";
 
 type AgentDoc = {
@@ -22,6 +23,7 @@ type AgentDoc = {
   llmSelectionPolicy?: string;
   executionRuntime?: string;
   opencodeModel?: string;
+  avatarParams?: unknown;
 };
 
 function avatarArgs(seed: AvatartionAvatar | null) {
@@ -231,121 +233,154 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
     }
   }
 
+  const field = "w-full rounded-lg border border-line bg-transparent px-3 py-2 text-[14px] text-ink outline-none transition focus:border-ink-3";
+  const select = `${field} bg-canvas disabled:opacity-40`;
+  const label = "grid gap-1.5 text-[12.5px] text-ink-3";
+  const hint = "text-[12px] text-ink-3";
+
   return (
-    
-        <Modal title={`Edit agent${agentName ? ` · ${agentName}` : ""}`} onClose={onClose} fullScreen>
-          <form onSubmit={handleUpdateAgent} className="mt-4 grid gap-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-1 text-sm">Name
-                <input value={agentName} onChange={(event) => setAgentName(event.target.value)} required className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
-              </label>
-              <div className="grid gap-1 text-sm">
-                <span>Role</span>
-                <Select value={agentRole} onValueChange={handleSelectRole}>
-                  <SelectTrigger className="w-full rounded-lg border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-                    <SelectValue placeholder="Select a role…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {roleOptions.map((role) => (
-                      <SelectItem key={role} value={role}>
-                        {roleLabel(role)}
-                        {!(AGENT_ROLES as readonly string[]).includes(role) ? " (retired)" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <label className="grid gap-1 text-sm">System prompt <span className="text-gray-400">(optional)</span>
-              <textarea value={agentPrompt} onChange={(event) => setAgentPrompt(event.target.value)} rows={4} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
-            </label>
-            <fieldset className="grid gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-              <legend className="px-1 text-xs font-semibold text-gray-500">LLM assignment <span className="font-normal text-gray-400">(optional — empty = pool default)</span></legend>
+    <Modal title="Edit agent" onClose={onClose} maxWidth="max-w-lg">
+      <form onSubmit={handleUpdateAgent} className="mt-5 grid gap-5">
+        <div className="flex items-start gap-4">
+          <button
+            type="button"
+            onClick={handleRandomizeAvatar}
+            title="Shuffle avatar"
+            aria-label="Shuffle avatar"
+            className="group relative mt-0.5 shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+          >
+            <AgentAvatar
+              name={agentName || "Agent"}
+              size={52}
+              avatar={avatarSeed ?? undefined}
+              avatarParams={avatarSeed ? undefined : (agent.avatarParams as AvatarParams | undefined)}
+            />
+            <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-line bg-panel text-ink-3 transition group-hover:text-ink">
+              <Dices size={11} />
+            </span>
+          </button>
+          <div className="grid min-w-0 flex-1 gap-2">
+            <input
+              value={agentName}
+              onChange={(event) => setAgentName(event.target.value)}
+              required
+              aria-label="Name"
+              placeholder="Name"
+              className={field}
+            />
+            <Select value={agentRole} onValueChange={handleSelectRole}>
+              <SelectTrigger aria-label="Role" className="h-10 w-full rounded-lg border-line px-3 text-[14px]">
+                <SelectValue placeholder="Choose a role" />
+              </SelectTrigger>
+              <SelectContent>
+                {roleOptions.map((role) => (
+                  <SelectItem key={role} value={role}>
+                    {roleLabel(role)}
+                    {!(AGENT_ROLES as readonly string[]).includes(role) ? " (retired)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <label className={label}>
+          Instructions
+          <textarea
+            value={agentPrompt}
+            onChange={(event) => setAgentPrompt(event.target.value)}
+            rows={6}
+            placeholder="Leave empty to use the role's default instructions."
+            className={`${field} resize-y leading-relaxed`}
+          />
+        </label>
+
+        <details className="group rounded-lg border border-line">
+          <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[13px] text-ink-2 [&::-webkit-details-marker]:hidden">
+            Advanced
+            <span className="text-[12.5px] text-ink-3">Model and runtime</span>
+          </summary>
+          <div className="grid gap-5 border-t border-line p-3">
+            <div className="grid gap-3">
+              <p className="text-[13px] text-ink-2">LLM</p>
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-1 text-sm">Provider
-                  <select value={agentLlmProviderId} onChange={(event) => { setAgentLlmProviderId(event.target.value); setAgentLlmModelId(""); }} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-                    <option value="">Pool (priority/weight)</option>
+                <label className={label}>Provider
+                  <select value={agentLlmProviderId} onChange={(event) => { setAgentLlmProviderId(event.target.value); setAgentLlmModelId(""); }} className={select}>
+                    <option value="">Pool default</option>
                     {(llmProviders ?? []).map((p: any) => (
                       <option key={p._id} value={p._id}>{p.name}</option>
                     ))}
                   </select>
                 </label>
-                <label className="grid gap-1 text-sm">Model
-                  <select value={agentLlmModelId} onChange={(event) => setAgentLlmModelId(event.target.value)} disabled={!agentLlmProviderId} className="rounded-lg border border-gray-300 px-3 py-2 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800">
-                    <option value="">First available model</option>
+                <label className={label}>Model
+                  <select value={agentLlmModelId} onChange={(event) => setAgentLlmModelId(event.target.value)} disabled={!agentLlmProviderId} className={select}>
+                    <option value="">First available</option>
                     {(llmModels ?? []).filter((m: any) => m.providerId === agentLlmProviderId).map((m: any) => (
                       <option key={m._id} value={m._id}>{m.displayName || m.modelId}</option>
                     ))}
                   </select>
                 </label>
-                <label className="grid gap-1 text-sm">Fallback provider
-                  <select value={agentLlmFallbackProviderId} onChange={(event) => { setAgentLlmFallbackProviderId(event.target.value); setAgentLlmFallbackModelId(""); }} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-                    <option value="">None (fall back to pool)</option>
+                <label className={label}>Fallback provider
+                  <select value={agentLlmFallbackProviderId} onChange={(event) => { setAgentLlmFallbackProviderId(event.target.value); setAgentLlmFallbackModelId(""); }} className={select}>
+                    <option value="">None</option>
                     {(llmProviders ?? []).map((p: any) => (
                       <option key={p._id} value={p._id}>{p.name}</option>
                     ))}
                   </select>
                 </label>
-                <label className="grid gap-1 text-sm">Fallback model
-                  <select value={agentLlmFallbackModelId} onChange={(event) => setAgentLlmFallbackModelId(event.target.value)} disabled={!agentLlmFallbackProviderId} className="rounded-lg border border-gray-300 px-3 py-2 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800">
-                    <option value="">First available model</option>
+                <label className={label}>Fallback model
+                  <select value={agentLlmFallbackModelId} onChange={(event) => setAgentLlmFallbackModelId(event.target.value)} disabled={!agentLlmFallbackProviderId} className={select}>
+                    <option value="">First available</option>
                     {(llmModels ?? []).filter((m: any) => m.providerId === agentLlmFallbackProviderId).map((m: any) => (
                       <option key={m._id} value={m._id}>{m.displayName || m.modelId}</option>
                     ))}
                   </select>
                 </label>
-                <label className="grid gap-1 text-sm sm:col-span-2">Selection policy
-                  <select value={agentLlmPolicy} onChange={(event) => setAgentLlmPolicy(event.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-                    <option value="">Default (weighted among equal priority)</option>
-                    <option value="weighted">Weighted — weighted random among equal priority</option>
-                    <option value="priority">Priority — always lowest priority, ignore weight</option>
-                    <option value="fixed">Fixed — assigned model only, no pool fallback</option>
+                <label className={`${label} sm:col-span-2`}>Selection policy
+                  <select value={agentLlmPolicy} onChange={(event) => setAgentLlmPolicy(event.target.value)} className={select}>
+                    <option value="">Default</option>
+                    <option value="weighted">Weighted</option>
+                    <option value="priority">Priority</option>
+                    <option value="fixed">Fixed (no pool fallback)</option>
                   </select>
                 </label>
               </div>
-              <p className="text-xs text-gray-400">
-                The resolver tries this assignment first, then its fallback, then the model pool. Connections with an open circuit (3x transient failures, 60s cooldown) are skipped automatically.
-              </p>
-            </fieldset>
-            <fieldset className="grid gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-              <legend className="px-1 text-xs font-semibold text-gray-500">Runtime <span className="font-normal text-gray-400">(optional — empty = worker default)</span></legend>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-1 text-sm">Execution runtime
-                  <select value={agentRuntime} onChange={(event) => setAgentRuntime(event.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-                    <option value="">Default (worker setting)</option>
-                    <option value="api">API — MOAgent host tools</option>
-                    <option value="opencode">OpenCode — native CLI in the task worktree</option>
-                  </select>
-                </label>
-                <label className="grid gap-1 text-sm">OpenCode model <span className="text-gray-400">(optional)</span>
-                  <input value={agentOpencodeModel} onChange={(event) => setAgentOpencodeModel(event.target.value)} disabled={agentRuntime !== "opencode"} placeholder="provider/model" className="rounded-lg border border-gray-300 px-3 py-2 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800" />
-                </label>
-              </div>
-              <p className="text-xs text-gray-400">
-                OpenCode runs its own tools inside the task worktree; changes still go through the staging gate and approval. Without a model it uses the same LLM as the rest of MOAgent. QA and review always run on the API runtime.
-              </p>
-            </fieldset>
-            <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 p-3 dark:border-gray-700">
-              <AgentAvatar name={agentName || "Agent"} size={48} avatar={avatarSeed ?? undefined} />
-              <div className="min-w-0 flex-1">
-                <p className="text-xs text-gray-500">Preview uses your current name. Use Generate to shuffle the SVGs.</p>
-              </div>
-              <button
-                type="button"
-                onClick={handleRandomizeAvatar}
-                title="Generate a new avatar"
-                aria-label="Generate a new avatar"
-                className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-hover"
-              >
-                <Dices size={14} />
-                Generate
-              </button>
+              <p className={hint}>Tried first, then the fallback, then the pool.</p>
             </div>
-            {agentError && <p className="text-sm text-red-600">{agentError}</p>}
-            <button type="submit" disabled={savingAgent} className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-              {savingAgent ? "Saving…" : "Save changes"}
-            </button>
-          </form>
-        </Modal>
+            <div className="grid gap-3">
+              <p className="text-[13px] text-ink-2">Runtime</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className={label}>Execution runtime
+                  <select value={agentRuntime} onChange={(event) => setAgentRuntime(event.target.value)} className={select}>
+                    <option value="">Worker default</option>
+                    <option value="api">API</option>
+                    <option value="opencode">OpenCode</option>
+                  </select>
+                </label>
+                <label className={label}>OpenCode model
+                  <input value={agentOpencodeModel} onChange={(event) => setAgentOpencodeModel(event.target.value)} disabled={agentRuntime !== "opencode"} placeholder="provider/model" className={`${field} disabled:opacity-40`} />
+                </label>
+              </div>
+              <p className={hint}>OpenCode runs native tools in the task worktree.</p>
+            </div>
+          </div>
+        </details>
+
+        {agentError && <p role="alert" className="text-[13px] text-red-600 dark:text-red-400">{agentError}</p>}
+
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-[13px] text-ink-2 transition hover:bg-hover">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={savingAgent}
+            className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-40"
+          >
+            {savingAgent ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }

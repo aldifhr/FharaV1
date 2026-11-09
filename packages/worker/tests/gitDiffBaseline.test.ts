@@ -1,6 +1,4 @@
-import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -10,23 +8,20 @@ import {
   readHeadContent,
   snapshotDirtyFiles,
 } from "@/tools/gitDiff";
+import { createTempGitRepo } from "./helpers/tempRepo";
 
 let repo: string;
-
-function git(...args: string[]) {
-  execFileSync("git", args, { cwd: repo, stdio: "ignore" });
-}
+let cleanup: () => void;
 
 beforeEach(() => {
-  repo = fs.mkdtempSync(path.join(os.tmpdir(), "moagent-gitdiff-"));
-  git("init", "-q");
-  fs.writeFileSync(path.join(repo, "index.html"), "<h1>old</h1>\n");
-  git("add", "-A");
-  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init");
+  ({ dir: repo, cleanup } = createTempGitRepo({
+    prefix: "moagent-gitdiff-",
+    files: { "index.html": "<h1>old</h1>\n" },
+  }));
 });
 
 afterEach(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
+  cleanup();
 });
 
 describe("no-op changes", () => {

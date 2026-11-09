@@ -17,6 +17,8 @@ import {
 } from "@/execution/nativeProvider";
 import { executeSubtask, type SubtaskExecutionInput } from "@/execution/agentExecutor";
 import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/orchestrator/types";
+import { spawnReturning } from "./helpers/spawn";
+import { createTempGitRepo } from "./helpers/tempRepo";
 
 const SECRET = "sk-test-SECRET-value-123456";
 const LLM = { provider: "openai-compatible", model: "nous", baseUrl: "http://llm.local:20128/v1", apiKey: SECRET };
@@ -154,7 +156,7 @@ describe("opencode JSON events", () => {
   });
 
   it("falls back to plain text output", async () => {
-    const spawnImpl: SpawnImpl = async () => ({ stdout: "Changed a.ts\nAll good\n", stderr: "", code: 0 });
+    const spawnImpl: SpawnImpl = spawnReturning({ stdout: "Changed a.ts\nAll good\n" });
     const result = await runNativeProvider({ workspacePath: os.tmpdir(), prompt: "p", spawnImpl });
     expect(result.status).toBe("completed");
     expect(result.output).toBe("Changed a.ts\nAll good");
@@ -241,14 +243,10 @@ const SUBTASK: PlanSubtask = {
 describe("executeSubtask on the OpenCode runtime", () => {
   let ws: string;
   beforeEach(async () => {
-    ws = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-oc-exec-"));
-    await fs.mkdir(path.join(ws, "src"));
-    await fs.writeFile(path.join(ws, "src", "a.ts"), "export const a = 1;\n");
-    await fs.writeFile(path.join(ws, "README.md"), "readme\n");
-    const git = (...args: string[]) => execFileSync("git", args, { cwd: ws, stdio: "ignore" });
-    git("init", "-q");
-    git("add", ".");
-    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init");
+    ws = createTempGitRepo({
+      prefix: "moagent-oc-exec-",
+      files: { "src/a.ts": "export const a = 1;\n", "README.md": "readme\n" },
+    }).dir;
   });
   afterEach(async () => {
     await fs.rm(ws, { recursive: true, force: true });

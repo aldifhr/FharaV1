@@ -11,6 +11,7 @@ import type {
   WorkerTask,
 } from "@/workerApi";
 import { withApiDefaults } from "./helpers/fakeApi";
+import { testPolicy } from "./helpers/policy";
 
 /**
  * Phase 5 at the runner level (executor mocked, following the
@@ -89,27 +90,15 @@ vi.mock("../src/execution/agentExecutor", () => ({
 
 import { processTask } from "@/services/taskRunner";
 
-const BASE_POLICY: ExecutionPolicy = {
-  maxSubtasks: 8,
+const BASE_POLICY: ExecutionPolicy = testPolicy({
   maxConcurrency: 2,
   maxReplans: 0,
   maxPlanningIterations: 0,
   maxReviewIterations: 2,
-  subtaskTimeoutMs: 5_000,
-  subtaskRetries: 0,
-  approvalTimeoutMs: 60_000,
-  taskTimeoutMs: 60_000,
-  verificationEnabled: false,
-  verificationIncludeBuild: false,
-  verificationTimeoutMs: 10_000,
-  maxAgentsPerTask: 3,
-  maxLLMCallsPerTask: 12,
-  maxDelegationDepth: 2,
   maxConcurrentLLMCalls: 2,
-  maxTokenBudgetPerTask: 50_000,
   allowFallback: true,
   orchestratorAuthoritative: true,
-};
+});
 
 const IMPLEMENTER = {
   _id: "agent-implementer",

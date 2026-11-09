@@ -9,7 +9,7 @@ import type {
   WorkerApi,
   WorkerTask,
 } from "@/workerApi";
-import { withApiDefaults } from "./helpers/fakeApi";
+import { createFakeApi, createRunnerDeps, testPolicy, testTask } from "./helpers";
 
 /**
  * Phase 3: replan is unified. When execution fails, the runner must
@@ -82,77 +82,33 @@ afterEach(async () => {
 });
 
 function createDeps(policyOverrides: Partial<ExecutionPolicy>) {
-  const completions: Array<Record<string, unknown>> = [];
-  const task = {
-    _id: "task-1",
-    projectId: "project-1",
-    title: "Implement the feature",
-    command: "Implement the feature",
-    status: "running",
-  };
+  const task = testTask({ title: "Implement the feature", command: "Implement the feature" });
   const project = {
     _id: "project-1",
     name: "Fixture",
     workspacePath: workspace,
     approvalMode: "auto" as const,
   };
-  const api = {
-    getContext: async () => ({
-      task,
-      project,
-      agents: [IMPLEMENTER],
-      plan: null,
-      subtasks: [],
-      approvalMode: "auto" as const,
-    }),
-    logEvent: async () => undefined,
-    startExecution: async () => "exec-1",
-    updateExecution: async () => undefined,
-    updateSubtask: async () => true,
-    saveFileChange: async () => "change-1",
-    markFilesApplied: async () => undefined,
-    getFileChanges: async () => [],
-    getApprovals: async () => [],
-    recordAudit: async () => undefined,
-    recordEvaluation: async () => undefined,
-    completeTask: async (input: Record<string, unknown>) => {
-      completions.push(input);
-    },
-    appendAgentMessage: async () => undefined,
-    recordTokenUsage: async () => undefined,
-    setPlanning: async () => undefined,
-    savePlan: async () => 1,
-    requestApproval: async () => "approval-1",
-  };
-  const policy: ExecutionPolicy = {
-    maxSubtasks: 8,
+  const getContext = async () => ({
+    task,
+    project,
+    agents: [IMPLEMENTER],
+    plan: null,
+    subtasks: [],
+    approvalMode: "auto" as const,
+  });
+  const { api, completions } = createFakeApi({ getContext });
+  const policy = testPolicy({
     maxConcurrency: 1,
     maxReplans: 1,
     maxPlanningIterations: 1,
     maxReviewIterations: 1,
-    subtaskTimeoutMs: 5_000,
-    subtaskRetries: 0,
-    approvalTimeoutMs: 60_000,
-    taskTimeoutMs: 60_000,
-    verificationEnabled: false,
-    verificationIncludeBuild: false,
-    verificationTimeoutMs: 10_000,
-    maxAgentsPerTask: 3,
-    maxLLMCallsPerTask: 12,
-    maxDelegationDepth: 2,
     maxConcurrentLLMCalls: 1,
-    maxTokenBudgetPerTask: 50_000,
     orchestratorAuthoritative: false,
     ...policyOverrides,
-  };
+  });
   return {
-    deps: {
-      api: withApiDefaults(api) as unknown as WorkerApi,
-      workerId: "test-worker",
-      policy,
-      workspaceRoot: workspace,
-      log: () => undefined,
-    },
+    deps: createRunnerDeps({ api, policy, workspaceRoot: workspace }),
     completions,
     task: task as unknown as WorkerTask,
   };

@@ -8,6 +8,7 @@ import {
   buildNativePrompt,
   type SpawnImpl,
 } from "@/execution/nativeProvider";
+import { spawnReturning } from "./helpers/spawn";
 
 describe("nativeProvider", () => {
   it("builds the provider-native invocation as exact argv", () => {
@@ -63,7 +64,7 @@ describe("nativeProvider", () => {
   });
 
   it("reports a failed run on nonzero exit", async () => {
-    const spawnImpl: SpawnImpl = async () => ({ stdout: "", stderr: "boom", code: 1 });
+    const spawnImpl: SpawnImpl = spawnReturning({ stderr: "boom", code: 1 });
     const result = await runNativeProvider({
       workspacePath: "D:\\work",
       prompt: "do it",

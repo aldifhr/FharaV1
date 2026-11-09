@@ -440,7 +440,9 @@ export const replyToChat = internalAction({
       // last one. Fire-and-forget patches could land AFTER the final write
       // and overwrite the full reply with a truncated snapshot.
       let patchChain: Promise<unknown> = Promise.resolve();
-      const raw = await completeWithAgent(system, msgs, config, ({ content: rawContent, reasoning }) => {
+      let raw: Awaited<ReturnType<typeof completeWithAgent>>;
+      try {
+      raw = await completeWithAgent(system, msgs, config, ({ content: rawContent, reasoning }) => {
         const content = stripToolCallMarkup(rawContent);
         const now = Date.now();
         if (now - lastPatchAt < 250 || (!content.trim() && !reasoning.trim())) return;
@@ -455,6 +457,16 @@ export const replyToChat = internalAction({
           )
           .catch(() => {});
       });
+      } catch (error) {
+        // Never leave the bubble animating after a failed call.
+        await patchChain;
+        await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
+          messageId: messageId as any,
+          streaming: false,
+        });
+        await ctx.runMutation(internal.chatContext.removeEmptyAgentMessage, { messageId: messageId as any });
+        throw error;
+      }
       await patchChain;
       // Chat agents have no tools; drop tool-call text some models emit anyway.
       const result = { ...raw, content: stripToolCallMarkup(raw.content) };
@@ -463,6 +475,7 @@ export const replyToChat = internalAction({
         content: result.content,
         reasoning: result.reasoning || undefined,
         reasoningDurationMs: result.reasoningDurationMs || undefined,
+        streaming: false,
       });
       // A reply that produced only reasoning (e.g. the model ran out of
       // tokens while thinking) would render as an empty bubble.
@@ -594,7 +607,9 @@ export const replyToChat = internalAction({
         ...buildPlanningGuidance(agent, { isOrchestrator: isCto, taskIntent }),
         ...(isCto ? buildHandoffGuidance(team, String(agent._id)) : []),
         ...(handoffBy !== undefined ? [buildHandoffNotice(handoffBy)] : []),
-        OPTIONS_GUIDANCE,
+        // Questions (compare, explain, recommend) get a prose answer; the
+        // options picker is for choosing what to build, not for a verdict.
+        intent.intent === "ask" ? "Answer in prose. Do not output an [options] block." : OPTIONS_GUIDANCE,
       ]
         .filter(Boolean)
         .join("\n");

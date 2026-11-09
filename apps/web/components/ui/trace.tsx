@@ -150,7 +150,7 @@ export function ReasoningLine({
           <CircleCheckIcon className="size-3.5" />
         )}
       </TraceIcon>
-      <TraceTitle>{running ? "Thinking" : "Thought"}</TraceTitle>
+      <TraceTitle className={running ? "thinking-shimmer" : undefined}>{running ? "Thinking" : "Thought"}</TraceTitle>
       {seconds && !running ? (
         <TraceDescription>{(seconds / 1000).toFixed(1)}s</TraceDescription>
       ) : null}

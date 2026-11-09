@@ -98,6 +98,7 @@ export const createStreamingAgentMessage = internalMutation({
       content: "",
       replyToMessageId: args.replyToMessageId,
       conversationId: args.conversationId,
+      streaming: true,
     });
   },
 });
@@ -108,6 +109,7 @@ export const updateStreamingAgentMessage = internalMutation({
     content: v.optional(v.string()),
     reasoning: v.optional(v.string()),
     reasoningDurationMs: v.optional(v.number()),
+    streaming: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const { messageId, ...patch } = args;

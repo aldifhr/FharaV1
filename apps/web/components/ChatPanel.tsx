@@ -540,6 +540,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             scrollToMessageRef={scrollToMessageRef}
             chatSending={chatSending}
             conversationTyping={conversationTyping}
+            typingAgent={targetAgent ?? agents.find((a: any) => a.role === "cto")}
             onSelectTask={onSelectTask}
             approve={(approvalId) => approve({ approvalId: approvalId as any })}
             reject={(approvalId) => reject({ approvalId: approvalId as any })}

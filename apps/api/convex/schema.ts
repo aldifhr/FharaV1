@@ -317,6 +317,9 @@ export default defineSchema({
     // Pinned by the user for quick access from the header chip. Optional so
     // pre-pin messages still validate.
     pinned: v.optional(v.boolean()),
+    // True while the chat action is still streaming this agent reply. The
+    // UI animates "Thinking" / the caret from it; cleared on finish or error.
+    streaming: v.optional(v.boolean()),
     // Plan 006 Phase 4: durable queue. Messages are claimed by the worker
     // with the task lease pattern (leasedBy / leaseExpiresAt). Task-linked
     // report messages never enter the queue (queueStatus undefined).

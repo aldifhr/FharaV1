@@ -50,6 +50,8 @@ type Props = {
   loading?: boolean;
   chatSending: boolean;
   conversationTyping: boolean;
+  /** Agent expected to answer the pending user message (ghost bubble). */
+  typingAgent?: any;
   scrollRef?: RefObject<HTMLDivElement | null>;
   /** Filled with a function that scrolls a message into view (works for
    *  virtualized rows that are not in the DOM). Returns false if absent. */
@@ -69,11 +71,15 @@ export default function MessageList(props: Props) {
   const {
     timeline, firstNewIndex, agents, tasks = [], subtasksOf, pendingItems, projectEvents = [],
     projectApprovalMode, loading = false, chatSending,
-    conversationTyping, scrollRef, scrollToMessageRef,
+    conversationTyping, typingAgent, scrollRef, scrollToMessageRef,
     onSelectTask, approve, reject, hold, togglePin, onPickProposal, formatTime, taskTitle, blockKey,
   } = props;
 
   const listRef = useRef<HTMLDivElement>(null);
+  // A reply is live while the action streams it. The age cap keeps a row
+  // from an action that died mid-stream from animating forever.
+  const isLive = (m: any) =>
+    m.authorType === "agent" && m.streaming === true && Date.now() - m._creationTime < 180_000;
   // Plan 019: what the cards need from this surface.
   const cardSurface = useMemo(
     () => ({
@@ -246,14 +252,14 @@ export default function MessageList(props: Props) {
           {m.authorType === "agent" && !m.card && (m.reasoning || !m.content?.trim()) && (
             <ReasoningLine
               text={m.reasoning}
-              running={!m.content?.trim() && conversationTyping && index === timeline.length - 1}
+              running={isLive(m) && !m.content?.trim()}
               seconds={m.reasoningDurationMs}
             />
           )}
           {messageKindOf(m.content) === "delegation" || (m.card && !m.content?.trim()) ? null : (
             <MessageText
               content={parseOptions(m.content).text}
-              isAnimating={conversationTyping && index === timeline.length - 1}
+              isAnimating={isLive(m) || (conversationTyping && index === timeline.length - 1)}
             />
           )}
         </div>
@@ -362,6 +368,28 @@ export default function MessageList(props: Props) {
         </div>
       ) : (
         <div ref={listRef}>{timeline.map((m: any, index: number) => renderItem(m, index, true))}</div>
+      )}
+      {conversationTyping && (
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+          className="mt-5 flex gap-3.5"
+          aria-live="polite"
+        >
+          <InitialAvatar
+            agent
+            avatarParams={typingAgent?.avatarParams}
+            name={roleLabel(typingAgent?.role ?? "cto")}
+            size={32}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-[15px] font-semibold text-ink">{roleLabel(typingAgent?.role ?? "cto")}</p>
+            <div className="mt-0.5">
+              <ReasoningLine running />
+            </div>
+          </div>
+        </motion.div>
       )}
       {liveQa && (
         <div role="status" aria-live="polite" className="flex min-w-0 items-center gap-2 pl-1 text-[13px] text-ink-3">

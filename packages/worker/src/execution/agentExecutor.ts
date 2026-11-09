@@ -971,11 +971,18 @@ async function executeCodeChange(
   if (parsedAnswer.draft && parsedAnswer.format && parsedAnswer.format !== "json") {
     await onEvent("agent.context", { capability: subtask.capability, answerFormat: parsedAnswer.format });
   }
-  if (!draft && !parsedAnswer.hadMarkup && stripToolCallMarkup(response.content).trim() !== "") {
-    // Make the cause visible next time: scrubbed head of the answer + parse error.
+  if (!draft) {
+    // Make the cause visible next time: scrubbed head of the answer + parse
+    // error (also for an empty answer or a tool call).
     await onEvent(
       "agent.context",
-      { capability: subtask.capability, reason: "invalid-file-changes-json", attempt: 1, ...invalidAnswerEvent(response.content) },
+      {
+        capability: subtask.capability,
+        reason: "invalid-file-changes-json",
+        attempt: 1,
+        hadMarkup: parsedAnswer.hadMarkup,
+        ...invalidAnswerEvent(response.content),
+      },
       "warn"
     );
   }
@@ -1089,7 +1096,7 @@ async function executeCodeChange(
     }
     parsedAnswer = parseCodeChangeAnswer(response.content);
     draft = parsedAnswer.draft;
-    if (!draft && stripToolCallMarkup(response.content).trim() !== "") {
+    if (!draft) {
       await onEvent(
         "agent.context",
         { capability: subtask.capability, reason: "invalid-file-changes-json", attempt: 2, ...invalidAnswerEvent(response.content) },

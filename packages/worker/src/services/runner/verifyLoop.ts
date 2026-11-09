@@ -1,3 +1,4 @@
+import { VERIFY_FIX_INTRO } from "@/prompts/fix";
 import type { RunContext } from "./types";
 import type { PlanSubtask } from "@/types";
 import { implementerAgent } from "./setup";
@@ -106,7 +107,7 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
       ...buildFixSubtask({
         key: ctx.uniqueSubtaskKey(`fix_verify_${verifyIteration + 1}`),
         title: `Address verification failures (iteration ${verifyIteration + 1})`,
-        intro: "Static verification reported failures.",
+        intro: VERIFY_FIX_INTRO,
         findings,
         capability: owner?.capability ?? CAPABILITY.GENERAL,
         order: plan.subtasks.reduce((max, c) => Math.max(max, c.order), 0) + 1,

@@ -1,3 +1,4 @@
+import { QA_FIX_INTRO } from "@/prompts/fix";
 import type { RunContext } from "./types";
 import type { PlanSubtask } from "@/types";
 import { qaFindings } from "./setup";
@@ -290,7 +291,7 @@ export async function runQaLoop(ctx: RunContext): Promise<boolean> {
         ...buildFixSubtask({
           key: ctx.uniqueSubtaskKey(`fix_qa_${iteration + 1}`),
           title: `Address QA failures (iteration ${iteration + 1})`,
-          intro: "QA reported failures on the prepared work.",
+          intro: QA_FIX_INTRO,
           findings,
           capability: fixCapability,
           order: plan.subtasks.reduce((max, candidate) => Math.max(max, candidate.order), 0) + 1,

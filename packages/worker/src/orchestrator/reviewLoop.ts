@@ -1,15 +1,10 @@
 import type { ReviewFinding, ReviewResult } from "@/utils/json";
 import type { PlanSubtask } from "@/types";
+import { fixSubtaskDescription, REVIEW_FIX_INTRO } from "@/prompts/fix";
 
-export function formatReviewFindings(findings: ReviewFinding[]): string {
-  if (findings.length === 0) return "No concrete findings were provided.";
-  return findings
-    .map(
-      (finding) =>
-        `- [${finding.severity}] ${finding.filePath}: ${finding.description} (suggestion: ${finding.suggestion})`
-    )
-    .join("\n");
-}
+// Prompt text lives in `@/prompts/fix`; re-exported for existing importers.
+export { formatReviewFindings } from "@/prompts/fix";
+
 
 export function collectRequestedChanges(
   verdicts: Record<string, ReviewResult>,
@@ -44,11 +39,7 @@ export function buildFixSubtask(input: {
   return {
     key: input.key,
     title: input.title,
-    description: [
-      input.intro,
-      "Address every finding below and return the full updated file content as JSON.",
-      formatReviewFindings(input.findings),
-    ].join("\n"),
+    description: fixSubtaskDescription(input.intro, input.findings),
     kind: "code_change",
     capability: input.capability,
     dependencies: input.dependencies ?? [],
@@ -65,7 +56,7 @@ export function buildReviewFixSubtask(input: {
   return buildFixSubtask({
     key: `review_fix_${input.iteration}`,
     title: `Address review findings (iteration ${input.iteration})`,
-    intro: "The reviewer requested changes to the prepared work.",
+    intro: REVIEW_FIX_INTRO,
     findings: input.findings,
     capability: input.capability,
     order: input.order,

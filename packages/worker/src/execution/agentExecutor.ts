@@ -8,6 +8,25 @@ import {
   type LlmConcurrencyGate,
 } from "@/effects/llmCall";
 import type { SubtaskTokenUsageFn } from "@/types/llm";
+import {
+  buildRepairPrompt,
+  codeChangeExplorationInstruction,
+  codeChangePrompt,
+  codeChangeRetryPrompt,
+  mcpFindingsBlock,
+  REPAIR_SYSTEM_PROMPT,
+} from "@/prompts/codeChange";
+import { buildReviewPrompt, reviewRetryPrompt } from "@/prompts/review";
+import {
+  explorationUserContent,
+  readOnlyInstruction,
+  readOnlyUserContent,
+  toolLoopSectionFor,
+} from "@/prompts/readOnly";
+import { shellInstruction, shellUserContent } from "@/prompts/shell";
+
+// Prompt text lives in `@/prompts`; re-exported for existing importers.
+export { buildRepairPrompt } from "@/prompts/codeChange";
 import type { EventSink } from "@/types/events";
 import { providerHealth } from "@/llm/health";
 import { isBudgetExhaustedError } from "@/orchestrator/budget";
@@ -219,7 +238,7 @@ async function runMcpExploration(
   const health = healthFor(input);
   const messages = baseMessages(
     input,
-    `${instruction}\n\nRepository context:\n${context}\n\nUser request: ${input.command}`
+    explorationUserContent(instruction, context, input.command)
   );
 
   const result = await runMcpToolLoop({
@@ -346,33 +365,6 @@ export function parseCodeChangeAnswer(content: string): {
     format = "tool-calls";
   }
   return { draft, readPaths, hadMarkup: markup.hadMarkup, format };
-}
-
-/** Max characters of an invalid answer handed to the cheap repair retry. */
-const REPAIR_MAX_ANSWER_CHARS = 120_000;
-
-/**
- * Prompt for the cheap "repair" retry: only the previous invalid answer,
- * no repository context, asking for the file-block format (no escaping).
- */
-export function buildRepairPrompt(previousAnswer: string): string {
-  return [
-    "The answer below was meant to list complete file contents, but it could not be parsed.",
-    "Reformat it WITHOUT changing any code into this exact format, one block per file:",
-    "",
-    "FILE: relative/path/to/file.ext",
-    "````",
-    "<the complete file content, verbatim, no escaping>",
-    "````",
-    "",
-    "Rules: use a four-backtick fence; one FILE block per file; no JSON; no commentary.",
-    "If a file's content is cut off in the answer, omit that file.",
-    "",
-    "Answer to reformat:",
-    "<<<ANSWER",
-    previousAnswer.slice(0, REPAIR_MAX_ANSWER_CHARS),
-    "ANSWER>>>",
-  ].join("\n");
 }
 
 /** Scrubbed head of an unparseable answer, for the task events. */
@@ -609,20 +601,7 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
 
   if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
 
-  let prior = "";
-  if (input.taskContext) {
-    const curated = buildAgentExecutionContext({
-      taskContext: input.taskContext,
-      agent,
-      assignment: `${subtask.title} — ${subtask.description}`,
-    });
-    prior = `Shared task context:\n${formatAgentContextForPrompt(curated)}`;
-  } else if (input.priorOutputs.size > 0) {
-    const raw = Array.from(input.priorOutputs.entries())
-      .map(([key, value]) => `### ${key}\n${value.slice(0, 4000)}`)
-      .join("\n\n");
-    prior = `Previous subtask outputs:\n${raw}`;
-  }
+  const prior = priorContextFor(input);
 
   const prompt = buildNativePrompt({
     title: subtask.title,
@@ -822,26 +801,34 @@ async function snapshotNativeBaseline(workspacePath: string): Promise<Map<string
   return snapshot;
 }
 
-function baseMessages(input: SubtaskExecutionInput, userContent: string) {
-  const { agent, priorOutputs } = input;
-  // Prefer the curated shared context (relevant summaries, open issues,
-  // artifacts, recent decisions) over a raw dump of every previous output.
-  // Full outputs remain recorded in the executions table. The raw dump is
-  // only a fallback for callers without a shared context (e.g. resumeTask).
-  let prior = "";
+/**
+ * What earlier work this subtask sees. Prefer the curated shared context
+ * (relevant summaries, open issues, artifacts, recent decisions) over a raw
+ * dump of every previous output. Full outputs remain recorded in the
+ * executions table. The raw dump is only a fallback for callers without a
+ * shared context (e.g. resumeTask). Shared by the API and native runtimes.
+ */
+function priorContextFor(input: SubtaskExecutionInput): string {
   if (input.taskContext) {
     const curated = buildAgentExecutionContext({
       taskContext: input.taskContext,
-      agent,
+      agent: input.agent,
       assignment: `${input.subtask.title} — ${input.subtask.description}`,
     });
-    prior = `Shared task context:\n${formatAgentContextForPrompt(curated)}`;
-  } else if (priorOutputs.size > 0) {
-    const raw = Array.from(priorOutputs.entries())
+    return `Shared task context:\n${formatAgentContextForPrompt(curated)}`;
+  }
+  if (input.priorOutputs.size > 0) {
+    const raw = Array.from(input.priorOutputs.entries())
       .map(([key, value]) => `### ${key}\n${value.slice(0, 4000)}`)
       .join("\n\n");
-    prior = `Previous subtask outputs:\n${raw}`;
+    return `Previous subtask outputs:\n${raw}`;
   }
+  return "";
+}
+
+function baseMessages(input: SubtaskExecutionInput, userContent: string) {
+  const { agent } = input;
+  const prior = priorContextFor(input);
   return [
     ...(agent.systemPrompt
       ? [{ role: "system" as const, content: agent.systemPrompt }]
@@ -874,11 +861,11 @@ async function executeCodeChange(
   try {
     const explored = await runMcpExploration(
       input,
-      `Explore the workspace with the available tools to gather context for this task: ${subtask.title} — ${subtask.description}`,
+      codeChangeExplorationInstruction(subtask),
       context
     );
     if (explored && explored.toolCalls > 0) {
-      mcpFindings = `\n\nWorkspace tool findings:\n${explored.answer.slice(0, 4000)}`;
+      mcpFindings = mcpFindingsBlock(explored.answer);
     }
   } catch {
     // Best-effort only.
@@ -890,47 +877,14 @@ async function executeCodeChange(
   // after "dark mode" on the same files — must build on that content, or
   // it would rewrite the file from disk and drop the earlier change.
   const staged = stagedChangesContext(input.fileChanges);
-  const basePayload =
-    [
-    `Task: ${command}`,
-    `Your role in the plan: ${subtask.title} — ${subtask.description}`,
-    `Repository context:\n${context}`,
-    ...(staged ? ["", staged] : []),
-    "",
-    "You cannot call tools or read more files: everything available is above. Do not emit tool calls.",
-    "Return the files you want to change in ONE of these two formats.",
-    "",
-    "Format A (JSON):",
-    '{"files":[{"filePath":"relative/path","newContent":"FULL file content"}]}',
-    "",
-    "Format B (file blocks) — RECOMMENDED for large files or code with many quotes/backslashes, since nothing needs JSON escaping:",
-    "FILE: relative/path/to/file.ext",
-    "````",
-    "<complete file content, verbatim>",
-    "````",
-    "(one FILE block per file; use a four-backtick fence so ``` inside the file is safe; no other text.)",
-    "",
-    "With Format A you may add these optional top-level fields to the same JSON object (with Format B, append them as one JSON object after the last block):",
-    input.qaMode === "never"
-      ? '- "delegationRecommendation":{"targetCapability":"...","reason":"..."} when another capability should take over after you (never browser-testing: browser QA is disabled by policy).'
-      : '- "delegationRecommendation":{"targetCapability":"...","reason":"..."} when another capability should take over after you (e.g. browser-testing for QA).',
-    '- "findings":["short description", ...] for concrete problems you noticed but did not fix.',
-    "",
-    "STRICT FORMAT RULES:",
-    "- Format A: use exactly the keys \"filePath\" and \"newContent\" (camelCase) on every entry; not \"path\", \"filename\", \"newText\", or \"content\".",
-    "- Format A: return the raw JSON object only. No explanation, no markdown fences, no commentary.",
-    "- Either format: give the complete file after your change, not a diff or patch.",
-    "- If no files need changing, return exactly {\"files\":[]}.",
-    "",
-    "Rules:",
-    ...(subtask.allowedPaths && subtask.allowedPaths.length > 0
-      ? [`- Declared ownership for this subtask: ${subtask.allowedPaths.join(", ")}. Only modify files inside it.`]
-      : []),
-    "- Only relative paths inside the workspace.",
-    "- Preserve unrelated behavior and code.",
-    "- Do not touch lockfiles, secrets, .env files, or node_modules.",
-    "- Keep the change minimal and focused on the task.",
-  ].join("\n") + mcpFindings;
+  const basePayload = codeChangePrompt({
+    command,
+    subtask,
+    context,
+    staged,
+    qaMode: input.qaMode,
+    mcpFindings,
+  });
 
   // Pre-call budget gate (Phase 5): no LLM call starts once the task's
   // call/token budget is spent (enforce mode throws here).
@@ -1010,7 +964,7 @@ async function executeCodeChange(
           ({ result: response, servedBy } = await runLlmCallWithFallback(
             [servedBy],
             [
-              { role: "system" as const, content: "You reformat answers into the requested file-block format. Never change code." },
+              { role: "system" as const, content: REPAIR_SYSTEM_PROMPT },
               { role: "user" as const, content: buildRepairPrompt(previousAnswer) },
             ],
             { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
@@ -1068,14 +1022,11 @@ async function executeCodeChange(
     // those files to the retry so it can answer with JSON.
     const requested = await requestedFilesContext(workspacePath, response.content, input.fileChanges, parsedAnswer.readPaths);
     const previous = stripToolCallMarkup(response.content).slice(0, 2000);
-    const retryNote = parsedAnswer.hadMarkup
-      ? "Your previous response was a tool call. Tools are NOT available here: the files you asked for are included above. Return ONLY the file changes now (Format A JSON or Format B file blocks)."
-      : "Your previous response could not be parsed. Return the files again, preferably in Format B (FILE: path + four-backtick fenced full content, no JSON escaping), with no other text.";
     ({ result: response, servedBy } = await runLlmCallWithFallback(
       [servedBy],
       baseMessages(
         input,
-        `${basePayload}${requested ? `\n\n${requested}` : ""}\n\n${retryNote}${previous ? `\n\nPrevious response (for reference):\n${previous}` : ""}`
+        codeChangeRetryPrompt({ basePayload, requested, hadMarkup: parsedAnswer.hadMarkup, previous })
       ),
       { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
     ));
@@ -1235,18 +1186,7 @@ async function executeReview(
   // Pre-call budget gate (Phase 5).
   input.assertBudgetForCall?.();
   const reviewStartedAt = Date.now();
-  const reviewPrompt =
-      [
-        `Review these prepared changes for: ${input.command}`,
-        `Review scope: ${subtask.description}`,
-        `Change-set snapshot id: ${snapshotId}. Review exactly this frozen set.`,
-        diffText,
-        "",
-        "Return JSON only:",
-        '{"verdict":"approved"|"changes_requested","findings":[{"severity":"critical"|"high"|"medium"|"low","filePath":"...","description":"...","suggestion":"..."}]}',
-        "Reject only for concrete correctness, security, or regression risks. Do not request style-only changes.",
-        "You cannot call tools: the diff above is everything. Do not emit tool calls.",
-      ].join("\n");
+  const reviewPrompt = buildReviewPrompt({ command: input.command, scope: subtask.description, snapshotId, diffText });
   let { result: response, servedBy } = await runLlmCallWithFallback(
     handlesFor(input),
     baseMessages(input, reviewPrompt),
@@ -1284,7 +1224,7 @@ async function executeReview(
         [servedBy],
         baseMessages(
           input,
-          `${reviewPrompt}\n\nYour previous answer was not the review JSON object. Return ONLY {"verdict":...,"findings":[...]} now.\n\nPrevious answer (for reference):\n${stripToolCallMarkup(response.content).slice(0, 1500)}`
+          reviewRetryPrompt(reviewPrompt, stripToolCallMarkup(response.content).slice(0, 1500))
         ),
         { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
       ));
@@ -1462,35 +1402,11 @@ async function executeReadOnly(
       query: "",
     });
     if (tools.length > 0) {
-      toolLoopSection = `\n\nAvailable tools (search scope is your supportedTools): ${tools.map((t) => t.name).join(", ")}`;
+      toolLoopSection = toolLoopSectionFor(tools.map((t) => t.name));
     }
   }
 
-  let instruction: string;
-  if (mode === "audit") {
-    instruction = [
-      "Perform a read-only repository audit.",
-      "Do not modify files and do not return file-change JSON.",
-      "Report concrete findings with severity, file path, impact and a concise recommendation.",
-      "If no issues are found, say so and summarize what you checked.",
-      "Never claim a check passed unless the evidence is in the repository context.",
-    ].join("\n");
-  } else if (mode === "research") {
-    instruction = [
-      "Answer the user's question using only the repository context.",
-      "Cite file paths for every claim.",
-      "Do not modify files.",
-      "If the context is insufficient, say exactly what is missing.",
-    ].join("\n");
-  } else {
-    instruction = [
-      "Respond to the user's message concisely.",
-      "Do not modify files.",
-      "If the user is greeting you, greet them and ask what change they want.",
-    ].join("\n");
-  }
-  instruction +=
-    '\nOptionally, end your reply with one single-line JSON object {"delegationRecommendation":{"targetCapability":"...","reason":"..."},"findings":["..."]} when another capability should follow up or you noticed concrete issues; omit it otherwise.';
+  let instruction = readOnlyInstruction(mode);
   if (toolLoopSection) instruction += toolLoopSection;
 
   // Plan 009: MCP filesystem tools. When the runner seeded sessions and
@@ -1537,7 +1453,7 @@ async function executeReadOnly(
   const health = healthFor(input);
   const messages = baseMessages(
     input,
-    `${instruction}\n\nRepository context:\n${context}${webContext.block ? `\n\n${webContext.block}` : ""}\n\nUser request: ${command}`
+    readOnlyUserContent({ instruction, context, webBlock: webContext.block, command })
   );
   // Pre-call budget gate (Phase 5): applies to the streaming path and
   // the fallback path alike — both make exactly one logical LLM call
@@ -1653,23 +1569,11 @@ async function executeShell(
 
   if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
 
-  const instruction = [
-    "Reply with a single-line JSON object for the shell command to run:",
-    '{"command":"<binary>","args":[<exact argv>]}',
-    "",
-    REGISTRY_LIST,
-    "Rules:",
-    "- Only run the command the user asked for. Prefer the narrowest variant.",
-    "- If the user request needs a command outside the allowlist (including",
-    "  file creation / write / printf / redirect), do NOT invent argv and",
-    "  do NOT delegate to shell-execution (that is yourself — a loop).",
-    "  Reply with a plain one-line explanation; the orchestrator will replan",
-    "  as code_change.",
-  ].join("\n");
+  const instruction = shellInstruction();
 
   const handles = handlesFor(input);
   const health = healthFor(input);
-  const messages = baseMessages(input, `${instruction}\n\nTask: ${command}`);
+  const messages = baseMessages(input, shellUserContent(instruction, command));
   const { result: response } = await runLlmCallWithFallback(handles, messages, {
     health,
     signal,
@@ -1716,12 +1620,6 @@ async function executeShell(
   };
 }
 
-const REGISTRY_LIST = [
-  "Allowlisted commands:",
-  "git status, git status --short, git status -sb, git branch --show-current,",
-  "git diff, git diff --no-color, git diff --stat, git log --oneline -n 20,",
-  "git fetch, git pull, git pull --ff-only, git pull --rebase",
-].join("\n");
 
 function parseShellCommand(content: string): { command: string; args: string[] } | null {
   const normalized = content.replace(/```json|```/g, "").trim();

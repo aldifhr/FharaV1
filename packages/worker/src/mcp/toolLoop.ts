@@ -14,6 +14,16 @@
 import type { LLMMessage } from "@/llm";
 import { extractJson } from "@/utils/json";
 import type { McpToolDefinition } from "./types";
+import {
+  mcpToolLoopInstruction,
+  mcpToolLoopPrompt,
+  mcpToolResultMessage,
+  mcpToolUnavailable,
+  MCP_TOOL_LOOP_NUDGE,
+} from "@/prompts/mcpToolLoop";
+
+// Prompt text lives in `@/prompts/mcpToolLoop`; re-exported for existing importers.
+export { mcpToolLoopInstruction } from "@/prompts/mcpToolLoop";
 
 export interface ToolLoopCallToolArgs {
   tool: string;
@@ -56,18 +66,6 @@ function toolCatalog(tools: McpToolDefinition[]): string {
     .join("\n");
 }
 
-/** The loop instruction appended when a server is available. */
-export function mcpToolLoopInstruction(toolCount: number): string {
-  return [
-    `You have ${toolCount} workspace file tools available (MCP filesystem).`,
-    "To use one, reply with JSON only:",
-    '{"tool":"<tool-name>","arguments":{...}}',
-    "or reply with JSON only to finish:",
-    '{"answer":"<your final answer>"}',
-    "Tool paths are absolute. Return only one JSON object per reply.",
-  ].join("\n");
-}
-
 export async function runMcpToolLoop(options: ToolLoopOptions): Promise<ToolLoopResult> {
   const maxIterations = options.maxIterations ?? 6;
   const messages: LLMMessage[] = [...options.messages];
@@ -77,7 +75,7 @@ export async function runMcpToolLoop(options: ToolLoopOptions): Promise<ToolLoop
   if (options.tools.length > 0) {
     messages.push({
       role: "user",
-      content: `${mcpToolLoopInstruction(options.tools.length)}\n\nAvailable tools:\n${toolCatalog(options.tools)}`,
+      content: mcpToolLoopPrompt(options.tools.length, toolCatalog(options.tools)),
     });
   }
 
@@ -100,8 +98,7 @@ export async function runMcpToolLoop(options: ToolLoopOptions): Promise<ToolLoop
       // bounded loop. Never emit free-form prose as the answer.
       messages.push({
         role: "user",
-        content:
-          "Reply with JSON only: {\"tool\":\"<name>\",\"arguments\":{...}} or {\"answer\":\"...\"}.",
+        content: MCP_TOOL_LOOP_NUDGE,
       });
       continue;
     }
@@ -111,7 +108,7 @@ export async function runMcpToolLoop(options: ToolLoopOptions): Promise<ToolLoop
       // a crash, and let it pick a listed tool.
       messages.push({
         role: "user",
-        content: `Tool "${toolName}" is not available to you. Use one of the listed tools.`,
+        content: mcpToolUnavailable(toolName),
       });
       continue;
     }
@@ -121,9 +118,7 @@ export async function runMcpToolLoop(options: ToolLoopOptions): Promise<ToolLoop
     toolResults.push({ tool: toolName, text: result.text });
     messages.push({
       role: "user",
-      content: result.isError
-        ? `Tool "${toolName}" failed: ${result.text}`
-        : `Tool "${toolName}" result:\n${result.text}`,
+      content: mcpToolResultMessage(toolName, result.text, result.isError),
     });
     options.onEvent?.("mcp.loop_iteration", { tool: toolName, iteration, isError: result.isError });
   }

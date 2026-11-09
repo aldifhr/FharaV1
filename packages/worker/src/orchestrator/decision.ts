@@ -19,6 +19,7 @@ import { pickFixOwner } from "./ownership";
 import { preventCircularDelegation } from "./delegation";
 import type { DelegationDecision } from "./delegation";
 import type { QaVerdict } from "@/types/qa";
+import { engineFixDescription } from "@/prompts/fix";
 
 /**
  * Plan 006 Phase 2 (adopts plan 005 Phase 2): the decision contract.
@@ -678,18 +679,10 @@ export function nextDeterministicDecision(
         task: {
           key: "",
           title: "Address findings",
-          description: [
-            "Address the reported findings and return the updated file content.",
-            // Parity with the legacy fix subtask (buildFixSubtask): the
-            // SPAWNED node carries the structured findings so the fix
-            // agent addresses them (the legacy path embedded them via
-            // formatReviewFindings; the engine path must too — otherwise
-            // the fix executes without knowing what it fixes).
-            ...(observation.findings ?? []).map(
-              (finding) =>
-                `- [${finding.severity}] ${finding.filePath ? `${finding.filePath}: ` : ""}${finding.description}${finding.suggestion ? ` — ${finding.suggestion}` : ""}`
-            ),
-          ].join("\n"),
+          // Parity with the legacy fix subtask (buildFixSubtask): the
+          // SPAWNED node carries the structured findings so the fix agent
+          // addresses them.
+          description: engineFixDescription(observation.findings ?? []),
           kind: "code_change",
           capability,
         },

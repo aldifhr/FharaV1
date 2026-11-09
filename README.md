@@ -28,7 +28,7 @@ see [Safety model](#safety-model)). Open work is tracked in
 | `apps/web` | `@moagent/web` | Next.js UI: projects, chat + task threads, cards, team, Settings (LLM providers, MCP), Inbox, Analytics |
 | `apps/api` | `@moagent/api` | Convex backend in `apps/api/convex`: schema, chat + CTO assignment, tasks, approvals, permission broker, GitHub push, provider pool |
 | `packages/worker` | `@moagent/worker` | Claims tasks from Convex and runs them end to end |
-| `electron/` | — | Optional desktop shell (`npm run electron:dev`) |
+| `electron/` | — | Optional desktop shell (`npm run electron:dev` starts api, web, worker and the app window; closing the window stops all) |
 
 Module map (details in each `AGENTS.md`):
 

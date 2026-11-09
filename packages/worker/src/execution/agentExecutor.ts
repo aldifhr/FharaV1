@@ -22,7 +22,9 @@ import {
   type SpawnImpl,
 } from "./nativeProvider";
 import type { SharedTaskContext } from "@/orchestrator/taskContext";
-import { extractFileHint, parseDelegation, parseDraft, parseReview, sanitizeForChat } from "@/utils/json";
+import { extractFileHint, parseDelegation, parseDraft, parseReview, sanitizeForChat, type DraftFile } from "@/utils/json";
+import { classifyToolCalls, parseToolCallMarkup, stripToolCallMarkup } from "@/utils/toolCallMarkup";
+import { tmpdir } from "node:os";
 import { validateFilePath } from "@/governance/tools";
 import { isPathWithinOwnership } from "@/orchestrator/ownership";
 import {
@@ -37,6 +39,7 @@ import {
 import { isCommandAllowed, runCommand } from "@/tools/runCommand";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import { promises as fs } from "node:fs";
+import * as path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { extractUrls, type WebClient } from "@/tools/webClient";
@@ -97,6 +100,13 @@ export interface SubtaskExecutionInput {
   onMessage: (content: string) => Promise<void>;
   onChunk: (delta: string) => Promise<void>;
   saveFileChange: (change: FileDiff) => Promise<void>;
+  /**
+   * The change currently staged for a path by ANY subtask of this task
+   * (live, unlike the `fileChanges` snapshot taken when this subtask
+   * started). Used to detect an edit staged by a concurrent node after
+   * this one read its context, so the later write cannot drop it.
+   */
+  getStagedChange?: (filePath: string) => FileDiff | undefined;
   onTokenUsage?: (inputTokens: number, outputTokens: number, model: string, meta?: TokenUsageMeta) => Promise<void>;
   /**
    * Pre-call budget gate (Phase 5): invoked BEFORE every LLM call this
@@ -249,6 +259,182 @@ async function runMcpExploration(
 export type SubtaskExecutionResult =
   | { status: "completed"; output?: string; meta?: Record<string, unknown> }
   | { status: "failed"; error: string; meta?: Record<string, unknown> };
+
+const STAGED_FILE_CHARS = 12_000;
+const STAGED_TOTAL_CHARS = 40_000;
+
+/** Current content of files staged by earlier subtasks of this task. */
+export function stagedChangesContext(changes: FileDiff[]): string {
+  if (changes.length === 0) return "";
+  const sections: string[] = [];
+  let total = 0;
+  for (const change of changes) {
+    if (total >= STAGED_TOTAL_CHARS) {
+      sections.push(`--- ${change.filePath} (staged, omitted: context limit) ---`);
+      continue;
+    }
+    if (change.changeType === "deleted") {
+      sections.push(`--- ${change.filePath} (staged: DELETED) ---`);
+      continue;
+    }
+    const body = (change.newContent ?? "").slice(0, STAGED_FILE_CHARS);
+    total += body.length;
+    sections.push(`--- ${change.filePath} (staged ${change.changeType}) ---\n${body}`);
+  }
+  return [
+    "Files already changed by earlier subtasks of this task (NOT on disk yet). This is their CURRENT content: build on it and keep those changes; return the full updated file when you change one of them:",
+    ...sections,
+  ].join("\n");
+}
+
+/** Workspace files an invalid answer asked for (tool-call markup or plain paths), with content. */
+export async function requestedFilesContext(
+  workspacePath: string,
+  answer: string,
+  staged: FileDiff[],
+  explicitPaths: string[] = []
+): Promise<string> {
+  const candidates = new Set<string>(explicitPaths);
+  for (const match of answer.matchAll(/<[\w-]*tool_call[^>]*>([\s\S]*?)<\/[\w-]*tool_call>/gi)) {
+    for (const token of match[1].split(/[\s,"'{}:\[\]<>]+/)) if (/\.[A-Za-z0-9]{1,6}$/.test(token)) candidates.add(token);
+  }
+  for (const match of answer.matchAll(/(?:^|[\s`"'(])((?:[\w.-]+\/)*[\w.-]+\.(?:[jt]sx?|mjs|cjs|css|scss|html?|json|md|vue|svelte))(?=$|[\s`"'),:;])/g)) candidates.add(match[1]);
+  const sections: string[] = [];
+  const root = path.resolve(workspacePath);
+  for (const raw of Array.from(candidates).slice(0, 12)) {
+    const rel = raw.replace(/^\.\//, "");
+    const stagedChange = staged.find((change) => change.filePath === rel);
+    if (stagedChange) continue; // already in the staged section
+    const absolute = path.resolve(root, rel);
+    if (!absolute.startsWith(root + path.sep)) continue;
+    try {
+      const content = await fs.readFile(absolute, "utf-8");
+      sections.push(`--- ${rel} ---\n${content.slice(0, STAGED_FILE_CHARS)}`);
+    } catch {
+      // Not a workspace file: ignore.
+    }
+    if (sections.length >= 6) break;
+  }
+  return sections.length > 0 ? ["Files you asked for:", ...sections].join("\n") : "";
+}
+
+/**
+ * Parse a code-change answer: JSON draft after stripping tool-call markup,
+ * else full-file write tool calls, plus the paths read-style tool calls
+ * asked for (handed to the retry).
+ */
+export function parseCodeChangeAnswer(content: string): {
+  draft: { files: DraftFile[] } | null;
+  readPaths: string[];
+  hadMarkup: boolean;
+} {
+  const markup = parseToolCallMarkup(content);
+  const { files, readPaths } = classifyToolCalls(markup.calls);
+  let draft = parseDraft(markup.hadMarkup ? markup.stripped : content);
+  if (!draft && markup.hadMarkup) draft = parseDraft(content);
+  if (draft && files.length > 0) {
+    const byPath = new Map(draft.files.map((file) => [file.filePath, file]));
+    for (const file of files) if (!byPath.has(file.filePath)) byPath.set(file.filePath, file);
+    draft = { files: Array.from(byPath.values()) };
+  } else if (!draft && files.length > 0) {
+    draft = { files };
+  }
+  return { draft, readPaths, hadMarkup: markup.hadMarkup };
+}
+
+/** git merge-file -p base/ours/theirs: merged text, or null on conflict/error. */
+export async function mergeThreeWay(base: string, ours: string, theirs: string): Promise<string | null> {
+  const dir = await fs.mkdtemp(path.join(tmpdir(), "moagent-merge-"));
+  try {
+    const [b, o, t] = ["base", "ours", "theirs"].map((name) => path.join(dir, name));
+    await Promise.all([fs.writeFile(b, base), fs.writeFile(o, ours), fs.writeFile(t, theirs)]);
+    try {
+      const { stdout } = await execFileAsync("git", ["merge-file", "-p", o, b, t], {
+        maxBuffer: 10 * 1024 * 1024,
+        windowsHide: true,
+      });
+      return stdout;
+    } catch {
+      return null; // exit code > 0 = conflicts; < 0 = error
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+function meaningfulLines(text: string): Set<string> {
+  return new Set(
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 2)
+  );
+}
+
+/**
+ * Whether `proposed` was written from the pre-task (disk) content and so
+ * silently drops every line an earlier staged edit added: none of the
+ * staged-only lines survive, the disk-only lines it replaced are all
+ * back, and most lines both versions share are still there.
+ */
+export function dropsStagedEdit(disk: string, staged: string, proposed: string): boolean {
+  const diskLines = meaningfulLines(disk);
+  const stagedLines = meaningfulLines(staged);
+  const proposedLines = meaningfulLines(proposed);
+  const added = Array.from(stagedLines).filter((line) => !diskLines.has(line));
+  const removed = Array.from(diskLines).filter((line) => !stagedLines.has(line));
+  if (added.length === 0) return false;
+  if (added.some((line) => proposedLines.has(line))) return false;
+  if (!removed.every((line) => proposedLines.has(line))) return false;
+  // It must still look like an edit of the same file: most unchanged lines
+  // are kept. A refactor that moves the region out is not a dropped edit.
+  const common = Array.from(diskLines).filter((line) => stagedLines.has(line));
+  if (common.length === 0) return true;
+  const kept = common.filter((line) => proposedLines.has(line)).length;
+  return kept / common.length >= 0.6;
+}
+
+export type StagedReconcile =
+  | { ok: true; content: string; merged?: "concurrent" | "dropped-edit" }
+  | { ok: false; error: string };
+
+/**
+ * Make a node's proposed full-file content keep the edits other nodes of
+ * the same task already staged for that file (they are not on disk yet).
+ *  - A concurrent node staged the file after this node read its context:
+ *    3-way merge (base = what this node saw); a conflict fails the node.
+ *  - The node saw the staged content but answered from the disk version
+ *    (every staged line missing): 3-way merge onto the staged content;
+ *    when that conflicts the proposal is kept as-is.
+ */
+export async function reconcileWithStaged(params: {
+  diskContent: string | undefined;
+  seen: FileDiff | undefined;
+  current: FileDiff | undefined;
+  proposed: string;
+}): Promise<StagedReconcile> {
+  const { diskContent, seen, current, proposed } = params;
+  if (!current || current.changeType === "deleted" || current.newContent === undefined) {
+    return { ok: true, content: proposed };
+  }
+  const nodeBase = seen && seen.changeType !== "deleted" ? seen.newContent ?? "" : diskContent ?? "";
+  if (current.newContent !== nodeBase) {
+    if (proposed === current.newContent) return { ok: true, content: proposed };
+    const merged = await mergeThreeWay(nodeBase, current.newContent, proposed);
+    if (merged === null) {
+      return {
+        ok: false,
+        error: `Conflicting edit: ${current.filePath} was changed by another subtask of this task while this one worked on it. Rebuild the change on its current staged content.`,
+      };
+    }
+    return { ok: true, content: merged, merged: "concurrent" };
+  }
+  if (diskContent !== undefined && proposed !== current.newContent && dropsStagedEdit(diskContent, current.newContent, proposed)) {
+    const merged = await mergeThreeWay(diskContent, current.newContent, proposed);
+    if (merged !== null) return { ok: true, content: merged, merged: "dropped-edit" };
+  }
+  return { ok: true, content: proposed };
+}
 
 /** Safety margin kept between an LLM call's own timeout and the subtask deadline. */
 const DEADLINE_MARGIN_MS = 2_000;
@@ -645,12 +831,19 @@ async function executeCodeChange(
   }
 
   const handles = handlesFor(input);
+  // Earlier subtasks of this task staged changes that are not on disk yet
+  // (they land after approval). A later node — e.g. "header refactor"
+  // after "dark mode" on the same files — must build on that content, or
+  // it would rewrite the file from disk and drop the earlier change.
+  const staged = stagedChangesContext(input.fileChanges);
   const basePayload =
     [
     `Task: ${command}`,
     `Your role in the plan: ${subtask.title} — ${subtask.description}`,
     `Repository context:\n${context}`,
+    ...(staged ? ["", staged] : []),
     "",
+    "You cannot call tools or read more files: everything available is above. Do not emit tool calls.",
     "Return JSON only with the files you want to change:",
     '{"files":[{"filePath":"relative/path","newContent":"FULL file content"}]}',
     "",
@@ -696,7 +889,16 @@ async function executeCodeChange(
   }
 
   const firstCallMs = Date.now() - firstCallStartedAt;
-  let draft = parseDraft(response.content);
+  let parsedAnswer = parseCodeChangeAnswer(response.content);
+  let draft = parsedAnswer.draft;
+  if (parsedAnswer.hadMarkup) {
+    await onEvent("agent.context", {
+      capability: subtask.capability,
+      toolCallMarkup: true,
+      readPaths: parsedAnswer.readPaths.slice(0, 12),
+      draftFromMarkup: draft !== null,
+    }, "warn");
+  }
   if (!draft) {
     // The retry is a full second call: start it only when the subtask has
     // time left for one (as long as the first call took, plus margin).
@@ -732,11 +934,19 @@ async function executeCodeChange(
     // the single-handle chain still applies local retries + health.
     // The retry is a second LLM call: the budget gate applies again.
     input.assertBudgetForCall?.();
+    // The model often answers a missing file with a tool call
+    // ("<x_tool_call>src/header.js</x_tool_call>") or by naming it: hand
+    // those files to the retry so it can answer with JSON.
+    const requested = await requestedFilesContext(workspacePath, response.content, input.fileChanges, parsedAnswer.readPaths);
+    const previous = stripToolCallMarkup(response.content).slice(0, 2000);
+    const retryNote = parsedAnswer.hadMarkup
+      ? "Your previous response was a tool call. Tools are NOT available here: the files you asked for are included above. Return ONLY the file-changes JSON object now."
+      : "Your previous response was not a valid file-changes JSON object. Return ONLY the JSON object again.";
     ({ result: response, servedBy } = await runLlmCallWithFallback(
       [servedBy],
       baseMessages(
         input,
-        `${basePayload}\n\nYour previous response was not a valid file-changes JSON object. Return ONLY the JSON object again.\n\nPrevious response (for reference):\n${response.content.slice(0, 2000)}`
+        `${basePayload}${requested ? `\n\n${requested}` : ""}\n\n${retryNote}${previous ? `\n\nPrevious response (for reference):\n${previous}` : ""}`
       ),
       { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
     ));
@@ -748,7 +958,8 @@ async function executeCodeChange(
         usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0)
       );
     }
-    draft = parseDraft(response.content);
+    parsedAnswer = parseCodeChangeAnswer(response.content);
+    draft = parsedAnswer.draft;
   }
   if (!draft) {
     return {
@@ -757,7 +968,7 @@ async function executeCodeChange(
     };
   }
 
-  const delegation = parseDelegation(response.content);
+  const delegation = parseDelegation(stripToolCallMarkup(response.content));
   const delegationMeta = {
     ...(delegation?.delegationRecommendation ? { delegationRecommendation: delegation.delegationRecommendation } : {}),
     ...(delegation?.findings ? { findings: delegation.findings } : {}),
@@ -789,7 +1000,25 @@ async function executeCodeChange(
       return { status: "failed", error: `Refusing to modify path outside declared ownership: ${file.filePath}` };
     }
     try {
-      const diff = await computeDiff(workspacePath, file.filePath, file.newContent);
+      // Build on what earlier/concurrent subtasks already staged for this
+      // file (not on disk until approval) instead of dropping it.
+      const seen = input.fileChanges.find((change) => change.filePath === file.filePath);
+      const current = input.getStagedChange?.(file.filePath) ?? seen;
+      let newContent = file.newContent;
+      if (current) {
+        const diskContent = (await computeDiff(workspacePath, file.filePath, "")).oldContent;
+        const reconciled = await reconcileWithStaged({ diskContent, seen, current, proposed: file.newContent });
+        if (!reconciled.ok) return { status: "failed", error: reconciled.error };
+        if (reconciled.merged) {
+          await onEvent("fileChanges.merged", { filePath: file.filePath, reason: reconciled.merged }, "warn");
+        }
+        newContent = reconciled.content;
+        if (current.newContent === newContent && current.changeType !== "deleted") {
+          unchanged.push(file.filePath);
+          continue;
+        }
+      }
+      const diff = await computeDiff(workspacePath, file.filePath, newContent);
       if (isNoOpChange(diff)) {
         // Identical to what is on disk: staging it would only fail final
         // disk verification ("unchanged from its pre-task state").
@@ -875,7 +1104,7 @@ async function executeReview(
     );
   }
 
-  const review = parseReview(response.content);
+  const review = parseReview(stripToolCallMarkup(response.content));
   if (!review) {
     return {
       status: "failed",
@@ -1081,7 +1310,7 @@ async function executeReadOnly(
     if (content) await input.onChunk(content);
     // Chat gets a sanitized excerpt only — never the raw answer with
     // its delegation JSON. Full output stays on the subtask row.
-    await input.onMessage(sanitizeForChat(content));
+    await input.onMessage(sanitizeForChat(stripToolCallMarkup(content)));
     await input.onEvent("agent.mcp_tools", {
       capability: subtask.capability,
       toolCount: mcpResult.toolCount,
@@ -1200,7 +1429,7 @@ async function executeReadOnly(
   if (!content) {
     return { status: "failed", error: `The ${mode} agent returned an empty response` };
   }
-  await input.onMessage(sanitizeForChat(content));
+  await input.onMessage(sanitizeForChat(stripToolCallMarkup(content)));
   const delegation = parseDelegation(content);
   return {
     status: "completed",

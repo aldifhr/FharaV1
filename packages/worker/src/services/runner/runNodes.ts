@@ -121,6 +121,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         taskContext: input.sharedContext,
         priorOutputs: state.priorOutputs,
         fileChanges: Array.from(state.fileChanges.values()),
+        getStagedChange: (filePath) => state.fileChanges.get(filePath),
         // The executor observes BOTH abort sources: the scheduler's
         // per-node signal (subtask timeout / scheduler cancel) and the
         // per-task signal (task deadline / task-level cancel).

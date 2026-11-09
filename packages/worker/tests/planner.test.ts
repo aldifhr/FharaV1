@@ -240,6 +240,34 @@ describe("planner", () => {
     expect(review?.dependencies).toEqual(["implement_frontend", "implement_backend"]);
   });
 
+  it("relabels a fallback-routed node to its owner and drops UI QA for backend-only work (e2e MEDIUM)", async () => {
+    // Assignees have no Frontend: the classifier's default frontend label is
+    // served by Backend via fuzzy routing. The node must carry Backend's
+    // capability and must not trigger browser QA.
+    const command = "Tambah helper countGraphemes di src/lib pakai Intl.Segmenter plus unit test.";
+    const result = await createPlan({
+      command,
+      classification: classifyCommand(command),
+      agents: [backend, reviewer, qa],
+      policy: { ...policy, qaMode: "auto" as const },
+    });
+    const code = result.plan.subtasks.filter((s) => s.kind === "code_change");
+    expect(code.length).toBeGreaterThan(0);
+    expect(code.every((s) => s.capability === "backend-development")).toBe(true);
+    expect(result.plan.subtasks.some((s) => s.kind === "qa")).toBe(false);
+  });
+
+  it("keeps UI QA when a Frontend owner serves the UI node", async () => {
+    const command = "Ganti teks judul di halaman utama, update page component";
+    const result = await createPlan({
+      command,
+      classification: classifyCommand(command),
+      agents: [frontend, reviewer, qa],
+      policy: { ...policy, qaMode: "auto" as const },
+    });
+    expect(result.plan.subtasks.some((s) => s.kind === "qa")).toBe(true);
+  });
+
   it("does not require approval for read-only work", () => {
     const command = "audit the authentication module";
     const plan = heuristicPlan({

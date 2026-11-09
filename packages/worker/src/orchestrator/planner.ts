@@ -140,7 +140,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         const routed = ensureRoutable(hinted, input.agents);
         if (routed) {
           return {
-            plan: routed.plan,
+            plan: regateQa(routed.plan, input),
             createdBy: "orchestrator",
             notes,
             droppedHintKeys: routed.dropped,
@@ -183,7 +183,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   });
   const routedFallback = ensureRoutable(fallback, input.agents);
   return {
-    plan: routedFallback?.plan ?? fallback,
+    plan: routedFallback ? regateQa(routedFallback.plan, input) : fallback,
     createdBy: "fallback",
     notes,
     degradedReason: notes.join("; "),
@@ -519,21 +519,50 @@ function uniqueKey(base: string, subtasks: ExecutionPlan["subtasks"]): string {
  * as `plan.hint_dropped` events. Degrades (null) only when NO subtask
  * routes to an enabled agent.
  */
+/**
+ * Re-run the qaMode=auto gate after routing: relabeling a node to its real
+ * owner's capability can turn a "UI" plan into a backend-only one.
+ */
+function regateQa(plan: ExecutionPlan, input: Pick<PlannerInput, "command" | "policy">): ExecutionPlan {
+  if (input.policy.qaMode === "always") return plan;
+  if (!plan.subtasks.some((s) => s.kind === "qa")) return plan;
+  return qaWarranted(plan, input.command) ? plan : stripQaNodes(plan);
+}
+
 function ensureRoutable(
   plan: ExecutionPlan,
   agents: AgentDefinition[]
 ): { plan: ExecutionPlan; dropped: string[] } | null {
   const kept: ExecutionPlan["subtasks"] = [];
   const dropped: string[] = [];
+  let relabeled = false;
   for (const subtask of plan.subtasks) {
     const routable = routeCapability(subtask.capability, agents, {
       allowFallback: subtask.kind !== "qa" && subtask.capability !== CAPABILITY.BROWSER_TESTING,
     });
-    if (routable) kept.push(subtask);
-    else dropped.push(subtask.key);
+    if (!routable) {
+      dropped.push(subtask.key);
+      continue;
+    }
+    // A fallback/fuzzy route (e.g. "frontend-development" served by Backend
+    // because the task's assignees have no Frontend) must not keep a
+    // capability label its owner does not hold: the label drives the UI
+    // QA heuristic, so a backend-only helper got browser QA. Relabel the
+    // node to the owner's own capability.
+    const ownCapabilities = capabilitiesOf(routable);
+    if (
+      subtask.kind === "code_change" &&
+      ownCapabilities.length > 0 &&
+      !ownCapabilities.includes(normalizeCapability(subtask.capability))
+    ) {
+      kept.push({ ...subtask, capability: ownCapabilities[0] });
+      relabeled = true;
+    } else {
+      kept.push(subtask);
+    }
   }
   if (kept.length === 0) return null;
-  if (kept.length === plan.subtasks.length) return { plan, dropped: [] };
+  if (kept.length === plan.subtasks.length && !relabeled) return { plan, dropped: [] };
   return {
     plan: {
       ...plan,

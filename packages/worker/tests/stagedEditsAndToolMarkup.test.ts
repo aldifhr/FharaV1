@@ -60,15 +60,12 @@ describe("staged edits are kept by later nodes", () => {
     expect(dropsStagedEdit(HEADER, HEADER_WITH_TOGGLE, '<div id="header-root"></div>\n<main>Hello</main>\n')).toBe(false);
   });
 
-  it("merges a disk-based proposal onto the staged content", async () => {
+  it("a node that saw the staged content and reverts it is trusted (intentional move) but flagged", async () => {
     const staged = diffFromContents("index.html", HEADER, HEADER_WITH_TOGGLE);
-    const result = await reconcileWithStaged({
-      diskContent: HEADER,
-      seen: staged,
-      current: staged,
-      proposed: HEADER.replace("<main>Hello</main>", "<main>Hello world</main>"),
-    });
-    expect(result).toEqual({ ok: true, content: HEADER_WITH_TOGGLE.replace("<main>Hello</main>", "<main>Hello world</main>"), merged: "dropped-edit" });
+    const result = await reconcileWithStaged({ diskContent: HEADER, seen: staged, current: staged, proposed: HEADER });
+    // e2e ULTRA: the header refactor moved the toggle out of main.js into
+    // header.js; re-merging it back would have duplicated the toggle.
+    expect(result).toEqual({ ok: true, content: HEADER, revertsStaged: true });
   });
 
   it("merges a concurrent node's edit, and fails on a real conflict", async () => {
@@ -135,11 +132,13 @@ describe("executeSubtask code_change (sequential nodes on one file)", () => {
     };
     expect((await executeSubtask(input(node1, staged, "dark-mode", saved))).status).toBe("completed");
 
-    // Node 2 answers from the DISK version (drops the toggle): the executor keeps it.
+    // Node 2 builds on the staged content it was shown.
     const node2: LLMProvider = {
       complete: async (messages: LLMMessage[]) => {
-        prompts.push(messages.map((m) => m.content).join("\n"));
-        return { content: JSON.stringify({ files: [{ filePath: "index.html", newContent: HEADER.replace("Hello", "Hello world") }] }) };
+        const prompt = messages.map((m) => m.content).join("\n");
+        prompts.push(prompt);
+        const shown = prompt.includes('id="theme-toggle"') ? HEADER_WITH_TOGGLE : HEADER;
+        return { content: JSON.stringify({ files: [{ filePath: "index.html", newContent: shown.replace("Hello", "Hello world") }] }) };
       },
     };
     expect((await executeSubtask(input(node2, staged, "refactor", saved))).status).toBe("completed");
@@ -173,6 +172,24 @@ describe("executeSubtask code_change (sequential nodes on one file)", () => {
     expect(prompts[1]).toContain("Tools are NOT available");
     expect(prompts[1]).not.toContain("longcat_tool_call");
     expect(saved.map((c) => c.filePath)).toEqual(["header.js"]);
+  });
+
+  it("a concurrent node's staged edit is merged into a later write of the same file", async () => {
+    const staged = new Map<string, FileDiff>();
+    const saved: FileDiff[] = [];
+    // Node B starts before node A stages anything (empty snapshot) ...
+    const nodeB: LLMProvider = {
+      complete: async () => {
+        // ... and A stages its toggle while B's LLM call is in flight.
+        staged.set("index.html", diffFromContents("index.html", HEADER, HEADER_WITH_TOGGLE));
+        return { content: JSON.stringify({ files: [{ filePath: "index.html", newContent: HEADER.replace("Hello", "Hello world") }] }) };
+      },
+    };
+    const result = await executeSubtask(input(nodeB, staged, "readme", saved));
+    expect(result.status).toBe("completed");
+    const final = staged.get("index.html")!;
+    expect(final.newContent).toContain('id="theme-toggle"');
+    expect(final.newContent).toContain("Hello world");
   });
 
   it("stagedChangesContext lists deleted files and caps size", () => {

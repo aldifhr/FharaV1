@@ -395,7 +395,7 @@ export function dropsStagedEdit(disk: string, staged: string, proposed: string):
 }
 
 export type StagedReconcile =
-  | { ok: true; content: string; merged?: "concurrent" | "dropped-edit" }
+  | { ok: true; content: string; merged?: "concurrent"; revertsStaged?: boolean }
   | { ok: false; error: string };
 
 /**
@@ -403,9 +403,9 @@ export type StagedReconcile =
  * the same task already staged for that file (they are not on disk yet).
  *  - A concurrent node staged the file after this node read its context:
  *    3-way merge (base = what this node saw); a conflict fails the node.
- *  - The node saw the staged content but answered from the disk version
- *    (every staged line missing): 3-way merge onto the staged content;
- *    when that conflicts the proposal is kept as-is.
+ *  - The node saw the staged content but answered with the disk version
+ *    of it: kept (usually an intentional move), flagged `revertsStaged`
+ *    so the runner logs it for review.
  */
 export async function reconcileWithStaged(params: {
   diskContent: string | undefined;
@@ -429,9 +429,13 @@ export async function reconcileWithStaged(params: {
     }
     return { ok: true, content: merged, merged: "concurrent" };
   }
+  // The node saw the staged content (it is in its prompt). If it still
+  // answers with the disk version of those lines, that is usually an
+  // intentional move (e.g. a refactor moving the toggle out of main.js
+  // into the header component): re-merging would duplicate the code
+  // (seen in e2e ULTRA). Keep the proposal and only flag it.
   if (diskContent !== undefined && proposed !== current.newContent && dropsStagedEdit(diskContent, current.newContent, proposed)) {
-    const merged = await mergeThreeWay(diskContent, current.newContent, proposed);
-    if (merged !== null) return { ok: true, content: merged, merged: "dropped-edit" };
+    return { ok: true, content: proposed, revertsStaged: true };
   }
   return { ok: true, content: proposed };
 }
@@ -1022,6 +1026,13 @@ async function executeCodeChange(
         if (!reconciled.ok) return { status: "failed", error: reconciled.error };
         if (reconciled.merged) {
           await onEvent("fileChanges.merged", { filePath: file.filePath, reason: reconciled.merged }, "warn");
+        }
+        if (reconciled.revertsStaged) {
+          await onEvent(
+            "fileChanges.revertsStaged",
+            { filePath: file.filePath, stagedBy: (current as FileDiff & { subtaskKey?: string }).subtaskKey ?? null },
+            "warn"
+          );
         }
         newContent = reconciled.content;
         if (current.newContent === newContent && current.changeType !== "deleted") {

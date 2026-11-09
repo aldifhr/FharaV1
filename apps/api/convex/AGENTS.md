@@ -37,6 +37,7 @@ under `lib/`, so moving logic there never changes a function path.
 | `lib/authz.ts` | Conditional ownership checks (`assertProjectAccess`, `canViewProject`, …). |
 | `lib/llmResolver.ts`, `lib/llmCrypto.ts`, `lib/llmConfig.ts` | Provider pool assembly, key encryption, env-var fallback config. |
 | `lib/avatar.ts` | Default avatar params (shared with the web app). |
+| `lib/reviewer/`, `lib/incidents.ts`, `lib/improve/` | Plan 023: read-only Reviewer (second opinion + shadow notes: prompts, parsers, budgeted read-only loop, shadow scheduling), incident opening (called inside the failing mutation), and Self-Improvement Lab prompt / edit / diff helpers. Modules: `reviewer.ts`, `incidents.ts`, `improve.ts`. |
 
 A `lib/` file imported only by a `"use node"` module may itself need
 `"use node"` when it touches Node APIs (see `lib/chat/repoSnapshot.ts`).

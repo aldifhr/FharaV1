@@ -268,6 +268,36 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     }
   };
 
+  /** "Create task" under an agent's recommendation: the user's pick (if
+   *  any) plus the recommendation become the task; @Role mentions in the
+   *  recommendation become its assignees. */
+  const createTaskFromMessage = async (messageId: string) => {
+    const list = timeline as any[];
+    const at = list.findIndex((m) => String(m._id) === messageId);
+    const reply = list[at];
+    if (!reply) return;
+    let prevUser: any = null;
+    for (let j = at - 1; j >= 0; j--) if (list[j].authorType === "user") { prevUser = list[j]; break; }
+    const pick = prevUser?.content?.trim().match(/^i choose\s+[a-z0-9]+\s*:\s*(.+)$/i)?.[1];
+    const ask = prevUser && !pick ? prevUser.content.trim() : "";
+    const command = [pick ? `Chosen option: ${pick}` : ask, reply.content.trim()].filter(Boolean).join("\n\n");
+    const assignees = mentions.mentionedAgentIds(reply.content);
+    try {
+      const taskId = await createTask({
+        projectId: projectId as never,
+        command,
+        title: pick ? `Implement ${pick}` : undefined,
+        ...(assignees.length ? { assignedAgentIds: assignees as never[] } : {}),
+        ...((activeConversation as any)?.conversation?._id ? { conversationId: (activeConversation as any).conversation._id } : {}),
+      });
+      toast("success", "Task created", pick ?? undefined);
+      onSelectTask(taskId as string);
+    } catch (err) {
+      toast("error", "Couldn't create the task", err instanceof Error ? err.message : undefined);
+      throw err;
+    }
+  };
+
   const agentByRole = (...roles: string[]) => roles.map((r) => agents.find((a) => a.role === r)).find(Boolean);
 
   /** Slash commands. Returns true when the draft was handled. */
@@ -547,6 +577,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             hold={(approvalId) => hold({ approvalId: approvalId as any })}
             togglePin={(messageId, pinned) => void togglePin({ messageId: messageId as never, pinned })}
             onPickProposal={(choice) => void handleChooseProposal(choice)}
+            onCreateTaskFrom={createTaskFromMessage}
             formatTime={formatMessageTime}
             taskTitle={taskTitle}
             blockKey={blockKey}

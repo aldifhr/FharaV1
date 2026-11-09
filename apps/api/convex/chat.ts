@@ -617,7 +617,7 @@ export const replyToChat = internalAction({
         ...buildPlanningGuidance(agent, { isOrchestrator: isCto, taskIntent }),
         ...(isCto && !isOptionPick ? buildHandoffGuidance(team, String(agent._id)) : []),
         ...(isOptionPick
-          ? ["The user's last message is a button pick ('I choose …'), not their language: reply in the language of their earlier messages, in 2-3 sentences, and do not bring teammates in."]
+          ? ["The user's last message is a button pick ('I choose …'), not their language: reply in the language of their earlier messages, in 2-3 sentences, and do not bring teammates in. Say which roles would do the work (as @Role) and that the Create task button under your reply starts it; never ask them to type a command."]
           : []),
         ...(handoffBy !== undefined ? [buildHandoffNotice(handoffBy)] : []),
         // Questions (compare, explain, recommend) get a prose answer; the

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Copy, MoreHorizontal, PanelRightOpen, Pin, PinOff } from "lucide-react";
+import { Copy, MoreHorizontal, PanelRightOpen, Pin, PinOff, Plus } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import { parseOptions } from "@/lib/options";
@@ -62,6 +62,8 @@ type Props = {
   hold: (approvalId: string) => unknown;
   togglePin: (messageId: string, pinned: boolean) => void;
   onPickProposal: (choice: string) => void;
+  /** Turns an agent's recommendation into a task (button under it). */
+  onCreateTaskFrom?: (messageId: string) => Promise<unknown>;
   formatTime: (createdAt: number) => string;
   taskTitle: (taskId: string) => string;
   blockKey: (m: any) => string;
@@ -72,7 +74,7 @@ export default function MessageList(props: Props) {
     timeline, firstNewIndex, agents, tasks = [], subtasksOf, pendingItems, projectEvents = [],
     projectApprovalMode, loading = false, chatSending,
     conversationTyping, typingAgent, scrollRef, scrollToMessageRef,
-    onSelectTask, approve, reject, hold, togglePin, onPickProposal, formatTime, taskTitle, blockKey,
+    onSelectTask, approve, reject, hold, togglePin, onPickProposal, onCreateTaskFrom, formatTime, taskTitle, blockKey,
   } = props;
 
   const listRef = useRef<HTMLDivElement>(null);
@@ -80,6 +82,25 @@ export default function MessageList(props: Props) {
   // from an action that died mid-stream from animating forever.
   const isLive = (m: any) =>
     m.authorType === "agent" && m.streaming === true && Date.now() - m._creationTime < 180_000;
+
+  // The newest agent reply offers "Create task" when it is the answer to an
+  // option pick or it recommends making a task itself.
+  const [taskState, setTaskState] = useState<Record<string, "busy" | "done">>({});
+  const suggestTaskId = (() => {
+    if (!onCreateTaskFrom) return null;
+    for (let i = timeline.length - 1; i >= 0; i--) {
+      const m = timeline[i];
+      if (m.authorType === "user") return null;
+      if (m.authorType !== "agent" || m.card || !m.content?.trim() || m.taskId) continue;
+      if (isLive(m)) return null;
+      let prevUser: any = null;
+      for (let j = i - 1; j >= 0; j--) if (timeline[j].authorType === "user") { prevUser = timeline[j]; break; }
+      const afterPick = /^i choose\b/i.test(prevUser?.content?.trim() ?? "");
+      const recommends = /\b(create|bikin|buat)\s+task\b/i.test(m.content);
+      return afterPick || recommends ? String(m._id) : null;
+    }
+    return null;
+  })();
   // Plan 019: what the cards need from this surface.
   const cardSurface = useMemo(
     () => ({
@@ -294,6 +315,25 @@ export default function MessageList(props: Props) {
                   <ReasoningLine text={m.reasoning} running={isLive(m)} seconds={m.reasoningDurationMs} />
                 )}
               </div>
+              {hasText && String(m._id) === suggestTaskId && taskState[String(m._id)] !== "done" && (
+                <button
+                  type="button"
+                  disabled={taskState[String(m._id)] === "busy"}
+                  onClick={async () => {
+                    const id = String(m._id);
+                    setTaskState((s) => ({ ...s, [id]: "busy" }));
+                    try {
+                      await onCreateTaskFrom?.(id);
+                      setTaskState((s) => ({ ...s, [id]: "done" }));
+                    } catch {
+                      setTaskState((s) => { const { [id]: _drop, ...rest } = s; return rest; });
+                    }
+                  }}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1 text-[13px] font-medium text-ink transition hover:bg-hover disabled:opacity-50"
+                >
+                  <Plus size={13} /> {taskState[String(m._id)] === "busy" ? "Creating…" : "Create task"}
+                </button>
+              )}
             </>
           );
         })()}

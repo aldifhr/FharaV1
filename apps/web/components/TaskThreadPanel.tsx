@@ -15,6 +15,7 @@ import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
 import { Skeleton } from "@/app/WorkspaceContext";
 import { ArrowLeft, ArrowUpRight, AtSign, Check, ChevronLeft, Loader2 as SendLoader, Minimize2, Paperclip, RotateCcw, SendHorizontal, X } from "lucide-react";
+import { clockTime } from "@/lib/format";
 
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 720;
@@ -23,8 +24,7 @@ const WIDE_WIDTH = 640;
 const KEYBOARD_STEP = 16;
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
-const timeOf = (ms?: number) =>
-  ms ? new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
+const timeOf = (ms?: number) => (ms ? clockTime(ms) : "");
 
 export default function TaskThreadPanel({
   taskId,

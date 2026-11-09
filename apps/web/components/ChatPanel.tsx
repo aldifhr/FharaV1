@@ -22,6 +22,8 @@ import FilesView from "./chat/FilesView";
 import { useChatQueue } from "./chat/useChatQueue";
 import { useDraftMentions } from "./chat/useDraftMentions";
 import { useWorkspace } from "@/app/WorkspaceContext";
+import { clockTime, isSameDay, shortDate } from "@/lib/format";
+import { projectMembers } from "@/lib/projectMembers";
 
 type Props = {
   projectId: string;
@@ -87,10 +89,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
 
   const projectAgentIds = (project as any)?.agentIds as string[] | undefined;
   const agents = useMemo(
-    () =>
-      ((projectAgentIds && projectAgentIds.length
-        ? (allAgents ?? []).filter((agent: any) => projectAgentIds.includes(agent._id))
-        : (allAgents ?? [])) as any[]),
+    () => projectMembers((allAgents ?? []) as any[], projectAgentIds),
     [allAgents, projectAgentIds],
   );
   const pendingItems = useMemo(() => (approvals ?? []).filter((a: any) => a.projectId === projectId), [approvals, projectId]);
@@ -378,11 +377,10 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     return () => clearInterval(timer);
   }, []);
   const formatMessageTime = (createdAt: number) => {
-    const d = new Date(createdAt);
-    const hm = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const hm = clockTime(createdAt);
     if (now - createdAt < 60_000) return "just now";
-    if (d.toDateString() === new Date(now).toDateString()) return hm;
-    return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${hm}`;
+    if (isSameDay(createdAt, now)) return hm;
+    return `${shortDate(createdAt)}, ${hm}`;
   };
 
   const notifications: HeaderNotification[] = [

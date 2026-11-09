@@ -17,6 +17,7 @@ import {
   type TeamStatusWord,
 } from "@/lib/teamStatus";
 import { SectionToggle } from "./SectionToggle";
+import { projectMembers } from "@/lib/projectMembers";
 
 export type TeamAgent = { _id: string; name: string; role: string; isEnabled?: boolean };
 
@@ -113,8 +114,7 @@ const TeamList = forwardRef<
 
   const memberIds = (project as { agentIds?: string[] } | null | undefined)?.agentIds;
   const q = filter.trim().toLowerCase();
-  const agents = (allAgents ?? [])
-    .filter((a) => !memberIds || memberIds.length === 0 || memberIds.includes(a._id))
+  const agents = projectMembers(allAgents, memberIds)
     .filter((a) => !q || roleLabel(a.role).toLowerCase().includes(q) || a.name.toLowerCase().includes(q));
   const rowProps = { agents, drafting, onOpenAgent };
 

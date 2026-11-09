@@ -15,6 +15,7 @@ import {
   StatusWord,
   type StepStatus,
 } from "./chat/cards/primitives";
+import { clockTime } from "@/lib/format";
 
 type Approval = {
   _id: string;
@@ -113,7 +114,7 @@ export default function ApprovalCard({
   );
 
   const time = approval._creationTime
-    ? new Date(approval._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+    ? clockTime(approval._creationTime)
     : null;
 
   return (

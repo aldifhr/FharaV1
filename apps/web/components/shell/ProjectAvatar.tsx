@@ -1,5 +1,7 @@
 "use client";
 
+import { pickByName } from "@/lib/utils";
+
 const TONES = [
   "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
   "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
@@ -11,7 +13,7 @@ const TONES = [
 ];
 
 export function projectTone(name: string): string {
-  return TONES[[...name].reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % TONES.length];
+  return pickByName(name, TONES);
 }
 
 /** Coloured letter tile used for projects in the sidebar and chat header. */

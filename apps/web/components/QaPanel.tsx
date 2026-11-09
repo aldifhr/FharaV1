@@ -1,5 +1,6 @@
 "use client";
 import { CheckCircle2, MinusCircle, Monitor, Smartphone, Tablet, XCircle } from "lucide-react";
+import { clockTime } from "@/lib/format";
 
 type TaskEvent = {
   _id: string;
@@ -24,9 +25,7 @@ function statusIcon(status: string) {
       : <MinusCircle size={14} className="text-amber-500" />;
 }
 
-function timeLabel(ts: number) {
-  return new Date(ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-}
+const timeLabel = clockTime;
 
 /**
  * QA results for a task, derived from real backend data only:

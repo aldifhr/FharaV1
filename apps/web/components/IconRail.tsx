@@ -30,6 +30,7 @@ import { useTheme } from "./ui/use-theme";
 import CommandMenu from "./CommandMenu";
 import QueryBoundary from "./shell/QueryBoundary";
 import { focusTeam } from "@/lib/shellEvents";
+import { clockTime } from "@/lib/format";
 
 type IconType = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
@@ -187,7 +188,7 @@ function ActivityFeed({ projectId }: { projectId: string }) {
           <li key={e._id} className="px-3.5 py-2">
             <p className={`truncate text-[13px] ${e.level === "error" ? "text-red-600 dark:text-red-400" : "text-ink"}`}>{eventSummary(e)}</p>
             <p className="mt-0.5 truncate text-xs text-ink-3">
-              {title(e.taskId) ?? "Task"} · {new Date(e._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+              {title(e.taskId) ?? "Task"} · {clockTime(e._creationTime)}
             </p>
           </li>
         ))}

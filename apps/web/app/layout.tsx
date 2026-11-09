@@ -25,12 +25,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning className={cn("font-sans", geist.variable, inter.variable, jetbrains.variable)} data-font="inter">
       <head>
-        {/* Apply the theme before first paint: without this, dark-mode users
+        {/* One-time migration of pre-rebrand localStorage keys (moagent* -> fhara*),
+            then apply the theme before first paint: without this, dark-mode users
             saw a white flash on every load (ThemeProvider runs after paint). */}
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "try{var t=localStorage.getItem('theme');var d=t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches);var r=document.documentElement;r.classList.toggle('dark',d);r.setAttribute('data-theme',d?'dark':'light');r.style.colorScheme=d?'dark':'light';var f=localStorage.getItem('fhara-font');if(f)r.setAttribute('data-font',f)}catch(e){}",
+              "try{for(var i=localStorage.length-1;i>=0;i--){var k=localStorage.key(i);if(k&&k.indexOf('moagent')===0){var n='fhara'+k.slice(7);if(localStorage.getItem(n)===null)localStorage.setItem(n,localStorage.getItem(k));localStorage.removeItem(k)}}}catch(e){}try{var t=localStorage.getItem('theme');var d=t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches);var r=document.documentElement;r.classList.toggle('dark',d);r.setAttribute('data-theme',d?'dark':'light');r.style.colorScheme=d?'dark':'light';var f=localStorage.getItem('fhara-font');if(f)r.setAttribute('data-font',f)}catch(e){}",
           }}
         />
       </head>

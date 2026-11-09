@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { capabilityPatchFields, capabilityProbeValidator } from "./lib/capabilityValidators";
 import { permissionModeValidator } from "./lib/permissionModes";
 import {
   decisionExpectedValidator,
@@ -168,6 +169,10 @@ export default defineSchema({
     // multipliers the Task Estimator applies. Unset = 1. Changed only by
     // an explicit, audited Apply on /calibration.
     estimatorMultipliers: v.optional(v.array(estimatorMultiplierValidator)),
+    // Plan 027 (additive): rank exact-capability agents by their recorded
+    // performance. Unset = the worker's env default
+    // (ORCHESTRATOR_PERFORMANCE_ROUTING, off).
+    performanceRouting: v.optional(v.boolean()),
   }).index("by_owner", ["ownerId"]),
 
   agents: defineTable({
@@ -838,6 +843,20 @@ export default defineSchema({
   })
     .index("by_provider", ["providerId"])
     .index("by_provider_and_model", ["providerId", "modelId"]),
+
+  // Model Capability Registry (plan 027): per-model capability overrides
+  // keyed by the model id string the provider serves, global (no projectId)
+  // or per project, plus the last manual probe observation. Resolution order
+  // and defaults: lib/modelCapabilities.ts.
+  modelCapabilityOverrides: defineTable({
+    modelId: v.string(),
+    projectId: v.optional(v.id("projects")),
+    ...capabilityPatchFields,
+    probe: v.optional(capabilityProbeValidator),
+    updatedAt: v.number(),
+  })
+    .index("by_model_and_project", ["modelId", "projectId"])
+    .index("by_project", ["projectId"]),
 
   // Context summaries (plan 006 Phase 3): deterministic LLM summaries of a
   // conversation's tail so prompts carry a bounded summary + last 12 instead

@@ -19,6 +19,8 @@ import { LiveOutputCoalescer } from "./liveOutput";
 import { runWithObservationScope } from "@/effects/observationContext";
 import { stallEventType, stallThresholdsFromEnv, type StallObservation } from "@/utils/stallDetector";
 import { llmTimeoutMs } from "@/llm";
+import { handlesFromResolution, type AgentResolution, type ModelRoutingInfo } from "@/llm/resolver";
+import type { PerformanceScore } from "@/api/convex/lib/agentPerformance";
 
 /**
  * The DAG nodes runner (plan 012 step 2): run a set of subtasks through
@@ -36,9 +38,12 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
     task, project, taskId, browser, lastPostedMessage, activeByAgent,
   } = ctx;
   const subsetKeys = new Set(nodes.map((node) => node.key));
+  // Plan 027: the executor resolution made at onStart, consumed by the node.
+  const resolutionByKey = new Map<string, AgentResolution>();
   // Load-aware routing (opt-in): read running executions per agent across
   // every task once per invocation. A failed read routes as usual.
-  if (ctx.loadAwareRouting) await refreshLoadSnapshot(ctx);
+  if (ctx.loadAwareRouting || ctx.performanceRouting) await refreshLoadSnapshot(ctx);
+  if (ctx.performanceRouting) await refreshPerformanceScores(ctx);
   const ackInputs = createInputDeliveryAck(deps);
   // Subset runs (the review/QA loops re-run their own nodes) filter out
   // dependencies that live outside the subset, because the scheduler can
@@ -128,7 +133,11 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       // provider cannot be constructed) fails the subtask explicitly.
       let llmHandles: FallbackHandle[] | undefined;
       try {
-        llmHandles = input.llmResolver?.handlesFor(agent);
+        const prepared = resolutionByKey.get(node.id);
+        resolutionByKey.delete(node.id);
+        llmHandles = prepared
+          ? handlesFromResolution(prepared)
+          : input.llmResolver?.handlesFor(agent, { capabilities: ctx.executorNeeds(subtask, agent), callRole: "executor" });
       } catch (error) {
         return {
           status: "failed",
@@ -459,6 +468,23 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         const agent = assign(node.id);
         if (!agent) throw new Error(`No enabled agent for capability ${subtask.capability}`);
         activeByAgent.set(agent._id, (activeByAgent.get(agent._id) ?? 0) + 1);
+        // Plan 027: resolve the executor's model against the subtask's
+        // capability needs now, so subtask.routed records the choice and
+        // the reason; the node reuses this resolution for its handles.
+        let modelRouting: ModelRoutingInfo | undefined;
+        if (input.llmResolver) {
+          try {
+            const resolution = input.llmResolver.resolutionFor(agent, {
+              capabilities: ctx.executorNeeds(subtask, agent),
+              callRole: "executor",
+            });
+            resolutionByKey.set(node.id, resolution);
+            modelRouting = resolution.routing;
+            ctx.modelRoutingByKey.set(node.id, resolution.routing);
+          } catch {
+            // Resolution failures surface in the node itself (explicit error).
+          }
+        }
         await deps.api.logEvent({
           taskId,
           projectId: project._id,
@@ -476,6 +502,22 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
               : "fallback",
             // Workload Manager: the load-aware router changed the pick.
             ...(ctx.loadAwareByKey.has(node.id) ? { loadAware: ctx.loadAwareByKey.get(node.id) } : {}),
+            // Plan 027: performance routing decision with its factor breakdown.
+            ...(ctx.performanceByKey.has(node.id) ? { performance: ctx.performanceByKey.get(node.id) } : {}),
+            // Plan 027: the executor model chosen against the subtask's needs.
+            ...(modelRouting
+              ? {
+                  model: {
+                    model: modelRouting.model,
+                    connection: modelRouting.connection,
+                    needs: modelRouting.needs,
+                    satisfied: modelRouting.satisfied,
+                    fallback: modelRouting.fallback,
+                    missing: modelRouting.missing,
+                    reason: modelRouting.reason,
+                  },
+                }
+              : {}),
           },
         });
         const executionId = await deps.api.startExecution({
@@ -547,6 +589,30 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       },
     }
   );
+}
+
+const PERFORMANCE_SCORES_TTL_MS = 10 * 60_000;
+
+/**
+ * Plan 027: refresh `ctx.performanceScores` (computed on read by the
+ * backend with caps; kept for 10 minutes per run). A failed read keeps the
+ * previous scores — with none, every agent scores the neutral prior and
+ * the order is unchanged apart from capacity.
+ */
+async function refreshPerformanceScores(ctx: RunContext): Promise<void> {
+  if (Date.now() - ctx.performanceScoresAt < PERFORMANCE_SCORES_TTL_MS) return;
+  const read = (ctx.deps.api as { getPerformanceScores?: WorkerApi["getPerformanceScores"] }).getPerformanceScores;
+  if (typeof read !== "function") return;
+  try {
+    const result = await read.call(ctx.deps.api, { projectId: ctx.project._id });
+    ctx.performanceScores.clear();
+    for (const score of (result?.scores ?? []) as PerformanceScore[]) {
+      ctx.performanceScores.set(`${score.agentId}::${score.capability}`, score);
+    }
+    ctx.performanceScoresAt = Date.now();
+  } catch {
+    // Keep the previous scores.
+  }
 }
 
 /** Refresh `ctx.loadSnapshot` (running executions per agent, all tasks). */

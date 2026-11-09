@@ -171,6 +171,12 @@ export interface ExecutionPolicy {
    * default off.
    */
   loadAwareRouting?: boolean;
+  /**
+   * Performance routing default (plan 027), used when the project has no
+   * `performanceRouting` setting. Env ORCHESTRATOR_PERFORMANCE_ROUTING,
+   * default off.
+   */
+  performanceRouting?: boolean;
 }
 
 function boolFromEnv(name: string, fallback: boolean): boolean {
@@ -315,5 +321,6 @@ export function loadPolicy(): ExecutionPolicy {
     qaMaxFixIterations: intFromEnv("ORCHESTRATOR_QA_MAX_FIX_ITERATIONS", intFromEnv("QA_MAX_FIX_ITERATIONS", 1, 0, 5), 0, 5),
     qaRequired: boolFromEnv("ORCHESTRATOR_QA_REQUIRED", boolFromEnv("QA_REQUIRED", false)),
     loadAwareRouting: boolFromEnv("ORCHESTRATOR_LOAD_AWARE_ROUTING", false),
+    performanceRouting: boolFromEnv("ORCHESTRATOR_PERFORMANCE_ROUTING", false),
   };
 }

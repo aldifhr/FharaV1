@@ -13,6 +13,7 @@ import type { TokenUsageFn } from "@/types/llm";
 import { createProviderForAgent, type GlobalLLMConfig } from "@/llm";
 import { providerHealth } from "@/llm/health";
 import type { TaskLlmResolver } from "@/llm/resolver";
+import { CALL_SITE_NEEDS } from "@/api/convex/lib/modelCapabilities";
 import type { DecisionContext, DecisionObservation } from "./decision";
 
 /**
@@ -84,7 +85,11 @@ async function runRealCall(input: DecisionAdvisorInput, prompt: string): Promise
   // provider/model the user never picked, unmetered. `decide()` turns
   // this throw into a recorded deterministic fallback.
   const handles: FallbackHandle[] = input.llmResolver
-    ? input.llmResolver.handlesFor(orchestrator)
+    ? input.llmResolver.handlesFor(orchestrator, {
+        // Plan 027: the decision advisor parses JSON from its reply.
+        capabilities: CALL_SITE_NEEDS.decision(prompt.length + (orchestrator.systemPrompt?.length ?? 0)),
+        callRole: "decision",
+      })
     : input.llmConfig
       ? [
           {

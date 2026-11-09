@@ -28,6 +28,49 @@ function Node({ label, children, last = false }: { label: string; children: Reac
   );
 }
 
+type Performance = NonNullable<RoutingView["subtasks"][number]["performance"]>;
+
+const fit = (value: boolean | null) => (value === null ? "—" : value ? "yes" : "no");
+
+/** Plan 027: each candidate's factors, in the order the router weighed them. */
+function PerformanceFactors({ performance }: { performance: Performance }) {
+  return (
+    <div className="mt-1.5 overflow-x-auto rounded-lg border border-line">
+      <table className="w-full min-w-[420px] text-left text-[11.5px] tabular-nums">
+        <thead className="text-ink-3">
+          <tr className="border-b border-line">
+            <th className="px-2.5 py-1.5 font-normal">Candidate</th>
+            <th className="px-2.5 py-1.5 font-normal">Capacity</th>
+            <th className="px-2.5 py-1.5 font-normal">Score</th>
+            <th className="px-2.5 py-1.5 font-normal">Model fit</th>
+            <th className="px-2.5 py-1.5 font-normal">Budget fit</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line text-ink-2">
+          {performance.scores.map((c, i) => {
+            const chosen = c.chosen;
+            return (
+              <tr key={`${c.role}-${i}`}>
+                <td className={`px-2.5 py-1.5 ${chosen ? "font-medium text-ink" : ""}`}>
+                  {roleLabel(c.role)}
+                  {chosen ? <span className="text-ink-3"> · chosen</span> : null}
+                </td>
+                <td className="px-2.5 py-1.5">{c.load}{c.available ? "" : " full"}</td>
+                <td className="px-2.5 py-1.5">
+                  {c.score.toFixed(2)}
+                  <span className="text-ink-3"> · {c.insufficient ? `prior (${c.samples} samples)` : `${c.samples} samples`}</span>
+                </td>
+                <td className="px-2.5 py-1.5">{fit(c.modelFit)}</td>
+                <td className="px-2.5 py-1.5">{fit(c.budgetFit)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function RoutingInspector({ routing, instruction }: { routing: RoutingView; instruction: string | undefined }) {
   const c = routing.classification;
   const p = routing.planner;
@@ -80,6 +123,7 @@ export default function RoutingInspector({ routing, instruction }: { routing: Ro
                     ))}
                   </ul>
                 )}
+                {s.performance && s.performance.scores.length > 1 && <PerformanceFactors performance={s.performance} />}
               </li>
             ))}
           </ul>

@@ -1094,6 +1094,15 @@ export const getAgentLoad = action({
   },
 });
 
+/** Plan 027: per-agent, per-capability performance scores for one project. */
+export const getPerformanceScores = action({
+  args: { ...tokenArg, projectId: v.id("projects"), sinceDays: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<any> => {
+    const { projectId, sinceDays } = withoutToken(args);
+    return await ctx.runQuery(internal.agentPerformance.scoresForProject, { projectId, ...(sinceDays ? { sinceDays } : {}) });
+  },
+});
+
 // ─── Plan Inspector + Task Estimator (planReview.ts) ─────────────────────
 
 /** Recent per-subtask usage samples for the estimator (lib/estimate.ts). */

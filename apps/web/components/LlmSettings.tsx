@@ -8,6 +8,7 @@ import Modal from "./Modal";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
 import { Pencil, Plus, Trash2 } from "lucide-react";
+import ModelCapabilitiesSection from "./ModelCapabilitiesSection";
 
 interface LlmSettingsContextValue {
   openLlmSettings: (projectId?: string) => void;
@@ -766,6 +767,7 @@ function LlmSettingsModal({
                 )}
             </section>
 
+          <ModelCapabilitiesSection projectId={projectId} />
         </div>
       </div>
     </Modal>

@@ -1,4 +1,8 @@
 import type { LoadAwareDecision } from "@/orchestrator/loadAwareRouting";
+import type { PerformanceDecision } from "@/orchestrator/performanceRouting";
+import type { PerformanceScore } from "@/api/convex/lib/agentPerformance";
+import type { CapabilityNeeds } from "@/api/convex/lib/modelCapabilities";
+import type { ModelRoutingInfo } from "@/llm/resolver";
 import type { RepeatedOutputGuard, StallThresholds } from "@/utils/stallDetector";
 import type {
   WorkerApi,
@@ -274,6 +278,17 @@ export interface RunContext {
   loadSnapshot: Map<string, number>;
   /** Picks the load-aware router changed, by subtask key (logged on subtask.routed). */
   loadAwareByKey: Map<string, LoadAwareDecision>;
+  /** Plan 027: performance routing is on for this run (project setting, else env). */
+  performanceRouting: boolean;
+  /** `${agentId}::${capability}` → score, refreshed per runNodes batch (10 min TTL). */
+  performanceScores: Map<string, PerformanceScore>;
+  performanceScoresAt: number;
+  /** Performance routing decision per subtask key (logged on subtask.routed). */
+  performanceByKey: Map<string, PerformanceDecision>;
+  /** Executor model choice + reason per subtask key (logged on subtask.routed). */
+  modelRoutingByKey: Map<string, ModelRoutingInfo>;
+  /** The executor's capability needs for one subtask + agent. */
+  executorNeeds: (subtask: PlanSubtask, agent: AgentDefinition) => CapabilityNeeds;
 
   // --- Helpers (built once by `executePlan`) ------------------------------
   assign: (key: string) => AgentDefinition | null;

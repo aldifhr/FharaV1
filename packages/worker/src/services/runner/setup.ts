@@ -14,6 +14,7 @@ import type { GlobalLLMConfig } from "@/llm";
 import {
   materializePool,
   TaskLlmResolver,
+  type TaskLlmResolverOptions,
   type PoolConnectionRow,
 } from "@/llm/resolver";
 import { providerHealth } from "@/llm/health";
@@ -51,7 +52,9 @@ export { completedSubtasksFor, buildReplanFeedback, type CompletedSubtask } from
 export async function buildTaskLlmResolver(
   llmProviders: PoolConnectionRow[] | undefined,
   /** Plan 022: the project's model tier per role (llmModels ids). */
-  tiers?: ModelTiers
+  tiers?: ModelTiers,
+  /** Plan 027: capability overrides + the fallback warning sink. */
+  capabilities: Pick<TaskLlmResolverOptions, "capabilityOverrides" | "projectId" | "onCapabilityFallback"> = {}
 ): Promise<TaskLlmResolver> {
   // Phase 5 observability: register each pool connection's display
   // name on the shared health registry, so the worker's health
@@ -61,7 +64,39 @@ export async function buildTaskLlmResolver(
     providerHealth.registerConnectionName(row._id, row.name);
   }
   const pool = await materializePool(llmProviders);
-  return new TaskLlmResolver(pool, providerHealth, { tiers });
+  return new TaskLlmResolver(pool, providerHealth, { tiers, ...capabilities });
+}
+
+/**
+ * Plan 027: the resolver's capability-fallback sink — a warning event when
+ * no model in the pool satisfies a call site's needs (the call still runs
+ * on the usual pick). Deduped per task by the resolver.
+ */
+export function capabilityFallbackLogger(
+  deps: RunnerDeps,
+  taskId: WorkerTask["_id"],
+  projectId: WorkerProject["_id"]
+): NonNullable<TaskLlmResolverOptions["onCapabilityFallback"]> {
+  return (routing, agent) => {
+    void deps.api
+      .logEvent({
+        taskId,
+        projectId,
+        type: "model.capability_fallback",
+        payload: {
+          callRole: routing.callRole ?? null,
+          agent: agent?.name ?? null,
+          role: agent?.role ?? null,
+          model: routing.model,
+          connection: routing.connection,
+          needs: routing.needs,
+          missing: routing.missing,
+          reason: routing.reason,
+        },
+        level: "warn",
+      })
+      .catch(() => undefined);
+  };
 }
 
 /**

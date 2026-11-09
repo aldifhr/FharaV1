@@ -8,6 +8,7 @@ import { ArrowLeft } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import IconRail from "@/components/IconRail";
 import Segmented from "@/components/ui/segmented";
+import PerformanceScoreSection from "@/components/team/PerformanceScoreSection";
 import { compact, duration, pct, usd } from "@/lib/metrics";
 import { relativeTime, statusDot } from "@/lib/runFormat";
 
@@ -149,6 +150,8 @@ export default function AgentProfilePage() {
                 />
                 <Row label="Chat replies" value={p.chatReplies} />
               </ul>
+
+              <PerformanceScoreSection agentId={agentId} projectId={projectId} days={Number(days)} />
 
               <h2 className="mt-10 mb-3 text-[13px] font-medium text-ink-2">Latest subtasks</h2>
               {p.recent.length === 0 ? (

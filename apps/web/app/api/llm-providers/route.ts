@@ -76,6 +76,11 @@ export async function POST(request: NextRequest) {
         await client.mutation(api.llmModels.remove, callArgs);
         return NextResponse.json({ ok: true });
       }
+      // Plan 027: manual capability probe (two tiny calls, backend-side key).
+      case "probeModel": {
+        const probe = await client.action(api.modelCapabilities.probe, callArgs);
+        return NextResponse.json({ probe });
+      }
       default:
         return NextResponse.json(
           { error: `Unknown op: ${String(op)}` },

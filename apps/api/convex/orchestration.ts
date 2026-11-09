@@ -1,3 +1,5 @@
+import { loadCapabilityOverrides } from "./modelCapabilities";
+import type { CapabilityOverrideRow } from "./lib/modelCapabilities";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -164,6 +166,8 @@ export const getRunContext = internalQuery({
     executions: Doc<"executions">[];
     approvalMode: "ask" | "auto";
     llmProviders: PoolConnectionPayload[];
+    /** Plan 027: model capability overrides (global + project). */
+    modelCapabilityOverrides: CapabilityOverrideRow[];
     /** Enabled MCP server configs for this project (Plan 009). Config-only. */
     mcpServers: Doc<"mcpServers">[];
     /**
@@ -215,6 +219,9 @@ export const getRunContext = internalQuery({
     // as `envCiphertext`, which the worker decrypts at spawn; plaintext
     // credentials never do. Per-agent role filtering happens in the worker.
     const mcpServers = project ? await resolveRunMcpServers(ctx, project._id) : [];
+    // Plan 027: capability overrides (global + this project's), for the
+    // worker resolver's needs filtering. No secrets.
+    const modelCapabilityOverrides = project ? await loadCapabilityOverrides(ctx, project._id) : [];
 
     return {
       task,
@@ -237,6 +244,7 @@ export const getRunContext = internalQuery({
       approvalMode: project?.approvalMode === "auto" ? "auto" : "ask",
       llmProviders,
       mcpServers,
+      modelCapabilityOverrides,
       plannerAgent: fallback.agent
         ? {
             ...projectAgentForWorker(fallback.agent),

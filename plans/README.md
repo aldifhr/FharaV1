@@ -35,6 +35,7 @@ execution order and a definition of done.
 | 024 | [Organizational Intelligence: org chart, agent profile, workload manager, collaboration graph](024-organizational-intelligence.md) | P2 | L | 021 | IN PROGRESS (implemented with unit tests; browser check pending) |
 | 025 | [Intent-to-execution traceability and execution observations](025-traceability-and-observations.md) | P1 | M | 013, 022 | IN PROGRESS (implemented with unit tests; live smoke pending) |
 | 026 | [Decision Outcome Calibration](026-decision-outcome-calibration.md) | P1 | L | 021, 022, 025 | IN PROGRESS (implemented with unit tests; live smoke and browser check pending) |
+| 027 | [Model Capability Registry and performance routing](027-model-capabilities-and-performance-routing.md) | P2 | L | 022, 024, 025 | IN PROGRESS (implemented with unit tests; live smoke and browser check pending) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

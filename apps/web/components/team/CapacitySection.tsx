@@ -26,7 +26,22 @@ export default function CapacitySection() {
   const projects = useQuery(api.projects.list, {}) as { _id: string; name: string }[] | undefined;
   const data = useQuery(api.orgIntel.capacity, projectId ? { projectId: projectId as never } : {});
   const setRouting = useMutation(api.orgIntel.setLoadAwareRouting);
+  const setPerfRouting = useMutation(api.agentPerformance.setPerformanceRouting);
   const [saving, setSaving] = useState(false);
+  const [savingPerf, setSavingPerf] = useState(false);
+
+  const perfChoice: RoutingChoice = data?.performanceRouting === true ? "on" : data?.performanceRouting === false ? "off" : "default";
+  async function changePerfRouting(next: RoutingChoice) {
+    if (!projectId || next === perfChoice) return;
+    setSavingPerf(true);
+    try {
+      await setPerfRouting({ projectId: projectId as never, enabled: next === "default" ? null : next === "on" });
+    } catch (err) {
+      toast("error", `Couldn't change performance routing: ${err instanceof Error ? err.message : "please try again"}`);
+    } finally {
+      setSavingPerf(false);
+    }
+  }
 
   const choice: RoutingChoice = data?.loadAwareRouting === true ? "on" : data?.loadAwareRouting === false ? "off" : "default";
   async function changeRouting(next: RoutingChoice) {
@@ -83,6 +98,26 @@ export default function CapacitySection() {
                   : choice === "on"
                     ? "Among agents with the capability, the one with spare capacity gets the subtask."
                     : "Routing ignores load."}
+            </span>
+          </>
+        ) : (
+          <span className="text-[12px] text-ink-3">Pick a project to change it.</span>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-[13px]">
+        <span className="text-ink-2">Performance routing</span>
+        {projectId ? (
+          <>
+            <Segmented label="Performance routing" value={perfChoice} options={ROUTING_OPTIONS} onChange={(v) => void changePerfRouting(v)} />
+            <span className="text-[12px] text-ink-3">
+              {savingPerf
+                ? "Saving…"
+                : perfChoice === "default"
+                  ? "Uses the worker default (ORCHESTRATOR_PERFORMANCE_ROUTING, off unless set)."
+                  : perfChoice === "on"
+                    ? "Among agents with the capability and spare capacity, the best routing score gets the subtask."
+                    : "Routing ignores past performance."}
             </span>
           </>
         ) : (

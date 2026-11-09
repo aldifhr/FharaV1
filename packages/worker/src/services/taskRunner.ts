@@ -1,4 +1,5 @@
 import { normalizeModelTiers } from "@/api/convex/lib/modelTiers";
+import type { CapabilityOverrideRow } from "@/api/convex/lib/modelCapabilities";
 import { withSnapshotScope } from "@/llm/snapshots";
 import { parseStoredRequirements } from "@/api/convex/lib/requirements";
 import * as fs from "node:fs/promises";
@@ -16,6 +17,7 @@ import type { RunnerDeps, RunState } from "./runner/types";
 import { buildStateFromDb } from "./runner/state";
 import {
   buildTaskLlmResolver,
+  capabilityFallbackLogger,
   mcpForTask,
   resolveQaBaseUrl,
   resolveWorkspacePath,
@@ -99,7 +101,11 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
   let llmResolver: TaskLlmResolver;
   let llmConfig: GlobalLLMConfig;
   try {
-    llmResolver = await buildTaskLlmResolver(llmProviders, normalizeModelTiers((project as { modelTiers?: unknown }).modelTiers));
+    llmResolver = await buildTaskLlmResolver(llmProviders, normalizeModelTiers((project as { modelTiers?: unknown }).modelTiers), {
+      capabilityOverrides: (context as { modelCapabilityOverrides?: CapabilityOverrideRow[] }).modelCapabilityOverrides ?? [],
+      projectId: String(project._id),
+      onCapabilityFallback: capabilityFallbackLogger(deps, task._id, project._id),
+    });
     llmConfig = llmResolver.defaultConfig();
   } catch (error) {
     await deps.api.completeTask({

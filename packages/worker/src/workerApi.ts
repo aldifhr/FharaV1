@@ -502,6 +502,13 @@ export class WorkerApi {
     return await this.client.action(api.worker.getAgentLoad, this.args(input));
   }
 
+  // Plan 027: performance scores per agent + capability (performance routing).
+  async getPerformanceScores(
+    input: ActionInput<typeof api.worker.getPerformanceScores>
+  ): Promise<FunctionReturnType<typeof api.worker.getPerformanceScores>> {
+    return await this.client.action(api.worker.getPerformanceScores, this.args(input));
+  }
+
   // Plan Inspector + Task Estimator (apps/api/convex/planReview.ts).
   async getEstimateSamples(
     input: ActionInput<typeof api.worker.getEstimateSamples>

@@ -16,6 +16,7 @@ import { validatePlan } from "./planValidator";
 import { extractJson } from "@/utils/json";
 import { planningPrompt, PLAN_NODE_INSTRUCTIONS } from "@/prompts/planner";
 import { wantsVisualQa } from "@/utils/qaIntent";
+import { CALL_SITE_NEEDS } from "@/api/convex/lib/modelCapabilities";
 import { defaultGatesForKind } from "@/api/convex/lib/subtaskContract";
 import {
   extractRequirementsFallback,
@@ -124,8 +125,13 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
       // The planner is an agent like any other: its LLM comes from its own
       // resolver chain (assignment → fallback assignment → pool), not from
       // a single task-wide config, unless no resolver was threaded in.
+      // Plan 027: the planner needs structured output and room for its prompt.
+      const planningPrompt = buildPlanningPrompt(input);
       const handles: FallbackHandle[] = input.llmResolver
-        ? input.llmResolver.handlesFor(orchestrator)
+        ? input.llmResolver.handlesFor(orchestrator, {
+            capabilities: CALL_SITE_NEEDS.planner(planningPrompt.length + (orchestrator.systemPrompt?.length ?? 0)),
+            callRole: "planner",
+          })
         : [{
             connectionId: "",
             connectionName: "(task config)",
@@ -136,7 +142,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         ...(orchestrator.systemPrompt
           ? [{ role: "system" as const, content: orchestrator.systemPrompt }]
           : []),
-        { role: "user", content: buildPlanningPrompt(input) },
+        { role: "user", content: planningPrompt },
       ], {
         health: input.llmResolver ? providerHealth : undefined,
         signal: input.signal,

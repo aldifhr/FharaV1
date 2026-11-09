@@ -59,6 +59,9 @@ const SHARED_FOUNDATION = new Set([
   // Plan 025: requirements traceability and execution observations (pure).
   "convex/lib/requirements",
   "convex/lib/observations",
+  // Plan 027: model capability registry + agent performance scoring (pure).
+  "convex/lib/modelCapabilities",
+  "convex/lib/agentPerformance",
 ]);
 
 const SRC = path.resolve(import.meta.dirname, "../src");

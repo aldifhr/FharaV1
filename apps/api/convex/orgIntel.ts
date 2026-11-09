@@ -345,6 +345,8 @@ export const capacity = query({
       projectId: args.projectId ?? null,
       /** The selected project's setting; null = unset (worker env default, off unless enabled there). */
       loadAwareRouting: project ? project.loadAwareRouting ?? null : null,
+      /** Plan 027: null = unset (worker env ORCHESTRATOR_PERFORMANCE_ROUTING, off by default). */
+      performanceRouting: project ? project.performanceRouting ?? null : null,
       truncated,
     };
   },

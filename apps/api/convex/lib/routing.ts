@@ -66,6 +66,27 @@ export interface RoutingView {
     match: "exact" | "fallback" | null;
     /** The load-aware router moved this subtask off a busier agent (roles). */
     loadAware: { fromRole: string | null; toRole: string | null; reason: string | null } | null;
+    /** Plan 027: performance routing decision with each candidate's factors. */
+    performance: {
+      fromRole: string | null;
+      toRole: string | null;
+      changed: boolean;
+      reason: string | null;
+      scores: Array<{
+        role: string;
+        /** The candidate the router picked. */
+        chosen: boolean;
+        score: number;
+        samples: number;
+        insufficient: boolean;
+        available: boolean;
+        load: string;
+        modelFit: boolean | null;
+        budgetFit: boolean | null;
+      }>;
+    } | null;
+    /** Plan 027: the executor model chosen against the subtask's capability needs. */
+    model: { model: string; connection: string | null; satisfied: boolean; fallback: boolean; reason: string | null } | null;
     why: string[];
   }>;
   handoffs: Array<{
@@ -178,6 +199,41 @@ export function extractRouting(input: {
             reason: asString(la.reason),
           }
         : null;
+    const pf = asRecord(routed?.performance);
+    const performance =
+      Object.keys(pf).length > 0
+        ? {
+            fromRole: asString(pf.fromRole) ?? asString(pf.from),
+            toRole: asString(pf.toRole) ?? asString(pf.to),
+            changed: pf.changed === true,
+            reason: asString(pf.reason),
+            scores: (Array.isArray(pf.scores) ? pf.scores : []).map((raw) => {
+              const c = asRecord(raw);
+              const load = asRecord(c.load);
+              return {
+                role: asString(c.role) ?? "",
+                chosen: Boolean(asString(c.agent)) && asString(c.agent) === asString(pf.to),
+                score: typeof c.score === "number" ? c.score : 0,
+                samples: typeof c.samples === "number" ? c.samples : 0,
+                insufficient: c.insufficient === true,
+                available: c.available !== false,
+                load: `${typeof load.running === "number" ? load.running : 0}/${typeof load.limit === "number" ? load.limit : 1}`,
+                modelFit: typeof c.modelFit === "boolean" ? c.modelFit : null,
+                budgetFit: typeof c.budgetFit === "boolean" ? c.budgetFit : null,
+              };
+            }),
+          }
+        : null;
+    const md = asRecord(routed?.model);
+    const model = asString(md.model)
+      ? {
+          model: asString(md.model)!,
+          connection: asString(md.connection),
+          satisfied: md.satisfied !== false,
+          fallback: md.fallback === true,
+          reason: asString(md.reason),
+        }
+      : null;
     if (routed) {
       const capability = asString(routed.capability) ?? subtask.capability;
       const declared = asStrings(routed.capabilities).map((c) => c.toLowerCase());
@@ -197,6 +253,16 @@ export function extractRouting(input: {
     if (loadAware) {
       why.push(`Load-aware: moved off ${loadAware.fromRole ? roleLabel(loadAware.fromRole) : "a busier agent"}${loadAware.reason ? ` — ${loadAware.reason}` : ""}`);
     }
+    if (performance) {
+      why.push(
+        performance.changed
+          ? `Performance: moved off ${performance.fromRole ? roleLabel(performance.fromRole) : "the usual pick"}${performance.reason ? ` — ${performance.reason}` : ""}`
+          : `Performance: kept${performance.reason ? ` — ${performance.reason}` : ""}`
+      );
+    }
+    if (model) {
+      why.push(`Model: ${model.reason ?? model.model}${model.fallback ? " (capability warning)" : ""}`);
+    }
     if (subtask.origin && subtask.origin !== "planned" && subtask.origin !== "plan") {
       why.push(`Added during the run (${subtask.origin.replace(/_/g, " ")})`);
     }
@@ -209,6 +275,8 @@ export function extractRouting(input: {
       role,
       match,
       loadAware,
+      performance,
+      model,
       why,
     };
   });

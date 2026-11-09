@@ -30,8 +30,15 @@ export type TaskInputRefusal =
 export type TaskInputAdmission = { ok: true } | { ok: false; reason: TaskInputRefusal };
 
 const TERMINAL = new Set(["done", "rejected", "failed"]);
-/** A steer may land on a task the worker holds or is about to pick up. */
-const STEERABLE = new Set(["running", "queued"]);
+/**
+ * A steer may land on a task the worker holds or is about to pick up.
+ * Plan 022: a user-`paused` task also takes steers — pausing is the natural
+ * moment to redirect a run. The steer is stored undelivered and the worker
+ * renders it on its next turn after Resume (delivery does not depend on
+ * task status). An answer is still refused on a paused task: it has no
+ * open question.
+ */
+const STEERABLE = new Set(["running", "queued", "paused"]);
 
 type GuardTask = Pick<Doc<"tasks">, "status" | "pendingQuestion">;
 type GuardApproval = Pick<Doc<"approvals">, "status" | "payload">;

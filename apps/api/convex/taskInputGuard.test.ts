@@ -64,6 +64,9 @@ describe("decideTaskInput (pure)", () => {
     });
     expect(decideTaskInput({ status: "running" }, [{ status: "approved", payload: undefined }], "steer")).toEqual({ ok: true });
     expect(decideTaskInput({ status: "queued" }, [], "steer")).toEqual({ ok: true });
+    // Plan 022: a paused task takes steers (delivered after Resume) but no answers.
+    expect(decideTaskInput({ status: "paused" }, [], "steer")).toEqual({ ok: true });
+    expect(decideTaskInput({ status: "paused" }, [], "answer")).toEqual({ ok: false, reason: "question_mismatch" });
     expect(decideTaskInput({ status: "waiting_input", pendingQuestion: "Q?" }, [], "answer", "Q?")).toEqual({ ok: true });
   });
 });

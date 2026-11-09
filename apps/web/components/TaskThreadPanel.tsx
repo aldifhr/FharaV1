@@ -271,8 +271,9 @@ export default function TaskThreadPanel({
   const submit = async () => {
     const text = reply.trim();
     if (!text || busy) return;
-    // A queued task takes the steer when the worker picks it up.
-    const steer = taskStatus === "running" || taskStatus === "queued";
+    // A queued task takes the steer when the worker picks it up; a paused
+    // one after Resume (plan 022).
+    const steer = taskStatus === "running" || taskStatus === "queued" || taskStatus === "paused";
     const answer = taskStatus === "waiting_input";
     if (steer) setSteering(true);
     else setSendingReply(true);
@@ -298,7 +299,7 @@ export default function TaskThreadPanel({
       });
       setReply("");
       setQuote(null);
-      if (steer) toast("success", "Sent to the running agent");
+      if (steer) toast("success", taskStatus === "paused" ? "Saved — the agent reads it after you resume" : "Sent to the running agent");
     } catch (err) {
       toast("error", answer ? "Couldn't send answer" : steer ? "Couldn't steer the task" : "Couldn't send reply", errorText(err));
     } finally {
@@ -413,7 +414,13 @@ export default function TaskThreadPanel({
           ? { label: taskStatusLabel(taskStatus), cls: "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300" }
           : { label: taskStatusLabel(taskStatus), cls: "bg-hover text-ink-2" };
   const placeholder =
-    taskStatus === "waiting_input" ? "Answer to continue the task" : taskStatus === "running" ? "Steer the running task" : "Reply to the thread";
+    taskStatus === "waiting_input"
+      ? "Answer to continue the task"
+      : taskStatus === "running"
+        ? "Steer the running task"
+        : taskStatus === "paused"
+          ? "Steer the paused task (read after Resume)"
+          : "Reply to the thread";
   /** Hover Reply on a thread message (text messages only). */
   const replyButton = (m: any) =>
     m.content?.trim() ? (

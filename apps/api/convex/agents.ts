@@ -10,6 +10,7 @@ import {
   normalizeRoleKey,
 } from "./lib/roles";
 import { defaultAvatarParams } from "./lib/avatar";
+import { changedFields, recordAudit, setFields } from "./lib/recordAudit";
 import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT } from "./lib/prompts/agents";
 
 /**
@@ -211,7 +212,7 @@ export const create = mutation({
     if (!name) throw new Error("Agent name is required");
     if (!role) throw new Error("Agent role is required");
 
-    return await ctx.db.insert("agents", {
+    const agentId = await ctx.db.insert("agents", {
       name,
       role,
       ...(systemPrompt ? { systemPrompt } : {}),
@@ -238,6 +239,12 @@ export const create = mutation({
       ...(args.llmFallbackModelId ? { llmFallbackModelId: args.llmFallbackModelId } : {}),
       ...(args.llmSelectionPolicy ? { llmSelectionPolicy: args.llmSelectionPolicy } : {}),
     });
+    await recordAudit(ctx, {
+      action: "agent.create",
+      target: `${name} (${role})`,
+      details: { fields: setFields(args) },
+    });
+    return agentId;
   },
 });
 
@@ -273,12 +280,12 @@ export const update = mutation({
     // validates the target before any mutation. Agents are global (no
     // owner), so in local mode this changes nothing beyond a clear
     // "Agent not found" error (spec §9.2 consistency).
-    await assertAgentAccess(ctx, args.agentId);
+    const before = await assertAgentAccess(ctx, args.agentId);
     const name = args.name.trim();
     const role = args.role.trim();
     if (!name) throw new Error("Agent name is required");
     if (!role) throw new Error("Agent role is required");
-    await ctx.db.patch(args.agentId, {
+    const patch = {
       name,
       role,
       systemPrompt: args.systemPrompt.trim() || undefined,
@@ -319,7 +326,16 @@ export const update = mutation({
       ...(args.opencodeModel !== undefined
         ? { opencodeModel: normalizeOpencodeModel(args.opencodeModel) }
         : {}),
-    });
+    };
+    await ctx.db.patch(args.agentId, patch);
+    const changed = changedFields(before as Record<string, unknown>, patch);
+    if (changed.length) {
+      await recordAudit(ctx, {
+        action: "agent.update",
+        target: `${name} (${role})`,
+        details: { changed },
+      });
+    }
   },
 });
 
@@ -356,7 +372,7 @@ export function normalizeOpencodeModel(value: string | null): string | undefined
 export const remove = mutation({
   args: { agentId: v.id("agents") },
   handler: async (ctx, args) => {
-    await assertAgentAccess(ctx, args.agentId);
+    const agent = await assertAgentAccess(ctx, args.agentId);
     const projects = await ctx.db.query("projects").collect();
     for (const project of projects) {
       if (!project.agentIds?.includes(args.agentId)) continue;
@@ -365,6 +381,7 @@ export const remove = mutation({
       });
     }
     await ctx.db.delete(args.agentId);
+    await recordAudit(ctx, { action: "agent.remove", target: `${agent.name} (${agent.role})` });
   },
 });
 

@@ -1,6 +1,7 @@
 import { query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { assertProjectAccess } from "./lib/authz";
+import { recordAudit } from "./lib/recordAudit";
 
 /**
  * MCP server config — Plan 007 Phase 1 (UI config) + Plan 009 (worker
@@ -49,7 +50,7 @@ export const add = internalMutation({
     ...mcpConfigFields,
   },
   handler: async (ctx, args) => {
-    return ctx.db.insert("mcpServers", {
+    const id = await ctx.db.insert("mcpServers", {
       projectId: args.projectId,
       name: args.name,
       type: args.type,
@@ -63,6 +64,14 @@ export const add = internalMutation({
       transport: args.transport,
       allowedDirectories: args.allowedDirectories,
     });
+    // Command/args/url can embed credentials: record the name and type only.
+    await recordAudit(ctx, {
+      action: "mcpServer.add",
+      target: args.name,
+      projectId: args.projectId,
+      details: { type: args.type },
+    });
+    return id;
   },
 });
 
@@ -83,6 +92,14 @@ export const updateStatus = internalMutation({
 export const remove = internalMutation({
   args: { serverId: v.id("mcpServers") },
   handler: async (ctx, args) => {
+    const server = await ctx.db.get(args.serverId);
     await ctx.db.delete(args.serverId);
+    if (server) {
+      await recordAudit(ctx, {
+        action: "mcpServer.remove",
+        target: server.name,
+        projectId: server.projectId,
+      });
+    }
   },
 });

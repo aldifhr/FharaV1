@@ -9,6 +9,7 @@ import {
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { assertProjectAccess } from "./lib/authz";
+import { changedFields, recordAudit } from "./lib/recordAudit";
 
 // GitHub OAuth configuration
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? "";
@@ -200,6 +201,13 @@ export const upsertGithubIntegration = internalMutation({
         errorMessage: undefined,
         updatedAt: now,
       });
+      // Token values never reach the audit row.
+      await recordAudit(ctx, {
+        action: "integration.reconnect",
+        target: "github",
+        projectId: args.projectId,
+        details: { changed: ["accessToken", ...(args.refreshToken ? ["refreshToken"] : [])] },
+      });
       return existing._id;
     }
 
@@ -215,6 +223,7 @@ export const upsertGithubIntegration = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
+    await recordAudit(ctx, { action: "integration.add", target: "github", projectId: args.projectId });
 
     return id;
   },
@@ -327,6 +336,11 @@ export const remove = mutation({
       accessToken: undefined,
       refreshToken: undefined,
       updatedAt: Date.now(),
+    });
+    await recordAudit(ctx, {
+      action: "integration.remove",
+      target: integration.name,
+      projectId: integration.projectId,
     });
   },
 });
@@ -502,6 +516,15 @@ export const updateConfig = mutation({
     if (args.githubBaseBranch !== undefined) updates.githubBaseBranch = args.githubBaseBranch || undefined;
 
     await ctx.db.patch(args.integrationId, updates);
+    const changed = changedFields(integration as Record<string, unknown>, updates);
+    if (changed.length) {
+      await recordAudit(ctx, {
+        action: "integration.update",
+        target: integration.name,
+        projectId: integration.projectId,
+        details: { changed },
+      });
+    }
   },
 });
 

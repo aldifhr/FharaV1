@@ -263,6 +263,23 @@ never pushes without that click.
   `CONVEX_SERVICE_TOKEN` (timing-safe, fails closed when unset). Do not
   expose a deployment to an untrusted network.
 
+## Evaluations and audit log
+
+The rail's **Insights** button opens two read-only pages (both take
+`?project=<id>`):
+
+- **Evaluations** (`/evals`, `apps/api/convex/evals.ts`): task success
+  rate, QA pass rate (evaluation verdicts, else QA subtasks), tool-call
+  success (allowed vs denied `audit` rows), cost per task (from
+  `tokenUsage.estimatedCost`; calls without model pricing are left out and
+  flagged), per-agent and per-model tables and a daily trend, over 7/30/90
+  days. Every table is read through a time index with a scan cap.
+- **Audit log** (`/audit`, `apps/api/convex/auditLog.ts`): tool calls,
+  approval decisions and config changes, newest first. Config writes
+  (agents, projects, roles, LLM providers/models, integrations, MCP
+  servers) record `tool: "config"` rows through `lib/recordAudit.ts` with
+  the changed field **names** only, never values.
+
 ## Testing
 
 ```bash

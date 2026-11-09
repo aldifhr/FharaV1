@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { assertProjectAccess, canViewProject, getViewerId } from "./lib/authz";
+import { changedFields, recordAudit } from "./lib/recordAudit";
 
 function validateWorkspacePath(raw: string): string {
   const workspacePath = raw.trim();
@@ -38,7 +39,7 @@ export const create = mutation({
     }
 
     const viewerId = await getViewerId(ctx);
-    return await ctx.db.insert("projects", {
+    const projectId = await ctx.db.insert("projects", {
       name,
       workspacePath,
       ...(args.agentIds ? { agentIds: args.agentIds } : {}),
@@ -48,6 +49,8 @@ export const create = mutation({
       ...(args.approvalMode ? { approvalMode: args.approvalMode } : {}),
       createdAt: Date.now(),
     });
+    await recordAudit(ctx, { action: "project.create", target: name, projectId });
+    return projectId;
   },
 });
 
@@ -57,13 +60,24 @@ export const updateTeam = mutation({
     agentIds: v.array(v.id("agents")),
   },
   handler: async (ctx, args) => {
-    await assertProjectAccess(ctx, args.projectId);
+    const project = await assertProjectAccess(ctx, args.projectId);
     const uniqueAgentIds = Array.from(new Set(args.agentIds));
     for (const agentId of uniqueAgentIds) {
       const agent = await ctx.db.get(agentId);
       if (!agent) throw new Error(`Agent not found: ${agentId}`);
     }
     await ctx.db.patch(args.projectId, { agentIds: uniqueAgentIds });
+    const before = new Set(project.agentIds ?? []);
+    const added = uniqueAgentIds.filter((id) => !before.has(id)).length;
+    const removed = [...before].filter((id) => !uniqueAgentIds.includes(id)).length;
+    if (added || removed) {
+      await recordAudit(ctx, {
+        action: "project.team",
+        target: project.name,
+        projectId: args.projectId,
+        details: { changed: ["agentIds"], added, removed },
+      });
+    }
   },
 });
 
@@ -78,7 +92,7 @@ export const update = mutation({
     instructions: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await assertProjectAccess(ctx, args.projectId);
+    const project = await assertProjectAccess(ctx, args.projectId);
     const patch: {
       name?: string;
       workspacePath?: string;
@@ -108,6 +122,15 @@ export const update = mutation({
       patch.instructions = args.instructions;
     }
     await ctx.db.patch(args.projectId, patch);
+    const changed = changedFields(project as Record<string, unknown>, patch);
+    if (changed.length) {
+      await recordAudit(ctx, {
+        action: "project.update",
+        target: patch.name ?? project.name,
+        projectId: args.projectId,
+        details: { changed },
+      });
+    }
   },
 });
 
@@ -117,8 +140,16 @@ export const updateApprovalMode = mutation({
     approvalMode: v.union(v.literal("ask"), v.literal("auto")),
   },
   handler: async (ctx, args) => {
-    await assertProjectAccess(ctx, args.projectId);
+    const project = await assertProjectAccess(ctx, args.projectId);
     await ctx.db.patch(args.projectId, { approvalMode: args.approvalMode });
+    if (project.approvalMode !== args.approvalMode) {
+      await recordAudit(ctx, {
+        action: "project.update",
+        target: project.name,
+        projectId: args.projectId,
+        details: { changed: ["approvalMode"] },
+      });
+    }
   },
 });
 
@@ -153,7 +184,7 @@ export const get = query({
 export const remove = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await assertProjectAccess(ctx, args.projectId);
+    const project = await assertProjectAccess(ctx, args.projectId);
 
     const tasks = await ctx.db
       .query("tasks")
@@ -198,6 +229,12 @@ export const remove = mutation({
     for (const event of projectEvents) await ctx.db.delete(event._id);
 
     await ctx.db.delete(args.projectId);
+    // Global row (no projectId): the project is gone, the trail stays.
+    await recordAudit(ctx, {
+      action: "project.remove",
+      target: project.name,
+      details: { deletedTasks: tasks.length },
+    });
     return { deletedTasks: tasks.length };
   },
 });

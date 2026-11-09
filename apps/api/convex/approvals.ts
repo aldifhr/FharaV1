@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { assertProjectAccess, canViewProject, getViewerId, getVisibleTask } from "./lib/authz";
+import { recordAudit } from "./lib/recordAudit";
 
 export const listPendingAll = query({
   args: {},
@@ -42,6 +43,15 @@ export const approve = mutation({
       subtaskKey: approval.subtaskKey,
       level: "info",
     });
+    await recordAudit(ctx, {
+      tool: "approval",
+      action: "approval.approve",
+      decision: "allowed",
+      target: approval.summary,
+      projectId: approval.projectId,
+      taskId: approval.taskId,
+      details: { kind: approval.kind, ...(approval.toolName ? { toolName: approval.toolName } : {}) },
+    });
     return true;
   },
 });
@@ -64,6 +74,15 @@ export const reject = mutation({
       payload: { kind: approval.kind, summary: approval.summary },
       subtaskKey: approval.subtaskKey,
       level: "warn",
+    });
+    await recordAudit(ctx, {
+      tool: "approval",
+      action: "approval.reject",
+      decision: "denied",
+      target: approval.summary,
+      projectId: approval.projectId,
+      taskId: approval.taskId,
+      details: { kind: approval.kind, ...(approval.toolName ? { toolName: approval.toolName } : {}) },
     });
     return true;
   },

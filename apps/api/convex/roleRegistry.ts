@@ -7,6 +7,7 @@ import {
   getViewerId,
 } from "./lib/authz";
 import { RETIRED_ROLE_KEYS, ROLE_KEYS, ROLES } from "./lib/roles";
+import { recordAudit } from "./lib/recordAudit";
 
 // Org chart: the fixed team — see lib/roles.ts (shared with the web app and
 // agents.ts FIXED_AGENTS). The retired roles (Lead, Growth, Product
@@ -125,7 +126,12 @@ export const update = mutation({
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     if (rest.enabled !== undefined) patch.enabled = rest.enabled;
     if (rest.description !== undefined) patch.description = rest.description;
+    const before = await ctx.db.get(id);
     await ctx.db.patch(id, patch as any);
+    const changed = Object.keys(patch).filter((k) => k !== "updatedAt");
+    if (changed.length) {
+      await recordAudit(ctx, { action: "role.update", target: before?.name, details: { changed } });
+    }
   },
 });
 
@@ -133,7 +139,8 @@ export const assignToProject = mutation({
   args: { projectId: v.id("projects"), agentId: v.id("agents"), customInstructions: v.optional(v.string()), allowedTools: v.optional(v.array(v.string())) },
   handler: async (ctx, args) => {
     await assertProjectAccess(ctx, args.projectId);
-    if (!(await ctx.db.get(args.agentId))) throw new Error("Agent not found");
+    const agent = await ctx.db.get(args.agentId);
+    if (!agent) throw new Error("Agent not found");
     const existing = await ctx.db.query("projectAgents").withIndex("by_project_and_agent", (q) => q.eq("projectId", args.projectId).eq("agentId", args.agentId)).take(1);
     const id = existing[0]
       ? (await ctx.db.patch(existing[0]._id, { enabled: true, customInstructions: args.customInstructions, allowedTools: args.allowedTools, updatedAt: Date.now() }), existing[0]._id)
@@ -151,6 +158,17 @@ export const assignToProject = mutation({
     if (project && !(project.agentIds ?? []).includes(args.agentId)) {
       await ctx.db.patch(project._id, { agentIds: [...(project.agentIds ?? []), args.agentId] });
     }
+    await recordAudit(ctx, {
+      action: "project.assignAgent",
+      target: `${agent.name} → ${project?.name ?? "project"}`,
+      projectId: args.projectId,
+      details: {
+        fields: [
+          ...(args.customInstructions !== undefined ? ["customInstructions"] : []),
+          ...(args.allowedTools !== undefined ? ["allowedTools"] : []),
+        ],
+      },
+    });
     return id;
   },
 });
@@ -165,6 +183,14 @@ export const removeFromProject = mutation({
     const project = await ctx.db.get(args.projectId);
     if (project?.agentIds?.includes(args.agentId)) {
       await ctx.db.patch(project._id, { agentIds: project.agentIds.filter((id) => id !== args.agentId) });
+    }
+    if (rows[0]) {
+      const agent = await ctx.db.get(args.agentId);
+      await recordAudit(ctx, {
+        action: "project.unassignAgent",
+        target: `${agent?.name ?? "agent"} → ${project?.name ?? "project"}`,
+        projectId: args.projectId,
+      });
     }
     return { applied: rows.length > 0 as boolean };
   },

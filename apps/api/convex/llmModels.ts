@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { assertServiceToken } from "./lib/authz";
+import { changedFields, recordAudit, setFields } from "./lib/recordAudit";
 
 /**
  * Model Registry (spec §4B): models are their own entities, independent of
@@ -54,7 +55,7 @@ export const create = mutation({
       );
     }
     const now = Date.now();
-    return await ctx.db.insert("llmModels", {
+    const id = await ctx.db.insert("llmModels", {
       providerId: args.providerId,
       modelId,
       displayName: args.displayName?.trim() || undefined,
@@ -67,6 +68,13 @@ export const create = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    const { token: _token, ...fields } = args;
+    await recordAudit(ctx, {
+      action: "llmModel.create",
+      target: `${provider.name} / ${modelId}`,
+      details: { fields: setFields(fields) },
+    });
+    return id;
   },
 });
 
@@ -97,6 +105,14 @@ export const update = mutation({
       updates.displayName = updates.displayName.trim() || undefined;
     }
     await ctx.db.patch(id, { ...updates, updatedAt: Date.now() });
+    const changed = changedFields(doc as Record<string, unknown>, updates);
+    if (changed.length) {
+      await recordAudit(ctx, {
+        action: "llmModel.update",
+        target: updates.modelId ?? doc.modelId,
+        details: { changed },
+      });
+    }
   },
 });
 
@@ -104,6 +120,8 @@ export const remove = mutation({
   args: { token: v.string(), id: v.id("llmModels") },
   handler: async (ctx, args) => {
     assertServiceToken(args.token);
+    const doc = await ctx.db.get(args.id);
     await ctx.db.delete(args.id);
+    await recordAudit(ctx, { action: "llmModel.remove", target: doc?.modelId });
   },
 });

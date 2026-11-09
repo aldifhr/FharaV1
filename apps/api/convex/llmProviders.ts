@@ -2,6 +2,7 @@ import { action, internalQuery, query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertServiceToken } from "./lib/authz";
+import { changedFields, recordAudit, setFields } from "./lib/recordAudit";
 import { encryptApiKey, decryptApiKey } from "./lib/llmCrypto";
 import { getGlobalLLMConfig } from "./lib/llmConfig";
 import { ENHANCEMENT_SYSTEM_PROMPT } from "./lib/prompts/enhance";
@@ -85,6 +86,12 @@ export const create = mutation({
         updatedAt: now,
       });
     }
+    // Field names only: `apiKey` appears as a name, never its value.
+    await recordAudit(ctx, {
+      action: "llmProvider.create",
+      target: args.name,
+      details: { fields: setFields({ ...fields, apiKey: apiKey ? "set" : undefined }) },
+    });
     return id;
   },
 });
@@ -107,6 +114,7 @@ export const updateProvider = mutation({
   handler: async (ctx, args) => {
     assertServiceToken(args.token);
     const { id, token: _token, apiKey, ...updates } = args;
+    const before = await ctx.db.get(id);
     await ctx.db.patch(id, {
       ...updates,
       // Write-only credential update: a provided key replaces the stored
@@ -137,6 +145,15 @@ export const updateProvider = mutation({
         });
       }
     }
+    const changed = changedFields(before as Record<string, unknown> | null, updates);
+    if (apiKey) changed.push("apiKey");
+    if (changed.length) {
+      await recordAudit(ctx, {
+        action: "llmProvider.update",
+        target: updates.name ?? before?.name,
+        details: { changed: changed.sort() },
+      });
+    }
   },
 });
 
@@ -144,12 +161,18 @@ export const remove = mutation({
   args: { token: v.string(), id: v.id("llmProviders") },
   handler: async (ctx, args) => {
     assertServiceToken(args.token);
+    const provider = await ctx.db.get(args.id);
     const models = await ctx.db
       .query("llmModels")
       .withIndex("by_provider", (q) => q.eq("providerId", args.id))
       .collect();
     for (const model of models) await ctx.db.delete(model._id);
     await ctx.db.delete(args.id);
+    await recordAudit(ctx, {
+      action: "llmProvider.remove",
+      target: provider?.name,
+      details: { removedModels: models.length },
+    });
   },
 });
 

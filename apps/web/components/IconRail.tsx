@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 
 import { useQuery } from "convex/react";
 import {
   Activity,
+  BarChart3,
   BookOpen,
   Cpu,
   GitBranch,
@@ -18,6 +19,7 @@ import {
   Moon,
   Plug,
   Plus,
+  ScrollText,
   Search,
   Settings,
   Share2,
@@ -212,8 +214,9 @@ export default function IconRail({
   const { openLlmSettings } = useLlmSettings();
   const { theme, toggleTheme: toggle } = useTheme();
   const [commandOpen, setCommandOpen] = useState(false);
-  const [panel, setPanel] = useState<"activity" | "user" | null>(null);
+  const [panel, setPanel] = useState<"activity" | "insights" | "user" | null>(null);
   const activityRef = useRef<HTMLButtonElement>(null);
+  const insightsRef = useRef<HTMLButtonElement>(null);
   const userRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -279,6 +282,15 @@ export default function IconRail({
           />
         </>
       )}
+      {/* Evaluations + Audit log share one rail slot to keep the rail short. */}
+      <RailButton
+        icon={BarChart3}
+        label="Insights"
+        buttonRef={insightsRef}
+        expanded={panel === "insights"}
+        active={pathname === "/evals" || pathname === "/audit"}
+        onClick={() => setPanel((p) => (p === "insights" ? null : "insights"))}
+      />
       <div className="mt-auto flex flex-col items-center gap-1 pt-3 max-[979px]:ml-auto max-[979px]:mt-0 max-[979px]:flex-row max-[979px]:pt-0">
         <RailButton icon={theme === "dark" ? Sun : Moon} label={theme === "dark" ? "Light mode" : "Dark mode"} onClick={toggle} />
         <RailButton icon={Settings} label="Settings" onClick={openSettings} />
@@ -297,6 +309,27 @@ export default function IconRail({
       {panel === "activity" && projectId && (
         <RailPanel anchor={activityRef.current} onClose={() => setPanel(null)}>
           <ActivityFeed projectId={projectId} />
+        </RailPanel>
+      )}
+      {panel === "insights" && (
+        <RailPanel anchor={insightsRef.current} onClose={() => setPanel(null)} width={220}>
+          <div role="menu" aria-label="Insights" className="p-1.5">
+            {[
+              { icon: BarChart3, label: "Evaluations", href: projectId ? `/evals?project=${projectId}` : "/evals", path: "/evals" },
+              { icon: ScrollText, label: "Audit log", href: projectId ? `/audit?project=${projectId}` : "/audit", path: "/audit" },
+            ].map(({ icon: Icon, label, href, path }) => (
+              <Link
+                key={label}
+                href={href}
+                role="menuitem"
+                aria-current={pathname === path ? "page" : undefined}
+                onClick={() => setPanel(null)}
+                className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] hover:bg-hover ${pathname === path ? "bg-hover" : ""}`}
+              >
+                <Icon size={15} className="text-ink-3" /> {label}
+              </Link>
+            ))}
+          </div>
         </RailPanel>
       )}
       {panel === "user" && (

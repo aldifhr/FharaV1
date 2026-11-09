@@ -5,9 +5,10 @@ import { v } from "convex/values";
 import { execSync } from "node:child_process";
 import * as path from "node:path";
 import { internal } from "./_generated/api";
+import { buildChildEnv } from "./lib/childEnv";
 
 function gitExec(cwd: string, args: string[]): string {
-  return execSync(`git ${args.join(" ")}`, { cwd, encoding: "utf-8", windowsHide: true });
+  return execSync(`git ${args.join(" ")}`, { cwd, encoding: "utf-8", windowsHide: true, env: buildChildEnv() });
 }
 
 function makeBranchName(taskId: string, title: string): string {

@@ -65,6 +65,7 @@ import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
+import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import { promisify } from "node:util";
 import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
@@ -411,6 +412,7 @@ export async function mergeThreeWay(base: string, ours: string, theirs: string):
     await Promise.all([fs.writeFile(b, base), fs.writeFile(o, ours), fs.writeFile(t, theirs)]);
     try {
       const { stdout } = await execFileAsync("git", ["merge-file", "-p", o, b, t], {
+        env: buildChildEnv(),
         maxBuffer: 10 * 1024 * 1024,
         windowsHide: true,
       });
@@ -846,6 +848,7 @@ async function listWorkspaceChanges(workspacePath: string, signal?: AbortSignal)
   // Host-internal read (not an agent command, so not via the allowlist).
   const { stdout } = await execFileAsync("git", ["status", "--porcelain", "-uall"], {
     cwd: workspacePath,
+    env: buildChildEnv(),
     maxBuffer: 10 * 1024 * 1024,
     shell: false,
     windowsHide: true,

@@ -12,7 +12,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { McpClient, buildChildEnv, flattenToolResult } from "@/mcp/client";
+import { McpClient, buildMcpChildEnv, flattenToolResult } from "@/mcp/client";
 import { getMcpRegistry, McpRegistry } from "@/mcp/registry";
 import type { McpServerConfig } from "@/mcp/types";
 
@@ -61,14 +61,14 @@ function newRegistry(): McpRegistry {
   return registry;
 }
 
-describe("buildChildEnv", () => {
+describe("buildMcpChildEnv", () => {
   it("never forwards worker secrets to an MCP child process", () => {
     const previousToken = process.env.CONVEX_SERVICE_TOKEN;
     const previousKey = process.env.PROVIDER_ENCRYPTION_KEY;
     process.env.CONVEX_SERVICE_TOKEN = "service-token-value";
     process.env.PROVIDER_ENCRYPTION_KEY = "encryption-key-value";
     try {
-      const env = buildChildEnv({ SOME_PROXY: "http://proxy", OTHER_TOKEN: "nope" });
+      const env = buildMcpChildEnv({ SOME_PROXY: "http://proxy", OTHER_TOKEN: "nope" });
       expect(env.CONVEX_SERVICE_TOKEN).toBeUndefined();
       expect(env.PROVIDER_ENCRYPTION_KEY).toBeUndefined();
       expect(env.OTHER_TOKEN).toBeUndefined();

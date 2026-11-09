@@ -6,7 +6,7 @@
  * SDK dependency: `node:child_process` + `node:stream` do the work.
  *
  * Security properties:
- *  - The child env is filtered to a small allowlist, so the worker's
+ *  - The child env is filtered to the shared allowlist, so the worker's
  *    `CONVEX_SERVICE_TOKEN` / `PROVIDER_ENCRYPTION_KEY` never enter the
  *    MCP process.
  *  - Per-request timeout; a hung server is killed, never awaited.
@@ -16,82 +16,38 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { maskStringSecrets } from "@/governance/tools";
-
-/** Only these env vars may cross into an MCP child process. */
-const SAFE_ENV_KEYS = [
-  "PATH",
-  "HOME",
-  "TMPDIR",
-  "TEMP",
-  "TMP",
-  "LANG",
-  "LC_ALL",
-  "LC_CTYPE",
-  "TZ",
-  "USER",
-  "LOGNAME",
-  "SHELL",
-  "PWD",
-  "APPDATA",
-  "LOCALAPPDATA",
-  "SystemRoot",
-  "COMSPEC",
-  "PATHEXT",
-  "NUMBER_OF_PROCESSORS",
-  "OS",
-  "PROCESSOR_ARCHITECTURE",
-  "HOMEDRIVE",
-  "HOMEPATH",
-  "PROGRAMDATA",
-  "PROGRAMFILES",
-  "PROGRAMFILES(X86)",
-  "PUBLIC",
-  "WINDIR",
-  "ALLUSERSPROFILE",
-] as const;
+import { buildChildEnv } from "@/api/convex/lib/childEnv";
 
 /**
- * Build the child env. Never forward the whole `process.env` — the
- * worker holds the Convex service token and the provider encryption
- * key, and an MCP server (or a malicious config) must not see them.
+ * Build an MCP child's env on top of the shared allowlist (buildChildEnv).
+ * Never forwards the whole `process.env`: the worker holds the Convex
+ * service token and the provider encryption key, and an MCP server (or a
+ * malicious config) must not see them.
  */
-export function buildChildEnv(
+export function buildMcpChildEnv(
   extra?: Record<string, string>,
   serverEnv?: Record<string, string>
 ): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const key of SAFE_ENV_KEYS) {
-    const value = process.env[key];
-    if (value !== undefined) env[key] = value;
-  }
+  const added: Record<string, string> = {};
   for (const [key, value] of Object.entries(extra ?? {})) {
     // Extra vars are user-supplied config (e.g. a proxy). They must not
     // re-introduce worker secrets.
     if (/(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY|CREDENTIAL)/i.test(key)) continue;
-    env[key] = value;
+    added[key] = value;
   }
   // `serverEnv` is the server's OWN configured env (decrypted from its row,
   // e.g. GITHUB_PERSONAL_ACCESS_TOKEN). Token-shaped names are allowed here
   // because the user set them for this server, but the worker's own
-  // secrets and loader hooks never cross.
+  // secrets (dropped again by buildChildEnv) and loader hooks never cross.
   for (const [key, value] of Object.entries(serverEnv ?? {})) {
-    if (WORKER_ONLY_ENV_KEYS.has(key)) continue;
-    env[key] = value;
+    if (MCP_SERVER_ENV_BLOCKED.has(key)) continue;
+    added[key] = value;
   }
-  return env;
+  return buildChildEnv(added);
 }
 
-/** Never forwarded to an MCP child, even when a server row names them. */
-const WORKER_ONLY_ENV_KEYS = new Set([
-  "CONVEX_SERVICE_TOKEN",
-  "PROVIDER_ENCRYPTION_KEY",
-  "PROVIDER_ENCRYPTION_KEY_OLD",
-  "CONVEX_DEPLOY_KEY",
-  "NODE_OPTIONS",
-  "LD_PRELOAD",
-  "DYLD_INSERT_LIBRARIES",
-  "PATH",
-]);
+/** A server row may never set these (loader hooks, PATH hijack). */
+const MCP_SERVER_ENV_BLOCKED = new Set(["NODE_OPTIONS", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "PATH"]);
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -138,7 +94,7 @@ export class McpClient {
     timeoutMs: number;
     maxResultChars: number;
     onStderr?: (chunk: string) => void;
-    /** The server's own decrypted env (see buildChildEnv). */
+    /** The server's own decrypted env (see buildMcpChildEnv). */
     env?: Record<string, string>;
   }): McpClient {
     return new McpClient(
@@ -156,7 +112,7 @@ export class McpClient {
     if (this.child || this.closed) return;
     const child = spawn(this.command, this.args, {
       cwd: this.cwd,
-      env: buildChildEnv(undefined, this.serverEnv),
+      env: buildMcpChildEnv(undefined, this.serverEnv),
       stdio: ["pipe", "pipe", "pipe"],
       detached: false,
       windowsHide: true,

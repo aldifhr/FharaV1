@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import * as path from "node:path";
 import * as net from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
+import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import { createHash } from "node:crypto";
 import { chromium, type Browser } from "playwright";
 import { killTree } from "./verification";
@@ -448,7 +449,7 @@ export async function runResponsiveQa(
           const npmArgs = ["run", dev.script ?? "dev", ...dev.args];
           server = spawn(isWin ? "cmd.exe" : "npm", isWin ? ["/c", "npm.cmd", ...npmArgs] : npmArgs, {
             cwd: workspaceRoot,
-            env: { ...process.env, PORT: targetPort, HOST: "127.0.0.1" },
+            env: buildChildEnv({ PORT: targetPort, HOST: "127.0.0.1" }),
             windowsHide: true,
             stdio: ["ignore", "pipe", "pipe"],
             // Own process group on POSIX so the finally/abort cleanup

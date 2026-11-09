@@ -10,7 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { encryptApiKey } from "@/api/convex/lib/llmCrypto";
-import { buildChildEnv } from "@/mcp/client";
+import { buildMcpChildEnv } from "@/mcp/client";
 import { McpRegistry, sessionAllowedForRole } from "@/mcp/registry";
 import { resolveMcpSpawn, redactSecrets } from "@/mcp/spawn";
 import { probeMcpServer } from "@/mcp/probe";
@@ -88,7 +88,7 @@ describe("spawn spec from an encrypted row", () => {
 
   it("forwards the server's own token env but never the worker's secrets", () => {
     process.env.CONVEX_SERVICE_TOKEN = "worker-service-token";
-    const env = buildChildEnv(undefined, {
+    const env = buildMcpChildEnv(undefined, {
       GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_server",
       CONVEX_SERVICE_TOKEN: "smuggled",
       PROVIDER_ENCRYPTION_KEY: "smuggled",

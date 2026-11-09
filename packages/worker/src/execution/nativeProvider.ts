@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -79,7 +80,7 @@ export interface SpawnOptions {
   cwd: string;
   signal?: AbortSignal;
   shell?: boolean;
-  /** Full child environment (already merged with process.env). */
+  /** Full child environment (already scrubbed by buildChildEnv: never the raw process.env). */
   env?: NodeJS.ProcessEnv;
   /** Live stdout chunks, for streaming JSON events. */
   onStdout?: (chunk: string) => void;
@@ -225,6 +226,7 @@ function probeAvailability(command: string): Promise<boolean> {
     let child: import("node:child_process").ChildProcess;
     try {
       child = spawn(command, ["--version"], {
+        env: buildChildEnv(),
         windowsHide: true,
         shell: process.platform === "win32",
         stdio: ["ignore", "ignore", "ignore"],
@@ -373,7 +375,8 @@ async function defaultSpawn(
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
-      env: options.env,
+      // Never fall back to inheriting the worker's process.env.
+      env: options.env ?? buildChildEnv(),
       shell: options.shell ?? process.platform === "win32",
       windowsHide: true,
       detached: process.platform !== "win32",
@@ -561,8 +564,10 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
     ran = await (input.spawnImpl ?? defaultSpawn)(command, args, {
       cwd: input.workspacePath,
       signal: controller.signal,
-      env: {
-        ...process.env,
+      // Allowlisted env only (buildChildEnv): the worker's service token,
+      // encryption key and provider keys never reach the agent. The one
+      // LLM key the agent needs arrives explicitly via secretEnv.
+      env: buildChildEnv({
         // OpenCode resolves its project dir from $PWD before cwd: an
         // inherited PWD (the worker's own dir) silently redirected every
         // write out of the task worktree in the live smoke run.
@@ -570,7 +575,7 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
         OPENCODE_CONFIG: configFile,
         OPENCODE_DISABLE_AUTOUPDATE: "1",
         ...secretEnv,
-      },
+      }),
       onStdout: (chunk) => {
         streamed = true;
         feed(chunk);

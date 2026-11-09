@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { buildChildEnv } from "@/api/convex/lib/childEnv";
 
 const execFileAsync = promisify(execFile);
 
@@ -12,12 +13,14 @@ export async function commitWorktree(
     cwd: worktreePath,
     shell: false,
     windowsHide: true,
+    env: buildChildEnv(),
   });
   if (status.trim().length === 0) return false;
   await execFileAsync("git", files && files.length > 0 ? ["add", "--", ...files] : ["add", "-A"], {
     cwd: worktreePath,
     shell: false,
     windowsHide: true,
+    env: buildChildEnv(),
   });
   await execFileAsync(
     "git",
@@ -30,7 +33,7 @@ export async function commitWorktree(
       "-m",
       message,
     ],
-    { cwd: worktreePath, shell: false, windowsHide: true }
+    { cwd: worktreePath, shell: false, windowsHide: true, env: buildChildEnv() }
   );
   return true;
 }
@@ -53,7 +56,7 @@ export interface CommitSummary {
  */
 export async function describeCommit(worktreePath: string, baseBranch: string): Promise<CommitSummary> {
   const git = async (args: string[]) =>
-    (await execFileAsync("git", args, { cwd: worktreePath, shell: false, windowsHide: true })).stdout.trim();
+    (await execFileAsync("git", args, { cwd: worktreePath, shell: false, windowsHide: true, env: buildChildEnv() })).stdout.trim();
   const sha = await git(["rev-parse", "HEAD"]);
   const message = await git(["log", "-1", "--format=%s"]);
   let filesChanged = 0;

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { EvaluationCheck } from "@/types";
@@ -308,7 +309,7 @@ function runCommand(
         shell: true,
         windowsHide: true,
         detached: process.platform !== "win32",
-        env: { ...process.env, CI: "1", NO_COLOR: "1", FORCE_COLOR: "0" },
+        env: buildChildEnv({ CI: "1", NO_COLOR: "1", FORCE_COLOR: "0" }),
       });
     } catch (error) {
       output = error instanceof Error ? error.message : String(error);

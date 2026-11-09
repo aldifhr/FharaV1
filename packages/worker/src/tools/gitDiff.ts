@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
@@ -94,6 +95,7 @@ export async function readHeadContent(
   try {
     const { stdout } = await execFileAsync("git", ["show", `HEAD:${filePath}`], {
       cwd: workspaceRoot,
+      env: buildChildEnv(),
       maxBuffer: 10 * 1024 * 1024,
       shell: false,
       windowsHide: true,
@@ -118,6 +120,7 @@ export async function snapshotDirtyFiles(
   try {
     ({ stdout } = await execFileAsync("git", ["status", "--porcelain"], {
       cwd: workspaceRoot,
+      env: buildChildEnv(),
       maxBuffer: 10 * 1024 * 1024,
       shell: false,
       windowsHide: true,
@@ -142,6 +145,7 @@ export async function gitDiff(workspaceRoot: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync("git", ["diff", "--no-color"], {
       cwd: workspaceRoot,
+      env: buildChildEnv(),
       maxBuffer: 10 * 1024 * 1024,
       shell: false,
       windowsHide: true,

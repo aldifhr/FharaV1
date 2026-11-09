@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { buildChildEnv } from "@/api/convex/lib/childEnv";
 
 const execFileAsync = promisify(execFile);
 
@@ -67,6 +68,7 @@ export async function runCommand(
       maxBuffer: 10 * 1024 * 1024,
       shell: shouldUseShell(command),
       windowsHide: true,
+      env: buildChildEnv(),
       // Task cancellation (Phase 4): execFile kills the child when the
       // signal fires; the rejection lands in the catch below like any
       // other command failure.

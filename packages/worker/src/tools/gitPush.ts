@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { buildChildEnv } from "@/api/convex/lib/childEnv";
 
 /**
  * Plan 019: push a committed sha to a GitHub branch with a short-lived
@@ -59,7 +60,7 @@ export function redactSecret(text: string, token: string): string {
 }
 
 /** Environment for one authenticated git call against github.com. */
-export function githubAuthEnv(token: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function githubAuthEnv(token: string, base: NodeJS.ProcessEnv = buildChildEnv()): NodeJS.ProcessEnv {
   const basic = Buffer.from(`x-access-token:${token}`).toString("base64");
   // Drop any inherited GIT_CONFIG_* so indices cannot collide.
   const env: NodeJS.ProcessEnv = {};
@@ -104,7 +105,7 @@ export async function pushCommitToGithub(input: PushInput): Promise<{ remoteUrl:
     // and deleted; the sha stays reachable from the merge commit).
     await execGit(["cat-file", "-e", `${input.commitSha}^{commit}`], {
       cwd: input.repoPath,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      env: buildChildEnv({ GIT_TERMINAL_PROMPT: "0" }),
       signal: input.signal,
       timeoutMs: 15_000,
     });

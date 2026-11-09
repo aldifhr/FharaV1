@@ -36,6 +36,7 @@ import {
   generateWebhookSecretValue,
   verifyGithubSignature,
 } from "./lib/githubWebhook";
+import { parsePrSignal } from "./lib/prFeedback";
 
 // GitHub OAuth configuration
 // Read per call (not at module load) so env changes and tests see them.
@@ -594,6 +595,14 @@ export const handleWebhook = httpAction(async (ctx, request) => {
     handled: HANDLED_GITHUB_EVENTS.has(event),
   });
   if (duplicate) return json({ ok: true, duplicate: true });
+
+  // Post-push feedback loop: CI, reviews, review comments and PR state are
+  // linked to the pushed PR and may queue a fix (prFeedback.ts).
+  const signal = parsePrSignal(event, body);
+  if (signal) {
+    const result = await ctx.runMutation(internal.prFeedback.ingest, { projectId: resolved.projectId, signal });
+    return json({ ok: true, linked: result.matched, reaction: result.reaction });
+  }
 
   return json({ ok: true });
 });

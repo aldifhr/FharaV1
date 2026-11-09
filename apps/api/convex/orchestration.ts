@@ -23,6 +23,7 @@ import { decidePermissionCore, permissionArgs } from "./permissionBroker";
 import { clearSubtaskLive } from "./subtaskLive";
 import { recordAudit } from "./lib/recordAudit";
 import { FINISHED_TASK_STATUSES, worktreeCleanupBlocker } from "./lib/worktreeRetention";
+import { onTaskSettled } from "./prFeedback";
 import {
   autoApprovalDecision,
   normalizePermissionMode,
@@ -1700,6 +1701,9 @@ export const completeTask = internalMutation({
       }
       // Decision Outcome Calibration: label this run's decisions (scheduled).
       if (TERMINAL_TASK_STATUSES.has(args.status)) await scheduleDecisionEvaluation(ctx, task._id);
+      // Post-push feedback loop: a settled PR fix re-arms deferred
+      // reactions and refreshes the owner's notifications.
+      if (TERMINAL_TASK_STATUSES.has(args.status) && task.prFix) await onTaskSettled(ctx, task);
     }
     return { applied: true, status: args.status };
   },
@@ -2508,6 +2512,10 @@ export const getMergeContext = internalQuery({
       workspacePath: project?.workspacePath ?? "",
       mainBranch: project?.mainBranch ?? "main",
       projectId: task.projectId,
+      // Post-push feedback loop: the branch and worktree outlive the local
+      // merge so a fix task can land on the same PR. Released when the PR
+      // closes (prFeedback.onPrClosed).
+      keepWorktree: Boolean(project?.prFeedbackReactions) || Boolean(task.parentTaskId && task.prFix),
     };
   },
 });
@@ -2518,6 +2526,7 @@ export const mergeBranchCompleted = internalMutation({
     projectId: v.id("projects"),
     branchName: v.string(),
     conflict: v.optional(v.string()),
+    kept: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     if (args.conflict) {
@@ -2530,15 +2539,17 @@ export const mergeBranchCompleted = internalMutation({
       });
       throw new Error(`Merge failed: ${args.conflict}`);
     }
-    await ctx.db.patch(args.taskId, {
-      branchName: undefined,
-      worktreePath: undefined,
-    });
+    if (!args.kept) {
+      await ctx.db.patch(args.taskId, {
+        branchName: undefined,
+        worktreePath: undefined,
+      });
+    }
     await ctx.db.insert("taskEvents", {
       taskId: args.taskId,
       projectId: args.projectId,
       type: "branch.merged",
-      payload: { branchName: args.branchName },
+      payload: { branchName: args.branchName, ...(args.kept ? { worktreeKept: true } : {}) },
       level: "info",
     });
     return { success: true };
@@ -2618,6 +2629,15 @@ export const listStaleWorktreeTasks = internalQuery({
           .query("taskPushes")
           .withIndex("by_task", (q) => q.eq("taskId", task._id))
           .take(50);
+        // Post-push feedback loop: an owner and its PR fixes share one
+        // worktree, so the PR's rows (the owner's and its fixes') decide.
+        const ownerId = task.parentTaskId && task.prFix ? task.parentTaskId : task._id;
+        pushes.push(
+          ...(await ctx.db.query("taskPushes").withIndex("by_owner_task", (q) => q.eq("ownerTaskId", ownerId)).take(50)),
+          ...(ownerId !== task._id
+            ? await ctx.db.query("taskPushes").withIndex("by_task", (q) => q.eq("taskId", ownerId)).take(50)
+            : [])
+        );
         const blocker = worktreeCleanupBlocker(
           {
             status: task.status,

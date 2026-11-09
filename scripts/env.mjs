@@ -42,6 +42,7 @@ export const CONVEX_KEYS = [
   "OAUTH_STATE_SECRET",
   "APP_ORIGIN",
   "MOAGENT_WEEKLY_TOKEN_BUDGET",
+  "FHARA_PR_FIX_MAX_ATTEMPTS",
 ];
 
 /** Root .env merged under the current process env (process env wins). */

@@ -65,7 +65,7 @@ export default function InboxPage() {
     }
   };
 
-  const total = inbox ? inbox.approvals.length + inbox.tasks.length + inbox.agents.length : 0;
+  const total = inbox ? inbox.approvals.length + inbox.notifications.length + inbox.tasks.length + inbox.agents.length : 0;
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
@@ -167,6 +167,25 @@ export default function InboxPage() {
                         </button>
                       </div>
                       )}
+                    </li>
+                  ))}
+                </Section>
+              )}
+
+              {inbox.notifications.length > 0 && (
+                <Section title="Pull requests" count={inbox.notifications.length}>
+                  {inbox.notifications.map((n) => (
+                    <li key={n._id}>
+                      <Link href={`/chats/${n.projectId}?task=${n.taskId}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[14px]">{n.title}</p>
+                          <p className="truncate text-[12.5px] text-ink-3">
+                            {n.projectName}
+                            {n.detail ? ` · ${n.detail}` : ""}
+                          </p>
+                        </div>
+                        <ArrowUpRight size={14} className="shrink-0 text-ink-3" />
+                      </Link>
                     </li>
                   ))}
                 </Section>

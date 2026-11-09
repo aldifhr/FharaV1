@@ -136,6 +136,37 @@ export const prState = v.union(
   v.literal("closed")
 );
 
+/** Post-push PR facts (lib/prFeedback.ts). */
+export const prCiState = v.union(v.literal("pending"), v.literal("passed"), v.literal("failed"));
+export const prReviewState = v.union(
+  v.literal("none"),
+  v.literal("approved"),
+  v.literal("changes_requested"),
+  v.literal("commented")
+);
+export const prMergeable = v.union(v.literal("unknown"), v.literal("mergeable"), v.literal("conflict"));
+export const prFixKind = v.union(
+  v.literal("ci_failed"),
+  v.literal("changes_requested"),
+  v.literal("review_comments"),
+  v.literal("merge_conflict")
+);
+export const prCheckFact = v.object({
+  name: v.string(),
+  status: prCiState,
+  conclusion: v.optional(v.string()),
+  url: v.optional(v.string()),
+  checkRunId: v.optional(v.number()),
+});
+export const notificationKind = v.union(
+  v.literal("ready_to_merge"),
+  v.literal("ci_failed"),
+  v.literal("changes_requested"),
+  v.literal("merge_conflict"),
+  v.literal("fix_cap_reached"),
+  v.literal("fix_failed")
+);
+
 export default defineSchema({
   projects: defineTable({
     name: v.string(),
@@ -182,6 +213,10 @@ export default defineSchema({
     // never the full argv (lib/commandRules.ts). The worker's exact-argv
     // allowlist still applies first; dangerous / push-like commands never
     // match a rule. Unset = no rules.
+    // Post-push feedback loop (additive): a failed CI check, a review that
+    // asks for changes, new review comments or a merge conflict on a task's
+    // PR queue a fix task on the same branch/worktree. Unset = off.
+    prFeedbackReactions: v.optional(v.boolean()),
     commandAllowRules: v.optional(
       v.array(
         v.object({
@@ -306,6 +341,17 @@ export default defineSchema({
     // Plan 019 (additive): the chat conversation the task was dispatched
     // from, so stage cards (verification / QA / push) land in that chat.
     conversationId: v.optional(v.id("conversations")),
+    // Post-push feedback loop (additive): a fix task is owned by the task
+    // whose PR it fixes and runs on that task's branch/worktree.
+    parentTaskId: v.optional(v.id("tasks")),
+    prFix: v.optional(
+      v.object({
+        repoFullName: v.string(),
+        prNumber: v.number(),
+        kind: prFixKind,
+        reactionId: v.id("prReactions"),
+      })
+    ),
     // Agile: the phase within the sprint. The board shows these as columns;
     // the DAG scheduler still owns the true ordering.
     phase: v.optional(
@@ -324,7 +370,8 @@ export default defineSchema({
     .index("by_status_and_lease", ["status", "leaseExpiresAt"])
     .index("by_worker", ["workerId"])
     .index("by_worker_and_status", ["workerId", "status"])
-    .index("by_idempotency", ["idempotencyKey"]),
+    .index("by_idempotency", ["idempotencyKey"])
+    .index("by_parent", ["parentTaskId"]),
 
   plans: defineTable({
     taskId: v.id("tasks"),
@@ -1063,15 +1110,82 @@ export default defineSchema({
     prTitle: v.optional(v.string()),
     prState: v.optional(prState),
     prCheckedAt: v.optional(v.number()),
+    // Post-push feedback loop (additive). A fix task's push row names the
+    // task that owns the PR; unset = this row's own task.
+    ownerTaskId: v.optional(v.id("tasks")),
+    // PR facts from webhooks and the refresh cron, copied onto every row of
+    // the same PR. CI is tracked for the PR head commit only.
+    headSha: v.optional(v.string()),
+    ciState: v.optional(prCiState),
+    ciChecks: v.optional(v.array(prCheckFact)),
+    reviewState: v.optional(prReviewState),
+    mergeable: v.optional(prMergeable),
+    lastCommentAt: v.optional(v.number()),
+    prFactsAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_task", ["taskId"])
+    .index("by_owner_task", ["ownerTaskId"])
+    .index("by_repo_pr", ["repoFullName", "prNumber"])
     .index("by_task_and_sha", ["taskId", "commitSha"])
     .index("by_status_and_requested", ["status", "requestedAt"])
     .index("by_status_and_lease", ["status", "leaseExpiresAt"])
     .index("by_pr_state_and_checked", ["prState", "prCheckedAt"])
     // Project delete cascade (projects.cascadeDelete).
+    .index("by_project", ["projectId"]),
+
+  // Post-push feedback loop: one row per PR signal that Fhara reacts to,
+  // deduped on (PR, signature). `created` rows count toward the per-PR
+  // fix cap (FHARA_PR_FIX_MAX_ATTEMPTS, default 3).
+  prReactions: defineTable({
+    projectId: v.id("projects"),
+    ownerTaskId: v.id("tasks"),
+    pushId: v.id("taskPushes"),
+    repoFullName: v.string(),
+    prNumber: v.number(),
+    kind: prFixKind,
+    // ci:<sha> · review:<id> · conflict:<sha>
+    signature: v.string(),
+    headSha: v.optional(v.string()),
+    // Webhook context the fix prompt falls back to when the API is down.
+    context: v.optional(v.any()),
+    status: v.union(
+      v.literal("scheduled"),
+      v.literal("deferred"),
+      v.literal("created"),
+      v.literal("skipped")
+    ),
+    skipReason: v.optional(v.string()),
+    fixTaskId: v.optional(v.id("tasks")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_pr_and_signature", ["repoFullName", "prNumber", "signature"])
+    .index("by_pr_and_status", ["repoFullName", "prNumber", "status"])
+    .index("by_owner_task", ["ownerTaskId"])
+    .index("by_project", ["projectId"]),
+
+  // Stored "needs you" notifications. Recomputed from PR facts and task
+  // state, so a notification resolves itself when what raised it changes.
+  notifications: defineTable({
+    projectId: v.id("projects"),
+    taskId: v.id("tasks"),
+    pushId: v.optional(v.id("taskPushes")),
+    kind: notificationKind,
+    title: v.string(),
+    detail: v.optional(v.string()),
+    url: v.optional(v.string()),
+    // `${taskId}:${kind}`: at most one open row per task and kind.
+    dedupeKey: v.string(),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+  })
+    .index("by_dedupe_and_status", ["dedupeKey", "status"])
+    .index("by_status_and_updated", ["status", "updatedAt"])
+    .index("by_task_and_status", ["taskId", "status"])
     .index("by_project", ["projectId"]),
 
   // Integration webhook events (for async processing)

@@ -11,6 +11,7 @@ import {
   visibleProjectIds,
 } from "./lib/authz";
 import { refreshAgentStatus } from "./orchestration";
+import { onTaskSettled } from "./prFeedback";
 import { taskStatus } from "./schema";
 import { permissionModeValidator, projectDefaultPermissionMode } from "./lib/permissionModes";
 import { admitTaskInput } from "./lib/taskInputGuard";
@@ -281,6 +282,19 @@ export const remove = mutation({
     ] as const) {
       await deleteByTask(table);
     }
+    // Post-push feedback loop: the task's PR reactions and notifications.
+    for (const status of ["open", "resolved"] as const) {
+      const notes = await ctx.db
+        .query("notifications")
+        .withIndex("by_task_and_status", (q) => q.eq("taskId", args.taskId).eq("status", status))
+        .collect();
+      for (const note of notes) await ctx.db.delete(note._id);
+    }
+    const reactions = await ctx.db
+      .query("prReactions")
+      .withIndex("by_owner_task", (q) => q.eq("ownerTaskId", args.taskId))
+      .collect();
+    for (const reaction of reactions) await ctx.db.delete(reaction._id);
     await ctx.db.delete(args.taskId);
     return true;
   },
@@ -301,6 +315,13 @@ export const cancel = mutation({
       workerId: undefined,
       leaseExpiresAt: undefined,
     });
+
+    // Post-push feedback loop: a cancelled PR fix frees the PR for the
+    // next reaction and refreshes the owner's notifications.
+    if (task.prFix) {
+      const cancelled = await ctx.db.get(task._id);
+      if (cancelled) await onTaskSettled(ctx, cancelled);
+    }
 
     // Clean up what the cancelled run left open (core M8): pending
     // approvals would otherwise stay actionable in the inbox, and running

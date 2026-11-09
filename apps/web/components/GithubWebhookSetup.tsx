@@ -108,6 +108,9 @@ export default function GithubWebhookSetup({ integrationId }: { integrationId: s
       ) : (
         <p className="text-[12.5px] text-ink-3">The deployment's site URL is unknown, so the payload URL can't be shown.</p>
       )}
+      <p className="text-[12.5px] text-ink-3">
+        Under &quot;Let me select individual events&quot;, tick Check runs, Pull requests, Pull request reviews, Pull request review comments and Issue comments. The PR lanes and fix tasks read these.
+      </p>
       {secret && (
         <div className="grid gap-1">
           <CopyField label="Secret" value={secret} />

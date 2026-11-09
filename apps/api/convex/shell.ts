@@ -29,7 +29,8 @@ export type NeedsYouKind =
   | "command"
   | "merge"
   | "question"
-  | "review";
+  | "review"
+  | "pr";
 
 export type NeedsYouItem = {
   /** Stable key: one row per (source, record). */
@@ -183,6 +184,39 @@ const pendingPushes: NeedsYouSource = async ({ ctx, visible }) => {
   return items;
 };
 
+const NOTIFICATION_LIMIT = 100;
+
+/**
+ * Stored PR notifications (post-push feedback loop): ready to merge, or a
+ * CI failure / review / conflict Fhara will not fix itself. They resolve
+ * themselves when the PR or task state changes (prFeedback.syncPrNotifications).
+ */
+const prNotifications: NeedsYouSource = async ({ ctx, visible }) => {
+  const rows = await ctx.db
+    .query("notifications")
+    .withIndex("by_status_and_updated", (q) => q.eq("status", "open"))
+    .order("desc")
+    .take(NOTIFICATION_LIMIT);
+  const items: NeedsYouItem[] = [];
+  for (const n of rows) {
+    const project = visible.get(n.projectId as string);
+    if (!project) continue;
+    items.push({
+      key: `notification:${n._id}`,
+      kind: "pr",
+      title: n.title,
+      agentRole: null,
+      note: n.detail ? truncate(n.detail, 60) : null,
+      projectId: n.projectId,
+      projectName: project.name,
+      taskId: n.taskId,
+      approvalId: null,
+      at: n.updatedAt,
+    });
+  }
+  return items;
+};
+
 /**
  * Ordered sources. Add a new kind of "needs you" by appending one function
  * here; a "review" item whose task is already covered by an earlier source
@@ -191,6 +225,7 @@ const pendingPushes: NeedsYouSource = async ({ ctx, visible }) => {
 export const NEEDS_YOU_SOURCES: NeedsYouSource[] = [
   pendingApprovals,
   pendingPushes,
+  prNotifications,
   openQuestions,
   tasksAwaitingApproval,
 ];
@@ -362,6 +397,11 @@ export const projectCounts = query({
         .take(PUSH_LIMIT);
       for (const p of pushes) bump(p.projectId as string, "needsYou");
     }
+    const notes = await ctx.db
+      .query("notifications")
+      .withIndex("by_status_and_updated", (q) => q.eq("status", "open"))
+      .take(NOTIFICATION_LIMIT);
+    for (const n of notes) bump(n.projectId as string, "needsYou");
     return counts;
   },
 });

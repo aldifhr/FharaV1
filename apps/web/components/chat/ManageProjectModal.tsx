@@ -40,6 +40,7 @@ type ProjectDoc = {
   instructions?: string;
   planReview?: string;
   shadowAgentDefault?: boolean;
+  prFeedbackReactions?: boolean;
   commandAllowRules?: { prefix: string; createdAt: number; createdBy: string }[];
 };
 
@@ -66,6 +67,11 @@ export default function ManageProjectModal({
   const removeCommandRule = useMutation(api.commandApprovals.removeRule);
   const [removingRule, setRemovingRule] = useState<string | null>(null);
   const [shadowDefault, setShadowDefaultState] = useState(Boolean(project.shadowAgentDefault));
+  // Post-push feedback loop: CI / review / conflict on a task's PR queue a fix.
+  const setPrReactions = useMutation(api.prFeedback.setProjectSetting);
+  const prSetting = useQuery(api.prFeedback.getProjectSetting, { projectId: projectId as never });
+  const [prReactionsChoice, setPrReactionsState] = useState<boolean | null>(null);
+  const prReactions = prReactionsChoice ?? prSetting?.enabled ?? Boolean(project.prFeedbackReactions);
   // Plan 022: model tier per role, picked from the models already configured.
   const tierState = useQuery(api.contracts.getProjectModelTiers, { projectId: projectId as never });
   const setModelTiers = useMutation(api.contracts.setProjectModelTiers);
@@ -120,6 +126,9 @@ export default function ManageProjectModal({
       }
       if (shadowDefault !== Boolean(project.shadowAgentDefault)) {
         await setShadowDefault({ projectId: projectId as never, enabled: shadowDefault });
+      }
+      if (prReactionsChoice !== null) {
+        await setPrReactions({ projectId: projectId as never, enabled: prReactionsChoice });
       }
       const days = Number(retentionDays);
       if (retention && retentionDays !== "" && Number.isFinite(days) && days !== retention.days) {
@@ -231,6 +240,20 @@ export default function ManageProjectModal({
             Shadow agent on new tasks
             <span className="text-[12.5px] text-ink-3">
               The Reviewer reads each completed subtask and leaves notes. It never runs anything or blocks the task. Off by default; switch it per task in the thread.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2.5">
+          <input
+            type="checkbox"
+            checked={prReactions}
+            onChange={(e) => setPrReactionsState(e.target.checked)}
+            className="mt-1 h-4 w-4 accent-[var(--shell-brand)]"
+          />
+          <span className="grid gap-0.5">
+            Fix pull request feedback
+            <span className="text-[12.5px] text-ink-3">
+              After a push, a failed CI check, a review asking for changes, new review comments or a merge conflict queues a fix on the same branch, up to {prSetting?.maxAttempts ?? 3} per PR. Each fix push still waits for your approval. The task&apos;s worktree is kept until its PR closes. Off by default.
             </span>
           </span>
         </label>

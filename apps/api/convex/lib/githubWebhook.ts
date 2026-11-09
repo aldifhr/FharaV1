@@ -83,7 +83,7 @@ export function generateWebhookSecretValue(): string {
 }
 
 /** Events we accept. Anything else is acknowledged and ignored. */
-export const HANDLED_GITHUB_EVENTS = new Set(["ping", "push", "pull_request", "issues", "issue_comment", "check_run", "check_suite", "pull_request_review"]);
+export const HANDLED_GITHUB_EVENTS = new Set(["ping", "push", "pull_request", "issues", "issue_comment", "check_run", "check_suite", "pull_request_review", "pull_request_review_comment"]);
 
 /** How long delivery ids are kept for replay dedupe. */
 export const WEBHOOK_DELIVERY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;

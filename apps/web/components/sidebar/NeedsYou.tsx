@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
-import { ArrowUp, FileDiff, GitMerge, HelpCircle, ShieldCheck, Terminal, type LucideIcon } from "lucide-react";
+import { ArrowUp, FileDiff, GitMerge, GitPullRequest, HelpCircle, ShieldCheck, Terminal, type LucideIcon } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { roleLabel } from "@/lib/agentRoles";
 import { useOptionalWorkspace } from "@/app/WorkspaceContext";
@@ -17,6 +17,7 @@ const KIND_ICON: Record<string, { icon: LucideIcon; tone: string }> = {
   merge: { icon: GitMerge, tone: "bg-warn-soft text-warn" },
   question: { icon: HelpCircle, tone: "bg-brand-soft text-brand-ink" },
   review: { icon: ShieldCheck, tone: "bg-warn-soft text-warn" },
+  pr: { icon: GitPullRequest, tone: "bg-hover text-ink-2" },
 };
 
 const MAX_SHOWN = 3;

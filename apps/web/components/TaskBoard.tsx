@@ -13,6 +13,7 @@ import { NEUTRAL_PILL, TASK_STATUSES, TASK_STATUS_PILL, isClosedStatus, subtaskS
 import { SectionLoading, useWorkspace } from "@/app/WorkspaceContext";
 import ConfirmDialog from "./ConfirmDialog";
 import PauseResumeButton from "./PauseResumeButton";
+import { PR_LANES, type PrLane } from "@/api/convex/lib/prFeedback";
 
 type TaskRow = any;
 
@@ -41,6 +42,43 @@ function phaseOf(t: any, subtasks: any[]): string {
   return "planning";
 }
 
+// Post-push lanes: derived from the PR facts stored with the push
+// (prFeedback.lanesByProject). A pushed task with a PR lives here instead
+// of in its sprint phase.
+const BOARD_GROUPS: ReadonlyArray<{ key: string; label: string }> = [
+  ...PHASES.filter((p) => p.key !== "done"),
+  ...PR_LANES.map((lane) => ({ key: `pr:${lane.key}`, label: lane.label })),
+  PHASES[PHASES.length - 1],
+];
+
+type PrLaneRow = {
+  taskId: string;
+  lane: PrLane;
+  prNumber: number;
+  prUrl: string | null;
+  ciState: string | null;
+  failedChecks: string[];
+  reviewState: string | null;
+  mergeable: string | null;
+  fixing: boolean;
+  fixAttempts: number;
+  maxAttempts: number;
+};
+
+/** One quiet line under the title: PR number, what blocks it, who acts next. */
+function prSummary(row: PrLaneRow): string {
+  const parts = [`PR #${row.prNumber}`];
+  if (row.ciState === "failed") parts.push(row.failedChecks.length ? `CI failed: ${row.failedChecks.slice(0, 2).join(", ")}` : "CI failed");
+  else if (row.ciState === "pending") parts.push("CI running");
+  else if (row.ciState === "passed") parts.push("CI passed");
+  if (row.reviewState === "changes_requested") parts.push("changes requested");
+  else if (row.reviewState === "approved") parts.push("approved");
+  if (row.mergeable === "conflict") parts.push("merge conflict");
+  if (row.fixing) parts.push(`Fhara is fixing (${row.fixAttempts}/${row.maxAttempts})`);
+  else if (row.fixAttempts > 0 && row.lane !== "merged") parts.push(`${row.fixAttempts}/${row.maxAttempts} fixes used`);
+  return parts.join(" · ");
+}
+
 function kindToPhase(kind: string): string {
   if (kind === "review") return "review";
   if (kind === "qa") return "verification";
@@ -63,6 +101,7 @@ export default function TaskBoard({
   const projectFiles = useQuery(api.fileChanges.listByProject, { projectId: projectId as any });
   const pendingApprovals = useQuery(api.approvals.listPendingAll, {});
   const agents = useQuery(api.agents.list, {});
+  const prLanes = useQuery(api.prFeedback.lanesByProject, { projectId: projectId as any });
   const { deleteTask } = useWorkspace();
   const createTask = useMutation(api.tasks.createFromCommand);
   const cancelTask = useMutation(api.tasks.cancel);
@@ -103,6 +142,12 @@ export default function TaskBoard({
     for (const row of plansByTask ?? []) map.set(row.taskId, row);
     return map;
   }, [plansByTask]);
+
+  const prOf = useMemo(() => {
+    const map = new Map<string, PrLaneRow>();
+    for (const row of (prLanes ?? []) as PrLaneRow[]) map.set(row.taskId, row);
+    return map;
+  }, [prLanes]);
 
   const agentNameById = useMemo(() => {
     const map = new Map<string, any>();
@@ -217,10 +262,15 @@ export default function TaskBoard({
       {/* Sprint board: agile phases as swimlanes. Each task is indivisible —
           it lives in exactly one phase, derived from its subtasks. */}
       <div className="space-y-4">
-        {PHASES.map((phase) => {
+        {BOARD_GROUPS.map((phase) => {
+          // A task with a PR sits in its PR lane once its own run is over.
+          const groupOf = (t: TaskRow, subtasks: any[]) => {
+            const pr = prOf.get(t._id);
+            return pr && isClosedStatus(t.status) ? `pr:${pr.lane}` : phaseOf(t, subtasks);
+          };
           const inPhase = visible
             .map((t) => ({ t, subtasks: subtasksOf.get(t._id) ?? [] }))
-            .filter(({ t, subtasks }) => phaseOf(t, subtasks) === phase.key);
+            .filter(({ t, subtasks }) => groupOf(t, subtasks) === phase.key);
           if (inPhase.length === 0) return null;
           return (
             <section key={phase.key} className="space-y-2">
@@ -270,6 +320,9 @@ export default function TaskBoard({
                     </span>
                   )}
                 </div>
+                {prOf.get(t._id) && (
+                  <p className="mt-1 truncate text-[11px] text-ink-3">{prSummary(prOf.get(t._id)!)}</p>
+                )}
               </button>
               <div className="flex shrink-0 items-center gap-2">
                 <div className="flex gap-1">
@@ -365,6 +418,16 @@ export default function TaskBoard({
                 })}
                 {t.errorMessage && (
                   <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] text-red-600 dark:bg-red-950/40 dark:text-red-300">{t.errorMessage}</p>
+                )}
+                {prOf.get(t._id)?.prUrl && (
+                  <a
+                    href={prOf.get(t._id)!.prUrl!}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block pt-1 text-[11px] text-brand-ink outline-none hover:underline focus-visible:underline"
+                  >
+                    Open PR #{prOf.get(t._id)!.prNumber} on GitHub
+                  </a>
                 )}
                 {/* Agile phase flow */}
                 <div className="flex flex-wrap items-center gap-1 pt-2">

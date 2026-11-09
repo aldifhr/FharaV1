@@ -214,6 +214,8 @@ export const PROJECT_CASCADE = [
   { table: "delegations", index: "by_project" },
   { table: "lifecycleHistory", index: "by_project" },
   { table: "taskPushes", index: "by_project" },
+  { table: "prReactions", index: "by_project" },
+  { table: "notifications", index: "by_project" },
   { table: "repoToolCalls", index: "by_project" },
   { table: "improvementSuggestions", index: "by_project" },
   { table: "incidents", index: "by_project_and_status" },

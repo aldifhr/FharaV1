@@ -15,6 +15,8 @@ import { githubConnectionState, projectGithubBinding, resolveGithubToken } from 
 import { holdsTaskLease } from "./orchestration";
 import { prState } from "./schema";
 import type { QaCardData, VerificationCardData } from "./cardTypes";
+import { ingestSignal, onPrPushed } from "./prFeedback";
+import { mergeabilityOf } from "./lib/prFeedback";
 
 /**
  * Plan 019 — stage cards and the GitHub push / pull-request flow.
@@ -254,7 +256,40 @@ export const recordTaskCommit = internalMutation({
       return { applied: true as const, pushId: existing._id, messageId: existing.messageId, deduped: true };
     }
     const now = Date.now();
+    // Post-push feedback loop: a PR fix commit joins its owner's PR (same
+    // branch), so the push updates that PR instead of opening another.
+    let inherited: Partial<PushRow> = {};
+    if (task.parentTaskId && task.prFix) {
+      const ownerRows = await ctx.db
+        .query("taskPushes")
+        .withIndex("by_repo_pr", (q) => q.eq("repoFullName", task.prFix!.repoFullName).eq("prNumber", task.prFix!.prNumber))
+        .take(100);
+      const pr = ownerRows
+        .filter((row) => row.projectId === args.projectId && row.branchName === args.branchName)
+        .sort((a, b) => b.createdAt - a.createdAt)[0];
+      if (pr) {
+        inherited = {
+          ownerTaskId: task.parentTaskId,
+          openPr: true,
+          repoFullName: pr.repoFullName,
+          baseBranch: pr.baseBranch,
+          prNumber: pr.prNumber,
+          prUrl: pr.prUrl,
+          prTitle: pr.prTitle,
+          prState: pr.prState,
+          prCheckedAt: pr.prCheckedAt,
+          headSha: pr.headSha,
+          ciState: pr.ciState,
+          ciChecks: pr.ciChecks,
+          reviewState: pr.reviewState,
+          mergeable: pr.mergeable,
+        };
+      } else {
+        inherited = { ownerTaskId: task.parentTaskId };
+      }
+    }
     const pushId = await ctx.db.insert("taskPushes", {
+      ...inherited,
       taskId: args.taskId,
       projectId: args.projectId,
       conversationId: task.conversationId,
@@ -451,6 +486,8 @@ export const completePushRequest = internalMutation({
         commitSha: row.commitSha,
         prNumber: args.pr?.number ?? null,
       });
+      const pushed = await ctx.db.get(row._id);
+      if (pushed) await onPrPushed(ctx, pushed);
     } else {
       await ctx.db.patch(row._id, {
         status: "failed",
@@ -649,6 +686,8 @@ export const recordPrState = internalMutation({
     pushId: v.id("taskPushes"),
     state: v.optional(prState),
     title: v.optional(v.string()),
+    headSha: v.optional(v.string()),
+    mergeable: v.optional(v.union(v.literal("unknown"), v.literal("mergeable"), v.literal("conflict"))),
   },
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.pushId);
@@ -660,6 +699,20 @@ export const recordPrState = internalMutation({
       prCheckedAt: now,
       updatedAt: now,
     });
+    // Post-push feedback loop: the polled state and mergeability go through
+    // the same path as a pull_request webhook (facts, conflict reaction,
+    // notifications, worktree release on close).
+    if (args.state && row.prNumber !== undefined && row.repoFullName) {
+      await ingestSignal(ctx, row.projectId, {
+        kind: "pull_request",
+        repoFullName: row.repoFullName,
+        prNumber: row.prNumber,
+        action: "refresh",
+        state: args.state,
+        headSha: args.headSha,
+        mergeable: args.mergeable,
+      });
+    }
   },
 });
 
@@ -675,7 +728,26 @@ async function fetchPull(target: { owner: string; repo: string; prNumber: number
     }
   );
   if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
-  return (await response.json()) as { state?: string; merged?: boolean; merged_at?: string | null; draft?: boolean; title?: string };
+  return (await response.json()) as {
+    state?: string;
+    merged?: boolean;
+    merged_at?: string | null;
+    draft?: boolean;
+    title?: string;
+    mergeable?: boolean | null;
+    mergeable_state?: string;
+    head?: { sha?: string };
+  };
+}
+
+/** recordPrState args for a fetched pull. */
+function pullFacts(pull: Awaited<ReturnType<typeof fetchPull>>) {
+  return {
+    state: mapPrState(pull),
+    title: pull.title,
+    ...(typeof pull.head?.sha === "string" ? { headSha: pull.head.sha } : {}),
+    mergeable: mergeabilityOf(pull.mergeable, pull.mergeable_state),
+  };
 }
 
 /** "Refresh" on a push card. */
@@ -688,9 +760,9 @@ export const refreshPrStatus = action({
     });
     if (!target) return { state: null };
     const pull = await fetchPull(target);
-    const state = mapPrState(pull);
-    await ctx.runMutation(internal.githubPush.recordPrState, { pushId: args.pushId, state, title: pull.title });
-    return { state };
+    const facts = pullFacts(pull);
+    await ctx.runMutation(internal.githubPush.recordPrState, { pushId: args.pushId, ...facts });
+    return { state: facts.state };
   },
 });
 
@@ -706,7 +778,7 @@ export const refreshOpenPrs = internalAction({
       if (!target) continue;
       try {
         const pull = await fetchPull(target);
-        await ctx.runMutation(internal.githubPush.recordPrState, { pushId, state: mapPrState(pull), title: pull.title });
+        await ctx.runMutation(internal.githubPush.recordPrState, { pushId, ...pullFacts(pull) });
         checked += 1;
       } catch {
         // Stamp the check so one broken PR does not starve the batch.

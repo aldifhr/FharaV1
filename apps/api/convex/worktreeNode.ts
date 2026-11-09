@@ -117,6 +117,7 @@ export const mergeBranch = internalAction({
       workspacePath: string;
       mainBranch: string;
       projectId: string;
+      keepWorktree?: boolean;
     };
 
     try {
@@ -132,17 +133,22 @@ export const mergeBranch = internalAction({
       throw new Error(`Merge failed: ${err.message}`);
     }
 
-    try {
-      gitExec(data.workspacePath, ["worktree", "remove", data.worktreePath]);
-      gitExec(data.workspacePath, ["branch", "-D", data.branchName]);
-    } catch {
-      // cleanup failures are non-fatal
+    // Post-push feedback loop: keep the branch and worktree until the PR
+    // closes, so CI / review fixes land on the same PR.
+    if (!data.keepWorktree) {
+      try {
+        gitExec(data.workspacePath, ["worktree", "remove", data.worktreePath]);
+        gitExec(data.workspacePath, ["branch", "-D", data.branchName]);
+      } catch {
+        // cleanup failures are non-fatal
+      }
     }
 
     return await ctx.runMutation(internal.orchestration.mergeBranchCompleted, {
       taskId: args.taskId,
       projectId: data.projectId as any,
       branchName: data.branchName,
+      ...(data.keepWorktree ? { kept: true } : {}),
     });
   },
 });
@@ -239,5 +245,24 @@ export const sweepStaleWorktrees = internalAction({
       cleaned += 1;
     }
     return { cleaned };
+  },
+});
+
+/**
+ * Post-push feedback loop: the PR of a task merged or closed, so the
+ * worktree and local branch kept for fixes are removed (prFeedback).
+ */
+export const releasePrWorktree = internalAction({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, args) => {
+    const data = await ctx.runQuery(internal.prFeedback.getReleaseContext, args);
+    if (!data) return;
+    try {
+      gitExec(data.workspacePath, ["worktree", "remove", "--force", data.worktreePath]);
+    } catch {}
+    try {
+      gitExec(data.workspacePath, ["branch", "-D", data.branchName]);
+    } catch {}
+    await ctx.runMutation(internal.prFeedback.worktreeReleased, args);
   },
 });

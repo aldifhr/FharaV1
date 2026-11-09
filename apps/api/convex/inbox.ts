@@ -7,6 +7,7 @@ import { visibleProjectIds } from "./lib/authz";
 const INBOX_APPROVAL_LIMIT = 100;
 const INBOX_TASK_LIMIT = 100;
 const INBOX_FAILED_LIMIT = 50;
+const INBOX_NOTIFICATION_LIMIT = 100;
 
 export const list = query({
   args: {},
@@ -37,12 +38,27 @@ export const list = query({
     const tasks = [...needsApproval, ...failed].sort(
       (a, b) => (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime)
     );
+    // Stored PR notifications (post-push feedback loop); they resolve
+    // themselves, so only open rows are read.
+    const notifications = (
+      await ctx.db
+        .query("notifications")
+        .withIndex("by_status_and_updated", (q) => q.eq("status", "open"))
+        .order("desc")
+        .take(INBOX_NOTIFICATION_LIMIT)
+    ).filter((n) => visible.has(n.projectId as string));
     const agents = await ctx.db
       .query("agents")
       .filter((q) => q.eq(q.field("status"), "needs_you"))
       .take(200);
 
-    const projectIds = [...new Set<string>([...approvals.map((a) => a.projectId as string), ...tasks.map((t) => t.projectId as string)])] as Id<"projects">[];
+    const projectIds = [
+      ...new Set<string>([
+        ...approvals.map((a) => a.projectId as string),
+        ...tasks.map((t) => t.projectId as string),
+        ...notifications.map((n) => n.projectId as string),
+      ]),
+    ] as Id<"projects">[];
     const projectNameById = new Map<string, string>();
     for (const id of projectIds) {
       const p = await ctx.db.get(id);
@@ -78,6 +94,17 @@ export const list = query({
         .filter((t) => !approvalTaskIds.has(t._id as string))
         .map((t) => ({ ...t, projectName: projectNameById.get(t.projectId as string) ?? "—" })),
       agents: agents.map(projectAgentDoc),
+      notifications: notifications.map((n) => ({
+        _id: n._id,
+        kind: n.kind,
+        title: n.title,
+        detail: n.detail ?? null,
+        url: n.url ?? null,
+        projectId: n.projectId,
+        taskId: n.taskId,
+        projectName: projectNameById.get(n.projectId as string) ?? "—",
+        updatedAt: n.updatedAt,
+      })),
     };
   },
 });

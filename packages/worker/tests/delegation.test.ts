@@ -263,6 +263,26 @@ describe("evaluateDelegation planned capabilities", () => {
     expect(res.targetCapability).toBe("browser-testing");
   });
 
+  it("does not spawn browser QA after backend-only work under qaMode=auto (e2e MEDIUM)", () => {
+    const backend: AgentDefinition = {
+      _id: "be1",
+      name: "Backend",
+      role: "backend",
+      capabilities: ["backend-development"],
+    };
+    const res = evaluateDelegation({
+      result: { agentName: "Backend", capability: "backend-development", success: true, summary: "done" } as any,
+      classification: classifyCommand("Tambah helper countGraphemes di src/lib plus unit test."),
+      agents: [backend, qa],
+      budget: new BudgetTracker({ ...loadPolicy(), qaMode: "auto" }),
+      previousAgents: [],
+      delegationDepth: 0,
+      alreadyDelegatedCapabilities: [],
+      plannedCapabilities: ["backend-development"],
+    } as any);
+    expect(res.decision).toBe("COMPLETE");
+  });
+
   it("does not spawn a second QA node when the plan already schedules QA", () => {
     // The stored plan has qa-structure-reachability downstream; delegating
     // browser-testing here would run QA twice for the same work.

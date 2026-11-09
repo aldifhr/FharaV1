@@ -340,7 +340,18 @@ export function evaluateDelegation(input: {
 
   // No recommendation — deterministic heuristic
   // If QA-like capability needed but not yet run, delegate
-  const needsQa = input.classification.suggestedCapabilities.includes("browser-testing");
+  // qaMode=auto mirrors the planner's qaWarranted gate: the classifier
+  // suggests browser-testing for any "test" word (plain unit tests too),
+  // so under auto the dynamic QA heuristic only fires after UI work
+  // (frontend/design). An explicit browser-QA request is already a planned
+  // QA node, which plannedCapabilities below excludes. Without this a
+  // backend-only "helper + unit test" task got browser QA (e2e MEDIUM).
+  const finishedUiWork = [CAPABILITY.FRONTEND, CAPABILITY.DESIGN].includes(
+    normalizeCapability(result.capability ?? "") as typeof CAPABILITY.FRONTEND
+  );
+  const needsQa =
+    input.classification.suggestedCapabilities.includes("browser-testing") &&
+    (policy.qaMode === "always" || finishedUiWork);
   const hasQaAgent = enabled.some((a) => capabilitiesOf(a).includes("browser-testing"));
   const hasRunQa = input.previousAgents.some((name) =>
     enabled.find((a) => a.name === name && capabilitiesOf(a).includes("browser-testing"))

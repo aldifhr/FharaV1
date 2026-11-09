@@ -6,6 +6,7 @@ import {
   DAY_MS,
   aggregateWorkload,
   roleBucket,
+  routeLoadAware,
   routeMatch,
   type WorkloadExecutionInput,
   type WorkloadMessageInput,
@@ -160,6 +161,7 @@ export const byRole = query({
         subtaskKey: (typeof p.subtaskKey === "string" ? p.subtaskKey : null) ?? e.subtaskKey ?? null,
         role,
         match: routeMatch(p),
+        loadAware: routeLoadAware(p),
         at: e.createdAt ?? e._creationTime,
       };
     });

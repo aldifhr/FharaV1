@@ -479,6 +479,13 @@ export class WorkerApi {
     return await this.client.action(api.worker.completePushRequest, this.args(input));
   }
 
+  // Workload Manager: running executions per agent (load-aware routing).
+  async getAgentLoad(
+    input: ActionInput<typeof api.worker.getAgentLoad>
+  ): Promise<FunctionReturnType<typeof api.worker.getAgentLoad>> {
+    return await this.client.action(api.worker.getAgentLoad, this.args(input));
+  }
+
   // Plan Inspector + Task Estimator (apps/api/convex/planReview.ts).
   async getEstimateSamples(
     input: ActionInput<typeof api.worker.getEstimateSamples>

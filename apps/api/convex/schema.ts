@@ -146,6 +146,10 @@ export default defineSchema({
     // Shadow Agent (additive): new tasks start with the Reviewer observing.
     // Unset = off.
     shadowAgentDefault: v.optional(v.boolean()),
+    // Workload Manager (additive): the worker prefers the capable agent
+    // with spare capacity. Unset = the worker's env default
+    // (ORCHESTRATOR_LOAD_AWARE_ROUTING, off).
+    loadAwareRouting: v.optional(v.boolean()),
   }).index("by_owner", ["ownerId"]),
 
   agents: defineTable({
@@ -457,6 +461,9 @@ export default defineSchema({
     // that no tool result (or the repo snapshot) showed. Quiet
     // "Unverified: …" line under the bubble.
     unverifiedRefs: v.optional(v.array(v.string())),
+    // Collaboration graph (additive): this agent reply was a CTO @mention
+    // handoff; the CTO agent that handed the turn over.
+    handoffFromAgentId: v.optional(v.id("agents")),
     // Structured chat card rendered next to the text (assignment, push,
     // qa, verification). Optional; plain messages carry none.
     card: v.optional(

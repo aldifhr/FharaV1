@@ -1,3 +1,4 @@
+import type { LoadAwareDecision } from "@/orchestrator/loadAwareRouting";
 import type {
   WorkerApi,
   WorkerExecutionId,
@@ -262,6 +263,12 @@ export interface RunContext {
   lastPostedMessage: Map<string, string>;
   /** Resolved agent per subtask key (memoized `assign`). */
   agentByKey: Map<string, AgentDefinition>;
+  /** Load-aware routing is on for this run (project setting, else env). */
+  loadAwareRouting: boolean;
+  /** Running executions per agent across all tasks, refreshed per runNodes (load-aware only). */
+  loadSnapshot: Map<string, number>;
+  /** Picks the load-aware router changed, by subtask key (logged on subtask.routed). */
+  loadAwareByKey: Map<string, LoadAwareDecision>;
 
   // --- Helpers (built once by `executePlan`) ------------------------------
   assign: (key: string) => AgentDefinition | null;

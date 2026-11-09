@@ -165,6 +165,12 @@ export interface ExecutionPolicy {
   qaRequired?: boolean;
   /** Max automatic QA fix rounds (default 1). Falls back to maxReviewIterations when unset. */
   qaMaxFixIterations?: number;
+  /**
+   * Load-aware routing default (Workload Manager), used when the project
+   * has no `loadAwareRouting` setting. Env ORCHESTRATOR_LOAD_AWARE_ROUTING,
+   * default off.
+   */
+  loadAwareRouting?: boolean;
 }
 
 function boolFromEnv(name: string, fallback: boolean): boolean {
@@ -308,5 +314,6 @@ export function loadPolicy(): ExecutionPolicy {
     // QA gets its own, smaller fix budget than review (QA audit §5).
     qaMaxFixIterations: intFromEnv("ORCHESTRATOR_QA_MAX_FIX_ITERATIONS", intFromEnv("QA_MAX_FIX_ITERATIONS", 1, 0, 5), 0, 5),
     qaRequired: boolFromEnv("ORCHESTRATOR_QA_REQUIRED", boolFromEnv("QA_REQUIRED", false)),
+    loadAwareRouting: boolFromEnv("ORCHESTRATOR_LOAD_AWARE_ROUTING", false),
   };
 }

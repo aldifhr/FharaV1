@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { CAPABILITY, type AgentDefinition, type PlanSubtask } from "@/types";
 import { routeCapability } from "@/orchestrator/capabilities";
+import { loadAwareRoutingEnabled, pickLoadAware, type LoadAwareDecision } from "@/orchestrator/loadAwareRouting";
 import type { WebClient } from "@/tools/webClient";
 import { applyFileChange, hashContent, type FileDiff } from "@/tools/gitDiff";
 import type { WorkerExecutionId } from "@/workerApi";
@@ -29,6 +30,13 @@ export function createRunContext(input: ExecutePlanInput, browser: WebClient): R
   const plannedCapabilities = plan.subtasks.map((subtask) => subtask.capability);
 
   const agentByKey = new Map<string, AgentDefinition>();
+  const loadAwareRouting = loadAwareRoutingEnabled(
+    project as { loadAwareRouting?: unknown },
+    deps.policy.loadAwareRouting
+  );
+  const loadSnapshot = new Map<string, number>();
+  const loadAwareByKey = new Map<string, LoadAwareDecision>();
+  const activeByAgent = new Map<string, number>();
   // Per-branch capability chain per subtask key (root first, ending with
   // the subtask's own capability). Delegation depth and circularity are
   // derived from this chain — never from a task-global counter.
@@ -101,6 +109,18 @@ export function createRunContext(input: ExecutePlanInput, browser: WebClient): R
         // Teams with neither a reviewer nor a CTO keep the historical
         // capability fallback rather than leaving the review unassigned.
         routeCapability(subtask.capability, input.agents, { allowFallback: true });
+    }
+    // Workload Manager (opt-in): among agents declaring the capability
+    // exactly, prefer spare capacity. Live load = max(this run's own
+    // count, the cross-task snapshot read at the start of runNodes).
+    if (agent && loadAwareRouting) {
+      const pick = pickLoadAware(agent, subtask.capability, input.agents, (candidate) =>
+        Math.max(activeByAgent.get(candidate._id) ?? 0, loadSnapshot.get(candidate._id) ?? 0)
+      );
+      if (pick.agent && pick.loadAware) {
+        agent = pick.agent;
+        loadAwareByKey.set(key, pick.loadAware);
+      }
     }
     if (agent) agentByKey.set(key, agent);
     return agent;
@@ -236,11 +256,14 @@ export function createRunContext(input: ExecutePlanInput, browser: WebClient): R
     fixDepthByKey,
     // Live per-agent execution counts, fed to the delegation gate and the
     // scheduler's per-agent start gate (Phase 4).
-    activeByAgent: new Map<string, number>(),
+    activeByAgent,
     executionIds: new Map<string, WorkerExecutionId>(),
     // Last posted chat text per agent+subtask (for duplicate suppression).
     lastPostedMessage: new Map<string, string>(),
     agentByKey,
+    loadAwareRouting,
+    loadSnapshot,
+    loadAwareByKey,
     assign,
     nextOrder: (): number =>
       plan.subtasks.reduce((max, candidate) => Math.max(max, candidate.order), 0) + 1,

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
@@ -130,6 +131,14 @@ export default function AgentDetailPanel({
           </div>
           <span className="ml-auto flex items-center gap-2">
             <Badge variant={status.avatar === "working" ? "default" : "secondary"}>{status.label}</Badge>
+            {agent?._id && (
+              <Link
+                href={`/team/${agent._id}`}
+                className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-hover"
+              >
+                Performance
+              </Link>
+            )}
             <button
               type="button"
               onClick={() => onEdit(agent)}

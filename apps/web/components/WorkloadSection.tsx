@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import Segmented from "@/components/ui/segmented";
 import { compact, duration, usd } from "@/lib/metrics";
+import { roleLabel } from "@/lib/agentRoles";
 
 type Days = "7" | "30" | "90";
 const DAY_OPTIONS: ReadonlyArray<{ value: Days; label: string }> = [
@@ -144,6 +145,15 @@ export default function WorkloadSection() {
             )}
             {data.totals.unassignedSubtasks > 0 && (
               <li>{data.totals.unassignedSubtasks} subtask(s) were never assigned and are not counted per role.</li>
+            )}
+            {data.loadAware.count > 0 && (
+              <li>
+                Load-aware routing moved {data.loadAware.count} subtask(s) to an agent with spare capacity
+                {data.loadAware.recent[0]
+                  ? ` — latest: ${data.loadAware.recent[0].fromRole ? roleLabel(data.loadAware.recent[0].fromRole) : "?"} → ${data.loadAware.recent[0].toRole ? roleLabel(data.loadAware.recent[0].toRole) : "?"}${data.loadAware.recent[0].reason ? ` (${data.loadAware.recent[0].reason})` : ""}`
+                  : ""}
+                .
+              </li>
             )}
             {data.truncated.length > 0 && <li>Read limit reached for {data.truncated.join(", ")}; older rows are left out.</li>}
           </ul>

@@ -1133,6 +1133,12 @@ export const replyToChat = internalAction({
         );
         toolBudget.spend(result.toolCalls ?? 0);
         content = result.content;
+        // Collaboration graph: record that this reply was a CTO handoff.
+        if (handoffBy !== undefined && orchestrator && result.messageId) {
+          await ctx
+            .runMutation(internal.orgIntel.markChatHandoff, { messageId: result.messageId, fromAgentId: orchestrator._id as any })
+            .catch(() => undefined);
+        }
         // Post-answer check: file paths and file:line references the
         // answer cites but no tool result (or the snapshot) showed.
         if (result.messageId && content.trim()) {

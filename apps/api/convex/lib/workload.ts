@@ -63,6 +63,8 @@ export interface WorkloadRouteInput {
   role: string | null;
   match: "exact" | "fallback";
   at: number;
+  /** Set when the load-aware router changed the pick (subtask.routed payload.loadAware). */
+  loadAware?: { fromRole: string | null; toRole: string | null; reason: string | null } | null;
 }
 
 export interface WorkloadMessageInput {
@@ -133,6 +135,11 @@ export interface WorkloadResult {
   };
   /** Fixed roles that ran no subtask in the window. */
   idleRoles: string[];
+  /** Routes the load-aware router moved to an agent with spare capacity (newest first, capped). */
+  loadAware: {
+    count: number;
+    recent: Array<{ taskId: string; subtaskKey: string | null; fromRole: string | null; toRole: string | null; reason: string | null; at: number }>;
+  };
   /**
    * Work done by agents whose stored role is not one of the nine fixed roles.
    * These are the roles the worker's normalizeRole would map to Frontend; they
@@ -161,6 +168,14 @@ export function roleBucket(raw: string | null | undefined): Bucket {
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+/** `payload.loadAware` of a subtask.routed event, when the load-aware router changed the pick. */
+export function routeLoadAware(payload: unknown): WorkloadRouteInput["loadAware"] {
+  const la = asRecord(asRecord(payload).loadAware);
+  if (Object.keys(la).length === 0) return null;
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v : null);
+  return { fromRole: str(la.fromRole) ?? str(la.from), toRole: str(la.toRole) ?? str(la.to), reason: str(la.reason) };
+}
 
 /**
  * Match of one `subtask.routed` payload: the explicit `match` field when the
@@ -335,8 +350,19 @@ export function aggregateWorkload(input: WorkloadInput): WorkloadResult {
   let totalRoutes = 0;
   let totalFallback = 0;
   const routedIds = new Set<string>();
+  const loadAwareRoutes: WorkloadResult["loadAware"]["recent"] = [];
   for (const route of input.routes) {
     if (!inWindow(route.at)) continue;
+    if (route.loadAware) {
+      loadAwareRoutes.push({
+        taskId: route.taskId,
+        subtaskKey: route.subtaskKey,
+        fromRole: route.loadAware.fromRole,
+        toRole: route.loadAware.toRole,
+        reason: route.loadAware.reason,
+        at: route.at,
+      });
+    }
     const r = row(route.role);
     r.routes += 1;
     totalRoutes += 1;
@@ -394,6 +420,10 @@ export function aggregateWorkload(input: WorkloadInput): WorkloadResult {
       subtasksWithoutRouteEvent: withoutRoute,
     },
     idleRoles,
+    loadAware: {
+      count: loadAwareRoutes.length,
+      recent: loadAwareRoutes.sort((a, b) => b.at - a.at).slice(0, 10),
+    },
     unrecognizedRoleSubtasks: unrecognized,
     summary: workloadSummary(list, idleRoles, input.sinceDays),
   };

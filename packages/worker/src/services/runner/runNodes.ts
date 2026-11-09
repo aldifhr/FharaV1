@@ -32,6 +32,9 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
     task, project, taskId, browser, lastPostedMessage, activeByAgent,
   } = ctx;
   const subsetKeys = new Set(nodes.map((node) => node.key));
+  // Load-aware routing (opt-in): read running executions per agent across
+  // every task once per invocation. A failed read routes as usual.
+  if (ctx.loadAwareRouting) await refreshLoadSnapshot(ctx);
   const ackInputs = createInputDeliveryAck(deps);
   // Subset runs (the review/QA loops re-run their own nodes) filter out
   // dependencies that live outside the subset, because the scheduler can
@@ -425,6 +428,8 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
             match: capabilitiesOf(agent).includes(subtask.capability.trim().toLowerCase().replace(/\s+/g, "-"))
               ? "exact"
               : "fallback",
+            // Workload Manager: the load-aware router changed the pick.
+            ...(ctx.loadAwareByKey.has(node.id) ? { loadAware: ctx.loadAwareByKey.get(node.id) } : {}),
           },
         });
         const executionId = await deps.api.startExecution({
@@ -496,4 +501,19 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       },
     }
   );
+}
+
+/** Refresh `ctx.loadSnapshot` (running executions per agent, all tasks). */
+async function refreshLoadSnapshot(ctx: RunContext): Promise<void> {
+  const read = (ctx.deps.api as { getAgentLoad?: WorkerApi["getAgentLoad"] }).getAgentLoad;
+  if (typeof read !== "function") return;
+  try {
+    const load = await read.call(ctx.deps.api, {});
+    ctx.loadSnapshot.clear();
+    for (const [agentId, running] of Object.entries(load ?? {})) {
+      if (typeof running === "number") ctx.loadSnapshot.set(agentId, running);
+    }
+  } catch {
+    // Keep the previous snapshot; this run's own counts still apply.
+  }
 }

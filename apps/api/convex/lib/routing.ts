@@ -10,6 +10,7 @@
  * after a plan review logs task.classified / orchestrator.plan again; the
  * latest of each wins.
  */
+import { roleLabel } from "./roles";
 
 export interface RoutingEventInput {
   type: string;
@@ -63,6 +64,8 @@ export interface RoutingView {
     role: string | null;
     /** exact: the agent declares the capability; fallback: routed without an exact match; null: not routed yet. */
     match: "exact" | "fallback" | null;
+    /** The load-aware router moved this subtask off a busier agent (roles). */
+    loadAware: { fromRole: string | null; toRole: string | null; reason: string | null } | null;
     why: string[];
   }>;
   handoffs: Array<{
@@ -166,6 +169,15 @@ export function extractRouting(input: {
     roleByKey.set(subtask.key, role);
     let match: "exact" | "fallback" | null = null;
     const why: string[] = [];
+    const la = asRecord(routed?.loadAware);
+    const loadAware =
+      Object.keys(la).length > 0
+        ? {
+            fromRole: asString(la.fromRole) ?? asString(la.from),
+            toRole: asString(la.toRole) ?? asString(la.to),
+            reason: asString(la.reason),
+          }
+        : null;
     if (routed) {
       const capability = asString(routed.capability) ?? subtask.capability;
       const declared = asStrings(routed.capabilities).map((c) => c.toLowerCase());
@@ -182,6 +194,9 @@ export function extractRouting(input: {
           : `No agent declares ${capability}; routed to the closest available agent`
       );
     }
+    if (loadAware) {
+      why.push(`Load-aware: moved off ${loadAware.fromRole ? roleLabel(loadAware.fromRole) : "a busier agent"}${loadAware.reason ? ` — ${loadAware.reason}` : ""}`);
+    }
     if (subtask.origin && subtask.origin !== "planned" && subtask.origin !== "plan") {
       why.push(`Added during the run (${subtask.origin.replace(/_/g, " ")})`);
     }
@@ -193,6 +208,7 @@ export function extractRouting(input: {
       kind: subtask.kind,
       role,
       match,
+      loadAware,
       why,
     };
   });

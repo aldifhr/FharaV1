@@ -1067,6 +1067,17 @@ export const completePushRequest = action({
   },
 });
 
+// ─── Workload Manager (orgIntel.ts) ──────────────────────────────────────
+
+/** Running executions per agent across every task (load-aware routing). */
+export const getAgentLoad = action({
+  args: { ...tokenArg },
+  handler: async (ctx, args): Promise<Record<string, number>> => {
+    withoutToken(args);
+    return await ctx.runQuery(internal.orgIntel.agentLoad, {});
+  },
+});
+
 // ─── Plan Inspector + Task Estimator (planReview.ts) ─────────────────────
 
 /** Recent per-subtask usage samples for the estimator (lib/estimate.ts). */

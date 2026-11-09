@@ -35,16 +35,19 @@ export function isAgentAvailable(agent: AgentDefinition): boolean {
   return true;
 }
 
-export function routeCapability(
+/**
+ * Agents that serve a capability, best first: score 100 = declares it,
+ * 70 = substring match, 50 = shared token. Ties go to priority, then name.
+ * `routeCapability` takes the first; the load-aware router
+ * (`loadAwareRouting.ts`) may pick another agent of the same top score.
+ */
+export function rankCapability(
   capability: string,
-  agents: AgentDefinition[],
-  options: { allowFallback?: boolean } = {}
-): AgentDefinition | null {
+  agents: AgentDefinition[]
+): Array<{ agent: AgentDefinition; score: number }> {
   const normalized = normalizeCapability(capability);
-  const enabled = agents.filter(isAgentAvailable);
-  if (enabled.length === 0) return null;
-
-  const scored = enabled
+  return agents
+    .filter(isAgentAvailable)
     .map((agent) => {
       const capabilities = capabilitiesOf(agent);
       let score = 0;
@@ -73,6 +76,18 @@ export function routeCapability(
         (b.agent.priority ?? 0) - (a.agent.priority ?? 0) ||
         a.agent.name.localeCompare(b.agent.name)
     );
+}
+
+export function routeCapability(
+  capability: string,
+  agents: AgentDefinition[],
+  options: { allowFallback?: boolean } = {}
+): AgentDefinition | null {
+  const normalized = normalizeCapability(capability);
+  const enabled = agents.filter(isAgentAvailable);
+  if (enabled.length === 0) return null;
+
+  const scored = rankCapability(capability, enabled);
 
   if (scored.length > 0) return scored[0].agent;
   if (options.allowFallback === false) return null;

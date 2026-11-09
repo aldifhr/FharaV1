@@ -9,6 +9,9 @@ import IconRail from "@/components/IconRail";
 import InitialAvatar from "@/components/InitialAvatar";
 import AgentDetailPanel from "@/components/AgentDetailPanel";
 import WorkloadSection from "@/components/WorkloadSection";
+import OrgChart from "@/components/team/OrgChart";
+import CapacitySection from "@/components/team/CapacitySection";
+import CollaborationSection from "@/components/team/CollaborationSection";
 import { CreateAgentModal, EditAgentModal } from "@/components/sidebar/AgentForms";
 import { roleLabel } from "@/lib/agentRoles";
 import { projectMembers } from "@/lib/projectMembers";
@@ -45,8 +48,9 @@ function modelLabel(a: Agent): string {
  * Team page: every agent as a card with its live status (what task it is
  * on), model and runtime. A card opens the same detail panel as the
  * sidebar, which leads to Edit. `?project=<id>` limits it to that
- * project's members. Below the roster, Workload shows how work is spread
- * across roles (workload.byRole).
+ * project's members. Below the roster: the org chart, live capacity (and
+ * the load-aware routing setting), Workload (how work is spread across
+ * roles, workload.byRole) and the collaboration graph (orgIntel.ts).
  */
 function TeamPage() {
   const projectId = useSearchParams().get("project") ?? undefined;
@@ -137,7 +141,10 @@ function TeamPage() {
             </ul>
           )}
 
+          <OrgChart />
+          <CapacitySection />
           <WorkloadSection />
+          <CollaborationSection />
         </div>
       </main>
 

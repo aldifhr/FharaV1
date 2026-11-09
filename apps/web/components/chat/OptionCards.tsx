@@ -1,7 +1,31 @@
 "use client";
 
 import { Check, CheckCircle2, ExternalLink, Loader2, XCircle, Bell, Clock } from "lucide-react";
-import type { ChatOption } from "@/lib/options";
+import type { ChatOption, LayoutRow } from "@/lib/options";
+
+/** Wireframe drawn from the option's own layout, with real region names. */
+function LayoutPreview({ rows }: { rows: LayoutRow[] }) {
+  return (
+    <div className="flex h-[104px] flex-col gap-1 p-2.5">
+      {rows.map((row, r) => {
+        const thin = rows.length > 1 && row.length === 1 && /bar|nav|header|toolbar|footer|tab/i.test(row[0].label);
+        return (
+          <div key={r} className={`flex min-h-0 gap-1 ${thin ? "h-5 shrink-0" : "flex-1"}`}>
+            {row.map((cell, c) => (
+              <div
+                key={c}
+                style={{ flexGrow: cell.weight, flexBasis: 0 }}
+                className="flex min-w-0 items-center justify-center rounded border border-line-strong bg-panel px-1"
+              >
+                <span className="truncate text-[10px] font-medium text-ink-2">{cell.label}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function OptionPreview({ style }: { style: ChatOption["preview"] }) {
   const nav = (
@@ -113,7 +137,7 @@ export default function OptionCards({
         {options.map((option) => {
           const selected = pickedId !== undefined && pickedId === option.id;
           // Layout mockups only for visual choices; "plain" is a text option.
-          const showPreview = !compact && option.preview !== "plain" && Boolean(option.preview);
+          const showPreview = !compact && (Boolean(option.layout) || (option.preview !== "plain" && Boolean(option.preview)));
           return (
             <button
               key={option.id}
@@ -127,7 +151,7 @@ export default function OptionCards({
             >
               {showPreview && (
                 <div className="border-b border-line bg-hover/60">
-                  <OptionPreview style={option.preview} />
+                  {option.layout ? <LayoutPreview rows={option.layout} /> : <OptionPreview style={option.preview} />}
                 </div>
               )}
               <div className="flex items-start gap-3 px-3.5 py-3">

@@ -22,6 +22,25 @@ apply here with full force — this is the surface that holds credentials.
 - Never expose an internal function as a public one. If the UI needs data, add a
   public query that returns a projection, not the raw document.
 
+## Layout
+
+Every `.ts` file under `convex/` is a Convex module, and its path is the
+function path (`chat.ts` → `api.chat.*`). Public and internal functions stay
+in the top-level feature modules; pure helpers that define no functions live
+under `lib/`, so moving logic there never changes a function path.
+
+| Path | Holds |
+| --- | --- |
+| `lib/roles.ts` | Single source for the nine team roles (labels, registry fields, capabilities, tools, chip colours, prompt keys, retired/legacy keys). Pure TS: imported by the web app (`@/api/convex/lib/roles`) and meant for the worker too. |
+| `lib/prompts/` | All backend LLM prompt text: `chat.ts` (chat loop, CTO assignment, classifier, responder chooser), `agents.ts` (seed personas), `enhance.ts` (prompt enhancer). Change wording only here. |
+| `lib/chat/` | `chat.ts` internals: intent shapes/parser, team selection, LLM client, tool-call stripping, repo snapshot (`"use node"`). |
+| `lib/authz.ts` | Conditional ownership checks (`assertProjectAccess`, `canViewProject`, …). |
+| `lib/llmResolver.ts`, `lib/llmCrypto.ts`, `lib/llmConfig.ts` | Provider pool assembly, key encryption, env-var fallback config. |
+| `lib/avatar.ts` | Default avatar params (shared with the web app). |
+
+A `lib/` file imported only by a `"use node"` module may itself need
+`"use node"` when it touches Node APIs (see `lib/chat/repoSnapshot.ts`).
+
 ## Returning data
 
 - Public queries must not return `apiKeyCiphertext`, plaintext keys, or legacy
@@ -33,7 +52,7 @@ apply here with full force — this is the surface that holds credentials.
 
 ## Authorization
 
-`authz.ts` implements *conditional* ownership: a project is enforced only when it
+`lib/authz.ts` implements *conditional* ownership: a project is enforced only when it
 carries `ownerId` **and** a viewer identity exists. Local single-user mode has no
 auth provider by design (recorded decision in `README.md` and `ROADMAP.MD`).
 

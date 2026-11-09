@@ -1,6 +1,6 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
-import { getViewerId, getVisibleTask, canViewProject } from "./authz";
+import { getViewerId, getVisibleTask, canViewProject } from "./lib/authz";
 
 export const getForTask = query({
   args: { taskId: v.id("tasks") },

@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { assertProjectAccess, getViewerId, getVisibleTask } from "./authz";
+import { assertProjectAccess, canViewProject, getViewerId, getVisibleTask } from "./lib/authz";
 
 export const listPendingAll = query({
   args: {},
@@ -15,7 +15,7 @@ export const listPendingAll = query({
     const visible = [];
     for (const approval of approvals) {
       const project = await ctx.db.get(approval.projectId);
-      if (project && (!project.ownerId || project.ownerId === viewerId)) {
+      if (canViewProject(viewerId, project)) {
         visible.push(approval);
       }
     }

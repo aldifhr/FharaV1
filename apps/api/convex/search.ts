@@ -1,7 +1,7 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { projectAgentDoc } from "./agents";
-import { visibleProjects } from "./authz";
+import { visibleProjects } from "./lib/authz";
 
 /** Bounded scan window (core M7): the newest tasks only. */
 const SEARCH_TASK_WINDOW = 500;

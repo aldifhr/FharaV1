@@ -585,7 +585,7 @@ export default defineSchema({
   // many models. NOTE (Phase 2, additive step): the legacy `model` column
   // and the plaintext `apiKey` column are still declared so existing rows
   // validate; new writes store the key ONLY as `apiKeyCiphertext`
-  // (AES-256-GCM, see llmCrypto.ts) and the migration moves `model` into
+  // (AES-256-GCM, see lib/llmCrypto.ts) and the migration moves `model` into
   // llmModels. Dropping both legacy columns is a separate deploy step that
   // happens after the migration is verified.
   llmProviders: defineTable({

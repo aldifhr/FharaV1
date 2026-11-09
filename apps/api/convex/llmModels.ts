@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { assertServiceToken } from "./authz";
+import { assertServiceToken } from "./lib/authz";
 
 /**
  * Model Registry (spec §4B): models are their own entities, independent of

@@ -1,11 +1,11 @@
 import { action, internalQuery, query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { assertServiceToken } from "./authz";
-import { encryptApiKey, decryptApiKey } from "./llmCrypto";
+import { assertServiceToken } from "./lib/authz";
+import { encryptApiKey, decryptApiKey } from "./lib/llmCrypto";
 import { getGlobalLLMConfig } from "./lib/llmConfig";
 import { ENHANCEMENT_SYSTEM_PROMPT } from "./lib/prompts/enhance";
-import { loadProviderPool, pickPrimaryConnection, resolveConnectionKey, type PoolConnectionPayload } from "./llmResolver";
+import { loadProviderPool, pickPrimaryConnection, resolveConnectionKey, type PoolConnectionPayload } from "./lib/llmResolver";
 
 /**
  * Public view of a provider connection: NEVER includes credential material
@@ -44,7 +44,7 @@ export const get = query({
  * (apps/web/app/api/llm-providers), which holds the token on the server —
  * the browser never sees it. Read queries stay public and strip the key.
  *
- * Keys are encrypted at write time (AES-256-GCM, llmCrypto.ts) and stored
+ * Keys are encrypted at write time (AES-256-GCM, lib/llmCrypto.ts) and stored
  * ONLY as `apiKeyCiphertext`; plaintext is never persisted by new writes.
  */
 export const create = mutation({

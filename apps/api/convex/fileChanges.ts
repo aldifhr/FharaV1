@@ -1,6 +1,6 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
-import { assertProjectAccess, getVisibleTask } from "./authz";
+import { assertProjectAccess, getVisibleTask } from "./lib/authz";
 
 /** Newest file-change rows considered per project (bounded read). */
 const PROJECT_FILE_CHANGE_LIMIT = 2000;

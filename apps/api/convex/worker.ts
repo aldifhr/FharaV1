@@ -1,7 +1,7 @@
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { assertServiceToken } from "./authz";
+import { assertServiceToken } from "./lib/authz";
 import { permissionArgs } from "./permissionBroker";
 import {
   taskStatus,

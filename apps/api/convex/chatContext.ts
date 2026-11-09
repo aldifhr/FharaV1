@@ -1,7 +1,7 @@
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { loadProviderPool } from "./llmResolver";
+import { loadProviderPool } from "./lib/llmResolver";
 import { activeParticipantRows, selectDefaultChatAgents } from "./conversations";
 
 /** Drop the `--- File: <path> ---` blocks `attachMentionedFiles` appends so
@@ -251,7 +251,7 @@ export const getContext = internalQuery({
     );
 
     // Shared pool assembly (connections + models, encrypted key only) —
-    // see llmResolver.ts. chat.ts decrypts on the backend for its own call.
+    // see lib/llmResolver.ts. chat.ts decrypts on the backend for its own call.
     const llmProviders = await loadProviderPool(ctx);
 
     return {

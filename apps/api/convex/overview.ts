@@ -1,6 +1,6 @@
 import { query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { visibleProjects } from "./authz";
+import { visibleProjects } from "./lib/authz";
 
 /** Bounded reads (core M7): the dashboard must not scan whole tables. */
 const OVERVIEW_TASK_LIMIT = 1000;

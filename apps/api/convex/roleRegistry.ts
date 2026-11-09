@@ -5,7 +5,7 @@ import {
   assertRegistryWriteAccess,
   canViewProject,
   getViewerId,
-} from "./authz";
+} from "./lib/authz";
 import { RETIRED_ROLE_KEYS, ROLE_KEYS, ROLES } from "./lib/roles";
 
 // Org chart: the fixed team — see lib/roles.ts (shared with the web app and

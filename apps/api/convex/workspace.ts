@@ -1,6 +1,6 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
-import { assertProjectAccess } from "./authz";
+import { assertProjectAccess } from "./lib/authz";
 
 export const listSubtasksByProject = query({
   args: { projectId: v.id("projects") },

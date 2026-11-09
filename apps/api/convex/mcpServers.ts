@@ -1,6 +1,6 @@
 import { query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
-import { assertProjectAccess } from "./authz";
+import { assertProjectAccess } from "./lib/authz";
 
 /**
  * MCP server config — Plan 007 Phase 1 (UI config) + Plan 009 (worker
@@ -10,7 +10,7 @@ import { assertProjectAccess } from "./authz";
  * internal mutations, called by the Next.js server route (UI) or by the
  * token-gated worker actions in worker.ts, which hold
  * CONVEX_SERVICE_TOKEN. Reads use the same conditional ownership model as
- * the rest of the app (authz.ts): local single-user mode has no identity,
+ * the rest of the app (lib/authz.ts): local single-user mode has no identity,
  * so access is not denied when no viewer exists. Do not add a hard
  * identity check here.
  *

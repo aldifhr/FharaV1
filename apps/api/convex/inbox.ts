@@ -1,7 +1,7 @@
 import { query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { projectAgentDoc } from "./agents";
-import { visibleProjectIds } from "./authz";
+import { visibleProjectIds } from "./lib/authz";
 
 /** Bounded reads (core M7): failed tasks in particular only ever grow. */
 const INBOX_APPROVAL_LIMIT = 100;

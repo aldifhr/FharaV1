@@ -5,7 +5,7 @@
  */
 import { query } from "./_generated/server";
 import { v } from "convex/values";
-import { assertProjectAccess } from "./authz";
+import { assertProjectAccess } from "./lib/authz";
 
 const PIN_LIMIT = 100;
 

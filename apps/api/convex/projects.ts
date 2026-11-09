@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { assertProjectAccess, getViewerId } from "./authz";
+import { assertProjectAccess, canViewProject, getViewerId } from "./lib/authz";
 
 function validateWorkspacePath(raw: string): string {
   const workspacePath = raw.trim();
@@ -130,7 +130,7 @@ export const list = query({
       return await ctx.db.query("projects").order("desc").collect();
     }
     const all = await ctx.db.query("projects").order("desc").collect();
-    return all.filter((project) => !project.ownerId || project.ownerId === viewerId);
+    return all.filter((project) => canViewProject(viewerId, project));
   },
 });
 

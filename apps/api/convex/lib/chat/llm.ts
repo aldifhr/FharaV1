@@ -7,7 +7,7 @@ import {
   pickPrimaryConnection,
   resolveConnectionKey,
   type PoolConnectionPayload,
-} from "../../llmResolver";
+} from "../llmResolver";
 
 import { getGlobalLLMConfig, type LlmEndpointConfig } from "../llmConfig";
 
@@ -15,7 +15,7 @@ import { getGlobalLLMConfig, type LlmEndpointConfig } from "../llmConfig";
 export type ChatLlmConfig = LlmEndpointConfig;
 export { getGlobalLLMConfig };
 
-export interface StreamChunk {
+interface StreamChunk {
   content: string;
   reasoning: string;
 }

@@ -17,7 +17,7 @@ import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import type { PoolConnectionPayload } from "./llmResolver";
+import type { PoolConnectionPayload } from "./lib/llmResolver";
 import {
   GREETING,
   classifyChatIntent,

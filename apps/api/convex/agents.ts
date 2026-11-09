@@ -1,7 +1,7 @@
 import { query, mutation, internalMutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { assertAgentAccess, assertProjectAccess, assertRegistryWriteAccess } from "./authz";
+import { assertAgentAccess, assertProjectAccess, assertRegistryWriteAccess } from "./lib/authz";
 import {
   FIXED_TEAM_SEED_ORDER,
   REVOKED_DEFAULT_CAPABILITIES,

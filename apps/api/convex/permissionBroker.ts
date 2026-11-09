@@ -2,7 +2,7 @@ import { query } from "./_generated/server";
 import { v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { assertProjectAccess, getVisibleTask } from "./authz";
+import { assertProjectAccess, getVisibleTask } from "./lib/authz";
 
 /**
  * Plan 015 — central authorization broker.

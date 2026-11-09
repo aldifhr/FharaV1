@@ -7,7 +7,7 @@
 import { query, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { assertProjectAccess, canViewProject, getViewerId, visibleProjects } from "./authz";
+import { assertProjectAccess, canViewProject, getViewerId, visibleProjects } from "./lib/authz";
 
 const APPROVAL_LIMIT = 100;
 const TASK_STATUS_LIMIT = 100;

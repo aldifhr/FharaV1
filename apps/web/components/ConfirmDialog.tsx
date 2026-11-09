@@ -2,12 +2,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { Trash2 } from "lucide-react";
+import { Square, Trash2 } from "lucide-react";
 
 export type ConfirmRequest = {
   title: string;
   message: string;
   confirmLabel?: string;
+  /** "stop" for stopping a running task; default is the delete trash can. */
+  icon?: "trash" | "stop";
 };
 
 export default function ConfirmDialog({
@@ -75,7 +77,7 @@ export default function ConfirmDialog({
           >
             <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600 dark:bg-red-950">
-                <Trash2 size={18} />
+                {request.icon === "stop" ? <Square size={16} /> : <Trash2 size={18} />}
               </span>
               <h2 className="font-semibold dark:text-white">{request.title}</h2>
             </div>

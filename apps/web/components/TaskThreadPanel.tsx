@@ -302,6 +302,7 @@ export default function TaskThreadPanel({
       title: "Cancel this task?",
       message: "The task stops and is marked as cancelled. You can retry it later.",
       confirmLabel: "Cancel task",
+      icon: "stop",
       onOk: () => {
         void cancelTask({ taskId: task._id as any })
           .then(() => setConfirmReq(null))

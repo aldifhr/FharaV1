@@ -11,9 +11,19 @@
  *   whole process group (npx → tsx → node), then SIGKILL after a grace period.
  * - Env: SUPERVISE_MAX_RESTARTS (default unlimited), SUPERVISE_GRACE_MS (10000).
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
+const isWin = process.platform === "win32";
+/** Windows has no process groups: taskkill /T ends tsx and its node child. */
+function killTreeWin(pid) {
+  try {
+    spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+  } catch {
+    /* already gone */
+  }
+}
 
 export const MIN_BACKOFF_MS = 1_000;
 export const MAX_BACKOFF_MS = 30_000;
@@ -60,7 +70,12 @@ function main() {
     child = spawn(command[0], command.slice(1), {
       cwd: options.cwd,
       stdio: "inherit",
-      detached: true, // own process group, so a stop reaches tsx's node child too
+      // POSIX: own process group, so a stop reaches tsx's node child too.
+      // Windows: detached opens a separate (empty) console window, so stay
+      // attached, hide any console, and resolve npx.cmd through the shell.
+      detached: !isWin,
+      windowsHide: true,
+      shell: isWin,
       env: process.env,
     });
     child.on("error", (err) => log(`failed to start: ${err.message}`));
@@ -85,6 +100,10 @@ function main() {
     if (timer) clearTimeout(timer);
     if (!child) return process.exit(0);
     log(`stopping (${signal})`);
+    if (isWin) {
+      killTreeWin(child.pid);
+      return process.exit(0);
+    }
     try {
       process.kill(-child.pid, signal);
     } catch {

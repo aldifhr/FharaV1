@@ -132,6 +132,7 @@ export class McpClient {
       env: buildChildEnv(),
       stdio: ["pipe", "pipe", "pipe"],
       detached: false,
+      windowsHide: true,
     });
     this.child = child;
 

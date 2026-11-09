@@ -3,6 +3,10 @@ import { classifyCommand } from "@/orchestrator/classifier";
 import { buildPlanningPrompt, createPlan, ensureRequiredSubtasks, heuristicPlan, wantsVisualQa } from "@/orchestrator/planner";
 import type { AgentDefinition, ExecutionPlan } from "@/orchestrator/types";
 import { loadPolicy } from "@/orchestrator/policy";
+import { listWorkspaceLayout } from "@/utils/workspaceLayout";
+import * as fsp from "node:fs/promises";
+import * as os from "node:os";
+import * as nodePath from "node:path";
 
 const policy = loadPolicy();
 
@@ -356,5 +360,28 @@ describe("planner prompt modes (plan 013 step 6)", () => {
     expect(prompt).toContain("policy reviewMode=auto");
     expect(prompt).toContain("policy qaMode=auto");
     expect(prompt).not.toContain("for every code change");
+  });
+});
+
+describe("planner workspace layout grounding (e2e ULTRA)", () => {
+  it("lists real workspace paths and puts them in the planning prompt", async () => {
+    const root = await fsp.mkdtemp(nodePath.join(os.tmpdir(), "layout-"));
+    await fsp.mkdir(nodePath.join(root, "src/components"), { recursive: true });
+    await fsp.mkdir(nodePath.join(root, "node_modules/x"), { recursive: true });
+    await fsp.writeFile(nodePath.join(root, "styles.css"), "");
+    await fsp.writeFile(nodePath.join(root, "src/components/header.js"), "");
+    const layout = await listWorkspaceLayout(root);
+    expect(layout).toEqual(["src/", "src/components/", "styles.css"]);
+    const command = "Tambah dark mode toggle";
+    const prompt = buildPlanningPrompt({
+      command,
+      classification: classifyCommand(command),
+      agents: [frontend],
+      policy,
+      workspaceLayout: layout,
+    });
+    expect(prompt).toContain("Workspace layout (real paths");
+    expect(prompt).toContain("styles.css");
+    await fsp.rm(root, { recursive: true, force: true });
   });
 });

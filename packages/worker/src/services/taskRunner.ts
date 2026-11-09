@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import { listWorkspaceLayout } from "@/utils/workspaceLayout";
 import * as path from "node:path";
 import type {
   WorkerAgent,
@@ -404,6 +405,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         signal: taskAbort.controller.signal,
         llmTaskGate,
         hasQaUrl: Boolean(resolveQaBaseUrl(project)),
+        workspaceLayout: await listWorkspaceLayout(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath)),
       });
     } catch (error) {
       // Budget exhausted before planning (Phase 5): the task ends with
@@ -524,6 +526,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
           signal: taskAbort.controller.signal,
           llmTaskGate,
           hasQaUrl: Boolean(resolveQaBaseUrl(project)),
+          workspaceLayout: await listWorkspaceLayout(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath)),
         });
       } catch (error) {
         if (isBudgetExhaustedError(error)) {
@@ -749,6 +752,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
               signal: taskAbort.controller.signal,
               llmTaskGate,
               hasQaUrl: Boolean(resolveQaBaseUrl(project)),
+              workspaceLayout: await listWorkspaceLayout(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath)),
             });
           } catch (error) {
             if (isBudgetExhaustedError(error)) {
@@ -894,6 +898,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
               signal: taskAbort.controller.signal,
               llmTaskGate,
               hasQaUrl: Boolean(resolveQaBaseUrl(project)),
+              workspaceLayout: await listWorkspaceLayout(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath)),
             });
           } catch (error) {
             if (isBudgetExhaustedError(error)) {
@@ -1005,6 +1010,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
             signal: taskAbort.controller.signal,
             llmTaskGate,
             hasQaUrl: Boolean(resolveQaBaseUrl(project)),
+            workspaceLayout: await listWorkspaceLayout(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath)),
           });
         } catch (error) {
           if (isBudgetExhaustedError(error)) {

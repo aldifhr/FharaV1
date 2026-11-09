@@ -55,6 +55,11 @@ export interface PlannerInput {
   hasQaUrl?: boolean;
   /** Plan 015: durable shared instructions from the project record. */
   sharedInstructions?: string;
+  /**
+   * Real workspace-relative paths (see utils/workspaceLayout). allowedPaths
+   * must be declared against these, not guessed.
+   */
+  workspaceLayout?: string[];
 }
 
 export interface PlannerResult {
@@ -209,6 +214,12 @@ export function buildPlanningPrompt(input: PlannerInput): string {
       : []),
     "Your team consists of specialized agents: CTO, Designer, Frontend, Backend, QA, Support, DevOps, Reviewer, Researcher.",
     "Analyze the user task, identify which agents are strictly relevant, and produce an execution plan as STRICT JSON.",
+    ...(input.workspaceLayout && input.workspaceLayout.length > 0
+      ? [
+          `Workspace layout (real paths; directories end with "/"): ${input.workspaceLayout.join(", ")}`,
+          "Declare allowedPaths only from this layout (or new files/directories inside it). A shared root file a subtask may edit (e.g. a stylesheet, index.html, README.md) must be listed explicitly.",
+        ]
+      : []),
     "Do NOT force all agents into every task. Only assign agents whose capabilities match the requirements.",
     "For simple or single-discipline tasks, use strategy 'single' with 1 subtask and empty dependencies [].",
     "For multi-agent work, independent subtasks must have empty dependencies [] so they can run concurrently in parallel.",

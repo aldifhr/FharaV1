@@ -234,6 +234,8 @@ export interface AuthoritativePlanInput {
    * always planned as if there were no URL.
    */
   hasQaUrl?: boolean;
+  /** Real workspace paths for the planner prompt (allowedPaths grounding). */
+  workspaceLayout?: string[];
 }
 
 export interface AuthoritativePlanResult {
@@ -312,6 +314,7 @@ export async function createAuthoritativePlan(
       llmTaskGate: input.llmTaskGate,
       hasQaUrl: input.hasQaUrl,
       sharedInstructions: input.sharedContext.instructions,
+      workspaceLayout: input.workspaceLayout,
     });
     plan = created.plan;
     createdBy = created.createdBy;

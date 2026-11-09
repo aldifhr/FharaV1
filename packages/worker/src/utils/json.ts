@@ -81,32 +81,67 @@ export type ReviewResult = {
   snapshotId?: string;
 };
 
-export function parseReview(content: string): ReviewResult | null {
-  const parsed = extractJson(content);
-  if (!parsed || typeof parsed !== "object" || parsed === null) return null;
-  const candidate = parsed as { verdict?: unknown; findings?: unknown };
-  if (candidate.verdict !== "approved" && candidate.verdict !== "changes_requested") return null;
-  if (!Array.isArray(candidate.findings)) return null;
-  const findings: ReviewFinding[] = [];
-  for (const finding of candidate.findings) {
-    if (typeof finding !== "object" || finding === null) return null;
-    const value = finding as Record<string, unknown>;
-    if (
-      !["critical", "high", "medium", "low"].includes(String(value.severity)) ||
-      typeof value.filePath !== "string" ||
-      typeof value.description !== "string" ||
-      typeof value.suggestion !== "string"
-    ) {
-      return null;
-    }
-    findings.push({
-      severity: value.severity as ReviewFinding["severity"],
-      filePath: value.filePath,
-      description: value.description,
-      suggestion: value.suggestion,
-    });
+/** Every top-level JSON object in the content, in order. */
+function extractJsonObjects(content: string, limit = 20): unknown[] {
+  const found: unknown[] = [];
+  let rest = content;
+  while (found.length < limit) {
+    const start = rest.indexOf("{");
+    if (start < 0) break;
+    const parsed = extractJson(rest.slice(start));
+    if (parsed === null) break;
+    found.push(parsed);
+    // Advance one character: nested objects are visited too, callers
+    // pick the first object that has the shape they need.
+    rest = rest.slice(start + 1);
   }
-  return { verdict: candidate.verdict, findings };
+  return found;
+}
+
+const SEVERITIES = ["critical", "high", "medium", "low"] as const;
+
+function normalizeSeverity(value: unknown): ReviewFinding["severity"] {
+  const text = String(value ?? "").toLowerCase();
+  if ((SEVERITIES as readonly string[]).includes(text)) return text as ReviewFinding["severity"];
+  if (text === "blocker" || text === "major" || text === "error") return "high";
+  if (text === "minor" || text === "warning") return "medium";
+  return "low"; // info, nit, suggestion, missing
+}
+
+/**
+ * Parse a review verdict. Tolerant of the shapes models actually return:
+ * prose or markup around the JSON, a nested object before the verdict
+ * object, findings missing "suggestion"/"filePath", or severities like
+ * "info"/"major". The verdict itself must be explicit.
+ */
+export function parseReview(content: string): ReviewResult | null {
+  for (const parsed of extractJsonObjects(content)) {
+    if (!parsed || typeof parsed !== "object") continue;
+    const candidate = parsed as { verdict?: unknown; findings?: unknown };
+    const verdict = typeof candidate.verdict === "string" ? candidate.verdict.trim().toLowerCase() : "";
+    if (verdict !== "approved" && verdict !== "changes_requested") continue;
+    const rawFindings = Array.isArray(candidate.findings) ? candidate.findings : [];
+    const findings: ReviewFinding[] = [];
+    for (const finding of rawFindings) {
+      if (typeof finding === "string") {
+        findings.push({ severity: "low", filePath: "", description: finding, suggestion: "" });
+        continue;
+      }
+      if (typeof finding !== "object" || finding === null) continue;
+      const value = finding as Record<string, unknown>;
+      const description =
+        typeof value.description === "string" ? value.description : typeof value.issue === "string" ? value.issue : "";
+      if (!description) continue;
+      findings.push({
+        severity: normalizeSeverity(value.severity),
+        filePath: typeof value.filePath === "string" ? value.filePath : typeof value.file === "string" ? value.file : "",
+        description,
+        suggestion: typeof value.suggestion === "string" ? value.suggestion : typeof value.fix === "string" ? value.fix : "",
+      });
+    }
+    return { verdict: verdict as ReviewResult["verdict"], findings };
+  }
+  return null;
 }
 
 export function parseDelegation(content: string): {

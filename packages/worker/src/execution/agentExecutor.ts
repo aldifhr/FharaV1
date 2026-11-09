@@ -1078,10 +1078,8 @@ async function executeReview(
 
   // Pre-call budget gate (Phase 5).
   input.assertBudgetForCall?.();
-  const { result: response, servedBy } = await runLlmCallWithFallback(
-    handlesFor(input),
-    baseMessages(
-      input,
+  const reviewStartedAt = Date.now();
+  const reviewPrompt =
       [
         `Review these prepared changes for: ${input.command}`,
         `Review scope: ${subtask.description}`,
@@ -1091,20 +1089,53 @@ async function executeReview(
         "Return JSON only:",
         '{"verdict":"approved"|"changes_requested","findings":[{"severity":"critical"|"high"|"medium"|"low","filePath":"...","description":"...","suggestion":"..."}]}',
         "Reject only for concrete correctness, security, or regression risks. Do not request style-only changes.",
-      ].join("\n")
-    ),
+        "You cannot call tools: the diff above is everything. Do not emit tool calls.",
+      ].join("\n");
+  let { result: response, servedBy } = await runLlmCallWithFallback(
+    handlesFor(input),
+    baseMessages(input, reviewPrompt),
     { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
   );
-  if (input.onTokenUsage) {
+  const reportUsage = async () => {
+    if (!input.onTokenUsage) return;
     await input.onTokenUsage(
       response.inputTokens ?? 0,
       response.outputTokens ?? 0,
       servedBy.config.model,
       usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0)
     );
-  }
+  };
+  await reportUsage();
 
-  const review = parseReview(stripToolCallMarkup(response.content));
+  let review = parseReview(stripToolCallMarkup(response.content));
+  if (!review) {
+    // One retry within the subtask's time budget, showing the model its
+    // own unusable answer (the e2e ULTRA review failed here once).
+    const retryCheck = canAffordRetry(input.deadlineAt, Date.now() - reviewStartedAt);
+    await input.onEvent(
+      "agent.context",
+      {
+        capability: subtask.capability,
+        reason: "invalid-review-json",
+        retry: retryCheck.ok,
+        excerpt: stripToolCallMarkup(response.content).slice(0, 400),
+      },
+      "warn"
+    );
+    if (retryCheck.ok && !input.signal.aborted) {
+      input.assertBudgetForCall?.();
+      ({ result: response, servedBy } = await runLlmCallWithFallback(
+        [servedBy],
+        baseMessages(
+          input,
+          `${reviewPrompt}\n\nYour previous answer was not the review JSON object. Return ONLY {"verdict":...,"findings":[...]} now.\n\nPrevious answer (for reference):\n${stripToolCallMarkup(response.content).slice(0, 1500)}`
+        ),
+        { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
+      ));
+      await reportUsage();
+      review = parseReview(stripToolCallMarkup(response.content));
+    }
+  }
   if (!review) {
     return {
       status: "failed",

@@ -214,3 +214,57 @@ describe("scheduler notices a cancel while a node is still running", () => {
     expect(Date.now() - started).toBeLessThan(5_000);
   });
 });
+
+describe("review parsing is tolerant of real model output", () => {
+  it("accepts prose/markup around the verdict, missing suggestion and odd severities", async () => {
+    const { parseReview } = await import("@/utils/json");
+    const content =
+      'Looks fine overall.\n<longcat_tool_call>{"name":"read_file","arguments":{"path":"a.js"}}</longcat_tool_call>\n{"verdict":"approved","findings":[{"severity":"info","filePath":"a.js","description":"nit"},"plain note"]}';
+    const { stripToolCallMarkup: strip } = await import("@/utils/toolCallMarkup");
+    expect(parseReview(strip(content))).toEqual({
+      verdict: "approved",
+      findings: [
+        { severity: "low", filePath: "a.js", description: "nit", suggestion: "" },
+        { severity: "low", filePath: "", description: "plain note", suggestion: "" },
+      ],
+    });
+    // A nested object first, the verdict object after it.
+    expect(parseReview('{"note":"x"} then {"verdict":"changes_requested","findings":[{"severity":"major","description":"bug"}]}')?.findings[0].severity).toBe("high");
+    expect(parseReview('{"verdict":"maybe","findings":[]}')).toBeNull();
+    expect(parseReview("no json")).toBeNull();
+  });
+});
+
+describe("review node retries an unparseable answer once", () => {
+  it("second answer is used", async () => {
+    let calls = 0;
+    const provider: LLMProvider = {
+      complete: async () => {
+        calls += 1;
+        return { content: calls === 1 ? "I reviewed it, all good." : '{"verdict":"approved","findings":[]}' };
+      },
+    };
+    const config: GlobalLLMConfig = { provider: "openai-compatible", model: "m", baseUrl: "http://127.0.0.1:9", apiKey: "k" };
+    const handle: FallbackHandle = { connectionId: "c", connectionName: "t", config, provider };
+    const change = diffFromContents("index.html", HEADER, HEADER_WITH_TOGGLE);
+    const result = await executeSubtask({
+      workspacePath: os.tmpdir(),
+      command: "review",
+      plan: { version: 1, goal: "g", strategy: "single", requiresApproval: false, maxConcurrency: 1, subtasks: [] },
+      subtask: { key: "review", title: "Review", description: "Review", kind: "review", capability: "code-review", dependencies: [], order: 0 },
+      agent: { _id: "r", name: "Reviewer", role: "reviewer", capabilities: ["code-review"] },
+      llmHandles: [handle],
+      priorOutputs: new Map(),
+      fileChanges: [change],
+      signal: new AbortController().signal,
+      deadlineAt: Date.now() + 10 * 60_000,
+      onEvent: async () => undefined,
+      onMessage: async () => undefined,
+      onChunk: async () => undefined,
+      saveFileChange: async () => undefined,
+    });
+    expect(calls).toBe(2);
+    expect(result.status).toBe("completed");
+    expect((result as { meta?: { verdict?: string } }).meta?.verdict).toBe("approved");
+  });
+});

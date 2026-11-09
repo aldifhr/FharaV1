@@ -1258,6 +1258,37 @@ export const markFileChangesApplied = internalMutation({
   },
 });
 
+/** Subtask statuses that still claim future work. */
+const OPEN_SUBTASK_STATUSES = ["pending", "ready", "blocked", "waiting_approval", "running"] as const;
+const OPEN_SUBTASK_LIMIT = 200;
+
+/**
+ * A terminal task leaves no subtask open (e2e ULTRA: QA and follow-up nodes
+ * stayed `pending` on a failed task forever). Not-started rows become
+ * `skipped`; a row still marked `running` becomes `failed` — its worker run
+ * is over. Each closed row carries the reason.
+ */
+export async function closeOpenSubtasks(ctx: MutationCtx, taskId: Id<"tasks">, taskStatus: string): Promise<number> {
+  const now = Date.now();
+  let closed = 0;
+  for (const status of OPEN_SUBTASK_STATUSES) {
+    const rows = await ctx.db
+      .query("subtasks")
+      .withIndex("by_task_and_status", (q) => q.eq("taskId", taskId).eq("status", status))
+      .take(OPEN_SUBTASK_LIMIT);
+    for (const row of rows) {
+      const wasRunning = status === "running";
+      await ctx.db.patch(row._id, {
+        status: wasRunning ? "failed" : "skipped",
+        error: row.error ?? (wasRunning ? `Task ${taskStatus} while this subtask was running` : `Not run: task ${taskStatus}`),
+        completedAt: row.completedAt ?? now,
+      });
+      closed += 1;
+    }
+  }
+  return closed;
+}
+
 export const completeTask = internalMutation({
   args: {
     taskId: v.id("tasks"),
@@ -1297,6 +1328,9 @@ export const completeTask = internalMutation({
       leaseExpiresAt: undefined,
     });
     const task = await ctx.db.get(args.taskId);
+    if (task && TERMINAL_TASK_STATUSES.has(args.status)) {
+      await closeOpenSubtasks(ctx, task._id, args.status);
+    }
     if (task) {
       await ctx.db.insert("taskEvents", {
         taskId: task._id,

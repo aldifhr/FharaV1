@@ -19,6 +19,9 @@ import {
   Lightbulb,
   MessagesSquare,
   Moon,
+  Network,
+  Siren,
+  TestTubes,
   Plug,
   Plus,
   ScrollText,
@@ -29,6 +32,8 @@ import {
   Sun,
   Users,
   FlaskConical,
+  FolderTree,
+  Globe,
   Workflow,
 } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
@@ -278,6 +283,11 @@ export default function IconRail({
       <RailButton icon={GitBranch} label="Runs" href={projectId ? `/runs?project=${projectId}` : "/runs"} active={pathname.startsWith("/runs")} />
       <RailButton icon={FlaskConical} label="Playground" href="/playground" active={pathname === "/playground"} />
       <RailButton icon={Workflow} label="Workflow Studio" href="/workflows" active={pathname.startsWith("/workflows")} />
+      <RailButton icon={Network} label="Knowledge Graph" href="/knowledge" active={pathname === "/knowledge"} />
+      <RailButton icon={Siren} label="Incident Room" href={projectId ? `/incidents?project=${projectId}` : "/incidents"} active={pathname === "/incidents"} />
+      <RailButton icon={TestTubes} label="Agent Sandbox" href="/sandbox" active={pathname === "/sandbox"} />
+      <RailButton icon={FolderTree} label="Project Intelligence" href="/intelligence" active={pathname === "/intelligence"} />
+      <RailButton icon={Globe} label="Browser Lab" href="/browser-lab" active={pathname === "/browser-lab"} />
       {projectId && (
         <>
           <RailButton icon={KanbanSquare} label="Board" href={`/chats/${projectId}?tab=tasks`} />

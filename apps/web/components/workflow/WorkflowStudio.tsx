@@ -370,6 +370,43 @@ export default function WorkflowStudio() {
     });
   };
 
+  const askResetCurrent = () => {
+    if (!workflow) return;
+    setConfirmReq({
+      title: `Reset "${workflow.name}"?`,
+      message: "This will restore the default template (User → CTO → Developer → QA → Reviewer → Done). The name is kept. Your edits to nodes and edges will be discarded.",
+      confirmLabel: "Reset",
+      onOk: () => {
+        const fresh = defaultWorkflow();
+        const reset: Workflow = { ...fresh, id: workflow.id, name: workflow.name, createdAt: workflow.createdAt, updatedAt: Date.now() };
+        persist(workflows.map((candidate) => (candidate.id === workflow.id ? reset : candidate)));
+        setSelectedNode(null);
+        setSelectedEdge(null);
+        stopSim();
+        setConfirmReq(null);
+        toast("success", "Reset", reset.name);
+      },
+    });
+  };
+
+  const askResetAll = () => {
+    setConfirmReq({
+      title: "Reset all workflows?",
+      message: "All locally saved workflows will be replaced with the single default template.",
+      confirmLabel: "Reset all",
+      onOk: () => {
+        const fresh = defaultWorkflow();
+        persist([fresh]);
+        setActiveId(fresh.id);
+        setSelectedNode(null);
+        setSelectedEdge(null);
+        stopSim();
+        setConfirmReq(null);
+        toast("success", "Reset complete", fresh.name);
+      },
+    });
+  };
+
   const exportWorkflow = () => {
     if (!workflow) return;
     const url = URL.createObjectURL(new Blob([JSON.stringify(workflow, null, 2)], { type: "application/json" }));
@@ -465,6 +502,12 @@ export default function WorkflowStudio() {
           title="Delete this workflow"
         >
           <Trash2 size={14} /> Delete
+        </button>
+        <button type="button" onClick={askResetCurrent} className={GHOST_BTN} title="Restore this workflow to the default template">
+          <RotateCcw size={14} /> Reset
+        </button>
+        <button type="button" onClick={askResetAll} className={GHOST_BTN} title="Clear all workflows and restore the default template">
+          <RotateCcw size={14} /> Reset all
         </button>
         <span className="h-5 w-px bg-line" aria-hidden="true" />
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Add node">

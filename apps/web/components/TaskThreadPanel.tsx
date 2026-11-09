@@ -223,16 +223,18 @@ export default function TaskThreadPanel({
         style={{ width: panelWidth, marginLeft: 6 }}
         className="flex h-full min-h-0 flex-col overflow-hidden max-[979px]:h-auto max-[979px]:w-full max-[979px]:flex-row"
       >
-      <header className="flex min-h-[66px] items-center justify-between border-b border-[#ebe9f0] bg-white/50 px-4 py-3.5 dark:border-gray-800 dark:bg-gray-950/20">
-        <div>
-          <h2 className="truncate text-sm font-semibold">{(task as any)?.title ?? "Task thread"}</h2>
-          <p className="mt-0.5 text-[11px] text-gray-400">Task thread · {(project as any)?.name ?? "Workspace"}</p>
+      <header className="flex min-h-[66px] items-start justify-between gap-2 border-b border-[#ebe9f0] bg-white/50 px-4 py-3.5 dark:border-gray-800 dark:bg-gray-950/20">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="min-w-0 flex-1 truncate text-sm font-semibold leading-5">{(task as any)?.title ?? "Task thread"}</h2>
+            <span className={`shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold leading-4 ${taskStatus === "done" ? "bg-[#e6f5ec] text-[#348d5c]" : taskStatus === "failed" || taskStatus === "rejected" ? "bg-red-100 text-red-700" : "bg-[#fff0df] text-[#bd6c23]"}`}>
+              {statusLabel}
+            </span>
+          </div>
+          <p className="mt-0.5 truncate text-[11px] text-gray-400">Task thread · {(project as any)?.name ?? "Workspace"}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${taskStatus === "done" ? "bg-[#e6f5ec] text-[#348d5c]" : taskStatus === "failed" || taskStatus === "rejected" ? "bg-red-100 text-red-700" : "bg-[#fff0df] text-[#bd6c23]"}`}>
-            {statusLabel}
-          </span>
-          <button type="button" onClick={onClose} title="Close task thread" aria-label="Close task thread" className="rounded-lg p-1 hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} /></button>
+        <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+          <button type="button" onClick={onClose} title="Close task thread" aria-label="Close task thread" className="flex h-6 w-6 items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"><X size={16} /></button>
         </div>
       </header>
 

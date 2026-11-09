@@ -207,12 +207,6 @@ export function defaultSystemPromptForRole(role: string): string {
       "Read-only research -- no file modifications."
     );
   }
-  if (key === "product-analyst") {
-    return (
-      "You are the Product Analyst. Structure requirements into acceptance criteria with explicit scope boundaries. " +
-      "Do not expand scope."
-    );
-  }
   if (key === "devops") {
     return (
       "You are the DevOps Engineer. Make minimal, reversible infra changes. " +
@@ -472,24 +466,12 @@ export const getExecutionHistory = query({
 
 export const FIXED_AGENTS = [
   {
-    key: "lead",
-    name: "Lead",
-    role: "lead",
-    description: "Project coordination, task analysis, delegation, collaboration tracking.",
-    systemPrompt:
-      "You are the Lead Coordinator of the multi-agent team. Turning WHAT the owner wants into a precise, implementable spec: requirements, scope boundaries, acceptance criteria, and a task breakdown (what to build, who does it, done = ?). You coordinate tasks and track progress; you route each task to the specialist (Frontend/Backend/QA) who owns it and summarize results for the owner in plain language. Boundaries: you translate needs into specs and choose WHO does the work — you never decide the technical approach, architecture, framework, or library choices. Technical decisions and risk judgments belong to the CTO, not you. Output: acceptance criteria + task breakdown + owner, then a short status summary. No code writing, no architecture calls.",
-    capabilities: ["project-coordination", "general"],
-    supportedTools: ["read_file"],
-    priority: 10,
-    maxConcurrency: 2,
-  },
-  {
     key: "cto",
     name: "CTO",
     role: "cto",
     description: "Technical architecture, technical decisions, code review, risk evaluation.",
     systemPrompt:
-      "You are the CTO. You decide HOW the work is built: the technical approach, architecture, framework and library choices, data model, and risk trade-offs. You evaluate risk and give a go/no-go on sensitive changes (auth, payments, migrations, new libs). Boundaries: you own the technical direction, not the requirements. The Lead tells you WHAT is needed; you answer with the technical path, its risks, and the constraints it imposes. You do not coordinate schedules or assign specialists — you decide the HOW and set the guardrails. Keep plans simple and consistent with the existing codebase; reject over-engineering. Read-only: you do not write code yourself. Output: a decision with brief rationale, risks, and concrete next steps. Reporting to the owner: always in 2-3 plain-language sentences, like talking to a non-technical owner -- what is done, the impact, and any problem or decision needed last. Never use bullets, headers, or pasted terminal output. Technical detail only when asked.",
+      "You are the CTO. You decide HOW the work is built: the technical approach, architecture, framework and library choices, data model, and risk trade-offs. You evaluate risk and give a go/no-go on sensitive changes (auth, payments, migrations, new libs). Boundaries: you own the technical direction, not the requirements. You decide the HOW and set the guardrails. Keep plans simple and consistent with the existing codebase; reject over-engineering. Read-only: you do not write code yourself. Output: a decision with brief rationale, risks, and concrete next steps. Reporting to the owner: always in 2-3 plain-language sentences, like talking to a non-technical owner -- what is done, the impact, and any problem or decision needed last. Never use bullets, headers, or pasted terminal output. Technical detail only when asked.",
     capabilities: ["architecture", "security-audit"],
     supportedTools: ["read_file"],
     priority: 9,
@@ -542,18 +524,6 @@ export const FIXED_AGENTS = [
     supportedTools: ["read_file", "run_command"],
     priority: 7,
     maxConcurrency: 2,
-  },
-  {
-    key: "growth",
-    name: "Growth",
-    role: "growth",
-    description: "SEO, product growth, analytics, metrics, user engagement.",
-    systemPrompt:
-      "You are the Growth Specialist. Improve discoverability and user activation: SEO metadata, analytics/telemetry requirements, and conversion-focused copy suggestions. Tie every recommendation to a measurable goal (clicks, signups, retention) and avoid vanity metrics. Boundaries: advise and specify — implementation stays with the relevant engineer agent. Output: prioritized recommendations with expected impact.",
-    capabilities: ["growth-marketing"],
-    supportedTools: ["read_file"],
-    priority: 6,
-    maxConcurrency: 1,
   },
   {
     key: "support",

@@ -4,14 +4,15 @@ import { describe, expect, it, vi } from "vitest";
 function pickConversationalAgent(
   agents: Array<{ _id: string; name: string; role: string; isEnabled?: boolean }>
 ) {
-  const notCto = agents.filter((a) => !/(cto|architect|lead|orchestrator|planner|manager)/i.test(a.role));
-  const general = notCto.find((a) => /^(general|assistant)/i.test(a.role));
+  const cto = agents.find((a) => /^cto$/i.test(a.role));
+  if (cto) return cto;
+  const general = agents.find((a) => /^(general|assistant)/i.test(a.role));
   if (general) return general;
-  const researcher = notCto.find((a) => /^researcher/i.test(a.role));
+  const researcher = agents.find((a) => /^researcher/i.test(a.role));
   if (researcher) return researcher;
-  const support = notCto.find((a) => /^support/i.test(a.role));
+  const support = agents.find((a) => /^support/i.test(a.role));
   if (support) return support;
-  return notCto[0] ?? agents[0];
+  return agents[0];
 }
 
 function selectConversationAgents(
@@ -58,11 +59,13 @@ describe("Chat and Task Management", () => {
     { _id: "external-1", name: "Rogue Agent", role: "External", isEnabled: true },
   ];
 
-  it("1. Normal conversation routes to the conversational agent by default (never the CTO)", () => {
-    const selected = selectConversationAgents(["lead-1", "frontend-1"], mockAgents);
+  it("1. Normal conversation routes to the CTO by default (planning authority answers chat)", () => {
+    const selected = selectConversationAgents(["cto-1", "lead-1", "frontend-1"], [
+      { _id: "cto-1", name: "CTO", role: "cto", isEnabled: true },
+      ...mockAgents,
+    ]);
     expect(selected).toHaveLength(1);
-    // "Lead Architect" is a lead/architect → excluded; Frontend answers ASK.
-    expect(selected[0]._id).toBe("frontend-1");
+    expect(selected[0]._id).toBe("cto-1");
   });
 
   it("2. Explicit task creation uses same mutation payload contract", () => {

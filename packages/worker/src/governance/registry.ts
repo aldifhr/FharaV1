@@ -32,11 +32,11 @@ export interface ToolDefinition {
 /**
  * Permission matrix per role family (least privilege):
  *  - write-capable tools require a matching capability — read-only roles
- *    (researcher/support/growth) are refused at the broker even if an
+ *    (researcher/support) are refused at the broker even if an
  *    agent declares the tool, and every denial is audited.
  */
 const ROLE_DENIED_TOOLS: Array<{ pattern: RegExp; denied: string[] }> = [
-  { pattern: /^(researcher|product-analyst)$/i, denied: ["write_file", "run_command"] },
+  { pattern: /^researcher$/i, denied: ["write_file", "run_command"] },
 ];
 
 const TOOL_REGISTRY: ToolDefinition[] = [

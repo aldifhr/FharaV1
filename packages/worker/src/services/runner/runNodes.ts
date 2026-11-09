@@ -47,6 +47,9 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
     )
   );
   if (unmet.length > 0) {
+    for (const node of unmet) {
+      state.feedback.push(`${node.key}: Prerequisite for "${node.key}" has not completed`);
+    }
     const outcomes = new Map<string, NodeOutcome>(
       unmet.map((node) => [
         node.key,

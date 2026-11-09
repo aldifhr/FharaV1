@@ -193,11 +193,9 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
 export function pickOrchestrator(agents: AgentDefinition[]): AgentDefinition | null {
   const enabled = agents.filter(isAgentEnabled);
   if (enabled.length === 0) return null;
-  // CTO is the decision authority. Lead is only the fallback when no CTO exists.
+  // CTO is the sole decision authority (team is specialist-only since Lead removal).
   const cto = enabled.find((agent) => /^cto$/i.test(agent.role.trim()));
   if (cto) return cto;
-  const lead = enabled.find((agent) => /^lead$/i.test(agent.role.trim()));
-  if (lead) return lead;
   return enabled.find((agent) => /^orchestrator$/i.test(agent.role.trim())) ?? null;
 }
 
@@ -209,7 +207,7 @@ export function buildPlanningPrompt(input: PlannerInput): string {
     ...(input.sharedInstructions
       ? [`Durable shared instructions for this project (must follow): ${input.sharedInstructions}`]
       : []),
-    "Your team consists of specialized agents: Lead, CTO, Designer, Frontend, Backend, QA, Growth, Support.",
+    "Your team consists of specialized agents: CTO, Designer, Frontend, Backend, QA, Support, DevOps, Reviewer, Researcher, UI-UX.",
     "Analyze the user task, identify which agents are strictly relevant, and produce an execution plan as STRICT JSON.",
     "Do NOT force all agents into every task. Only assign agents whose capabilities match the requirements.",
     "For simple or single-discipline tasks, use strategy 'single' with 1 subtask and empty dependencies [].",
@@ -222,15 +220,13 @@ export function buildPlanningPrompt(input: PlannerInput): string {
     "- CTO (architecture, security-audit): technical architecture decisions, decomposition, and risk evaluation; oversees but does not perform code review itself.",
     "- CTO must verify before approval: frontend/backend boundaries are sensible; project-standard technologies are used consistently; database and API designs are correct; service-to-service communication is explicit; no duplicate implementation is introduced; the solution is scalable and maintainable; and architectural changes are justified, minimal, and reversible.",
     "- CTO must reject or request revision when any of those checks fail or when the plan lacks enough evidence to decide. Do not approve by default just because an agent completed.",
-    "- Technical-debt findings must include evidence, root cause, impact, and a durable remediation owner. The CTO directs the Lead to coordinate cross-agent fixes; do not hide debt behind a local patch or add a second orchestration path.",
+    "- Technical-debt findings must include evidence, root cause, impact, and a durable remediation owner. The CTO directs the implementer agent to coordinate cross-agent fixes; do not hide debt behind a local patch or add a second orchestration path.",
     "- Frontend (frontend-development): UI components, tokens, styling, and client implementation.",
     "- Backend (backend-development): APIs, schema, integration, server logic.",
     "- DevOps (github, shell-execution): repositories, issues/PRs, CI, infra commands.",
     "- QA (browser-testing): perform only the verification explicitly requested. Structural QA checks HTML, browser reachability, console, and network errors. Responsive viewport and screenshot-baseline checks are opt-in only; never add them when the user says not to.",
-    "- Growth (growth-marketing): analytics, funnels, SEO, conversion copy.",
     "- Support (documentation-support): documentation, customer communication, release notes.",
     "- Researcher (research): technical research, evidence gathering, fact vs assumption separation.",
-    "- Lead (project-coordination, general): coordination, planning support, delegation, summaries.",
     "Agents available (only use capabilities listed here):",
     describeCapabilities(agents),
     "",

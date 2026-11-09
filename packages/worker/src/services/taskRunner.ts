@@ -1504,6 +1504,11 @@ async function executePlan(input: {
     return { status: "cancelled" };
   }
   if (implementation.status !== "completed") {
+    if (implementation.outcomes) {
+      for (const [key, o] of implementation.outcomes) {
+        if (o.status === "failed") state.feedback.push(`${key}: ${o.error}`);
+      }
+    }
     return { status: taskCancelled() ? "cancelled" : "failed" };
   }
   // Engine replan at the stage boundary (plan 013 step 3): abandon the

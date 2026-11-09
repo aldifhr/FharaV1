@@ -2,8 +2,8 @@ import { CAPABILITY, type AgentDefinition } from "./types";
 
 const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   {
-    pattern: /\b(lead|coordinator|project lead|orchestrator|planner|manager)\b/i,
-    capabilities: [CAPABILITY.COORDINATION, CAPABILITY.GENERAL],
+    pattern: /\b(cto|architect|architecture|tech lead|principal)\b/i,
+    capabilities: [CAPABILITY.ARCHITECTURE, CAPABILITY.SECURITY],
   },
   {
     pattern: /\b(designer|design|wireframe|ui-ux|figma)\b/i,
@@ -28,10 +28,6 @@ const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   {
     pattern: /\b(cto|architect|architecture|tech lead|principal)\b/i,
     capabilities: [CAPABILITY.ARCHITECTURE, CAPABILITY.SECURITY],
-  },
-  {
-    pattern: /\b(growth|seo|marketing|analytics)\b/i,
-    capabilities: [CAPABILITY.GROWTH],
   },
   {
     pattern: /\b(support|documentation|docs|technical-writer|writer)\b/i,

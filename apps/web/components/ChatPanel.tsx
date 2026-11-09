@@ -342,7 +342,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     .map((a: any) => roleLabel(a.role));
   const [chatError, setChatError] = useState("");
   const [chatSending, setChatSending] = useState(false);
-  const [dismissedErrors, setDismissedErrors] = useState<Set<number>>(() => new Set());
+  const [dismissedErrors, setDismissedErrors] = useState<Set<string>>(() => new Set());
 
   const mentions = useDraftMentions(draft, setDraft, project, projectFiles, agents as any[]);
   const queue = useChatQueue(
@@ -763,12 +763,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       </header>
 
       <div ref={scrollRef} onScroll={() => { const el = scrollRef.current; if (!el) return; const dist = el.scrollHeight - el.scrollTop - el.clientHeight; nearBottomRef.current = dist <= 120; setShowScrollDown(dist > 120); if (dist <= 120) markSeen(); }} className="flex-1 space-y-5 overflow-y-auto bg-transparent px-5 py-6">
-        {taskErrors.filter((_, i) => !dismissedErrors.has(i)).map((event: any, index: number) => (
-          <div key={`task-error-${index}`} className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        {taskErrors.filter((event: any) => !dismissedErrors.has(String(event._id ?? event.payload?.message ?? "unknown"))).map((event: any) => {
+          const errorId = String(event._id ?? event.payload?.message ?? "unknown");
+          return (
+          <div key={errorId} className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             <span className="min-w-0 flex-1"><span className="font-semibold">Agent error:</span> {event.payload?.message ?? "Task failed to process."}</span>
-            <button type="button" aria-label="Dismiss error" onClick={() => setDismissedErrors((dismissed) => new Set(dismissed).add(index))} className="rounded p-0.5 text-red-400 hover:text-red-600">×</button>
+            <button type="button" aria-label="Dismiss error" onClick={() => setDismissedErrors((dismissed) => new Set(dismissed).add(errorId))} className="rounded p-0.5 text-red-400 hover:text-red-600">×</button>
           </div>
-        ))}
+          );
+        })}
         {tab === "chat" ? (
             <MessageList
               timeline={timeline}

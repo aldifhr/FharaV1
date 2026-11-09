@@ -5,29 +5,29 @@
  *  - frontend, backend, devops (Engineering)
  *  - qa, reviewer (Quality)
  *  - researcher (Research)
- *  - product-analyst, ui-ux (Product)
+ *  - designer, ui-ux (Product)
  *
  * Roles are configuration (capabilities + tool defaults) executed by the
  * Agent Runtime on demand — never permanent workers. `architecture` etc.
  * are capabilities, not extra roles.
+ * Deleted: lead (duplicates orchestrator/CTO planning), growth (SEO-only,
+ * never suggested for dev tasks), product-analyst (same research capability
+ * as researcher, router tie-break always picked it first).
  */
 import { CAPABILITY } from "./types";
 import { capabilitiesOf } from "./capabilities";
 import type { AgentDefinition } from "./types";
 
 export type AgentRole =
-  | "lead"
   | "cto"
   | "designer"
   | "frontend"
   | "backend"
   | "qa"
-  | "growth"
   | "support"
   | "devops"
   | "reviewer"
   | "researcher"
-  | "product-analyst"
   | "ui-ux";
 
 export interface RoleDefinition {
@@ -41,15 +41,6 @@ export interface RoleDefinition {
 }
 
 export const ROLE_DEFINITIONS: Record<AgentRole, RoleDefinition> = {
-  lead: {
-    role: "lead",
-    displayName: "Lead",
-    category: "Leadership",
-    description: "Project coordination, task analysis, delegation, collaboration tracking.",
-    defaultCapabilities: [CAPABILITY.COORDINATION, CAPABILITY.GENERAL],
-    defaultTools: ["read_file"],
-    systemPromptHint: "Break the request into clear requirements and actionable tasks, coordinate the right agents, track progress, summarize results. Do not execute code changes directly.",
-  },
   cto: {
     role: "cto",
     displayName: "CTO",
@@ -95,15 +86,6 @@ export const ROLE_DEFINITIONS: Record<AgentRole, RoleDefinition> = {
     defaultTools: ["read_file", "run_command"],
     systemPromptHint: "Verify with the narrowest relevant checks and report evidence. Distinguish executed tests from proposed ones — never fabricate results. Defects go back to the implementer with a concrete repro.",
   },
-  growth: {
-    role: "growth",
-    displayName: "Growth Specialist",
-    category: "Growth",
-    description: "SEO, product growth, analytics, metrics, user engagement.",
-    defaultCapabilities: [CAPABILITY.GROWTH],
-    defaultTools: ["read_file"],
-    systemPromptHint: "Tie every recommendation to a measurable goal (clicks, signups, retention). Advise and specify — implementation stays with the engineer agent.",
-  },
   support: {
     role: "support",
     displayName: "Support Specialist",
@@ -140,15 +122,6 @@ export const ROLE_DEFINITIONS: Record<AgentRole, RoleDefinition> = {
     defaultTools: ["read_file"],
     systemPromptHint: "Prefer official docs; distinguish facts from assumptions with sources. Read-only research — no file modifications.",
   },
-  "product-analyst": {
-    role: "product-analyst",
-    displayName: "Product Analyst",
-    category: "Product",
-    description: "Requirement analysis and acceptance criteria.",
-    defaultCapabilities: [CAPABILITY.RESEARCH],
-    defaultTools: ["read_file"],
-    systemPromptHint: "Structure requirements into acceptance criteria with explicit scope boundaries. Do not expand scope.",
-  },
   "ui-ux": {
     role: "ui-ux",
     displayName: "UI/UX Designer",
@@ -162,18 +135,15 @@ export const ROLE_DEFINITIONS: Record<AgentRole, RoleDefinition> = {
 
 export function normalizeRole(role: string): AgentRole {
   const r = role.trim().toLowerCase();
-  if (r === "lead" || r === "project lead" || r === "team lead" || r === "coordinator") return "lead";
   if (r === "cto" || r === "orchestrator" || r === "planner" || r === "architect") return "cto";
   if (r === "designer" || r === "ui-ux" || r === "ux" || r === "ui/ux" || r === "ui/ux designer") return "designer";
   if (r === "frontend" || r === "frontend developer" || r === "frontend-developer" || r === "developer") return "frontend";
   if (r === "backend" || r === "backend developer" || r === "backend-developer") return "backend";
   if (r === "qa" || r === "qa engineer" || r === "tester") return "qa";
-  if (r === "growth" || r === "growth specialist" || r === "marketing" || r === "seo") return "growth";
   if (r === "support" || r === "support specialist" || r === "documentation" || r === "technical-writer" || r === "writer") return "support";
   if (r === "devops" || r === "dev ops" || r === "devops engineer") return "devops";
   if (r === "reviewer" || r === "code-review" || r === "code review") return "reviewer";
-  if (r === "researcher" || r === "research") return "researcher";
-  if (r === "product-analyst" || r === "product" || r === "analyst" || r === "product analyst") return "product-analyst";
+  if (r === "researcher" || r === "research" || r === "product-analyst" || r === "product" || r === "analyst" || r === "product analyst") return "researcher";
   if (r === "security" || r === "security auditor" || r === "security engineer" || r === "database" || r === "database engineer" || r === "db") return "backend";
   if (r === "general" || r === "") return "frontend";
   return "frontend";

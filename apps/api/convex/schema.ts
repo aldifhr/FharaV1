@@ -538,12 +538,19 @@ export default defineSchema({
     estimatedCost: v.optional(v.number()),
     inputTokens: v.number(),
     outputTokens: v.number(),
+    // Runs trace (additive): the execution attempt / subtask that made the
+    // call, when the worker knew it. Absent on planner calls and on rows
+    // recorded before this field existed (runs.get falls back to a
+    // per-agent time-window match for those).
+    executionId: v.optional(v.id("executions")),
+    subtaskKey: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_agent", ["agentId"])
     .index("by_project", ["projectId"])
     .index("by_created_at", ["createdAt"])
-    .index("by_task", ["taskId"]),
+    .index("by_task", ["taskId"])
+    .index("by_execution", ["executionId"]),
 
   // Intelligent orchestrator — shared task context
   taskContexts: defineTable({

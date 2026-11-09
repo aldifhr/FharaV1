@@ -9,6 +9,7 @@ import {
   Activity,
   BookOpen,
   Cpu,
+  GitBranch,
   Home,
   Inbox,
   KanbanSquare,
@@ -265,6 +266,7 @@ export default function IconRail({
       <RailButton icon={MessagesSquare} label="Chats" href={chatHref} active={inChat} />
       <RailButton icon={Users} label="Team" href={projectId ? `/team?project=${projectId}` : "/team"} active={pathname === "/team"} />
       <RailButton icon={BookOpen} label="Library" href="/library" active={pathname === "/library"} />
+      <RailButton icon={GitBranch} label="Runs" href={projectId ? `/runs?project=${projectId}` : "/runs"} active={pathname.startsWith("/runs")} />
       {projectId && (
         <>
           <RailButton icon={KanbanSquare} label="Board" href={`/chats/${projectId}?tab=tasks`} />

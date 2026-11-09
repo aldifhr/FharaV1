@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import { api } from "@/api/convex/_generated/api";
 import MessageText from "./chat/MessageText";
@@ -373,7 +374,13 @@ export default function TaskThreadPanel({
           {closeButton}
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-[16px] font-semibold leading-tight text-ink">{(task as any).title}</h2>
-            <p className="mt-0.5 truncate text-[13px] text-ink-3">Task thread · {(project as any)?.name ?? "Workspace"}</p>
+            <p className="mt-0.5 truncate text-[13px] text-ink-3">
+              Task thread · {(project as any)?.name ?? "Workspace"}
+              {" · "}
+              <Link href={`/runs/${(task as any)._id}`} className="underline-offset-2 hover:text-ink hover:underline">
+                View trace
+              </Link>
+            </p>
           </div>
           <span className={`shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-[13px] font-medium leading-none ${pill.cls}`}>{pill.label}</span>
           {xButton}

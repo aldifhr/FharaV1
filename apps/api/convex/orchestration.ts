@@ -1854,6 +1854,9 @@ export const recordTokenUsage = internalMutation({
     providerId: v.optional(v.id("llmProviders")),
     modelId: v.optional(v.id("llmModels")),
     estimatedCost: v.optional(v.number()),
+    // Runs trace: which execution attempt / subtask made the call.
+    executionId: v.optional(v.id("executions")),
+    subtaskKey: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("tokenUsage", {
@@ -1867,6 +1870,8 @@ export const recordTokenUsage = internalMutation({
       estimatedCost: args.estimatedCost,
       inputTokens: args.inputTokens,
       outputTokens: args.outputTokens,
+      executionId: args.executionId,
+      subtaskKey: args.subtaskKey,
       createdAt: Date.now(),
     });
   },

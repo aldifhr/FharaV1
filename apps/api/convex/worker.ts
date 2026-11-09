@@ -553,6 +553,9 @@ export const recordTokenUsage = action({
     providerId: v.optional(v.id("llmProviders")),
     modelId: v.optional(v.id("llmModels")),
     estimatedCost: v.optional(v.number()),
+    // Runs trace: which execution attempt / subtask made the call.
+    executionId: v.optional(v.id("executions")),
+    subtaskKey: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
     await ctx.runMutation(

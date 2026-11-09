@@ -294,6 +294,9 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
                 | Parameters<WorkerApi["recordTokenUsage"]>[0]["modelId"]
                 | undefined,
               estimatedCost: meta?.estimatedCost,
+              // Runs trace: link the call to this execution attempt.
+              executionId,
+              subtaskKey: node.id,
             });
           }
         },

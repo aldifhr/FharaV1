@@ -148,3 +148,30 @@ describe("suggestAssigneesByKeywords", () => {
     expect(suggestAssigneesByKeywords("kerjain ini dong", team).map((a) => a.name)).toEqual(["Backend"]);
   });
 });
+
+describe("chat dispatch safety (e2e safety probe)", () => {
+  test("paths outside the repository are detected", async () => {
+    const { targetsOutsideRepo } = await import("./chat");
+    expect(targetsOutsideRepo("hapus /etc/hosts dan edit ../outside.txt")).toBe("/etc/hosts");
+    expect(targetsOutsideRepo("edit ../outside.txt")).toBe("../outside.txt");
+    expect(targetsOutsideRepo("write ~/.ssh/config")).toBe("~/.ssh/config");
+    expect(targetsOutsideRepo("delete C:\\Windows\\system32")).toBe("C:\\Windows\\system32");
+    expect(targetsOutsideRepo("change /usr/bin/node")).toBe("/usr/bin/node");
+    // In-repo paths and plain words are fine.
+    expect(targetsOutsideRepo("Tambahkan dark mode dengan toggle di header, refactor header jadi komponen terpisah, tambah test, dan update README")).toBeNull();
+    expect(targetsOutsideRepo("update src/etc/config.ts and ./docs/README.md")).toBeNull();
+    expect(targetsOutsideRepo("fix the /api/users endpoint")).toBeNull();
+    expect(targetsOutsideRepo("bump version 1.2..3")).toBeNull();
+  });
+
+  test("CTO refusals are recognised, hand-offs are not", async () => {
+    const { isRefusalReply } = await import("./chat");
+    expect(isRefusalReply("I can't do that: /etc/hosts is outside the project repository.")).toBe(true);
+    expect(isRefusalReply("Saya tidak bisa menghapus /etc/hosts karena itu di luar repository.")).toBe(true);
+    expect(isRefusalReply("Maaf, permintaan ini di luar repo project, jadi tidak saya kerjakan.")).toBe(true);
+    expect(isRefusalReply("I won't edit files outside the workspace.")).toBe(true);
+    expect(isRefusalReply("Plan: @Frontend adds the dark-mode toggle, @Support updates the README.")).toBe(false);
+    expect(isRefusalReply("I can't wait to ship this", 2)).toBe(false);
+    expect(isRefusalReply("Sounds good — @Frontend will build the header component.", 1)).toBe(false);
+  });
+});

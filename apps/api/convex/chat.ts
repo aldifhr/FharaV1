@@ -113,6 +113,34 @@ const EXPLICIT_NEGATION =
 export const GREETING =
   /^(hi|hello|hey|halo|hai|yo|good (morning|afternoon|evening))[!.,?\s]*$/i;
 
+/**
+ * Paths outside the project repository: parent traversal, home-relative
+ * paths and system directories (e2e safety probe: "hapus /etc/hosts dan
+ * edit ../outside.txt" must never become a task).
+ */
+const OUTSIDE_REPO_PATH =
+  /(?:^|[\s"'`(=:,])((?:\.\.[\/\\]|~[\/\\])\S*|\/(?:etc|usr|var|bin|sbin|boot|root|proc|sys|dev|lib|lib64|System|Windows)(?:[\/\\]\S*)?(?=$|[\s"'`),;])|[A-Za-z]:\\\S*)/;
+
+/** The first path in `text` that points outside the repository, or null. */
+export function targetsOutsideRepo(text: string): string | null {
+  const match = OUTSIDE_REPO_PATH.exec(text);
+  return match ? match[1] : null;
+}
+
+const REFUSAL_REPLY =
+  /(\bi\s+(?:can(?:not|['’]t)|won['’]t|will\s+not|must\s+(?:decline|refuse)|have\s+to\s+(?:decline|refuse)|refuse)\b|\bi['’]?m\s+(?:not\s+able|unable)\s+to\b|\bi\s+am\s+(?:not\s+able|unable)\s+to\b|\b(?:not|never)\s+(?:allowed|permitted|safe)\s+to\b|\boutside\s+(?:the|this|our)\s+(?:project|repo|repository|workspace)\b|\b(?:saya|aku|kami)\s+(?:tidak|nggak|gak|ga)\s+(?:bisa|dapat|boleh|akan)\b|\btidak\s+(?:diizinkan|aman)\b|\bmenolak\b|\bdi\s+luar\s+(?:repo|repositori|repository|proyek|project|workspace)\b)/i;
+
+/**
+ * The CTO's reply declines the request ("I can't do that", "Saya tidak
+ * bisa…", "outside the repository"). Only the opening of the reply is
+ * read, and a reply that still hands work to teammates (@mentions) is not
+ * a refusal.
+ */
+export function isRefusalReply(text: string, mentionedAssignees = 0): boolean {
+  if (mentionedAssignees > 0) return false;
+  return REFUSAL_REPLY.test(text.slice(0, 400));
+}
+
 export function classifyChatIntent(text: string): { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean } {
   const t = text.toLowerCase();
   const frontend = /\b(frontend|ui|react|component|page|button|css|tailwind)\b/.test(t);
@@ -1079,6 +1107,23 @@ export const replyToChat = internalAction({
       if (dupe) {
         return; // already dispatched; UI shows the task
       }
+      // Safety: a request aimed at paths outside the repository is never
+      // turned into a task — the worker would only refuse it later, after
+      // planning and approvals (e2e safety probe).
+      const outsidePath = targetsOutsideRepo(lastUserContent);
+      if (outsidePath) {
+        const indonesian = /\b(hapus|ubah|edit|tambah\w*|buat\w*|dan|yang|tolong|jangan)\b/i.test(lastUserContent) && /\b(dan|yang|tolong|hapus|buat\w*)\b/i.test(lastUserContent);
+        await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+          projectId: args.projectId,
+          agentId: dispatcher._id as any,
+          conversationId: args.conversationId,
+          replyToMessageId: args.userMessageId,
+          content: indonesian
+            ? `Saya tidak membuat task untuk ini: \`${outsidePath}\` ada di luar repository project. Tim hanya mengubah file di dalam folder project.`
+            : `I won't create a task for this: \`${outsidePath}\` is outside the project repository. The team only changes files inside the project folder.`,
+        });
+        return;
+      }
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { api } = await import("./_generated/api.js") as any;
@@ -1107,6 +1152,11 @@ export const replyToChat = internalAction({
               conversation,
             );
             ctoAssignees = extractAgentMentions(plan.content, team, String(orchestrator._id));
+            // The CTO declined the request: its reply stands as the
+            // answer and no task is created or dispatched.
+            if (isRefusalReply(plan.content, ctoAssignees.length)) {
+              return;
+            }
           } catch (err: any) {
             console.error("CTO assignment reply failed:", err?.message ?? err);
           }

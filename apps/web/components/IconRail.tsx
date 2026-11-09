@@ -29,7 +29,6 @@ import { useLlmSettings } from "./LlmSettings";
 import { useTheme } from "./ui/use-theme";
 import CommandMenu from "./CommandMenu";
 import QueryBoundary from "./shell/QueryBoundary";
-import { focusTeam } from "@/lib/shellEvents";
 import { clockTime } from "@/lib/format";
 
 type IconType = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
@@ -263,10 +262,10 @@ export default function IconRail({
       <RailButton icon={Search} label="Search (⌘K)" onClick={() => setCommandOpen(true)} />
       <span aria-hidden="true" className="my-2 h-px w-6 bg-line max-[979px]:hidden" />
       <RailButton icon={MessagesSquare} label="Chats" href={chatHref} active={inChat} />
+      <RailButton icon={Users} label="Team" href={projectId ? `/team?project=${projectId}` : "/team"} active={pathname === "/team"} />
       {projectId && (
         <>
           <RailButton icon={KanbanSquare} label="Board" href={`/chats/${projectId}?tab=tasks`} />
-          <RailButton icon={Users} label="Team" onClick={focusTeam} />
           <RailButton
             icon={Activity}
             label="Activity"

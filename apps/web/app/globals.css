@@ -52,6 +52,7 @@
   --color-panel: var(--shell-panel);
   --color-panel-2: var(--shell-panel-2);
   --color-hover: var(--shell-hover);
+  --color-bubble: var(--shell-bubble);
   --color-line: var(--shell-line);
   --color-line-strong: var(--shell-line-strong);
   --color-ink: var(--shell-ink);
@@ -114,18 +115,21 @@
   --color-5: oklch(90.7% 0.231 133);
   --font-heading: var(--font-sans);
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --shell-canvas: #f4f4f6;
-  --shell-panel: #ffffff;
-  --shell-panel-2: #fafafb;
-  --shell-hover: #f3f3f5;
-  --shell-line: #ececf0;
-  --shell-line-strong: #e0e0e6;
+  /* Warm paper white instead of #fff: easier on the eyes, and bubbles and
+     borders read against it. */
+  --shell-canvas: #f1f0ec;
+  --shell-panel: #fafaf8;
+  --shell-panel-2: #f5f4f1;
+  --shell-hover: #efeee9;
+  --shell-line: #e6e4de;
+  --shell-line-strong: #d9d6cf;
+  --shell-bubble: #efeee9;
   --shell-ink: #1d1d22;
   --shell-ink-2: #6b6b76;
   --shell-ink-3: #9b9ba6;
   --shell-brand: #5b5bd6;
   --shell-brand-hover: #4c4cc4;
-  --shell-brand-soft: #eeeefc;
+  --shell-brand-soft: #e8e8fa;
   --shell-brand-ink: #4a4ac0;
   --shell-warn: #d9580b;
   --shell-warn-soft: #fff1e6;
@@ -174,6 +178,7 @@
   --shell-panel: #131316;
   --shell-panel-2: #18181c;
   --shell-hover: #1d1d22;
+  --shell-bubble: #1c1c21;
   --shell-line: #24242a;
   --shell-line-strong: #2e2e35;
   --shell-ink: #ececf1;

@@ -305,7 +305,7 @@ export default function MessageList(props: Props) {
                   <ReasoningLine text={m.reasoning} running={false} seconds={m.reasoningDurationMs} />
                 </div>
               )}
-              <div className="mt-1.5 w-fit min-w-0 max-w-full rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-3">
+              <div className="mt-1.5 w-fit min-w-0 max-w-full rounded-2xl rounded-tl-md bg-bubble px-4 py-3">
                 {hasText ? (
                   <MessageText
                     content={parseOptions(m.content).text}
@@ -459,7 +459,7 @@ export default function MessageList(props: Props) {
           />
           <div className="min-w-0 flex-1">
             <p className="text-[14px] font-semibold text-ink">{roleLabel(typingAgent?.role ?? "cto")}</p>
-            <div className="mt-1.5 w-fit rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-3">
+            <div className="mt-1.5 w-fit rounded-2xl rounded-tl-md bg-bubble px-4 py-3">
               <ReasoningLine running />
             </div>
           </div>

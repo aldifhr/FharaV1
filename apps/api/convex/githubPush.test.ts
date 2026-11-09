@@ -124,6 +124,24 @@ describe("githubPush.postTaskCard", () => {
     expect(cards[0].card?.data.taskId).toBe(String(taskId));
   });
 
+  test("the same key updates a live card in place (QA checklist)", async () => {
+    const { t, taskId, projectId } = await setup();
+    const key = "qa:0:1";
+    await t.mutation(internal.githubPush.postTaskCard, {
+      taskId, projectId, workerId: "w1", kind: "qa",
+      data: { outcome: "running", rows: [{ label: "1440 px, desktop", status: "running" }], idempotencyKey: key },
+    });
+    await t.mutation(internal.githubPush.postTaskCard, {
+      taskId, projectId, workerId: "w1", kind: "qa",
+      data: { outcome: "passed", rows: [{ label: "1440 px, desktop", status: "passed" }], idempotencyKey: key },
+    });
+    const cards = await t.run(async (ctx) =>
+      (await ctx.db.query("messages").collect()).filter((m) => m.card?.kind === "qa")
+    );
+    expect(cards).toHaveLength(1);
+    expect(cards[0].card?.data.outcome).toBe("passed");
+  });
+
   test("refuses a worker that does not hold the lease", async () => {
     const { t, taskId, projectId } = await setup();
     const res = await t.mutation(internal.githubPush.postTaskCard, {
@@ -361,5 +379,26 @@ describe("tasks.createFromCommand conversation link", () => {
     });
     const task = await t.run(async (ctx) => await ctx.db.get(taskId));
     expect(task?.conversationId).toBe(conversationId);
+  });
+});
+
+describe("githubPush.holdPush and the card view", () => {
+  test("hold is recorded, then cleared by an approval; the view carries stage results", async () => {
+    const { t, taskId, projectId } = await setup();
+    const { pushId } = (await commit(t, taskId, projectId)) as any;
+    await t.mutation(internal.githubPush.postTaskCard, {
+      taskId, projectId, workerId: "w1", kind: "verification",
+      data: { outcome: "passed", checks: [{ name: "test", status: "passed", counts: { passed: 9, total: 9 } }] },
+    });
+    expect(await t.mutation(api.githubPush.holdPush, { pushId })).toEqual({ held: true, status: "ready" });
+    let view = await t.query(api.githubPush.get, { pushId });
+    expect(view?.heldAt).toBeTypeOf("number");
+    expect(view?.verification?.checks[0]).toMatchObject({ name: "test", counts: { passed: 9, total: 9 } });
+    expect(view?.qa).toBeNull();
+    expect(view?.projectName).toBe("P");
+    await t.mutation(api.githubPush.requestPush, { pushId, openPr: true });
+    view = await t.query(api.githubPush.get, { pushId });
+    expect(view?.heldAt).toBeUndefined();
+    expect(await t.mutation(api.githubPush.holdPush, { pushId })).toEqual({ held: false, status: "requested" });
   });
 });

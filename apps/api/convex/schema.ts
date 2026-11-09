@@ -337,7 +337,9 @@ export default defineSchema({
           v.literal("assignment"),
           v.literal("push"),
           v.literal("qa"),
-          v.literal("verification")
+          v.literal("verification"),
+          // Plan 019: "Changed N files" diff card after a code change.
+          v.literal("changes")
         ),
         data: v.any(),
       })
@@ -688,6 +690,8 @@ export default defineSchema({
     commitSha: v.string(),
     commitMessage: v.string(),
     filesChanged: v.number(),
+    additions: v.optional(v.number()),
+    deletions: v.optional(v.number()),
     ahead: v.optional(v.number()),
     behind: v.optional(v.number()),
     // Local branch ahead/behind were measured against.
@@ -696,6 +700,8 @@ export default defineSchema({
     openPr: v.optional(v.boolean()),
     // The approved `git_push` approval row the user's click created.
     approvalId: v.optional(v.id("approvals")),
+    // Set by the card's Hold button; cleared when the push is requested.
+    heldAt: v.optional(v.number()),
     requestedAt: v.optional(v.number()),
     workerId: v.optional(v.string()),
     leaseExpiresAt: v.optional(v.number()),

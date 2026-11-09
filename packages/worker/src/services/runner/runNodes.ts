@@ -9,6 +9,8 @@ import type { FallbackHandle } from "@/effects/llmCall";
 import type { WorkerApi } from "@/workerApi";
 import { handleNodeOutcome } from "./decision";
 import type { RunContext } from "./types";
+import type { FileDiff } from "@/tools/gitDiff";
+import { applyQaCheck, buildChangesCard, buildQaCard, postStageCard } from "./cards";
 
 /**
  * The DAG nodes runner (plan 012 step 2): run a set of subtasks through
@@ -96,7 +98,9 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
           error: error instanceof Error ? error.message : String(error),
         };
       }
-      return await executeSubtask({
+      // Plan 019: files this node staged, for the "Changed N files" card.
+      const stagedByNode: FileDiff[] = [];
+      const outcome = await executeSubtask({
         workspacePath: input.workspacePath,
         command: task.command,
         plan,
@@ -123,6 +127,38 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         assertBudgetForCall: input.assertBudgetForCall,
         onEvent: async (type, payload, level) => {
           input.taskAbort?.bump?.();
+          // Plan 019: live QA checklist — each browser check updates the card.
+          if (subtask.kind === "qa" && type === "task.check" && ctx.qaCard) {
+            const check = payload as { label?: string; status?: string; details?: string } | undefined;
+            if (check?.label) {
+              const live = ctx.qaCard;
+              if (check.label === "application reachable" && check.status === "passed" && check.details) {
+                live.url = check.details;
+              }
+              const before = JSON.stringify(live.rows);
+              live.rows = applyQaCheck(live.rows, {
+                label: check.label,
+                status: check.status ?? "inconclusive",
+                details: check.details,
+              });
+              if (JSON.stringify(live.rows) !== before || check.label === "application reachable") {
+                await postStageCard(deps.api, {
+                  taskId,
+                  projectId: project._id,
+                  agentId: live.agentId,
+                  kind: "qa",
+                  data: buildQaCard({
+                    outcome: "running",
+                    iteration: live.iteration,
+                    checks: [],
+                    rows: live.rows,
+                    fallbackUrl: live.url,
+                    idempotencyKey: live.key,
+                  }),
+                });
+              }
+            }
+          }
           await deps.api.logEvent({
             taskId,
             projectId: project._id,
@@ -169,6 +205,9 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
             executionId,
           });
           state.fileChanges.set(change.filePath, change);
+          const prior = stagedByNode.findIndex((staged) => staged.filePath === change.filePath);
+          if (prior >= 0) stagedByNode[prior] = change;
+          else stagedByNode.push(change);
           // Phase 5 Step 5.1: attribute the staged file to the subtask that
           // produced it, so objective evaluation can check that every
           // completed code_change actually landed a change.
@@ -217,6 +256,19 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
           }
         },
       });
+      if (outcome.status === "completed" && subtask.kind === "code_change" && stagedByNode.length > 0) {
+        await postStageCard(deps.api, {
+          taskId,
+          projectId: project._id,
+          agentId: agent._id,
+          kind: "changes",
+          data: buildChangesCard(stagedByNode, {
+            subtaskKey: node.id,
+            idempotencyKey: `changes:${node.id}:${executionId ?? "x"}:${stagedByNode.length}`,
+          }),
+        });
+      }
+      return outcome;
     },
     {
       // Sequential by default (policy.maxConcurrency defaults to 1: FIFO,

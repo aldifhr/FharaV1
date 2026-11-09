@@ -9,6 +9,7 @@ import { providerHealth } from "./llm/health";
 import { getMcpRegistry } from "./mcp/registry";
 import { processTask, resumeTask, type RunnerDeps } from "./services/taskRunner";
 import { isLeaseLostOrShutdown } from "./services/runner/setup";
+import { processNextPushRequest } from "./services/pushRequests";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
 
@@ -17,6 +18,8 @@ const HEARTBEAT_MS = Number(process.env.WORKER_HEARTBEAT_MS ?? 10_000);
 const LEASE_MS = Number(process.env.WORKER_LEASE_MS ?? 60_000);
 const CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY ?? 1));
 const STALE_GRACE_MS = Number(process.env.WORKER_STALE_GRACE_MS ?? 30_000);
+// Plan 019: how often an idle worker checks for approved push requests.
+const PUSH_POLL_MS = Math.max(1000, Number(process.env.WORKER_PUSH_POLL_MS ?? 5000));
 
 const workerId =
   process.env.WORKER_ID ??
@@ -193,7 +196,33 @@ async function main() {
     inFlight.set(taskId, promise);
   };
 
+  // Plan 019: approved pushes run one at a time beside task execution
+  // (they are short git/HTTP calls and do not take a task slot).
+  let pushInFlight: Promise<void> | null = null;
+  let lastPushPoll = 0;
+  const pollPushes = () => {
+    const now = Date.now();
+    if (pushInFlight || stopping || now - lastPushPoll < PUSH_POLL_MS) return;
+    lastPushPoll = now;
+    pushInFlight = processNextPushRequest({
+      api,
+      workerId,
+      workspaceRoot,
+      log,
+      signal: shutdownController.signal,
+    })
+      .then((ran) => {
+        // Drain a backlog without waiting a full poll interval.
+        if (ran) lastPushPoll = 0;
+      })
+      .catch((error) => log("push poll error", error instanceof Error ? error.message : String(error)))
+      .finally(() => {
+        pushInFlight = null;
+      });
+  };
+
   while (!stopping) {
+    pollPushes();
     try {
       if (inFlight.size >= CONCURRENCY) {
         await sleep(200);

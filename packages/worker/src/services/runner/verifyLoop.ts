@@ -7,6 +7,7 @@ import { buildFixSubtask } from "@/orchestrator/reviewLoop";
 import { runVerification } from "@/execution/verification";
 import type { ReviewFinding } from "@/utils/json";
 import { CAPABILITY } from "@/orchestrator/types";
+import { buildVerificationCard, postStageCard } from "./cards";
 
 /**
  * The verification correction loop (plan 012 step 2): static verification
@@ -45,6 +46,7 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
   // the bound holds across pauses and fix keys never collide.
   let verifyIteration = plan.subtasks.filter((c) => c.key.startsWith("fix_verify_")).length;
   while (verifyIteration <= maxVerifyIters) {
+    const startedAt = Date.now();
     const verification = await runVerification({
       workspacePath: input.workspacePath,
       changedFiles: Array.from(state.fileChanges.keys()),
@@ -59,6 +61,21 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
           payload: { label: `verify:${check.name}`, status: check.status, details: check.details },
         });
       },
+    });
+    // Plan 019: one verification card per run in the task's chat.
+    await postStageCard(deps.api, {
+      taskId,
+      projectId: project._id,
+      agentId: (agents.find((a) => a.role === "devops") ?? implementerAgent(plan, agents))?._id,
+      kind: "verification",
+      data: buildVerificationCard(verification, {
+        iteration: verifyIteration,
+        durationMs: Date.now() - startedAt,
+        steps: deps.policy.verificationIncludeBuild === false
+          ? ["typecheck", "lint", "test"]
+          : ["typecheck", "lint", "test", "build"],
+        idempotencyKey: `verify:${verifyIteration}:${startedAt}`,
+      }),
     });
     const failedChecks = verification.checks.filter((c) => c.status === "failed");
     const allPassed =

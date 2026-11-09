@@ -108,6 +108,7 @@ export async function runVerification(options: VerificationOptions): Promise<Ver
         await record({
           name: `${target.name}:${step.name}`,
           status: "failed",
+          durationMs: result.durationMs,
           details: `\`${command}\` timed out after ${Math.round(timeoutMs / 1000)}s. ${tail(result.output)}`.trim(),
         });
         return finish(checks, ran, skipped);
@@ -117,14 +118,18 @@ export async function runVerification(options: VerificationOptions): Promise<Ver
         await record({
           name: `${target.name}:${step.name}`,
           status: "failed",
+          durationMs: result.durationMs,
           details: `\`${command}\` exited with code ${result.code}. ${tail(result.output)}`.trim(),
         });
         return finish(checks, ran, skipped);
       }
 
+      const counts = step.name === "test" ? parseTestCounts(result.output) : undefined;
       await record({
         name: `${target.name}:${step.name}`,
         status: "passed",
+        durationMs: result.durationMs,
+        ...(counts ? { counts } : {}),
         details: `\`${command}\` passed in ${(result.durationMs / 1000).toFixed(1)}s`,
       });
     }
@@ -380,4 +385,31 @@ function tail(text: string, limit = DETAIL_LIMIT): string {
   const trimmed = text.trim();
   if (!trimmed) return "";
   return trimmed.length <= limit ? trimmed : `...${trimmed.slice(-limit)}`;
+}
+
+/**
+ * Test counts from common runner summaries (vitest, jest, node:test,
+ * mocha). Returns undefined when the output has no recognisable summary —
+ * the card then shows the step result without counts, never a guess.
+ */
+export function parseTestCounts(output: string): { passed: number; total: number } | undefined {
+  const text = output.replace(/\u001b\[[0-9;]*m/g, "");
+  // vitest: "Tests  9 passed (9)" / "Tests  1 failed | 8 passed (9)"
+  const vitest = /Tests\s+(?:\d+\s+\w+\s+\|\s+)*(\d+)\s+passed[^(\n]*\((\d+)\)/.exec(text);
+  if (vitest) return { passed: Number(vitest[1]), total: Number(vitest[2]) };
+  // jest: "Tests:       9 passed, 9 total"
+  const jest = /Tests:\s+(?:\d+\s+\w+,\s+)*(\d+)\s+passed,.*?(\d+)\s+total/.exec(text);
+  if (jest) return { passed: Number(jest[1]), total: Number(jest[2]) };
+  // node:test: "# pass 9" + "# tests 9"
+  const nodePass = /^# pass (\d+)/m.exec(text);
+  const nodeTotal = /^# tests (\d+)/m.exec(text);
+  if (nodePass && nodeTotal) return { passed: Number(nodePass[1]), total: Number(nodeTotal[1]) };
+  // mocha: "9 passing"
+  const mocha = /^\s*(\d+) passing/m.exec(text);
+  if (mocha) {
+    const failing = /^\s*(\d+) failing/m.exec(text);
+    const passed = Number(mocha[1]);
+    return { passed, total: passed + (failing ? Number(failing[1]) : 0) };
+  }
+  return undefined;
 }

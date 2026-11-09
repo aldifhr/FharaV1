@@ -7,7 +7,7 @@
  * every field optional-safe on the reader side (old rows predate fields).
  */
 
-export type CardKind = "assignment" | "push" | "qa" | "verification";
+export type CardKind = "assignment" | "push" | "qa" | "verification" | "changes";
 
 export interface AssignmentCardData {
   taskId: string;
@@ -28,6 +28,8 @@ export interface VerificationCardCheck {
   durationMs?: number;
   /** Short reason, e.g. "no script" for a step that did not run. */
   detail?: string;
+  /** Test counts parsed from the runner output, only when it printed them. */
+  counts?: { passed: number; total: number };
 }
 
 export interface VerificationCardData {
@@ -42,10 +44,22 @@ export interface VerificationCardData {
   idempotencyKey?: string;
 }
 
+/** One line of the QA checklist (a viewport in visual mode). */
+export interface QaCardRow {
+  /** Display label, e.g. "1440 px, desktop" or "structural check". */
+  label: string;
+  /** Viewport width in px, for "checking <url> at 375 px". */
+  width?: number;
+  status: "pending" | "running" | "passed" | "failed" | "not_run";
+  detail?: string;
+}
+
 export interface QaCardData {
   taskId: string;
   iteration: number;
-  outcome: "passed" | "failed" | "blocked";
+  /** "running" while the browser checks are in flight (card updated live). */
+  outcome: "running" | "passed" | "failed" | "blocked";
+  rows?: QaCardRow[];
   reason?: string;
   urls: string[];
   issues: string[];
@@ -62,6 +76,25 @@ export interface PushCardData {
   commitSha: string;
   commitMessage: string;
   filesChanged: number;
+  additions?: number;
+  deletions?: number;
   ahead?: number;
   behind?: number;
+}
+
+export interface ChangesCardFile {
+  path: string;
+  changeType: "new" | "modified" | "deleted";
+  additions: number;
+  deletions: number;
+}
+
+/** "Changed N files" card; the diffs themselves are read from fileChanges. */
+export interface ChangesCardData {
+  taskId: string;
+  subtaskKey?: string;
+  files: ChangesCardFile[];
+  additions: number;
+  deletions: number;
+  idempotencyKey?: string;
 }

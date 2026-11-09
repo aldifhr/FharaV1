@@ -68,7 +68,7 @@ import {
   snapshotIdForChanges,
   type FileDiff,
 } from "@/tools/gitDiff";
-import { commitWorktree } from "@/tools/gitWorktree";
+import { commitWorktree, describeCommit } from "@/tools/gitWorktree";
 import type { RunnerDeps, RunState } from "./runner/types";
 import {
   buildStateFromDb,
@@ -1820,11 +1820,44 @@ async function executePlan(input: {
 
   if (input.worktree && preparedChanges.length > 0) {
     try {
-      await commitWorktree(
+      const committed = await commitWorktree(
         input.worktree.worktreePath,
         `MOAgent: ${task.title}`,
         Array.from(state.fileChanges.keys())
       );
+      // Plan 019: the push card. Recorded before the local merge (which
+      // removes the task branch); the commit stays reachable by sha, which
+      // is what the push request pushes. Best-effort: the card never
+      // decides whether the task completes.
+      if (committed) {
+        try {
+          const summary = await describeCommit(input.worktree.worktreePath, project.mainBranch ?? "main");
+          await deps.api.recordTaskCommit({
+            taskId,
+            projectId: project._id,
+            agentId: implementerAgent(plan, input.agents)?._id,
+            branchName: input.worktree.branchName,
+            commitSha: summary.sha,
+            commitMessage: summary.message,
+            filesChanged: summary.filesChanged,
+            additions: summary.additions,
+            deletions: summary.deletions,
+            ahead: summary.ahead,
+            behind: summary.behind,
+            comparedTo: summary.comparedTo,
+          });
+        } catch (error) {
+          await deps.api
+            .logEvent({
+              taskId,
+              projectId: project._id,
+              type: "card.post_failed",
+              payload: { kind: "push", message: error instanceof Error ? error.message : String(error) },
+              level: "warn",
+            })
+            .catch(() => undefined);
+        }
+      }
       await deps.api.mergeBranch({ taskId });
       await deps.api.logEvent({
         taskId,

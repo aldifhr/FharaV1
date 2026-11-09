@@ -41,7 +41,7 @@ const CARD_DEDUPE_SCAN = 100;
 const PR_REFRESH_BATCH = 20;
 const PR_REFRESH_MIN_AGE_MS = 5 * 60_000;
 
-const cardKind = v.union(v.literal("verification"), v.literal("qa"));
+const cardKind = v.union(v.literal("verification"), v.literal("qa"), v.literal("changes"));
 
 type PushRow = Doc<"taskPushes">;
 
@@ -190,7 +190,15 @@ export const postTaskCard = internalMutation({
         .order("desc")
         .take(CARD_DEDUPE_SCAN);
       const existing = recent.find((m) => m.card?.kind === args.kind && m.card?.data?.idempotencyKey === key);
-      if (existing) return { applied: true as const, messageId: existing._id, deduped: true };
+      if (existing) {
+        // Same key = same card: a live card (QA checklist) is updated in
+        // place, and a retried post simply rewrites identical data.
+        await ctx.db.patch(existing._id, {
+          content: (args.content ?? existing.content).trim(),
+          card: { kind: args.kind, data: { ...args.data, taskId: String(args.taskId) } },
+        });
+        return { applied: true as const, messageId: existing._id, deduped: true };
+      }
     }
     const messageId = await ctx.db.insert("messages", {
       projectId: args.projectId,
@@ -216,6 +224,8 @@ export const recordTaskCommit = internalMutation({
     commitSha: v.string(),
     commitMessage: v.string(),
     filesChanged: v.number(),
+    additions: v.optional(v.number()),
+    deletions: v.optional(v.number()),
     ahead: v.optional(v.number()),
     behind: v.optional(v.number()),
     comparedTo: v.optional(v.string()),
@@ -247,6 +257,8 @@ export const recordTaskCommit = internalMutation({
       commitSha: args.commitSha,
       commitMessage: args.commitMessage.slice(0, 500),
       filesChanged: args.filesChanged,
+      additions: args.additions,
+      deletions: args.deletions,
       ahead: args.ahead,
       behind: args.behind,
       comparedTo: args.comparedTo,
@@ -271,6 +283,8 @@ export const recordTaskCommit = internalMutation({
           commitSha: args.commitSha,
           commitMessage: args.commitMessage.slice(0, 500),
           filesChanged: args.filesChanged,
+          additions: args.additions,
+          deletions: args.deletions,
           ahead: args.ahead,
           behind: args.behind,
         },
@@ -458,7 +472,18 @@ export const get = query({
     await assertProjectAccess(ctx, row.projectId);
     const integration = await githubIntegration(ctx, row.projectId);
     const project = await ctx.db.get(row.projectId);
+    const verification = (await latestCard(ctx, row.taskId, "verification")) as VerificationCardData | null;
+    const qa = (await latestCard(ctx, row.taskId, "qa")) as QaCardData | null;
     return {
+      projectName: project?.name ?? null,
+      heldAt: row.heldAt,
+      additions: row.additions,
+      deletions: row.deletions,
+      // Stage results the card's stats grid shows. Absent = not run.
+      verification: verification
+        ? { outcome: verification.outcome, checks: verification.checks ?? [] }
+        : null,
+      qa: qa ? { outcome: qa.outcome, rows: qa.rows ?? [], reason: qa.reason ?? null } : null,
       _id: row._id,
       taskId: row.taskId,
       projectId: row.projectId,
@@ -540,6 +565,7 @@ export const requestPush = mutation({
       openPr: args.openPr,
       approvalId,
       requestedAt: now,
+      heldAt: undefined,
       attempts: 0,
       error: undefined,
       workerId: undefined,
@@ -550,6 +576,26 @@ export const requestPush = mutation({
     });
     await logPushEvent(ctx, row, "push.requested", { openPr: args.openPr, repo: repoFullName });
     return { status: "requested" as const, changed: true };
+  },
+});
+
+/**
+ * "Hold" on the push card: nothing is pushed, the hold is recorded in the
+ * task timeline and shown on the card. Approve still works afterwards.
+ */
+export const holdPush = mutation({
+  args: { pushId: v.id("taskPushes") },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.pushId);
+    if (!row) throw new Error("Push not found");
+    await assertProjectAccess(ctx, row.projectId);
+    if (row.status !== "ready" && row.status !== "failed") {
+      return { held: false as const, status: row.status };
+    }
+    const now = Date.now();
+    await ctx.db.patch(row._id, { heldAt: now, updatedAt: now });
+    await logPushEvent(ctx, row, "push.held", {}, "warn");
+    return { held: true as const, status: row.status };
   },
 });
 

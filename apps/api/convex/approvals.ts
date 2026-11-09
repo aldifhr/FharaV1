@@ -4,6 +4,7 @@ import { assertProjectAccess, canViewProject, getViewerId, getVisibleTask } from
 import { recordAudit } from "./lib/recordAudit";
 import { onPlanApproved, onPlanRejected } from "./planReview";
 import { scheduleDecisionEvaluation } from "./lib/calibration/store";
+import { resolveCommandApproval } from "./commandApprovals";
 
 export const listPendingAll = query({
   args: {},
@@ -26,6 +27,20 @@ export const listPendingAll = query({
   },
 });
 
+/** Pending approvals of one project (index-backed; the chat reads this, not listPendingAll). */
+export const listPendingForProject = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const viewerId = await getViewerId(ctx);
+    if (!canViewProject(viewerId, await ctx.db.get(args.projectId))) return [];
+    return await ctx.db
+      .query("approvals")
+      .withIndex("by_project_and_status", (q) => q.eq("projectId", args.projectId).eq("status", "pending"))
+      .order("desc")
+      .take(100);
+  },
+});
+
 export const approve = mutation({
   args: { approvalId: v.id("approvals") },
   handler: async (ctx, args) => {
@@ -34,6 +49,11 @@ export const approve = mutation({
     await assertProjectAccess(ctx, approval.projectId);
     if (approval.status !== "pending") {
       throw new Error(`Approval already ${approval.status}`);
+    }
+    // In-process command waits record a decision the worker reads (one-time allow).
+    if (approval.kind === "run_command") {
+      await resolveCommandApproval(ctx, approval, "allow");
+      return true;
     }
     const now = Date.now();
     await ctx.db.patch(args.approvalId, { status: "approved", resolvedAt: now });
@@ -68,6 +88,10 @@ export const reject = mutation({
     await assertProjectAccess(ctx, approval.projectId);
     if (approval.status !== "pending") {
       throw new Error(`Approval already ${approval.status}`);
+    }
+    if (approval.kind === "run_command") {
+      await resolveCommandApproval(ctx, approval, "deny");
+      return true;
     }
     const now = Date.now();
     await ctx.db.patch(args.approvalId, { status: "rejected", resolvedAt: now });

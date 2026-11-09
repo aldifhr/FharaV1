@@ -58,6 +58,7 @@ import {
   type CompleteResult,
 } from "./lib/chat/llm";
 import { stripToolCallMarkup } from "./lib/chat/strip";
+import { firstReasoningSentence, intentLineFor, stripInternalPhrasing, toolStepFor } from "./lib/chat/activity";
 import { completeWithSnapshot, type ChatSnapshotScope } from "./lib/chat/snapshot";
 import { readRepoSnapshot } from "./lib/chat/repoSnapshot";
 import { quoteContextLine, quotedResponderId } from "./lib/chat/quote";
@@ -411,6 +412,8 @@ type StreamReply = (
     maxCalls?: number;
     /** Skill v2: on_demand agent — load_skill runs locally in this action. */
     skillLoader?: SkillLoader;
+    /** Activity timeline: the classifier's one-line intent ("Bekerja" line). */
+    intentLine?: string;
   },
 ) => Promise<StreamReplyResult>;
 
@@ -712,13 +715,28 @@ export const replyToChat = internalAction({
       messageId: messageId as Id<"messages">,
       callRole,
     });
+    // Activity timeline: once the model's first reasoning sentence is
+    // complete (and clean, in the user's language) it replaces the
+    // classifier's intent line. Patched at most once per reply.
+    const intentUpgrader = () => {
+      let done = false;
+      return (reasoning: string): { intentLine?: string } => {
+        if (done) return {};
+        const line = firstReasoningSentence(reasoning, userText);
+        if (!line) return {};
+        done = true;
+        return { intentLine: line };
+      };
+    };
     const streamReplyToAgent: StreamReply = async (agentId, config, system, msgs, opts) => {
       const messageId = await ctx.runMutation(internal.chatContext.createStreamingAgentMessage, {
         projectId: args.projectId,
         agentId: agentId as any,
         conversationId: args.conversationId,
         replyToMessageId: args.userMessageId,
+        ...(opts?.intentLine ? { intentLine: opts.intentLine } : {}),
       });
+      const upgradeIntent = intentUpgrader();
       const note = opts?.traceNote ?? "";
       let lastPatchAt = 0;
       // Partial patches run one at a time; the final patch waits for the
@@ -727,17 +745,19 @@ export const replyToChat = internalAction({
       let patchChain: Promise<unknown> = Promise.resolve();
       let traceBase = note;
       const onChunk = ({ content: rawContent, reasoning }: { content: string; reasoning: string }) => {
-        const content = streamVisibleText(rawContent);
+        const content = stripInternalPhrasing(streamVisibleText(rawContent));
         const liveTrace = joinTrace(traceBase, reasoning);
         const now = Date.now();
         if (now - lastPatchAt < 250 || (!content.trim() && !liveTrace.trim())) return;
         lastPatchAt = now;
+        const intentPatch = upgradeIntent(reasoning);
         patchChain = patchChain
           .then(() =>
             ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
               messageId: messageId as any,
               content,
               reasoning: liveTrace || undefined,
+              ...intentPatch,
             })
           )
           .catch(() => {});
@@ -762,11 +782,11 @@ export const replyToChat = internalAction({
             )
             .catch(() => {});
           const retry = await completeWithSnapshot(ctx, snapScope(agentId, messageId, "chat"), `${system}\n${NO_TOOLS_RETRY_LINE}`, msgs, config, onChunk);
-          content = resolveNoToolsReply(retry.content, userText);
+          content = stripInternalPhrasing(resolveNoToolsReply(retry.content, userText));
           reasoning = joinTrace(traceBase, retry.reasoning);
           raw = { ...retry, reasoningDurationMs: raw.reasoningDurationMs + retry.reasoningDurationMs };
         } else {
-          content = stripToolCallMarkup(raw.content);
+          content = stripInternalPhrasing(stripToolCallMarkup(raw.content));
         }
       } catch (error) {
         // Never leave the bubble animating after a failed call.
@@ -813,12 +833,14 @@ export const replyToChat = internalAction({
         agentId: agentId as any,
         conversationId: args.conversationId,
         replyToMessageId: args.userMessageId,
+        ...(opts?.intentLine ? { intentLine: opts.intentLine } : {}),
       });
+      const upgradeIntent = intentUpgrader();
       const startedAt = Date.now();
       let trace = opts?.traceNote ?? "";
       let lastPatchAt = 0;
       let patchChain: Promise<unknown> = Promise.resolve();
-      const patch = (fields: { content?: string; reasoning?: string }) => {
+      const patch = (fields: { content?: string; reasoning?: string; intentLine?: string }) => {
         patchChain = patchChain
           .then(() =>
             ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, { messageId: messageId as any, ...fields })
@@ -847,11 +869,11 @@ export const replyToChat = internalAction({
             const raw = await completeWithSnapshot(ctx, snapScope(agentId, messageId, "chat_tool_step"), system, stepMsgs, config, ({ content: rawContent, reasoning }) => {
               const now = Date.now();
               if (now - lastPatchAt < 250) return;
-              const content = streamVisibleText(rawContent);
+              const content = stripInternalPhrasing(streamVisibleText(rawContent));
               const liveTrace = joinTrace(trace, reasoning);
               if (!content.trim() && !liveTrace.trim()) return;
               lastPatchAt = now;
-              patch({ content, reasoning: liveTrace || undefined });
+              patch({ content, reasoning: liveTrace || undefined, ...upgradeIntent(reasoning) });
             });
             trace = joinTrace(trace, raw.reasoning);
             return { content: raw.content };
@@ -869,6 +891,11 @@ export const replyToChat = internalAction({
             trace = joinTrace(trace, `Checked ${describeRepoToolCall(call)}${result.ok ? "" : " (failed)"}`);
             lastPatchAt = Date.now();
             patch({ content: "", reasoning: trace });
+            // Activity timeline: one row per completed call, streamed live.
+            const step = toolStepFor(call, result.ok, Date.now());
+            patchChain = patchChain
+              .then(() => ctx.runMutation(internal.chatContext.appendToolStep, { messageId: messageId as any, step }))
+              .catch(() => {});
           },
         });
       } catch (error) {
@@ -883,7 +910,7 @@ export const replyToChat = internalAction({
       await patchChain;
       // The loop's answer is already free of tool-call text; a reply that
       // never got past tool calls gets the fallback instead of vanishing.
-      let content = stripToolCallMarkup(loop.answer);
+      let content = stripInternalPhrasing(stripToolCallMarkup(loop.answer));
       if (!content.trim() && loop.calls.length > 0) {
         content = workerGone ? noToolsFallback(userText) : toolBudgetFallback(userText);
       }
@@ -1051,6 +1078,8 @@ export const replyToChat = internalAction({
     // One shared budget: each reply up to MAX_REPO_TOOL_CALLS, the whole
     // turn up to MAX_REPO_TOOL_CALLS_PER_CHAT.
     const toolBudget = createRepoToolBudget();
+    // "Bekerja" line until the model's own first reasoning sentence lands.
+    const intentLine = intentLineFor(intent, lastUserContent);
     const selfReview = isSelfReviewRequest(lastUserContent);
     const answered = new Set<string>();
     const handoffFrom = new Map<string, { by: string; request: string }>();
@@ -1140,10 +1169,9 @@ export const replyToChat = internalAction({
                 maxCalls: useRepoTools ? callCap : 0,
                 ...(skillLoader ? { skillLoader } : {}),
                 ...(offNote && !useRepoTools ? { traceNote: offNote } : {}),
+                intentLine,
               }
-            : offNote
-              ? { traceNote: offNote }
-              : undefined,
+            : { ...(offNote ? { traceNote: offNote } : {}), intentLine },
         );
         toolBudget.spend(result.toolCalls ?? 0);
         content = result.content;
@@ -1196,6 +1224,15 @@ export const replyToChat = internalAction({
             queue.push(mentioned);
             handoffFrom.set(String(mentioned._id), { by: agent.name, request });
             handoffs += 1;
+            // Activity timeline on the CTO's reply: "Meminta bantuan <role>".
+            if (result.messageId) {
+              await ctx
+                .runMutation(internal.chatContext.appendToolStep, {
+                  messageId: result.messageId,
+                  step: { tool: "handoff", target: mentioned.role, ok: true, at: Date.now() },
+                })
+                .catch(() => undefined);
+            }
           }
           if (dropped.length > 0 && result.messageId) {
             await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {

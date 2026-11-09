@@ -220,6 +220,111 @@ export const needsYou = query({
   },
 });
 
+// ─── Decisions tray (chat composer dock) ──────────────────────────────────
+
+const TRAY_APPROVAL_LIMIT = 50;
+const TRAY_QUEUE_LIMIT = 50;
+
+/**
+ * Project-scoped "Needs you" for the chat's "Keputusan diperlukan" tray:
+ * the project's pending approvals (index by_project_and_status, never the
+ * unfiltered pending scan), its tasks waiting on an answer (questions and
+ * escalations), and whether queued work has a live worker to pick it up.
+ * The same project-scoped counterpart of `needsYou` above; option prompts
+ * come from the chat timeline itself.
+ */
+export const decisionsForProject = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const viewerId = await getViewerId(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!canViewProject(viewerId, project)) return null;
+    const roleCache = new Map<string, string | null>();
+    const agentRole = async (id: Id<"agents"> | undefined | null) => {
+      if (!id) return null;
+      const key = id as string;
+      if (!roleCache.has(key)) roleCache.set(key, (await ctx.db.get(id))?.role ?? null);
+      return roleCache.get(key) ?? null;
+    };
+    const taskCache = new Map<string, Doc<"tasks"> | null>();
+    const taskOf = async (id: Id<"tasks">) => {
+      const key = id as string;
+      if (!taskCache.has(key)) taskCache.set(key, await ctx.db.get(id));
+      return taskCache.get(key) ?? null;
+    };
+
+    const approvalRows = await ctx.db
+      .query("approvals")
+      .withIndex("by_project_and_status", (q) => q.eq("projectId", args.projectId).eq("status", "pending"))
+      .order("asc")
+      .take(TRAY_APPROVAL_LIMIT);
+    const approvals = [];
+    for (const a of approvalRows) {
+      const task = await taskOf(a.taskId);
+      if (task && TERMINAL.has(task.status)) continue;
+      approvals.push({
+        _id: a._id,
+        _creationTime: a._creationTime,
+        kind: a.kind,
+        summary: a.summary,
+        status: a.status,
+        taskId: a.taskId,
+        payload: a.payload,
+        offerAlways: a.offerAlways === true,
+        subtaskKey: a.subtaskKey ?? null,
+        requestedByAgentId: a.requestedByAgentId ?? null,
+        agentRole: await agentRole(a.requestedByAgentId ?? a.principalAgentId),
+        taskTitle: task?.title ?? null,
+        conversationId: task?.conversationId ?? null,
+      });
+    }
+
+    const waiting = await ctx.db
+      .query("tasks")
+      .withIndex("by_status", (q) => q.eq("status", "waiting_input"))
+      .order("asc")
+      .take(TASK_STATUS_LIMIT);
+    const questions = [];
+    for (const t of waiting) {
+      if (t.projectId !== args.projectId) continue;
+      questions.push({
+        taskId: t._id,
+        title: t.title,
+        question: t.pendingQuestion?.trim() || null,
+        options: t.pendingOptions ?? [],
+        agentRole: await agentRole(t.assignedAgentIds?.[0]),
+        conversationId: t.conversationId ?? null,
+        at: t.updatedAt ?? t._creationTime,
+      });
+    }
+
+    // Pickup line: queued work and no worker heartbeat inside WORKER_FRESH_MS.
+    const now = Date.now();
+    const queuedTasks = (
+      await ctx.db
+        .query("tasks")
+        .withIndex("by_status", (q) => q.eq("status", "queued"))
+        .take(TRAY_QUEUE_LIMIT)
+    ).filter((t) => t.projectId === args.projectId).length;
+    const pendingMessages = (
+      await ctx.db
+        .query("messages")
+        .withIndex("by_queue", (q) => q.eq("queueStatus", "pending").eq("projectId", args.projectId))
+        .take(TRAY_QUEUE_LIMIT)
+    ).length;
+    const liveWorkers = await ctx.db
+      .query("workers")
+      .withIndex("by_status_and_heartbeat", (q) => q.eq("status", "online").gte("lastHeartbeatAt", now - WORKER_FRESH_MS))
+      .take(1);
+
+    return {
+      approvals,
+      questions,
+      pickup: { workerOnline: liveWorkers.length > 0, queuedTasks, pendingMessages },
+    };
+  },
+});
+
 // ─── Project badges ────────────────────────────────────────────────────────
 
 /** Per visible project: tasks in flight and items needing the user. */

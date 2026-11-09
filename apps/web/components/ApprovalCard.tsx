@@ -17,6 +17,8 @@ import {
 } from "./chat/cards/primitives";
 import { clockTime } from "@/lib/format";
 import PlanCard from "./chat/cards/PlanCard";
+import { approvalTrayItem } from "@/api/convex/lib/decisionTray";
+import { TRAY_BTN_PRIMARY, TRAY_BTN_SECONDARY, TRAY_BTN_TEXT } from "./chat/DecisionsTray";
 
 type Approval = {
   _id: string;
@@ -26,7 +28,10 @@ type Approval = {
   status: string;
   payload?: any;
   _creationTime?: number;
+  offerAlways?: boolean;
 };
+
+export type CommandDecision = "allow" | "always" | "deny";
 
 const KIND_LABEL: Record<string, string> = {
   apply_changes: "Apply changes",
@@ -59,9 +64,66 @@ function metricStatus(value: unknown): StepStatus {
  * Handlers may return a promise; a rejection surfaces as an error toast.
  */
 /** Plan reviews have their own card (Plan Inspector); everything else renders below. */
-export default function ApprovalCard(props: Parameters<typeof GenericApprovalCard>[0]) {
+export default function ApprovalCard(
+  props: Parameters<typeof GenericApprovalCard>[0] & { onRespond?: (approvalId: string, decision: CommandDecision) => unknown }
+) {
   if (props.approval.kind === "plan") return <PlanCard data={{ taskId: props.approval.taskId }} />;
+  if (props.approval.kind === "run_command" && props.onRespond) {
+    return <CommandApprovalCard approval={props.approval} taskTitle={props.taskTitle} agentRole={props.agent?.role} onRespond={props.onRespond} />;
+  }
   return <GenericApprovalCard {...props} />;
+}
+
+/**
+ * Inline copy of a waiting command (the composer tray shows the same row):
+ * the exact command, Allow / Always allow / Deny. Both read the same live
+ * approval, so a decision in either place resolves both.
+ */
+function CommandApprovalCard({
+  approval,
+  taskTitle,
+  agentRole,
+  onRespond,
+}: {
+  approval: Approval;
+  taskTitle?: string;
+  agentRole?: string;
+  onRespond: (approvalId: string, decision: CommandDecision) => unknown;
+}) {
+  const toast = useToast();
+  const [acting, setActing] = useState<CommandDecision | null>(null);
+  const item = approvalTrayItem({ ...approval, _creationTime: approval._creationTime ?? 0, agentRole, taskTitle });
+  const run = async (decision: CommandDecision) => {
+    setActing(decision);
+    try {
+      await onRespond(approval._id, decision);
+    } catch (err) {
+      toast("error", "Keputusan tidak tersimpan", err instanceof Error ? err.message : undefined);
+    } finally {
+      setActing(null);
+    }
+  };
+  return (
+    <div className="mt-1 max-w-2xl rounded-xl border border-line bg-panel px-4 py-3">
+      <p className="text-[13px] font-semibold text-ink">{item.title}</p>
+      {item.meta && <p className="mt-0.5 text-[12px] text-ink-3">{item.meta}</p>}
+      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[12.5px] text-ink">{item.code}</pre>
+      {item.warning && <p className="mt-1.5 text-[12px] text-ink-2">Selalu ditanyakan: {item.warning.toLowerCase()}</p>}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {item.actions.map((action) => (
+          <button
+            key={action.id}
+            type="button"
+            disabled={acting !== null}
+            onClick={() => void run(action.id as CommandDecision)}
+            className={action.primary ? TRAY_BTN_PRIMARY : action.id === "deny" ? TRAY_BTN_TEXT : TRAY_BTN_SECONDARY}
+          >
+            {acting === action.id ? "Menyimpan…" : action.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function GenericApprovalCard({

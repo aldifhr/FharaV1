@@ -101,6 +101,8 @@ export default function ChatComposer({
   onPermissionModeChange,
   quote = null,
   onCancelQuote,
+  placeholder,
+  onKeyIntercept,
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -133,6 +135,10 @@ export default function ChatComposer({
   /** Message being replied to (quote bar above the input); Esc or × cancels. */
   quote?: ChatQuote | null;
   onCancelQuote?: () => void;
+  /** Overrides the default "Message <project>" placeholder (decisions tray). */
+  placeholder?: string;
+  /** Runs first on Enter / Escape when no picker is open; true = handled. */
+  onKeyIntercept?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => boolean;
 }) {
   const toast = useToast();
   const textareaRef = useAutoGrowRef([draft], 200);
@@ -320,6 +326,7 @@ export default function ChatComposer({
         return;
       }
     }
+    if (!slashOpen && !mentionOpen && onKeyIntercept?.(e)) return;
     if (e.key === "Escape" && quote && onCancelQuote) {
       e.preventDefault();
       onCancelQuote();
@@ -505,7 +512,7 @@ export default function ChatComposer({
             aria-controls={slashOpen ? "composer-slash" : mentionOpen ? "composer-mentions" : undefined}
             aria-expanded={slashOpen || mentionOpen}
             aria-activedescendant={slashOpen ? `composer-slash-${activeIndex}` : mentionOpen ? `composer-mention-${activeIndex}` : undefined}
-            placeholder={narrow ? `Message ${projectName}` : `Message ${projectName}, or type / for a command`}
+            placeholder={placeholder ?? (narrow ? `Message ${projectName}` : `Message ${projectName}, or type / for a command`)}
             className="block w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-base leading-6 text-ink outline-none placeholder:text-ink-3 sm:text-[15px]"
             style={{ minHeight: 48, maxHeight: 200 }}
           />

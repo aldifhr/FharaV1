@@ -174,6 +174,28 @@ export class WorkerApi {
     );
   }
 
+  /** Chat UX: in-process run_command approval (the task keeps its lease). */
+  async requestCommandApproval(
+    input: ActionInput<typeof api.worker.requestCommandApproval>
+  ): Promise<FunctionReturnType<typeof api.worker.requestCommandApproval>> {
+    return await this.client.action(
+      api.worker.requestCommandApproval,
+      this.args({ workerId: this.workerId, ...input })
+    );
+  }
+
+  async getCommandApproval(
+    input: ActionInput<typeof api.worker.getCommandApproval>
+  ): Promise<FunctionReturnType<typeof api.worker.getCommandApproval>> {
+    return await this.client.action(api.worker.getCommandApproval, this.args(input));
+  }
+
+  async cancelCommandApproval(
+    input: ActionInput<typeof api.worker.cancelCommandApproval>
+  ): Promise<FunctionReturnType<typeof api.worker.cancelCommandApproval>> {
+    return await this.client.action(api.worker.cancelCommandApproval, this.args(input));
+  }
+
   /** Plan 020: approve automatically under the task's permission mode (backend re-checks). */
   async autoApprove(
     input: ActionInput<typeof api.worker.autoApprove>

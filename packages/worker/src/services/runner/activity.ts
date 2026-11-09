@@ -37,6 +37,10 @@ export function describeActivity(type: string, payload: unknown): string | null 
       const cmd = [p.command, ...(Array.isArray(p.args) ? p.args : [])].filter(Boolean).join(" ");
       return cmd ? clip(`Running ${cmd}`) : "Running a command";
     }
+    case "command.waiting_approval": {
+      const cmd = [p.command, ...(Array.isArray(p.args) ? p.args : [])].filter(Boolean).join(" ");
+      return clip(`Waiting for approval: ${cmd || "a command"}`);
+    }
     case "task.check":
       return p.label ? clip(`Checking ${p.label}${p.status && p.status !== "running" ? `: ${p.status}` : ""}`) : null;
     case "agent.web_context":

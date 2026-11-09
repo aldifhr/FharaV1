@@ -14,6 +14,7 @@ import InitialAvatar from "../InitialAvatar";
 import { ReasoningLine } from "../ui/trace";
 import MessageText from "./MessageText";
 import OptionCards from "./OptionCards";
+import ActivityTimeline, { hasActivityTimeline } from "./ActivityTimeline";
 import TaskCard from "./TaskCard";
 import ChatCard from "./cards/ChatCard";
 import { CardSurfaceProvider } from "./cards/CardContext";
@@ -102,6 +103,8 @@ type Props = {
   approve: (approvalId: string) => unknown;
   reject: (approvalId: string) => unknown;
   hold: (approvalId: string) => unknown;
+  /** Command approvals: Allow / Always allow / Deny (same rows as the composer tray). */
+  respond?: (approvalId: string, decision: "allow" | "always" | "deny") => unknown;
   togglePin: (messageId: string, pinned: boolean) => void;
   onPickProposal: (choice: string) => void;
   /** Turns an agent's recommendation into a task (button under it). */
@@ -118,7 +121,7 @@ export default function MessageList(props: Props) {
     timeline, firstNewIndex, agents, tasks = [], subtasksOf, pendingItems, projectEvents = [],
     projectApprovalMode, loading = false, chatSending,
     conversationTyping, typingAgent, scrollRef, scrollToMessageRef,
-    onSelectTask, approve, reject, hold, togglePin, onPickProposal, onCreateTaskFrom, onReply, formatTime, taskTitle, blockKey,
+    onSelectTask, approve, reject, hold, respond, togglePin, onPickProposal, onCreateTaskFrom, onReply, formatTime, taskTitle, blockKey,
   } = props;
 
   const listRef = useRef<HTMLDivElement>(null);
@@ -304,6 +307,7 @@ export default function MessageList(props: Props) {
                   onApprove={approve}
                   onReject={reject}
                   onHold={hold}
+                  onRespond={respond}
                   onReview={onSelectTask}
                 />
               ))}
@@ -399,7 +403,57 @@ export default function MessageList(props: Props) {
           onReply={onReply && m.content?.trim() && !isLive(m) ? () => onReply(m) : undefined}
           onSecondOpinion={m.content?.trim() && !isLive(m) ? () => void requestOpinion(String(m._id)) : undefined}
         />
-        {(() => {
+        {hasActivityTimeline(m) && (() => {
+          // Activity timeline replaces the Thought line and the separate
+          // Checked / Unverified lines for replies that carry it.
+          const hasText = Boolean(m.content?.trim());
+          const live = isLive(m);
+          return (
+            <>
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <ActivityTimeline
+                    message={m}
+                    live={live}
+                    checkedLabel={Array.isArray(m.checkedFiles) && m.checkedFiles.length > 0 ? checkedFilesLabel(m.checkedFiles) : null}
+                    unverifiedLabel={Array.isArray(m.unverifiedRefs) && m.unverifiedRefs.length > 0 ? unverifiedRefsLabel(m.unverifiedRefs) : null}
+                  />
+                </div>
+                {!live && hasText && (
+                  <button
+                    type="button"
+                    onClick={() => setInspectId(String(m._id))}
+                    className="mt-[3px] shrink-0 text-[12px] text-ink-3 hover:text-ink"
+                  >
+                    Inspect context
+                  </button>
+                )}
+              </div>
+              {hasText && (
+                <div className="mt-1.5 w-fit min-w-0 max-w-full rounded-2xl rounded-tl-md bg-bubble px-4 py-3">
+                  <MessageText content={parseOptions(m.content).text} isAnimating={live || (conversationTyping && index === timeline.length - 1)} />
+                </div>
+              )}
+              {hasText && !live && opinions.get(String(m._id)) && <ChatOpinionLine opinion={opinions.get(String(m._id))!} />}
+              {hasText && String(m._id) === suggestTaskId && taskState[String(m._id)] !== "done" && (
+                <CreateTaskButton
+                  busy={taskState[String(m._id)] === "busy"}
+                  onClick={async () => {
+                    const id = String(m._id);
+                    setTaskState((st) => ({ ...st, [id]: "busy" }));
+                    try {
+                      await onCreateTaskFrom?.(id);
+                      setTaskState((st) => ({ ...st, [id]: "done" }));
+                    } catch {
+                      setTaskState((st) => { const { [id]: _drop, ...rest } = st; return rest; });
+                    }
+                  }}
+                />
+              )}
+            </>
+          );
+        })()}
+        {!hasActivityTimeline(m) && (() => {
           const showReasoning = !m.card && (m.reasoning || !m.content?.trim());
           const showText = !(messageKindOf(m.content) === "delegation" || (m.card && !m.content?.trim()));
           if (!showReasoning && !showText) return null;
@@ -630,6 +684,19 @@ export default function MessageList(props: Props) {
         </div>
       )}
     </CardSurfaceProvider>
+  );
+}
+
+function CreateTaskButton({ busy, onClick }: { busy: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={onClick}
+      className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1 text-[13px] font-medium text-ink transition hover:bg-hover disabled:opacity-50"
+    >
+      <Plus size={13} /> {busy ? "Creating…" : "Create task"}
+    </button>
   );
 }
 

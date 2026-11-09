@@ -1,5 +1,6 @@
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { MAX_TOOL_STEPS } from "./lib/chat/activity";
 import type { Doc, Id } from "./_generated/dataModel";
 import { loadProviderPool } from "./lib/llmResolver";
 import { activeParticipantRows, selectDefaultChatAgents } from "./conversations";
@@ -134,6 +135,7 @@ export const createStreamingAgentMessage = internalMutation({
     agentId: v.optional(v.id("agents")),
     conversationId: v.optional(v.id("conversations")),
     replyToMessageId: v.optional(v.id("messages")),
+    intentLine: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("messages", {
@@ -144,6 +146,7 @@ export const createStreamingAgentMessage = internalMutation({
       replyToMessageId: args.replyToMessageId,
       conversationId: args.conversationId,
       streaming: true,
+      ...(args.intentLine ? { intentLine: args.intentLine } : {}),
     });
   },
 });
@@ -157,6 +160,7 @@ export const updateStreamingAgentMessage = internalMutation({
     streaming: v.optional(v.boolean()),
     checkedFiles: v.optional(v.array(v.string())),
     unverifiedRefs: v.optional(v.array(v.string())),
+    intentLine: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { messageId, ...patch } = args;
@@ -165,6 +169,31 @@ export const updateStreamingAgentMessage = internalMutation({
       if (value !== undefined) cleaned[key] = value;
     }
     await ctx.db.patch(messageId, cleaned);
+    return null;
+  },
+});
+
+/**
+ * Activity timeline: append one completed tool call to the reply as it
+ * finishes, so the UI streams the steps live. Capped (MAX_TOOL_STEPS).
+ */
+export const appendToolStep = internalMutation({
+  args: {
+    messageId: v.id("messages"),
+    step: v.object({
+      tool: v.string(),
+      target: v.optional(v.string()),
+      lines: v.optional(v.string()),
+      ok: v.boolean(),
+      at: v.number(),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const message = await ctx.db.get(args.messageId);
+    if (!message) return null;
+    const steps = message.toolSteps ?? [];
+    if (steps.length >= MAX_TOOL_STEPS) return null;
+    await ctx.db.patch(args.messageId, { toolSteps: [...steps, args.step] });
     return null;
   },
 });

@@ -60,6 +60,7 @@ import {
   type FileDiff,
 } from "@/tools/gitDiff";
 import { isCommandAllowed, runCommand } from "@/tools/runCommand";
+import { commandDeniedOutput, type CommandApprovalOutcome } from "@/execution/commandGate";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
@@ -184,6 +185,13 @@ export interface SubtaskExecutionInput {
    * a browser-testing delegation.
    */
   qaMode?: "always" | "auto" | "never";
+  /**
+   * Chat UX: approval gate for an agent-initiated command, checked AFTER
+   * the exact-argv allowlist (a hard deny) and BEFORE it runs. The runner
+   * waits in-process (lease kept). Absent: legacy callers run the
+   * allowlisted command without asking.
+   */
+  requestCommandApproval?: (command: { command: string; args: string[] }) => Promise<CommandApprovalOutcome>;
 }
 
 /**
@@ -1761,6 +1769,21 @@ async function executeShell(
     };
   }
 
+  // Approval gate (Supervised / Auto-accept edits ask; rules and Full
+  // access approve; dangerous commands always ask). Waits in-process.
+  if (input.requestCommandApproval) {
+    const line = `${parsed.command} ${parsed.args.join(" ")}`.trim();
+    const outcome = await input.requestCommandApproval({ command: parsed.command, args: parsed.args });
+    if (!outcome.allowed) {
+      await onEvent("shell.command_declined", { command: parsed.command, args: parsed.args, via: outcome.via, reason: outcome.reason }, "warn");
+      if (outcome.via === "paused" || outcome.via === "cancelled") {
+        return { status: "failed", error: `${outcome.reason}: ${line}` };
+      }
+      const output = commandDeniedOutput(`$ ${line}`, outcome);
+      await onMessage(output);
+      return { status: "completed", output, meta: { commandDeclined: outcome.via } };
+    }
+  }
   await onEvent("shell.command", {
     command: parsed.command,
     args: parsed.args,

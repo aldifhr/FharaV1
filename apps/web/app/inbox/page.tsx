@@ -37,6 +37,7 @@ export default function InboxPage() {
   const inbox = useQuery(api.inbox.list, {});
   const approve = useMutation(api.approvals.approve);
   const reject = useMutation(api.approvals.reject);
+  const respond = useMutation(api.commandApprovals.respond);
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -45,6 +46,18 @@ export default function InboxPage() {
     try {
       await fn({ approvalId: id as never });
       toast("success", done);
+    } catch (err) {
+      toast("error", "Couldn't update the approval", err instanceof Error ? err.message : undefined);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const decide = async (id: string, decision: "allow" | "always" | "deny") => {
+    setBusy(id);
+    try {
+      const res = await respond({ approvalId: id as never, decision });
+      toast("success", res.decision === "deny" ? "Denied" : res.decision === "always" ? "Always allowed for this project" : "Allowed");
     } catch (err) {
       toast("error", "Couldn't update the approval", err instanceof Error ? err.message : undefined);
     } finally {
@@ -99,7 +112,42 @@ export default function InboxPage() {
                           {a.taskTitle ? ` · ${a.taskTitle}` : ""}
                           {a.requestedByAgentName ? ` · ${roleLabel(a.requestedByAgentName)}` : ""}
                         </p>
+                        {a.kind === "run_command" && typeof (a.payload as any)?.command === "string" && (
+                          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-line bg-canvas px-3 py-1.5 font-mono text-[12.5px] text-ink">
+                            {(a.payload as any).command}
+                          </pre>
+                        )}
                       </div>
+                      {a.kind === "run_command" ? (
+                        <div className="flex shrink-0 items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={busy === a._id}
+                            onClick={() => void decide(a._id, "deny")}
+                            className="rounded-lg px-2.5 py-1 text-[13px] text-ink-2 transition hover:bg-hover disabled:opacity-50"
+                          >
+                            Deny
+                          </button>
+                          {a.offerAlways === true && !(a.payload as any)?.danger && (
+                            <button
+                              type="button"
+                              disabled={busy === a._id}
+                              onClick={() => void decide(a._id, "always")}
+                              className="rounded-lg border border-line px-2.5 py-1 text-[13px] text-ink transition hover:bg-hover disabled:opacity-50"
+                            >
+                              Always allow
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            disabled={busy === a._id}
+                            onClick={() => void decide(a._id, "allow")}
+                            className="inline-flex items-center gap-1 rounded-lg bg-ink px-2.5 py-1 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-50"
+                          >
+                            <Check size={13} /> Allow
+                          </button>
+                        </div>
+                      ) : (
                       <div className="flex shrink-0 items-center gap-2">
                         <button
                           type="button"
@@ -118,6 +166,7 @@ export default function InboxPage() {
                           <Check size={13} /> Approve
                         </button>
                       </div>
+                      )}
                     </li>
                   ))}
                 </Section>

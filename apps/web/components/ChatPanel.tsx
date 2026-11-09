@@ -26,6 +26,9 @@ import { useWorkspace } from "@/app/WorkspaceContext";
 import { clockTime, isSameDay, shortDate } from "@/lib/format";
 import { projectMembers } from "@/lib/projectMembers";
 import { projectDefaultPermissionMode, type PermissionMode } from "@/api/convex/lib/permissionModes";
+import { buildDecisionTray, latestOpenOptionPrompt, type TrayAction, type TrayItem } from "@/api/convex/lib/decisionTray";
+import { parseOptions } from "@/lib/options";
+import DecisionsTray, { trayPlaceholder, useDecisionTray } from "./chat/DecisionsTray";
 
 type Props = {
   projectId: string;
@@ -63,7 +66,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const project = useQuery(api.projects.get, { projectId: projectId as any });
   const messages = useQuery(api.messages.listByProject, { projectId: projectId as any });
   const tasks = useQuery(api.tasks.listByProject, { projectId: projectId as any });
-  const approvals = useQuery(api.approvals.listPendingAll, {});
+  // Project-scoped (index-backed); listPendingAll read every pending row.
+  const approvals = useQuery(api.approvals.listPendingForProject, { projectId: projectId as any });
+  const decisions = useQuery(api.shell.decisionsForProject, { projectId: projectId as any });
   const projectEvents = useQuery(api.taskEvents.listByProject, { projectId: projectId as any });
   const allAgents = useQuery(api.agents.list, {});
   const activeConversation = useQuery(api.conversations.getActive, { projectId: projectId as any });
@@ -73,6 +78,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const approve = useMutation(api.approvals.approve);
   const reject = useMutation(api.approvals.reject);
   const hold = useMutation(api.approvals.hold);
+  const respondCommand = useMutation(api.commandApprovals.respond);
+  const answerQuestion = useMutation(api.tasks.answerQuestion);
   const togglePin = useMutation(api.messages.togglePin);
   const clearChat = useMutation(api.conversations.clearChat);
   const createTask = useMutation(api.tasks.createFromCommand);
@@ -99,7 +106,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     () => projectMembers((allAgents ?? []) as any[], projectAgentIds),
     [allAgents, projectAgentIds],
   );
-  const pendingItems = useMemo(() => (approvals ?? []).filter((a: any) => a.projectId === projectId), [approvals, projectId]);
+  const pendingItems = useMemo(() => (approvals ?? []) as any[], [approvals]);
 
   // Team status: live read model, else derived from execution leases.
   const status: StatusMap | undefined = useMemo(() => {
@@ -127,6 +134,26 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     [messages],
   );
   const lastMessage = timeline[timeline.length - 1];
+
+  // ── "Keputusan diperlukan" tray above the composer ─────────────────────
+  const currentConversationId = ((activeConversation as any)?.conversation?._id as string | undefined) ?? null;
+  const trayItems = useMemo(
+    () =>
+      buildDecisionTray({
+        approvals: (decisions?.approvals ?? []) as any[],
+        questions: (decisions?.questions ?? []) as any[],
+        optionPrompt: latestOpenOptionPrompt(
+          (timeline as any[]).filter((m) => !m.streaming),
+          parseOptions,
+          (agentId) => agents.find((a: any) => a._id === agentId)?.role,
+        ),
+        conversationId: currentConversationId,
+      }),
+    [decisions, timeline, agents, currentConversationId],
+  );
+  const tray = useDecisionTray(trayItems);
+  const [trayBusy, setTrayBusy] = useState<string | null>(null);
+  const [trayConfirm, setTrayConfirm] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
 
   // ── Unread "• New" divider: last-read timestamp per conversation. ──────
   // `lastReadAt` advances (and persists) as the user reads to the bottom;
@@ -368,6 +395,11 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     setChatError("");
     setChatSending(true);
     try {
+      if (await sendToTray(text)) {
+        setDraft("");
+        mentions.setMention(null);
+        return;
+      }
       if (!(await runSlash(text))) {
         const content = await mentions.attachMentionedFiles(text);
         await sendMessage({
@@ -504,6 +536,61 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     }
   };
 
+  const questionOf = (taskId?: string) => (decisions?.questions ?? []).find((q: any) => q.taskId === taskId)?.question ?? undefined;
+  const runTrayAction = async (item: TrayItem, action: TrayAction, note?: string) => {
+    if (action.confirm && !note) {
+      setTrayConfirm({
+        title: item.kind === "plan" ? "Tolak rencana ini?" : "Tolak perubahan ini?",
+        message: item.kind === "plan" ? "Task ini akan berhenti sebagai ditolak." : "Perubahan yang menunggu tidak akan diterapkan.",
+        confirmLabel: "Tolak",
+        onOk: () => {
+          setTrayConfirm(null);
+          void runTrayAction(item, { ...action, confirm: false });
+        },
+      });
+      return;
+    }
+    const busyKey = `${item.key}:${action.id}`;
+    setTrayBusy(busyKey);
+    try {
+      if (action.id === "allow" || action.id === "always" || action.id === "deny") {
+        await respondCommand({ approvalId: item.approvalId as any, decision: action.id, ...(note ? { note } : {}) });
+      } else if (action.id === "approve") {
+        await approve({ approvalId: item.approvalId as any });
+      } else if (action.id === "reject") {
+        await reject({ approvalId: item.approvalId as any });
+      } else if (action.id === "open") {
+        if (item.taskId) onSelectTask(item.taskId);
+      } else if (action.id.startsWith("answer:")) {
+        const answer = note ?? item.options?.[Number(action.id.slice("answer:".length))] ?? "";
+        const res: any = await answerQuestion({ taskId: item.taskId as any, answer, question: questionOf(item.taskId) });
+        if (res && res.applied === false) toast("info", "Pertanyaan ini sudah berubah", "Buka task untuk melihat pertanyaan terbaru.");
+      } else if (action.id.startsWith("pick:")) {
+        const id = action.id.slice("pick:".length);
+        await handleChooseProposal(`I choose ${id}: ${action.label.replace(/^\S+\.\s*/, "")}`);
+      }
+    } catch (err) {
+      toast("error", "Keputusan tidak tersimpan", err instanceof Error ? err.message : undefined);
+    } finally {
+      setTrayBusy(null);
+    }
+  };
+
+  /** Text typed while the tray is open answers (questions) or declines with a note (commands). */
+  const sendToTray = async (text: string): Promise<boolean> => {
+    const item = tray.active ? tray.current : null;
+    if (!item || text.startsWith("/")) return false;
+    if (item.composerMode === "deny_with_note") {
+      await runTrayAction(item, { id: "deny", label: "Tolak" }, text);
+      return true;
+    }
+    if (item.composerMode === "answer") {
+      await runTrayAction(item, { id: "answer:0", label: text }, text);
+      return true;
+    }
+    return false;
+  };
+
   return (
     <main className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-panel">
       <QueryBoundary>
@@ -605,6 +692,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             approve={(approvalId) => approve({ approvalId: approvalId as any })}
             reject={(approvalId) => reject({ approvalId: approvalId as any })}
             hold={(approvalId) => hold({ approvalId: approvalId as any })}
+            respond={(approvalId, decision) => respondCommand({ approvalId: approvalId as any, decision })}
             togglePin={(messageId, pinned) => void togglePin({ messageId: messageId as never, pinned })}
             onPickProposal={(choice) => void handleChooseProposal(choice)}
             onCreateTaskFrom={createTaskFromMessage}
@@ -638,6 +726,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       )}
 
       <ConfirmDialog request={clearConfirm} pending={clearPending} onCancel={() => setClearConfirm(null)} onConfirm={() => clearConfirm?.onOk()} />
+      <ConfirmDialog request={trayConfirm} pending={trayBusy !== null} onCancel={() => setTrayConfirm(null)} onConfirm={() => trayConfirm?.onOk()} />
       {manageOpen && project && (
         <ManageProjectModal projectId={projectId} project={project as any} allAgents={(allAgents ?? []) as any[]} onClose={() => setManageOpen(false)} />
       )}
@@ -651,7 +740,25 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             events={projectEvents as any}
             qaUrl={(project as any)?.qaUrl ?? (project as any)?.devUrl}
           />
+          <DecisionsTray tray={tray} busy={trayBusy} onAction={(item, action) => void runTrayAction(item, action)} />
           <ChatComposer
+            placeholder={tray.active ? trayPlaceholder(tray.current) : undefined}
+            onKeyIntercept={(e) => {
+              if (!tray.active || !tray.current) return false;
+              if (e.key === "Escape") {
+                e.preventDefault();
+                tray.setCollapsed(true);
+                return true;
+              }
+              if (e.key === "Enter" && !e.shiftKey && !e.altKey && !draft.trim()) {
+                const primary = tray.current.actions.find((a) => a.primary);
+                if (!primary || trayBusy) return false;
+                e.preventDefault();
+                void runTrayAction(tray.current, primary);
+                return true;
+              }
+              return false;
+            }}
             draft={draft}
             onDraftChange={mentions.handleInput}
             onSend={() => void sendImmediately()}
@@ -684,6 +791,11 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             quote={quote}
             onCancelQuote={() => setQuote(null)}
           />
+          {decisions?.pickup && !decisions.pickup.workerOnline && decisions.pickup.queuedTasks + decisions.pickup.pendingMessages > 0 && (
+            <p role="status" className="-mt-2 shrink-0 bg-panel px-4 pb-2 text-[12.5px] text-ink-3 sm:px-9 lg:px-11">
+              Menunggu worker mengambil… belum ada worker yang online.
+            </p>
+          )}
         </>
       )}
     </main>

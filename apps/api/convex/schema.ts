@@ -173,6 +173,20 @@ export default defineSchema({
     // performance. Unset = the worker's env default
     // (ORCHESTRATOR_PERFORMANCE_ROUTING, off).
     performanceRouting: v.optional(v.boolean()),
+    // Chat UX (additive): "Always allow" rules for agent-initiated
+    // commands, keyed on the normalized command head ("npm run test"),
+    // never the full argv (lib/commandRules.ts). The worker's exact-argv
+    // allowlist still applies first; dangerous / push-like commands never
+    // match a rule. Unset = no rules.
+    commandAllowRules: v.optional(
+      v.array(
+        v.object({
+          prefix: v.string(),
+          createdAt: v.number(),
+          createdBy: v.string(),
+        })
+      )
+    ),
   }).index("by_owner", ["ownerId"]),
 
   agents: defineTable({
@@ -488,6 +502,24 @@ export default defineSchema({
     // that no tool result (or the repo snapshot) showed. Quiet
     // "Unverified: …" line under the bubble.
     unverifiedRefs: v.optional(v.array(v.string())),
+    // Chat activity timeline (additive): one compact row per tool call the
+    // agent made while writing this reply, appended as each call completes
+    // so the UI streams it live. `tool` is the raw tool name; `target` the
+    // path / pattern / skill / role it acted on; `lines` a read range.
+    toolSteps: v.optional(
+      v.array(
+        v.object({
+          tool: v.string(),
+          target: v.optional(v.string()),
+          lines: v.optional(v.string()),
+          ok: v.boolean(),
+          at: v.number(),
+        })
+      )
+    ),
+    // One sanitized sentence of what the agent is about to do ("Bekerja"
+    // line): the classifier's intent or the first reasoning sentence.
+    intentLine: v.optional(v.string()),
     // Collaboration graph (additive): this agent reply was a CTO @mention
     // handoff; the CTO agent that handed the turn over.
     handoffFromAgentId: v.optional(v.id("agents")),
@@ -590,10 +622,19 @@ export default defineSchema({
     // Plan 020 (additive): who resolved it. "auto" = approved by the task's
     // permission mode without a pause. Unset on rows decided by a person.
     decidedBy: v.optional(v.union(v.literal("user"), v.literal("auto"))),
+    // Chat UX (additive): run_command approvals the worker waits on
+    // in-process (it keeps its lease). offerAlways is decided server-side:
+    // "always" from a card that did not offer it is downgraded to "allow".
+    offerAlways: v.optional(v.boolean()),
+    decision: v.optional(v.union(v.literal("allow"), v.literal("always"), v.literal("deny"))),
+    // The user's note with the decision (typed in the composer), or the
+    // reason a wait was declined ("user replied instead", "timed out").
+    note: v.optional(v.string()),
   })
     .index("by_status", ["status"])
     .index("by_task", ["taskId"])
-    .index("by_project", ["projectId"]),
+    .index("by_project", ["projectId"])
+    .index("by_project_and_status", ["projectId", "status"]),
 
   fileChanges: defineTable({
     taskId: v.id("tasks"),

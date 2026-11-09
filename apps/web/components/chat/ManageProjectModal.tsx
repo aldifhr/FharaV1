@@ -40,6 +40,7 @@ type ProjectDoc = {
   instructions?: string;
   planReview?: string;
   shadowAgentDefault?: boolean;
+  commandAllowRules?: { prefix: string; createdAt: number; createdBy: string }[];
 };
 
 const field = "rounded-lg border border-line bg-panel px-3 py-2 text-ink outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/15";
@@ -62,6 +63,8 @@ export default function ManageProjectModal({
   const setPlanReviewSetting = useMutation(api.planReview.setProjectPlanReview);
   const [planReview, setPlanReview] = useState<PlanReviewSetting>(normalizePlanReview(project.planReview));
   const setShadowDefault = useMutation(api.reviewer.setProjectShadowDefault);
+  const removeCommandRule = useMutation(api.commandApprovals.removeRule);
+  const [removingRule, setRemovingRule] = useState<string | null>(null);
   const [shadowDefault, setShadowDefaultState] = useState(Boolean(project.shadowAgentDefault));
   // Plan 022: model tier per role, picked from the models already configured.
   const tierState = useQuery(api.contracts.getProjectModelTiers, { projectId: projectId as never });
@@ -160,6 +163,42 @@ export default function ManageProjectModal({
             {PERMISSION_MODE_HINTS[permissionMode]}. New tasks start in this mode; change it per task in the composer.
           </span>
         </label>
+        <fieldset className="grid gap-1.5">
+          <legend className="font-medium">Always-allowed commands</legend>
+          <span className="text-[12.5px] text-ink-3">
+            Agent commands that start with these run without asking. Added with “Always allow” on a command approval. Push, merge and destructive commands always ask.
+          </span>
+          {(project.commandAllowRules ?? []).length === 0 ? (
+            <p className="text-[13px] text-ink-3">None yet.</p>
+          ) : (
+            <ul className="divide-y divide-line rounded-lg border border-line">
+              {(project.commandAllowRules ?? []).map((rule) => (
+                <li key={rule.prefix} className="flex items-center gap-3 px-3 py-2">
+                  <code className="min-w-0 flex-1 truncate font-mono text-[13px] text-ink">{rule.prefix}</code>
+                  <span className="shrink-0 text-[12px] text-ink-3">{new Date(rule.createdAt).toLocaleDateString()}</span>
+                  <button
+                    type="button"
+                    disabled={removingRule !== null}
+                    onClick={async () => {
+                      setRemovingRule(rule.prefix);
+                      try {
+                        await removeCommandRule({ projectId: projectId as never, prefix: rule.prefix });
+                        toast("success", "Rule removed", rule.prefix);
+                      } catch (err) {
+                        toast("error", "Couldn't remove the rule", errorText(err));
+                      } finally {
+                        setRemovingRule(null);
+                      }
+                    }}
+                    className="shrink-0 rounded-md px-2 py-1 text-[13px] text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-50"
+                  >
+                    {removingRule === rule.prefix ? "Removing…" : "Remove"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </fieldset>
         <label className="grid gap-1">
           Shared instructions
           <textarea

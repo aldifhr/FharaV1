@@ -81,6 +81,7 @@ export default function TaskThreadPanel({
   const approve = useMutation(api.approvals.approve);
   const reject = useMutation(api.approvals.reject);
   const hold = useMutation(api.approvals.hold);
+  const respondCommand = useMutation(api.commandApprovals.respond);
   const [retrying, setRetrying] = useState(false);
   const [steering, setSteering] = useState(false);
   const [reply, setReply] = useState("");
@@ -522,6 +523,7 @@ export default function TaskThreadPanel({
               onApprove={(approvalId) => approve({ approvalId: approvalId as any })}
               onReject={(approvalId) => reject({ approvalId: approvalId as any })}
               onHold={(approvalId) => hold({ approvalId: approvalId as any })}
+              onRespond={(approvalId, decision) => respondCommand({ approvalId: approvalId as any, decision })}
             />
           ))}
           {taskStatus === "waiting_input" && (task as any).pendingQuestion && (

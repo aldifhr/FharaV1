@@ -16,6 +16,7 @@ import type { FileDiff } from "@/tools/gitDiff";
 import { applyQaCheck, buildChangesCard, buildQaCard, postStageCard } from "./cards";
 import { ACTIVITY_STARTING, ACTIVITY_THINKING, createActivityReporter, describeActivity } from "./activity";
 import { LiveOutputCoalescer } from "./liveOutput";
+import { waitForCommandApproval } from "./commandApproval";
 import { runWithObservationScope } from "@/effects/observationContext";
 import { stallEventType, stallThresholdsFromEnv, type StallObservation } from "@/utils/stallDetector";
 import { llmTimeoutMs } from "@/llm";
@@ -187,6 +188,28 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         runtime: resolveExecutionRuntime(agent, deps.policy.executionRuntime),
         nativeModel: agent.opencodeModel,
         qaMode: deps.policy.qaMode,
+        // Agent-initiated commands wait for approval in-process: the lease
+        // and heartbeat stay, the node shows "waiting for approval", and
+        // pause / stop / the wait timeout end the wait as a denial.
+        requestCommandApproval: (cmd) =>
+          waitForCommandApproval(
+            deps.api,
+            {
+              taskId: String(taskId),
+              projectId: String(project._id),
+              subtaskKey: node.id,
+              ...(executionId ? { executionId: String(executionId) } : {}),
+              requestedByAgentId: String(agent._id),
+              command: cmd.command,
+              args: cmd.args,
+              workspaceRoot: input.workspacePath,
+            },
+            {
+              signal: combineSignals(signal, input.taskAbort?.signal),
+              onPending: () => reportActivity(describeActivity("command.waiting_approval", cmd)),
+              onWaiting: beat,
+            }
+          ),
         nativeProviderCommand: process.env.ORCHESTRATOR_NATIVE_PROVIDER_COMMAND,
         taskContext: input.sharedContext,
         onUserInputsRendered: ackInputs,

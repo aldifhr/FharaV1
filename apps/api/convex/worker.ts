@@ -317,6 +317,49 @@ export const requestApproval = action({
 });
 
 /**
+ * Chat UX: in-process run_command approval. The worker keeps its lease and
+ * waits on the returned row (commandApprovals.ts); the task status does not
+ * change. Lease-fenced like requestApproval.
+ */
+export const requestCommandApproval = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    subtaskKey: v.optional(v.string()),
+    executionId: v.optional(v.id("executions")),
+    requestedByAgentId: v.optional(v.id("agents")),
+    command: v.string(),
+    args: v.array(v.string()),
+    workspaceRoot: v.optional(v.string()),
+    workerId: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ status: "auto" | "pending"; approvalId: string; reason: string; offerAlways: boolean }> => {
+    return await ctx.runMutation(internal.commandApprovals.request, withoutToken(args));
+  },
+});
+
+export const getCommandApproval = action({
+  args: { ...tokenArg, approvalId: v.id("approvals") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ status: string; decision: "allow" | "always" | "deny" | null; note: string | null; taskStatus: string | null } | null> => {
+    return await ctx.runQuery(internal.commandApprovals.get, withoutToken(args));
+  },
+});
+
+export const cancelCommandApproval = action({
+  args: { ...tokenArg, approvalId: v.id("approvals"), reason: v.string() },
+  handler: async (ctx, args): Promise<{ applied: boolean }> => {
+    return await ctx.runMutation(internal.commandApprovals.cancel, withoutToken(args));
+  },
+});
+
+/**
  * Plan 020: approve automatically under the task's permission mode. The
  * backend re-checks the mode from the task row; when it does not allow it
  * nothing is written and `autoApproved` is false.

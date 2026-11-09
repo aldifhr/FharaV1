@@ -1,5 +1,6 @@
 import { query, mutation, action, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { declineWaitingCommands } from "./commandApprovals";
 import { assertProjectAccess, getVisibleTask } from "./lib/authz";
 import { internal } from "./_generated/api";
 import { permissionModeValidator } from "./lib/permissionModes";
@@ -331,6 +332,13 @@ export const send = action({
       conversationId,
       ...(args.quotedMessageId ? { quotedMessageId: args.quotedMessageId } : {}),
     });
+    // A message typed while a command waits declines it ("user replied
+    // instead"): the agent continues with these words rather than blocking.
+    await ctx.runMutation(internal.commandApprovals.declineWaiting, {
+      projectId: args.projectId,
+      conversationId,
+      text: args.content,
+    });
     await ctx.scheduler.runAfter(0, internal.chat.replyToChat, {
       projectId: args.projectId,
       conversationId,
@@ -382,6 +390,8 @@ export const insertThreadMessage = mutation({
         content,
       });
     }
+    // A reply in the thread while this task's command waits declines it.
+    await declineWaitingCommands(ctx, { projectId: args.projectId, taskId: args.taskId, text: content });
     return messageId;
   },
 });

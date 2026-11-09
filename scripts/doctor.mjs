@@ -9,7 +9,7 @@
  *
  * Env is read from process.env, then the repo's .env files (process.env wins):
  *   .env                 worker + shared (loaded by the worker at startup)
- *   apps/web/.env.local  Next.js (NEXT_PUBLIC_CONVEX_URL)
+ *   apps/web/.env.local  Next.js (NEXT_PUBLIC_CONVEX_URL, server-side CONVEX_SERVICE_TOKEN)
  *   apps/api/.env.local  Convex CLI (CONVEX_DEPLOYMENT or CONVEX_SELF_HOSTED_*)
  */
 import { execFileSync, spawnSync } from "node:child_process";
@@ -167,6 +167,20 @@ async function run() {
     files["apps/web/.env.local"] || env.NEXT_PUBLIC_CONVEX_URL
       ? { name: "apps/web/.env.local", status: "ok", detail: files["apps/web/.env.local"] ? "present" : "not present (NEXT_PUBLIC_CONVEX_URL comes from the environment)" }
       : { name: "apps/web/.env.local", status: "fail", detail: "missing", hint: "cp apps/web/.env.example apps/web/.env.local" },
+  );
+  // The web server's token-gated routes (Settings → LLM / MCP, enhance) read
+  // CONVEX_SERVICE_TOKEN from the Next.js env, which is apps/web/.env.local.
+  const webEnv = mergeEnv(process.env, files["apps/web/.env.local"]);
+  add(
+    webEnv.CONVEX_SERVICE_TOKEN
+      ? { name: "Web server token", status: "ok", detail: "CONVEX_SERVICE_TOKEN set for Next.js" }
+      : {
+          name: "Web server token",
+          status: "warn",
+          required: false,
+          detail: "CONVEX_SERVICE_TOKEN not set for Next.js — Settings LLM/MCP writes and enhance are disabled",
+          hint: "add CONVEX_SERVICE_TOKEN (same value as .env) to apps/web/.env.local",
+        },
   );
   const convexCliTarget = env.CONVEX_DEPLOYMENT ? "cloud" : env.CONVEX_SELF_HOSTED_URL ? "self-hosted" : null;
   add(

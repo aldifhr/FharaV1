@@ -340,6 +340,7 @@ The rail's **Insights** button opens two read-only pages (both take
 
 ```bash
 npm run doctor                             # setup checks (exit 1 on a required failure)
+npm run stats:roles -- --days 30            # workload per role from your Convex (--project <name|id>, --json)
 npm run typecheck                          # web + api + worker (needs convex/_generated)
 npm test                                   # worker unit/integration tests (vitest)
 npm run --workspace=@moagent/api test      # backend tests (convex-test, in-memory)

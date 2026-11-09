@@ -16,6 +16,7 @@
     "worker:supervised": "node scripts/supervise.mjs --name worker --cwd packages/worker -- npx tsx src/index.ts",
     "convex": "npm run --workspace=@moagent/api codegen --silent && concurrently -k -n api,worker \"npm run --workspace=@moagent/api dev\" \"npm run worker\"",
     "doctor": "node scripts/doctor.mjs",
+    "stats:roles": "tsx scripts/stats-roles.ts",
     "electron:dev": "node scripts/env.mjs sync && concurrently -k -n api,web,worker,app -c blue,magenta,green,yellow \"npm run dev:api\" \"npm run dev:web\" \"npm run worker:supervised\" \"wait-on http://localhost:3000 && electron electron/main.cjs\"",
     "typecheck": "npm run --workspace=@moagent/web typecheck && npm run --workspace=@moagent/api typecheck && npm run --workspace=@moagent/worker typecheck",
     "test": "npm run --workspace=@moagent/worker test",

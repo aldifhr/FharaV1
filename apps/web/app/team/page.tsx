@@ -8,6 +8,7 @@ import { api } from "@/api/convex/_generated/api";
 import IconRail from "@/components/IconRail";
 import InitialAvatar from "@/components/InitialAvatar";
 import AgentDetailPanel from "@/components/AgentDetailPanel";
+import WorkloadSection from "@/components/WorkloadSection";
 import { CreateAgentModal, EditAgentModal } from "@/components/sidebar/AgentForms";
 import { roleLabel } from "@/lib/agentRoles";
 import { projectMembers } from "@/lib/projectMembers";
@@ -44,7 +45,8 @@ function modelLabel(a: Agent): string {
  * Team page: every agent as a card with its live status (what task it is
  * on), model and runtime. A card opens the same detail panel as the
  * sidebar, which leads to Edit. `?project=<id>` limits it to that
- * project's members.
+ * project's members. Below the roster, Workload shows how work is spread
+ * across roles (workload.byRole).
  */
 function TeamPage() {
   const projectId = useSearchParams().get("project") ?? undefined;
@@ -134,6 +136,8 @@ function TeamPage() {
               })}
             </ul>
           )}
+
+          <WorkloadSection />
         </div>
       </main>
 

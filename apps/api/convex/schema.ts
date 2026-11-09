@@ -538,7 +538,10 @@ export default defineSchema({
   })
     .index("by_task", ["taskId"])
     .index("by_task_and_sequence", ["taskId", "sequence"])
-    .index("by_project", ["projectId"]),
+    .index("by_project", ["projectId"])
+    // Workload view: one event type (subtask.routed) per project in a time
+    // window, without scanning every tool event of every task.
+    .index("by_project_and_type", ["projectId", "type"]),
 
   /**
    * Canonical agent/task event stream (plan 016). One row per canonical event

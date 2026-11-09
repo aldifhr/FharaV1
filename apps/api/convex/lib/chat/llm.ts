@@ -42,7 +42,13 @@ export async function completeWithAgent(
   history: { role: string; content: string }[],
   globalConfig: ChatLlmConfig,
   onChunk?: (partial: StreamChunk) => void,
+  /** Optional sampling temperature (the playground); unset = provider default. */
+  opts?: { temperature?: number },
 ): Promise<CompleteResult> {
+  const temperature =
+    typeof opts?.temperature === "number" && Number.isFinite(opts.temperature)
+      ? Math.min(2, Math.max(0, opts.temperature))
+      : undefined;
   const { provider, model, baseUrl, apiKey } = globalConfig;
   if (!apiKey) throw new Error("No LLM API key configured. Add a provider in Settings (LLM) or set LLM_API_KEY in Convex env");
 
@@ -163,6 +169,7 @@ export async function completeWithAgent(
         model,
         max_tokens: 8192,
         stream: true,
+        ...(temperature !== undefined ? { temperature } : {}),
         messages: [{ role: "system", content: system }, ...messages],
       }),
     });
@@ -231,6 +238,7 @@ export async function completeWithAgent(
       system: system || undefined,
       messages,
       stream: true,
+      ...(temperature !== undefined ? { temperature: Math.min(1, temperature) } : {}),
     }),
   });
   if (!res.ok) throw new Error(`LLM request failed: ${res.status}`);

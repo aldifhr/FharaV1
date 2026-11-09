@@ -181,3 +181,36 @@ describe("executeSubtask code_change (sequential nodes on one file)", () => {
     expect(stagedChangesContext([])).toBe("");
   });
 });
+
+describe("scheduler notices a cancel while a node is still running", () => {
+  it("aborts the running node within the poll interval", async () => {
+    const { runScheduler } = await import("@/scheduler/dagScheduler");
+    let cancelled = false;
+    setTimeout(() => {
+      cancelled = true;
+    }, 100);
+    const started = Date.now();
+    const result = await runScheduler(
+      [{ id: "slow", dependencies: [] }],
+      (_node, signal) =>
+        new Promise((resolve) => {
+          const timer = setTimeout(() => resolve({ status: "completed" }), 60_000);
+          signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            resolve({ status: "failed", error: "aborted" });
+          });
+        }),
+      {
+        maxConcurrency: 1,
+        timeoutMs: 120_000,
+        retries: 0,
+        cancelPollMs: 50,
+        shouldCancel: async () => cancelled,
+        onStart: async () => undefined,
+        onOutcome: async () => undefined,
+      }
+    );
+    expect(result.status).toBe("cancelled");
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+});

@@ -1,6 +1,9 @@
 import { isTransientLlmError } from "@/effects/llmCall";
 import { pathsOverlap } from "@/orchestrator/ownership";
 
+/** Default interval at which running nodes re-check for cancellation. */
+const CANCEL_POLL_MS = 2_000;
+
 export interface SchedulerNode {
   id: string;
   dependencies: string[];
@@ -25,6 +28,8 @@ export interface SchedulerHooks {
   retries: number;
   retryDelayMs?: number;
   shouldCancel?: () => Promise<boolean>;
+  /** How often a running scheduler re-checks shouldCancel (default 2s). */
+  cancelPollMs?: number;
   /**
    * Per-node start gate (Phase 4 per-agent concurrency): consulted on
    * every scan pass for every pending node whose dependencies are met.
@@ -431,7 +436,19 @@ export async function runScheduler(
       return { status: "failed", outcomes, failed };
     }
 
-    const result = await Promise.race(running.values());
+    // Wake up periodically while nodes run so a cancel (task cancelled
+    // by the user, deadline) is noticed and aborts the running nodes
+    // instead of waiting for a long LLM call to finish on its own.
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
+    const pollWake = hooks.shouldCancel && !cancelled
+      ? new Promise<null>((resolve) => {
+          pollTimer = setTimeout(() => resolve(null), hooks.cancelPollMs ?? CANCEL_POLL_MS);
+          (pollTimer as { unref?: () => void }).unref?.();
+        })
+      : undefined;
+    const result = await Promise.race(pollWake ? [...running.values(), pollWake] : running.values());
+    if (pollTimer) clearTimeout(pollTimer);
+    if (result === null) continue;
     running.delete(result.node.id);
     if (cancelled) {
       states.set(result.node.id, "blocked");

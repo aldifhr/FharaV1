@@ -66,3 +66,36 @@ Because of the shared 12k budget, at run time with this mapping: Designer gets
 emil-design-eng only; Frontend gets pick-ui-library plus a cut mobile-native;
 QA gets break-ui plus a stub of review-animations; Reviewer gets
 improve-animations plus a cut remove-animations.
+
+## Skill v2 (versions, dependencies, permissions, on-demand loading)
+
+- **Versions.** Every create, edit, import update and rollback saves a row in
+  `skillVersions` (content, source sha, author, kind, note). /library → ⋯ →
+  History lists them, diffs any two (or one against current) and restores one.
+  A restore is a NEW version (`kind: "rollback"`, audited as `skill.rollback`);
+  history is never rewritten. Agents follow the latest version unless pinned
+  (Edit agent → Skills → version menu; `skills.setPin`, audited).
+- **Migration.** Skills written before v2 have no history. Their current text
+  becomes version 1 (`kind: "baseline"`) on their first edit or import, or all at
+  once with `npx convex run skills:backfillVersions` (idempotent). Imports are now
+  stored untrimmed (up to `SKILL_STORED_MAX`, 200k chars); skills that were
+  trimmed by an earlier import get their full text on the next "Update from
+  source" / "Update all from source".
+- **Dependencies.** `requires` (skill ids; front matter `requires:` /
+  `dependencies:` by name on import). Assigning a skill adds what it requires,
+  with a warning; removing a required skill while a dependent stays is allowed
+  and warns; cycles are rejected.
+- **Permissions.** `permissions` (read_file, write_file, run_command, browser,
+  network, github; front matter `allowed-tools:` is mapped). Advisory only:
+  assigning to a role that lacks one (e.g. run_command on the read-only Reviewer)
+  warns. Nothing grants a tool because of a skill.
+- **On-demand loading.** Per agent `skillLoading: "inline" | "on_demand"`
+  (default inline = the 12k budget as before). On demand, the prompt carries only
+  each skill's name, description and size; the agent reads the full text with the
+  read-only `load_skill(name)` tool — at most 30k chars per call and 4 loads per
+  run. Task runs: a short load_skill loop before each subtask
+  (`packages/worker/src/execution/skillLoading.ts`), the loaded text appended to
+  the system prompt. Chat: a local tool in the chat repo-tool loop (no worker
+  needed), with its own budget outside the 12-call repo budget.
+- **Sources.** /library → Sources groups skills by imported repo with version,
+  size, dependencies, permissions and users, and "Update all from source".

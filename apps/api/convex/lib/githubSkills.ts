@@ -18,6 +18,16 @@ export const GITHUB_SKILL_SCAN_MAX = 100;
  */
 export const SKILL_IMPORT_MAX = SKILLS_PROMPT_BUDGET - (SKILL_NAME_MAX + "## Skill: \n".length);
 
+/**
+ * Since Skill v2 imports are stored UNTRIMMED (up to SKILL_STORED_MAX);
+ * SKILL_IMPORT_MAX is now the inline cap: `inlineSkillBody` fits a long
+ * skill under it at heading boundaries only when it is injected inline.
+ */
+export function inlineSkillBody(body: string, url: string | undefined): string {
+  if (body.length <= SKILL_IMPORT_MAX) return body;
+  return fitSkillBody(body, SKILL_IMPORT_MAX, url ?? "the skill's source").text;
+}
+
 export type GithubSkillUrl = {
   owner: string;
   repo: string;
@@ -189,14 +199,38 @@ export type ParsedSkill = {
   description: string;
   /** Instructions body with the front matter stripped. */
   body: string;
+  /** Skill names from `requires:` / `dependencies:` (resolved by name on import). */
+  requires: string[];
+  /** Raw tool names from `allowed-tools:` / `permissions:` / `tools:`. */
+  permissions: string[];
 };
+
+/**
+ * A front matter list as our minimal parser keeps it: `[a, b]`, `a, b`,
+ * `a b` (allowed-tools style) or a `- a` block. Quotes are stripped.
+ */
+export function parseFrontMatterList(raw: string | undefined): string[] {
+  const text = (raw ?? "").trim();
+  if (!text) return [];
+  let items: string[];
+  if (/^\s*-\s/m.test(text)) {
+    items = text.split("\n").map((l) => l.replace(/^\s*-\s*/, ""));
+  } else {
+    const inner = text.replace(/^\[/, "").replace(/\]$/, "");
+    // Keep "Bash(npm test:*)" whole: split on commas, else on spaces outside parens.
+    items = inner.includes(",") ? inner.split(",") : inner.match(/[^\s(]+(?:\([^)]*\))?/g) ?? [];
+  }
+  return Array.from(new Set(items.map((i) => unquote(i.trim())).filter(Boolean)));
+}
 
 /** Name/description from front matter, else folder name + first paragraph. */
 export function parseSkillMarkdown(markdown: string, path: string, repo: string): ParsedSkill {
   const { data, body } = parseFrontMatter(markdown);
   const name = clip(data.name?.trim() || skillFolderName(path, repo), SKILL_NAME_MAX);
   const description = clip(data.description?.trim() || firstParagraph(body), SKILL_DESCRIPTION_MAX);
-  return { name, description, body };
+  const requires = parseFrontMatterList(data.requires ?? data.dependencies ?? data["depends-on"]);
+  const permissions = parseFrontMatterList(data["allowed-tools"] ?? data.permissions ?? data.tools);
+  return { name, description, body, requires, permissions };
 }
 
 type Section = { text: string; isHeading: boolean };

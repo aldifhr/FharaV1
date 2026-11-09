@@ -12,6 +12,7 @@ import {
 import { defaultAvatarParams } from "./lib/avatar";
 import { changedFields, recordAudit, setFields } from "./lib/recordAudit";
 import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT } from "./lib/prompts/agents";
+import { applyAgentSkills } from "./skills";
 
 /**
  * Plan 007: browser-safe agent projection — the same shape `list` has always
@@ -207,6 +208,7 @@ export const create = mutation({
     skillIds: v.optional(v.array(v.id("skills"))),
     executionRuntime: v.optional(v.union(v.literal("api"), v.literal("opencode"))),
     opencodeModel: v.optional(v.string()),
+    skillLoading: v.optional(v.union(v.literal("inline"), v.literal("on_demand"))),
   },
   handler: async (ctx, args) => {
     // Agents are a global registry: signed-in viewer or local mode only.
@@ -231,7 +233,7 @@ export const create = mutation({
       ...(systemPrompt ? { systemPrompt } : {}),
       status: "idle",
       avatarParams: args.avatarParams ?? defaultAvatarParams(name),
-      ...(skillIds.length ? { skillIds } : {}),
+      ...(args.skillLoading === "on_demand" ? { skillLoading: "on_demand" as const } : {}),
       ...(args.executionRuntime ? { executionRuntime: args.executionRuntime } : {}),
       ...(opencodeModel ? { opencodeModel } : {}),
       ...(args.description?.trim() ? { description: args.description.trim() } : {}),
@@ -255,6 +257,11 @@ export const create = mutation({
       ...(args.llmFallbackModelId ? { llmFallbackModelId: args.llmFallbackModelId } : {}),
       ...(args.llmSelectionPolicy ? { llmSelectionPolicy: args.llmSelectionPolicy } : {}),
     });
+    if (skillIds.length) {
+      // Skill v2: required skills come along with the template's skills.
+      const created = await ctx.db.get(agentId);
+      if (created) await applyAgentSkills(ctx, created, skillIds.map(String));
+    }
     await recordAudit(ctx, {
       action: "agent.create",
       target: `${name} (${role})`,
@@ -290,6 +297,8 @@ export const update = mutation({
     // omit leaves it as-is. Same contract for the OpenCode model.
     executionRuntime: v.optional(v.union(v.literal("api"), v.literal("opencode"), v.null())),
     opencodeModel: v.optional(v.union(v.string(), v.null())),
+    // Skill v2: "inline" (default) | "on_demand"; null resets to inline.
+    skillLoading: v.optional(v.union(v.literal("inline"), v.literal("on_demand"), v.null())),
   },
   handler: async (ctx, args) => {
     // Same authz choke point as the other modules (authz.assertAgentAccess):
@@ -342,6 +351,9 @@ export const update = mutation({
       ...(args.opencodeModel !== undefined
         ? { opencodeModel: normalizeOpencodeModel(args.opencodeModel) }
         : {}),
+      ...(args.skillLoading !== undefined
+        ? { skillLoading: args.skillLoading === "on_demand" ? ("on_demand" as const) : undefined }
+        : {}),
     };
     await ctx.db.patch(args.agentId, patch);
     const changed = changedFields(before as Record<string, unknown>, patch);
@@ -361,13 +373,15 @@ export const update = mutation({
  */
 export const setSkills = mutation({
   args: { agentId: v.id("agents"), skillIds: v.array(v.id("skills")) },
-  handler: async (ctx, args) => {
-    await assertAgentAccess(ctx, args.agentId);
+  handler: async (ctx, args): Promise<{ skillIds: Id<"skills">[]; warnings: string[] }> => {
+    const agent = await assertAgentAccess(ctx, args.agentId);
     const ids = Array.from(new Set(args.skillIds));
     for (const id of ids) {
       if (!(await ctx.db.get(id))) throw new Error("Skill not found");
     }
-    await ctx.db.patch(args.agentId, { skillIds: ids.length ? ids : undefined });
+    // Skill v2: required skills come along (warned), removing one another
+    // attached skill requires warns, permission gaps warn. Nothing grants tools.
+    return await applyAgentSkills(ctx, agent, ids.map(String));
   },
 });
 

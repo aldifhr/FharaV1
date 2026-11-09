@@ -1,3 +1,4 @@
+import type { PromptSkill } from "@/api/convex/lib/skills";
 /** Agent definitions as the worker routes and executes them. */
 
 export interface AgentDefinition {
@@ -26,6 +27,13 @@ export interface AgentDefinition {
   executionRuntime?: "api" | "opencode";
   /** Optional OpenCode model (`provider/model`); unset = MOAgent's own LLM. */
   opencodeModel?: string;
+  /**
+   * Skill v2: set only when the agent's skillLoading is "on_demand". The
+   * system prompt then holds just the skills index; the executor offers the
+   * read-only load_skill tool over these (execution/skillLoading.ts).
+   * Never widens supportedTools.
+   */
+  onDemandSkills?: PromptSkill[];
 }
 
 export type AgentStatus = "idle" | "working" | "queued" | "needs_you";

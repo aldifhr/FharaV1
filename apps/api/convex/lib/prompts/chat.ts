@@ -6,6 +6,8 @@
  */
 import type { IntentSubtype } from "../chat/intent";
 import { MAX_CTO_HANDOFFS } from "../chat/team";
+import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_TOOL } from "../skills";
+import { LOAD_SKILL_TOOL_LINE } from "../skillRuntime";
 
 type Persona = { name: string; role: string; systemPrompt?: string; skillsSection?: string; memorySection?: string };
 
@@ -125,7 +127,7 @@ export function buildChatPersonaLines(
  * Read-only repo tool protocol for one chat reply (the CTO, its handoff
  * teammates, or @mentioned agents, when a worker can serve the tools). The loop in lib/chat/repoTools.ts parses the calls.
  */
-export function buildRepoToolProtocol(maxCalls: number): string {
+export function buildRepoToolProtocol(maxCalls: number, opts: { loadSkill?: boolean } = {}): string {
   return [
     "## Repo tools (read-only)",
     "You can read the project repository before answering. To call a tool, reply with ONLY one JSON object and nothing else — one call per reply, then wait for its result. E.g.:",
@@ -134,7 +136,8 @@ export function buildRepoToolProtocol(maxCalls: number): string {
     '- list_files {"path"?: dir, "glob"?: e.g. "**/*.ts"}: files with sizes in bytes (no node_modules, .git, .env*).',
     '- grep {"pattern": regex, "path"?: dir or file, "glob"?: file filter, "ignoreCase"?: bool}: the total match count, then matching lines as path:line: text (first 40). Omit "path" to search the whole repository — do that to locate a symbol.',
     '- read_file {"path": file, "start"?: line, "lines"?: count}: numbered lines with the file\'s total lines and size; at most 400 lines (16 KB) per read.',
-    `At most ${maxCalls} tool calls per reply. You cannot write files or run commands. The result comes back as the next message; then call another tool or write your answer as plain prose (never JSON, never a tool call inside the answer).`,
+    ...(opts.loadSkill ? [LOAD_SKILL_TOOL_LINE, `(${LOAD_SKILL_TOOL} has its own limit of ${LOAD_SKILL_MAX_CALLS} per reply and does not use the repo tool budget.)`] : []),
+    `At most ${maxCalls} ${opts.loadSkill ? "repo " : ""}tool calls per reply. You cannot write files or run commands. The result comes back as the next message; then call another tool or write your answer as plain prose (never JSON, never a tool call inside the answer).`,
     "Rules for the answer:",
     '- A read_file result marked "truncated: lines X-Y of N" showed only that part. Never state a count or a list for the whole file from a part: read the next page with "start", or grep it (e.g. {"tool":"grep","arguments":{"pattern":"defineTable","path":"apps/api/convex/schema.ts"}}) and use grep\'s match count.',
     '- A grep with "0 matches" means not found: say it was not found (Indonesian: "tidak ketemu"), never guess another file or line. If it searched a subfolder, grep the whole repository before saying it does not exist.',
@@ -147,13 +150,28 @@ export function buildRepoToolProtocol(maxCalls: number): string {
  * result (or the snapshot) in this reply, never from memory or from what the
  * user pasted. Without tools the agent says it has not checked.
  */
-export function buildGroundingGuidance(hasRepoTools: boolean): string[] {
+/**
+ * On-demand skills without repo tools: the one local tool the agent may
+ * call is load_skill (same JSON protocol as the repo tools).
+ */
+export function buildSkillToolProtocol(): string {
+  return [
+    "## Skill tool (read-only)",
+    `Your skills are listed above by name only. To read one, reply with ONLY one JSON object and nothing else, e.g. {"tool":"${LOAD_SKILL_TOOL}","arguments":{"name":"<skill name>"}}, then wait for its text.`,
+    LOAD_SKILL_TOOL_LINE,
+    `Load a skill only when it bears on this reply; at most ${LOAD_SKILL_MAX_CALLS} per reply. Then write your answer as plain prose (never JSON).`,
+  ].join("\n");
+}
+
+export function buildGroundingGuidance(hasRepoTools: boolean, hasSkillTool = false): string[] {
   return [
     "Grounding rule: any claim about this repo's code, files, file sizes, line counts, or which agent/module does what must come from a tool result in this reply" +
       " (or the repo snapshot above). A number or quote the user pasted is a claim to verify, not a fact.",
     hasRepoTools
       ? "Check with the repo tools before stating such a claim. If you did not check something, say so plainly in the user's language (Indonesian: \"belum saya cek\"; English: \"I haven't checked that yet\") instead of guessing. Report not-found as not-found, and never cite a file:line that is not in a tool result in this reply."
-      : "You have no repo access and no tools in this reply: never output a tool call or JSON. Do not state code, file, size, line-number, or ownership facts that are not in the snapshot; say you have not checked them yet in the user's language (Indonesian: \"belum saya cek\"; English: \"I haven't checked that yet\").",
+      : (hasSkillTool
+          ? `You have no repo access in this reply: the only tool you may call is ${LOAD_SKILL_TOOL}.`
+          : "You have no repo access and no tools in this reply: never output a tool call or JSON.") + " Do not state code, file, size, line-number, or ownership facts that are not in the snapshot; say you have not checked them yet in the user's language (Indonesian: \"belum saya cek\"; English: \"I haven't checked that yet\").",
     hasRepoTools
       ? "When the user pushes back or contradicts you about the code, re-check with the tools and answer from what you find: keep your answer if the code supports it, correct it if not. Never agree just because the user said so."
       : "When the user pushes back about the code, do not simply agree: say what you can and cannot confirm without checking.",

@@ -23,7 +23,7 @@ import { getMcpRegistry, type McpRunConfig } from "@/mcp/registry";
 import type { WebClientConfig } from "@/tools/webClient";
 import type { NodeOutcome, SchedulerResult } from "@/scheduler/dagScheduler";
 import type { FileDiff } from "@/tools/gitDiff";
-import { appendSkillsToPrompt } from "@/api/convex/lib/skills";
+import { appendAgentSkills, normalizeSkillLoading } from "@/api/convex/lib/skillRuntime";
 import type { ModelTiers } from "@/api/convex/lib/modelTiers";
 import { appendMemoryToPrompt } from "@/api/convex/lib/memory";
 import type {
@@ -214,19 +214,23 @@ export function slugifyKeyPart(value: string): string {
 
 
 export function toAgentDefinition(agent: WorkerRunAgent): AgentDefinition {
+  const skillLoading = normalizeSkillLoading(agent.skillLoading);
   return {
     _id: agent._id,
     name: agent.name,
     role: agent.role,
-    // Library skills go AFTER the static system prompt (prefix caching),
-    // budgeted to SKILLS_PROMPT_BUDGET chars. Every execution path (API
-    // messages, OpenCode prompt, curated context) reads this field.
+    // Library skills go AFTER the static system prompt (prefix caching):
+    // inline (default) budgeted to SKILLS_PROMPT_BUDGET chars, or on_demand
+    // as a names + descriptions index (load_skill reads the rest). Every
+    // execution path (API messages, OpenCode prompt, curated context)
+    // reads this field.
     // Then the pinned-memory section (shared → project → agent, capped at
     // MEMORY_PROMPT_BUDGET), still after everything static.
     systemPrompt: appendMemoryToPrompt(
-      appendSkillsToPrompt(agent.systemPrompt, agent.attachedSkills),
+      appendAgentSkills(agent.systemPrompt, agent.attachedSkills, skillLoading),
       agent.memorySection
     ),
+    ...(skillLoading === "on_demand" && agent.attachedSkills?.length ? { onDemandSkills: agent.attachedSkills } : {}),
     description: agent.description,
     capabilities: agent.capabilities,
     supportedTools: agent.supportedTools,

@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { loadProviderPool } from "./lib/llmResolver";
 import { activeParticipantRows, selectDefaultChatAgents } from "./conversations";
-import { formatSkillsSection } from "./lib/skills";
+import { normalizeSkillLoading, skillsSectionFor } from "./lib/skillRuntime";
 import { loadPromptSkills } from "./skills";
 import { loadMemorySection } from "./memories";
 import { extractAgentMentions } from "./lib/chat/team";
@@ -292,15 +292,22 @@ export const getContext = internalQuery({
 
     // Library skills ride as a separate pre-rendered section so only the
     // chat persona (not the classifier/chooser snippets) carries them.
-    const agentShape = async (a: Doc<"agents">) => ({
+    // Skill v2: inline agents get the budgeted sections as before; on_demand
+    // agents get the index plus their skills for the local load_skill tool.
+    const agentShape = async (a: Doc<"agents">) => {
+      const skills = await loadPromptSkills(ctx, a);
+      const mode = normalizeSkillLoading(a.skillLoading);
+      return {
       _id: a._id,
       name: a.name,
       role: a.role,
       systemPrompt: a.systemPrompt,
-      skillsSection: formatSkillsSection(await loadPromptSkills(ctx, a)) || undefined,
+      skillsSection: skillsSectionFor(skills, mode) || undefined,
+      ...(mode === "on_demand" && skills.length ? { onDemandSkills: skills } : {}),
       // Pinned memories for this agent in this project, after the skills.
       memorySection: (await loadMemorySection(ctx, { projectId: args.projectId, agentId: a._id })) || undefined,
-    });
+      };
+    };
 
     // The whole project team — the conversational agent is picked from here,
     // not from the (possibly mention-stale) participant set.

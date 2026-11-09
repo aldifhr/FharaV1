@@ -66,6 +66,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
+import { preloadOnDemandSkills } from "./skillLoading";
 import { contentReader, detectEscalation, escalatedError, escalationFromAnswer } from "./escalation";
 import type { Escalation } from "@/api/convex/lib/subtaskContract";
 import { runResponsiveQa } from "./qa";
@@ -530,15 +531,70 @@ export function canAffordRetry(
   return { ok: remainingMs >= needed, remainingMs };
 }
 
+/**
+ * Skill v2: an on_demand agent first gets the read-only load_skill tool
+ * (execution/skillLoading.ts); the skills it loads are appended to its
+ * system prompt for the rest of this subtask. Best effort: a failed loop
+ * leaves the index-only prompt. Budget exhaustion still propagates.
+ */
+async function withOnDemandSkills(input: SubtaskExecutionInput): Promise<SubtaskExecutionInput> {
+  const skills = input.agent.onDemandSkills;
+  if (!skills?.length) return input;
+  const handles = handlesFor(input);
+  try {
+    const preload = await preloadOnDemandSkills({
+      systemPrompt: input.agent.systemPrompt,
+      skills,
+      assignment: [`${input.subtask.title} — ${input.subtask.description}`, `Task: ${input.command}`].join("\n"),
+      call: async (messages) => {
+        input.assertBudgetForCall?.();
+        const { result, servedBy } = await runLlmCallWithFallback(handles, messages, {
+          health: healthFor(input),
+          signal: input.signal,
+          timeoutMs: llmCallTimeoutMs(input),
+          taskGate: input.llmTaskGate,
+        });
+        if (input.onTokenUsage) {
+          await input.onTokenUsage(
+            result.inputTokens ?? 0,
+            result.outputTokens ?? 0,
+            servedBy.config.model,
+            usageMetaFor(servedBy, result.inputTokens ?? 0, result.outputTokens ?? 0, result.usageEstimated)
+          );
+        }
+        return result.content;
+      },
+    });
+    await input.onEvent("agent.skills_loaded", {
+      capability: input.subtask.capability,
+      loaded: preload.loaded,
+      loads: preload.loads,
+      llmCalls: preload.llmCalls,
+      ...(preload.failed.length ? { failed: preload.failed.map((f) => f.name).slice(0, 8) } : {}),
+    });
+    if (preload.systemPrompt === input.agent.systemPrompt) return input;
+    return { ...input, agent: { ...input.agent, systemPrompt: preload.systemPrompt } };
+  } catch (error) {
+    if (isBudgetExhaustedError(error) || input.signal.aborted) throw error;
+    await input.onEvent(
+      "agent.skills_loaded",
+      { capability: input.subtask.capability, error: error instanceof Error ? error.message.slice(0, 200) : "load failed" },
+      "warn"
+    );
+    return input;
+  }
+}
+
 export async function executeSubtask(
-  input: SubtaskExecutionInput
+  rawInput: SubtaskExecutionInput
 ): Promise<SubtaskExecutionResult> {
-  const { subtask } = input;
-  if (input.signal.aborted) {
+  const { subtask } = rawInput;
+  if (rawInput.signal.aborted) {
     return { status: "failed", error: "Execution cancelled" };
   }
 
   try {
+    const input = await withOnDemandSkills(rawInput);
     // Plan 014: native-provider runtime (provider CLI with its own native
     // tools in the task workspace). Falls back to the API path when the
     // provider binary is unavailable.

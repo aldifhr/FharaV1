@@ -28,6 +28,8 @@ type AgentDoc = {
   opencodeModel?: string;
   avatarParams?: unknown;
   skillIds?: string[];
+  skillPins?: Array<{ skillId: string; version: number }>;
+  skillLoading?: "inline" | "on_demand";
 };
 
 /** Template as agentTemplates.list returns it (built-in or custom). */
@@ -49,17 +51,24 @@ export type TemplateView = {
   updatedAt?: number;
 };
 
-type LibrarySkill = { _id: string; name: string; description?: string };
+type LibrarySkill = { _id: string; name: string; description?: string; version?: number; versionCount?: number };
 
-/** Checkbox list of library skills (order of picking = prompt order). */
+/**
+ * Checkbox list of library skills (order of picking = prompt order). With
+ * `pins`, each picked skill gets a version menu: Latest or a pinned vN.
+ */
 function SkillPicker({
   skills,
   value,
   onChange,
+  pins,
+  onPinChange,
 }: {
   skills: LibrarySkill[] | undefined;
   value: string[];
   onChange: (next: string[]) => void;
+  pins?: Record<string, number | undefined>;
+  onPinChange?: (skillId: string, version: number | undefined) => void;
 }) {
   const hint = "text-[12px] text-ink-3";
   if (skills === undefined) return <p className={hint}>Loading…</p>;
@@ -75,7 +84,23 @@ function SkillPicker({
             className="accent-current"
           />
           <span className="truncate">{skill.name}</span>
-          {skill.description && <span className="truncate text-ink-3">· {skill.description}</span>}
+          {skill.description && <span className="min-w-0 flex-1 truncate text-ink-3">· {skill.description}</span>}
+          {pins && onPinChange && value.includes(skill._id) && (skill.versionCount ?? 0) > 1 && (
+            <select
+              aria-label={`Version of ${skill.name}`}
+              value={pins[skill._id] ?? ""}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => onPinChange(skill._id, e.target.value ? Number(e.target.value) : undefined)}
+              className="ml-auto shrink-0 rounded-md border border-line bg-canvas px-1.5 py-0.5 text-[12px] text-ink-2 outline-none focus:border-ink-3"
+            >
+              <option value="">Latest{skill.version ? ` (v${skill.version})` : ""}</option>
+              {Array.from({ length: skill.versionCount ?? 0 }, (_, i) => (skill.versionCount ?? 0) - i).map((v) => (
+                <option key={v} value={v}>
+                  Pin v{v}
+                </option>
+              ))}
+            </select>
+          )}
         </label>
       ))}
     </div>
@@ -283,11 +308,15 @@ export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onCl
 export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: () => void }) {
   const updateAgent = useMutation(api.agents.update);
   const setAgentSkills = useMutation(api.agents.setSkills);
+  const setSkillPin = useMutation(api.skills.setPin);
   const saveAsTemplate = useMutation(api.agentTemplates.saveFromAgent);
   const toast = useToast();
   const [savingTemplate, setSavingTemplate] = useState(false);
   const librarySkills = useQuery(api.skills.list, {}) as LibrarySkill[] | undefined;
   const [skillIds, setSkillIds] = useState<string[]>(agent.skillIds ?? []);
+  const initialPins = Object.fromEntries((agent.skillPins ?? []).map((p) => [p.skillId, p.version])) as Record<string, number | undefined>;
+  const [pins, setPins] = useState<Record<string, number | undefined>>(initialPins);
+  const [skillLoading, setSkillLoading] = useState<"inline" | "on_demand">(agent.skillLoading ?? "inline");
   const llmProviders = useQuery(api.llmProviders.list, {});
   const llmModels = useQuery(api.llmModels.list, {});
   const [agentName, setAgentName] = useState(agent.name);
@@ -339,12 +368,21 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
         // Runtime: a value sets it, null clears it (worker default).
         executionRuntime: (agentRuntime || null) as never,
         opencodeModel: agentOpencodeModel.trim() || null,
+        ...(skillLoading !== (agent.skillLoading ?? "inline") ? { skillLoading } : {}),
         ...avatarArgs(avatarSeed),
       });
       // Library skills are saved separately so the update payload stays as-is.
       const before = agent.skillIds ?? [];
+      let attached = skillIds;
       if (before.length !== skillIds.length || before.some((id, i) => id !== skillIds[i])) {
-        await setAgentSkills({ agentId: agent._id as never, skillIds: skillIds as never });
+        const res = await setAgentSkills({ agentId: agent._id as never, skillIds: skillIds as never });
+        attached = res.skillIds as unknown as string[];
+        for (const w of res.warnings.slice(0, 4)) toast("info", "Heads up", w);
+      }
+      // Version pins (only for skills still attached).
+      for (const id of attached) {
+        if ((pins[id] ?? null) === (initialPins[id] ?? null)) continue;
+        await setSkillPin({ agentId: agent._id as never, skillId: id as never, version: pins[id] ?? null });
       }
       onClose();
     } catch (err) {
@@ -421,7 +459,29 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
             Skills
             <Link href="/library" className="text-ink-3 underline-offset-2 hover:text-ink hover:underline">Library</Link>
           </legend>
-          <SkillPicker skills={librarySkills} value={skillIds} onChange={setSkillIds} />
+          <SkillPicker
+            skills={librarySkills}
+            value={skillIds}
+            onChange={setSkillIds}
+            pins={pins}
+            onPinChange={(id, version) => setPins((prev) => ({ ...prev, [id]: version }))}
+          />
+          <label className="mt-1 flex items-center justify-between gap-3 text-[12.5px] text-ink-3">
+            <span>
+              {skillLoading === "on_demand"
+                ? "On demand: the prompt lists names; the agent loads each skill whole when it needs it."
+                : "Inline: every skill goes into the prompt, up to 12,000 chars in total."}
+            </span>
+            <select
+              aria-label="Skill loading"
+              value={skillLoading}
+              onChange={(e) => setSkillLoading(e.target.value === "on_demand" ? "on_demand" : "inline")}
+              className="shrink-0 rounded-md border border-line bg-canvas px-2 py-1 text-[12.5px] text-ink outline-none focus:border-ink-3"
+            >
+              <option value="inline">Inline</option>
+              <option value="on_demand">On demand</option>
+            </select>
+          </label>
         </fieldset>
 
         <details className="group rounded-lg border border-line">

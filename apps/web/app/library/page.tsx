@@ -8,6 +8,15 @@ import { ImportFromGithubModal } from "./ImportFromGithub";
 import { useToast } from "@/components/Toasts";
 import Segmented from "@/components/ui/segmented";
 import { TemplatesTab } from "./TemplatesTab";
+import {
+  errorText,
+  SkillHistoryModal,
+  skillMetaText,
+  SourcesTab,
+  usedByText,
+  type LibrarySkill,
+} from "./SkillsV2";
+import { SKILL_PERMISSIONS, SKILL_PERMISSION_LABELS } from "@/api/convex/lib/skillGraph";
 import { api } from "@/api/convex/_generated/api";
 import IconRail from "@/components/IconRail";
 import Modal from "@/components/Modal";
@@ -17,27 +26,11 @@ import {
   SKILL_DESCRIPTION_MAX,
   SKILL_INSTRUCTIONS_MAX,
   SKILL_NAME_MAX,
+  SKILL_STORED_MAX,
   SKILLS_PROMPT_BUDGET,
 } from "@/api/convex/lib/skills";
 
-type Skill = {
-  _id: string;
-  name: string;
-  description: string;
-  instructions: string;
-  tags?: string[];
-  source?: {
-    kind: "github";
-    repo: string;
-    path: string;
-    sha: string;
-    license?: string;
-    licenseUrl?: string;
-    url: string;
-  };
-  trimmed?: boolean;
-  usedBy: Array<{ _id: string; name: string; role: string }>;
-};
+type Skill = LibrarySkill;
 
 type Agent = { _id: string; name: string; role: string; isEnabled?: boolean };
 
@@ -45,21 +38,9 @@ const field =
   "w-full rounded-lg border border-line bg-transparent px-3 py-2 text-[14px] text-ink outline-none transition focus:border-ink-3";
 const label = "grid gap-1.5 text-[12.5px] text-ink-3";
 
-/** "Frontend, Backend" — agents by role only, deduped. */
-function rolesText(usedBy: Skill["usedBy"]): string {
-  return Array.from(new Set(usedBy.map((a) => roleLabel(a.role)))).join(", ");
-}
-
 /** "owner/repo · MIT" for an imported skill. */
 function sourceText(source: NonNullable<Skill["source"]>): string {
   return [source.repo, source.license].filter(Boolean).join(" · ");
-}
-
-/** Convex wraps thrown errors ("… Uncaught Error: msg"); keep the message. */
-function errorText(err: unknown, fallback: string): string {
-  const raw = err instanceof Error ? err.message : "";
-  const m = /Uncaught Error:\s*([\s\S]*?)(?:\n\s+at |\n\s*Called by|$)/.exec(raw);
-  return (m?.[1] ?? raw).trim() || fallback;
 }
 
 const headerButton =
@@ -70,7 +51,7 @@ const headerButton =
  * to agents; at run time it is appended to the agent's prompt as
  * "## Skill: <name>".
  */
-type Tab = "skills" | "templates";
+type Tab = "skills" | "sources" | "templates";
 
 export default function LibraryPage() {
   return (
@@ -83,7 +64,8 @@ export default function LibraryPage() {
 function LibraryInner() {
   const params = useSearchParams();
   const router = useRouter();
-  const tab: Tab = params.get("tab") === "templates" ? "templates" : "skills";
+  const rawTab = params.get("tab");
+  const tab: Tab = rawTab === "templates" ? "templates" : rawTab === "sources" ? "sources" : "skills";
   const projectId = params.get("project") ?? undefined;
   const setTab = (next: Tab) => {
     const q = new URLSearchParams(params.toString());
@@ -97,8 +79,8 @@ function LibraryInner() {
       <IconRail projectId={projectId} />
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
         <div className="mx-auto max-w-3xl">
-          {tab === "skills" ? (
-            <SkillsTab tabs={<LibraryTabs tab={tab} onChange={setTab} />} />
+          {tab !== "templates" ? (
+            <SkillsTab view={tab} tabs={<LibraryTabs tab={tab} onChange={setTab} />} />
           ) : (
             <TemplatesTab projectId={projectId} tabs={<LibraryTabs tab={tab} onChange={setTab} />} />
           )}
@@ -116,21 +98,49 @@ function LibraryTabs({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => void
       onChange={onChange}
       options={[
         { value: "skills", label: "Skills" },
+        { value: "sources", label: "Sources" },
         { value: "templates", label: "Templates" },
       ]}
     />
   );
 }
 
-function SkillsTab({ tabs }: { tabs: React.ReactNode }) {
+function SkillsTab({ tabs, view }: { tabs: React.ReactNode; view: "skills" | "sources" }) {
   const skills = useQuery(api.skills.list, {}) as Skill[] | undefined;
   const agents = useQuery(api.agents.list, {}) as Agent[] | undefined;
   const seedDefaults = useMutation(api.skills.seedDefaults);
   const [editing, setEditing] = useState<Skill | "new" | null>(null);
+  const [history, setHistory] = useState<Skill | null>(null);
   const [importing, setImporting] = useState(false);
   const [seeding, setSeeding] = useState(false);
 
   const current = editing && editing !== "new" ? (skills ?? []).find((s) => s._id === editing._id) ?? editing : editing;
+  const historyFor = history ? (skills ?? []).find((s) => s._id === history._id) ?? history : null;
+
+  const modals = (
+    <>
+      {importing && <ImportFromGithubModal onClose={() => setImporting(false)} />}
+      {current && (
+        <SkillModal
+          key={current === "new" ? "new" : current._id}
+          skill={current === "new" ? null : current}
+          skills={skills ?? []}
+          agents={agents ?? []}
+          onClose={() => setEditing(null)}
+        />
+      )}
+      {historyFor && <SkillHistoryModal skill={historyFor} onClose={() => setHistory(null)} />}
+    </>
+  );
+
+  if (view === "sources") {
+    return (
+      <>
+        <SourcesTab tabs={tabs} skills={skills} onOpen={(s) => setEditing(s)} onHistory={(s) => setHistory(s)} />
+        {modals}
+      </>
+    );
+  }
 
   return (
     <>
@@ -153,11 +163,7 @@ function SkillsTab({ tabs }: { tabs: React.ReactNode }) {
           </p>
 
           {skills === undefined ? (
-            <div className="mt-10 space-y-3" aria-label="Loading library">
-              {[0, 1, 2].map((i) => (
-                <div key={i} className="h-14 animate-pulse rounded-xl bg-hover" />
-              ))}
-            </div>
+            <p className="mt-10 text-[13px] text-ink-3" aria-label="Loading library">Loading…</p>
           ) : skills.length === 0 ? (
             <div className="mt-10 rounded-xl border border-dashed border-line px-4 py-5 text-[13px] text-ink-3">
               <p>No skills yet. A skill is a short set of instructions you can give to any agent.</p>
@@ -206,9 +212,10 @@ function SkillsTab({ tabs }: { tabs: React.ReactNode }) {
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[14px] font-medium">{s.name}</p>
                         {s.description && <p className="truncate text-[12.5px] text-ink-2">{s.description}</p>}
+                        <p className="truncate text-[12px] text-ink-3">{skillMetaText(s)}</p>
                       </div>
                       <span className="max-w-[40%] shrink-0 truncate pt-0.5 text-[12px] text-ink-3">
-                        {s.usedBy.length ? rolesText(s.usedBy) : "Not used"}
+                        {s.usedBy.length ? usedByText(s.usedBy) : "Not used"}
                       </span>
                     </button>
                     {s.source && (
@@ -219,32 +226,22 @@ function SkillsTab({ tabs }: { tabs: React.ReactNode }) {
                         className="mb-3 ml-4 block w-fit max-w-[calc(100%-2rem)] truncate text-[12px] text-ink-3 outline-none transition hover:text-ink hover:underline focus-visible:underline"
                       >
                         {sourceText(s.source)}
-                        {s.trimmed ? " · trimmed" : ""}
+                        {s.trimmed ? " · trimmed" : s.inlineTrimmed ? " · trimmed when inline" : ""}
                       </a>
                     )}
                   </div>
-                  <SkillRowMenu skill={s} onEdit={() => setEditing(s)} />
+                  <SkillRowMenu skill={s} onEdit={() => setEditing(s)} onHistory={() => setHistory(s)} />
                 </li>
               ))}
             </ul>
           )}
-
-      {importing && <ImportFromGithubModal onClose={() => setImporting(false)} />}
-
-      {current && (
-        <SkillModal
-          key={current === "new" ? "new" : current._id}
-          skill={current === "new" ? null : current}
-          agents={agents ?? []}
-          onClose={() => setEditing(null)}
-        />
-      )}
+      {modals}
     </>
   );
 }
 
 /** Row ⋯ menu: Edit, and "Update from source" for skills imported from GitHub. */
-function SkillRowMenu({ skill, onEdit }: { skill: Skill; onEdit: () => void }) {
+function SkillRowMenu({ skill, onEdit, onHistory }: { skill: Skill; onEdit: () => void; onHistory: () => void }) {
   const updateFromSource = useAction(api.skills.updateFromSource);
   const toast = useToast();
   const [open, setOpen] = useState(false);
@@ -306,6 +303,9 @@ function SkillRowMenu({ skill, onEdit }: { skill: Skill; onEdit: () => void }) {
           <button type="button" role="menuitem" className={item} onClick={() => { setOpen(false); onEdit(); }}>
             Edit
           </button>
+          <button type="button" role="menuitem" className={item} onClick={() => { setOpen(false); onHistory(); }}>
+            History{skill.versionCount ? ` · ${skill.versionCount}` : ""}
+          </button>
           {skill.source && (
             <>
               <button type="button" role="menuitem" className={item} onClick={handleUpdate}>
@@ -322,7 +322,18 @@ function SkillRowMenu({ skill, onEdit }: { skill: Skill; onEdit: () => void }) {
   );
 }
 
-function SkillModal({ skill, agents, onClose }: { skill: Skill | null; agents: Agent[]; onClose: () => void }) {
+function SkillModal({
+  skill,
+  skills,
+  agents,
+  onClose,
+}: {
+  skill: Skill | null;
+  skills: Skill[];
+  agents: Agent[];
+  onClose: () => void;
+}) {
+  const toast = useToast();
   const create = useMutation(api.skills.create);
   const update = useMutation(api.skills.update);
   const remove = useMutation(api.skills.remove);
@@ -331,6 +342,11 @@ function SkillModal({ skill, agents, onClose }: { skill: Skill | null; agents: A
   const [description, setDescription] = useState(skill?.description ?? "");
   const [tags, setTags] = useState((skill?.tags ?? []).join(", "));
   const [instructions, setInstructions] = useState(skill?.instructions ?? "");
+  const [requires, setRequires] = useState<string[]>(skill?.requires ?? []);
+  const [permissions, setPermissions] = useState<string[]>(skill?.permissions ?? []);
+  // Imported skills are stored whole, so their edit limit is the stored cap.
+  const instructionsMax = skill?.source ? SKILL_STORED_MAX : SKILL_INSTRUCTIONS_MAX;
+  const otherSkills = useMemo(() => skills.filter((s) => s._id !== skill?._id), [skills, skill]);
   // Role assignment covers ENABLED agents only; disabled ones keep what they have.
   const enabledAgents = useMemo(() => agents.filter((a) => a.isEnabled !== false), [agents]);
   const initialRoles = useMemo(() => {
@@ -384,14 +400,21 @@ function SkillModal({ skill, agents, onClose }: { skill: Skill | null; agents: A
     setSaving(true);
     try {
       const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
-      const payload = { name, description, instructions, tags: tagList };
+      const payload = { name, description, instructions, tags: tagList, requires: requires as never, permissions };
       let skillId = skill?._id;
-      if (skillId) await update({ skillId: skillId as never, ...payload });
-      else skillId = (await create(payload)) as unknown as string;
+      const warnings: string[] = [];
+      if (skillId) {
+        const res = await update({ skillId: skillId as never, ...payload });
+        warnings.push(...res.warnings);
+        if (res.version) toast("success", "Saved", `${name.trim()} · v${res.version}`);
+      } else {
+        skillId = (await create(payload)) as unknown as string;
+      }
       // Partially assigned roles count as changed so saving completes them.
       const partial = roleOptions.some((r) => roles.has(r.role) && r.attached < r.total);
       const changed = partial || initialRoles.size !== roles.size || [...roles].some((r) => !initialRoles.has(r));
-      if (changed) await assignRoles({ skillId: skillId as never, roles: [...roles] });
+      if (changed) warnings.push(...(await assignRoles({ skillId: skillId as never, roles: [...roles] })).warnings);
+      for (const w of Array.from(new Set(warnings)).slice(0, 4)) toast("info", "Heads up", w);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save skill");
@@ -445,18 +468,63 @@ function SkillModal({ skill, agents, onClose }: { skill: Skill | null; agents: A
         <label className={label}>
           <span className="flex justify-between">
             Instructions
-            <span>{instructions.length.toLocaleString("en-US")} / {SKILL_INSTRUCTIONS_MAX.toLocaleString("en-US")}</span>
+            <span>{instructions.length.toLocaleString("en-US")} / {instructionsMax.toLocaleString("en-US")}</span>
           </span>
           <textarea
             value={instructions}
             onChange={(e) => setInstructions(e.target.value)}
-            maxLength={SKILL_INSTRUCTIONS_MAX}
+            maxLength={instructionsMax}
             rows={10}
             required
             placeholder="Markdown. Short, concrete steps the agent should follow."
             className={`${field} resize-y font-mono text-[13px] leading-relaxed`}
           />
         </label>
+
+        <div className="grid gap-5 sm:grid-cols-2">
+          <fieldset className="grid content-start gap-2">
+            <legend className="mb-1.5 text-[12.5px] text-ink-3">Requires</legend>
+            {otherSkills.length === 0 ? (
+              <p className="text-[13px] text-ink-3">No other skills.</p>
+            ) : (
+              <div className="grid max-h-36 gap-1.5 overflow-y-auto rounded-lg border border-line p-3">
+                {otherSkills.map((o) => (
+                  <label key={o._id} className="flex min-w-0 cursor-pointer items-center gap-2 text-[13px] text-ink">
+                    <input
+                      type="checkbox"
+                      checked={requires.includes(o._id)}
+                      onChange={() =>
+                        setRequires((prev) => (prev.includes(o._id) ? prev.filter((id) => id !== o._id) : [...prev, o._id]))
+                      }
+                      className="accent-current"
+                    />
+                    <span className="truncate">{o.name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <p className="text-[12px] text-ink-3">Assigning this skill adds these too.</p>
+          </fieldset>
+          <fieldset className="grid content-start gap-2">
+            <legend className="mb-1.5 text-[12.5px] text-ink-3">Needs</legend>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-lg border border-line p-3">
+              {SKILL_PERMISSIONS.map((perm) => (
+                <label key={perm} className="flex min-w-0 cursor-pointer items-center gap-2 text-[13px] text-ink">
+                  <input
+                    type="checkbox"
+                    checked={permissions.includes(perm)}
+                    onChange={() =>
+                      setPermissions((prev) => (prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm]))
+                    }
+                    className="accent-current"
+                  />
+                  <span className="truncate">{SKILL_PERMISSION_LABELS[perm]}</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-[12px] text-ink-3">Warns on roles without these. Never grants tools.</p>
+          </fieldset>
+        </div>
 
         <fieldset className="grid gap-2">
           <legend className="mb-1.5 text-[12.5px] text-ink-3">Assign to roles</legend>
@@ -479,8 +547,8 @@ function SkillModal({ skill, agents, onClose }: { skill: Skill | null; agents: A
             </div>
           )}
           <p className="text-[12px] text-ink-3">
-            Adds or removes this skill on every enabled agent with that role. Each agent gets at most{" "}
-            {SKILLS_PROMPT_BUDGET.toLocaleString("en-US")} chars of skills; later ones are cut.
+            Adds or removes this skill on every enabled agent with that role. Inline agents get at most{" "}
+            {SKILLS_PROMPT_BUDGET.toLocaleString("en-US")} chars of skills (later ones are cut); on-demand agents load each one whole.
             {disabledUsers.length > 0 ? ` Also on disabled: ${disabledUsers.map((a) => a.name).join(", ")}.` : ""}
           </p>
         </fieldset>
@@ -494,7 +562,9 @@ function SkillModal({ skill, agents, onClose }: { skill: Skill | null; agents: A
               onClick={() =>
                 setConfirm({
                   title: "Delete skill?",
-                  message: `"${skill.name}" will be removed from the library and from every agent that uses it.`,
+                  message: `"${skill.name}" will be removed from the library and from every agent that uses it.${
+                    skill.requiredBy.length ? ` ${skill.requiredBy.map((r) => `"${r.name}"`).join(", ")} require${skill.requiredBy.length === 1 ? "s" : ""} it.` : ""
+                  }`,
                 })
               }
               className="rounded-lg px-3 py-1.5 text-[13px] text-red-600 transition hover:bg-hover dark:text-red-400"
@@ -526,7 +596,8 @@ function SkillModal({ skill, agents, onClose }: { skill: Skill | null; agents: A
           if (!skill) return;
           setDeleting(true);
           try {
-            await remove({ skillId: skill._id as never });
+            const res = await remove({ skillId: skill._id as never });
+            for (const w of res.warnings.slice(0, 3)) toast("info", "Heads up", w);
             setConfirm(null);
             onClose();
           } catch (err) {

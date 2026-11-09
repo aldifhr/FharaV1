@@ -2,14 +2,16 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { Square, Trash2 } from "lucide-react";
+import { RotateCcw, Square, Trash2 } from "lucide-react";
 
 export type ConfirmRequest = {
   title: string;
   message: string;
   confirmLabel?: string;
   /** "stop" for stopping a running task; default is the delete trash can. */
-  icon?: "trash" | "stop";
+  icon?: "trash" | "stop" | "restore";
+  /** "neutral" for a reversible action (restore a version); default red. */
+  tone?: "danger" | "neutral";
 };
 
 export default function ConfirmDialog({
@@ -76,8 +78,12 @@ export default function ConfirmDialog({
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600 dark:bg-red-950">
-                {request.icon === "stop" ? <Square size={16} /> : <Trash2 size={18} />}
+              <span
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                  request.tone === "neutral" ? "bg-hover text-ink" : "bg-red-50 text-red-600 dark:bg-red-950"
+                }`}
+              >
+                {request.icon === "stop" ? <Square size={16} /> : request.icon === "restore" ? <RotateCcw size={16} /> : <Trash2 size={18} />}
               </span>
               <h2 className="font-semibold dark:text-white">{request.title}</h2>
             </div>
@@ -96,7 +102,11 @@ export default function ConfirmDialog({
                 type="button"
                 onClick={onConfirm}
                 disabled={pending}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white outline-none transition focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900 hover:bg-red-700 disabled:opacity-50"
+                className={
+                  request.tone === "neutral"
+                    ? "rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-canvas outline-none transition focus-visible:ring-2 focus-visible:ring-brand/40 hover:opacity-90 disabled:opacity-50"
+                    : "rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white outline-none transition focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900 hover:bg-red-700 disabled:opacity-50"
+                }
               >
                 {pending ? "Working…" : request.confirmLabel ?? "Delete"}
               </button>

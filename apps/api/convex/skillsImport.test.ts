@@ -289,7 +289,7 @@ describe("previewGithubImport", () => {
 });
 
 describe("importFromGithub", () => {
-  test("creates skills with source + license, trims over-cap at headings, audits", async () => {
+  test("creates skills with source + license, stores long bodies untrimmed (inline fits them at run time), audits", async () => {
     const t = convexTest(schema, modules);
     mockGithub({ files: FILES, sha: "s1" });
     const result = await t.action(api.skills.importFromGithub, {
@@ -301,12 +301,24 @@ describe("importFromGithub", () => {
 
     const rows = await t.query(api.skills.list, {});
     const big = rows.find((r) => r.name === "emil-design-eng")!;
-    expect(big.trimmed).toBe(true);
-    expect(big.instructions.length).toBeLessThanOrEqual(SKILL_IMPORT_MAX);
+    // Skill v2: stored whole; only inline injection trims (at headings).
+    expect(big.trimmed).toBeUndefined();
+    expect(big.instructions.length).toBeGreaterThan(SKILL_IMPORT_MAX);
+    expect(big.inlineTrimmed).toBe(true);
     expect(big.instructions).not.toContain("---\nname:");
-    expect(big.instructions).toMatch(/\(trimmed from [\d,]+ chars; full: https:\/\/github\.com\/emilkowalski\/skills\/blob\/s1\/skills\/emil-design-eng\/SKILL\.md\)$/);
-    expect(big.instructions).toContain("## Core");
-    expect(big.instructions).not.toContain("## Gestures");
+    expect(big.instructions).toContain("## Gestures");
+    expect(big.version).toBe(1);
+    const agentId = await t.run((ctx) => ctx.db.insert("agents", { name: "designer", role: "designer", status: "idle", isEnabled: true }));
+    await t.mutation(api.agents.setSkills, { agentId, skillIds: [big._id] });
+    const run = await t.run(async (ctx) => {
+      const { loadPromptSkills } = await import("./skills");
+      return await loadPromptSkills(ctx, (await ctx.db.get(agentId))!);
+    });
+    expect(run[0].instructions.length).toBeLessThanOrEqual(SKILL_IMPORT_MAX);
+    expect(run[0].instructions).toMatch(/\(trimmed from [\d,]+ chars; full: https:\/\/github\.com\/emilkowalski\/skills\/blob\/s1\/skills\/emil-design-eng\/SKILL\.md\)$/);
+    expect(run[0].instructions).toContain("## Core");
+    expect(run[0].instructions).not.toContain("## Gestures");
+    expect(run[0].fullInstructions).toBe(big.instructions);
     expect(big.description).toBe("Design engineering philosophy.");
     expect(big.source).toEqual({
       kind: "github",
@@ -324,7 +336,7 @@ describe("importFromGithub", () => {
     const audit = await t.run((ctx) => ctx.db.query("audit").collect());
     const row = audit.find((a) => a.action === "skill.import")!;
     expect(row.target).toBe("emilkowalski/skills");
-    expect(row.details).toMatchObject({ sha: "s1", license: "MIT", trimmed: ["skills/emil-design-eng/SKILL.md"] });
+    expect(row.details).toMatchObject({ sha: "s1", license: "MIT", trimmed: [] });
   });
 
   test("no license → source without license fields", async () => {
@@ -384,6 +396,65 @@ describe("importFromGithub", () => {
   });
 });
 
+describe("Skill v2 import: dependencies, permissions, versions, update all", () => {
+  const depFiles = (v: string): MockFile[] => [
+    { path: "skills/base/SKILL.md", content: `---\nname: base\ndescription: Base.\n---\n\n# Base\n\n${v}` },
+    {
+      path: "skills/top/SKILL.md",
+      content: `---\nname: top\ndescription: Top.\nrequires: [base, missing-one]\nallowed-tools: Bash(npm test:*) Read\n---\n\n# Top\n\n${v}`,
+    },
+  ];
+
+  test("front matter requires/allowed-tools resolve; each import is a version; pins survive Update all", async () => {
+    const t = convexTest(schema, modules);
+    mockGithub({ files: depFiles("one"), sha: "s1" });
+    const preview = await t.action(api.skills.previewGithubImport, { url: REPO_URL });
+    expect(preview.skills.find((s) => s.name === "top")).toMatchObject({ requires: ["base", "missing-one"], permissions: ["run_command", "read_file"] });
+    const first = await t.action(api.skills.importFromGithub, { url: REPO_URL, paths: depFiles("one").map((f) => f.path) });
+    expect(first.warnings).toEqual(['"top" requires "missing-one", which is not in the library. Import it too.']);
+    const ids = new Map(first.created.map((c) => [c.name, c.skillId]));
+    const top = (await t.query(api.skills.get, { skillId: ids.get("top")! }))!;
+    expect(top.requires).toEqual([ids.get("base")]);
+    expect(top.permissions).toEqual(["run_command", "read_file"]);
+    const v1 = await t.query(api.skills.versions, { skillId: ids.get("top")! });
+    expect(v1.map((v) => [v.version, v.kind, v.author, v.sourceSha])).toEqual([[1, "import", "github:emilkowalski/skills", "s1"]]);
+
+    // Assigning top pulls base in; the Reviewer is warned about run_command.
+    const reviewer = await t.run((ctx) => ctx.db.insert("agents", { name: "reviewer", role: "reviewer", status: "idle", isEnabled: true }));
+    const assigned = await t.mutation(api.agents.setSkills, { agentId: reviewer, skillIds: [ids.get("top")!] });
+    expect(assigned.skillIds).toEqual([ids.get("top"), ids.get("base")]);
+    expect(assigned.warnings).toEqual([
+      'Also added "base" to Reviewer: required by "top".',
+      'Reviewer lacks run commands, which "top" needs. Skills never grant tools.',
+    ]);
+    await t.mutation(api.skills.setPin, { agentId: reviewer, skillId: ids.get("top")!, version: 1 });
+
+    mockGithub({ files: depFiles("two"), sha: "s2" });
+    const all = await t.action(api.skills.updateAllFromSource, { repo: "emilkowalski/skills" });
+    expect(all).toMatchObject({ sha: "s2", updated: ["base", "top"], unchanged: [], missing: [] });
+    const v2 = await t.query(api.skills.versions, { skillId: ids.get("top")! });
+    expect(v2.map((v) => [v.version, v.kind, v.sourceSha])).toEqual([
+      [2, "import", "s2"],
+      [1, "import", "s1"],
+    ]);
+    const diff = await t.query(api.skills.diff, { skillId: ids.get("top")!, from: 1, to: 2 });
+    expect(diff.lines.filter((l) => l.op !== "same")).toEqual([
+      { op: "del", text: "one" },
+      { op: "add", text: "two" },
+    ]);
+    // The pinned agent still runs v1.
+    const skills = await t.run(async (ctx) => {
+      const { loadPromptSkills } = await import("./skills");
+      return await loadPromptSkills(ctx, (await ctx.db.get(reviewer))!);
+    });
+    expect(skills[0]).toMatchObject({ name: "top", version: 1 });
+    expect(skills[0].fullInstructions).toContain("one");
+    expect(skills[1].fullInstructions).toContain("two");
+
+    await expect(t.action(api.skills.updateAllFromSource, { repo: "nobody/none" })).rejects.toThrow(/No skills were imported/);
+  });
+});
+
 describe("assignRoles + recommended emilkowalski/skills mapping", () => {
   test("seeds the mapping through import + assignRoles (test DB only)", async () => {
     const t = convexTest(schema, modules);
@@ -422,7 +493,7 @@ describe("assignRoles + recommended emilkowalski/skills mapping", () => {
 
     // Removing a role detaches only from that role's enabled agents.
     const breakUi = idByName.get("break-ui")!;
-    expect(await t.mutation(api.skills.assignRoles, { skillId: breakUi, roles: [] })).toEqual({ added: 0, removed: 1 });
+    expect(await t.mutation(api.skills.assignRoles, { skillId: breakUi, roles: [] })).toEqual({ added: 0, removed: 1, warnings: [] });
     expect((await t.run((ctx) => ctx.db.get(agentIds.get("qa") as never)) as { skillIds?: string[] })?.skillIds).toEqual([
       idByName.get("review-animations"),
     ]);

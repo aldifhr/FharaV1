@@ -69,6 +69,8 @@ import {
   type RepoToolCall,
   type RepoToolResult,
 } from "./lib/chat/repoTools";
+import { createSkillLoader, wantsLoadSkillTool, type SkillLoader } from "./lib/skillRuntime";
+import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_TOOL } from "./lib/skills";
 import {
   NO_TOOLS_RETRY_LINE,
   hasToolCallText,
@@ -91,6 +93,7 @@ import {
   buildHandoffNotice,
   buildPlanningGuidance,
   buildRepoToolProtocol,
+  buildSkillToolProtocol,
   buildSelfReviewGuidance,
 } from "./lib/prompts/chat";
 
@@ -402,7 +405,12 @@ type StreamReply = (
   config: ChatLlmConfig,
   system: string,
   msgs: { role: string; content: string }[],
-  opts?: { traceNote?: string; maxCalls?: number },
+  opts?: {
+    traceNote?: string;
+    maxCalls?: number;
+    /** Skill v2: on_demand agent — load_skill runs locally in this action. */
+    skillLoader?: SkillLoader;
+  },
 ) => Promise<StreamReplyResult>;
 
 /**
@@ -793,7 +801,7 @@ export const replyToChat = internalAction({
         replyToMessageId: args.userMessageId,
       });
       const startedAt = Date.now();
-      let trace = "";
+      let trace = opts?.traceNote ?? "";
       let lastPatchAt = 0;
       let patchChain: Promise<unknown> = Promise.resolve();
       const patch = (fields: { content?: string; reasoning?: string }) => {
@@ -805,9 +813,22 @@ export const replyToChat = internalAction({
       };
       let loop: Awaited<ReturnType<typeof runRepoToolLoop>>;
       try {
+        const skillLoader = opts?.skillLoader;
         loop = await runRepoToolLoop({
           messages: msgs,
           maxCalls: opts?.maxCalls ?? MAX_REPO_TOOL_CALLS,
+          // Local tool (not the worker queue): the agent's own skills only.
+          ...(skillLoader
+            ? {
+                localTools: {
+                  [LOAD_SKILL_TOOL]: (call: RepoToolCall) => {
+                    const loaded = skillLoader.load(call.args?.name ?? call.args?.skill);
+                    return { ok: loaded.ok, text: loaded.text };
+                  },
+                },
+                maxLocalCalls: skillLoader.maxCalls + 1,
+              }
+            : {}),
           step: async (stepMsgs) => {
             const raw = await completeWithAgent(system, stepMsgs, config, ({ content: rawContent, reasoning }) => {
               const now = Date.now();
@@ -872,7 +893,7 @@ export const replyToChat = internalAction({
         reasoningDurationMs,
         messageId: keptId,
         evidence: collectRepoEvidence(loop.results),
-        toolCalls: loop.calls.length,
+        toolCalls: loop.repoCalls,
       };
     };
 
@@ -1028,6 +1049,12 @@ export const replyToChat = internalAction({
       const handoffBy = handoffFrom.get(String(agent._id));
       const callCap = toolBudget.capForNextReply();
       const useRepoTools = repoTools?.available === true && !workerGone && callCap > 0;
+      // Skill v2: an on_demand agent reads its skills through load_skill,
+      // served here (no worker needed), with or without repo tools.
+      const skillLoader = wantsLoadSkillTool(agent.onDemandSkills, "on_demand")
+        ? createSkillLoader(agent.onDemandSkills, { maxCalls: LOAD_SKILL_MAX_CALLS })
+        : undefined;
+      const useToolLoop = useRepoTools || skillLoader !== undefined;
       // Why this agent answers without repo tools, quietly in its trace.
       // "Off for the whole turn" is noted once, on the agents the user
       // addressed (not on each handoff teammate).
@@ -1056,7 +1083,7 @@ export const replyToChat = internalAction({
           ? ["The user's last message is a button pick ('I choose …'), not their language: reply in the language of their earlier messages, in 2-3 sentences, and do not bring teammates in. Say which roles would do the work (as @Role) and that the Create task button under your reply starts it; never ask them to type a command."]
           : []),
         ...(handoffBy !== undefined ? [buildHandoffNotice(handoffBy.by, handoffBy.request)] : []),
-        ...buildGroundingGuidance(useRepoTools),
+        ...buildGroundingGuidance(useRepoTools, skillLoader !== undefined),
         selfReview && handoffBy === undefined
           ? buildSelfReviewGuidance(previousReplyOf(history, String(agent._id)), useRepoTools)
           : "",
@@ -1071,7 +1098,11 @@ export const replyToChat = internalAction({
 
       const systemWithContext = [
         system,
-        useRepoTools ? buildRepoToolProtocol(callCap) : "",
+        useRepoTools
+          ? buildRepoToolProtocol(callCap, { loadSkill: skillLoader !== undefined })
+          : skillLoader
+            ? buildSkillToolProtocol()
+            : "",
         buildConversationContext(conversation),
       ]
         .filter(Boolean)
@@ -1085,12 +1116,20 @@ export const replyToChat = internalAction({
           getGlobalLLMConfig(),
           agent as any
         );
-        result = await (useRepoTools ? streamGroundedReply : streamReplyToAgent)(
+        result = await (useToolLoop ? streamGroundedReply : streamReplyToAgent)(
           agent._id as any,
           perAgentConfig,
           systemWithContext,
           conversation,
-          useRepoTools ? { maxCalls: callCap } : offNote ? { traceNote: offNote } : undefined,
+          useToolLoop
+            ? {
+                maxCalls: useRepoTools ? callCap : 0,
+                ...(skillLoader ? { skillLoader } : {}),
+                ...(offNote && !useRepoTools ? { traceNote: offNote } : {}),
+              }
+            : offNote
+              ? { traceNote: offNote }
+              : undefined,
         );
         toolBudget.spend(result.toolCalls ?? 0);
         content = result.content;

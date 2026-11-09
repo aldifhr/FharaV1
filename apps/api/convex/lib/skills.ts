@@ -16,7 +16,48 @@ export const SKILL_TAGS_MAX = 12;
 /** Total characters all attached skills may add to one agent prompt. */
 export const SKILLS_PROMPT_BUDGET = 12_000;
 
-export type PromptSkill = { name: string; instructions: string };
+/**
+ * Largest body a skill may STORE (imports keep the whole SKILL.md up to
+ * this; hand-written skills stay under SKILL_INSTRUCTIONS_MAX). Trimming to
+ * fit the prompt happens only when a skill is injected inline.
+ */
+export const SKILL_STORED_MAX = 200_000;
+
+/**
+ * How an agent receives its library skills:
+ *  - "inline" (default): every attached skill is appended to the system
+ *    prompt, all together within SKILLS_PROMPT_BUDGET.
+ *  - "on_demand": the prompt lists only each skill's name + description and
+ *    the agent calls the read-only `load_skill(name)` tool for the full
+ *    (untrimmed) text when it needs it.
+ */
+export const SKILL_LOADING_MODES = ["inline", "on_demand"] as const;
+export type SkillLoadingMode = (typeof SKILL_LOADING_MODES)[number];
+export const DEFAULT_SKILL_LOADING: SkillLoadingMode = "inline";
+
+/** Name of the read-only tool that returns one skill's full text. */
+export const LOAD_SKILL_TOOL = "load_skill";
+/** Most characters one load_skill call returns. */
+export const LOAD_SKILL_MAX_CHARS = 30_000;
+/** Most load_skill calls one agent run (a subtask, or a chat reply) may make. */
+export const LOAD_SKILL_MAX_CALLS = 4;
+/** Characters the on-demand index (names + descriptions) may take. */
+export const SKILLS_INDEX_BUDGET = 4_000;
+
+export type PromptSkill = {
+  name: string;
+  /**
+   * Text injected inline. For a long imported skill this is already fitted
+   * under the inline cap at heading boundaries (with a trim note).
+   */
+  instructions: string;
+  /** One-line summary, shown in the on-demand index. */
+  description?: string;
+  /** Untrimmed body, returned by load_skill (falls back to `instructions`). */
+  fullInstructions?: string;
+  /** Version this agent receives (pinned or latest). */
+  version?: number;
+};
 
 const TRUNCATED = "\n…(truncated)";
 
@@ -68,12 +109,16 @@ export function appendSkillsToPrompt(
 }
 
 /** Normalize + validate user input for create/update. Throws on bad input. */
-export function validateSkillInput(input: {
-  name?: string;
-  description?: string;
-  instructions?: string;
-  tags?: string[];
-}): { name?: string; description?: string; instructions?: string; tags?: string[] } {
+export function validateSkillInput(
+  input: {
+    name?: string;
+    description?: string;
+    instructions?: string;
+    tags?: string[];
+  },
+  opts: { instructionsMax?: number } = {}
+): { name?: string; description?: string; instructions?: string; tags?: string[] } {
+  const instructionsMax = opts.instructionsMax ?? SKILL_INSTRUCTIONS_MAX;
   const out: { name?: string; description?: string; instructions?: string; tags?: string[] } = {};
   if (input.name !== undefined) {
     const name = input.name.trim();
@@ -91,8 +136,8 @@ export function validateSkillInput(input: {
   if (input.instructions !== undefined) {
     const instructions = input.instructions.trim();
     if (!instructions) throw new Error("Skill instructions are required");
-    if (instructions.length > SKILL_INSTRUCTIONS_MAX) {
-      throw new Error(`Instructions must be ${SKILL_INSTRUCTIONS_MAX} characters or fewer`);
+    if (instructions.length > instructionsMax) {
+      throw new Error(`Instructions must be ${instructionsMax} characters or fewer`);
     }
     out.instructions = instructions;
   }

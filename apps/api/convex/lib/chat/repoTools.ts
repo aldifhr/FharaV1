@@ -119,6 +119,8 @@ export function describeRepoToolCall(call: RepoToolCall): string {
       return `grep ${JSON.stringify(str(a.pattern))}${str(a.path) ? ` in ${str(a.path)}` : ""}${str(a.glob) ? ` (${str(a.glob)})` : ""}`;
     case "list_files":
       return `list_files ${str(a.path) || "."}${str(a.glob) ? ` (${str(a.glob)})` : ""}`;
+    case "load_skill":
+      return `load_skill ${JSON.stringify(str(a.name))}`;
     default:
       return call.tool;
   }
@@ -149,6 +151,13 @@ export interface RepoToolLoopOptions {
   /** Runs one tool call (never throws; failures come back as ok:false). */
   callTool: (call: RepoToolCall) => Promise<RepoToolResult>;
   maxCalls?: number;
+  /**
+   * Tools that run in the caller (no worker queue), e.g. `load_skill` for an
+   * on-demand agent. They have their own budget (`maxLocalCalls`) and do not
+   * count against `maxCalls`.
+   */
+  localTools?: Record<string, (call: RepoToolCall) => RepoToolResult | Promise<RepoToolResult>>;
+  maxLocalCalls?: number;
   onToolCall?: (call: RepoToolCall, result: RepoToolResult) => void | Promise<void>;
 }
 
@@ -160,6 +169,8 @@ export interface RepoToolLoopResult {
   results: Array<{ label: string; text: string; files?: string[] }>;
   /** Files successfully read, in first-read order, de-duplicated. */
   checkedFiles: string[];
+  /** Calls that went to repo tools (the shared chat budget counts only these). */
+  repoCalls: number;
 }
 
 /**
@@ -169,14 +180,20 @@ export interface RepoToolLoopResult {
  */
 export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<RepoToolLoopResult> {
   const maxCalls = options.maxCalls ?? MAX_REPO_TOOL_CALLS;
+  const local = options.localTools ?? {};
+  const localNames = Object.keys(local);
+  const maxLocal = localNames.length ? Math.max(0, options.maxLocalCalls ?? 0) : 0;
   const messages = [...options.messages];
   const calls: RepoToolLoopResult["calls"] = [];
   const results: RepoToolLoopResult["results"] = [];
   const checked: string[] = [];
-  const done = (answer: string): RepoToolLoopResult => ({ answer, calls, results, checkedFiles: checked });
+  let repoCalls = 0;
+  let localCalls = 0;
+  const done = (answer: string): RepoToolLoopResult => ({ answer, calls, results, checkedFiles: checked, repoCalls });
+  const steps = maxCalls + maxLocal;
 
-  for (let i = 0; i <= maxCalls; i += 1) {
-    const exhausted = i === maxCalls;
+  for (let i = 0; i <= steps; i += 1) {
+    const exhausted = i === steps || (repoCalls >= maxCalls && localCalls >= maxLocal);
     if (exhausted) messages.push({ role: "user", content: TOOL_BUDGET_EXHAUSTED });
     const { content } = await options.step(messages);
     // Lenient: one reply may hold several calls and/or prose. Only the
@@ -185,12 +202,27 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
     const found = extractToolCalls(content);
     if (found.calls.length === 0 || exhausted) return done(found.prose);
     const call: RepoToolCall = { tool: found.calls[0].tool, args: normalizeRepoToolArgs(found.calls[0].args) };
-    const result = isRepoToolName(call.tool)
-      ? await options.callTool(call)
-      : {
-          ok: false,
-          text: `Tool "${call.tool}" is not available. Read-only tools: ${REPO_TOOL_NAMES.join(", ")}. You cannot write files or run commands.`,
-        };
+    let result: RepoToolResult;
+    if (localNames.includes(call.tool)) {
+      if (localCalls >= maxLocal) {
+        result = { ok: false, text: `${call.tool} limit reached for this reply. Answer with what you have.` };
+      } else {
+        localCalls += 1;
+        result = await local[call.tool](call);
+      }
+    } else if (isRepoToolName(call.tool) && repoCalls < maxCalls) {
+      repoCalls += 1;
+      result = await options.callTool(call);
+    } else {
+      const available = [...(maxCalls > 0 ? REPO_TOOL_NAMES : []), ...localNames];
+      result = {
+        ok: false,
+        text:
+          isRepoToolName(call.tool) && maxCalls > 0
+            ? "Repo tool budget for this reply is used up. Answer from what you have."
+            : `Tool "${call.tool}" is not available.${available.length ? ` Read-only tools: ${available.join(", ")}.` : ""} You cannot write files or run commands.`,
+      };
+    }
     calls.push({ call, ok: result.ok });
     if (result.ok) {
       for (const file of result.files ?? []) if (!checked.includes(file)) checked.push(file);
@@ -203,7 +235,12 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
     await options.onToolCall?.(call, result);
     const extra = found.calls.length > 1 || found.prose ? ONE_CALL_PER_REPLY : "";
     messages.push({ role: "assistant", content: JSON.stringify({ tool: call.tool, arguments: call.args }) });
-    messages.push({ role: "user", content: toolResultMessage(call, result, extra) });
+    // A loaded skill is fed back whole (it has its own cap); repo results
+    // keep the prompt cap.
+    const fed = localNames.includes(call.tool)
+      ? `[tool result: ${describeRepoToolCall(call)}${result.ok ? "" : " — failed"}]\n${result.text}${extra ? `\n${extra}` : ""}`
+      : toolResultMessage(call, result, extra);
+    messages.push({ role: "user", content: fed });
   }
   return done("");
 }

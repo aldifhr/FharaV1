@@ -71,7 +71,7 @@ describe("skills library", () => {
       return await ctx.db.insert("tasks", { projectId, title: "T", command: "c", status: "queued", assignedAgentIds: [fe] });
     });
     const result = await t.query(internal.orchestration.getRunContext, { taskId });
-    expect(result!.agents[0].attachedSkills).toEqual([
+    expect(result!.agents[0].attachedSkills).toMatchObject([
       { name: "Second", instructions: "two" },
       { name: "First", instructions: "one" },
     ]);

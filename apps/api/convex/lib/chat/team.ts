@@ -13,6 +13,11 @@ export type ChatAgent = {
   skillsSection?: string;
   /** Pre-rendered pinned memories (`## Memory`), budgeted; after the skills. */
   memorySection?: string;
+  /**
+   * Skill v2: set only for an on_demand agent. Its prompt carries the index
+   * (`skillsSection`) and the reply loop serves load_skill from these.
+   */
+  onDemandSkills?: Array<{ name: string; instructions: string; description?: string; fullInstructions?: string; version?: number }>;
 };
 
 /** The chat orchestrator: role exactly "cto" (legacy "architect"). */

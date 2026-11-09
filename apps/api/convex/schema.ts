@@ -193,6 +193,13 @@ export default defineSchema({
     // Library skills attached to this agent (skills table). Distinct from
     // the legacy `skills: string[]` capability tags above.
     skillIds: v.optional(v.array(v.id("skills"))),
+    // Skill v2: pinned versions ({skillId, version}); an attached skill
+    // without a pin follows its latest version.
+    skillPins: v.optional(v.array(v.object({ skillId: v.id("skills"), version: v.number() }))),
+    // How skills reach the prompt: "inline" (default, unset) appends them
+    // within SKILLS_PROMPT_BUDGET; "on_demand" lists names + descriptions
+    // and gives the agent the read-only load_skill tool.
+    skillLoading: v.optional(v.union(v.literal("inline"), v.literal("on_demand"))),
   }).index("by_enabled", ["isEnabled"]),
 
   tasks: defineTable({
@@ -1138,11 +1145,44 @@ export default defineSchema({
         url: v.string(), // html URL of the SKILL.md at `sha`
       })
     ),
-    // True when the import dropped trailing sections to fit the cap.
+    // True when the stored body was cut: before Skill v2 imports were
+    // trimmed to the inline cap; since v2 only past SKILL_STORED_MAX.
     trimmed: v.optional(v.boolean()),
+    // Skill v2: latest version number (skillVersions). Unset on skills
+    // written before v2 until their first edit/import/backfill.
+    version: v.optional(v.number()),
+    // Skills this one needs; assigning it pulls them in (lib/skillGraph.ts).
+    requires: v.optional(v.array(v.id("skills"))),
+    // Tools/permissions it needs (advisory: warns, never grants).
+    permissions: v.optional(v.array(v.string())),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_name", ["name"]),
+
+  // Skill v2: one row per saved version of a skill (create, edit, import
+  // update, rollback). Agents can pin one (agents.skillPins).
+  skillVersions: defineTable({
+    skillId: v.id("skills"),
+    version: v.number(),
+    name: v.string(),
+    description: v.string(),
+    instructions: v.string(),
+    tags: v.optional(v.array(v.string())),
+    requires: v.optional(v.array(v.id("skills"))),
+    permissions: v.optional(v.array(v.string())),
+    // Commit the content was imported at (GitHub skills).
+    sourceSha: v.optional(v.string()),
+    author: v.string(),
+    kind: v.union(
+      v.literal("baseline"),
+      v.literal("create"),
+      v.literal("edit"),
+      v.literal("import"),
+      v.literal("rollback")
+    ),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_skill", ["skillId", "version"]),
 
   // Custom agent templates (built-ins live in code: lib/agentTemplates.ts).
   // A template prefills a new agent: role, instructions, library skills,

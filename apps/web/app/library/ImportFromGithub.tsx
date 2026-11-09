@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
+import { permissionText } from "./SkillsV2";
 import { useAction } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import Modal from "@/components/Modal";
@@ -13,6 +14,8 @@ type PreviewSkill = {
   exceedsCap: boolean;
   url: string;
   status: "new" | "imported" | "update";
+  requires: string[];
+  permissions: string[];
 };
 
 type Preview = {
@@ -87,11 +90,13 @@ export function ImportFromGithubModal({ onClose }: { onClose: () => void }) {
         res.unchanged.length ? `${res.unchanged.length} already up to date` : "",
         res.skipped.length ? `${res.skipped.length} skipped` : "",
       ].filter(Boolean);
-      if (res.skipped.length === 0) {
+      if (res.skipped.length === 0 && res.warnings.length === 0) {
         onClose();
         return;
       }
-      setDone(`${parts.join(" · ")}. ${res.skipped.map((s) => `${s.path}: ${s.reason}`).join("; ")}`);
+      setDone(
+        [`${parts.join(" · ")}.`, ...res.skipped.map((s) => `${s.path}: ${s.reason}`), ...res.warnings].join(" ")
+      );
     } catch (err) {
       setError(errorText(err, "Import failed"));
     } finally {
@@ -174,12 +179,14 @@ export function ImportFromGithubModal({ onClose }: { onClose: () => void }) {
                         <span className="shrink-0 text-[12px] tabular-nums text-ink-3">{chars(s.size)}</span>
                       </span>
                       {s.description && <span className="line-clamp-2 block text-[12.5px] text-ink-2">{s.description}</span>}
-                      {(s.exceedsCap || s.status !== "new") && (
+                      {(s.exceedsCap || s.status !== "new" || s.requires.length > 0 || s.permissions.length > 0) && (
                         <span className="mt-0.5 block text-[12px] text-ink-3">
                           {[
                             s.status === "imported" ? "Already in library" : "",
                             s.status === "update" ? "In library · newer version available" : "",
-                            s.exceedsCap ? `Trimmed to ${chars(result.cap)} at section boundaries` : "",
+                            s.exceedsCap ? `Stored whole; trimmed to ${chars(result.cap)} only when inline` : "",
+                            s.requires.length ? `requires ${s.requires.join(", ")}` : "",
+                            s.permissions.length ? `needs ${permissionText(s.permissions)}` : "",
                           ]
                             .filter(Boolean)
                             .join(" · ")}

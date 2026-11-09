@@ -49,7 +49,9 @@ an explicit decision recorded in `plans/`.
    Widening either is a security decision, not a refactor.
 5. **The human approval gate stays.** `apply_changes`, `git_push`,
    `run_command`, and `merge_pr` require an approval row before they run. Do not
-   auto-approve or bypass it for convenience.
+   auto-approve or bypass it for convenience. The only automatic approvals are
+   the task's permission mode (plan 020): recorded as an approved row with
+   `decidedBy: "auto"`, re-checked by the backend, and never for push / PR.
 6. **The budget gate runs before every LLM call.** `BudgetTracker` + the
    pre-call gate must be evaluated before the request, not after. Do not
    "check the budget" only in the UI.

@@ -11,6 +11,7 @@ import {
 } from "./lib/authz";
 import { refreshAgentStatus } from "./orchestration";
 import { taskStatus } from "./schema";
+import { permissionModeValidator, projectDefaultPermissionMode } from "./lib/permissionModes";
 
 /** A worker currently holds an unexpired lease on the task (e.g. resuming it). */
 function holdsLiveLease(task: Doc<"tasks">): boolean {
@@ -125,6 +126,8 @@ export const createFromCommand = mutation({
     assignedAgentIds: v.optional(v.array(v.id("agents"))),
     /** Chat the command came from; its context is taken from that chat only. */
     conversationId: v.optional(v.id("conversations")),
+    /** Plan 020: the mode chosen in the composer; defaults to the project's. */
+    permissionMode: v.optional(permissionModeValidator),
   },
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
@@ -196,6 +199,7 @@ export const createFromCommand = mutation({
       status: "queued",
       assignedAgentIds: args.assignedAgentIds,
       ...(args.conversationId ? { conversationId: args.conversationId } : {}),
+      permissionMode: args.permissionMode ?? projectDefaultPermissionMode(project),
       updatedAt: now,
     });
     await ctx.db.insert("messages", {

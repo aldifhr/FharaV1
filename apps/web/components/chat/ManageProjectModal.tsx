@@ -7,6 +7,13 @@ import Modal from "../Modal";
 import GithubRepoSettings from "../GithubRepoSettings";
 import { useToast } from "../Toasts";
 import { roleLabel } from "@/lib/agentRoles";
+import {
+  PERMISSION_MODES,
+  PERMISSION_MODE_HINTS,
+  PERMISSION_MODE_LABELS,
+  projectDefaultPermissionMode,
+  type PermissionMode,
+} from "@/api/convex/lib/permissionModes";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 
@@ -14,13 +21,14 @@ type ProjectDoc = {
   name?: string;
   workspacePath?: string;
   approvalMode?: "ask" | "auto";
+  defaultPermissionMode?: PermissionMode;
   agentIds?: string[];
   instructions?: string;
 };
 
 const field = "rounded-lg border border-line bg-panel px-3 py-2 text-ink outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/15";
 
-/** Project settings: name, folder, approval mode, instructions, team. */
+/** Project settings: name, folder, default permission mode, instructions, team. */
 export default function ManageProjectModal({
   projectId,
   project,
@@ -37,7 +45,7 @@ export default function ManageProjectModal({
   const updateTeam = useMutation(api.projects.updateTeam);
   const [name, setName] = useState(project.name ?? "");
   const [path, setPath] = useState(project.workspacePath ?? "");
-  const [approvalMode, setApprovalMode] = useState<"ask" | "auto">(project.approvalMode ?? "ask");
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(projectDefaultPermissionMode(project));
   const [agentIds, setAgentIds] = useState<string[]>(project.agentIds ?? []);
   const [instructions, setInstructions] = useState(project.instructions ?? "");
   const [error, setError] = useState("");
@@ -52,7 +60,17 @@ export default function ManageProjectModal({
     setError("");
     setSaving(true);
     try {
-      await updateProject({ projectId: projectId as never, name, workspacePath: path, approvalMode, instructions });
+      // Plan 020: the per-task permission mode replaces the legacy project
+      // switch. Saving retires `approvalMode: "auto"` (which skipped the
+      // gate without recording anything); the default mode governs instead.
+      await updateProject({
+        projectId: projectId as never,
+        name,
+        workspacePath: path,
+        approvalMode: "ask",
+        defaultPermissionMode: permissionMode,
+        instructions,
+      });
     } catch (err) {
       setError(`Couldn't save project settings: ${errorText(err)}`);
       setSaving(false);
@@ -82,11 +100,17 @@ export default function ManageProjectModal({
           <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/path/to/your/repo" className={field} />
         </label>
         <label className="grid gap-1">
-          Approval mode
-          <select value={approvalMode} onChange={(e) => setApprovalMode(e.target.value as "ask" | "auto")} className={field}>
-            <option value="ask">Ask before changes</option>
-            <option value="auto">Auto-approve</option>
+          Default permission mode
+          <select value={permissionMode} onChange={(e) => setPermissionMode(e.target.value as PermissionMode)} className={field}>
+            {PERMISSION_MODES.map((mode) => (
+              <option key={mode} value={mode}>
+                {PERMISSION_MODE_LABELS[mode]}
+              </option>
+            ))}
           </select>
+          <span className="text-[12.5px] text-ink-3">
+            {PERMISSION_MODE_HINTS[permissionMode]}. New tasks start in this mode; change it per task in the composer.
+          </span>
         </label>
         <label className="grid gap-1">
           Shared instructions

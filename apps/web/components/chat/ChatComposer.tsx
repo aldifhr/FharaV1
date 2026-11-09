@@ -15,6 +15,7 @@ import {
   Paperclip,
   RotateCcw,
   SendHorizontal,
+  Shield,
   SquareSlash,
   Sparkles,
   SquareCode,
@@ -26,6 +27,12 @@ import InitialAvatar from "../InitialAvatar";
 import { useToast } from "../Toasts";
 import { useAutoGrowRef, type QueuedMessage } from "./useChatQueue";
 import { useMediaQuery } from "@/lib/useMediaQuery";
+import {
+  PERMISSION_MODES,
+  PERMISSION_MODE_HINTS,
+  PERMISSION_MODE_LABELS,
+  type PermissionMode,
+} from "@/api/convex/lib/permissionModes";
 
 type MentionAgent = { _id: string; name: string; role: string; avatarParams?: unknown };
 type MentionOption = { kind: "agent"; agent: MentionAgent } | { kind: "file"; path: string };
@@ -89,6 +96,8 @@ export default function ChatComposer({
   targets,
   targetId,
   onTargetChange,
+  permissionMode,
+  onPermissionModeChange,
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -115,6 +124,9 @@ export default function ChatComposer({
   targets: MentionAgent[];
   targetId: string | null;
   onTargetChange: (agentId: string) => void;
+  /** Plan 020: permission mode for tasks this composer dispatches. */
+  permissionMode?: PermissionMode;
+  onPermissionModeChange?: (mode: PermissionMode) => void;
 }) {
   const toast = useToast();
   const textareaRef = useAutoGrowRef([draft], 200);
@@ -122,6 +134,8 @@ export default function ChatComposer({
   const [formatOpen, setFormatOpen] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
   const targetRef = useRef<HTMLDivElement>(null);
+  const [modeOpen, setModeOpen] = useState(false);
+  const modeRef = useRef<HTMLDivElement>(null);
   const [enhancing, setEnhancing] = useState(false);
   const [enhanceError, setEnhanceError] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -147,6 +161,18 @@ export default function ChatComposer({
       document.removeEventListener("keydown", onKey);
     };
   }, [targetOpen]);
+
+  useEffect(() => {
+    if (!modeOpen) return;
+    const onDown = (e: MouseEvent) => !modeRef.current?.contains(e.target as Node) && setModeOpen(false);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setModeOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [modeOpen]);
 
   // Slash menu: the draft is a bare "/word" being typed.
   const slashMatch = draft.match(/^\/(\w*)$/);
@@ -552,12 +578,48 @@ export default function ChatComposer({
                 Send queue ({pendingCount})
               </button>
             )}
+            {permissionMode && onPermissionModeChange && (
+              <div ref={modeRef} className={`relative ${queue.length > 0 ? "" : "ml-auto md:ml-0"} mr-1 shrink-0`}>
+                <button
+                  type="button"
+                  onClick={() => setModeOpen((o) => !o)}
+                  aria-haspopup="listbox"
+                  aria-expanded={modeOpen}
+                  aria-label={`Permission mode: ${PERMISSION_MODE_LABELS[permissionMode]}`}
+                  title={PERMISSION_MODE_HINTS[permissionMode]}
+                  className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+                >
+                  <Shield size={14} className="shrink-0 text-ink-3" aria-hidden="true" />
+                  <span className="max-sm:hidden">{PERMISSION_MODE_LABELS[permissionMode]}</span>
+                  <ChevronDown size={13} className="shrink-0 text-ink-3" />
+                </button>
+                {modeOpen && (
+                  <ul role="listbox" aria-label="Permission mode" className="absolute bottom-full right-0 z-30 mb-2 w-64 overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-[0_12px_32px_-12px_rgba(20,20,40,0.3)]">
+                    {PERMISSION_MODES.map((mode) => (
+                      <li key={mode} role="option" aria-selected={mode === permissionMode}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onPermissionModeChange(mode);
+                            setModeOpen(false);
+                          }}
+                          className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-hover"
+                        >
+                          <span className={`text-[13.5px] text-ink ${mode === permissionMode ? "font-medium" : ""}`}>{PERMISSION_MODE_LABELS[mode]}</span>
+                          <span className="text-[12px] text-ink-3">{PERMISSION_MODE_HINTS[mode]}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
             <button
               type="button"
               onClick={onSend}
               disabled={sending || !draft.trim()}
               aria-label="Send message"
-              className={`${queue.length > 0 ? "" : "ml-auto md:ml-0"} flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white shadow-sm outline-none transition hover:bg-brand-hover focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-40`}
+              className={`${queue.length > 0 || (permissionMode && onPermissionModeChange) ? "" : "ml-auto md:ml-0"} flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white shadow-sm outline-none transition hover:bg-brand-hover focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-40`}
             >
               {sending ? <Loader2 size={16} className="animate-spin" /> : <SendHorizontal size={16} />}
             </button>

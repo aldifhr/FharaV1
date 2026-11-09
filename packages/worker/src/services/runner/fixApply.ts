@@ -2,6 +2,7 @@ import type { RunContext } from "./types";
 import type { PlanSubtask } from "@/types";
 import type { FileDiff } from "@/tools/gitDiff";
 import { routeCapability } from "@/orchestrator/capabilities";
+import { tryAutoApprove } from "./autoApprove";
 
 export type FixApplyResult = "applied" | "waiting_approval" | "failed";
 
@@ -10,7 +11,9 @@ export type FixApplyResult = "applied" | "waiting_approval" | "failed";
  * QA) re-runs.
  *
  * - auto mode: apply right away (orchestrator actor).
- * - ask mode: the approval gate stays authoritative. Instead of re-running
+ * - ask mode + auto_edits / full_access permission mode (plan 020): the
+ *   fix is auto-approved (recorded) and applied with no pause.
+ * - ask mode, supervised: the approval gate stays authoritative. Instead of re-running
  *   the stage against the UNFIXED workspace (which can never pass), request
  *   an `apply_changes` approval for the fix and pause the task
  *   (`ctx.pendingApproval`). The resumed run applies every staged change,
@@ -35,14 +38,35 @@ export async function applyOrRequestFixApproval(
   if (fixChanges.length === 0) return "applied";
 
   const fixer = routeCapability(fixSubtask.capability, agents);
+  const fixSummary = `Apply ${stage} fix (${fixChanges.length} file(s)): ${fixChanges
+    .map((change) => change.filePath)
+    .join(", ")}`;
+  // Plan 020: auto-accept edits / full access approve the fix themselves
+  // (recorded, decidedBy "auto"): the stage re-runs with no pause.
+  const autoApproved = await tryAutoApprove(ctx, {
+    kind: "apply_changes",
+    summary: fixSummary,
+    payload: {
+      filePaths: Array.from(state.fileChanges.keys()),
+      fixFilePaths: fixChanges.map((change) => change.filePath),
+      planVersion: input.planVersion ?? plan.version,
+      reason: `${stage.toLowerCase()}_fix`,
+    },
+    changes: fixChanges,
+    subtaskKey: fixSubtask.key,
+    requestedByAgentId: fixer?._id,
+    planVersion: input.planVersion ?? plan.version,
+  });
+  if (autoApproved) {
+    const applied = await applyStaged(fixChanges, "orchestrator");
+    return "stop" in applied ? "failed" : "applied";
+  }
   await deps.api.requestApproval({
     taskId,
     projectId: project._id,
     subtaskKey: fixSubtask.key,
     kind: "apply_changes",
-    summary: `Apply ${stage} fix (${fixChanges.length} file(s)): ${fixChanges
-      .map((change) => change.filePath)
-      .join(", ")}`,
+    summary: fixSummary,
     payload: {
       // The resumed run applies EVERY staged change (the earlier approved
       // files plus this fix), so the approval must cover all of them: the

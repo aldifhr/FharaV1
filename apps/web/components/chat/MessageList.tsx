@@ -19,6 +19,8 @@ import ChatCard from "./cards/ChatCard";
 import { CardSurfaceProvider } from "./cards/CardContext";
 import { qaStatusLine } from "./cards/QaCard";
 import { SectionLoading } from "@/app/WorkspaceContext";
+import { groupActivity, groupByIndex } from "@/lib/activityGroups";
+import ActivityGroupRow from "./ActivityGroupRow";
 import { useToast } from "../Toasts";
 
 export type MessageKind = "evaluation" | "planning" | "delegation" | "design" | null;
@@ -129,6 +131,22 @@ export default function MessageList(props: Props) {
     }
     return null;
   }, [timeline]);
+  // Compact activity log: consecutive activity cards from one agent in the
+  // same block collapse into one summary row (lib/activityGroups).
+  const activityGroups = useMemo(
+    () =>
+      groupByIndex(
+        groupActivity(timeline, {
+          sameBlock: (a, b) => blockKey(a) === blockKey(b),
+          agentLabel: (agentId) => {
+            const agent = (agents as any[])?.find((a: any) => a._id === agentId);
+            return agent ? roleLabel(agent.role) : undefined;
+          },
+        })
+      ),
+    [timeline, agents, blockKey]
+  );
+  const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
   const virtualized = timeline.length >= VIRTUALIZE_THRESHOLD;
   const virtualizer = useVirtualizer({
     count: virtualized ? timeline.length : 0,
@@ -171,6 +189,8 @@ export default function MessageList(props: Props) {
     const messageAgent = m.authorType === "agent"
       ? (agents as any)?.find((a: any) => a._id === m.agentId)
       : undefined;
+    const group = activityGroups.get(index);
+    const open = group ? (groupOpen[group.id] ?? group.expandedByDefault) : true;
     const inner = (
       <>
         {index === firstNewIndex && (
@@ -223,7 +243,16 @@ export default function MessageList(props: Props) {
             </div>
           );
         })()}
-        {animate ? (
+        {group && index === group.start && (
+          <div className="mt-4 pl-[46px]">
+            <ActivityGroupRow
+              group={group}
+              open={open}
+              onToggle={() => setGroupOpen((prev) => ({ ...prev, [group.id]: !open }))}
+            />
+          </div>
+        )}
+        {!open ? null : animate ? (
           <motion.div
             key={m._id}
             id={`message-${m._id}`}

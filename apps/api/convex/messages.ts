@@ -2,6 +2,7 @@ import { query, mutation, action, internalMutation, internalQuery } from "./_gen
 import { v } from "convex/values";
 import { assertProjectAccess, getVisibleTask } from "./lib/authz";
 import { internal } from "./_generated/api";
+import { permissionModeValidator } from "./lib/permissionModes";
 
 export const listByProject = query({
   args: { projectId: v.id("projects"), limit: v.optional(v.number()) },
@@ -304,6 +305,8 @@ export const send = action({
     content: v.string(),
     preferredAgentIds: v.optional(v.array(v.id("agents"))),
     conversationId: v.optional(v.id("conversations")),
+    /** Plan 020: permission mode for a task this message dispatches. */
+    permissionMode: v.optional(permissionModeValidator),
   },
   handler: async (ctx, args): Promise<{ messageId: string; conversationId: string }> => {
     // Authorization (core H5): the caller's identity propagates into
@@ -330,6 +333,7 @@ export const send = action({
       conversationId,
       userMessageId: messageId,
       preferredAgentIds: args.preferredAgentIds,
+      ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
     });
     return { messageId: messageId as string, conversationId: conversationId as string };
   },

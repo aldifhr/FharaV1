@@ -18,6 +18,9 @@ import { useToast } from "./Toasts";
 import { Skeleton } from "@/app/WorkspaceContext";
 import { ArrowLeft, ArrowUpRight, AtSign, Check, ChevronLeft, Loader2 as SendLoader, Minimize2, Paperclip, RotateCcw, SendHorizontal, X } from "lucide-react";
 import { clockTime } from "@/lib/format";
+import { groupActivity, groupByIndex } from "@/lib/activityGroups";
+import ActivityGroupRow from "./chat/ActivityGroupRow";
+import { PERMISSION_MODE_LABELS, normalizePermissionMode } from "@/api/convex/lib/permissionModes";
 
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 720;
@@ -78,6 +81,7 @@ export default function TaskThreadPanel({
   const [alsoSendToChat, setAlsoSendToChat] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
+  const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
   const fileRef = useRef<HTMLInputElement>(null);
   const replyRef = useRef<HTMLTextAreaElement>(null);
 
@@ -337,6 +341,17 @@ export default function TaskThreadPanel({
       (m.authorType === "user" && m._id !== commandMessageId),
   );
   const replyCount = threadReplies.length;
+  // Compact activity log: consecutive activity cards from one agent
+  // collapse into one summary row (lib/activityGroups).
+  const replyGroups = groupByIndex(
+    groupActivity(threadReplies, {
+      sameBlock: () => true,
+      agentLabel: (agentId) => {
+        const agent = agentById(agentId);
+        return agent ? roleLabel(agent.role) : undefined;
+      },
+    })
+  );
 
   const needsYou = taskStatus === "needs_approval" || taskStatus === "waiting_input" || pendingApprovals.length > 0;
   const pill = needsYou
@@ -376,6 +391,8 @@ export default function TaskThreadPanel({
             <h2 className="truncate text-[16px] font-semibold leading-tight text-ink">{(task as any).title}</h2>
             <p className="mt-0.5 truncate text-[13px] text-ink-3">
               Task thread · {(project as any)?.name ?? "Workspace"}
+              {" · "}
+              <span title="Permission mode">{PERMISSION_MODE_LABELS[normalizePermissionMode((task as any).permissionMode)]}</span>
               {" · "}
               <Link href={`/runs/${(task as any)._id}`} className="underline-offset-2 hover:text-ink hover:underline">
                 View trace
@@ -514,10 +531,22 @@ export default function TaskThreadPanel({
               <span className="h-px flex-1 bg-line" />
             </div>
           )}
-          {threadReplies.map((m: any) => {
+          {threadReplies.map((m: any, index: number) => {
             const isUser = m.authorType === "user";
             const msgAgent = isUser ? null : agentById(m.agentId);
-            return (
+            const group = replyGroups.get(index);
+            const open = group ? (groupOpen[group.id] ?? group.expandedByDefault) : true;
+            const summaryRow =
+              group && index === group.start ? (
+                <ActivityGroupRow
+                  key={`group-${group.id}`}
+                  group={group}
+                  open={open}
+                  onToggle={() => setGroupOpen((prev) => ({ ...prev, [group.id]: !open }))}
+                />
+              ) : null;
+            if (!open) return summaryRow;
+            const row = (
               <div key={m._id} className="flex gap-3">
                 <InitialAvatar agent={!isUser} avatarParams={isUser ? undefined : msgAgent?.avatarParams} name={isUser ? "You" : roleLabel(msgAgent?.role)} size={30} />
                 <div className="min-w-0 flex-1">
@@ -537,6 +566,7 @@ export default function TaskThreadPanel({
                 </div>
               </div>
             );
+            return summaryRow ? [summaryRow, row] : row;
           })}
           {checks.length > 0 && (
             <section>

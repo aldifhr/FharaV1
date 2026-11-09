@@ -2,6 +2,7 @@ import { WebClient } from "@/tools/webClient";
 import { snapshotIdForChanges } from "@/tools/gitDiff";
 import type { ExecutePlanInput, RunContext } from "./types";
 import { dryRunPolicy, stagehandConfigFrom } from "./setup";
+import { mayAutoApproveEdits } from "./autoApprove";
 import { createRunContext } from "./runContext";
 import { runReviewLoop } from "./reviewLoop";
 import { runQaLoop } from "./qaLoop";
@@ -155,9 +156,12 @@ export async function executePlan(input: ExecutePlanInput): Promise<ExecutePlanR
       prepared.dryRunSummary = dryRun.summary;
     }
 
+    // Plan 020: a permission mode that may auto-approve edits hands the
+    // plan gate to the broker path, which auto-approves or still asks.
     const shouldAsk =
       input.approvalMode === "ask" &&
       plan.requiresApproval &&
+      !mayAutoApproveEdits(ctx) &&
       !input.approvalResolved &&
       preparedChanges.length > 0;
     if (shouldAsk) {

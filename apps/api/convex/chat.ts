@@ -18,6 +18,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import type { PoolConnectionPayload } from "./lib/llmResolver";
+import { permissionModeValidator, type PermissionMode } from "./lib/permissionModes";
 import {
   GREETING,
   classifyChatIntent,
@@ -95,6 +96,8 @@ type ReplyArgs = {
   conversationId?: Id<"conversations">;
   preferredAgentIds?: Id<"agents">[];
   userMessageId: Id<"messages">;
+  /** Plan 020: permission mode for the task this message may dispatch. */
+  permissionMode?: PermissionMode;
 };
 
 const TERMINAL_TASK_STATUSES = ["done", "rejected", "failed"];
@@ -327,6 +330,7 @@ async function dispatchTaskFromChat(
       command: text,
       title: text.slice(0, 80),
       conversationId: args.conversationId,
+      ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
       ...(assignees.length ? { assignedAgentIds: assignees.map((a) => a._id) } : {}),
     });
     if (orchestrator) {
@@ -369,6 +373,7 @@ export const replyToChat = internalAction({
     conversationId: v.optional(v.id("conversations")),
     preferredAgentIds: v.optional(v.array(v.id("agents"))),
     userMessageId: v.id("messages"),
+    permissionMode: v.optional(permissionModeValidator),
   },
   handler: async (ctx, args) => {
     // Concurrency guard: check if this message was already answered

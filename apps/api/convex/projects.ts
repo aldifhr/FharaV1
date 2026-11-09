@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { assertProjectAccess, canViewProject, getViewerId } from "./lib/authz";
 import { changedFields, recordAudit } from "./lib/recordAudit";
+import { permissionModeValidator, type PermissionMode } from "./lib/permissionModes";
 
 function validateWorkspacePath(raw: string): string {
   const workspacePath = raw.trim();
@@ -27,6 +28,7 @@ export const create = mutation({
     qaUrl: v.optional(v.string()),
     devUrl: v.optional(v.string()),
     approvalMode: v.optional(v.union(v.literal("ask"), v.literal("auto"))),
+    defaultPermissionMode: v.optional(permissionModeValidator),
   },
   handler: async (ctx, args) => {
     const name = args.name.trim();
@@ -47,6 +49,7 @@ export const create = mutation({
       ...(args.devUrl ? { devUrl: args.devUrl.trim() } : {}),
       ...(viewerId ? { ownerId: viewerId } : {}),
       ...(args.approvalMode ? { approvalMode: args.approvalMode } : {}),
+      ...(args.defaultPermissionMode ? { defaultPermissionMode: args.defaultPermissionMode } : {}),
       createdAt: Date.now(),
     });
     await recordAudit(ctx, { action: "project.create", target: name, projectId });
@@ -90,10 +93,12 @@ export const update = mutation({
     devUrl: v.optional(v.string()),
     approvalMode: v.optional(v.union(v.literal("ask"), v.literal("auto"))),
     instructions: v.optional(v.string()),
+    defaultPermissionMode: v.optional(permissionModeValidator),
   },
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
     const patch: {
+      defaultPermissionMode?: PermissionMode;
       name?: string;
       workspacePath?: string;
       qaUrl?: string;
@@ -120,6 +125,9 @@ export const update = mutation({
     }
     if (args.instructions !== undefined) {
       patch.instructions = args.instructions;
+    }
+    if (args.defaultPermissionMode !== undefined) {
+      patch.defaultPermissionMode = args.defaultPermissionMode;
     }
     await ctx.db.patch(args.projectId, patch);
     const changed = changedFields(project as Record<string, unknown>, patch);

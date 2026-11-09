@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { permissionModeValidator } from "./lib/permissionModes";
 
 export const taskStatus = v.union(
   v.literal("queued"),
@@ -107,6 +108,9 @@ export default defineSchema({
     // Plan 015 (additive): durable shared instructions loaded into the
     // planning prompt on every run, surviving recovery.
     instructions: v.optional(v.string()),
+    // Plan 020 (additive): permission mode new tasks start in. Unset =
+    // supervised. The legacy `approvalMode` switch above is kept as-is.
+    defaultPermissionMode: v.optional(permissionModeValidator),
   }).index("by_owner", ["ownerId"]),
 
   agents: defineTable({
@@ -191,6 +195,9 @@ export default defineSchema({
     // Optional A/B/C-style choices the UI offers instead of free text.
     // Empty/absent = the free-text answer box.
     pendingOptions: v.optional(v.array(v.string())),
+    // Plan 020 (additive): this task's permission mode, chosen in the
+    // composer. Unset (pre-020 tasks) = supervised.
+    permissionMode: v.optional(permissionModeValidator),
     // Agile: the sprint this task belongs to (1-based per project). A
     // sprint groups one planning round and its review/verification.
     sprint: v.optional(v.number()),
@@ -421,6 +428,9 @@ export default defineSchema({
     principalAgentId: v.optional(v.id("agents")),
     expiresAt: v.optional(v.number()),
     history: v.optional(v.array(v.any())),
+    // Plan 020 (additive): who resolved it. "auto" = approved by the task's
+    // permission mode without a pause. Unset on rows decided by a person.
+    decidedBy: v.optional(v.union(v.literal("user"), v.literal("auto"))),
   })
     .index("by_status", ["status"])
     .index("by_task", ["taskId"])

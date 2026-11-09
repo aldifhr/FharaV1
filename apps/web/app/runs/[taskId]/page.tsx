@@ -22,6 +22,7 @@ import {
   isErrorStatus,
   statusDot,
 } from "@/lib/runFormat";
+import { PERMISSION_MODE_LABELS, normalizePermissionMode } from "@/api/convex/lib/permissionModes";
 
 type Run = NonNullable<FunctionReturnType<typeof api.runs.get>>;
 type Step = Run["steps"][number];
@@ -466,6 +467,10 @@ export default function RunTracePage() {
                   </span>
                   <span className="text-ink-3">·</span>
                   <span className="tabular-nums">{formatDuration(duration)}</span>
+                  <span className="text-ink-3">·</span>
+                  <span className="text-[13px] text-ink-3" title="Permission mode">
+                    {PERMISSION_MODE_LABELS[normalizePermissionMode((run.task as { permissionMode?: string }).permissionMode)]}
+                  </span>
                   <span className="text-ink-3">·</span>
                   <span className="tabular-nums">
                     {run.totals.estimated ? "≈" : ""}{formatTokens(run.totals.inputTokens)} in / {formatTokens(run.totals.outputTokens)} out

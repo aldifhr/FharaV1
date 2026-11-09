@@ -565,6 +565,7 @@ export const get = query({
         projectName: project?.name ?? "Project",
         conversationId: task.conversationId ?? null,
         branchName: task.branchName ?? null,
+        permissionMode: task.permissionMode ?? "supervised",
         errorMessage: task.errorMessage ?? null,
         createdAt: task._creationTime,
         startedAt,

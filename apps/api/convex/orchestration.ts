@@ -8,6 +8,12 @@ import { loadPromptSkills } from "./skills";
 import { resolveRunMcpServers } from "./mcpServers";
 import { loadMemorySection } from "./memories";
 import { decidePermissionCore, permissionArgs } from "./permissionBroker";
+import { recordAudit } from "./lib/recordAudit";
+import {
+  autoApprovalDecision,
+  normalizePermissionMode,
+  type PermissionMode,
+} from "./lib/permissionModes";
 import {
   assertProjectAccess,
   getVisibleTask,
@@ -1174,6 +1180,123 @@ export const requestApproval = internalMutation({
   },
 });
 
+/**
+ * Plan 020: approve an approval automatically under the task's permission
+ * mode. The worker asks; the backend decides again from the task row (a
+ * worker cannot raise its own mode). When the mode allows it, the approval
+ * row is written already `approved` with `decidedBy: "auto"`, plus an
+ * `approval.auto_approved` event and an audit row, and the task is NOT
+ * moved to needs_approval: no pause, no resume. When it does not, nothing
+ * is written and the caller requests a normal approval.
+ */
+export const autoApprove = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    subtaskKey: v.optional(v.string()),
+    kind: v.union(
+      v.literal("apply_changes"),
+      v.literal("git_push"),
+      v.literal("run_command"),
+      v.literal("merge_pr")
+    ),
+    summary: v.string(),
+    payload: v.optional(v.any()),
+    requestedByAgentId: v.optional(v.id("agents")),
+    planVersion: v.optional(v.number()),
+    workerId: v.optional(v.string()),
+    risk: v.optional(
+      v.object({
+        deletes: v.optional(v.number()),
+        policyFlagged: v.optional(v.boolean()),
+        outsideWorkspace: v.optional(v.boolean()),
+      })
+    ),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ autoApproved: boolean; reason: string; mode: PermissionMode; approvalId?: Id<"approvals"> }> => {
+    const task = await ctx.db.get(args.taskId);
+    const mode = normalizePermissionMode(task?.permissionMode);
+    if (!task || task.projectId !== args.projectId) {
+      return { autoApproved: false, reason: "Task not found", mode };
+    }
+    if (TERMINAL_TASK_STATUSES.has(task.status)) {
+      return { autoApproved: false, reason: `Task is already ${task.status}`, mode };
+    }
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
+      throw new Error(LEASE_LOST_ERROR);
+    }
+    const decision = autoApprovalDecision(mode, args.kind, args.risk ?? {});
+    if (!decision.auto) {
+      return { autoApproved: false, reason: decision.reason, mode };
+    }
+    const now = Date.now();
+    const historyEntry = { at: now, status: "approved", by: "auto", mode };
+    // A pending row for the same action (e.g. asked before the mode
+    // allowed it) is resolved instead of leaving a stale card behind.
+    const pending = (
+      await ctx.db
+        .query("approvals")
+        .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+        .collect()
+    ).find(
+      (approval) =>
+        approval.status === "pending" &&
+        approval.kind === args.kind &&
+        (approval.subtaskKey ?? null) === (args.subtaskKey ?? null)
+    );
+    let approvalId: Id<"approvals">;
+    if (pending) {
+      approvalId = pending._id;
+      await ctx.db.patch(pending._id, {
+        status: "approved",
+        resolvedAt: now,
+        decidedBy: "auto",
+        summary: args.summary,
+        payload: args.payload,
+        planVersion: args.planVersion,
+        history: [...(pending.history ?? []), historyEntry],
+      });
+    } else {
+      approvalId = await ctx.db.insert("approvals", {
+        taskId: args.taskId,
+        projectId: args.projectId,
+        kind: args.kind,
+        summary: args.summary,
+        payload: args.payload,
+        requestedByAgentId: args.requestedByAgentId,
+        subtaskKey: args.subtaskKey,
+        planVersion: args.planVersion,
+        status: "approved",
+        resolvedAt: now,
+        decidedBy: "auto",
+        history: [historyEntry],
+      });
+    }
+    await ctx.db.insert("taskEvents", {
+      taskId: args.taskId,
+      projectId: args.projectId,
+      type: "approval.auto_approved",
+      payload: { kind: args.kind, summary: args.summary, subtaskKey: args.subtaskKey, mode },
+      subtaskKey: args.subtaskKey,
+      level: "info",
+    });
+    await recordAudit(ctx, {
+      actor: "permission-mode",
+      tool: "approval",
+      action: "approval.auto_approve",
+      decision: "allowed",
+      target: args.summary,
+      projectId: args.projectId,
+      taskId: args.taskId,
+      details: { kind: args.kind, mode, approvalId },
+    });
+    return { autoApproved: true, reason: decision.reason, mode, approvalId };
+  },
+});
+
 /** Plan 015: worker-side permission decision (internal; surfaced to the
  *  worker through its token-gated action). Uses the same core as the
  *  public `permissionBroker.decidePermission` query. */
@@ -1623,6 +1746,7 @@ const CANONICAL_MAP: Record<string, string> = {
   "orchestrator.evaluation_failed": "agent.failed",
   "approval.requested": "agent.waiting_approval",
   "approval.approved": "agent.approved",
+  "approval.auto_approved": "agent.approved",
   "approval.rejected": "agent.rejected",
   "approval.held": "agent.waiting_approval",
   "task.waiting_approval": "agent.waiting_approval",

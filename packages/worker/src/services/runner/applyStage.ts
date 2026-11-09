@@ -5,6 +5,7 @@ import type { FileDiff } from "@/tools/gitDiff";
 import { commitWorktree, describeCommit } from "@/tools/gitWorktree";
 import type { RunContext } from "./types";
 import { implementerAgent, resolveWorkspacePath } from "./setup";
+import { tryAutoApprove } from "./autoApprove";
 
 /** What the apply stage hands the approval request. */
 export interface PreparedApply {
@@ -145,15 +146,36 @@ export async function brokerCheckAndApply(
     });
     return "failed";
   }
+  let autoApproved = false;
   if (broker.decision === "ask" && input.approvalMode !== "auto") {
-    // Never return waiting_approval without an approval row (core H2):
-    // the task would stay `running`, its lease renewed by heartbeat,
-    // with nothing for the user to approve.
-    return (await requestApplyApproval(ctx, prepared, "broker")).status;
+    // Plan 020: the task's permission mode may approve this batch itself.
+    // The row is recorded (decidedBy "auto") and the run continues with no
+    // needs_approval pause and no resume cycle.
+    autoApproved = await tryAutoApprove(ctx, {
+      kind: "apply_changes",
+      summary: `Apply changes to ${preparedChanges.length} file(s): ${preparedChanges
+        .map((change) => change.filePath)
+        .join(", ")}`,
+      payload: {
+        filePaths: preparedChanges.map((change) => change.filePath),
+        planVersion: plan.version,
+        policyDryRun: prepared.dryRunSummary,
+      },
+      changes: preparedChanges,
+      subtaskKey: plan.subtasks.find((subtask) => subtask.kind === "code_change")?.key,
+      requestedByAgentId: implementerAgent(plan, input.agents)?._id,
+      planVersion: input.planVersion ?? plan.version,
+    });
+    if (!autoApproved) {
+      // Never return waiting_approval without an approval row (core H2):
+      // the task would stay `running`, its lease renewed by heartbeat,
+      // with nothing for the user to approve.
+      return (await requestApplyApproval(ctx, prepared, "broker")).status;
+    }
   }
   const applied = await ctx.applyStaged(
     preparedChanges,
-    input.approvalResolved ? "user" : "orchestrator"
+    input.approvalResolved && !autoApproved ? "user" : "orchestrator"
   );
   if ("stop" in applied) {
     return applied.stop;

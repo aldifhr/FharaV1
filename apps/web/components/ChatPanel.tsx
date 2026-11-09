@@ -24,6 +24,7 @@ import { useDraftMentions } from "./chat/useDraftMentions";
 import { useWorkspace } from "@/app/WorkspaceContext";
 import { clockTime, isSameDay, shortDate } from "@/lib/format";
 import { projectMembers } from "@/lib/projectMembers";
+import { projectDefaultPermissionMode, type PermissionMode } from "@/api/convex/lib/permissionModes";
 
 type Props = {
   projectId: string;
@@ -76,6 +77,11 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const createTask = useMutation(api.tasks.createFromCommand);
   const sendMessage = useAction(api.messages.send);
 
+  // Plan 020: permission mode for tasks dispatched from this composer.
+  // Starts at the project's default; a pick holds until the project changes.
+  const [permissionModeChoice, setPermissionModeChoice] = useState<PermissionMode | null>(null);
+  useEffect(() => setPermissionModeChoice(null), [projectId]);
+  const permissionMode: PermissionMode = permissionModeChoice ?? projectDefaultPermissionMode(project as any);
   const [liveStatus, setLiveStatus] = useState<StatusMap | undefined>(undefined);
   const [pins, setPins] = useState<any[] | undefined>(undefined);
   const [manageOpen, setManageOpen] = useState(false);
@@ -244,7 +250,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   };
   const queue = useChatQueue(
     async (content) => {
-      await sendMessage({ projectId: projectId as any, content, preferredAgentIds: recipientsFor(content) as any });
+      await sendMessage({ projectId: projectId as any, content, preferredAgentIds: recipientsFor(content) as any, permissionMode });
     },
     (message) => setChatError(message),
   );
@@ -260,7 +266,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const handleChooseProposal = async (choice: string) => {
     setChatSending(true);
     try {
-      await sendMessage({ projectId: projectId as any, content: choice, preferredAgentIds: recipientsFor(choice) as any });
+      await sendMessage({ projectId: projectId as any, content: choice, preferredAgentIds: recipientsFor(choice) as any, permissionMode });
     } catch (err) {
       toast("error", "Failed to select option", err instanceof Error ? err.message : "Error");
     } finally {
@@ -285,6 +291,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     try {
       const taskId = await createTask({
         projectId: projectId as never,
+        permissionMode,
         command,
         title: pick ? `Implement ${pick}` : undefined,
         ...(assignees.length ? { assignedAgentIds: assignees as never[] } : {}),
@@ -315,6 +322,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       const assignees = mentions.mentionedAgentIds(content);
       const taskId = await createTask({
         projectId: projectId as never,
+        permissionMode,
         command: content,
         ...(assignees.length ? { assignedAgentIds: assignees as never[] } : {}),
         ...((activeConversation as any)?.conversation?._id ? { conversationId: (activeConversation as any).conversation._id } : {}),
@@ -336,7 +344,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     }
     const content =
       rest || (command === "qa" ? "Please QA the latest change and report what you checked." : "Please review the latest change and call out any risks.");
-    await sendMessage({ projectId: projectId as any, content: `@${roleLabel(agent.role)} ${content}`, preferredAgentIds: [agent._id] as any });
+    await sendMessage({ projectId: projectId as any, content: `@${roleLabel(agent.role)} ${content}`, preferredAgentIds: [agent._id] as any, permissionMode });
     return true;
   };
 
@@ -348,7 +356,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     try {
       if (!(await runSlash(text))) {
         const content = await mentions.attachMentionedFiles(text);
-        await sendMessage({ projectId: projectId as any, content, preferredAgentIds: recipientsFor(content) as any });
+        await sendMessage({ projectId: projectId as any, content, preferredAgentIds: recipientsFor(content) as any, permissionMode });
       }
       setDraft("");
       mentions.setMention(null);
@@ -648,6 +656,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             targets={agents}
             targetId={targetId}
             onTargetChange={setTargetId}
+            permissionMode={permissionMode}
+            onPermissionModeChange={setPermissionModeChoice}
           />
         </>
       )}

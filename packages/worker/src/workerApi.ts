@@ -165,6 +165,16 @@ export class WorkerApi {
     );
   }
 
+  /** Plan 020: approve automatically under the task's permission mode (backend re-checks). */
+  async autoApprove(
+    input: ActionInput<typeof api.worker.autoApprove>
+  ): Promise<FunctionReturnType<typeof api.worker.autoApprove>> {
+    return await this.client.action(
+      api.worker.autoApprove,
+      this.args({ workerId: this.workerId, ...input })
+    );
+  }
+
   /** Plan 015: central broker verdict (Allow/Deny/Ask) for a risky action. */
   async checkPermission(
     input: ActionInput<typeof api.worker.checkPermission>

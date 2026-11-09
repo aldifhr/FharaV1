@@ -289,6 +289,46 @@ export const requestApproval = action({
 });
 
 /**
+ * Plan 020: approve automatically under the task's permission mode. The
+ * backend re-checks the mode from the task row; when it does not allow it
+ * nothing is written and `autoApproved` is false.
+ */
+export const autoApprove = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    subtaskKey: v.optional(v.string()),
+    kind: v.union(
+      v.literal("apply_changes"),
+      v.literal("git_push"),
+      v.literal("run_command"),
+      v.literal("merge_pr")
+    ),
+    summary: v.string(),
+    payload: v.optional(v.any()),
+    requestedByAgentId: v.optional(v.id("agents")),
+    planVersion: v.optional(v.number()),
+    workerId: v.optional(v.string()),
+    risk: v.optional(
+      v.object({
+        deletes: v.optional(v.number()),
+        policyFlagged: v.optional(v.boolean()),
+        outsideWorkspace: v.optional(v.boolean()),
+      })
+    ),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ autoApproved: boolean; reason: string; mode: "supervised" | "auto_edits" | "full_access"; approvalId?: string }> => {
+    return await ctx.runMutation(internal.orchestration.autoApprove, {
+      ...withoutToken(args),
+    });
+  },
+});
+
+/**
  * Plan 015: broker verdict for a risky action (Allow/Deny/Ask).
  * `targetPaths` (every file in the batch, absolute or workspace-relative),
  * `planVersion` and `workspaceRoot` (the worker's resolved absolute root)

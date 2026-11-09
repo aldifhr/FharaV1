@@ -7,6 +7,7 @@ import OptionCards from "./OptionCards";
 import { BTN_OUTLINE, BTN_PRIMARY, CARD_SURFACE, MUTED, Pill, RoleAvatar } from "./cards/primitives";
 import { useToast } from "../Toasts";
 import { isClosedStatus } from "@/lib/taskStatus";
+import { normalizePermissionMode } from "@/api/convex/lib/permissionModes";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 
@@ -220,7 +221,7 @@ export default function TaskCard({
       )}
       {/* Approve lives on the ApprovalCard(s) rendered below this card —
           one control per approval, not a second button for pending[0]. */}
-      {!isClosedStatus(task.status) && pending.length === 0 && task.status !== "done" && approvalMode === "ask" && (
+      {!isClosedStatus(task.status) && pending.length === 0 && task.status !== "done" && approvalMode === "ask" && normalizePermissionMode(task.permissionMode) === "supervised" && (
         <p className={`pl-1 text-[11px] ${MUTED}`}>Team is working. You will get an Approve card here before any change is applied.</p>
       )}
     </div>

@@ -27,7 +27,9 @@ export function normalizeAllowedPaths(raw: unknown): NormalizeOwnershipResult {
     if (entry.length > MAX_ALLOWED_PATH_LENGTH) {
       return { ok: false, error: `allowedPaths entry exceeds ${MAX_ALLOWED_PATH_LENGTH} characters` };
     }
-    const normalized = normalizeEntry(entry);
+    // A directory scope written with a trailing slash ("src/", as the
+    // planner's workspace layout lists directories) is the same scope.
+    const normalized = normalizeEntry(entry.trim().replace(/\/+$/, ""));
     if (!normalized) {
       return { ok: false, error: `allowedPaths entry is not a workspace-relative path: ${entry}` };
     }

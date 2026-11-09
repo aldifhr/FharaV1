@@ -116,3 +116,12 @@ describe("pickFixOwner", () => {
     expect(pickFixOwner([review], [{ filePath: "src/x.ts" }])).toBeUndefined();
   });
 });
+
+describe("normalizeAllowedPaths trailing slash (e2e ULTRA)", () => {
+  it("accepts directory scopes written with a trailing slash", async () => {
+    const { normalizeAllowedPaths } = await import("@/orchestrator/ownership");
+    expect(normalizeAllowedPaths(["src/", "styles.css"])).toEqual({ ok: true, paths: ["src", "styles.css"] });
+    expect(normalizeAllowedPaths(["/"]).ok).toBe(false);
+    expect(normalizeAllowedPaths(["../x/"]).ok).toBe(false);
+  });
+});

@@ -43,6 +43,7 @@ import {
   extractAgentMentions,
   selectHandoffs,
   handoffRequestFor,
+  isVerificationRequest,
   pickConversationalAgent,
   pickGreetingResponders,
   resolveAssignees,
@@ -61,6 +62,8 @@ import { readRepoSnapshot } from "./lib/chat/repoSnapshot";
 import { quoteContextLine, quotedResponderId } from "./lib/chat/quote";
 import {
   MAX_REPO_TOOL_CALLS,
+  MAX_REPO_TOOL_CALLS_PER_CHAT,
+  createRepoToolBudget,
   describeRepoToolCall,
   runRepoToolLoop,
   type RepoToolCall,
@@ -148,7 +151,7 @@ function joinTrace(trace: string, next: string | undefined): string {
 }
 
 /** Quiet Thinking-trace line for a CTO reply that runs without repo tools. */
-export function repoToolsOffNote(reason: RepoToolsOffReason | "unclaimed" | "error" | undefined): string {
+export function repoToolsOffNote(reason: RepoToolsOffReason | "unclaimed" | "budget" | "error" | undefined): string {
   switch (reason) {
     case "no_workspace":
       return "Repo tools off: project folder not set";
@@ -158,6 +161,8 @@ export function repoToolsOffNote(reason: RepoToolsOffReason | "unclaimed" | "err
       return "Repo tools off: online worker is outdated (restart it to serve repo tools)";
     case "unclaimed":
       return "Repo tools off: worker tidak merespons";
+    case "budget":
+      return `Repo tools off: this reply's shared budget of ${MAX_REPO_TOOL_CALLS_PER_CHAT} repo tool calls is used up`;
     default:
       return "Repo tools off: availability check failed";
   }
@@ -388,6 +393,8 @@ type StreamReplyResult = CompleteResult & {
   messageId?: Id<"messages">;
   /** Grounded replies: what the repo tools showed (for the reference check). */
   evidence?: RepoEvidence;
+  /** Grounded replies: repo tool calls this reply made (for the shared budget). */
+  toolCalls?: number;
 };
 
 type StreamReply = (
@@ -395,7 +402,7 @@ type StreamReply = (
   config: ChatLlmConfig,
   system: string,
   msgs: { role: string; content: string }[],
-  opts?: { traceNote?: string },
+  opts?: { traceNote?: string; maxCalls?: number },
 ) => Promise<StreamReplyResult>;
 
 /**
@@ -767,12 +774,18 @@ export const replyToChat = internalAction({
       return result;
     };
 
-    // Grounded reply (CTO with repo tools): the same streaming bubble, but
+    // Once a repo tool call goes unclaimed, no live worker serves the queue:
+    // every later call in this chat turn (any agent) fails at once, and the
+    // agents still to answer get no tools.
+    let workerGone = false;
+
+    // Grounded reply (an agent with repo tools — the CTO, a handoff teammate
+    // or an @mentioned agent): the same streaming bubble, but
     // each LLM step may be a tool call instead of the answer. Tool-call text
     // is never shown (several calls in one step: the first runs, the rest is
     // discarded); the trace notes each check, and the files read are stored
     // as `checkedFiles` for the quiet "Checked: …" line.
-    const streamGroundedReply: StreamReply = async (agentId, config, system, msgs) => {
+    const streamGroundedReply: StreamReply = async (agentId, config, system, msgs, opts) => {
       const messageId = await ctx.runMutation(internal.chatContext.createStreamingAgentMessage, {
         projectId: args.projectId,
         agentId: agentId as any,
@@ -790,14 +803,11 @@ export const replyToChat = internalAction({
           )
           .catch(() => {});
       };
-      // Once a call goes unclaimed, no live worker serves the queue: every
-      // later call in this reply fails at once instead of waiting again.
-      let workerGone = false;
       let loop: Awaited<ReturnType<typeof runRepoToolLoop>>;
       try {
         loop = await runRepoToolLoop({
           messages: msgs,
-          maxCalls: MAX_REPO_TOOL_CALLS,
+          maxCalls: opts?.maxCalls ?? MAX_REPO_TOOL_CALLS,
           step: async (stepMsgs) => {
             const raw = await completeWithAgent(system, stepMsgs, config, ({ content: rawContent, reasoning }) => {
               const now = Date.now();
@@ -814,7 +824,7 @@ export const replyToChat = internalAction({
           callTool: async (call) => {
             if (workerGone) return { ok: false, text: WORKER_UNRESPONSIVE };
             const result = await callRepoToolViaWorker(ctx, args.projectId, call);
-            if (result.unclaimed) {
+            if (result.unclaimed && !workerGone) {
               workerGone = true;
               trace = joinTrace(trace, repoToolsOffNote("unclaimed"));
             }
@@ -862,6 +872,7 @@ export const replyToChat = internalAction({
         reasoningDurationMs,
         messageId: keptId,
         evidence: collectRepoEvidence(loop.results),
+        toolCalls: loop.calls.length,
       };
     };
 
@@ -996,14 +1007,15 @@ export const replyToChat = internalAction({
     // Sequential multi-agent replies: each selected agent answers with its persona.
     // The queue grows when the CTO @mentions teammates in its reply (handoff).
     const queue = [...responders];
-    // Repo tools for the CTO's reply: only when a worker can serve them
-    // (the repo lives on the worker's host). Otherwise no tools, and the
-    // grounding rule makes the CTO say it has not checked.
-    const ctoRepoTools =
-      orchestrator !== null && !isOptionPick && queue.some((a) => a._id === orchestrator._id)
-        ? await repoToolsAvailability(ctx, args.projectId)
-        : null;
-    const ctoHasRepoTools = ctoRepoTools?.available === true;
+    // Repo tools for every agent answering in this turn (the CTO, the
+    // teammates it hands off to, agents the user @mentioned): only when a
+    // worker can serve them (the repo lives on the worker's host). Checked
+    // once per turn. Otherwise no tools, and the grounding rule makes each
+    // agent say it has not checked.
+    const repoTools = !isOptionPick ? await repoToolsAvailability(ctx, args.projectId) : null;
+    // One shared budget: each reply up to MAX_REPO_TOOL_CALLS, the whole
+    // turn up to MAX_REPO_TOOL_CALLS_PER_CHAT.
+    const toolBudget = createRepoToolBudget();
     const selfReview = isSelfReviewRequest(lastUserContent);
     const answered = new Set<string>();
     const handoffFrom = new Map<string, { by: string; request: string }>();
@@ -1014,12 +1026,32 @@ export const replyToChat = internalAction({
       answered.add(String(agent._id));
       const isCto = orchestrator !== null && agent._id === orchestrator._id;
       const handoffBy = handoffFrom.get(String(agent._id));
-      const useRepoTools = isCto && ctoHasRepoTools;
+      const callCap = toolBudget.capForNextReply();
+      const useRepoTools = repoTools?.available === true && !workerGone && callCap > 0;
+      // Why this agent answers without repo tools, quietly in its trace.
+      // "Off for the whole turn" is noted once, on the agents the user
+      // addressed (not on each handoff teammate).
+      const offNote = !repoTools
+        ? undefined
+        : !repoTools.available
+          ? handoffBy === undefined
+            ? repoToolsOffNote(repoTools.reason)
+            : undefined
+          : workerGone
+            ? repoToolsOffNote("unclaimed")
+            : callCap <= 0
+              ? repoToolsOffNote("budget")
+              : undefined;
       const system = [
         ...buildChatPersonaLines(agent, projectName, queue, repoSnapshot, useRepoTools),
         ...(intent.intent === "ask" ? buildAnswerGuidance(intent.subtype) : []),
-        ...buildPlanningGuidance(agent, { isOrchestrator: isCto, taskIntent }),
-        ...(isCto && !isOptionPick ? buildHandoffGuidance(team, String(agent._id)) : []),
+        ...buildPlanningGuidance(agent, { isOrchestrator: isCto, hasRepoTools: useRepoTools, taskIntent }),
+        ...(isCto && !isOptionPick
+          ? buildHandoffGuidance(team, String(agent._id), {
+              hasRepoTools: useRepoTools,
+              offReason: useRepoTools ? undefined : (offNote ?? repoToolsOffNote(repoTools?.reason)).replace(/^Repo tools off: /, ""),
+            })
+          : []),
         ...(isOptionPick
           ? ["The user's last message is a button pick ('I choose …'), not their language: reply in the language of their earlier messages, in 2-3 sentences, and do not bring teammates in. Say which roles would do the work (as @Role) and that the Create task button under your reply starts it; never ask them to type a command."]
           : []),
@@ -1039,29 +1071,28 @@ export const replyToChat = internalAction({
 
       const systemWithContext = [
         system,
-        useRepoTools ? buildRepoToolProtocol(MAX_REPO_TOOL_CALLS) : "",
+        useRepoTools ? buildRepoToolProtocol(callCap) : "",
         buildConversationContext(conversation),
       ]
         .filter(Boolean)
         .join("\n");
 
       let content: string;
+      let result: StreamReplyResult;
       try {
         const perAgentConfig = await resolveConfigFromProviders(
           llmProviders,
           getGlobalLLMConfig(),
           agent as any
         );
-        const result = await (useRepoTools ? streamGroundedReply : streamReplyToAgent)(
+        result = await (useRepoTools ? streamGroundedReply : streamReplyToAgent)(
           agent._id as any,
           perAgentConfig,
           systemWithContext,
           conversation,
-          // Why the CTO answers without repo tools, quietly in the trace.
-          isCto && ctoRepoTools && !ctoRepoTools.available
-            ? { traceNote: repoToolsOffNote(ctoRepoTools.reason) }
-            : undefined,
+          useRepoTools ? { maxCalls: callCap } : offNote ? { traceNote: offNote } : undefined,
         );
+        toolBudget.spend(result.toolCalls ?? 0);
         content = result.content;
         // Post-answer check: file paths and file:line references the
         // answer cites but no tool result (or the snapshot) showed.
@@ -1090,13 +1121,31 @@ export const replyToChat = internalAction({
         conversation.push({ role: "assistant", content: `${agent.name}: ${content.trim()}` });
         // CTO handoff: teammates it @mentioned answer next, in order.
         if (isCto && !isOptionPick) {
+          // With repo tools off for the rest of the turn, a teammate asked to
+          // check/verify code could only say it has no access: skip it.
+          const toolsOffForTeam = repoTools?.available !== true || workerGone;
+          const dropped: string[] = [];
           for (const mentioned of selectHandoffs(content, team, String(agent._id))) {
             if (handoffs >= MAX_CTO_HANDOFFS) break;
             if (answered.has(String(mentioned._id))) continue;
             if (queue.some((queued, index) => index > turn && queued._id === mentioned._id)) continue;
+            const request = handoffRequestFor(content, mentioned);
+            if (toolsOffForTeam && isVerificationRequest(request)) {
+              dropped.push(mentioned.name);
+              continue;
+            }
             queue.push(mentioned);
-            handoffFrom.set(String(mentioned._id), { by: agent.name, request: handoffRequestFor(content, mentioned) });
+            handoffFrom.set(String(mentioned._id), { by: agent.name, request });
             handoffs += 1;
+          }
+          if (dropped.length > 0 && result.messageId) {
+            await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
+              messageId: result.messageId,
+              reasoning: joinTrace(
+                result.reasoning ?? "",
+                `Handoff skipped (${dropped.map((n) => `@${n}`).join(", ")}): a verification request, and teammates have no repo access in this reply either`
+              ),
+            });
           }
         }
       }

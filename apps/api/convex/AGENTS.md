@@ -33,7 +33,7 @@ under `lib/`, so moving logic there never changes a function path.
 | --- | --- |
 | `lib/roles.ts` | Single source for the nine team roles (labels, registry fields, capabilities, tools, chip colours, prompt keys, retired/legacy keys). Pure TS: imported by the web app (`@/api/convex/lib/roles`) and meant for the worker too. |
 | `lib/prompts/` | All backend LLM prompt text: `chat.ts` (chat loop, CTO assignment, classifier, responder chooser), `agents.ts` (seed personas), `enhance.ts` (prompt enhancer). Change wording only here. |
-| `lib/chat/` | `chat.ts` internals: intent shapes/parser, team selection, LLM client, tool-call stripping, repo snapshot (`"use node"`), and `repoTools.ts` (read-only repo tool contract + bounded tool loop for grounded CTO replies). |
+| `lib/chat/` | `chat.ts` internals: intent shapes/parser, team selection, LLM client, tool-call stripping, repo snapshot (`"use node"`), and `repoTools.ts` (read-only repo tool contract, bounded tool loop and shared per-turn budget for grounded chat replies). |
 | `lib/authz.ts` | Conditional ownership checks (`assertProjectAccess`, `canViewProject`, …). |
 | `lib/llmResolver.ts`, `lib/llmCrypto.ts`, `lib/llmConfig.ts` | Provider pool assembly, key encryption, env-var fallback config. |
 | `lib/avatar.ts` | Default avatar params (shared with the web app). |
@@ -122,8 +122,12 @@ delete a case to get a green run.
 
 ## Grounded chat (repo tools)
 
-The CTO's chat reply may read the repo with read-only tools (`list_files`,
-`grep`, `read_file`; max 6 calls per reply). A Convex action cannot read the
+Every agent answering in chat — the CTO, the teammates it hands off to by
+@mention, and agents the user @mentions — may read the repo with read-only
+tools (`list_files`, `grep`, `read_file`; max 6 calls per reply, max 12
+across all agents in one chat turn — `MAX_REPO_TOOL_CALLS_PER_CHAT`; agents
+left after the budget runs out answer without tools). Availability is
+checked once per turn. A Convex action cannot read the
 user's repository, so each call is queued in `repoToolCalls`
 (`repoTools.ts`), claimed by an online worker through the token-gated
 `worker.claimRepoToolCall` / `completeRepoToolCall`, run in the project
@@ -135,11 +139,16 @@ secret-masked) and read back by the action, which deletes the row.
   worker build counts as unavailable. A call no worker claims within 3 s
   fails fast ("worker tidak merespons") and turns tools off for the rest of
   that reply. Without tools the reply says it has not checked ("belum saya
-  cek"), and the CTO's Thinking trace gets a quiet "Repo tools off: …" reason.
+  cek"), and the Thinking trace gets a quiet "Repo tools off: …" reason.
+- With tools on, the CTO is told to verify facts itself and hand off only
+  for a teammate's specialty opinion. With tools off for the turn, it is told
+  teammates have no access either (no "@QA please verify …"), and a handoff
+  whose request is about checking (cek/verifikasi/periksa/grep/check/verify,
+  `isVerificationRequest`) is dropped, noted in the CTO's trace.
 - Tool-call text never reaches a bubble (`lib/chat/toolCallText.ts`): bare or
   fenced JSON calls, `<tool_call>` / `<longcat_tool_call>` markup, several
   calls plus prose in one reply. Grounded: only the first call runs. No tools
-  (every other reply path, handoffs included): held back while streaming,
+  (every other reply path): held back while streaming,
   retried once with `NO_TOOLS_RETRY_LINE`, then a short fallback.
 - Argument aliases (`maxLines`/`limit` → `lines`, `file` → `path`,
   `query`/`regex` → `pattern`, `startLine` → `start`) are normalized on both

@@ -112,6 +112,15 @@ export function handoffRequestFor(text: string, agent: { name: string; role: str
     .slice(0, 400);
 }
 
+/**
+ * A handoff request that asks the teammate to check/verify code ("cek",
+ * "verifikasi", "periksa", "grep", "check", "verify"). Without repo access
+ * the teammate cannot do it either, so such handoffs are dropped.
+ */
+export function isVerificationRequest(text: string): boolean {
+  return /\b(?:cek|ngecek|mengecek|dicek|pengecekan|periksa|memeriksa|diperiksa|pemeriksaan|verifikasi|memverifikasi|diverifikasi|grep|check(?:s|ed|ing)?|verif(?:y|ies|ied|ying))\b/i.test(text);
+}
+
 /** Roles that always stay in an assigned task's pool so review and QA still run. */
 const ALWAYS_IN_POOL = /^(reviewer|qa)$/i;
 

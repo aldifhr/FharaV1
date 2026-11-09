@@ -26,6 +26,35 @@ export type RepoToolName = (typeof REPO_TOOL_NAMES)[number];
 /** Tool calls per reply; the model must answer after this many. */
 export const MAX_REPO_TOOL_CALLS = 6;
 
+/**
+ * Tool calls across ALL agents answering one user message (the CTO plus its
+ * handoffs, or several @mentioned agents), so three handoffs cannot run 18.
+ */
+export const MAX_REPO_TOOL_CALLS_PER_CHAT = 12;
+
+/**
+ * Shared repo-tool budget for one chat turn: each agent may use up to
+ * `perReply` calls, and all of them together at most `total`.
+ */
+export function createRepoToolBudget(total: number = MAX_REPO_TOOL_CALLS_PER_CHAT, perReply: number = MAX_REPO_TOOL_CALLS) {
+  let used = 0;
+  return {
+    /** Calls the next agent may make (0 = answer without tools). */
+    capForNextReply(): number {
+      return Math.max(0, Math.min(perReply, total - used));
+    },
+    spend(calls: number): void {
+      used += Math.max(0, calls);
+    },
+    get used(): number {
+      return used;
+    },
+    get total(): number {
+      return total;
+    },
+  };
+}
+
 /** Worker-side output caps (one place, so tests and prompts agree). */
 export const REPO_TOOL_CAPS = {
   listMaxEntries: 200,

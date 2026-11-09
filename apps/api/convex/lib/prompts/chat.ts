@@ -122,8 +122,8 @@ export function buildChatPersonaLines(
 }
 
 /**
- * Read-only repo tool protocol for one chat reply (the CTO when a worker
- * can serve the tools). The loop in lib/chat/repoTools.ts parses the calls.
+ * Read-only repo tool protocol for one chat reply (the CTO, its handoff
+ * teammates, or @mentioned agents, when a worker can serve the tools). The loop in lib/chat/repoTools.ts parses the calls.
  */
 export function buildRepoToolProtocol(maxCalls: number): string {
   return [
@@ -195,7 +195,7 @@ export function buildConversationContext(conversation: Array<{ role: string; con
     : "";
 }
 
-export function buildPlanningGuidance(agent: { role: string }, opts: { isOrchestrator: boolean; taskIntent: { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean } }): string[] {
+export function buildPlanningGuidance(agent: { role: string }, opts: { isOrchestrator: boolean; hasRepoTools?: boolean; taskIntent: { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean } }): string[] {
   if (opts.isOrchestrator && opts.taskIntent.kind === "task") {
     return [
       "You are the orchestrator/planner (CTO).",
@@ -213,7 +213,9 @@ export function buildPlanningGuidance(agent: { role: string }, opts: { isOrchest
   }
   return [
     "Answer the user's chat message helpfully and completely from your perspective in the same language as the user.",
-    "You can answer structural questions (architecture, folders, features) from the repo snapshot given when present — cite actual paths you see there. You still cannot run commands, modify files, or read beyond the snapshot.",
+    opts.hasRepoTools
+      ? "You can read the repository with the read-only repo tools described below — check the code yourself before answering and cite only what a tool result shows. You still cannot run commands or modify files."
+      : "You can answer structural questions (architecture, folders, features) from the repo snapshot given when present — cite actual paths you see there. You still cannot run commands, modify files, or read beyond the snapshot.",
     "Only when the user asked for work that needs workspace access (audit, review, run code) say that it needs a task; for plain questions never mention creating a task.",
     "Do not pretend to have executed code. Respond in plain text.",
   ];
@@ -235,14 +237,32 @@ export function buildAnswerGuidance(subtype: IntentSubtype): string[] {
   }
 }
 
+/** The CTO verifies repo facts itself when it has tools; teammates are for their specialty. */
+export const SELF_VERIFY_LINE =
+  "If you have repo tools, verify it yourself in this reply; hand off only for the teammate's specialty opinion.";
+
+/** Repo access is off for the whole reply: teammates cannot check code either. */
+export function noRepoAccessHandoffLine(offReason: string): string {
+  return [
+    "There is no repo access in this reply, and your teammates have none either: do not @mention teammates to check, verify, or grep code.",
+    "Say plainly what is unverified, and suggest restarting the worker or setting the project folder" +
+      (offReason ? ` (reason: ${offReason}).` : "."),
+  ].join(" ");
+}
+
 /** System-prompt lines that let the CTO hand parts of a chat turn to teammates. */
-export function buildHandoffGuidance(team: Array<{ _id: string; name: string; role: string }>, speakerId: string): string[] {
+export function buildHandoffGuidance(
+  team: Array<{ _id: string; name: string; role: string }>,
+  speakerId: string,
+  repo: { hasRepoTools: boolean; offReason?: string } = { hasRepoTools: false }
+): string[] {
   const others = team.filter((a) => String(a._id) !== String(speakerId));
   if (others.length === 0) return [];
   return [
     `Teammates you can bring into this chat: ${others.map((a) => `@${a.name}`).join(", ")}.`,
     `When part of the question needs a teammate's expertise, address them with @Name and say exactly what you need from them (at most ${MAX_CTO_HANDOFFS}). They reply right after you, in this chat. Do not mention teammates for greetings or when you can answer fully yourself.`,
     "Writing @Name always pulls that teammate into the chat. When you only describe or list the team (who does what), write their role names WITHOUT @.",
+    repo.hasRepoTools ? SELF_VERIFY_LINE : noRepoAccessHandoffLine(repo.offReason ?? ""),
   ];
 }
 

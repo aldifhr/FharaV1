@@ -5,6 +5,7 @@ import { recordAudit } from "./lib/recordAudit";
 import { onPlanApproved, onPlanRejected } from "./planReview";
 import { scheduleDecisionEvaluation } from "./lib/calibration/store";
 import { resolveCommandApproval } from "./commandApprovals";
+import { signalApprovalDecision } from "./taskSignals";
 
 export const listPendingAll = query({
   args: {},
@@ -57,6 +58,8 @@ export const approve = mutation({
     }
     const now = Date.now();
     await ctx.db.patch(args.approvalId, { status: "approved", resolvedAt: now });
+    // Durable signal + wake, in this same mutation (taskSignals.ts).
+    await signalApprovalDecision(ctx, { ...approval, status: "approved", resolvedAt: now }, "approved");
     // Plan Inspector: an approved plan re-queues its task (planReview.ts).
     if (approval.kind === "plan") await onPlanApproved(ctx, approval);
     await ctx.db.insert("taskEvents", {
@@ -95,6 +98,7 @@ export const reject = mutation({
     }
     const now = Date.now();
     await ctx.db.patch(args.approvalId, { status: "rejected", resolvedAt: now });
+    await signalApprovalDecision(ctx, { ...approval, status: "rejected", resolvedAt: now }, "rejected");
     // Plan Inspector: a rejected plan ends its task as rejected.
     if (approval.kind === "plan") await onPlanRejected(ctx, approval);
     // Decision Outcome Calibration: a human rejection is an outcome signal.

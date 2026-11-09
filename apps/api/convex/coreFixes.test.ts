@@ -203,13 +203,13 @@ describe("M4/M5 plan versions and replans", () => {
   const sub = (key: string) => ({ key, title: key, description: "", kind: "analysis" as const, capability: "c", dependencies: [], order: 0 });
 
   test("upsertDynamicSubtasks from an older plan version inserts nothing", async () => {
-    const { t, projectId, taskId } = await seed();
+    const { t, projectId, taskId } = await seed({ workerId: "w" });
     await t.mutation(internal.orchestration.savePlan, {
-      taskId, projectId, version: 2, strategy: "s", createdBy: "orchestrator", goal: "g",
+      workerId: "w", taskId, projectId, version: 2, strategy: "s", createdBy: "orchestrator", goal: "g",
       payload: { subtasks: [sub("a")] }, subtasks: [sub("a")],
     });
     const res = await t.mutation(internal.orchestration.upsertDynamicSubtasks, {
-      taskId, projectId, version: 1, payload: { subtasks: [sub("late")] }, subtasks: [sub("late")],
+      workerId: "w", taskId, projectId, version: 1, payload: { subtasks: [sub("late")] }, subtasks: [sub("late")],
     });
     expect(res.inserted).toEqual([]);
     const rows = await t.run(async (ctx) =>
@@ -219,13 +219,13 @@ describe("M4/M5 plan versions and replans", () => {
   });
 
   test("existing rows keep the reviewRound patch", async () => {
-    const { t, projectId, taskId } = await seed();
+    const { t, projectId, taskId } = await seed({ workerId: "w" });
     await t.mutation(internal.orchestration.savePlan, {
-      taskId, projectId, version: 1, strategy: "s", createdBy: "orchestrator", goal: "g",
+      workerId: "w", taskId, projectId, version: 1, strategy: "s", createdBy: "orchestrator", goal: "g",
       payload: { subtasks: [sub("review")] }, subtasks: [{ ...sub("review"), reviewRound: 1 }],
     });
     await t.mutation(internal.orchestration.upsertDynamicSubtasks, {
-      taskId, projectId, version: 1, payload: { subtasks: [] }, subtasks: [{ ...sub("review"), reviewRound: 2 }],
+      workerId: "w", taskId, projectId, version: 1, payload: { subtasks: [] }, subtasks: [{ ...sub("review"), reviewRound: 2 }],
     });
     const row = await t.run(async (ctx) =>
       ctx.db.query("subtasks").withIndex("by_task_and_key", (q) => q.eq("taskId", taskId).eq("key", "review")).unique()
@@ -234,8 +234,8 @@ describe("M4/M5 plan versions and replans", () => {
   });
 
   test("a replan keeps completed rows completed and drops removed keys", async () => {
-    const { t, projectId, taskId } = await seed();
-    const base = { taskId, projectId, strategy: "s", createdBy: "orchestrator" as const, goal: "g" };
+    const { t, projectId, taskId } = await seed({ workerId: "w" });
+    const base = { workerId: "w", taskId, projectId, strategy: "s", createdBy: "orchestrator" as const, goal: "g" };
     await t.mutation(internal.orchestration.savePlan, {
       ...base, version: 1, payload: { subtasks: [sub("a"), sub("b"), sub("c")] }, subtasks: [sub("a"), sub("b"), sub("c")],
     });

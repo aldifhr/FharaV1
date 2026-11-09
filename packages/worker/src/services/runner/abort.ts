@@ -29,7 +29,14 @@ export function armTaskAbort(policy: ExecutionPolicy, shutdownSignal?: AbortSign
   dispose: () => void;
 } {
   const controller = new AbortController();
-  const onShutdown = () => controller.abort(new Error(SHUTDOWN_ABORT_MESSAGE));
+  // The run signal fires on worker shutdown OR on lease loss (index.ts
+  // aborts a task whose heartbeat reported it lost). Keep a "Lease lost"
+  // reason as-is so the run ends as "no longer owned", not as a failure.
+  const onShutdown = () => {
+    const reason: unknown = shutdownSignal?.reason;
+    const leaseLost = reason instanceof Error && reason.message.startsWith(LEASE_LOST_PREFIX);
+    controller.abort(leaseLost ? reason : new Error(SHUTDOWN_ABORT_MESSAGE));
+  };
   if (shutdownSignal?.aborted) onShutdown();
   else shutdownSignal?.addEventListener("abort", onShutdown, { once: true });
   const timer = setTimeout(() => {

@@ -47,6 +47,14 @@ export interface NodeRunInfo {
   attempt: number;
   /** Heartbeat for the stall watchdog: call on any observable progress. */
   progress: () => void;
+  /**
+   * Stop this attempt's subtask-timeout and stall clocks while the node
+   * waits on a human (a run_command approval). Returns the release; the
+   * timeout deadline moves out by the time spent held. Nested holds are
+   * counted. A human wait is not agent work, so it must never time the
+   * node out or trip the watchdog (it has its own approval timeout).
+   */
+  holdClock?: () => () => void;
 }
 
 export interface SchedulerHooks {
@@ -353,16 +361,42 @@ export async function runScheduler(
     let timer: NodeJS.Timeout | undefined;
     let timedOut = false;
     const deadlineAt = Date.now() + hooks.timeoutMs;
-    const timeout = new Promise<NodeOutcome>((resolve) => {
-      timer = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-        resolve({ status: "failed", error: `Subtask timed out after ${hooks.timeoutMs}ms` });
-      }, hooks.timeoutMs);
-    });
+    // Clock holds (human waits): while held, neither the timeout nor the
+    // stall watchdog may fire; on release the timeout deadline is pushed
+    // out by the held duration and the stall clock restarts.
+    let holds = 0;
+    let heldSince = 0;
+    let heldTotal = 0;
     let lastProgress = Date.now();
     const progress = () => {
       lastProgress = Date.now();
+    };
+    const timeout = new Promise<NodeOutcome>((resolve) => {
+      const arm = (ms: number) => {
+        timer = setTimeout(() => {
+          if (holds > 0) return arm(Math.max(50, Math.min(hooks.timeoutMs, 1_000)));
+          const remaining = deadlineAt + heldTotal - Date.now();
+          if (remaining > 0) return arm(remaining);
+          timedOut = true;
+          controller.abort();
+          resolve({ status: "failed", error: `Subtask timed out after ${hooks.timeoutMs}ms` });
+        }, ms);
+      };
+      arm(hooks.timeoutMs);
+    });
+    const holdClock = () => {
+      if (holds === 0) heldSince = Date.now();
+      holds += 1;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        holds -= 1;
+        if (holds === 0) {
+          heldTotal += Date.now() - heldSince;
+          progress();
+        }
+      };
     };
     let stallTimer: ReturnType<typeof setInterval> | undefined;
     const stallMs = hooks.stallMs ?? 0;
@@ -371,6 +405,7 @@ export async function runScheduler(
       stallMs > 0
         ? new Promise<NodeOutcome>((resolve) => {
             stallTimer = setInterval(() => {
+              if (holds > 0) return;
               if (Date.now() - lastProgress <= stallMs) return;
               if (stallTimer) clearInterval(stallTimer);
               controller.abort();
@@ -384,7 +419,7 @@ export async function runScheduler(
         await hooks.onStart(node, attempt);
         progress();
         const outcome = await Promise.race([
-          execute(node, controller.signal, { deadlineAt, attempt, progress }),
+          execute(node, controller.signal, { deadlineAt, attempt, progress, holdClock }),
           timeout,
           ...(stall ? [stall] : []),
         ]);

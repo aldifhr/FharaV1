@@ -1,4 +1,4 @@
-import type { ConvexHttpClient } from "convex/browser";
+import type { ConvexClient, ConvexHttpClient } from "convex/browser";
 import { api } from "@/api/convex/_generated/api";
 import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
 import type { Doc } from "@/api/convex/_generated/dataModel";
@@ -194,6 +194,30 @@ export class WorkerApi {
     input: ActionInput<typeof api.worker.cancelCommandApproval>
   ): Promise<FunctionReturnType<typeof api.worker.cancelCommandApproval>> {
     return await this.client.action(api.worker.cancelCommandApproval, this.args(input));
+  }
+
+  /** The waiter saw the decision: consume its durable signal (one-time allow). */
+  async ackCommandApproval(
+    input: ActionInput<typeof api.worker.ackCommandApproval>
+  ): Promise<FunctionReturnType<typeof api.worker.ackCommandApproval>> {
+    return await this.client.action(
+      api.worker.ackCommandApproval,
+      this.args({ workerId: this.workerId, ...input })
+    );
+  }
+
+  /**
+   * Wake-up subscription (ConvexClient.onUpdate): fires `onChange` whenever
+   * the oldest queued task or the newest unconsumed approval signal changes.
+   * Returns the unsubscribe. The caller keeps a slow poll as the fallback.
+   */
+  subscribePendingWork(
+    subscriber: Pick<ConvexClient, "onUpdate">,
+    onChange: (result: FunctionReturnType<typeof api.worker.pendingWork>) => void,
+    onError?: (error: Error) => void
+  ): () => void {
+    const unsubscribe = subscriber.onUpdate(api.worker.pendingWork, { workerToken: this.token }, onChange, onError);
+    return () => unsubscribe();
   }
 
   /** Plan 020: approve automatically under the task's permission mode (backend re-checks). */

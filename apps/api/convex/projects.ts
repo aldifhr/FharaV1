@@ -226,6 +226,7 @@ export const PROJECT_CASCADE = [
   { table: "tokenUsage", index: "by_project" },
   { table: "agentEvents", index: "by_project" },
   { table: "taskEvents", index: "by_project" },
+  { table: "taskSignals", index: "by_project" },
   { table: "approvals", index: "by_project" },
   { table: "messages", index: "by_project" },
   { table: "conversationParticipants", index: "by_project" },

@@ -70,12 +70,15 @@ describe("completeTask terminal guard (Phase 4 hardening)", () => {
         title: "T",
         command: "do the thing",
         status: "running",
+        workerId: "w1",
+        leaseExpiresAt: Date.now() + 60_000,
       });
     });
 
     const res = await t.mutation(internal.orchestration.completeTask, {
       taskId,
       status: "done",
+      workerId: "w1",
     });
     expect(res.applied).toBe(true);
 
@@ -250,6 +253,8 @@ describe("task input pause/answer (plan 013 step 4)", () => {
         title: "T",
         command: "do the thing",
         status: "running",
+        workerId: "w1",
+        leaseExpiresAt: Date.now() + 60_000,
       });
     });
 
@@ -264,6 +269,7 @@ describe("task input pause/answer (plan 013 step 4)", () => {
     const res = await t.action(api.worker.pauseForInput, {
       taskId,
       question: "Which style?",
+      workerId: "w1",
       workerToken: SERVICE_TOKEN,
     });
     expect(res.applied).toBe(true);

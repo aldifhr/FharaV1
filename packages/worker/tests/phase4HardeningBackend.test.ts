@@ -243,8 +243,12 @@ function callHandler(
   args: Record<string, unknown>
 ): Promise<unknown> {
   const handler = (fn as { _handler: AnyHandler })._handler;
-  return handler(ctx, args);
+  // Strict lease fencing: worker writes always carry the owner identity.
+  // Seeded tasks are owned by TEST_WORKER with a live lease.
+  return handler(ctx, "taskId" in args && !("workerId" in args) ? { ...args, workerId: TEST_WORKER } : args);
 }
+
+const TEST_WORKER = "test-worker";
 
 /**
  * Convex runs mutations one at a time; this chain reproduces that
@@ -278,6 +282,7 @@ async function seedTask(
     status: "running",
     createdAt: 1,
     updatedAt: 1,
+    ...((fields.status ?? "running") === "running" ? { workerId: TEST_WORKER, leaseExpiresAt: Date.now() + 60_000 } : {}),
     ...fields,
   });
   return { projectId, taskId };

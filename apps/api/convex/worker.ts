@@ -1,4 +1,4 @@
-import { action } from "./_generated/server";
+import { action, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import {
@@ -46,6 +46,35 @@ export const claimTask = action({
       workerId,
       leaseMs,
     });
+  },
+});
+
+/**
+ * Wake-up subscription for the worker (ConvexClient.onUpdate; idea from
+ * convex-orchestrator's subscribePendingWorkflows, re-implemented). Returns
+ * the oldest claimable queued task and the oldest unconsumed approval
+ * signal: any change (new work, a decision) re-runs the query and wakes the
+ * worker's loop at once. Cheap (two indexed take(1)); the worker keeps a
+ * slow poll as the correctness fallback.
+ */
+export const pendingWork = query({
+  args: { ...tokenArg },
+  handler: async (ctx, args) => {
+    withoutToken(args);
+    const queued = await ctx.db
+      .query("tasks")
+      .withIndex("by_status", (q) => q.eq("status", "queued"))
+      .order("asc")
+      .take(1);
+    const signal = await ctx.db
+      .query("taskSignals")
+      .withIndex("by_name_and_consumed", (q) => q.eq("name", "approval").eq("consumedAt", undefined))
+      .order("desc")
+      .take(1);
+    return {
+      queuedTaskId: queued[0]?._id ?? null,
+      resumeSignalId: signal[0]?._id ?? null,
+    };
   },
 });
 
@@ -356,6 +385,14 @@ export const cancelCommandApproval = action({
   args: { ...tokenArg, approvalId: v.id("approvals"), reason: v.string() },
   handler: async (ctx, args): Promise<{ applied: boolean }> => {
     return await ctx.runMutation(internal.commandApprovals.cancel, withoutToken(args));
+  },
+});
+
+/** The waiter saw the decision: consume its durable signal (taskSignals.ts). */
+export const ackCommandApproval = action({
+  args: { ...tokenArg, approvalId: v.id("approvals"), workerId: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ consumed: number }> => {
+    return await ctx.runMutation(internal.commandApprovals.ack, withoutToken(args));
   },
 });
 

@@ -1818,7 +1818,11 @@ async function executeShell(
     const outcome = await input.requestCommandApproval({ command: parsed.command, args: parsed.args });
     if (!outcome.allowed) {
       await onEvent("shell.command_declined", { command: parsed.command, args: parsed.args, via: outcome.via, reason: outcome.reason }, "warn");
-      if (outcome.via === "paused" || outcome.via === "cancelled") {
+      // Only a real stop (task cancelled / aborted) fails the node. A pause
+      // never ends the wait any more (commandApproval.ts); a legacy
+      // "paused" outcome is treated as a decline the agent can act on,
+      // never as a failed shell subtask.
+      if (outcome.via === "cancelled") {
         return { status: "failed", error: `${outcome.reason}: ${line}` };
       }
       const output = commandDeniedOutput(`$ ${line}`, outcome);

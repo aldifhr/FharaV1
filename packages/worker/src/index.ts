@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import os from "node:os";
 import path from "node:path";
-import { createConvexClient } from "./convexClient";
+import { createConvexClient, createConvexSubscriber } from "./convexClient";
 import { WorkerApi, type WorkerTask } from "./workerApi";
 import { loadPolicy } from "./orchestrator/policy";
 import { setWorkerLlmConcurrencyLimit } from "./effects/llmCall";
@@ -9,7 +9,7 @@ import { setSnapshotSink } from "./llm/snapshots";
 import { providerHealth } from "./llm/health";
 import { getMcpRegistry } from "./mcp/registry";
 import { processTask, resumeTask, type RunnerDeps } from "./services/taskRunner";
-import { isLeaseLostOrShutdown } from "./services/runner/abort";
+import { combineSignals, isLeaseLostOrShutdown, LEASE_LOST_PREFIX } from "./services/runner/abort";
 import { processNextPushRequest } from "./services/pushRequests";
 import { processNextMcpTest } from "./services/mcpTests";
 import { processNextRepoToolCall } from "./services/repoTools";
@@ -18,6 +18,9 @@ import { REPO_TOOLS_CAPABILITY } from "@/api/convex/lib/chat/repoTools";
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
 
 const POLL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1500);
+// With the pendingWork subscription live, the poll is only the correctness
+// fallback (a missed push, timers the subscription cannot see).
+const FALLBACK_POLL_MS = Math.max(POLL_MS, Number(process.env.WORKER_FALLBACK_POLL_MS ?? 10_000));
 const HEARTBEAT_MS = Number(process.env.WORKER_HEARTBEAT_MS ?? 10_000);
 const LEASE_MS = Number(process.env.WORKER_LEASE_MS ?? 60_000);
 const CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY ?? 1));
@@ -90,6 +93,8 @@ async function main() {
   }
   const workspaceRoot = process.env.WORKSPACE_ROOT ?? "./workspaces";
   const inFlight = new Map<string, Promise<void>>();
+  // Per-task lease guard: aborted when a heartbeat reports the task lost.
+  const leaseGuards = new Map<string, AbortController>();
 
   let stopping = false;
   let lastRecovery = 0;
@@ -148,6 +153,17 @@ async function main() {
         // advertises that it polls for them (an older build does not).
         capabilities: [REPO_TOOLS_CAPABILITY],
       })
+      .then((result) => {
+        // Stop runs this worker no longer owns (recovery requeued them or
+        // another worker claimed them): every write would be refused
+        // anyway, and side effects (commands, pushes) must not continue.
+        for (const taskId of result?.lostTaskIds ?? []) {
+          const guard = leaseGuards.get(taskId);
+          if (!guard || guard.signal.aborted) continue;
+          log("lease lost, stopping task", taskId);
+          guard.abort(new Error(`${LEASE_LOST_PREFIX}: heartbeat could not renew the lease for task ${taskId}`));
+        }
+      })
       .catch((error) => log("heartbeat failed", error));
   // Register the worker row before claiming anything (core H7).
   await sendHeartbeat();
@@ -162,6 +178,34 @@ async function main() {
     }
   }, HEARTBEAT_MS);
 
+  // Wake-up subscription (convex-orchestrator pattern, re-implemented):
+  // a new queued task or approval signal wakes the loop at once; the poll
+  // below drops to FALLBACK_POLL_MS while the subscription is live.
+  let wake: (() => void) | null = null;
+  let woken = true;
+  let subscribed = false;
+  const subscriber = (() => {
+    try {
+      return createConvexSubscriber();
+    } catch (error) {
+      log("subscription unavailable, polling only:", error instanceof Error ? error.message : String(error));
+      return null;
+    }
+  })();
+  if (subscriber) {
+    api.subscribePendingWork(
+      subscriber,
+      () => {
+        subscribed = true;
+        woken = true;
+        wake?.();
+      },
+      (error) => {
+        subscribed = false;
+        log("pendingWork subscription error, polling:", error.message);
+      }
+    );
+  }
   const SHUTDOWN_DRAIN_MS = 5_000;
   const SHUTDOWN_HARD_CAP_MS = 10_000;
   /** Settles after `ms` at the latest; never rejects. */
@@ -190,6 +234,7 @@ async function main() {
     }
     if (inFlight.size > 0) log(`${inFlight.size} task(s) still draining at exit; leases will expire`);
     clearInterval(heartbeat);
+    await withTimeout(subscriber?.close() ?? Promise.resolve(), 1_000);
     // Plan 009: kill every MCP child process before the worker exits.
     await withTimeout(getMcpRegistry().disposeAll(), 2_000);
     await withTimeout(api.markOffline({ workerId }), 2_000);
@@ -198,9 +243,12 @@ async function main() {
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
-  const startTask = (taskId: WorkerTask["_id"], runner: () => Promise<void>) => {
+  const startTask = (taskId: WorkerTask["_id"], runner: (taskDeps: RunnerDeps) => Promise<void>) => {
     if (inFlight.has(taskId)) return;
-    const promise = runner()
+    const guard = new AbortController();
+    leaseGuards.set(taskId, guard);
+    const taskDeps: RunnerDeps = { ...deps, shutdownSignal: combineSignals(shutdownController.signal, guard.signal) };
+    const promise = runner(taskDeps)
       .catch(async (error) => {
         // A displaced worker (lease fencing) or a shutdown abort must not
         // fail the task: the new owner / recovery owns it now.
@@ -221,6 +269,7 @@ async function main() {
       })
       .finally(() => {
         inFlight.delete(taskId);
+        leaseGuards.delete(taskId);
       });
     inFlight.set(taskId, promise);
   };
@@ -285,6 +334,18 @@ async function main() {
   };
   void pollRepoTools();
 
+  let lastClaimPoll = 0;
+  const idle = (ms: number) =>
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(done, ms);
+      function done() {
+        clearTimeout(timer);
+        wake = null;
+        resolve();
+      }
+      wake = done;
+    });
+
   while (!stopping) {
     pollPushes();
     pollMcpTests();
@@ -293,46 +354,61 @@ async function main() {
         await sleep(200);
         continue;
       }
+      // Claim scans run when the subscription woke us, or on the fallback
+      // period; without a live subscription, on every POLL_MS tick.
+      const now = Date.now();
+      const claimDue = !subscribed || woken || now - lastClaimPoll >= FALLBACK_POLL_MS;
+      if (claimDue) {
+        woken = false;
+        lastClaimPoll = now;
 
-      const resumable: Array<{
-        task: WorkerTask;
-        pendingCount: number;
-        approvals: Array<{ kind: string; status: string }>;
-      }> = await api.getResumable();
-      const resumed = resumable.find(
-        (entry) =>
-          entry.pendingCount === 0 &&
-          !inFlight.has(entry.task._id) &&
-          entry.approvals.some(
-            (approval) =>
-              approval.kind === "apply_changes" &&
-              (approval.status === "approved" || approval.status === "rejected")
-          )
-      );
+        const resumable: Array<{
+          task: WorkerTask;
+          pendingCount: number;
+          approvals: Array<{ kind: string; status: string }>;
+        }> = await api.getResumable();
+        // The backend only returns tasks an approval SIGNAL woke (and not
+        // paused); the apply_changes check stays as a guard on what the
+        // resume path knows how to continue.
+        const resumed = resumable.find(
+          (entry) =>
+            entry.pendingCount === 0 &&
+            !inFlight.has(entry.task._id) &&
+            entry.approvals.some(
+              (approval) =>
+                approval.kind === "apply_changes" &&
+                (approval.status === "approved" || approval.status === "rejected")
+            )
+        );
 
-      if (resumed) {
-        const claimedResume = await api.claimResumable({
-          taskId: resumed.task._id,
-          workerId,
-          leaseMs: LEASE_MS,
-        });
-        if (claimedResume) {
-          log(`resuming task ${resumed.task._id} after approval`);
-          startTask(resumed.task._id, () => resumeTask(resumed.task._id, deps));
+        if (resumed) {
+          const claimedResume = await api.claimResumable({
+            taskId: resumed.task._id,
+            workerId,
+            leaseMs: LEASE_MS,
+          });
+          if (claimedResume) {
+            log(`resuming task ${resumed.task._id} after approval`);
+            startTask(resumed.task._id, (taskDeps) => resumeTask(resumed.task._id, taskDeps));
+            woken = true; // drain a backlog without waiting for the next push
+            continue;
+          }
+        }
+
+        const claimed = await api.claimTask({ workerId, leaseMs: LEASE_MS });
+        if (claimed) {
+          log(`picked task ${claimed._id}: ${claimed.title}`);
+          startTask(claimed._id, (taskDeps) => processTask(claimed, taskDeps));
+          woken = true;
           continue;
         }
-      }
-
-      const claimed = await api.claimTask({ workerId, leaseMs: LEASE_MS });
-      if (claimed) {
-        log(`picked task ${claimed._id}: ${claimed.title}`);
-        startTask(claimed._id, () => processTask(claimed, deps));
-        continue;
       }
     } catch (error) {
       log("poll error", error);
     }
-    await sleep(POLL_MS);
+    // The push / MCP-test pollers ride this loop, so a subscribed worker
+    // still ticks at their period; only the claim scans are skipped.
+    await idle(subscribed ? Math.min(PUSH_POLL_MS, MCP_TEST_POLL_MS) : POLL_MS);
   }
 }
 

@@ -15,14 +15,34 @@ import { assertTaskAccess } from "./lib/authz";
  * boundary and calls `releasePausedTask`.
  */
 
-/** Statuses a task can be paused from. Waiting states already wait on the user. */
+/** Statuses a task can be paused from (status becomes `paused`). */
 const PAUSABLE = new Set(["queued", "running"]);
+/**
+ * Parked on an approval: the pause is only RECORDED (`pausedBy`), the
+ * status stays needs_approval and nothing that waits is touched. The
+ * resume claim holds while it is set (orchestration.claimResumableTask),
+ * and a resume already in flight drains as paused (setTaskStatus).
+ */
+const RECORD_ONLY_PAUSABLE = new Set(["needs_approval"]);
 
 export const pause = mutation({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
     const task = await assertTaskAccess(ctx, args.taskId);
     if (task.status === "paused") return { paused: true, changed: false };
+    if (RECORD_ONLY_PAUSABLE.has(task.status)) {
+      if (task.pausedBy) return { paused: true, changed: false };
+      const now = Date.now();
+      await ctx.db.patch(task._id, { pausedBy: "user", pausedAt: now, updatedAt: now });
+      await ctx.db.insert("taskEvents", {
+        taskId: task._id,
+        projectId: task.projectId,
+        type: "task.paused",
+        payload: { pausedBy: "user", prevStatus: task.status, recordedOnly: true },
+        level: "info",
+      });
+      return { paused: true, changed: true };
+    }
     if (!PAUSABLE.has(task.status)) {
       throw new Error(`A ${task.status.replace("_", " ")} task cannot be paused`);
     }
@@ -55,6 +75,20 @@ export const resume = mutation({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
     const task = await assertTaskAccess(ctx, args.taskId);
+    if (task.status !== "paused" && task.pausedBy) {
+      // A record-only pause (parked on an approval): clear it; a pending
+      // approval signal makes the task resumable again by itself.
+      const now = Date.now();
+      await ctx.db.patch(task._id, { pausedBy: undefined, pausedAt: undefined, updatedAt: now });
+      await ctx.db.insert("taskEvents", {
+        taskId: task._id,
+        projectId: task.projectId,
+        type: "task.resumed",
+        payload: { resumedBy: "user", pausedAt: task.pausedAt ?? null, recordedOnly: true },
+        level: "info",
+      });
+      return { resumed: true, status: task.status };
+    }
     if (task.status !== "paused") return { resumed: false, status: task.status };
     const now = Date.now();
     // Still draining on a live worker: hand the task back to it as

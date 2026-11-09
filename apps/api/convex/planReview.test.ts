@@ -67,8 +67,11 @@ describe("plan review: pause and resume", () => {
   test("requestReview pauses the task at waiting_plan_approval with a plan approval and one Plan card", async () => {
     const { t, taskId, projectId } = await setup();
     const approvalId = await openReview(t, taskId, projectId);
-    // Idempotent: a second request returns the same pending approval and no second card.
-    const again = await t.mutation(internal.planReview.requestReview, { taskId, projectId, planVersion: 1 });
+    // Idempotent: a second request (the owner retrying after re-taking the
+    // lease) returns the same pending approval and no second card.
+    await t.run((ctx) => ctx.db.patch(taskId, { workerId: "w1", leaseExpiresAt: Date.now() + 60_000 }));
+    const again = await t.mutation(internal.planReview.requestReview, { taskId, projectId, planVersion: 1, workerId: "w1" });
+    await t.run((ctx) => ctx.db.patch(taskId, { workerId: undefined, leaseExpiresAt: undefined }));
     expect((again as { approvalId: string }).approvalId).toBe(approvalId);
 
     const state = await t.run(async (ctx) => ({
@@ -201,7 +204,10 @@ describe("plan review: edits", () => {
     expect(task).toMatchObject({ status: "queued", planReviewNote: "Skip the API change, the setting exists" });
     expect((await t.run((ctx) => ctx.db.get(approvalId)))?.status).toBe("cancelled");
 
+    // The next worker claims the requeued task, then saves its plan.
+    await t.mutation(internal.orchestration.claimNextTask, { workerId: "w2" });
     await t.mutation(internal.orchestration.savePlan, {
+      workerId: "w2",
       taskId,
       projectId,
       version: 2,

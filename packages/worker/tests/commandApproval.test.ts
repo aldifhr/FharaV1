@@ -51,11 +51,11 @@ describe("waitForCommandApproval", () => {
     expect(api.cancelCommandApproval).toHaveBeenCalledWith(expect.objectContaining({ approvalId: "a1" }));
   });
 
-  it("pause cancels the row", async () => {
-    const api = mockApi([{ ...pending, taskStatus: "paused" }]);
+  it("pause does not cancel the row: the wait continues to the decision", async () => {
+    const api = mockApi([{ ...pending, taskStatus: "paused" }, { ...pending, status: "approved", decision: "allow", taskStatus: "paused" }]);
     const out = await waitForCommandApproval(api, request, { sleep: noSleep });
-    expect(out.via).toBe("paused");
-    expect(api.cancelCommandApproval).toHaveBeenCalled();
+    expect(out).toMatchObject({ allowed: true, via: "allow" });
+    expect(api.cancelCommandApproval).not.toHaveBeenCalled();
   });
 
   it("times out as a denial", async () => {

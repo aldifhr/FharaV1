@@ -195,8 +195,9 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         nativeModel: agent.opencodeModel,
         qaMode: deps.policy.qaMode,
         // Agent-initiated commands wait for approval in-process: the lease
-        // and heartbeat stay, the node shows "waiting for approval", and
-        // pause / stop / the wait timeout end the wait as a denial.
+        // and heartbeat stay, the node shows "waiting for approval", stop or
+        // the approval timeout end the wait as a denial, and a pause does
+        // not end it (the node finishes on the decision, then drains).
         requestCommandApproval: (cmd) =>
           waitForCommandApproval(
             deps.api,
@@ -214,6 +215,8 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
               signal: combineSignals(signal, input.taskAbort?.signal),
               onPending: () => reportActivity(describeActivity("command.waiting_approval", cmd)),
               onWaiting: beat,
+              // A human wait: the subtask timeout and stall clocks stop.
+              holdClock: runInfo?.holdClock,
             }
           ),
         nativeProviderCommand: process.env.ORCHESTRATOR_NATIVE_PROVIDER_COMMAND,

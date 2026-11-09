@@ -19,6 +19,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { assertProjectAccess, getViewerId } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
 import { holdsTaskLease } from "./orchestration";
+import { signalApprovalDecision } from "./taskSignals";
 import { normalizePermissionMode } from "./lib/permissionModes";
 import {
   addCommandAllowRule,
@@ -114,6 +115,39 @@ export const request = internalMutation({
       });
       return { status: "auto", approvalId, reason: policy.reason, offerAlways: policy.offerAlways };
     }
+    // Replay after a lost worker: the user already allowed this exact
+    // command for this subtask and no waiter consumed the signal (the old
+    // worker died mid-wait). Reuse that decision instead of asking twice.
+    const reused = await reusableAllow(ctx, args.taskId, args.subtaskKey, line);
+    if (reused) {
+      await ctx.db.patch(reused._id, { consumedAt: now, consumedBy: args.workerId ?? "replay" });
+      await ctx.db.insert("taskEvents", {
+        taskId: args.taskId,
+        projectId: args.projectId,
+        type: "approval.signal_reused",
+        payload: { kind: "run_command", summary: base.summary, subtaskKey: args.subtaskKey, approvalId: reused.approvalId },
+        subtaskKey: args.subtaskKey,
+        level: "info",
+      });
+      return { status: "auto", approvalId: reused.approvalId, reason: "Allowed by the user earlier", offerAlways: policy.offerAlways };
+    }
+    // Same replay, user not decided yet: adopt the orphaned pending card
+    // instead of showing a second one for the same command.
+    const orphan = (
+      await ctx.db
+        .query("approvals")
+        .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+        .filter((q) => q.eq(q.field("status"), "pending"))
+        .take(20)
+    ).find(
+      (row) =>
+        row.kind === "run_command" &&
+        (row.subtaskKey ?? null) === (args.subtaskKey ?? null) &&
+        (row.payload as { command?: unknown } | undefined)?.command === line
+    );
+    if (orphan) {
+      return { status: "pending", approvalId: orphan._id, reason: policy.reason, offerAlways: orphan.offerAlways ?? policy.offerAlways };
+    }
     const approvalId = await ctx.db.insert("approvals", {
       ...base,
       status: "pending",
@@ -129,6 +163,48 @@ export const request = internalMutation({
       level: "warn",
     });
     return { status: "pending", approvalId, reason: policy.reason, offerAlways: policy.offerAlways };
+  },
+});
+
+async function reusableAllow(
+  ctx: MutationCtx,
+  taskId: Id<"tasks">,
+  subtaskKey: string | undefined,
+  line: string
+): Promise<Doc<"taskSignals"> | null> {
+  const open = await ctx.db
+    .query("taskSignals")
+    .withIndex("by_task_and_consumed", (q) => q.eq("taskId", taskId).eq("consumedAt", undefined))
+    .take(50);
+  return (
+    open.find(
+      (signal) =>
+        signal.name === "command" &&
+        signal.decision === "approved" &&
+        signal.command === line &&
+        (signal.subtaskKey ?? null) === (subtaskKey ?? null)
+    ) ?? null
+  );
+}
+
+/**
+ * Worker: the in-process waiter saw the decision. Consumes its signal so a
+ * later replay of the subtask asks again (an allow is one-time). Idempotent.
+ */
+export const ack = internalMutation({
+  args: { approvalId: v.id("approvals"), workerId: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const signals = await ctx.db
+      .query("taskSignals")
+      .withIndex("by_approval", (q) => q.eq("approvalId", args.approvalId))
+      .take(5);
+    let consumed = 0;
+    for (const signal of signals) {
+      if (signal.consumedAt !== undefined) continue;
+      await ctx.db.patch(signal._id, { consumedAt: Date.now(), consumedBy: args.workerId ?? "worker" });
+      consumed += 1;
+    }
+    return { consumed };
   },
 });
 
@@ -195,6 +271,9 @@ export async function resolveCommandApproval(
     ...(note ? { note } : {}),
     history: [...(approval.history ?? []), { at: now, status: decision === "deny" ? "rejected" : "approved", decision, by: options.actor ?? "user" }],
   });
+  // Durable signal in the same mutation: the live waiter reads the row; a
+  // replayed subtask (its worker died mid-wait) reuses an unconsumed allow.
+  await signalApprovalDecision(ctx, approval, decision === "deny" ? "rejected" : "approved");
   const command = String((approval.payload as { command?: unknown } | undefined)?.command ?? approval.summary);
   if (decision === "always") {
     const head = String((approval.payload as { head?: unknown } | undefined)?.head ?? "");

@@ -6,8 +6,16 @@
  * or re-run the DAG. Here the worker keeps its lease and heartbeat, asks
  * the backend (which decides auto vs ask from the task's permission mode
  * and the project's "Always allow" rules), and polls the row until the user
- * decides. Pause, stop (the task/node abort signal) and a wait timeout all
+ * decides. Stop (the task/node abort signal) and the approval timeout
  * cancel the row and end the wait with a denial the agent can act on.
+ *
+ * A user PAUSE does not end the wait: pause only stops new dispatch, the
+ * waiting subtask is a running node that finishes on the user's decision
+ * (the backend records the pause; the draining worker keeps its lease).
+ * While waiting, the node's subtask-timeout and stall clocks are held
+ * (`holdClock`), so a human wait can never fail the shell subtask. The
+ * decision itself is a durable signal (apps/api/convex/taskSignals.ts); the
+ * waiter acks it so the one-time allow is not reused by a later replay.
  *
  * The exact-argv allowlist stays a hard deny BEFORE this runs (callers check
  * `isCommandAllowed` first); nothing here widens it.
@@ -17,7 +25,8 @@ import type { CommandApprovalOutcome } from "@/execution/commandGate";
 
 export { commandDeniedOutput, type CommandApprovalOutcome } from "@/execution/commandGate";
 
-export type CommandApprovalApi = Pick<WorkerApi, "requestCommandApproval" | "getCommandApproval" | "cancelCommandApproval">;
+export type CommandApprovalApi = Pick<WorkerApi, "requestCommandApproval" | "getCommandApproval" | "cancelCommandApproval"> &
+  Partial<Pick<WorkerApi, "ackCommandApproval">>;
 
 export interface CommandApprovalRequest {
   taskId: string;
@@ -36,6 +45,8 @@ export interface CommandApprovalWaitOptions {
   onWaiting?: () => void;
   /** First tick only: the row is pending (show "waiting for approval"). */
   onPending?: (approvalId: string) => void;
+  /** Hold the scheduler's subtask timeout / stall clocks during the wait. */
+  holdClock?: () => () => void;
   pollMs?: number;
   timeoutMs?: number;
   /** Test seams. */
@@ -93,11 +104,27 @@ export async function waitForCommandApproval(
 
   const approvalId = started.approvalId;
   options.onPending?.(approvalId);
+  const release = options.holdClock?.();
+  try {
+    return await pollDecision(api, approvalId, options, { now, sleep, pollMs, timeoutMs });
+  } finally {
+    release?.();
+  }
+}
+
+async function pollDecision(
+  api: CommandApprovalApi,
+  approvalId: string,
+  options: CommandApprovalWaitOptions,
+  clock: { now: () => number; sleep: (ms: number, signal?: AbortSignal) => Promise<void>; pollMs: number; timeoutMs: number }
+): Promise<CommandApprovalOutcome> {
+  const { now, sleep, pollMs, timeoutMs } = clock;
   const deadline = now() + timeoutMs;
   const giveUp = async (via: CommandApprovalOutcome["via"], reason: string): Promise<CommandApprovalOutcome> => {
     await api.cancelCommandApproval({ approvalId, reason }).catch(() => undefined);
     return { allowed: false, via, reason };
   };
+  const ack = () => void api.ackCommandApproval?.({ approvalId })?.catch(() => undefined);
 
   for (;;) {
     if (options.signal?.aborted) return giveUp("cancelled", "Task stopped while the command waited for approval");
@@ -110,16 +137,18 @@ export async function waitForCommandApproval(
     }
     if (row) {
       if (row.status === "approved") {
+        ack();
         const via = row.decision === "always" ? "always" : "allow";
         return { allowed: true, via, reason: via === "always" ? "Always allowed by the user" : "Allowed by the user", ...(row.note ? { note: row.note } : {}) };
       }
       if (row.status === "rejected") {
+        ack();
         return { allowed: false, via: "deny", reason: "Denied by the user", ...(row.note ? { note: row.note } : {}) };
       }
       if (row.status === "cancelled") {
         return { allowed: false, via: "cancelled", reason: row.note ?? "Approval was cancelled" };
       }
-      if (row.taskStatus === "paused") return giveUp("paused", "Task paused while the command waited for approval");
+      // taskStatus "paused": keep waiting (see the header). Not a give-up.
       if (row.taskStatus && ["done", "failed", "rejected", "cancelled"].includes(row.taskStatus)) {
         return giveUp("cancelled", `Task is ${row.taskStatus}`);
       }

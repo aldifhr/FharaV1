@@ -41,6 +41,7 @@ import {
   executionStatus,
 } from "./schema";
 import { taskBranchPrefixes } from "./lib/taskBranch";
+import { consumeTaskSignals, RESUMABLE_APPROVAL_KINDS } from "./taskSignals";
 
 const DEFAULT_LEASE_MS = 60_000;
 
@@ -97,9 +98,12 @@ function monotonicSubtaskStatus(
  * another worker claimed it) keeps running locally, so its writes must be
  * refused instead of interleaving with the new owner's.
  *
- * `workerId` is optional for backwards compatibility with legacy callers;
- * when absent the write is treated as an orchestrator/offline write and is
- * allowed.
+ * Strict (adopted from convex-durable-agents' lockId fencing): a write
+ * with NO `workerId` is refused (every worker path sends one through
+ * WorkerApi), and so is a write from a lease that has lapsed, even the
+ * owner's own: once `leaseExpiresAt` passes, recovery may hand the task to
+ * someone else at any moment, so the old owner must stop until its next
+ * heartbeat renews the lease. A displaced writer is always refused.
  *
  * A task with NO owner (`workerId` cleared by recoverStale's requeue, by a
  * user cancel, or by requestApproval) is not a free-for-all: a worker that
@@ -113,14 +117,12 @@ export async function holdsTaskLease(
   workerId: string | undefined,
   options: { allowUnowned?: boolean } = {}
 ): Promise<boolean> {
-  if (!workerId) return true;
+  if (!workerId) return false;
   const task = await ctx.db.get(taskId);
   if (!task) return false;
   if (!task.workerId) return options.allowUnowned === true;
-  if (task.workerId === workerId) return true;
-  // The current owner's lease already lapsed: the displaced writer may
-  // settle it (the task will be recovered or failed separately).
-  return (task.leaseExpiresAt ?? 0) < Date.now();
+  if (task.workerId !== workerId) return false;
+  return (task.leaseExpiresAt ?? 0) >= Date.now();
 }
 
 const LEASE_LOST_ERROR = "Lease lost: this task is no longer owned by this worker";
@@ -315,6 +317,8 @@ export const claimNextTask = internalMutation({
       payload: { workerId: args.workerId },
       level: "info",
     });
+    // A requeue woken by a signal (plan approval) is delivered by this claim.
+    await consumeTaskSignals(ctx, task._id, "approval", args.workerId);
     return { ...task, status: "running", workerId: args.workerId, leaseExpiresAt: now + leaseMs };
   },
 });
@@ -390,6 +394,23 @@ export const heartbeat = internalMutation({
       }
     }
 
+    // Lease loss (convex-orchestrator's claimState.lost, re-implemented):
+    // a task the worker says it is running but no longer owns, because
+    // recovery requeued it or another worker claimed it. The worker aborts
+    // those runs. A task the run parked itself (needs_approval / paused /
+    // waiting_input with no owner) or that ended is not "lost".
+    const lostTaskIds: string[] = [];
+    for (const rawId of args.activeTaskIds ?? []) {
+      const id = ctx.db.normalizeId("tasks", rawId);
+      const task = id ? await ctx.db.get(id) : null;
+      if (!task) {
+        lostTaskIds.push(rawId);
+        continue;
+      }
+      if (task.workerId && task.workerId !== args.workerId) lostTaskIds.push(rawId);
+      else if (!task.workerId && (task.status === "queued" || task.status === "running")) lostTaskIds.push(rawId);
+    }
+
     for (const status of ["running", "queued"] as const) {
       const executions = await ctx.db
         .query("executions")
@@ -402,7 +423,7 @@ export const heartbeat = internalMutation({
         await ctx.db.patch(execution._id, { leaseExpiresAt: now + leaseMs });
       }
     }
-    return { now, renewedTasks };
+    return { now, renewedTasks, lostTaskIds };
   },
 });
 
@@ -634,6 +655,60 @@ export const recoverStale = internalMutation({
       .take(RECOVERY_BATCH);
     for (const worker of staleWorkers) {
       await ctx.db.patch(worker._id, { status: "offline", activeTasks: 0 });
+    }
+
+    // An approval resume claim whose worker died: the task is still
+    // needs_approval, its claim consumed the signal, and recovery above only
+    // looks at running. Release the dead claim and re-signal so any worker
+    // resumes it (the approvals are still resolved).
+    const deadResumes = await ctx.db
+      .query("tasks")
+      .withIndex("by_status_and_lease", (q) =>
+        q.eq("status", "needs_approval").gt("leaseExpiresAt", 0).lt("leaseExpiresAt", now)
+      )
+      .take(RECOVERY_BATCH);
+    for (const task of deadResumes) {
+      if (!task.workerId) continue;
+      await ctx.db.patch(task._id, { workerId: undefined, leaseExpiresAt: undefined, updatedAt: now });
+      const resolved = (
+        await ctx.db
+          .query("approvals")
+          .withIndex("by_task", (q) => q.eq("taskId", task._id))
+          .collect()
+      ).filter((a) => RESUMABLE_APPROVAL_KINDS.has(a.kind) && (a.status === "approved" || a.status === "rejected"));
+      const latest = resolved.sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0))[0];
+      if (latest) {
+        await ctx.db.insert("taskSignals", {
+          taskId: task._id,
+          projectId: task.projectId,
+          name: "approval",
+          approvalId: latest._id,
+          approvalKind: latest.kind,
+          decision: latest.status === "approved" ? "approved" : "rejected",
+          createdAt: now,
+        });
+      }
+      await ctx.db.insert("taskEvents", {
+        taskId: task._id,
+        projectId: task.projectId,
+        type: "task.recovered",
+        payload: { action: "resignalled", reason: "resume_claim_lease_expired", workerId: task.workerId },
+        level: "warn",
+      });
+      recovered.push(task._id);
+    }
+
+    // Approval signals whose task left needs_approval some other way
+    // (cancelled, failed, retried) would otherwise sit at the head of the
+    // resumable scan forever. Consume them as stale.
+    const openSignals = await ctx.db
+      .query("taskSignals")
+      .withIndex("by_name_and_consumed", (q) => q.eq("name", "approval").eq("consumedAt", undefined))
+      .take(RECOVERY_BATCH);
+    for (const signal of openSignals) {
+      const task = await ctx.db.get(signal.taskId);
+      if (task && (task.status === "needs_approval" || task.status === "queued")) continue;
+      await ctx.db.patch(signal._id, { consumedAt: now, consumedBy: "stale" });
     }
 
     return { recoveredTasks: recovered.length, recoveredExecutions };
@@ -1457,10 +1532,14 @@ export const claimResumableTask = internalMutation({
   handler: async (ctx, args) => {
     const task = await ctx.db.get(args.taskId);
     if (!task || task.status !== "needs_approval") return null;
+    // A user pause on a parked task only records intent; it holds here.
+    if (task.pausedBy) return null;
     const now = Date.now();
     if (task.workerId && task.workerId !== args.workerId && (task.leaseExpiresAt ?? 0) >= now) {
       return null;
     }
+    // Delivering the wake-up: consume the task's approval signals.
+    await consumeTaskSignals(ctx, task._id, "approval", args.workerId);
     const leaseExpiresAt = now + (args.leaseMs ?? DEFAULT_LEASE_MS);
     await ctx.db.patch(task._id, { workerId: args.workerId, leaseExpiresAt, updatedAt: now });
     await ctx.db.insert("taskEvents", {
@@ -1477,13 +1556,23 @@ export const claimResumableTask = internalMutation({
 export const getResumableTasks = internalQuery({
   args: {},
   handler: async (ctx) => {
-    // Polled every ~1.5 s per worker: bounded (core M6). The oldest
-    // waiting tasks come first so none starves behind newer ones.
-    const tasks = await ctx.db
-      .query("tasks")
-      .withIndex("by_status", (q) => q.eq("status", "needs_approval"))
+    // Durable signals: only tasks an approve/reject signalled are
+    // candidates, read through the unconsumed-signal index (oldest first),
+    // instead of scanning every parked task and letting the worker filter.
+    const signals = await ctx.db
+      .query("taskSignals")
+      .withIndex("by_name_and_consumed", (q) => q.eq("name", "approval").eq("consumedAt", undefined))
       .order("asc")
       .take(RESUMABLE_SCAN_LIMIT);
+    const seen = new Set<string>();
+    const tasks: Doc<"tasks">[] = [];
+    for (const signal of signals) {
+      if (seen.has(signal.taskId)) continue;
+      seen.add(signal.taskId);
+      const task = await ctx.db.get(signal.taskId);
+      if (!task || task.status !== "needs_approval" || task.pausedBy) continue;
+      tasks.push(task);
+    }
     const results = [];
     for (const task of tasks) {
       const approvals = await ctx.db
@@ -1723,6 +1812,13 @@ export const setTaskStatus = internalMutation({
       task.status !== args.status
     ) {
       return false;
+    }
+    // A pause the user recorded while the task was parked on an approval
+    // (taskControl.pause) takes effect when the resumed run leaves the
+    // park: it drains as a paused task instead of running on.
+    if (args.status === "running" && task.status === "needs_approval" && task.pausedBy) {
+      await ctx.db.patch(args.taskId, { status: "paused", updatedAt: Date.now() });
+      return true;
     }
     await ctx.db.patch(args.taskId, { status: args.status, updatedAt: Date.now() });
     return true;

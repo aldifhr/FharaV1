@@ -16,6 +16,8 @@ async function setup(permissionMode?: "supervised" | "auto_edits" | "full_access
       title: "Do work",
       command: "do it",
       status: "running",
+      workerId: "w1",
+      leaseExpiresAt: Date.now() + 60_000,
       ...(permissionMode ? { permissionMode } : {}),
     });
     return { projectId, taskId };
@@ -26,6 +28,7 @@ async function setup(permissionMode?: "supervised" | "auto_edits" | "full_access
 const request = (projectId: any, taskId: any, kind: "apply_changes" | "git_push" = "apply_changes") => ({
   taskId,
   projectId,
+  workerId: "w1",
   kind,
   summary: "Apply verification fix (1 file(s)): src/a.ts",
   payload: { filePaths: ["src/a.ts"] },

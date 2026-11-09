@@ -22,10 +22,11 @@ import {
   type SpawnImpl,
 } from "./nativeProvider";
 import type { SharedTaskContext } from "@/orchestrator/taskContext";
-import { extractFileHint, parseDelegation, parseDraft, parseReview, sanitizeForChat, type DraftFile } from "@/utils/json";
+import { extractFileHint, parseDelegation, parseReview, sanitizeForChat, type DraftFile } from "@/utils/json";
 import { classifyToolCalls, parseToolCallMarkup, stripToolCallMarkup } from "@/utils/toolCallMarkup";
+import { diagnoseDraftParse, parseDraftLenient, type DraftFormat } from "@/utils/draftLenient";
 import { tmpdir } from "node:os";
-import { validateFilePath } from "@/governance/tools";
+import { maskStringSecrets, validateFilePath } from "@/governance/tools";
 import { isPathWithinOwnership } from "@/orchestrator/ownership";
 import {
   computeDiff,
@@ -332,19 +333,62 @@ export function parseCodeChangeAnswer(content: string): {
   draft: { files: DraftFile[] } | null;
   readPaths: string[];
   hadMarkup: boolean;
+  /** Which format the draft came from (null when none parsed). */
+  format: DraftFormat | "tool-calls" | null;
 } {
   const markup = parseToolCallMarkup(content);
   const { files, readPaths } = classifyToolCalls(markup.calls);
-  let draft = parseDraft(markup.hadMarkup ? markup.stripped : content);
-  if (!draft && markup.hadMarkup) draft = parseDraft(content);
+  // Strict JSON first, then the lenient fallbacks (file blocks, repaired
+  // JSON): a slow model's large answer often breaks on JSON escaping.
+  let parsed = parseDraftLenient(markup.hadMarkup ? markup.stripped : content);
+  if (!parsed.draft && markup.hadMarkup) parsed = parseDraftLenient(content);
+  let draft = parsed.draft;
+  let format: DraftFormat | "tool-calls" | null = parsed.format;
   if (draft && files.length > 0) {
     const byPath = new Map(draft.files.map((file) => [file.filePath, file]));
     for (const file of files) if (!byPath.has(file.filePath)) byPath.set(file.filePath, file);
     draft = { files: Array.from(byPath.values()) };
   } else if (!draft && files.length > 0) {
     draft = { files };
+    format = "tool-calls";
   }
-  return { draft, readPaths, hadMarkup: markup.hadMarkup };
+  return { draft, readPaths, hadMarkup: markup.hadMarkup, format };
+}
+
+/** Max characters of an invalid answer handed to the cheap repair retry. */
+const REPAIR_MAX_ANSWER_CHARS = 120_000;
+
+/**
+ * Prompt for the cheap "repair" retry: only the previous invalid answer,
+ * no repository context, asking for the file-block format (no escaping).
+ */
+export function buildRepairPrompt(previousAnswer: string): string {
+  return [
+    "The answer below was meant to list complete file contents, but it could not be parsed.",
+    "Reformat it WITHOUT changing any code into this exact format, one block per file:",
+    "",
+    "FILE: relative/path/to/file.ext",
+    "````",
+    "<the complete file content, verbatim, no escaping>",
+    "````",
+    "",
+    "Rules: use a four-backtick fence; one FILE block per file; no JSON; no commentary.",
+    "If a file's content is cut off in the answer, omit that file.",
+    "",
+    "Answer to reformat:",
+    "<<<ANSWER",
+    previousAnswer.slice(0, REPAIR_MAX_ANSWER_CHARS),
+    "ANSWER>>>",
+  ].join("\n");
+}
+
+/** Scrubbed head of an unparseable answer, for the task events. */
+export function invalidAnswerEvent(content: string): { parseError: string; answerChars: number; answerHead: string } {
+  return {
+    parseError: diagnoseDraftParse(content),
+    answerChars: content.length,
+    answerHead: maskStringSecrets(content.slice(0, 2048)),
+  };
 }
 
 /** git merge-file -p base/ours/theirs: merged text, or null on conflict/error. */
@@ -861,20 +905,28 @@ async function executeCodeChange(
     ...(staged ? ["", staged] : []),
     "",
     "You cannot call tools or read more files: everything available is above. Do not emit tool calls.",
-    "Return JSON only with the files you want to change:",
+    "Return the files you want to change in ONE of these two formats.",
+    "",
+    "Format A (JSON):",
     '{"files":[{"filePath":"relative/path","newContent":"FULL file content"}]}',
     "",
-    "You may add these optional top-level fields to the same JSON object:",
+    "Format B (file blocks) — RECOMMENDED for large files or code with many quotes/backslashes, since nothing needs JSON escaping:",
+    "FILE: relative/path/to/file.ext",
+    "````",
+    "<complete file content, verbatim>",
+    "````",
+    "(one FILE block per file; use a four-backtick fence so ``` inside the file is safe; no other text.)",
+    "",
+    "With Format A you may add these optional top-level fields to the same JSON object (with Format B, append them as one JSON object after the last block):",
     input.qaMode === "never"
       ? '- "delegationRecommendation":{"targetCapability":"...","reason":"..."} when another capability should take over after you (never browser-testing: browser QA is disabled by policy).'
       : '- "delegationRecommendation":{"targetCapability":"...","reason":"..."} when another capability should take over after you (e.g. browser-testing for QA).',
     '- "findings":["short description", ...] for concrete problems you noticed but did not fix.',
     "",
     "STRICT FORMAT RULES:",
-    "- Use exactly the keys \"filePath\" and \"newContent\" (camelCase) on every entry.",
-    "- Do NOT use keys like \"path\", \"filename\", \"newText\", or \"content\".",
-    "- Return the raw JSON object only. No explanation, no markdown fences, no commentary.",
-    "- Set newContent to the complete file after your change, not a diff or patch.",
+    "- Format A: use exactly the keys \"filePath\" and \"newContent\" (camelCase) on every entry; not \"path\", \"filename\", \"newText\", or \"content\".",
+    "- Format A: return the raw JSON object only. No explanation, no markdown fences, no commentary.",
+    "- Either format: give the complete file after your change, not a diff or patch.",
     "- If no files need changing, return exactly {\"files\":[]}.",
     "",
     "Rules:",
@@ -916,32 +968,92 @@ async function executeCodeChange(
       draftFromMarkup: draft !== null,
     }, "warn");
   }
+  if (parsedAnswer.draft && parsedAnswer.format && parsedAnswer.format !== "json") {
+    await onEvent("agent.context", { capability: subtask.capability, answerFormat: parsedAnswer.format });
+  }
+  if (!draft && !parsedAnswer.hadMarkup && stripToolCallMarkup(response.content).trim() !== "") {
+    // Make the cause visible next time: scrubbed head of the answer + parse error.
+    await onEvent(
+      "agent.context",
+      { capability: subtask.capability, reason: "invalid-file-changes-json", attempt: 1, ...invalidAnswerEvent(response.content) },
+      "warn"
+    );
+  }
   if (!draft) {
     // The retry is a full second call: start it only when the subtask has
     // time left for one (as long as the first call took, plus margin).
     // Otherwise the scheduler would kill it mid-flight and report a
     // timeout that hides the real problem (invalid JSON).
     const retryCheck = canAffordRetry(input.deadlineAt, firstCallMs);
+    const previousAnswer = stripToolCallMarkup(response.content).trim();
     if (!retryCheck.ok) {
+      // Not enough time for a full retry: a cheap "repair" call that only
+      // reformats the previous answer (no repo context), bounded by the
+      // time left. Only worth it when the answer carried content.
+      const canRepair =
+        !parsedAnswer.hadMarkup && previousAnswer.length > 0 && retryCheck.remainingMs >= MIN_RETRY_WINDOW_MS;
       await onEvent(
         "agent.context",
         {
           capability: subtask.capability,
-          retry: false,
+          retry: canRepair ? "repair" : false,
           reason: "invalid-file-changes-json",
-          skipped: "insufficient-time",
+          ...(canRepair ? {} : { skipped: "insufficient-time" }),
           remainingMs: retryCheck.remainingMs,
           firstCallMs,
         },
         "warn"
       );
-      return {
-        status: "failed",
-        error: `The implementation agent did not return valid file changes JSON (retry skipped: ${Math.round(
-          retryCheck.remainingMs / 1000
-        )}s left in the subtask, the first call took ${Math.round(firstCallMs / 1000)}s)`,
-      };
+      if (canRepair) {
+        input.assertBudgetForCall?.();
+        try {
+          ({ result: response, servedBy } = await runLlmCallWithFallback(
+            [servedBy],
+            [
+              { role: "system" as const, content: "You reformat answers into the requested file-block format. Never change code." },
+              { role: "user" as const, content: buildRepairPrompt(previousAnswer) },
+            ],
+            { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
+          ));
+          if (input.onTokenUsage) {
+            await input.onTokenUsage(
+              response.inputTokens ?? 0,
+              response.outputTokens ?? 0,
+              servedBy.config.model,
+              usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0)
+            );
+          }
+          parsedAnswer = parseCodeChangeAnswer(response.content);
+          draft = parsedAnswer.draft;
+        } catch (error) {
+          if (isBudgetExhaustedError(error) || input.signal.aborted) throw error;
+          await onEvent(
+            "agent.context",
+            { capability: subtask.capability, retry: "repair", failed: maskStringSecrets(String((error as Error)?.message ?? error)).slice(0, 300) },
+            "warn"
+          );
+        }
+        if (draft) {
+          await onEvent("agent.context", { capability: subtask.capability, repaired: true, answerFormat: parsedAnswer.format });
+        } else {
+          await onEvent(
+            "agent.context",
+            { capability: subtask.capability, reason: "invalid-file-changes-json", attempt: "repair", ...invalidAnswerEvent(response.content) },
+            "warn"
+          );
+        }
+      }
+      if (!draft) {
+        return {
+          status: "failed",
+          error: `The implementation agent did not return valid file changes JSON (full retry skipped: ${Math.round(
+            retryCheck.remainingMs / 1000
+          )}s left in the subtask, the first call took ${Math.round(firstCallMs / 1000)}s${canRepair ? "; repair retry failed" : ""})`,
+        };
+      }
     }
+  }
+  if (!draft) {
     await onEvent("agent.context", {
       capability: subtask.capability,
       retry: true,
@@ -957,8 +1069,8 @@ async function executeCodeChange(
     const requested = await requestedFilesContext(workspacePath, response.content, input.fileChanges, parsedAnswer.readPaths);
     const previous = stripToolCallMarkup(response.content).slice(0, 2000);
     const retryNote = parsedAnswer.hadMarkup
-      ? "Your previous response was a tool call. Tools are NOT available here: the files you asked for are included above. Return ONLY the file-changes JSON object now."
-      : "Your previous response was not a valid file-changes JSON object. Return ONLY the JSON object again.";
+      ? "Your previous response was a tool call. Tools are NOT available here: the files you asked for are included above. Return ONLY the file changes now (Format A JSON or Format B file blocks)."
+      : "Your previous response could not be parsed. Return the files again, preferably in Format B (FILE: path + four-backtick fenced full content, no JSON escaping), with no other text.";
     ({ result: response, servedBy } = await runLlmCallWithFallback(
       [servedBy],
       baseMessages(
@@ -977,6 +1089,13 @@ async function executeCodeChange(
     }
     parsedAnswer = parseCodeChangeAnswer(response.content);
     draft = parsedAnswer.draft;
+    if (!draft && stripToolCallMarkup(response.content).trim() !== "") {
+      await onEvent(
+        "agent.context",
+        { capability: subtask.capability, reason: "invalid-file-changes-json", attempt: 2, ...invalidAnswerEvent(response.content) },
+        "warn"
+      );
+    }
   }
   if (!draft) {
     if (stripToolCallMarkup(response.content).trim() === "" && parsedAnswer.readPaths.length === 0) {

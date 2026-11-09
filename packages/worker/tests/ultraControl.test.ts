@@ -178,6 +178,39 @@ describe("(b) invalid-JSON retry checks the remaining subtask time", () => {
     expect(events.some((e) => e.skipped === "insufficient-time")).toBe(true);
   });
 
+  it("does a cheap repair retry (previous answer only) when a full retry does not fit", async () => {
+    const realNow = Date.now.bind(Date);
+    let offset = 0;
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => realNow() + offset);
+    try {
+      const prompts: string[] = [];
+      const provider: LLMProvider = {
+        complete: async (messages) => {
+          const user = messages.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+          prompts.push(user);
+          if (prompts.length === 1) {
+            offset += 100_000; // a slow first call (100s)
+            return { content: 'Sure! {"files":[{"filePath":"src/hello.ts","newContent":"export const hello = "two";\n' };
+          }
+          return { content: "FILE: src/hello.ts\n````ts\nexport const hello = 2;\n````\n" };
+        },
+      };
+      const events: Array<Record<string, unknown>> = [];
+      const result = await executeSubtask(input(provider, Date.now() + 140_000, events));
+      expect(prompts).toHaveLength(2);
+      expect(prompts[1]).toContain("Answer to reformat");
+      expect(prompts[1]).not.toContain("Repository context");
+      expect(events.some((e) => e.retry === "repair")).toBe(true);
+      expect(events.some((e) => e.repaired === true && e.answerFormat === "file-blocks")).toBe(true);
+      const invalid = events.find((e) => e.reason === "invalid-file-changes-json" && e.attempt === 1);
+      expect(String(invalid?.answerHead)).toContain("Sure!");
+      expect(String(invalid?.parseError)).toMatch(/not closed|JSON/);
+      expect(result.status).toBe("completed");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("still retries once when there is time", async () => {
     let n = 0;
     const provider: LLMProvider = {
@@ -207,8 +240,8 @@ describe("(c) subtask timeout is configurable and larger for high/ultra", () => 
     expect(policy.subtaskTimeoutMs).toBe(300_000);
     expect(policyForComplexity(policy, "low").subtaskTimeoutMs).toBe(300_000);
     expect(policyForComplexity(policy, "medium").subtaskTimeoutMs).toBe(300_000);
-    expect(policyForComplexity(policy, "high").subtaskTimeoutMs).toBe(600_000);
-    expect(policyForComplexity(policy, "ultra").subtaskTimeoutMs).toBe(600_000);
+    expect(policyForComplexity(policy, "high").subtaskTimeoutMs).toBe(900_000);
+    expect(policyForComplexity(policy, "ultra").subtaskTimeoutMs).toBe(900_000);
     expect(policyForComplexity(policy, "ultra").taskTimeoutMs).toBe(40 * 60_000);
     process.env.ORCHESTRATOR_SUBTASK_TIMEOUT_HIGH_MS = "1200000";
     expect(policyForComplexity(loadPolicy(), "ultra").subtaskTimeoutMs).toBe(1_200_000);

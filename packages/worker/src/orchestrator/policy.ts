@@ -217,7 +217,8 @@ export function loadPolicy(): ExecutionPolicy {
     subtaskTimeoutMs: intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", 300_000, 30_000, 3_600_000),
     subtaskTimeoutMsHigh: intFromEnv(
       "ORCHESTRATOR_SUBTASK_TIMEOUT_HIGH_MS",
-      Math.max(600_000, intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", 300_000, 30_000, 3_600_000)),
+      // 900s: one slow call (~280s on longcat) plus a full retry must fit.
+      Math.max(900_000, intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", 300_000, 30_000, 3_600_000)),
       30_000,
       3_600_000
     ),

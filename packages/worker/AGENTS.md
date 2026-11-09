@@ -134,6 +134,42 @@ import backend internals.
 - Provider-health reports are best-effort: a failed report must never fail the
   provider call.
 
+## OpenCode runtime
+
+Subtasks run on one of two runtimes (`execution/nativeProvider.ts`,
+`agentExecutor.ts` → `executeNativeProvider`):
+
+- `api` (default): the agent's LLM drives MOAgent's own host tools.
+- OpenCode (`native-provider`): `opencode run --format json --auto [-m model]
+  <message> -f prompt.md` runs in the task worktree with OpenCode's own tools.
+
+Selection: the agent row's `executionRuntime` (`api` | `opencode`, edited in the
+web agent form) overrides the global `ORCHESTRATOR_EXECUTION_RUNTIME`
+(`resolveExecutionRuntime`). QA and review nodes always use the API path. When
+the CLI is missing (availability is probed once per process), the subtask falls
+back to the API path with a `native.runtime.unavailable` warning.
+
+Model: the agent's `opencodeModel` (`provider/model`) is passed as `-m` and uses
+OpenCode's own credentials. Without it, a temporary `OPENCODE_CONFIG` (0600,
+deleted after the run) defines a `moagent` provider (`@ai-sdk/openai-compatible`
+or `@ai-sdk/anthropic`) on the agent's resolved MOAgent LLM, and the run is
+pinned to `moagent/<model>`. The key is referenced as
+`{env:MOAGENT_OPENCODE_API_KEY}` and passed only in the child env — never in
+argv, the config file, events, or logs (outputs are redacted).
+
+Safety: the generated config denies `external_directory`, `question`, `.env`
+reads, and `git push`/`git remote`. The run is pinned to the worktree with
+`--dir` and `PWD` (OpenCode prefers `$PWD` over the spawn cwd). stdin is closed
+(an open pipe makes `opencode run` hang). The run has a wall-clock limit
+(`ORCHESTRATOR_NATIVE_TIMEOUT_MS`, default 10 min); timeout or abort kills the
+whole process tree. Afterwards every changed path is gated: in-scope changes of
+`code_change`/`shell` subtasks are staged through the normal diff/approval
+pipeline (deletions included); forbidden paths, paths outside `allowedPaths`,
+and any write by a read-only subtask are reverted to their pre-run content
+(`native.change.rejected`). Events: `native.run.started`, `native.tool`
+(tool name/status/target only), `native.run.finished` (tokens, exit, timeout);
+text streams through `onChunk`.
+
 ## Environment
 
 | Variable | Default | Meaning |
@@ -162,6 +198,9 @@ import backend internals.
 | `ORCHESTRATOR_MCP_TIMEOUT_MS` | `30000` | Per-MCP-request timeout; a hung server is killed |
 | `ORCHESTRATOR_MCP_MAX_RESULT_CHARS` | `8000` | Cap on a tool result before it reaches the LLM |
 | `WORKER_LLM_MAX_CONCURRENCY` | from policy | Worker-wide LLM gate (set once) |
+| `ORCHESTRATOR_EXECUTION_RUNTIME` | `api` | Global runtime default: `api` or `opencode` (alias `native-provider`); legacy `ORCHESTRATOR_RUNTIME` still read. A per-agent `executionRuntime` overrides it |
+| `ORCHESTRATOR_NATIVE_PROVIDER_COMMAND` | `opencode` | OpenCode CLI binary |
+| `ORCHESTRATOR_NATIVE_TIMEOUT_MS` | `600000` | Wall-clock limit per OpenCode run; the process tree is killed on expiry |
 
 The worker loads the root `.env` (`../../.env` from `packages/worker`).
 

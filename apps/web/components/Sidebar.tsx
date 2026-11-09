@@ -104,6 +104,9 @@ export default function Sidebar({
   const [agentLlmFallbackProviderId, setAgentLlmFallbackProviderId] = useState("");
   const [agentLlmFallbackModelId, setAgentLlmFallbackModelId] = useState("");
   const [agentLlmPolicy, setAgentLlmPolicy] = useState("");
+  // Execution runtime: "" = worker default, "api" | "opencode" override.
+  const [agentRuntime, setAgentRuntime] = useState("");
+  const [agentOpencodeModel, setAgentOpencodeModel] = useState("");
   const [agentError, setAgentError] = useState("");
   const [savingAgent, setSavingAgent] = useState(false);
   const [avatarSeed, setAvatarSeed] = useState<AvatartionAvatar | null>(null);
@@ -214,6 +217,8 @@ export default function Sidebar({
       setAgentLlmFallbackProviderId(agent.llmFallbackProviderId ?? "");
       setAgentLlmFallbackModelId(agent.llmFallbackModelId ?? "");
       setAgentLlmPolicy(agent.llmSelectionPolicy ?? "");
+      setAgentRuntime(agent.executionRuntime ?? "");
+      setAgentOpencodeModel(agent.opencodeModel ?? "");
       setAvatarSeed(null);
   }
 
@@ -248,6 +253,9 @@ export default function Sidebar({
           llmFallbackProviderId: (agentLlmFallbackProviderId || null) as never,
           llmFallbackModelId: (agentLlmFallbackModelId || null) as never,
           llmSelectionPolicy: (agentLlmPolicy || null) as never,
+          // Runtime: a value sets it, null clears it (worker default).
+          executionRuntime: (agentRuntime || null) as never,
+          opencodeModel: agentOpencodeModel.trim() || null,
           ...(avatarSeed
             ? {
                 avatarParams: {
@@ -825,6 +833,24 @@ export default function Sidebar({
               </div>
               <p className="text-xs text-gray-400">
                 The resolver tries this assignment first, then its fallback, then the model pool. Connections with an open circuit (3x transient failures, 60s cooldown) are skipped automatically.
+              </p>
+            </fieldset>
+            <fieldset className="grid gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+              <legend className="px-1 text-xs font-semibold text-gray-500">Runtime <span className="font-normal text-gray-400">(optional — empty = worker default)</span></legend>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-sm">Execution runtime
+                  <select value={agentRuntime} onChange={(event) => setAgentRuntime(event.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
+                    <option value="">Default (worker setting)</option>
+                    <option value="api">API — MOAgent host tools</option>
+                    <option value="opencode">OpenCode — native CLI in the task worktree</option>
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm">OpenCode model <span className="text-gray-400">(optional)</span>
+                  <input value={agentOpencodeModel} onChange={(event) => setAgentOpencodeModel(event.target.value)} disabled={agentRuntime !== "opencode"} placeholder="provider/model" className="rounded-lg border border-gray-300 px-3 py-2 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800" />
+                </label>
+              </div>
+              <p className="text-xs text-gray-400">
+                OpenCode runs its own tools inside the task worktree; changes still go through the staging gate and approval. Without a model it uses the same LLM as the rest of MOAgent. QA and review always run on the API runtime.
               </p>
             </fieldset>
             <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 p-3 dark:border-gray-700">

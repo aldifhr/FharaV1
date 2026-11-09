@@ -299,6 +299,10 @@ export const update = mutation({
     llmSelectionPolicy: v.optional(
       v.union(v.literal("fixed"), v.literal("priority"), v.literal("weighted"), v.null())
     ),
+    // Execution runtime: a value sets it, null clears it (global default),
+    // omit leaves it as-is. Same contract for the OpenCode model.
+    executionRuntime: v.optional(v.union(v.literal("api"), v.literal("opencode"), v.null())),
+    opencodeModel: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     // Same authz choke point as the other modules (authz.assertAgentAccess):
@@ -345,9 +349,29 @@ export const update = mutation({
       ...(args.llmSelectionPolicy !== undefined
         ? { llmSelectionPolicy: args.llmSelectionPolicy ?? undefined }
         : {}),
+      ...(args.executionRuntime !== undefined
+        ? { executionRuntime: args.executionRuntime ?? undefined }
+        : {}),
+      ...(args.opencodeModel !== undefined
+        ? { opencodeModel: normalizeOpencodeModel(args.opencodeModel) }
+        : {}),
     });
   },
 });
+
+/**
+ * OpenCode model ids are `provider/model` (the model part may itself hold
+ * slashes, e.g. `openrouter/anthropic/claude`). Empty/null clears it.
+ * Exported for tests.
+ */
+export function normalizeOpencodeModel(value: string | null): string | undefined {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length > 200 || !/^[A-Za-z0-9._-]+\/[^\s]+$/.test(trimmed)) {
+    throw new Error('OpenCode model must look like "provider/model"');
+  }
+  return trimmed;
+}
 
 export const remove = mutation({
   args: { agentId: v.id("agents") },

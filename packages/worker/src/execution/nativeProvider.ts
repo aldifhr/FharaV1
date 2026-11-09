@@ -5,17 +5,46 @@ import * as path from "node:path";
 
 /**
  * Provider-native runtime (plan 014): executes a subtask through a
- * provider CLI (OpenCode/ACP-compatible) running its own native tools
- * inside the task workspace. Returns structured output + usage for
- * observability. Provider sessions are per-call processes here — no
- * long-lived session id to persist yet.
+ * provider CLI (OpenCode) running its own native tools inside the task
+ * workspace. Returns structured output + usage for observability.
+ * Provider sessions are per-call processes — no long-lived session id.
+ *
+ * OpenCode specifics (opencode-ai 1.x, `opencode run`):
+ *  - `--format json` streams one JSON event per line (`text`, `tool_use`,
+ *    `step_start`, `step_finish` with `part.tokens`, `error`). Plain-text
+ *    output is still accepted as a fallback.
+ *  - A temporary config (OPENCODE_CONFIG, 0600, deleted after the run)
+ *    carries the safety permissions and — when the agent has no explicit
+ *    OpenCode model — a custom provider pointing at MOAgent's own LLM
+ *    endpoint. The API key never lands in argv or in that file: the config
+ *    references `{env:MOAGENT_OPENCODE_API_KEY}` and the key travels only in
+ *    the child's environment.
  */
 
-export interface NativeRunOptions {
-  signal?: AbortSignal;
-  onEvent?: (type: string, payload: Record<string, unknown>, level?: "info" | "warn" | "error") => Promise<void>;
-  onChunk?: (delta: string) => Promise<void>;
-  onMessage?: (text: string) => Promise<void>;
+/** Per-agent runtime choice as stored on the agent row. */
+export type AgentRuntimeChoice = "api" | "opencode";
+/** Runtime the executor actually uses. */
+export type ExecutionRuntime = "api" | "native-provider";
+
+/**
+ * Per-agent runtime overrides the global policy default:
+ * agent "opencode" → native-provider, agent "api" → api, unset → global.
+ */
+export function resolveExecutionRuntime(
+  agent: { executionRuntime?: AgentRuntimeChoice | string | null } | undefined,
+  globalRuntime: ExecutionRuntime | undefined
+): ExecutionRuntime {
+  const choice = agent?.executionRuntime;
+  if (choice === "opencode") return "native-provider";
+  if (choice === "api") return "api";
+  return globalRuntime ?? "api";
+}
+
+/** Global default from env. ORCHESTRATOR_EXECUTION_RUNTIME wins over the
+ *  legacy ORCHESTRATOR_RUNTIME; "opencode" is an alias of "native-provider". */
+export function executionRuntimeFromEnv(env: Record<string, string | undefined> = process.env): ExecutionRuntime {
+  const raw = (env.ORCHESTRATOR_EXECUTION_RUNTIME ?? env.ORCHESTRATOR_RUNTIME ?? "").trim().toLowerCase();
+  return raw === "native-provider" || raw === "opencode" ? "native-provider" : "api";
 }
 
 export interface NativeRunResult {
@@ -25,10 +54,30 @@ export interface NativeRunResult {
   inputTokens: number;
   outputTokens: number;
   rawExitCode?: number;
+  timedOut?: boolean;
+  /** Model the run was pinned to (`provider/model`), when any. */
+  model?: string;
 }
 
 export function nativeProviderCommand(): string {
   return process.env.ORCHESTRATOR_NATIVE_PROVIDER_COMMAND ?? "opencode";
+}
+
+export const DEFAULT_NATIVE_TIMEOUT_MS = 10 * 60 * 1000;
+
+export function nativeTimeoutMs(env: Record<string, string | undefined> = process.env): number {
+  const parsed = Number(env.ORCHESTRATOR_NATIVE_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_NATIVE_TIMEOUT_MS;
+}
+
+export interface SpawnOptions {
+  cwd: string;
+  signal?: AbortSignal;
+  shell?: boolean;
+  /** Full child environment (already merged with process.env). */
+  env?: NodeJS.ProcessEnv;
+  /** Live stdout chunks, for streaming JSON events. */
+  onStdout?: (chunk: string) => void;
 }
 
 /**
@@ -38,7 +87,7 @@ export function nativeProviderCommand(): string {
 export type SpawnImpl = (
   command: string,
   args: string[],
-  options: { cwd: string; signal?: AbortSignal; shell?: boolean }
+  options: SpawnOptions
 ) => Promise<{ stdout: string; stderr: string; code: number | null }>;
 
 /** Short message passed verbatim on the provider CLI argv; the full prompt
@@ -47,34 +96,173 @@ export type SpawnImpl = (
  *  `-f` after: `--file` is an [array] and swallows the positional message
  *  when it comes first (`File not found: <first word>` on opencode 1.x). */
 export const NATIVE_PROMPT_MESSAGE =
-  "Read the attached prompt file and execute the instructions in it. When done, write a short summary: what you changed, files touched, and anything that needs follow-up.";
+  "Read the attached prompt file and execute the instructions in it. The attached file sits in a temporary folder that is NOT the workspace: work only in the current working directory, using relative paths. When done, write a short summary: what you changed, files touched, and anything that needs follow-up.";
 
-/** The argv actually executed (exact-argv construction, no string interpolation). */
-export function nativeArgv(command: string, promptFileArgs: string[]): { command: string; args: string[] } {
-  return { command, args: ["run", ...promptFileArgs] };
+/** Header pinning the workspace for the model: without it, models tend to
+ *  treat the attached prompt file's temp folder as the project (seen in the
+ *  live smoke run) and every write there is denied as external. */
+export function workspaceHeader(workspacePath: string): string {
+  return [
+    `Workspace (your current working directory): ${workspacePath}`,
+    "All reads and writes must stay inside this directory; paths outside it are denied.",
+    "",
+  ].join("\n");
 }
 
-export async function isNativeProviderAvailable(command = nativeProviderCommand()): Promise<boolean> {
+/** Env var the generated config reads the API key from (never argv/file). */
+export const OPENCODE_KEY_ENV = "MOAGENT_OPENCODE_API_KEY";
+/** Provider id of the generated MOAgent LLM provider (`moagent/<model>`). */
+export const OPENCODE_PROVIDER_ID = "moagent";
+
+export interface NativeArgvOptions {
+  /** `provider/model` for `-m`. */
+  model?: string;
+  /** Request `--format json` (default true). */
+  json?: boolean;
+  /** Pass `--auto` so residual "ask" permissions never block (explicit
+   *  deny rules from the generated config still apply). Default true. */
+  auto?: boolean;
+  /** `--dir`: pin OpenCode's project directory explicitly. */
+  dir?: string;
+}
+
+/** The argv actually executed (exact-argv construction, no string interpolation). */
+export function nativeArgv(
+  command: string,
+  promptFileArgs: string[],
+  options: NativeArgvOptions = {}
+): { command: string; args: string[] } {
+  const args = ["run"];
+  if (options.json ?? true) args.push("--format", "json");
+  if (options.auto ?? true) args.push("--auto");
+  if (options.dir) args.push("--dir", options.dir);
+  if (options.model) args.push("-m", options.model);
+  return { command, args: [...args, ...promptFileArgs] };
+}
+
+/** Minimal LLM config shape (matches GlobalLLMConfig in @/llm). */
+export interface NativeLlmConfig {
+  provider: string;
+  model: string;
+  baseUrl: string;
+  apiKey: string;
+}
+
+/**
+ * Safety permissions for every run: the provider must stay inside the
+ * task worktree (`external_directory: deny`), never read env files, never
+ * push, and never block on an interactive question.
+ */
+export const OPENCODE_PERMISSIONS = {
+  external_directory: "deny",
+  question: "deny",
+  read: {
+    "*": "allow",
+    "*.env": "deny",
+    "*.env.*": "deny",
+    "*.env.example": "allow",
+  },
+  bash: {
+    "*": "allow",
+    "git push*": "deny",
+    "git remote*": "deny",
+  },
+} as const;
+
+function providerPackageFor(provider: string): string | null {
+  const p = provider.toLowerCase();
+  if (p === "openai-compatible" || p === "openai") return "@ai-sdk/openai-compatible";
+  if (p === "anthropic") return "@ai-sdk/anthropic";
+  return null;
+}
+
+/**
+ * Build the temporary OpenCode config + the model to pin.
+ *  - explicit `model` (agent's OpenCode model): permissions only, `-m model`;
+ *    OpenCode uses its own credentials for that provider.
+ *  - otherwise, with a usable MOAgent LLM config: a custom provider
+ *    (`moagent`) pointed at that endpoint, `-m moagent/<model>`; the key is
+ *    referenced as `{env:MOAGENT_OPENCODE_API_KEY}` and returned in `env`.
+ *  - otherwise: permissions only, OpenCode's own default model.
+ * The returned `config` never contains key material.
+ */
+export function buildOpencodeConfig(input: { model?: string; llm?: NativeLlmConfig }): {
+  config: Record<string, unknown>;
+  model?: string;
+  env: Record<string, string>;
+} {
+  const config: Record<string, unknown> = {
+    $schema: "https://opencode.ai/config.json",
+    autoupdate: false,
+    share: "disabled",
+    permission: OPENCODE_PERMISSIONS,
+  };
+  const explicit = input.model?.trim();
+  if (explicit) return { config, model: explicit, env: {} };
+  const llm = input.llm;
+  const pkg = llm ? providerPackageFor(llm.provider) : null;
+  if (!llm || !pkg || !llm.baseUrl || !llm.model) return { config, env: {} };
+  config.provider = {
+    [OPENCODE_PROVIDER_ID]: {
+      npm: pkg,
+      name: "MOAgent LLM",
+      options: {
+        baseURL: llm.baseUrl,
+        ...(llm.apiKey ? { apiKey: `{env:${OPENCODE_KEY_ENV}}` } : {}),
+      },
+      models: { [llm.model]: { name: llm.model } },
+    },
+  };
+  const model = `${OPENCODE_PROVIDER_ID}/${llm.model}`;
+  config.model = model;
+  return { config, model, env: llm.apiKey ? { [OPENCODE_KEY_ENV]: llm.apiKey } : {} };
+}
+
+// Availability is checked once per process per command (spawning
+// `--version` per subtask costs ~1s with opencode).
+const availabilityCache = new Map<string, Promise<boolean>>();
+
+export function resetNativeAvailabilityCache(): void {
+  availabilityCache.clear();
+}
+
+export function isNativeProviderAvailable(command = nativeProviderCommand()): Promise<boolean> {
+  const cached = availabilityCache.get(command);
+  if (cached) return cached;
+  const probe = probeAvailability(command);
+  availabilityCache.set(command, probe);
+  return probe;
+}
+
+function probeAvailability(command: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const child = spawn(command, ["--version"], {
-      windowsHide: true,
-      shell: process.platform === "win32",
-      timeout: 10_000,
-    });
+    let child: import("node:child_process").ChildProcess;
+    try {
+      child = spawn(command, ["--version"], {
+        windowsHide: true,
+        shell: process.platform === "win32",
+        stdio: ["ignore", "ignore", "ignore"],
+        timeout: 10_000,
+      });
+    } catch {
+      resolve(false);
+      return;
+    }
     let done = false;
-    const finish = (ok: boolean) => {
-      if (done) return;
-      done = true;
-      resolve(ok);
-    };
-    child.on("error", () => finish(false));
-    child.on("close", (code) => finish(code === 0));
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       try {
         child.kill();
       } catch {}
       finish(false);
     }, 10_000);
+    const finish = (ok: boolean) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    child.on("error", () => finish(false));
+    child.on("close", (code) => finish(code === 0));
   });
 }
 
@@ -93,60 +281,142 @@ export function buildNativePrompt(input: {
     input.priorContext ? `\nPrior context:\n${input.priorContext}` : "",
     input.fileContext ? `\nWorkspace context:\n${input.fileContext}` : "",
     "",
-    "You have full workspace access. Make the changes yourself; do not ask for approval.",
+    "You have full workspace access (the current working directory is the task workspace). Make the changes yourself; do not ask for approval.",
+    "Only touch files inside the current working directory; use relative paths. Do not commit or push.",
     "When done, write a short summary: what you changed, files touched, and anything that needs follow-up.",
   ]
     .filter(Boolean)
     .join("\n");
 }
 
-/** Test helper: render JSON-ish usage fields if the CLI printed them. */
+// ── JSON event parsing ────────────────────────────────────────────────
+
+export type NativeEvent =
+  | { kind: "text"; text: string }
+  | {
+      kind: "tool";
+      tool: string;
+      status: string;
+      title?: string;
+      target?: string;
+      error?: string;
+    }
+  | { kind: "step_finish"; inputTokens: number; outputTokens: number; reason?: string }
+  | { kind: "error"; message: string }
+  | { kind: "other"; type: string };
+
+function num(value: unknown): number {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/**
+ * Parse one `opencode run --format json` line. Returns null for non-JSON
+ * lines (plain-text fallback). Tool events carry only a short target
+ * (file path / command / pattern), never full inputs or outputs.
+ */
+export function parseOpencodeEvent(line: string): NativeEvent | null {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("{")) return null;
+  let raw: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(trimmed);
+    const rec = asRecord(parsed);
+    if (!rec) return null;
+    raw = rec;
+  } catch {
+    return null;
+  }
+  const type = String(raw.type ?? "");
+  const part = asRecord(raw.part);
+  if (type === "text") {
+    const text = typeof part?.text === "string" ? part.text : typeof raw.text === "string" ? raw.text : "";
+    return { kind: "text", text };
+  }
+  if (type === "tool_use" || type === "tool") {
+    const state = asRecord(part?.state) ?? {};
+    const input = asRecord(state.input) ?? {};
+    const targetRaw = input.filePath ?? input.path ?? input.command ?? input.pattern ?? input.url;
+    const target = typeof targetRaw === "string" ? targetRaw.slice(0, 200) : undefined;
+    const errorRaw = state.error;
+    return {
+      kind: "tool",
+      tool: String(part?.tool ?? raw.tool ?? "unknown"),
+      status: String(state.status ?? "unknown"),
+      ...(typeof state.title === "string" ? { title: state.title.slice(0, 200) } : {}),
+      ...(target ? { target } : {}),
+      ...(typeof errorRaw === "string" ? { error: errorRaw.slice(0, 500) } : {}),
+    };
+  }
+  if (type === "step_finish") {
+    const tokens = asRecord(part?.tokens) ?? asRecord(raw.tokens) ?? {};
+    return {
+      kind: "step_finish",
+      inputTokens: num(tokens.input),
+      outputTokens: num(tokens.output) + num(tokens.reasoning),
+      ...(typeof part?.reason === "string" ? { reason: part.reason } : {}),
+    };
+  }
+  if (type === "error") {
+    const error = asRecord(raw.error);
+    const data = asRecord(error?.data);
+    const message =
+      (typeof data?.message === "string" && data.message) ||
+      (typeof error?.message === "string" && error.message) ||
+      (typeof raw.message === "string" && raw.message) ||
+      String(error?.name ?? "Provider error");
+    return { kind: "error", message: message.slice(0, 2000) };
+  }
+  // Legacy/other providers: usage-bearing objects count as a finished step.
+  const usage = asRecord(raw.usage);
+  const tokens = asRecord(raw.tokens);
+  if (usage || tokens) {
+    return {
+      kind: "step_finish",
+      inputTokens: num(usage?.input_tokens ?? usage?.input) + num(tokens?.input ?? tokens?.input_tokens),
+      outputTokens: num(usage?.output_tokens ?? usage?.output) + num(tokens?.output ?? tokens?.output_tokens),
+    };
+  }
+  return { kind: "other", type: type || "unknown" };
+}
+
+/** Token usage summed over every JSON line (legacy + opencode shapes). */
 export function parseNativeUsage(stdout: string): { inputTokens: number; outputTokens: number } {
   let inputTokens = 0;
   let outputTokens = 0;
-  const lines = stdout.split(/\r?\n/);
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const parsed = JSON.parse(trimmed) as Record<string, unknown> | unknown[];
-      const events = Array.isArray(parsed) ? parsed : [parsed];
-      for (const event of events) {
-        if (typeof event === "object" && event !== null) {
-          const usage = (event as Record<string, unknown>).usage as Record<string, unknown> | undefined;
-          if (usage && typeof usage === "object") {
-            const inTok = Number(usage.input_tokens ?? usage.input ?? 0);
-            const outTok = Number(usage.output_tokens ?? usage.output ?? 0);
-            if (Number.isFinite(inTok)) inputTokens += inTok;
-            if (Number.isFinite(outTok)) outputTokens += outTok;
-          }
-          const tokens = (event as Record<string, unknown>).tokens as Record<string, unknown> | undefined;
-          if (tokens && typeof tokens === "object") {
-            const inTok = Number(tokens.input ?? tokens.input_tokens ?? 0);
-            const outTok = Number(tokens.output ?? tokens.output_tokens ?? 0);
-            if (Number.isFinite(inTok)) inputTokens += inTok;
-            if (Number.isFinite(outTok)) outputTokens += outTok;
-          }
-        }
-      }
-    } catch {
-      // Not JSONL output; ignore.
+  for (const line of stdout.split(/\r?\n/)) {
+    const event = parseOpencodeEvent(line);
+    if (event?.kind === "step_finish") {
+      inputTokens += event.inputTokens;
+      outputTokens += event.outputTokens;
     }
   }
   return { inputTokens, outputTokens };
 }
 
+// ── process handling ──────────────────────────────────────────────────
+
 async function defaultSpawn(
   command: string,
   args: string[],
-  options: { cwd: string; signal?: AbortSignal; shell?: boolean }
+  options: SpawnOptions
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
   return new Promise((resolve, reject) => {
-    const child: import("node:child_process").ChildProcessWithoutNullStreams = spawn(command, args, {
+    const child = spawn(command, args, {
       cwd: options.cwd,
+      env: options.env,
       shell: options.shell ?? process.platform === "win32",
       windowsHide: true,
       detached: process.platform !== "win32",
+      // stdin MUST be closed: `opencode run` reads piped stdin as extra
+      // message input and blocks forever on an open, never-ended pipe.
+      stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
     let stderr = "";
@@ -157,7 +427,11 @@ async function defaultSpawn(
       options.signal?.addEventListener("abort", onAbort, { once: true });
     }
     child.stdout?.on("data", (chunk) => {
-      stdout += String(chunk);
+      const text = String(chunk);
+      stdout += text;
+      try {
+        options.onStdout?.(text);
+      } catch {}
     });
     child.stderr?.on("data", (chunk) => {
       stderr += String(chunk);
@@ -203,6 +477,14 @@ export interface NativeRunInput {
   workspacePath: string;
   prompt: string;
   command?: string;
+  /** Agent's OpenCode model (`provider/model`); wins over `llm`. */
+  model?: string;
+  /** MOAgent's resolved LLM config, used when no `model` is set. */
+  llm?: NativeLlmConfig;
+  /** Hard wall-clock limit; default ORCHESTRATOR_NATIVE_TIMEOUT_MS or 10 min. */
+  timeoutMs?: number;
+  /** Request JSON events (default true). */
+  json?: boolean;
   signal?: AbortSignal;
   onEvent?: (type: string, payload: Record<string, unknown>, level?: "info" | "warn" | "error") => Promise<void>;
   onChunk?: (delta: string) => Promise<void>;
@@ -210,61 +492,202 @@ export interface NativeRunInput {
   spawnImpl?: SpawnImpl;
 }
 
+function redact(text: string, secret: string | undefined): string {
+  if (!secret || secret.length < 6) return text;
+  return text.split(secret).join("***");
+}
+
 export async function runNativeProvider(input: NativeRunInput): Promise<NativeRunResult> {
   const command = input.command ?? nativeProviderCommand();
+  const json = input.json ?? true;
+  const timeoutMs = input.timeoutMs ?? nativeTimeoutMs();
+  const { config, model, env: secretEnv } = buildOpencodeConfig({ model: input.model, llm: input.llm });
+  const secret = secretEnv[OPENCODE_KEY_ENV];
   await input.onEvent?.(
     "native.run.started",
-    { provider: command, cwd: input.workspacePath },
+    {
+      provider: command,
+      cwd: input.workspacePath,
+      ...(model ? { model } : {}),
+      llmSource: input.model?.trim() ? "agent-opencode-model" : model ? "moagent-llm" : "opencode-default",
+      timeoutMs,
+    },
     "info"
   );
+
+  // Timeout + external abort feed one controller; the spawn kills the
+  // whole process tree when it fires.
+  const controller = new AbortController();
+  let timedOut = false;
+  const onOuterAbort = () => controller.abort();
+  if (input.signal?.aborted) controller.abort();
+  else input.signal?.addEventListener("abort", onOuterAbort, { once: true });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  // Streaming JSON state.
+  const texts: string[] = [];
+  const errors: string[] = [];
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let sawJson = false;
+  let streamed = false;
+  let pending = "";
+  const plainLines: string[] = [];
+  let chain: Promise<void> = Promise.resolve();
+  const handleLine = (line: string) => {
+    if (!line.trim()) return;
+    const event = parseOpencodeEvent(line);
+    if (!event) {
+      plainLines.push(line);
+      return;
+    }
+    sawJson = true;
+    switch (event.kind) {
+      case "text":
+        if (event.text) {
+          texts.push(event.text);
+          chain = chain.then(() => input.onChunk?.(event.text)).catch(() => {});
+        }
+        break;
+      case "tool":
+        if (event.status === "completed" || event.status === "error") {
+          const { kind: _kind, ...payload } = event;
+          chain = chain
+            .then(() =>
+              input.onEvent?.("native.tool", { provider: command, ...payload }, event.status === "error" ? "warn" : "info")
+            )
+            .catch(() => {});
+        }
+        break;
+      case "step_finish":
+        inputTokens += event.inputTokens;
+        outputTokens += event.outputTokens;
+        break;
+      case "error":
+        errors.push(redact(event.message, secret));
+        break;
+      default:
+        break;
+    }
+  };
+  const feed = (chunk: string) => {
+    pending += chunk;
+    const lines = pending.split(/\r?\n/);
+    pending = lines.pop() ?? "";
+    for (const line of lines) handleLine(line);
+  };
+
   let tmpDir: string | undefined;
   let ran: { stdout: string; stderr: string; code: number | null };
   try {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-native-"));
     const promptFile = path.join(tmpDir, "prompt.md");
-    await fs.writeFile(promptFile, input.prompt, "utf-8");
-    const { args } = nativeArgv(command, [NATIVE_PROMPT_MESSAGE, "-f", promptFile]);
+    const configFile = path.join(tmpDir, "opencode.json");
+    await fs.writeFile(promptFile, workspaceHeader(input.workspacePath) + input.prompt, { encoding: "utf-8", mode: 0o600 });
+    await fs.writeFile(configFile, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });
+    const { args } = nativeArgv(command, [NATIVE_PROMPT_MESSAGE, "-f", promptFile], {
+      model,
+      json,
+      dir: input.workspacePath,
+    });
     ran = await (input.spawnImpl ?? defaultSpawn)(command, args, {
       cwd: input.workspacePath,
-      signal: input.signal,
+      signal: controller.signal,
+      env: {
+        ...process.env,
+        // OpenCode resolves its project dir from $PWD before cwd: an
+        // inherited PWD (the worker's own dir) silently redirected every
+        // write out of the task worktree in the live smoke run.
+        PWD: input.workspacePath,
+        OPENCODE_CONFIG: configFile,
+        OPENCODE_DISABLE_AUTOUPDATE: "1",
+        ...secretEnv,
+      },
+      onStdout: (chunk) => {
+        streamed = true;
+        feed(chunk);
+      },
     });
   } catch (error) {
+    clearTimeout(timer);
+    input.signal?.removeEventListener("abort", onOuterAbort);
+    await cleanup(tmpDir);
     return {
       status: "failed",
-      output: `Native provider failed to spawn: ${error instanceof Error ? error.message : String(error)}`,
+      output: `Native provider failed to spawn: ${redact(error instanceof Error ? error.message : String(error), secret)}`,
       inputTokens: 0,
       outputTokens: 0,
     };
-  } finally {
-    if (tmpDir) {
-      try {
-        await fs.rm(tmpDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort cleanup; the run result stands.
-      }
-    }
   }
-  const usage = parseNativeUsage(ran.stdout);
+  clearTimeout(timer);
+  input.signal?.removeEventListener("abort", onOuterAbort);
+  await cleanup(tmpDir);
+
+  // Injected spawns (tests) may return stdout without streaming it.
+  if (!streamed) feed(ran.stdout);
+  if (pending) {
+    handleLine(pending);
+    pending = "";
+  }
+  await chain;
+
+  const stderr = redact(ran.stderr.trim(), secret);
+  const textOutput = sawJson ? texts.join("\n").trim() : redact(ran.stdout.trim(), secret);
+  const extraPlain = sawJson ? redact(plainLines.join("\n").trim(), secret) : "";
+  const failed = ran.code !== 0 || timedOut || errors.length > 0;
+
   await input.onEvent?.(
     "native.run.finished",
-    { provider: command, exitCode: ran.code, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
-    ran.code === 0 ? "info" : "warn"
+    {
+      provider: command,
+      exitCode: ran.code,
+      inputTokens,
+      outputTokens,
+      ...(timedOut ? { timedOut: true, timeoutMs } : {}),
+      ...(errors.length > 0 ? { errors: errors.slice(0, 3) } : {}),
+    },
+    failed ? "warn" : "info"
   );
-  const output = [ran.stdout.trim(), ran.stderr.trim()].filter(Boolean).join("\n").slice(0, 12000);
-  if (ran.code !== 0) {
+
+  if (failed) {
+    const reason = timedOut
+      ? `Native provider timed out after ${timeoutMs}ms`
+      : input.signal?.aborted
+        ? "Execution cancelled"
+        : "";
+    const output = [reason, ...errors, textOutput, extraPlain, ran.code !== 0 ? stderr : ""]
+      .filter(Boolean)
+      .join("\n")
+      .slice(0, 12000);
     return {
       status: "failed",
       output: output || `Native provider exited with code ${ran.code ?? "unknown"}`,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
+      inputTokens,
+      outputTokens,
       rawExitCode: ran.code ?? undefined,
+      ...(timedOut ? { timedOut: true } : {}),
+      ...(model ? { model } : {}),
     };
   }
+  const output = (textOutput || [extraPlain, stderr].filter(Boolean).join("\n")).slice(0, 12000);
   if (output) await input.onMessage?.(output);
   return {
     status: "completed",
     output,
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
+    inputTokens,
+    outputTokens,
+    ...(model ? { model } : {}),
   };
+}
+
+async function cleanup(dir: string | undefined): Promise<void> {
+  if (!dir) return;
+  try {
+    await fs.rm(dir, { recursive: true, force: true });
+  } catch {
+    // Best-effort cleanup; the run result stands.
+  }
 }

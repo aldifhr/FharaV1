@@ -3,6 +3,7 @@ import type {
 } from "@/orchestrator/types";
 import { runScheduler, type NodeOutcome, type SchedulerResult } from "@/scheduler/dagScheduler";
 import { executeSubtask } from "@/execution/agentExecutor";
+import { resolveExecutionRuntime } from "@/execution/nativeProvider";
 import { capabilitiesOf } from "@/orchestrator/capabilities";
 import { combineSignals } from "./setup";
 import type { FallbackHandle } from "@/effects/llmCall";
@@ -108,7 +109,9 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         llmTaskGate: input.llmTaskGate,
         qaBaseUrl: input.qaBaseUrl,
         mcp: input.mcp,
-        runtime: deps.policy.executionRuntime ?? "api",
+        // Per-agent runtime overrides the global policy default.
+        runtime: resolveExecutionRuntime(agent, deps.policy.executionRuntime),
+        nativeModel: agent.opencodeModel,
         qaMode: deps.policy.qaMode,
         nativeProviderCommand: process.env.ORCHESTRATOR_NATIVE_PROVIDER_COMMAND,
         taskContext: input.sharedContext,

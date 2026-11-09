@@ -19,6 +19,7 @@ import {
   runNativeProvider,
   buildNativePrompt,
   isNativeProviderAvailable,
+  type SpawnImpl,
 } from "./nativeProvider";
 import type { SharedTaskContext } from "@/orchestrator/taskContext";
 import { extractFileHint, parseDelegation, parseDraft, parseReview, sanitizeForChat } from "@/utils/json";
@@ -36,6 +37,8 @@ import {
 import { isCommandAllowed, runCommand } from "@/tools/runCommand";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import { promises as fs } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
 import { runResponsiveQa } from "./qa";
@@ -43,6 +46,8 @@ import { wantsVisualQa } from "@/orchestrator/planner";
 import { getMcpRegistry, type McpHooks, type McpSession } from "@/mcp/registry";
 import { runMcpToolLoop } from "@/mcp/toolLoop";
 import type { McpToolDefinition } from "@/mcp/types";
+
+const execFileAsync = promisify(execFile);
 
 export interface SubtaskExecutionInput {
   workspacePath: string;
@@ -116,6 +121,15 @@ export interface SubtaskExecutionInput {
   runtime?: "api" | "native-provider";
   /** Optional CLI binary override for the native-provider runtime. */
   nativeProviderCommand?: string;
+  /**
+   * Agent's OpenCode model (`provider/model`) for the native runtime.
+   * Unset: OpenCode is pointed at this subtask's resolved MOAgent LLM.
+   */
+  nativeModel?: string;
+  /** Native runtime wall-clock limit (default ORCHESTRATOR_NATIVE_TIMEOUT_MS / 10 min). */
+  nativeTimeoutMs?: number;
+  /** Test seam: spawn implementation for the native provider CLI. */
+  nativeSpawnImpl?: SpawnImpl;
   /**
    * Browser-QA policy. With "never" the code_change prompt does not invite
    * a browser-testing delegation.
@@ -344,63 +358,119 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
   // The native provider writes straight to disk, so the "before" content
   // must be captured now: reading it from disk after the run would make
   // every change look identical to its pre-task state.
-  const preRunDirty =
-    subtask.kind === "code_change" || subtask.kind === "shell"
-      ? await snapshotDirtyFiles(workspacePath)
-      : new Map<string, string | null>();
+  const preRunDirty = await snapshotNativeBaseline(workspacePath);
+  // Commits are the runner's job. Remember HEAD so a commit the provider
+  // makes anyway is undone (soft) and its files still pass the gate below.
+  const preRunHead = await readGitHead(workspacePath, signal);
 
+  // OpenCode uses the agent's own OpenCode model when set; otherwise the
+  // same LLM the rest of MOAgent resolved for this agent (first handle of
+  // the resolver chain, else the task/global config).
+  const llm = input.llmHandles?.[0]?.config ?? input.llmConfig ?? getGlobalLLMConfig();
   const result = await runNativeProvider({
     workspacePath,
     prompt,
     command: input.nativeProviderCommand,
+    model: input.nativeModel,
+    llm,
+    timeoutMs: input.nativeTimeoutMs,
+    spawnImpl: input.nativeSpawnImpl,
     signal,
     onEvent,
+    onChunk: input.onChunk,
     onMessage,
   });
 
+  if (preRunHead) {
+    const postRunHead = await readGitHead(workspacePath, signal);
+    if (postRunHead && postRunHead !== preRunHead) {
+      try {
+        await runCommand(workspacePath, "git", ["reset", "--soft", preRunHead], { signal });
+        await runCommand(workspacePath, "git", ["reset", "-q"], { signal });
+        await onEvent("native.commit.undone", { from: postRunHead, to: preRunHead }, "warn");
+      } catch (error) {
+        return { status: "failed", error: `Native provider committed and the commit could not be undone: ${error instanceof Error ? error.message : String(error)}` };
+      }
+    }
+  }
+
   if (input.onTokenUsage && (result.inputTokens > 0 || result.outputTokens > 0)) {
-    await input.onTokenUsage(result.inputTokens, result.outputTokens, "native-provider", undefined);
+    await input.onTokenUsage(result.inputTokens, result.outputTokens, result.model ?? "native-provider", undefined);
   }
 
   if (result.status !== "completed") {
     return { status: "failed", error: result.output || "Native provider run failed" };
   }
 
-  // Stage whatever the provider changed in the workspace so the
-  // verification and approval flows still review it.
+  // Staging gate: stage what the provider changed in scope so the
+  // verification and approval flows still review it; revert everything
+  // out of scope (forbidden paths, invalid paths, outside allowedPaths, or
+  // any write from a read-only kind) so it can never reach a commit.
+  const mutating = subtask.kind === "code_change" || subtask.kind === "shell";
   const prepared: { filePath: string }[] = [];
-  if (subtask.kind === "code_change" || subtask.kind === "shell") {
+  const rejected: { filePath: string; reason: string }[] = [];
+  let changedPaths: string[] = [];
+  try {
+    changedPaths = await listWorkspaceChanges(workspacePath, signal);
+  } catch {
+    // Workspace may not be a git repo; the provider's own output stands.
+  }
+  for (const filePath of changedPaths) {
+    if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
+    let resolved: string;
     try {
-      const { stdout } = await runCommand(workspacePath, "git", ["status", "--short"], { signal });
-      const changedPaths = stdout
-        .split(/\r?\n/)
-        .map((line) => line.slice(3).trim())
-        .filter(Boolean)
-        .slice(0, 50);
-      for (const filePath of changedPaths) {
-        if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
-        if (isForbiddenPath(filePath)) continue;
-        const check = validateFilePath(filePath);
-        if (!check.ok) continue;
-        if (!isPathWithinOwnership(filePath, subtask.allowedPaths)) continue;
-        try {
-          const resolved = await resolveSandboxPathAsync(workspacePath, filePath);
-          const newContent = await fs.readFile(resolved, "utf-8");
-          const baseline = preRunDirty.has(filePath)
-            ? preRunDirty.get(filePath) ?? undefined
-            : await readHeadContent(workspacePath, filePath);
-          // Dirty before the run and untouched by the provider: not its change.
-          if (baseline === newContent) continue;
-          const diff = diffFromContents(filePath, baseline, newContent);
-          await input.saveFileChange(diff);
-          prepared.push({ filePath });
-        } catch {
-          // Per-file staging failures are best-effort; the summary stands.
-        }
-      }
+      resolved = await resolveSandboxPathAsync(workspacePath, filePath);
     } catch {
-      // Workspace may not be a git repo; the provider's own output stands.
+      continue;
     }
+    const newContent = await readIfExistsUtf8(resolved);
+    const baseline = preRunDirty.has(filePath)
+      ? preRunDirty.get(filePath) ?? undefined
+      : await readHeadContent(workspacePath, filePath);
+    // Dirty before the run and untouched by the provider: not its change.
+    if ((baseline ?? null) === newContent) continue;
+    const reason = !mutating
+      ? `read-only ${subtask.kind} subtask`
+      : isForbiddenPath(filePath)
+        ? "forbidden path"
+        : !validateFilePath(filePath).ok
+          ? "invalid path"
+          : !isPathWithinOwnership(filePath, subtask.allowedPaths)
+            ? "outside allowedPaths"
+            : "";
+    if (reason) {
+      try {
+        if (baseline === undefined) await fs.rm(resolved, { force: true });
+        else await fs.writeFile(resolved, baseline, "utf-8");
+        rejected.push({ filePath, reason });
+      } catch {
+        rejected.push({ filePath, reason: `${reason} (revert failed)` });
+      }
+      continue;
+    }
+    if (newContent === null && baseline === undefined) continue;
+    try {
+      const diff: FileDiff =
+        newContent === null
+          ? {
+              ...diffFromContents(filePath, baseline, ""),
+              changeType: "deleted",
+              newContent: undefined,
+              newContentHash: undefined,
+            }
+          : diffFromContents(filePath, baseline, newContent);
+      await input.saveFileChange(diff);
+      prepared.push({ filePath });
+    } catch {
+      // Per-file staging failures are best-effort; the summary stands.
+    }
+  }
+  if (rejected.length > 0) {
+    await onEvent(
+      "native.change.rejected",
+      { files: rejected.slice(0, 50) },
+      "warn"
+    );
   }
 
   const output = [
@@ -415,9 +485,63 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
     meta: {
       runtime: "native-provider",
       provider: input.nativeProviderCommand ?? "opencode",
+      ...(result.model ? { model: result.model } : {}),
       stagedFiles: prepared.map((c) => c.filePath),
+      ...(rejected.length > 0 ? { rejectedFiles: rejected.map((r) => r.filePath) } : {}),
     },
   };
+}
+
+/** Porcelain paths (untracked files listed individually), capped. */
+async function listWorkspaceChanges(workspacePath: string, signal?: AbortSignal): Promise<string[]> {
+  // Host-internal read (not an agent command, so not via the allowlist).
+  const { stdout } = await execFileAsync("git", ["status", "--porcelain", "-uall"], {
+    cwd: workspacePath,
+    maxBuffer: 10 * 1024 * 1024,
+    shell: false,
+    windowsHide: true,
+    signal,
+  });
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.slice(3).trim())
+    .map((p) => (p.includes(" -> ") ? p.split(" -> ").pop() ?? p : p))
+    .map((p) => p.replace(/^"(.*)"$/, "$1"))
+    .filter(Boolean)
+    .slice(0, 500);
+}
+
+async function readIfExistsUtf8(resolved: string): Promise<string | null> {
+  try {
+    const stat = await fs.stat(resolved);
+    if (!stat.isFile()) return null;
+    return await fs.readFile(resolved, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pre-run content of every dirty path, including each untracked file
+ * (`-uall`), so the post-run gate can tell the provider's writes from
+ * pre-existing edits and restore out-of-scope paths exactly.
+ */
+async function snapshotNativeBaseline(workspacePath: string): Promise<Map<string, string | null>> {
+  const snapshot = await snapshotDirtyFiles(workspacePath);
+  try {
+    for (const filePath of await listWorkspaceChanges(workspacePath)) {
+      if (snapshot.has(filePath)) continue;
+      try {
+        const resolved = await resolveSandboxPathAsync(workspacePath, filePath);
+        snapshot.set(filePath, await readIfExistsUtf8(resolved));
+      } catch {
+        // Outside the sandbox: not ours to track.
+      }
+    }
+  } catch {
+    // Not a git repo.
+  }
+  return snapshot;
 }
 
 function baseMessages(input: SubtaskExecutionInput, userContent: string) {
@@ -1183,4 +1307,15 @@ async function buildWebContext(
 export function isForbiddenPath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, "/");
   return FORBIDDEN_PATHS.some((pattern) => pattern.test(normalized));
+}
+
+
+/** Current HEAD sha, or null when the workspace is not a git repo. */
+async function readGitHead(workspacePath: string, signal?: AbortSignal): Promise<string | null> {
+  try {
+    const { stdout } = await runCommand(workspacePath, "git", ["rev-parse", "HEAD"], { signal });
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
 }

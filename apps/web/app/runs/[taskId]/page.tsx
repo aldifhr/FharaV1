@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Copy, Download, FileJson, FileText } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import IconRail from "@/components/IconRail";
+import { useToast } from "@/components/Toasts";
+import { buildRunJson, buildRunMarkdown, exportFilename } from "@/lib/runExport";
+import webPackage from "../../../package.json";
 import { roleLabel } from "@/lib/agentRoles";
 import { taskStatusLabel } from "@/lib/taskStatus";
 import { clockTime } from "@/lib/format";
@@ -318,6 +321,94 @@ function Events({ run }: { run: Run }) {
   );
 }
 
+const APP_VERSION: string | null = typeof webPackage.version === "string" ? webPackage.version : null;
+
+function downloadText(text: string, filename: string, type: string) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Header menu: copy / download the run as Markdown or JSON (for pasting into an AI assistant). */
+function ExportMenu({ run }: { run: Run }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const toast = useToast();
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const run_ = (fn: () => void | Promise<void>) => () => {
+    setOpen(false);
+    void Promise.resolve()
+      .then(fn)
+      .catch((err) => toast("error", "Export failed", err instanceof Error ? err.message : undefined));
+  };
+  const opts = () => ({ exportedAt: Date.now(), appVersion: APP_VERSION });
+
+  const copyMarkdown = run_(async () => {
+    const md = buildRunMarkdown(run, opts());
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard is not available in this browser.");
+    await navigator.clipboard.writeText(md);
+    toast("success", "Run report copied", `${md.length.toLocaleString()} chars of Markdown`);
+  });
+  const downloadMarkdown = run_(() => {
+    const o = opts();
+    downloadText(buildRunMarkdown(run, o), exportFilename(run, "md", o.exportedAt), "text/markdown;charset=utf-8");
+  });
+  const downloadJson = run_(() => {
+    const o = opts();
+    downloadText(buildRunJson(run, o), exportFilename(run, "json", o.exportedAt), "application/json;charset=utf-8");
+  });
+
+  const item = "flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-ink hover:bg-hover focus-visible:bg-hover focus-visible:outline-none";
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 text-[13px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+      >
+        <Download size={14} />
+        Export
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 z-30 mt-1 w-48 overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-[0_12px_32px_-12px_rgba(20,20,40,0.3)]">
+          <button type="button" role="menuitem" className={item} onClick={copyMarkdown}>
+            <Copy size={14} className="text-ink-3" /> Copy as Markdown
+          </button>
+          <button type="button" role="menuitem" className={item} onClick={downloadMarkdown}>
+            <FileText size={14} className="text-ink-3" /> Download .md
+          </button>
+          <button type="button" role="menuitem" className={item} onClick={downloadJson}>
+            <FileJson size={14} className="text-ink-3" /> Download .json
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RunTracePage() {
   const params = useParams<{ taskId: string }>();
   const taskId = params?.taskId;
@@ -353,8 +444,13 @@ export default function RunTracePage() {
           ) : (
             <>
               <header className="mt-3">
-                <p className="truncate text-[13px] text-ink-3">{run.task.projectName}</p>
-                <h1 className="mt-1 text-[26px] font-semibold leading-tight tracking-tight">{run.task.title}</h1>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] text-ink-3">{run.task.projectName}</p>
+                    <h1 className="mt-1 text-[26px] font-semibold leading-tight tracking-tight">{run.task.title}</h1>
+                  </div>
+                  <ExportMenu run={run} />
+                </div>
                 <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-ink-2">
                   <span className="inline-flex items-center gap-1.5">
                     <span className={`h-1.5 w-1.5 rounded-full ${statusDot(run.task.status)}`} />

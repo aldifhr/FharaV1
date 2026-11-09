@@ -33,6 +33,28 @@ import type {
 } from "@/workerApi";
 import type { RunnerDeps, RunState } from "./types";
 
+// Re-exports: these helpers moved to focused modules (abort / terminal /
+// replan); `./setup` stays a stable import path for callers and tests.
+export {
+  SHUTDOWN_ABORT_MESSAGE,
+  LEASE_LOST_PREFIX,
+  isLeaseLostOrShutdown,
+  armTaskAbort,
+  combineSignals,
+} from "./abort";
+export {
+  isTerminalTaskStatus,
+  finishBudgetExhaustedTask,
+  summaryHasBudgetFailure,
+  budgetReasonFromSummary,
+  finishCancelledTask,
+} from "./terminal";
+export {
+  completedSubtasksFor,
+  buildReplanFeedback,
+  type CompletedSubtask,
+} from "./replan";
+
 /**
  * Build the per-task LLM resolver from the DB provider pool (Settings
  * page). The pool rows carry only ENCRYPTED keys; materializePool decrypts
@@ -103,163 +125,6 @@ export function resolveQaBaseUrl(
   return project.qaUrl ?? project.devUrl ?? envFallback;
 }
 
-/**
- * One AbortController per task run (Phase 4): fired by the runner's
- * cancel polling when the task row turns terminal, by the
- * policy.taskTimeoutMs wall-clock deadline, and by the MausBot-style
- * idle watchdog — the task aborts only after policy.idleTimeoutMs of NO
- * observable progress (bump() is called on every logged event, usage
- * record, and staged change). Every consumer — scheduler node signals,
- * LLM calls, QA, verification — observes this one signal, so a cancel
- * or a timeout stops the whole task, not just whichever node happens to
- * be scheduled. dispose() disarms everything.
- */
-export const SHUTDOWN_ABORT_MESSAGE = "Worker shutting down";
-export const LEASE_LOST_PREFIX = "Lease lost";
-
-/** True for errors/abort reasons that mean "this worker no longer owns the task". */
-export function isLeaseLostOrShutdown(reason: unknown): boolean {
-  const message = reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "";
-  // Convex wraps server errors ("[CONVEX A(...)] Uncaught Error: Lease lost: ..."),
-  // so match anywhere in the message.
-  return message.includes(`${LEASE_LOST_PREFIX}:`) || message.includes(LEASE_LOST_PREFIX + " ") ||
-    message.startsWith(SHUTDOWN_ABORT_MESSAGE);
-}
-
-export function armTaskAbort(policy: ExecutionPolicy, shutdownSignal?: AbortSignal): {
-  controller: AbortController;
-  bump: () => void;
-  dispose: () => void;
-} {
-  const controller = new AbortController();
-  const onShutdown = () => controller.abort(new Error(SHUTDOWN_ABORT_MESSAGE));
-  if (shutdownSignal?.aborted) onShutdown();
-  else shutdownSignal?.addEventListener("abort", onShutdown, { once: true });
-  const timer = setTimeout(() => {
-    controller.abort(
-      new Error(`Task deadline exceeded (${policy.taskTimeoutMs}ms)`)
-    );
-  }, policy.taskTimeoutMs);
-  timer.unref?.();
-  let lastActivity = Date.now();
-  const bump = () => {
-    lastActivity = Date.now();
-  };
-  const idleMs = policy.idleTimeoutMs ?? 0;
-  const idleTimer =
-    idleMs > 0
-      ? setInterval(() => {
-          if (controller.signal.aborted) return;
-          if (Date.now() - lastActivity > idleMs) {
-            controller.abort(
-              new Error(`Task idle exceeded (${idleMs}ms)`)
-            );
-          }
-        }, Math.min(5_000, Math.max(1_000, idleMs / 4)))
-      : undefined;
-  idleTimer?.unref?.();
-  return {
-    controller,
-    bump,
-    dispose: () => {
-      clearTimeout(timer);
-      if (idleTimer) clearInterval(idleTimer);
-      shutdownSignal?.removeEventListener("abort", onShutdown);
-    },
-  };
-}
-
-/** A signal that fires when ANY of the given signals fires. */
-export function combineSignals(
-  ...signals: Array<AbortSignal | undefined>
-): AbortSignal {
-  const present = signals.filter(
-    (signal): signal is AbortSignal => signal !== undefined
-  );
-  if (present.length === 0) return new AbortController().signal;
-  if (present.length === 1) return present[0];
-  if (typeof AbortSignal.any === "function") {
-    return AbortSignal.any(present);
-  }
-  const controller = new AbortController();
-  for (const signal of present) {
-    if (signal.aborted) {
-      controller.abort(signal.reason);
-      break;
-    }
-    signal.addEventListener("abort", () => controller.abort(signal.reason), {
-      once: true,
-    });
-  }
-  return controller.signal;
-}
-
-/** Terminal task statuses: a task in one of these is finished for good. */
-export function isTerminalTaskStatus(status: string | undefined): boolean {
-  return status === "done" || status === "failed" || status === "rejected";
-}
-
-/**
- * End a task run as BUDGET EXHAUSTED (Phase 5). The backend has no
- * dedicated budget status — like cancellation, the task row lands on
- * "failed" — so the distinction lives in the dedicated
- * `budget.exhausted` event (with the final tracker snapshot) and the
- * error message. Completed subtask outputs are untouched: they were
- * persisted as they finished and remain visible in the task timeline.
- * The backend completeTask terminal guard makes this a no-op if the
- * task already reached a terminal status by another path.
- */
-export async function finishBudgetExhaustedTask(input: {
-  deps: RunnerDeps;
-  task: WorkerTask;
-  project: WorkerProject;
-  budget: BudgetTracker;
-  reason: string;
-}): Promise<void> {
-  const { deps, task, project, budget, reason } = input;
-  await deps.api.logEvent({
-    taskId: task._id,
-    projectId: project._id,
-    type: "budget.exhausted",
-    payload: { reason, budget: budget.snapshot() },
-    level: "error",
-  });
-  await deps.api
-    .recordLifecycle?.({
-      taskId: task._id,
-      projectId: project._id,
-      state: "FAILED",
-      prevState: "RUNNING",
-    })
-    ?.catch(() => undefined);
-  await deps.api.completeTask({
-    taskId: task._id,
-    status: "failed",
-    errorMessage: `Budget exhausted: ${reason}`,
-  });
-}
-
-/**
- * Whether a failure SUMMARY carries a budget stop. Failure summaries
- * are the per-subtask feedback entries joined with "; ", each entry
- * prefixed with its subtask key ("s3 (attempt 1): Budget exhausted:
- * ..."), so the raw summary never STARTS with the prefix — the
- * recognition scans for it at any entry boundary (Phase 5).
- */
-export function summaryHasBudgetFailure(summary: string): boolean {
-  return summary
-    .split("; ")
-    .some((entry) => entry.includes("Budget exhausted:"));
-}
-
-/** The budget reason carried by a failure summary (prefix stripped). */
-export function budgetReasonFromSummary(summary: string): string {
-  const entry = summary
-    .split("; ")
-    .find((candidate) => candidate.includes("Budget exhausted:"));
-  if (!entry) return summary;
-  return entry.slice(entry.indexOf("Budget exhausted: ") + "Budget exhausted: ".length);
-}
 
 /**
  * Seed a task's budget tracker from persisted state (Phase 5): call and
@@ -315,64 +180,6 @@ export async function seedBudgetFromPersisted(input: {
   }
 }
 
-/**
- * End a task run as cancelled (Phase 4 hardening). The backend has no
- * "cancelled" task status — tasks.cancel itself stores a user
- * cancellation as status "failed" + "Cancelled by user" — so the
- * outcome maps to completeTask("failed") with a cancellation message,
- * while the dedicated `task.cancelled` event preserves the distinction
- * (user cancel vs deadline) in the task timeline. The backend
- * completeTask guard makes this call a no-op when the task already
- * reached a terminal status by another path, so a late cancel ending
- * can never overwrite a real completion either.
- */
-export async function finishCancelledTask(input: {
-  deps: RunnerDeps;
-  task: WorkerTask;
-  project: WorkerProject;
-  signal: AbortSignal;
-}): Promise<void> {
-  const { deps, task, project, signal } = input;
-  const reasonText =
-    signal.reason instanceof Error ? signal.reason.message : "";
-  // Worker shutdown / lost lease: this worker no longer owns the task.
-  // Do NOT fail it — leave it for lease-expiry recovery (another worker
-  // re-claims it) and just record why this run stopped.
-  if (isLeaseLostOrShutdown(signal.reason)) {
-    await deps.api
-      .logEvent({
-        taskId: task._id,
-        projectId: project._id,
-        type: "task.interrupted",
-        payload: { reason: reasonText },
-        level: "warn",
-      })
-      .catch(() => undefined);
-    return;
-  }
-  const timedOut = reasonText.startsWith("Task deadline exceeded");
-  const errorMessage = timedOut ? reasonText : "Task cancelled";
-  await deps.api.logEvent({
-    taskId: task._id,
-    projectId: project._id,
-    type: "task.cancelled",
-    payload: { reason: errorMessage, timedOut },
-    level: "warn",
-  });
-  await deps.api
-    .recordLifecycle?.({
-      taskId: task._id,
-      projectId: project._id,
-      state: "FAILED",
-      prevState: "RUNNING",
-    })
-    ?.catch(() => undefined);
-  await deps.api.completeTask({
-    taskId: task._id,
-    status: "failed",
-    errorMessage,
-  });
-}
 
 /** Build the orchestrator's AgentResult view of a finished scheduler node. */
 export function toAgentResult(input: {
@@ -422,81 +229,6 @@ export function slugifyKeyPart(value: string): string {
   return slug || "task";
 }
 
-/**
- * The subtasks of `plan` that already produced output, in the shape the
- * replan feedback lists them. Keys with no matching subtask in the plan
- * (stale state) are skipped: their output text is not a task description,
- * and without kind/capability carry-forward could never match them anyway.
- */
-export function completedSubtasksFor(
-  plan: Pick<ExecutionPlan, "subtasks">,
-  state: Pick<RunState, "priorOutputs">
-): CompletedSubtask[] {
-  const completed: CompletedSubtask[] = [];
-  for (const key of state.priorOutputs.keys()) {
-    const subtask = plan.subtasks.find((candidate) => candidate.key === key);
-    if (!subtask) continue;
-    completed.push({
-      key: subtask.key,
-      kind: subtask.kind,
-      capability: subtask.capability,
-      description: subtask.description,
-    });
-  }
-  return completed;
-}
-
-export type CompletedSubtask = {
-  key: string;
-  kind: string;
-  capability: string;
-  description: string;
-};
-
-/**
- * Replan feedback (Phase 3): the deterministic evaluator's summary plus
- * what the orchestrator itself decided and found along the way — the
- * decisions and open findings accumulated in the shared task context —
- * so the next plan is built with the orchestrator's evaluations as
- * input, not just the final verdict.
- */
-export function buildReplanFeedback(
-  base: string,
-  sharedContext: SharedTaskContext,
-  completedSubtasks?: Array<{ key: string; kind: string; capability: string; description: string }>
-): string {
-  const parts = [base];
-  if (completedSubtasks && completedSubtasks.length > 0) {
-    parts.push(
-      "Already completed (DO NOT repeat these; reuse their descriptions verbatim so carry-forward matches): " +
-        completedSubtasks
-          .map((s) => `${s.key}: [${s.kind}/${s.capability}] ${s.description}`)
-          .join(" | ")
-    );
-  }
-  const decisions = sharedContext.decisions.slice(-6);
-  if (decisions.length > 0) {
-    parts.push(
-      `Orchestrator evaluations: ${decisions
-        .map(
-          (decision) =>
-            `${decision.decision}${decision.capability ? ` (${decision.capability})` : ""}: ${decision.reason}`
-        )
-        .join("; ")}`
-    );
-  }
-  const openIssues = sharedContext.outstandingIssues
-    .filter((issue) => issue.status === "open")
-    .slice(-6);
-  if (openIssues.length > 0) {
-    parts.push(
-      `Open findings: ${openIssues
-        .map((issue) => `[${issue.severity}] ${issue.description}`)
-        .join("; ")}`
-    );
-  }
-  return parts.filter((part) => part.length > 0).join("\n");
-}
 
 export function toAgentDefinition(agent: WorkerAgent): AgentDefinition {
   return {

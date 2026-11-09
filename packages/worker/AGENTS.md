@@ -142,6 +142,11 @@ import backend internals.
 - `runCommand` allows exact argv pairs only (`npm run test`, `git status`,
   `git diff --stat`, …). Do not add prefix matching; `npm run test; rm -rf /`
   would pass one.
+- `runPty` (plan 029) is the internal, opt-in TTY path: same exact-argv
+  allowlist, same sandbox-resolved cwd, scrubbed child env; timeout/abort
+  kills the whole process tree; output is ANSI-stripped before it reaches
+  events/logging. It is NOT in the tool registry or the shell prompt — making
+  it LLM-visible needs its own plan and the `run_command` approval gate.
 - Risky actions (`apply_changes`, `git_push`, `run_command`, `merge_pr`) must
   request approval before executing and must re-check the approval result after
   the wait. Waiting out `approvalTimeoutMs` means "not approved".

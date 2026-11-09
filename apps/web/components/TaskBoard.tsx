@@ -268,7 +268,7 @@ export default function TaskBoard({
                 >
                   {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                 </button>
-                {t.status === "running" ? (
+                {!isClosedStatus(t.status) ? (
                 <button
                   type="button"
                   onClick={() => stopTask({ _id: t._id, title: t.title })}

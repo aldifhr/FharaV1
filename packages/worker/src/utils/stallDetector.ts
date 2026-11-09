@@ -13,6 +13,8 @@
  *                         the loop stops
  *   provider_unavailable  connection / 5xx / 429 → next provider in the
  *                         fallback chain, else a clear failure
+ *   output_truncated      the model stopped at the output cap
+ *                         (finish_reason "length") → reported as a warning
  *
  * This is the minimal internal interface; when the orch-trace
  * ExecutionObservation table lands, these map 1:1 onto its rows.
@@ -24,7 +26,8 @@ export type StallKind =
   | "no_runnable_nodes"
   | "agent_stalled"
   | "repeated_output"
-  | "provider_unavailable";
+  | "provider_unavailable"
+  | "output_truncated";
 
 export type StallAction = "fail" | "retry" | "escalate" | "stop_loop" | "fallback" | "report";
 

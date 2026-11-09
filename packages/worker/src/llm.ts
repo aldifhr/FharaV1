@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { LLMMessage, LLMResult } from "@/types/llm";
+import { emitObservation } from "@/effects/observationContext";
 
 export type { LLMMessage, LLMResult } from "@/types/llm";
 
@@ -70,6 +71,47 @@ export function effectiveLlmTimeoutMs(requested?: number): number {
   return Math.max(1, Math.min(ceiling, Math.floor(requested)));
 }
 
+/**
+ * Surface a truncated answer (finish_reason "length"): the model hit the
+ * output cap, so JSON / file content may be cut mid-way. Logged as a
+ * warning and reported as a `stall.output_truncated` observation (warn
+ * level) when a runner scope is active. Never throws. Returns the result.
+ */
+export function noteTruncation(result: LLMResult, where: { model: string; baseUrl?: string; maxTokens: number }): LLMResult {
+  if (result.finishReason !== "length") return result;
+  const reason = `LLM output truncated at the ${where.maxTokens}-token cap (finish_reason "length") for model "${where.model}"; raise ORCHESTRATOR_LLM_MAX_TOKENS if answers are cut off`;
+  try {
+    console.warn(`[llm] ${reason}`);
+  } catch {
+    // Logging never breaks the call.
+  }
+  emitObservation({
+    kind: "output_truncated",
+    action: "report",
+    reason,
+    detail: {
+      model: where.model,
+      maxTokens: where.maxTokens,
+      ...(result.outputTokens !== undefined ? { outputTokens: result.outputTokens } : {}),
+      ...(where.baseUrl ? { host: hostOf(where.baseUrl) } : {}),
+    },
+  });
+  return result;
+}
+
+function hostOf(url: string): string | undefined {
+  try {
+    return new URL(url).host;
+  } catch {
+    return undefined;
+  }
+}
+
+function anthropicFinishReason(stopReason: string | null | undefined): string | undefined {
+  if (!stopReason) return undefined;
+  return stopReason === "max_tokens" ? "length" : stopReason;
+}
+
 export class AnthropicProvider implements LLMProvider {
   private client: Anthropic;
   private model: string;
@@ -91,9 +133,10 @@ export class AnthropicProvider implements LLMProvider {
   async complete(messages: LLMMessage[], model?: string, opts?: LLMCallOptions): Promise<LLMResult> {
     const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
     const user = messages.filter((m) => m.role !== "system");
+    const maxTokens = opts?.maxTokens ?? llmMaxTokens();
     const res = await this.client.messages.create({
       model: model ?? this.model,
-      max_tokens: opts?.maxTokens ?? llmMaxTokens(),
+      max_tokens: maxTokens,
       system: system || undefined,
       messages: user.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
     }, { signal: opts?.signal, timeout: effectiveLlmTimeoutMs(opts?.timeoutMs) });
@@ -101,19 +144,25 @@ export class AnthropicProvider implements LLMProvider {
       .filter((c): c is Anthropic.TextBlock => c.type === "text")
       .map((c) => c.text)
       .join("");
-    return {
-      content: text,
-      inputTokens: res.usage?.input_tokens,
-      outputTokens: res.usage?.output_tokens,
-    };
+    const finishReason = anthropicFinishReason(res.stop_reason);
+    return noteTruncation(
+      {
+        content: text,
+        inputTokens: res.usage?.input_tokens,
+        outputTokens: res.usage?.output_tokens,
+        ...(finishReason ? { finishReason } : {}),
+      },
+      { model: model ?? this.model, maxTokens }
+    );
   }
 
   async stream(messages: LLMMessage[], onChunk: (delta: string) => void, model?: string, opts?: LLMCallOptions): Promise<LLMResult> {
     const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
     const user = messages.filter((m) => m.role !== "system");
+    const maxTokens = opts?.maxTokens ?? llmMaxTokens();
     const stream = await this.client.messages.create({
       model: model ?? this.model,
-      max_tokens: opts?.maxTokens ?? llmMaxTokens(),
+      max_tokens: maxTokens,
       system: system || undefined,
       messages: user.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
       stream: true,
@@ -121,6 +170,7 @@ export class AnthropicProvider implements LLMProvider {
     let full = "";
     let inputTokens: number | undefined;
     let outputTokens: number | undefined;
+    let finishReason: string | undefined;
     for await (const event of stream) {
       if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
         full += event.delta.text;
@@ -133,9 +183,13 @@ export class AnthropicProvider implements LLMProvider {
         outputTokens = event.message.usage?.output_tokens ?? outputTokens;
       } else if (event.type === "message_delta") {
         outputTokens = event.usage?.output_tokens ?? outputTokens;
+        finishReason = anthropicFinishReason(event.delta?.stop_reason) ?? finishReason;
       }
     }
-    return { content: full, inputTokens, outputTokens };
+    return noteTruncation(
+      { content: full, inputTokens, outputTokens, ...(finishReason ? { finishReason } : {}) },
+      { model: model ?? this.model, maxTokens }
+    );
   }
 }
 
@@ -157,6 +211,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       if (opts.signal.aborted) controller.abort();
       else opts.signal.addEventListener("abort", onExternalAbort, { once: true });
     }
+    const maxTokens = opts?.maxTokens ?? llmMaxTokens();
     let response: Response;
     let responseBody: string;
     // The timeout and the caller's abort cover the WHOLE request,
@@ -169,7 +224,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
           "content-type": "application/json",
           authorization: `Bearer ${this.apiKey}`,
         },
-        body: JSON.stringify({ model: model ?? this.model, messages, max_tokens: opts?.maxTokens ?? llmMaxTokens() }),
+        body: JSON.stringify({ model: model ?? this.model, messages, max_tokens: maxTokens }),
         signal: controller.signal,
       });
       responseBody = await response.text();
@@ -195,7 +250,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       );
     }
 
-    return parseCompletionBody(responseBody);
+    return noteTruncation(parseCompletionBody(responseBody), { model: model ?? this.model, baseUrl: this.baseUrl, maxTokens });
   }
 
   /**
@@ -209,6 +264,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
    */
   async stream(messages: LLMMessage[], onChunk: (delta: string) => void, model?: string, opts?: LLMCallOptions): Promise<LLMResult> {
     const url = `${this.baseUrl.replace(/\/$/, "")}/chat/completions`;
+    const maxTokens = opts?.maxTokens ?? llmMaxTokens();
     const controller = new AbortController();
     const timeoutMs = effectiveLlmTimeoutMs(opts?.timeoutMs);
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -228,7 +284,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         body: JSON.stringify({
           model: model ?? this.model,
           messages,
-          max_tokens: opts?.maxTokens ?? llmMaxTokens(),
+          max_tokens: maxTokens,
           stream: true,
         }),
         signal: controller.signal,
@@ -243,19 +299,20 @@ export class OpenAICompatibleProvider implements LLMProvider {
       if (!response.body || !/event-stream/i.test(contentType)) {
         const result = parseCompletionBody(await response.text());
         if (result.content) onChunk(result.content);
-        return result;
+        return noteTruncation(result, { model: model ?? this.model, baseUrl: this.baseUrl, maxTokens });
       }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
       let content = "";
       let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+      let finishReason: string | undefined;
       const handleLine = (line: string) => {
         if (!line.startsWith("data:")) return;
         const data = line.slice(5).trim();
         if (!data || data === "[DONE]") return;
         let payload: {
-          choices?: { delta?: { content?: string | null }; message?: { content?: string | null } }[];
+          choices?: { delta?: { content?: string | null }; message?: { content?: string | null }; finish_reason?: string | null }[];
           usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
           error?: { message?: string } | string;
         };
@@ -269,6 +326,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
           throw new Error(`LLM stream error for model "${model ?? this.model}" at ${this.baseUrl}/chat/completions: ${message.slice(0, 500)}`);
         }
         if (payload.usage) usage = payload.usage;
+        if (payload.choices?.[0]?.finish_reason) finishReason = payload.choices[0].finish_reason;
         const delta = payload.choices?.[0]?.delta?.content ?? payload.choices?.[0]?.message?.content ?? "";
         if (delta) {
           content += delta;
@@ -285,7 +343,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
       }
       buffer += decoder.decode();
       if (buffer) handleLine(buffer);
-      return { content, inputTokens: usage?.prompt_tokens, outputTokens: usage?.completion_tokens };
+      return noteTruncation(
+        { content, inputTokens: usage?.prompt_tokens, outputTokens: usage?.completion_tokens, ...(finishReason ? { finishReason } : {}) },
+        { model: model ?? this.model, baseUrl: this.baseUrl, maxTokens }
+      );
     } catch (error) {
       if (controller.signal.aborted && error instanceof Error && error.name === "AbortError") {
         if (opts?.signal?.aborted) {
@@ -308,11 +369,16 @@ export class OpenAICompatibleProvider implements LLMProvider {
 function parseCompletionBody(responseBody: string): LLMResult {
   const normalizedBody = responseBody.replace(/(?:\r?\n)?data:\s*\[DONE\]\s*$/, "");
   try {
-    const data = JSON.parse(normalizedBody) as { choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } };
+    const data = JSON.parse(normalizedBody) as {
+      choices?: { message?: { content?: string }; finish_reason?: string | null }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+    };
+    const finishReason = data.choices?.[0]?.finish_reason ?? undefined;
     return {
       content: data.choices?.[0]?.message?.content ?? "",
       inputTokens: data.usage?.prompt_tokens,
       outputTokens: data.usage?.completion_tokens,
+      ...(finishReason ? { finishReason } : {}),
     };
   } catch (error) {
     if (!(error instanceof SyntaxError)) throw error;
@@ -322,20 +388,27 @@ function parseCompletionBody(responseBody: string): LLMResult {
     // deliberately not sent — strict OpenAI rejects it on a non-stream
     // request; missing usage is estimated upstream (withUsageEstimate).
     let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+    let finishReason: string | undefined;
     const content = normalizedBody
       .split(/\r?\n/)
       .filter((line) => line.startsWith("data:") && line.slice(5).trim() !== "[DONE]")
       .map((line) => {
         const payload = JSON.parse(line.slice(5).trim()) as {
-          choices?: { delta?: { content?: string }; message?: { content?: string } }[];
+          choices?: { delta?: { content?: string }; message?: { content?: string }; finish_reason?: string | null }[];
           usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
         };
         if (payload.usage) usage = payload.usage;
+        if (payload.choices?.[0]?.finish_reason) finishReason = payload.choices[0].finish_reason;
         return payload.choices?.[0]?.delta?.content ?? payload.choices?.[0]?.message?.content ?? "";
       })
       .join("");
 
-    return { content, inputTokens: usage?.prompt_tokens, outputTokens: usage?.completion_tokens };
+    return {
+      content,
+      inputTokens: usage?.prompt_tokens,
+      outputTokens: usage?.completion_tokens,
+      ...(finishReason ? { finishReason } : {}),
+    };
   }
 }
 
@@ -345,13 +418,15 @@ export function createGlobalLLMProvider(config?: GlobalLLMConfig): LLMProvider {
   const apiKey = cfg.apiKey;
   if (!apiKey) throw new Error(`API key missing for global LLM provider (${provider}). Set LLM_API_KEY.`);
 
-  if (provider === "openai-compatible" || provider === "openai") {
-    return new OpenAICompatibleProvider(apiKey, cfg.model, cfg.baseUrl);
-  }
-  if (provider === "anthropic") {
+  // Only Anthropic speaks the Messages API; every other kind ("openai",
+  // "openai-compatible", and free-form ones like "openrouter", "groq",
+  // "ollama") speaks OpenAI chat completions — same routing as the backend
+  // (apps/api/convex/lib/chat/llmEndpoint.ts).
+  if (provider === "anthropic" || provider === "claude" || provider.startsWith("anthropic")) {
     return new AnthropicProvider(apiKey, cfg.model, cfg.baseUrl);
   }
-  throw new Error(`Unsupported LLM provider: ${provider}`);
+  if (!provider) throw new Error("Unsupported LLM provider: (empty)");
+  return new OpenAICompatibleProvider(apiKey, cfg.model, cfg.baseUrl);
 }
 
 /**

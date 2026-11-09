@@ -15,7 +15,7 @@
  * explicit user action that reuses the existing replan / retry / steer
  * paths.
  */
-import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -23,25 +23,13 @@ import { internal } from "./_generated/api";
 import { assertProjectAccess, assertTaskAccess, getVisibleTask } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
 import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver";
-import { completeWithAgent, getGlobalLLMConfig, resolveConfigFromProviders } from "./lib/chat/llm";
-import { buildRepoToolProtocol } from "./lib/prompts/chat";
 import {
-  OPINION_MAX_TOOL_CALLS,
-  OPINION_TOKEN_CAP,
-  SHADOW_MAX_TOOL_CALLS,
-  SHADOW_MAX_NOTES_PER_SUBTASK,
   SHADOW_TOKEN_CAP_PER_TASK,
   SHADOW_MAX_NOTES_PER_TASK,
   buildMessageMaterial,
-  buildOpinionSystem,
-  buildShadowSystem,
   buildSubtaskMaterial,
-  parseOpinion,
-  parseShadowNotes,
   replanNoteFromOpinion,
 } from "./lib/reviewer/opinion";
-import { ReviewerBudgetError, runReviewerLoop } from "./lib/reviewer/run";
-import { callReadOnlyRepoTool } from "./lib/reviewer/repoToolCall";
 import { findPendingPlanApproval, replanPendingPlan } from "./planReview";
 import { requeueForRetry, steerWith } from "./tasks";
 
@@ -85,7 +73,7 @@ export const requestSubtaskOpinion = mutation({
       taskId: task._id,
       details: { subtaskKey: args.subtaskKey },
     });
-    await ctx.scheduler.runAfter(0, internal.reviewer.runReview, { opinionId });
+    await ctx.scheduler.runAfter(0, internal.reviewerNode.runReview, { opinionId });
     return opinionId;
   },
 });
@@ -124,7 +112,7 @@ export const requestMessageOpinion = mutation({
       ...(message.taskId ? { taskId: message.taskId } : {}),
       details: { messageId: message._id },
     });
-    await ctx.scheduler.runAfter(0, internal.reviewer.runReview, { opinionId });
+    await ctx.scheduler.runAfter(0, internal.reviewerNode.runReview, { opinionId });
     return opinionId;
   },
 });
@@ -550,80 +538,6 @@ export const finishReview = internalMutation({
   },
 });
 
-/** Runs one second opinion or shadow review. Read-only by construction (lib/reviewer/run.ts). */
-export const runReview = internalAction({
-  args: { opinionId: v.id("reviewOpinions") },
-  handler: async (ctx, args) => {
-    const context = await ctx.runQuery(internal.reviewer.getReviewContext, { opinionId: args.opinionId });
-    if (!context) {
-      await ctx.runMutation(internal.reviewer.finishReview, {
-        opinionId: args.opinionId,
-        error: "The subtask or message is gone",
-        inputTokens: 0,
-        outputTokens: 0,
-        toolCalls: 0,
-      });
-      return null;
-    }
-    const shadow = context.mode === "shadow";
-    const tokenCap = shadow ? Math.max(0, SHADOW_TOKEN_CAP_PER_TASK - context.shadowTokensUsed) : OPINION_TOKEN_CAP;
-    const notesLeft = Math.max(0, SHADOW_MAX_NOTES_PER_TASK - context.shadowNotesUsed);
-    const maxToolCalls = shadow ? SHADOW_MAX_TOOL_CALLS : OPINION_MAX_TOOL_CALLS;
-    let hasTools = false;
-    try {
-      hasTools = (await ctx.runQuery(internal.repoTools.availability, { projectId: context.projectId })).available;
-    } catch {
-      hasTools = false;
-    }
-    const toolProtocol = hasTools ? buildRepoToolProtocol(maxToolCalls) : undefined;
-    const system = shadow
-      ? buildShadowSystem({ persona: context.persona, maxNotes: Math.min(SHADOW_MAX_NOTES_PER_SUBTASK, notesLeft), hasRepoTools: hasTools, toolProtocol })
-      : buildOpinionSystem({ persona: context.persona, target: context.target, hasRepoTools: hasTools, toolProtocol });
-    let model: string | undefined;
-    const usage = { inputTokens: 0, outputTokens: 0, toolCalls: 0 };
-    try {
-      const config = await resolveConfigFromProviders(context.providers, getGlobalLLMConfig(), context.prefs);
-      model = config.model;
-      const result = await runReviewerLoop({
-        system,
-        material: context.material,
-        maxToolCalls: hasTools ? maxToolCalls : 0,
-        tokenCap,
-        usage,
-        step: async (sys, messages) => (await completeWithAgent(sys, messages, config)).content,
-        callTool: hasTools ? (call) => callReadOnlyRepoTool(ctx, context.projectId, call) : undefined,
-      });
-      const common = {
-        opinionId: args.opinionId,
-        model,
-        ...(context.agentId ? { agentId: context.agentId } : {}),
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
-        toolCalls: result.toolCalls,
-      };
-      if (shadow) {
-        const notes = parseShadowNotes(result.answer, Math.min(SHADOW_MAX_NOTES_PER_SUBTASK, notesLeft));
-        await ctx.runMutation(internal.reviewer.finishReview, { ...common, notes });
-      } else {
-        const opinion = parseOpinion(result.answer);
-        await ctx.runMutation(internal.reviewer.finishReview, { ...common, ...opinion });
-      }
-    } catch (error) {
-      const message =
-        error instanceof ReviewerBudgetError
-          ? error.message
-          : `The Reviewer could not finish: ${error instanceof Error ? error.message : String(error)}`;
-      await ctx.runMutation(internal.reviewer.finishReview, {
-        opinionId: args.opinionId,
-        error: message,
-        model,
-        // Tokens already spent before the failure still count.
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        toolCalls: usage.toolCalls,
-      });
-    }
-    return null;
-  },
-});
-
+// The review run itself (`runReview`) lives in reviewerNode.ts: it calls the
+// user's LLM endpoint, which needs the Node runtime ("use node"), and a
+// "use node" module may only export actions.

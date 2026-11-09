@@ -10,6 +10,7 @@ import {
 } from "../llmResolver";
 
 import { getGlobalLLMConfig, type LlmEndpointConfig } from "../llmConfig";
+import { describeEndpoint, endpointCandidates, llmHttpError, wireProtocolFor } from "./llmEndpoint";
 
 /** Endpoint + credentials for one chat completion. */
 export type ChatLlmConfig = LlmEndpointConfig;
@@ -73,12 +74,34 @@ export async function completeWithAgent(
       // The gateway sometimes takes longer than the old 30s to answer; a
       // raw AbortError reads as "This operation was aborted" in the UI.
       if (ctrl.signal.aborted) {
-        throw new Error(`LLM request timed out after ${Math.round(timeoutMs / 1000)}s`);
+        throw new Error(`LLM request timed out after ${Math.round(timeoutMs / 1000)}s (${describeEndpoint(globalConfig)})`);
       }
-      throw error;
+      // Network failure ("fetch failed"): name the provider kind and host.
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`LLM request failed: ${reason} (${describeEndpoint(globalConfig)}, model "${model}")`);
     } finally {
       clearTimeout(timer);
     }
+  };
+
+  /**
+   * POST to the first candidate URL; on a 404 try the next one (base URL
+   * with / without `/v1`, see llmEndpoint.ts). A non-2xx answer throws an
+   * error naming the status, provider kind, host and model (never the key).
+   */
+  const post = async (suffix: "/chat/completions" | "/messages", init: RequestInit): Promise<Response> => {
+    const candidates = endpointCandidates(baseUrl, suffix);
+    const attempted: string[] = [];
+    for (const [index, url] of candidates.entries()) {
+      attempted.push(url);
+      const res = await doFetch(url, init);
+      if (res.ok) return res;
+      const body = await res.text().catch(() => "");
+      if (res.status === 404 && index < candidates.length - 1) continue;
+      throw llmHttpError(res.status, globalConfig, body, attempted);
+    }
+    // Unreachable: the loop always returns or throws.
+    throw new Error(`LLM request failed (${describeEndpoint(globalConfig)})`);
   };
 
   const startedAt = Date.now();
@@ -157,9 +180,8 @@ export async function completeWithAgent(
     }
   };
 
-  if (provider === "openai" || provider === "openai-compatible") {
-    const base = baseUrl.replace(/\/$/, "");
-    const res = await doFetch(`${base}/chat/completions`, {
+  if (wireProtocolFor(provider, baseUrl) === "openai") {
+    const res = await post("/chat/completions", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -173,7 +195,6 @@ export async function completeWithAgent(
         messages: [{ role: "system", content: system }, ...messages],
       }),
     });
-    if (!res.ok) throw new Error(`LLM request failed: ${res.status}`);
     const contentType = res.headers.get("content-type") ?? "";
     if (!contentType.includes("text/event-stream")) {
       // Non-streaming fallback (some proxies ignore stream:true).
@@ -224,8 +245,7 @@ export async function completeWithAgent(
   }
 
   // anthropic
-  const base = baseUrl.replace(/\/$/, "");
-  const res = await doFetch(`${base}/messages`, {
+  const res = await post("/messages", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -241,7 +261,6 @@ export async function completeWithAgent(
       ...(temperature !== undefined ? { temperature: Math.min(1, temperature) } : {}),
     }),
   });
-  if (!res.ok) throw new Error(`LLM request failed: ${res.status}`);
   const contentType = res.headers.get("content-type") ?? "";
   if (!contentType.includes("text/event-stream")) {
     const data: any = await res.json();
@@ -315,4 +334,84 @@ export async function resolveConfigFromProviders(
     };
   }
   return fallback;
+}
+
+type AgentLlmPrefs = {
+  llmProviderId?: string;
+  llmModelId?: string;
+  llmFallbackProviderId?: string;
+  llmFallbackModelId?: string;
+  llmSelectionPolicy?: string;
+};
+
+/**
+ * The agent's configured fallback (llmFallbackProviderId + optional
+ * llmFallbackModelId) as a concrete config, or null when none is set or the
+ * connection is not in the enabled pool.
+ */
+export async function resolveFallbackConfigFromProviders(
+  providers: PoolConnectionPayload[] | undefined,
+  fallback: ChatLlmConfig,
+  agent?: AgentLlmPrefs
+): Promise<ChatLlmConfig | null> {
+  if (!providers || !agent?.llmFallbackProviderId) return null;
+  const conn = providers.find((p) => String(p._id) === String(agent.llmFallbackProviderId));
+  if (!conn) return null;
+  const model =
+    (agent.llmFallbackModelId ? conn.models.find((m) => String(m._id) === String(agent.llmFallbackModelId)) : undefined) ??
+    conn.models.find((m) => m.isAvailable) ??
+    conn.models[0];
+  if (!model) return null;
+  const key = await resolveConnectionKey(conn);
+  return {
+    provider: conn.provider.toLowerCase(),
+    model: model.modelId,
+    baseUrl: conn.baseUrl,
+    apiKey: key || fallback.apiKey,
+  };
+}
+
+/**
+ * Primary config plus the agent's fallback (when configured and different
+ * from the primary), in the order they should be tried.
+ */
+export async function resolveConfigChain(
+  providers: PoolConnectionPayload[] | undefined,
+  fallback: ChatLlmConfig,
+  agent?: AgentLlmPrefs
+): Promise<ChatLlmConfig[]> {
+  const primary = await resolveConfigFromProviders(providers, fallback, agent);
+  const secondary = await resolveFallbackConfigFromProviders(providers, fallback, agent);
+  const same =
+    secondary &&
+    secondary.provider === primary.provider &&
+    secondary.model === primary.model &&
+    secondary.baseUrl === primary.baseUrl;
+  return secondary && !same ? [primary, secondary] : [primary];
+}
+
+/**
+ * completeWithAgent over a config chain: the first config that answers
+ * wins. When every config fails, the error names each attempt (kind @ host,
+ * never the key).
+ */
+export async function completeWithFallback(
+  system: string,
+  history: { role: string; content: string }[],
+  configs: ChatLlmConfig[],
+  onChunk?: (partial: StreamChunk) => void,
+  opts?: { temperature?: number }
+): Promise<CompleteResult & { config: ChatLlmConfig; fellBack: boolean; primaryError?: string }> {
+  if (configs.length === 0) throw new Error("No LLM config to call");
+  const errors: string[] = [];
+  for (const [index, config] of configs.entries()) {
+    try {
+      const result = await completeWithAgent(system, history, config, onChunk, opts);
+      return { ...result, config, fellBack: index > 0, ...(errors[0] ? { primaryError: errors[0] } : {}) };
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  if (errors.length === 1) throw new Error(errors[0]);
+  throw new Error(`${errors[0]} — fallback also failed: ${errors.slice(1).join(" | ")}`);
 }

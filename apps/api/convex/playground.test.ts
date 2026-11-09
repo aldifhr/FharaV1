@@ -64,7 +64,7 @@ describe("Agent Playground", () => {
       return projectId;
     });
     const before = await counts(t);
-    const result = await t.action(api.playground.run, {
+    const result = await t.action(api.playgroundNode.run, {
       projectId,
       sections: [
         { key: "system", content: "You are QA." },
@@ -103,7 +103,7 @@ describe("Agent Playground", () => {
     const calls = stubLlm("ok");
     const t = convexTest(schema, modules);
     const projectId = await t.run((ctx) => ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p" }));
-    await t.action(api.playground.run, {
+    await t.action(api.playgroundNode.run, {
       projectId,
       sections: [
         { key: "tools", content: "TOOL-CATALOG" },
@@ -122,7 +122,7 @@ describe("Agent Playground", () => {
     const t = convexTest(schema, modules);
     const projectId = await t.run((ctx) => ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p" }));
     const before = await counts(t);
-    const result = await t.action(api.playground.run, { projectId, sections: [{ key: "user", content: "hi" }] });
+    const result = await t.action(api.playgroundNode.run, { projectId, sections: [{ key: "user", content: "hi" }] });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/401/);
     expect(await counts(t)).toEqual(before);

@@ -49,7 +49,7 @@ function Playground() {
   const recent = useQuery(api.contextSnapshots.recent, { limit: 40 });
   const models = useQuery(api.playground.models, {});
   const projects = useQuery(api.playground.projects, {});
-  const run = useAction(api.playground.run);
+  const run = useAction(api.playgroundNode.run);
   const saveVariant = useMutation(api.playground.saveVariant);
 
   const [sections, setSections] = useState<Record<SectionKey, string>>(emptySections);

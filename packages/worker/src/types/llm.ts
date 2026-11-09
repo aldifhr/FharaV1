@@ -13,6 +13,12 @@ export interface LLMResult {
    * `estimated` on the tokenUsage row and shown as "≈" in the UI.
    */
   usageEstimated?: boolean;
+  /**
+   * Why the model stopped, as the provider reported it (OpenAI
+   * `finish_reason`; Anthropic `stop_reason` "max_tokens" is mapped to
+   * "length"). "length" means the answer was cut at the output cap.
+   */
+  finishReason?: string;
 }
 
 /**

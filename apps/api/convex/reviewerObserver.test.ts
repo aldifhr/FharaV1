@@ -183,7 +183,7 @@ describe("second opinion", () => {
     const fetchMock = stubLlm(['{"verdict":"concerns","reason":"No click handler.","evidence":[{"file":"apps/web/Toolbar.tsx","line":1}]}']);
     const opinionId = await t.mutation(api.reviewer.requestSubtaskOpinion, { taskId, subtaskKey: "impl" });
     const before = await runState(t, taskId);
-    await t.action(internal.reviewer.runReview, { opinionId });
+    await t.action(internal.reviewerNode.runReview, { opinionId });
     const after = await runState(t, taskId);
     expect(after).toEqual(before);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -217,7 +217,7 @@ describe("second opinion", () => {
     const fetchMock = stubLlm(['{"verdict":"agree","reason":"Correct.","evidence":[]}']);
     const opinionId = await t.mutation(api.reviewer.requestMessageOpinion, { messageId });
     const before = await runState(t, taskId);
-    await t.action(internal.reviewer.runReview, { opinionId });
+    await t.action(internal.reviewerNode.runReview, { opinionId });
     expect(await runState(t, taskId)).toEqual(before);
     const prompt = JSON.parse((fetchMock.mock.calls[0] as any)[1].body);
     expect(prompt.messages[1].content).toContain("Where is the toolbar?");
@@ -229,7 +229,7 @@ describe("second opinion", () => {
     const { t, taskId } = await seed({ status: "done" });
     stubLlm(['{"verdict":"disagree","reason":"Wrong component.","evidence":[]}']);
     const opinionId = await t.mutation(api.reviewer.requestSubtaskOpinion, { taskId, subtaskKey: "impl" });
-    await t.action(internal.reviewer.runReview, { opinionId });
+    await t.action(internal.reviewerNode.runReview, { opinionId });
     // The review alone changed nothing.
     expect((await t.run((ctx) => ctx.db.get(taskId)))?.status).toBe("done");
     const result = await t.mutation(api.reviewer.replanWithOpinion, { opinionId });
@@ -245,7 +245,7 @@ describe("second opinion", () => {
     const { t, taskId } = await seed({ status: "done" });
     stubLlm(['{"verdict":"agree","reason":"Fine.","evidence":[]}']);
     const opinionId = await t.mutation(api.reviewer.requestSubtaskOpinion, { taskId, subtaskKey: "impl" });
-    await t.action(internal.reviewer.runReview, { opinionId });
+    await t.action(internal.reviewerNode.runReview, { opinionId });
     await expect(t.mutation(api.reviewer.replanWithOpinion, { opinionId })).rejects.toThrow(/agreed/);
   });
 });
@@ -275,7 +275,7 @@ describe("shadow agent", () => {
 
     stubLlm(['{"notes":[{"kind":"risk","text":"No onClick handler","evidence":[{"file":"apps/web/Toolbar.tsx","line":1}]}]}']);
     const before = await runState(t, taskId);
-    await t.action(internal.reviewer.runReview, { opinionId: rows[0]._id });
+    await t.action(internal.reviewerNode.runReview, { opinionId: rows[0]._id });
     expect(await runState(t, taskId)).toEqual(before);
     const view = await t.query(api.reviewer.listForTask, { taskId });
     expect(view?.shadow[0].notes).toEqual([{ kind: "risk", text: "No onClick handler", evidence: [{ file: "apps/web/Toolbar.tsx", line: 1 }] }]);

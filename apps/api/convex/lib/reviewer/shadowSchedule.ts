@@ -69,6 +69,6 @@ export async function scheduleShadowReview(ctx: MutationCtx, taskId: Id<"tasks">
     status: "running",
     createdAt: now,
   });
-  await ctx.scheduler.runAfter(0, internal.reviewer.runReview, { opinionId });
+  await ctx.scheduler.runAfter(0, internal.reviewerNode.runReview, { opinionId });
   return opinionId;
 }

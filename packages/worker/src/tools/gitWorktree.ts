@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { gitIdentityArgs } from "@/api/convex/lib/gitIdentity";
 
 const execFileAsync = promisify(execFile);
 
@@ -24,15 +25,9 @@ export async function commitWorktree(
   });
   await execFileAsync(
     "git",
-    [
-      "-c",
-      "user.name=Fhara",
-      "-c",
-      "user.email=fhara@localhost",
-      "commit",
-      "-m",
-      message,
-    ],
+    // Identity per command: the scrubbed child env carries no GIT_AUTHOR_*
+    // and a fresh clone has no user.name/email (FHARA_GIT_AUTHOR_* override).
+    [...gitIdentityArgs(), "commit", "-m", message],
     { cwd: worktreePath, shell: false, windowsHide: true, env: buildChildEnv() }
   );
   return true;

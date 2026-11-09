@@ -397,7 +397,9 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_task", ["taskId"])
-    .index("by_task_and_key", ["taskId", "key"]),
+    .index("by_task_and_key", ["taskId", "key"])
+    // Project delete cascade (projects.cascadeDelete).
+    .index("by_project", ["projectId"]),
 
   executions: defineTable({
     taskId: v.id("tasks"),
@@ -433,7 +435,9 @@ export default defineSchema({
     .index("by_agent", ["agentId"])
     .index("by_agent_and_status", ["agentId", "status"])
     .index("by_status", ["status"])
-    .index("by_status_and_lease", ["status", "leaseExpiresAt"]),
+    .index("by_status_and_lease", ["status", "leaseExpiresAt"])
+    // Project delete cascade (projects.cascadeDelete).
+    .index("by_project", ["projectId"]),
 
   workers: defineTable({
     workerId: v.string(),
@@ -570,7 +574,9 @@ export default defineSchema({
     // Repo-relative files the call read (read_file only).
     files: v.optional(v.array(v.string())),
     createdAt: v.number(),
-  }).index("by_status_and_created", ["status", "createdAt"]),
+  }).index("by_status_and_created", ["status", "createdAt"])
+    // Project delete cascade (projects.cascadeDelete).
+    .index("by_project", ["projectId"]),
 
   conversations: defineTable({
     projectId: v.id("projects"),
@@ -663,7 +669,9 @@ export default defineSchema({
     taskId: v.id("tasks"),
     projectId: v.id("projects"),
     ...observationFields,
-  }).index("by_task", ["taskId"]),
+  }).index("by_task", ["taskId"])
+    // Project delete cascade (projects.cascadeDelete).
+    .index("by_project", ["projectId"]),
 
   taskEvents: defineTable({
     taskId: v.id("tasks"),
@@ -725,7 +733,9 @@ export default defineSchema({
     checks: v.any(),
     notes: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_task", ["taskId"]),
+  }).index("by_task", ["taskId"])
+    // Project delete cascade (projects.cascadeDelete).
+    .index("by_project", ["projectId"]),
 
   audit: defineTable({
     taskId: v.optional(v.id("tasks")),
@@ -796,7 +806,9 @@ export default defineSchema({
     delivered: v.boolean(),
     deliveredAt: v.optional(v.number()),
     createdAt: v.number(),
-  }).index("by_task_and_delivered", ["taskId", "delivered"]),
+  }).index("by_task_and_delivered", ["taskId", "delivered"])
+    // Project delete cascade (projects.cascadeDelete).
+    .index("by_project", ["projectId"]),
 
   taskContexts: defineTable({
     taskId: v.id("tasks"),
@@ -813,7 +825,9 @@ export default defineSchema({
     // just the call/token totals the tokenUsage table carries.
     budgetSnapshot: v.optional(v.any()),
     updatedAt: v.number(),
-  }).index("by_task", ["taskId"]),
+  }).index("by_task", ["taskId"])
+    // Project delete cascade (projects.cascadeDelete).
+    .index("by_project", ["projectId"]),
 
   // Conditional delegation decisions
   delegations: defineTable({
@@ -831,7 +845,9 @@ export default defineSchema({
     reason: v.optional(v.string()),
     capability: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_task", ["taskId"]),
+  }).index("by_task", ["taskId"])
+    // Project delete cascade (projects.cascadeDelete).
+    .index("by_project", ["projectId"]),
 
   // Lifecycle state history (for recoverability)
   lifecycleHistory: defineTable({
@@ -840,7 +856,9 @@ export default defineSchema({
     state: v.string(),
     prevState: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_task", ["taskId"]),
+  }).index("by_task", ["taskId"])
+    // Project delete cascade (projects.cascadeDelete).
+    .index("by_project", ["projectId"]),
 
   // Provider Connections (spec §4A) — reusable connections shared by all
   // projects/agents. Models live in llmModels (§4B); a connection can offer
@@ -1048,7 +1066,9 @@ export default defineSchema({
     .index("by_task_and_sha", ["taskId", "commitSha"])
     .index("by_status_and_requested", ["status", "requestedAt"])
     .index("by_status_and_lease", ["status", "leaseExpiresAt"])
-    .index("by_pr_state_and_checked", ["prState", "prCheckedAt"]),
+    .index("by_pr_state_and_checked", ["prState", "prCheckedAt"])
+    // Project delete cascade (projects.cascadeDelete).
+    .index("by_project", ["projectId"]),
 
   // Integration webhook events (for async processing)
   integrationEvents: defineTable({
@@ -1261,7 +1281,9 @@ export default defineSchema({
   })
     .index("by_incident", ["incidentId"])
     .index("by_task", ["taskId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    // Project delete cascade (projects.cascadeDelete).
+    .index("by_project", ["projectId"]),
 
   // Library: reusable agent skills (markdown instructions). Attached to
   // agents via `agents.skillIds` and appended to their prompt at run time.
@@ -1466,5 +1488,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_rec", ["recId", "createdAt"])
-    .index("by_created", ["createdAt"]),
+    .index("by_created", ["createdAt"])
+    // Project delete cascade (projects.cascadeDelete).
+    .index("by_project", ["projectId"]),
 });

@@ -38,6 +38,7 @@ import {
   subtaskStatus,
   executionStatus,
 } from "./schema";
+import { taskBranchPrefixes } from "./lib/taskBranch";
 
 const DEFAULT_LEASE_MS = 60_000;
 
@@ -2586,7 +2587,8 @@ export const cleanupWorktreeContext = internalQuery({
     return {
       workspacePath: project.workspacePath,
       worktreesPath: project.worktreesPath,
-      branchPrefix: `fhara/${args.taskId}/`,
+      // Current fhara/<id>/ plus legacy moagent/<id>/ (pre-rename branches).
+      branchPrefixes: taskBranchPrefixes(args.taskId),
     };
   },
 });

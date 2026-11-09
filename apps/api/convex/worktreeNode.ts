@@ -2,22 +2,27 @@
 
 import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as path from "node:path";
 import { internal } from "./_generated/api";
 import { buildChildEnv } from "./lib/childEnv";
+import { gitIdentityArgs } from "./lib/gitIdentity";
+import { makeTaskBranchName, taskWorktreesFromPorcelain } from "./lib/taskBranch";
 
+// execFile, not a shell string: branch names, paths and the identity
+// (`user.name=Some Name`) are passed as argv, never re-split or interpreted.
 function gitExec(cwd: string, args: string[]): string {
-  return execSync(`git ${args.join(" ")}`, { cwd, encoding: "utf-8", windowsHide: true, env: buildChildEnv() });
+  return execFileSync("git", args, { cwd, encoding: "utf-8", windowsHide: true, env: buildChildEnv() });
 }
 
-function makeBranchName(taskId: string, title: string): string {
-  const slug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 40);
-  return `fhara/${taskId}/${slug || "task"}`;
+/**
+ * git commands that write commits (merge, commit) carry the Fhara identity
+ * per command: the scrubbed child env has no GIT_AUTHOR_*, and a fresh
+ * clone has no user.name/user.email, so git would refuse with "Committer
+ * identity unknown".
+ */
+function gitCommitExec(cwd: string, args: string[]): string {
+  return gitExec(cwd, [...gitIdentityArgs(), ...args]);
 }
 
 export const createBranch = internalAction({
@@ -33,7 +38,7 @@ export const createBranch = internalAction({
       existingWorktreePath?: string;
     };
 
-    const branchName = data.existingBranchName ?? makeBranchName(args.taskId, data.taskTitle);
+    const branchName = data.existingBranchName ?? makeTaskBranchName(args.taskId, data.taskTitle);
     const worktreesBase = data.worktreesPath ?? path.join(data.workspacePath, ".moagent-worktrees");
     const worktreePath =
       data.existingWorktreePath ?? `${worktreesBase}/${data.projectName}/${branchName}`;
@@ -114,7 +119,7 @@ export const mergeBranch = internalAction({
 
     try {
       gitExec(data.workspacePath, ["checkout", data.mainBranch]);
-      gitExec(data.workspacePath, ["merge", "--no-ff", data.branchName]);
+      gitCommitExec(data.workspacePath, ["merge", "--no-ff", "--no-edit", data.branchName]);
     } catch (err: any) {
       await ctx.runMutation(internal.orchestration.mergeBranchCompleted, {
         taskId: args.taskId,
@@ -175,24 +180,18 @@ export const cleanupStaleWorktrees = internalAction({
   handler: async (ctx, args) => {
     const data = (await ctx.runQuery(internal.orchestration.cleanupWorktreeContext, args)) as {
       workspacePath: string;
-      branchPrefix: string;
+      branchPrefixes: string[];
     } | null;
     if (!data) return;
 
     try {
-      const currentWorktree = gitExec(data.workspacePath, ["worktree", "list", "--porcelain"])
-        .split("\n")
-        .filter((line) => line.startsWith("worktree "))
-        .map((line) => line.slice(9))
-        .pop();
-
-      const orphanedWorktrees = gitExec(data.workspacePath, ["worktree", "list"])
-        .split("\n")
-        .filter((line) => line.includes(data.branchPrefix) && !line.includes("(bare)"));
-
-      for (const wt of orphanedWorktrees) {
-        const wtPath = wt.trim();
-        if (!wtPath || wtPath === currentWorktree) continue;
+      // Porcelain output, matched on the branch (fhara/<id>/ and the legacy
+      // moagent/<id>/): the human `worktree list` lines start with the path
+      // followed by sha and branch, so they never named a removable path.
+      const porcelain = gitExec(data.workspacePath, ["worktree", "list", "--porcelain"]);
+      const main = path.resolve(data.workspacePath);
+      for (const wtPath of taskWorktreesFromPorcelain(porcelain, args.taskId)) {
+        if (path.resolve(wtPath) === main) continue;
         try {
           gitExec(data.workspacePath, ["worktree", "remove", "--force", wtPath]);
         } catch {}

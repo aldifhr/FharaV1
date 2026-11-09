@@ -1,4 +1,5 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertProjectAccess, canViewProject, getViewerId } from "./lib/authz";
 import { changedFields, recordAudit } from "./lib/recordAudit";
@@ -189,6 +190,69 @@ export const get = query({
   },
 });
 
+/**
+ * Every table holding a `projectId`, in the order the cascade empties them,
+ * each with an index whose FIRST field is `projectId` (so `eq("projectId")`
+ * selects exactly the project's rows). Children go before their parents
+ * (task-scoped rows before `tasks`, snapshots with their bodies) so a
+ * half-finished cascade never leaves a row pointing at a deleted parent it
+ * still needs. `projectCascade.test.ts` checks this list against
+ * schema.ts, so a new table with a projectId fails the suite until it is
+ * listed here or in PROJECT_CASCADE_EXEMPT.
+ *
+ * `audit` is deliberately not deleted: the trail outlives the project, so
+ * its rows are detached (projectId cleared) instead.
+ */
+export const PROJECT_CASCADE = [
+  { table: "subtaskLive", index: "by_project" },
+  { table: "executionObservations", index: "by_project" },
+  { table: "executions", index: "by_project" },
+  { table: "evaluations", index: "by_project" },
+  { table: "fileChanges", index: "by_project" },
+  { table: "taskInputs", index: "by_project" },
+  { table: "taskContexts", index: "by_project" },
+  { table: "delegations", index: "by_project" },
+  { table: "lifecycleHistory", index: "by_project" },
+  { table: "taskPushes", index: "by_project" },
+  { table: "repoToolCalls", index: "by_project" },
+  { table: "improvementSuggestions", index: "by_project" },
+  { table: "incidents", index: "by_project_and_status" },
+  { table: "reviewOpinions", index: "by_project_and_target" },
+  { table: "decisions", index: "by_project" },
+  { table: "contextSnapshots", index: "by_project_created" },
+  { table: "contextSummaries", index: "by_project" },
+  { table: "tokenUsage", index: "by_project" },
+  { table: "agentEvents", index: "by_project" },
+  { table: "taskEvents", index: "by_project" },
+  { table: "approvals", index: "by_project" },
+  { table: "messages", index: "by_project" },
+  { table: "conversationParticipants", index: "by_project" },
+  { table: "conversations", index: "by_project" },
+  { table: "subtasks", index: "by_project" },
+  { table: "plans", index: "by_project" },
+  { table: "tasks", index: "by_project" },
+  { table: "integrationEvents", index: "by_project" },
+  { table: "integrations", index: "by_project" },
+  { table: "projectAgents", index: "by_project" },
+  { table: "mcpServers", index: "by_project" },
+  { table: "memories", index: "by_project" },
+  { table: "modelCapabilityOverrides", index: "by_project" },
+  { table: "calibrationActions", index: "by_project" },
+  { table: "audit", index: "by_project" },
+] as const;
+
+/**
+ * Tables with a `projectId` field the cascade leaves alone, and why.
+ * `llmProviders.projectId` is a legacy free-form string that nothing writes
+ * any more; providers are global and own models other projects use.
+ */
+export const PROJECT_CASCADE_EXEMPT: Record<string, string> = {
+  llmProviders: "legacy string projectId, never written; providers are global",
+};
+
+/** Rows touched per cascade mutation; keeps each run well under Convex limits. */
+export const PROJECT_CASCADE_BATCH = 200;
+
 export const remove = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
@@ -198,46 +262,16 @@ export const remove = mutation({
       .query("tasks")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .collect();
-    for (const task of tasks) {
-      for (const table of [
-        "messages",
-        "approvals",
-        "taskEvents",
-        "fileChanges",
-        "subtasks",
-        "executions",
-        "evaluations",
-        "plans",
-        "subtaskLive",
-      ] as const) {
-        const records = await ctx.db
-          .query(table)
-          .withIndex("by_task", (q) => q.eq("taskId", task._id))
-          .collect();
-        for (const record of records) await ctx.db.delete(record._id);
-      }
-      await ctx.db.delete(task._id);
-    }
 
-    const messages = await ctx.db
-      .query("messages")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    for (const message of messages) await ctx.db.delete(message._id);
-
-    const projectApprovals = await ctx.db
-      .query("approvals")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    for (const approval of projectApprovals) await ctx.db.delete(approval._id);
-
-    const projectEvents = await ctx.db
-      .query("taskEvents")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    for (const event of projectEvents) await ctx.db.delete(event._id);
-
+    // The project row goes now (the UI drops it at once); every row that
+    // points at it is removed in batches by the scheduled cascade, which
+    // reschedules itself until all PROJECT_CASCADE tables are empty.
     await ctx.db.delete(args.projectId);
+    await ctx.scheduler.runAfter(0, internal.projects.cascadeDelete, {
+      projectId: args.projectId,
+      step: 0,
+      deleted: 0,
+    });
     // Global row (no projectId): the project is gone, the trail stays.
     await recordAudit(ctx, {
       action: "project.remove",
@@ -245,5 +279,53 @@ export const remove = mutation({
       details: { deletedTasks: tasks.length },
     });
     return { deletedTasks: tasks.length };
+  },
+});
+
+/**
+ * One batch of the project delete cascade. Works through PROJECT_CASCADE
+ * from `step`, touching at most PROJECT_CASCADE_BATCH rows, then schedules
+ * itself to continue. Idempotent: rerunning a step only finds what is left.
+ */
+export const cascadeDelete = internalMutation({
+  args: { projectId: v.id("projects"), step: v.number(), deleted: v.number() },
+  handler: async (ctx, args): Promise<{ done: boolean; step: number; deleted: number }> => {
+    let budget = PROJECT_CASCADE_BATCH;
+    let deleted = args.deleted;
+    let step = args.step;
+    while (step < PROJECT_CASCADE.length && budget > 0) {
+      const { table, index } = PROJECT_CASCADE[step];
+      const rows = await (ctx.db.query(table) as any)
+        .withIndex(index, (q: any) => q.eq("projectId", args.projectId))
+        .take(budget);
+      for (const row of rows) {
+        if (table === "audit") {
+          await ctx.db.patch(row._id, { projectId: undefined });
+        } else {
+          if (table === "contextSnapshots") {
+            const bodies = await ctx.db
+              .query("contextSnapshotBodies")
+              .withIndex("by_snapshot", (q) => q.eq("snapshotId", row._id))
+              .collect();
+            for (const body of bodies) await ctx.db.delete(body._id);
+          }
+          await ctx.db.delete(row._id);
+        }
+        deleted += 1;
+      }
+      budget -= rows.length;
+      // A full batch may mean more rows remain in this table: stay on it.
+      if (budget <= 0) break;
+      step += 1;
+    }
+    const done = step >= PROJECT_CASCADE.length;
+    if (!done) {
+      await ctx.scheduler.runAfter(0, internal.projects.cascadeDelete, {
+        projectId: args.projectId,
+        step,
+        deleted,
+      });
+    }
+    return { done, step, deleted };
   },
 });

@@ -1,4 +1,5 @@
 import { redactSecret } from "./gitPush";
+import { proxyAwareFetch, type FetchLike } from "./proxyFetch";
 
 /**
  * Plan 019: open (or find) the pull request for a pushed task branch via
@@ -7,7 +8,7 @@ import { redactSecret } from "./gitPush";
  * retried request never opens a duplicate.
  */
 
-export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
+export type { FetchLike };
 
 export interface PullRequestResult {
   number: number;
@@ -45,7 +46,8 @@ export async function openPullRequest(input: {
   fetchImpl?: FetchLike;
   signal?: AbortSignal;
 }): Promise<PullRequestResult> {
-  const fetchImpl = input.fetchImpl ?? (fetch as FetchLike);
+  // Default honors HTTPS_PROXY/NO_PROXY (Node's global fetch does not).
+  const fetchImpl = input.fetchImpl ?? (await proxyAwareFetch());
   const api = `https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}`;
   const headers = {
     Authorization: `Bearer ${input.token}`,

@@ -178,6 +178,52 @@ describe("command signals (run_command in-process wait)", () => {
     expect(pending).toHaveLength(1);
   });
 
+  test("lease recovery cancels the dead waiter's pending card; the re-run shows exactly one", async () => {
+    const { t, taskId, request } = await running();
+    // A plan + subtask rows so recovery requeues (not fails) the task.
+    await t.run(async (ctx) => {
+      const task = (await ctx.db.get(taskId))!;
+      await ctx.db.insert("plans", { taskId, projectId: task.projectId, version: 1, strategy: "s", createdBy: "orchestrator", goal: "g", createdAt: Date.now(), payload: { subtasks: [{ key: "s1" }] } } as never);
+      await ctx.db.insert("subtasks", { taskId, projectId: task.projectId, key: "s1", title: "s1", description: "", kind: "analysis", capability: "c", dependencies: [], order: 0, status: "running", attempts: 1 } as never);
+    });
+    const first = await request();
+    expect(first.status).toBe("pending");
+    // Worker dies: lease lapses, recovery (cron) requeues.
+    await t.run((ctx) => ctx.db.patch(taskId, { leaseExpiresAt: Date.now() - 1_000 }));
+    await t.mutation(internal.orchestration.recoverStale, {});
+    expect((await t.run((ctx) => ctx.db.get(first.approvalId)))?.status).toBe("cancelled");
+    // Re-claimed by a new worker; the re-run asks again.
+    await t.mutation(internal.orchestration.claimNextTask, { workerId: "w2" });
+    const second = await request("w2");
+    expect(second.status).toBe("pending");
+    const pending = await t.query(api.approvals.listPendingAll, {});
+    expect(pending.filter((a) => a.taskId === taskId)).toHaveLength(1);
+  });
+
+  test("a re-run asking a different command supersedes the subtask's older pending card", async () => {
+    const { t, taskId, projectId, request } = await running();
+    const first = await request();
+    await t.run((ctx) => ctx.db.patch(taskId, { workerId: "w2", leaseExpiresAt: Date.now() + 60_000 }));
+    const second = await t.mutation(internal.commandApprovals.request, {
+      projectId, taskId, command: "npx", args: ["vitest", "run"], workspaceRoot: "/ws/p", workerId: "w2", subtaskKey: "s1",
+    });
+    expect(second.status).toBe("pending");
+    expect(second.approvalId).not.toBe(first.approvalId);
+    expect((await t.run((ctx) => ctx.db.get(first.approvalId)))?.status).toBe("cancelled");
+    const pending = await t.query(api.approvals.listPendingAll, {});
+    expect(pending.filter((a) => a.taskId === taskId).map((a) => a._id)).toEqual([second.approvalId]);
+  });
+
+  test("parallel subtasks keep their own pending cards", async () => {
+    const { t, taskId, projectId, request } = await running();
+    await request();
+    await t.mutation(internal.commandApprovals.request, {
+      projectId, taskId, command: "npm", args: ["run", "lint"], workspaceRoot: "/ws/p", workerId: "w1", subtaskKey: "s2",
+    });
+    const pending = await t.query(api.approvals.listPendingAll, {});
+    expect(pending.filter((a) => a.taskId === taskId)).toHaveLength(2);
+  });
+
   test("pausing a running task whose command waits keeps the approval pending", async () => {
     const { t, taskId, request } = await running();
     const asked = await request();

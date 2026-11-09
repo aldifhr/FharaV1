@@ -58,9 +58,8 @@ export async function signalApprovalDecision(
     const stillPending = await ctx.db
       .query("approvals")
       .withIndex("by_task", (q) => q.eq("taskId", approval.taskId))
-      .filter((q) => q.eq(q.field("status"), "pending"))
-      .take(1);
-    woke = stillPending.length === 0 && !task.pausedBy;
+      .take(200);
+    woke = !stillPending.some((row) => row.status === "pending") && !task.pausedBy;
     await ctx.db.patch(task._id, { updatedAt: now });
     await ctx.db.insert("taskEvents", {
       taskId: task._id,
@@ -71,6 +70,46 @@ export async function signalApprovalDecision(
     });
   }
   return { signalId, woke };
+}
+
+/**
+ * Close pending in-process run_command approvals whose waiter is gone:
+ * the task's lease was recovered (its worker died mid-wait), or the same
+ * subtask re-ran and asked for a different command. Without this the tray
+ * kept the dead card next to the new one ("1 of 2" for one task).
+ */
+export async function supersedePendingCommandApprovals(
+  ctx: MutationCtx,
+  taskId: Id<"tasks">,
+  reason: string,
+  scope: { subtaskKey?: string | null } = {}
+): Promise<number> {
+  const pending = await ctx.db
+    .query("approvals")
+    .withIndex("by_task", (q) => q.eq("taskId", taskId))
+    .take(200);
+  const now = Date.now();
+  let closed = 0;
+  for (const row of pending) {
+    if (row.status !== "pending" || row.kind !== "run_command") continue;
+    if (scope.subtaskKey !== undefined && (row.subtaskKey ?? null) !== (scope.subtaskKey ?? null)) continue;
+    await ctx.db.patch(row._id, {
+      status: "cancelled",
+      resolvedAt: now,
+      note: reason,
+      history: [...(row.history ?? []), { at: now, status: "cancelled", reason }],
+    });
+    await ctx.db.insert("taskEvents", {
+      taskId: row.taskId,
+      projectId: row.projectId,
+      type: "approval.cancelled",
+      payload: { kind: row.kind, summary: row.summary, reason },
+      subtaskKey: row.subtaskKey,
+      level: "info",
+    });
+    closed += 1;
+  }
+  return closed;
 }
 
 /** Mark every unconsumed signal of one name on a task consumed. */

@@ -41,7 +41,7 @@ import {
   executionStatus,
 } from "./schema";
 import { taskBranchPrefixes } from "./lib/taskBranch";
-import { consumeTaskSignals, RESUMABLE_APPROVAL_KINDS } from "./taskSignals";
+import { consumeTaskSignals, RESUMABLE_APPROVAL_KINDS, supersedePendingCommandApprovals } from "./taskSignals";
 
 const DEFAULT_LEASE_MS = 60_000;
 
@@ -558,6 +558,10 @@ export const recoverStale = internalMutation({
           recoveryCount: recoveryCount + 1,
           updatedAt: now,
         });
+        // A run_command the dead worker was waiting on has no waiter now:
+        // close its card; the re-run asks again (or reuses an allow the
+        // user already gave, through the command signal).
+        await supersedePendingCommandApprovals(ctx, task._id, "worker lease expired while waiting; the subtask will re-run");
         // Subtasks left "running" by the dead worker have no executor
         // anymore: return them to pending so the resumed run (and the
         // dashboard) sees them as work still to do. Completed rows are
@@ -586,6 +590,7 @@ export const recoverStale = internalMutation({
         continue;
       }
 
+      await supersedePendingCommandApprovals(ctx, task._id, "worker lease expired; task failed");
       await ctx.db.patch(task._id, {
         status: "failed",
         errorMessage: task.workerId

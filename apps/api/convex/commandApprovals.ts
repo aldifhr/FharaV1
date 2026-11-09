@@ -19,7 +19,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { assertProjectAccess, getViewerId } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
 import { holdsTaskLease } from "./orchestration";
-import { signalApprovalDecision } from "./taskSignals";
+import { signalApprovalDecision, supersedePendingCommandApprovals } from "./taskSignals";
 import { normalizePermissionMode } from "./lib/permissionModes";
 import {
   addCommandAllowRule,
@@ -137,10 +137,10 @@ export const request = internalMutation({
       await ctx.db
         .query("approvals")
         .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
-        .filter((q) => q.eq(q.field("status"), "pending"))
-        .take(20)
+        .take(200)
     ).find(
       (row) =>
+        row.status === "pending" &&
         row.kind === "run_command" &&
         (row.subtaskKey ?? null) === (args.subtaskKey ?? null) &&
         (row.payload as { command?: unknown } | undefined)?.command === line
@@ -148,6 +148,13 @@ export const request = internalMutation({
     if (orphan) {
       return { status: "pending", approvalId: orphan._id, reason: policy.reason, offerAlways: orphan.offerAlways ?? policy.offerAlways };
     }
+    // Idempotent per (task, subtask): one subtask waits on one command at
+    // a time, so an older pending card for this subtask belongs to a run
+    // that is gone (re-run after lease recovery, different command). Close
+    // it before showing the new one.
+    await supersedePendingCommandApprovals(ctx, args.taskId, "superseded: the subtask re-ran and asked again", {
+      subtaskKey: args.subtaskKey ?? null,
+    });
     const approvalId = await ctx.db.insert("approvals", {
       ...base,
       status: "pending",

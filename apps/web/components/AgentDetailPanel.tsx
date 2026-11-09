@@ -253,6 +253,16 @@ export default function AgentDetailPanel({
           )}
         </Section>
 
+        <Section title="Runtime">
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            {agent.executionRuntime === "opencode"
+              ? `OpenCode${agent.opencodeModel ? ` · ${agent.opencodeModel}` : " · MOAgent LLM"}`
+              : agent.executionRuntime === "api"
+                ? "API (MOAgent host tools)"
+                : "Worker default"}
+          </p>
+        </Section>
+
         <Section title="Assigned projects">
           {assignedProjects.length === 0 ? (
             <p className="text-sm text-gray-400">No projects using this agent.</p>

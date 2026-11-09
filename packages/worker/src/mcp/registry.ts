@@ -26,6 +26,7 @@ import {
 } from "./permissions";
 import { mcpRoleAllowed } from "@/api/convex/lib/mcpPresets";
 import { redactSecrets, resolveMcpSpawn } from "./spawn";
+import { McpToolSchema } from "@/utils/schemas";
 import type { McpCallResult, McpEventFn, McpServerConfig, McpToolDefinition } from "./types";
 
 /** A 4 KB path is never legitimate; args above this are refused before spawn. */
@@ -192,15 +193,13 @@ export class McpRegistry {
       const listed = await client.request<{ tools?: unknown }>("tools/list");
       const tools: McpToolDefinition[] = [];
       if (listed && Array.isArray(listed.tools)) {
-        for (const raw of listed.tools as Array<Record<string, unknown>>) {
-          if (typeof raw?.name === "string") {
+        for (const raw of listed.tools) {
+          const parsed = McpToolSchema.safeParse(raw);
+          if (parsed.success && parsed.data.name) {
             tools.push({
-              name: raw.name,
-              description: typeof raw.description === "string" ? raw.description : "",
-              inputSchema:
-                raw.inputSchema && typeof raw.inputSchema === "object"
-                  ? (raw.inputSchema as Record<string, unknown>)
-                  : {},
+              name: parsed.data.name,
+              description: parsed.data.description ?? "",
+              inputSchema: parsed.data.inputSchema ?? {},
             });
           }
         }

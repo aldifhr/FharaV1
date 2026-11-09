@@ -1,3 +1,5 @@
+import { DelegationSchema, DraftSchema, ReviewSchema } from "./schemas";
+
 export function extractJson(content: string): unknown {
   for (let start = content.indexOf("{"); start >= 0; start = content.indexOf("{", start + 1)) {
     let depth = 0;
@@ -65,7 +67,8 @@ export function parseDraft(content: string): { files: DraftFile[] } | null {
   const unique = new Map<string, DraftFile>();
   for (const file of files) unique.set(file.filePath, file);
   if (unique.size === 0) return null;
-  return { files: Array.from(unique.values()) };
+  const draft = { files: Array.from(unique.values()) };
+  return DraftSchema.safeParse(draft).success ? draft : null;
 }
 
 export type ReviewFinding = {
@@ -139,7 +142,9 @@ export function parseReview(content: string): ReviewResult | null {
         suggestion: typeof value.suggestion === "string" ? value.suggestion : typeof value.fix === "string" ? value.fix : "",
       });
     }
-    return { verdict: verdict as ReviewResult["verdict"], findings };
+    return ReviewSchema.safeParse({ verdict, findings }).success
+      ? { verdict: verdict as ReviewResult["verdict"], findings }
+      : null;
   }
   return null;
 }
@@ -165,7 +170,8 @@ export function parseDelegation(content: string): {
   if (Array.isArray(value.findings)) {
     result.findings = (value.findings as unknown[]).filter((f) => typeof f === "string");
   }
-  return Object.keys(result).length ? result : null;
+  const checked = DelegationSchema.safeParse(result);
+  return checked.success && Object.keys(result).length ? result : null;
 }
 
 export function extractFileHint(command: string): string | null {

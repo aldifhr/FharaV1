@@ -7,18 +7,24 @@
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:mcp": "node scripts/build-mcp.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.5.0",
+    "@lydell/node-pty": "^1.2.0-beta.18",
     "convex": "^1.49.0",
     "dotenv": "^18.0.9",
     "pg": "^8.23.1",
-    "undici": "^7.28.0"
+    "tldts": "^7.4.19",
+    "undici": "^7.28.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@types/pngjs": "^6.0.5",
+    "esbuild": "^0.27.0",
+    "fast-check": "^4.10.2",
     "pixelmatch": "^8.0.0",
     "playwright": "^1.56.1",
     "pngjs": "^7.0.0",

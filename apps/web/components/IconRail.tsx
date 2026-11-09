@@ -27,7 +27,10 @@ import {
   Share2,
   Sparkles,
   Sun,
-  Users, FlaskConical } from "lucide-react";
+  Users,
+  FlaskConical,
+  Workflow,
+} from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { useNewProject } from "./NewProject";
 import { useSettings } from "./Settings";
@@ -274,6 +277,7 @@ export default function IconRail({
       <RailButton icon={Brain} label="Memory" href={projectId ? `/memory?scope=project&project=${projectId}` : "/memory"} active={pathname === "/memory"} />
       <RailButton icon={GitBranch} label="Runs" href={projectId ? `/runs?project=${projectId}` : "/runs"} active={pathname.startsWith("/runs")} />
       <RailButton icon={FlaskConical} label="Playground" href="/playground" active={pathname === "/playground"} />
+      <RailButton icon={Workflow} label="Workflow Studio" href="/workflows" active={pathname.startsWith("/workflows")} />
       {projectId && (
         <>
           <RailButton icon={KanbanSquare} label="Board" href={`/chats/${projectId}?tab=tasks`} />

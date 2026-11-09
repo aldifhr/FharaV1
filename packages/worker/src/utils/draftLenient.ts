@@ -99,13 +99,19 @@ export function parseFileBlocks(content: string): { files: DraftFile[] } | null 
     const fenceChar = open[1][0];
     const fenceLen = open[1].length;
     let close = -1;
+    let shorterClose = -1;
     for (let k = end - 1; k > header.fenceLine; k -= 1) {
       const m = lines[k].match(/^ {0,3}(`{3,}|~{3,})\s*$/);
-      if (m && m[1][0] === fenceChar && m[1].length >= fenceLen) {
+      if (!m || m[1][0] !== fenceChar) continue;
+      if (m[1].length >= fenceLen) {
         close = k;
         break;
       }
+      if (shorterClose < 0) shorterClose = k;
     }
+    // Models often open with ```` and close with ``` (seen in e2e ULTRA):
+    // without a closer of the full length, take the last shorter one.
+    if (close < 0) close = shorterClose;
     // An unclosed last block (answer cut off) is not trusted: partial content would truncate the file.
     if (close < 0) continue;
     const body = lines.slice(header.fenceLine + 1, close).join("\n");

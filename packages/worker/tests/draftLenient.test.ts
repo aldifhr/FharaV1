@@ -55,6 +55,14 @@ describe("lenient code_change parsing", () => {
     expect(files?.[1]).toEqual({ filePath: "src/a.js", newContent: "A\n" });
   });
 
+  it("accepts a four-backtick opening closed by three backticks (longcat ULTRA answer)", () => {
+    const content = "FILE: index.html\n````\n<html></html>\n```\nFILE: src/main.js\n````\nimport x from \"./x.js\";\n```\n";
+    expect(parseFileBlocks(content)?.files).toEqual([
+      { filePath: "index.html", newContent: "<html></html>\n" },
+      { filePath: "src/main.js", newContent: 'import x from "./x.js";\n' },
+    ]);
+  });
+
   it("does not trust an unclosed (cut off) last block", () => {
     expect(parseFileBlocks(`FILE: src/a.js\n${FENCE}js\nconst a = 1;\n`)).toBeNull();
   });

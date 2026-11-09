@@ -202,7 +202,9 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       originalRequest: command,
       objective: command.slice(0, 500),
       status: (task.status as any) || "running",
-      decisions: [],
+      // Keep the threaded user input: writing [] here erased persisted
+      // user_answer decisions before the run's first prompt (M9).
+      decisions: sharedContext.decisions,
       artifacts: [],
       outstandingIssues: [],
       // Phase 5: persist the seeded budget state alongside the context

@@ -164,6 +164,7 @@ deployment env. All are listed in `.env.example`.
 | `MOAGENT_WEEKLY_TOKEN_BUDGET` | Convex | — | Weekly budget shown in the usage meter (display only) |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Convex | — | GitHub OAuth app (push / draft PR) |
 | `GITHUB_OAUTH_CALLBACK_URL` | Convex | `http://localhost:3000/api/integrations/github/callback` | OAuth redirect |
+| `GITHUB_WEBHOOK_SECRET` | Convex | — | Fallback GitHub webhook secret when a project has none (webhooks are rejected with 401 without any secret) |
 | `CONVEX_SITE_URL` | web | derived | Convex HTTP actions URL for the OAuth callback forwarder |
 
 Every limit is read in one place, `packages/worker/src/orchestrator/policy.ts`.
@@ -269,6 +270,27 @@ approved `git_push` approval; the worker pushes `<sha>:refs/heads/<branch>`
 with the token passed only through `GIT_CONFIG_*` env (never argv, git
 config or logs) and opens a draft PR. A cron refreshes PR state. MOAgent
 never pushes without that click.
+
+### GitHub webhooks (optional)
+
+Every delivery is verified as HMAC-SHA256 of the raw body
+(`X-Hub-Signature-256`, constant-time compare) before it is parsed, and
+deduped on `X-GitHub-Delivery`. With no secret configured the endpoint
+answers 401.
+
+1. **Integrations → GitHub account → Webhook**: click **Generate secret**.
+   The secret is shown once and stored encrypted with
+   `PROVIDER_ENCRYPTION_KEY`. Without that key, set `GITHUB_WEBHOOK_SECRET`
+   in the root `.env` instead (`npm run env:sync` copies it to Convex).
+2. In the GitHub repo: **Settings → Webhooks → Add webhook**. Payload URL =
+   the URL shown next to the button
+   (`https://<deployment>.convex.site/integrations/github/webhook/<integrationId>`),
+   content type `application/json`, the secret from step 1, and the events
+   you want. GitHub's ping should show a green 200.
+
+The bare `/integrations/github/webhook` URL also works with the env
+secret; the project is then matched from the payload's repository.
+Events are recorded (`integrationEvents`) but not acted on yet.
 
 ## Safety model
 

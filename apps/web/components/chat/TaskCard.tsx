@@ -8,6 +8,7 @@ import { BTN_OUTLINE, BTN_PRIMARY, CARD_SURFACE, MUTED, Pill, RoleAvatar } from 
 import { useToast } from "../Toasts";
 import { isClosedStatus } from "@/lib/taskStatus";
 import { normalizePermissionMode } from "@/api/convex/lib/permissionModes";
+import { refusalCopy } from "@/lib/taskInput";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 
@@ -35,6 +36,7 @@ export default function TaskCard({
   const [retrying, setRetrying] = useState(false);
   const [answer, setAnswer] = useState("");
   const [answering, setAnswering] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
   const doneSubs = subtasks.filter((s) => s.status === "completed").length;
   const needsYou =
     task.status === "needs_approval" ||
@@ -49,7 +51,13 @@ export default function TaskCard({
     if (!trimmed || answering) return;
     setAnswering(true);
     try {
-      await answerQuestion({ taskId: task._id as any, answer: trimmed });
+      setRefusal(null);
+      const res = await answerQuestion({ taskId: task._id as any, answer: trimmed, question: task.pendingQuestion });
+      // Refused by the input guard: keep the text and say why, inline.
+      if (!res.applied) {
+        setRefusal(refusalCopy(res.reason));
+        return;
+      }
       setAnswer("");
     } catch (err) {
       // Keep the typed answer so the user can resend it.
@@ -189,6 +197,11 @@ export default function TaskCard({
                 <Check size={14} /> Send
               </button>
             </div>
+          )}
+          {refusal && (
+            <p role="status" className="mt-1.5 text-[12.5px] text-ink-3">
+              {refusal}
+            </p>
           )}
         </div>
       )}

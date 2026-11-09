@@ -9,6 +9,7 @@ import { combineSignals } from "./abort";
 import type { FallbackHandle } from "@/effects/llmCall";
 import type { WorkerApi } from "@/workerApi";
 import { handleNodeOutcome } from "./decision";
+import { createInputDeliveryAck, pullTaskInputs } from "./session";
 import type { RunContext } from "./types";
 import type { FileDiff } from "@/tools/gitDiff";
 import { applyQaCheck, buildChangesCard, buildQaCard, postStageCard } from "./cards";
@@ -31,6 +32,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
     task, project, taskId, browser, lastPostedMessage, activeByAgent,
   } = ctx;
   const subsetKeys = new Set(nodes.map((node) => node.key));
+  const ackInputs = createInputDeliveryAck(deps);
   // Subset runs (the review/QA loops re-run their own nodes) filter out
   // dependencies that live outside the subset, because the scheduler can
   // only order nodes it was given. Review/QA nodes are stage-managed by
@@ -113,6 +115,9 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         write: (text) => deps.api.setSubtaskLiveOutput({ taskId, key: node.id, text }),
         clear: () => deps.api.setSubtaskLiveOutput({ taskId, key: node.id, text: "" }),
       });
+      // A steer sent mid-run reaches this subtask's prompt (single input
+      // guard): fold undelivered inputs now; the prompt acks what it renders.
+      if (input.sharedContext) await pullTaskInputs(deps, taskId, input.sharedContext);
       const outcome = await executeSubtask({
         workspacePath: input.workspacePath,
         command: task.command,
@@ -131,6 +136,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         qaMode: deps.policy.qaMode,
         nativeProviderCommand: process.env.ORCHESTRATOR_NATIVE_PROVIDER_COMMAND,
         taskContext: input.sharedContext,
+        onUserInputsRendered: ackInputs,
         priorOutputs: state.priorOutputs,
         fileChanges: Array.from(state.fileChanges.values()),
         getStagedChange: (filePath) => state.fileChanges.get(filePath),

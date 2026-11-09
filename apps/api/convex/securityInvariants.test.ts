@@ -332,11 +332,11 @@ describe("task input pause/answer (plan 013 step 4)", () => {
     expect(after?.status).toBe("queued");
     expect(after?.pendingQuestion).toBeUndefined();
 
-    const context = await t.query(internal.orchestration.getTaskContext, { taskId });
-    const answerDecision = (context?.decisions ?? []).find(
-      (entry: any) => entry?.decision === "user_answer"
-    );
-    expect(answerDecision?.reason).toBe("the bold wireframe");
+    // Single input guard: the answer is an undelivered taskInputs row the
+    // resumed run picks up (no longer appended to the task context).
+    const pending = await t.query(internal.orchestration.listPendingTaskInputs, { taskId });
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ kind: "answer", text: "the bold wireframe" });
   });
 
   test("answerQuestion refuses terminal and non-waiting tasks", async () => {
@@ -368,7 +368,7 @@ describe("task input pause/answer (plan 013 step 4)", () => {
     });
     expect(terminal.applied).toBe(false);
     if (!terminal.applied) {
-      expect(terminal.reason).toBe("task_already_terminal");
+      expect(terminal.reason).toBe("terminal");
     }
 
     const wrongState = await t.mutation(api.tasks.answerQuestion, {
@@ -377,7 +377,7 @@ describe("task input pause/answer (plan 013 step 4)", () => {
     });
     expect(wrongState.applied).toBe(false);
     if (!wrongState.applied) {
-      expect(wrongState.reason).toBe("not_waiting_for_input");
+      expect(wrongState.reason).toBe("question_mismatch");
     }
   });
 });

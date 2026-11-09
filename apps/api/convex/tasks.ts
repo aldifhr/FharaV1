@@ -12,6 +12,7 @@ import {
 import { refreshAgentStatus } from "./orchestration";
 import { taskStatus } from "./schema";
 import { permissionModeValidator, projectDefaultPermissionMode } from "./lib/permissionModes";
+import { admitTaskInput } from "./lib/taskInputGuard";
 
 /** A worker currently holds an unexpired lease on the task (e.g. resuming it). */
 function holdsLiveLease(task: Doc<"tasks">): boolean {
@@ -394,27 +395,27 @@ export const retry = mutation({
 });
 
 export const answerQuestion = mutation({
-  args: { taskId: v.id("tasks"), answer: v.string() },
+  args: {
+    taskId: v.id("tasks"),
+    answer: v.string(),
+    // The question the UI showed. When given, the answer lands only if that
+    // exact question is still the open one (a re-asked question refuses).
+    question: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const task = await assertTaskAccess(ctx, args.taskId);
-    // Terminal guard (same value contract as orchestration.completeTask —
-    // a settled task can never come back to answer a question).
-    if (task.status === "done" || task.status === "rejected" || task.status === "failed") {
-      return { applied: false as const, reason: "task_already_terminal" as const };
-    }
-    if (task.status !== "waiting_input") {
-      return { applied: false as const, reason: "not_waiting_for_input" as const };
-    }
     const answer = args.answer.trim();
     if (answer.length === 0) {
       return { applied: false as const, reason: "empty_answer" as const };
     }
+    // Single input guard: terminal, pending approval, or a question that is
+    // no longer open all refuse (fail closed) before anything is written.
+    const admission = await admitTaskInput(ctx, args.taskId, "answer", { expectedQuestion: args.question });
+    if (!admission.ok) return { applied: false as const, reason: admission.reason };
     const now = Date.now();
-    // The answer travels in the persisted task-context decisions: the
-    // resumed run threads it into the shared context (a `user_answer`
-    // entry), so the answer influences the continued work. pendingQuestion
-    // is cleared — it only ever holds the PENDING question.
-    await appendUserAnswer(ctx, args.taskId, answer, now);
+    // The answer is recorded undelivered; the requeued run renders it into
+    // the next agent prompt and only then marks it delivered.
+    await recordTaskInput(ctx, task, "answer", answer, now, task.pendingQuestion);
     await ctx.db.insert("taskEvents", {
       taskId: task._id,
       projectId: task.projectId,
@@ -435,22 +436,23 @@ export const answerQuestion = mutation({
   },
 });
 
-/** Steering: append a user instruction to the running task's context.
- *  The worker folds `user_answer` decisions into sharedContext on its next
- *  read, so the in-flight agent adjusts instead of a new task being made. */
+/** Steering: hand a user instruction to the running (or queued) task.
+ *  Refused while the task waits on an approval, so a steer can never be
+ *  read as the answer to a permission prompt. The instruction is recorded
+ *  undelivered; the worker folds it into the next agent prompt it builds
+ *  and only then marks it delivered. */
 export const steerTask = mutation({
   args: { taskId: v.id("tasks"), instruction: v.string() },
   handler: async (ctx, args) => {
     const task = await assertTaskAccess(ctx, args.taskId);
-    if (task.status === "done" || task.status === "rejected" || task.status === "failed") {
-      return { applied: false as const, reason: "task_already_terminal" as const };
-    }
     const instruction = args.instruction.trim();
     if (instruction.length === 0) {
       return { applied: false as const, reason: "empty_instruction" as const };
     }
+    const admission = await admitTaskInput(ctx, args.taskId, "steer");
+    if (!admission.ok) return { applied: false as const, reason: admission.reason };
     const now = Date.now();
-    await appendUserAnswer(ctx, args.taskId, instruction, now);
+    await recordTaskInput(ctx, task, "steer", instruction, now);
     await ctx.db.insert("taskEvents", {
       taskId: task._id,
       projectId: task.projectId,
@@ -492,29 +494,29 @@ async function emitCanonical(
   });
 }
 
-/** Shared persistence for ask_user answers and steering instructions. */
-async function appendUserAnswer(
+/**
+ * Shared persistence for ask_user answers and steering instructions: one
+ * `taskInputs` row, `delivered: false` until the worker renders it into a
+ * prompt. (M9 root cause: this used to append to the latest taskContexts
+ * row, which silently did nothing when no row existed yet and was
+ * overwritten by the worker's next context upsert, while the mutation still
+ * reported `applied: true`.)
+ */
+async function recordTaskInput(
   ctx: any,
-  taskId: Id<"tasks">,
-  reason: string,
-  now: number
+  task: Doc<"tasks">,
+  kind: "steer" | "answer",
+  text: string,
+  now: number,
+  question?: string
 ): Promise<void> {
-  const contexts = await ctx.db
-    .query("taskContexts")
-    .withIndex("by_task", (q: any) => q.eq("taskId", taskId))
-    .order("desc")
-    .take(1);
-  const existing = contexts[0];
-  const decision = {
-    decision: "user_answer",
-    reason: reason.slice(0, 2000),
-    fromAgent: "user",
+  await ctx.db.insert("taskInputs", {
+    taskId: task._id,
+    projectId: task.projectId,
+    kind,
+    text: text.slice(0, 2000),
+    ...(question ? { question: question.slice(0, 2000) } : {}),
+    delivered: false,
     createdAt: now,
-  };
-  if (existing) {
-    await ctx.db.patch(existing._id, {
-      decisions: [...(existing.decisions ?? []), decision],
-      updatedAt: now,
-    });
-  }
+  });
 }

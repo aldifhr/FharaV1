@@ -11,6 +11,13 @@ import { internal } from "./_generated/api";
 import { assertProjectAccess } from "./lib/authz";
 import { changedFields, recordAudit } from "./lib/recordAudit";
 import { syncGithubOAuthEnv } from "./mcpServers";
+import { decryptApiKey, encryptApiKey } from "./lib/llmCrypto";
+import {
+  HANDLED_GITHUB_EVENTS,
+  WEBHOOK_DELIVERY_RETENTION_MS,
+  generateWebhookSecretValue,
+  verifyGithubSignature,
+} from "./lib/githubWebhook";
 
 // GitHub OAuth configuration
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? "";
@@ -233,37 +240,270 @@ export const upsertGithubIntegration = internalMutation({
 });
 
 /**
- * Handle GitHub webhook events
+ * GitHub webhook receiver.
+ *
+ * Routes (http.ts): `POST /integrations/github/webhook/<integrationId>`
+ * (per-integration secret, env fallback) and `POST
+ * /integrations/github/webhook` (GITHUB_WEBHOOK_SECRET only; the
+ * integration is found from the payload's repository AFTER verification).
+ *
+ * Order matters: the raw body is read once and the HMAC is checked BEFORE
+ * the payload is parsed or trusted. No secret configured = 401 (fail
+ * closed) with one warning per isolate. Deliveries are deduped on
+ * `X-GitHub-Delivery`, so a replayed or retried delivery is acknowledged
+ * and ignored.
  */
+let warnedNoWebhookSecret = false;
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 export const handleWebhook = httpAction(async (ctx, request) => {
   const signature = request.headers.get("x-hub-signature-256");
   const deliveryId = request.headers.get("x-github-delivery");
   const event = request.headers.get("x-github-event");
+  const rawBody = await request.text();
 
-  // TODO: Verify webhook signature using webhook secret stored per integration
-  // For now, we'll handle this in a follow-up with per-integration secrets
+  // The trailing path segment, when present, names the integration.
+  const prefix = "/integrations/github/webhook";
+  const rest = new URL(request.url).pathname.slice(prefix.length).replace(/^\/+|\/+$/g, "");
+  const pathIntegrationId = rest.length > 0 ? rest : null;
 
-  const body = (await request.json()) as Record<string, any>;
-
-  // Find integration by repository info in the webhook payload
-  // This is a simplified version - in production you'd use the delivery ID
-  // to look up the correct integration
-
-  // Insert the event for async processing
-  // For now, we'll process synchronously for certain events
-  if (event === "pull_request" || event === "push" || event === "issues") {
-    // Store event for async processing
-    // In production, you'd queue this to a background job
-    console.log(`GitHub webhook event: ${event}`, {
-      deliveryId,
-      action: body.action,
-      repository: body.repository?.full_name,
-    });
+  const target = pathIntegrationId
+    ? await ctx.runQuery(internal.integrations.getWebhookTarget, { integrationId: pathIntegrationId })
+    : null;
+  if (pathIntegrationId && !target) {
+    // Unknown id: same answer as a bad signature, so ids cannot be probed.
+    return json({ error: "unauthorized" }, 401);
   }
 
-  return new Response(JSON.stringify({ ok: true }), {
-    headers: { "Content-Type": "application/json" },
+  let secret: string | null = null;
+  if (target?.secretCiphertext) {
+    try {
+      secret = await decryptApiKey(target.secretCiphertext, "GitHub webhook");
+    } catch (error) {
+      console.warn(`[webhook] cannot decrypt the webhook secret for integration ${target.integrationId}: ${error instanceof Error ? error.message : error}`);
+      return json({ error: "unauthorized" }, 401);
+    }
+  }
+  if (!secret) secret = process.env.GITHUB_WEBHOOK_SECRET?.trim() || null;
+  if (!secret) {
+    if (!warnedNoWebhookSecret) {
+      warnedNoWebhookSecret = true;
+      console.warn(
+        "[webhook] GitHub webhook rejected: no webhook secret configured. Generate one in Integrations → GitHub, or set GITHUB_WEBHOOK_SECRET."
+      );
+    }
+    return json({ error: "webhook secret not configured" }, 401);
+  }
+
+  const check = await verifyGithubSignature(secret, rawBody, signature);
+  if (!check.ok) return json({ error: "unauthorized", reason: check.reason }, 401);
+
+  // Verified from here on.
+  if (!event) return json({ error: "missing x-github-event" }, 400);
+  if (!deliveryId) return json({ error: "missing x-github-delivery" }, 400);
+  if (event === "ping") return json({ ok: true, pong: true });
+
+  let body: Record<string, any>;
+  try {
+    body = JSON.parse(rawBody) as Record<string, any>;
+  } catch {
+    return json({ error: "invalid JSON body" }, 400);
+  }
+
+  const repository: string | undefined = body.repository?.full_name;
+  const resolved =
+    target ??
+    (repository
+      ? await ctx.runQuery(internal.integrations.findWebhookTargetByRepo, { fullName: repository })
+      : null);
+  if (!resolved) return json({ ok: true, ignored: "no_matching_integration" });
+
+  const { duplicate } = await ctx.runMutation(internal.integrations.recordWebhookDelivery, {
+    integrationId: resolved.integrationId,
+    projectId: resolved.projectId,
+    deliveryId,
+    eventType: event,
+    summary: {
+      action: typeof body.action === "string" ? body.action : undefined,
+      repository,
+      number: body.pull_request?.number ?? body.issue?.number,
+      ref: typeof body.ref === "string" ? body.ref : undefined,
+    },
+    handled: HANDLED_GITHUB_EVENTS.has(event),
   });
+  if (duplicate) return json({ ok: true, duplicate: true });
+
+  return json({ ok: true });
+});
+
+/** Resolve a webhook URL's integration id (untrusted input). */
+export const getWebhookTarget = internalQuery({
+  args: { integrationId: v.string() },
+  handler: async (ctx, args) => {
+    const id = ctx.db.normalizeId("integrations", args.integrationId);
+    if (!id) return null;
+    const integration = await ctx.db.get(id);
+    if (!integration || integration.type !== "github" || integration.status === "disconnected") return null;
+    return {
+      integrationId: integration._id,
+      projectId: integration.projectId,
+      secretCiphertext: integration.webhookSecret ?? null,
+    };
+  },
+});
+
+/** Env-secret route: the integration whose selected repo matches. */
+export const findWebhookTargetByRepo = internalQuery({
+  args: { fullName: v.string() },
+  handler: async (ctx, args) => {
+    const [owner, repo] = args.fullName.split("/");
+    if (!owner || !repo) return null;
+    const rows = await ctx.db
+      .query("integrations")
+      .withIndex("by_type", (q) => q.eq("type", "github"))
+      .collect();
+    const match = rows.find(
+      (row) =>
+        row.status !== "disconnected" &&
+        row.githubOwner?.toLowerCase() === owner.toLowerCase() &&
+        row.githubRepo?.toLowerCase() === repo.toLowerCase()
+    );
+    return match ? { integrationId: match._id, projectId: match.projectId, secretCiphertext: null } : null;
+  },
+});
+
+/**
+ * Record one verified delivery, deduped on the delivery id. A mutation is
+ * serializable, so two concurrent retries of one delivery cannot both
+ * insert. Also prunes this integration's rows past the retention window.
+ */
+export const recordWebhookDelivery = internalMutation({
+  args: {
+    integrationId: v.id("integrations"),
+    projectId: v.id("projects"),
+    deliveryId: v.string(),
+    eventType: v.string(),
+    summary: v.any(),
+    handled: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const seen = await ctx.db
+      .query("integrationEvents")
+      .withIndex("by_delivery", (q) => q.eq("deliveryId", args.deliveryId))
+      .first();
+    if (seen) return { duplicate: true as const };
+    const now = Date.now();
+    await ctx.db.insert("integrationEvents", {
+      integrationId: args.integrationId,
+      projectId: args.projectId,
+      eventType: args.eventType,
+      // A slim summary only: full payloads can exceed the document limit.
+      payload: args.summary,
+      deliveryId: args.deliveryId,
+      // Nothing consumes events yet (issue intake is a later step), so
+      // they are recorded as processed rather than piling up as pending.
+      status: "processed",
+      ...(args.handled ? {} : { error: "event type not handled" }),
+      createdAt: now,
+      processedAt: now,
+    });
+    const stale = await ctx.db
+      .query("integrationEvents")
+      .withIndex("by_integration", (q) => q.eq("integrationId", args.integrationId))
+      .order("asc")
+      .take(25);
+    for (const row of stale) {
+      if (row.createdAt >= now - WEBHOOK_DELIVERY_RETENTION_MS) break;
+      await ctx.db.delete(row._id);
+    }
+    return { duplicate: false as const };
+  },
+});
+
+/** The webhook URL to paste into GitHub (Convex serves HTTP actions on the site URL). */
+function webhookUrlFor(integrationId: string): string | null {
+  const site = process.env.CONVEX_SITE_URL?.replace(/\/$/, "");
+  return site ? `${site}/integrations/github/webhook/${integrationId}` : null;
+}
+
+/**
+ * What the Integrations UI shows for webhook setup. Never the secret: only
+ * whether one is set, when, and whether the env fallback exists.
+ */
+export const getWebhookSetup = query({
+  args: { integrationId: v.id("integrations") },
+  handler: async (ctx, args) => {
+    const integration = await ctx.db.get(args.integrationId);
+    if (!integration) return null;
+    await assertProjectAccess(ctx, integration.projectId);
+    return {
+      webhookUrl: webhookUrlFor(integration._id),
+      hasSecret: Boolean(integration.webhookSecret),
+      secretSetAt: integration.webhookSecretSetAt ?? null,
+      envFallback: Boolean(process.env.GITHUB_WEBHOOK_SECRET?.trim()),
+      canEncrypt: Boolean(process.env.PROVIDER_ENCRYPTION_KEY?.trim()),
+    };
+  },
+});
+
+/**
+ * Generate (or rotate) this integration's webhook secret. An ACTION so the
+ * secret comes from real randomness; the plaintext is returned ONCE and
+ * only its ciphertext is stored.
+ */
+export const generateWebhookSecret = action({
+  args: { integrationId: v.id("integrations") },
+  handler: async (ctx, args): Promise<{ secret: string; webhookUrl: string | null }> => {
+    await ctx.runQuery(internal.integrations.getForWebhookSecret, { integrationId: args.integrationId });
+    const secret = generateWebhookSecretValue();
+    let ciphertext: string;
+    try {
+      ciphertext = await encryptApiKey(secret);
+    } catch {
+      throw new Error(
+        "PROVIDER_ENCRYPTION_KEY is not set on the Convex deployment, so a per-integration secret cannot be stored. Set it, or use GITHUB_WEBHOOK_SECRET instead."
+      );
+    }
+    await ctx.runMutation(internal.integrations.storeWebhookSecret, {
+      integrationId: args.integrationId,
+      ciphertext,
+    });
+    return { secret, webhookUrl: webhookUrlFor(args.integrationId) };
+  },
+});
+
+export const getForWebhookSecret = internalQuery({
+  args: { integrationId: v.id("integrations") },
+  handler: async (ctx, args) => {
+    const integration = await ctx.db.get(args.integrationId);
+    if (!integration) throw new Error("Integration not found");
+    await assertProjectAccess(ctx, integration.projectId);
+    if (integration.type !== "github") throw new Error("Not a GitHub integration");
+    return { ok: true };
+  },
+});
+
+export const storeWebhookSecret = internalMutation({
+  args: { integrationId: v.id("integrations"), ciphertext: v.string() },
+  handler: async (ctx, args) => {
+    const integration = await ctx.db.get(args.integrationId);
+    if (!integration) throw new Error("Integration not found");
+    const now = Date.now();
+    await ctx.db.patch(args.integrationId, { webhookSecret: args.ciphertext, webhookSecretSetAt: now, updatedAt: now });
+    // The secret never reaches the audit row.
+    await recordAudit(ctx, {
+      action: "integration.update",
+      target: integration.name,
+      projectId: integration.projectId,
+      details: { changed: ["webhookSecret"] },
+    });
+  },
 });
 
 /**
@@ -295,6 +535,7 @@ export const listByProject = query({
       githubBaseBranch: integration.githubBaseBranch,
       // Don't expose access tokens
       hasAccessToken: !!integration.accessToken,
+      hasWebhookSecret: !!integration.webhookSecret,
     }));
   },
 });
@@ -338,6 +579,8 @@ export const remove = mutation({
       status: "disconnected",
       accessToken: undefined,
       refreshToken: undefined,
+      webhookSecret: undefined,
+      webhookSecretSetAt: undefined,
       updatedAt: Date.now(),
     });
     await recordAudit(ctx, {

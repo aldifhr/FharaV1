@@ -11,4 +11,5 @@ test("only changed Convex keys are synced", () => {
 test("worker-only keys never go to Convex", () => {
   assert.equal(CONVEX_KEYS.includes("WORKSPACE_ROOT"), false);
   assert.equal(CONVEX_KEYS.includes("GITHUB_CLIENT_SECRET"), true);
+  assert.equal(CONVEX_KEYS.includes("GITHUB_WEBHOOK_SECRET"), true);
 });

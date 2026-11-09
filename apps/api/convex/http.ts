@@ -1,5 +1,5 @@
 import { httpRouter } from "convex/server";
-import { handleOAuthCallback } from "./integrations";
+import { handleOAuthCallback, handleWebhook } from "./integrations";
 
 /**
  * Plan 019: HTTP routes for the GitHub integration. The Next app forwards
@@ -14,7 +14,19 @@ http.route({
   handler: handleOAuthCallback,
 });
 
-// The webhook handler is not routed yet: it does not verify the
-// `x-hub-signature-256` signature, so it must not be reachable publicly.
+// GitHub webhooks. Every delivery is HMAC-verified (x-hub-signature-256)
+// before it is parsed; with no secret configured the handler answers 401.
+// `/integrations/github/webhook/<integrationId>` uses that integration's
+// secret (then GITHUB_WEBHOOK_SECRET); the bare path uses the env secret.
+http.route({
+  path: "/integrations/github/webhook",
+  method: "POST",
+  handler: handleWebhook,
+});
+http.route({
+  pathPrefix: "/integrations/github/webhook/",
+  method: "POST",
+  handler: handleWebhook,
+});
 
 export default http;

@@ -2348,6 +2348,35 @@ export const getTaskContext = internalQuery({
   },
 });
 
+export const listPendingTaskInputs = internalQuery({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("taskInputs")
+      .withIndex("by_task_and_delivered", (q) => q.eq("taskId", args.taskId).eq("delivered", false))
+      .take(50);
+    return rows
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((row) => ({ _id: row._id as string, kind: row.kind, text: row.text, createdAt: row.createdAt }));
+  },
+});
+
+/** Idempotent: an already-delivered row keeps its first deliveredAt. */
+export const markTaskInputsDelivered = internalMutation({
+  args: { inputIds: v.array(v.id("taskInputs")) },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    let marked = 0;
+    for (const id of args.inputIds) {
+      const row = await ctx.db.get(id);
+      if (!row || row.delivered) continue;
+      await ctx.db.patch(id, { delivered: true, deliveredAt: now });
+      marked += 1;
+    }
+    return { marked };
+  },
+});
+
 export const upsertTaskContext = internalMutation({
   args: {
     taskId: v.id("tasks"),

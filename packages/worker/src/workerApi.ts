@@ -344,6 +344,18 @@ export class WorkerApi {
     return await this.client.action(api.worker.getTaskContext, this.args(input));
   }
 
+  async listPendingTaskInputs(
+    input: ActionInput<typeof api.worker.listPendingTaskInputs>
+  ): Promise<FunctionReturnType<typeof api.worker.listPendingTaskInputs>> {
+    return await this.client.action(api.worker.listPendingTaskInputs, this.args(input));
+  }
+
+  async markTaskInputsDelivered(
+    input: ActionInput<typeof api.worker.markTaskInputsDelivered>
+  ): Promise<FunctionReturnType<typeof api.worker.markTaskInputsDelivered>> {
+    return await this.client.action(api.worker.markTaskInputsDelivered, this.args(input));
+  }
+
   async upsertTaskContext(
     input: ActionInput<typeof api.worker.upsertTaskContext>
   ): Promise<FunctionReturnType<typeof api.worker.upsertTaskContext>> {

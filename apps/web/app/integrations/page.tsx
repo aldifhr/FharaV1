@@ -27,6 +27,7 @@ import {
 } from "@/api/convex/lib/mcpPresets";
 import { ROLE_KEYS, roleLabel } from "@/api/convex/lib/roles";
 import IconRail from "@/components/IconRail";
+import GithubWebhookSetup from "@/components/GithubWebhookSetup";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toasts";
 
@@ -186,6 +187,7 @@ function GithubOAuthRow({ projectId }: { projectId?: string }) {
   }
 
   return (
+    <>
     <li className="flex items-center gap-3 px-4 py-3">
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-bubble text-ink-2">
         <GitBranch size={15} />
@@ -215,6 +217,8 @@ function GithubOAuthRow({ projectId }: { projectId?: string }) {
           </button>
         ))}
     </li>
+    {projectId && github && github.status === "active" && <GithubWebhookSetup integrationId={github._id} />}
+    </>
   );
 }
 

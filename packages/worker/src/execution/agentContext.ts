@@ -15,7 +15,14 @@ export interface AgentExecutionContext {
   constraints: string[];
   expectedOutput: string;
   relevantDecisions?: string[];
+  /** The user's steer/answer text, always rendered (never cut by the decision window). */
+  userInstructions?: string[];
+  /** taskInputs ids behind `userInstructions`, for the delivery ack. */
+  userInputIds?: string[];
 }
+
+/** Most recent user inputs kept in a prompt. */
+const MAX_USER_INSTRUCTIONS = 10;
 
 export function buildAgentExecutionContext(input: {
   taskContext: SharedTaskContext;
@@ -61,7 +68,15 @@ export function buildAgentExecutionContext(input: {
       ? 'Review verdict JSON: {"verdict":"approved"|"changes_requested","findings":[...]}'
       : '{"files":[{"filePath":"relative/path","newContent":"FULL file content"}]} or plain summary if no files';
 
-  const relevantDecisions = taskContext.decisions.slice(-3).map((d) => `${d.decision}: ${d.reason}`);
+  // User input is rendered on its own, so orchestrator decisions can never
+  // push a steer or an answer out of the window (M9: "text lost").
+  const userInputs = taskContext.decisions.filter((d) => d.decision === "user_answer").slice(-MAX_USER_INSTRUCTIONS);
+  const userInstructions = userInputs.map((d) => d.reason);
+  const userInputIds = userInputs.flatMap((d) => (d.inputId ? [d.inputId] : []));
+  const relevantDecisions = taskContext.decisions
+    .filter((d) => d.decision !== "user_answer")
+    .slice(-3)
+    .map((d) => `${d.decision}: ${d.reason}`);
 
   return {
     taskId: taskContext.taskId,
@@ -76,6 +91,8 @@ export function buildAgentExecutionContext(input: {
     constraints,
     expectedOutput,
     relevantDecisions,
+    userInstructions,
+    userInputIds,
   };
 }
 
@@ -104,6 +121,13 @@ export function formatAgentContextForPrompt(ctx: AgentExecutionContext): string 
     for (const a of ctx.relevantArtifacts) {
       parts.push(`- ${a.path ?? a.kind}: ${a.summary}`);
     }
+  }
+
+  if (ctx.userInstructions && ctx.userInstructions.length > 0) {
+    parts.push(
+      "Instructions from the user during this task (follow them; the latest wins on conflict):",
+      ...ctx.userInstructions.map((text) => `- ${text}`)
+    );
   }
 
   if (ctx.relevantDecisions && ctx.relevantDecisions.length > 0) {

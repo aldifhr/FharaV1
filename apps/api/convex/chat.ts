@@ -19,6 +19,7 @@ import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import type { PoolConnectionPayload } from "./lib/llmResolver";
 import { permissionModeValidator, type PermissionMode } from "./lib/permissionModes";
+import { TASK_INPUT_REFUSAL_COPY, type TaskInputRefusal } from "./lib/taskInputGuard";
 import {
   GREETING,
   classifyChatIntent,
@@ -204,7 +205,20 @@ async function handleLifecycleIntent(
     return true;
   }
   if (intent.intent === "continue" && activeTask) {
-    await ctx.runMutation(apiRef.tasks.steerTask, { taskId: activeId as never, instruction: text });
+    // The input guard may refuse (approval pending, task finished…): say
+    // why in the chat instead of pretending the steer landed.
+    const res = (await ctx.runMutation(apiRef.tasks.steerTask, { taskId: activeId as never, instruction: text })) as {
+      applied: boolean;
+      reason?: string;
+    };
+    if (!res.applied && res.reason && res.reason in TASK_INPUT_REFUSAL_COPY) {
+      await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+        projectId: args.projectId,
+        conversationId: args.conversationId,
+        content: TASK_INPUT_REFUSAL_COPY[res.reason as TaskInputRefusal],
+        replyToMessageId: args.userMessageId,
+      });
+    }
     return true;
   }
   if (intent.intent === "status" && activeTask) {

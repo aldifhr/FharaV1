@@ -608,6 +608,22 @@ export default defineSchema({
     .index("by_execution", ["executionId"]),
 
   // Intelligent orchestrator — shared task context
+  // User text injected into a task (single input guard): steering
+  // instructions and ask_user answers. Admitted only through
+  // lib/taskInputGuard.admitTaskInput; `delivered` flips to true only when
+  // the worker actually renders the text into an agent prompt.
+  taskInputs: defineTable({
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    kind: v.union(v.literal("steer"), v.literal("answer")),
+    text: v.string(),
+    // For answers: the question that was open when the answer landed.
+    question: v.optional(v.string()),
+    delivered: v.boolean(),
+    deliveredAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_task_and_delivered", ["taskId", "delivered"]),
+
   taskContexts: defineTable({
     taskId: v.id("tasks"),
     projectId: v.id("projects"),
@@ -747,7 +763,11 @@ export default defineSchema({
     // Plan 019 (additive): PR base branch for task pushes (default: the
     // repository's default branch, else "main").
     githubBaseBranch: v.optional(v.string()),
+    // GitHub webhook secret, AES-GCM ciphertext (lib/llmCrypto, the
+    // PROVIDER_ENCRYPTION_KEY format). Never returned to a client; the
+    // plaintext is shown once when generated.
     webhookSecret: v.optional(v.string()),
+    webhookSecretSetAt: v.optional(v.number()),
     status: v.union(v.literal("active"), v.literal("error"), v.literal("disconnected")),
     errorMessage: v.optional(v.string()),
     lastSyncAt: v.optional(v.number()),
@@ -818,7 +838,9 @@ export default defineSchema({
   })
     .index("by_integration", ["integrationId"])
     .index("by_status", ["status"])
-    .index("by_project", ["projectId"]),
+    .index("by_project", ["projectId"])
+    // Webhook replay dedupe: one row per X-GitHub-Delivery id.
+    .index("by_delivery", ["deliveryId"]),
 
   // MCP server connections (Plan 007 Phase 1 — UI config only)
   mcpServers: defineTable({

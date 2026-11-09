@@ -23,6 +23,7 @@ import { clockTime } from "@/lib/format";
 import { groupActivity, groupByIndex } from "@/lib/activityGroups";
 import ActivityGroupRow from "./chat/ActivityGroupRow";
 import { PERMISSION_MODE_LABELS, normalizePermissionMode } from "@/api/convex/lib/permissionModes";
+import { refusalCopy } from "@/lib/taskInput";
 
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 720;
@@ -80,6 +81,8 @@ export default function TaskThreadPanel({
   const [retrying, setRetrying] = useState(false);
   const [steering, setSteering] = useState(false);
   const [reply, setReply] = useState("");
+  // Why the input guard refused the last steer/answer (quiet inline line).
+  const [refusal, setRefusal] = useState<string | null>(null);
   const [alsoSendToChat, setAlsoSendToChat] = useState(false);
   // Thread "Reply": the message the next reply quotes.
   const [quote, setQuote] = useState<ChatQuote | null>(null);
@@ -267,17 +270,23 @@ export default function TaskThreadPanel({
   const submit = async () => {
     const text = reply.trim();
     if (!text || busy) return;
-    const steer = taskStatus === "running";
+    // A queued task takes the steer when the worker picks it up.
+    const steer = taskStatus === "running" || taskStatus === "queued";
     const answer = taskStatus === "waiting_input";
     if (steer) setSteering(true);
     else setSendingReply(true);
+    setRefusal(null);
     try {
-      if (answer) {
-        const res = await answerQuestion({ taskId: task._id as any, answer: text });
-        if (!res.applied) throw new Error("The task is no longer waiting for an answer.");
-      } else if (steer) {
-        const res = await steerTask({ taskId: task._id as any, instruction: text });
-        if (!res.applied) throw new Error("The task is no longer running.");
+      if (answer || steer) {
+        const res = answer
+          ? await answerQuestion({ taskId: task._id as any, answer: text, question: (task as any).pendingQuestion })
+          : await steerTask({ taskId: task._id as any, instruction: text });
+        // Refused by the input guard: say why under the composer and keep
+        // the text, instead of a toast or a thread message that never landed.
+        if (!res.applied) {
+          setRefusal(refusalCopy(res.reason));
+          return;
+        }
       }
       await sendThreadMessage({
         projectId: task.projectId,
@@ -300,8 +309,13 @@ export default function TaskThreadPanel({
     const trimmed = text.trim();
     if (!trimmed) return;
     setSendingReply(true);
+    setRefusal(null);
     try {
-      await answerQuestion({ taskId: task._id as any, answer: trimmed });
+      const res = await answerQuestion({ taskId: task._id as any, answer: trimmed, question: (task as any).pendingQuestion });
+      if (!res.applied) {
+        setRefusal(refusalCopy(res.reason));
+        return;
+      }
       await sendThreadMessage({ projectId: task.projectId, taskId: task._id, content: trimmed, alsoSendToChat });
       setReply("");
     } catch (err) {
@@ -666,7 +680,10 @@ export default function TaskThreadPanel({
             <textarea
               ref={replyRef}
               value={reply}
-              onChange={(event) => setReply(event.target.value)}
+              onChange={(event) => {
+                setReply(event.target.value);
+                if (refusal) setRefusal(null);
+              }}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing || event.keyCode === 229) return;
                 if (event.key === "Escape" && quote) {
@@ -738,6 +755,11 @@ export default function TaskThreadPanel({
               </button>
             </div>
           </div>
+          {refusal && (
+            <p role="status" className="px-2 pt-1.5 text-[12.5px] text-ink-3">
+              {refusal}
+            </p>
+          )}
         </form>
       </motion.aside>
     </div>

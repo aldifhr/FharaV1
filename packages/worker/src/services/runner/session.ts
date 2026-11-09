@@ -126,12 +126,16 @@ export function dynamicSubtaskPersister(
 }
 
 /**
- * Thread the user's ask_user answers into the run's shared context
- * (plan 013 step 4). The answer mutation in the backend persists a
- * `user_answer` decision onto the task context; this run folds any it
- * does not already know (by createdAt) into sharedContext.decisions —
- * deduplicated so a worker restart never double-threads one answer.
- * Never throws: a context read failure is logged and the run continues.
+ * Thread the user's input into the run's shared context.
+ *
+ * Two sources: legacy `user_answer` decisions persisted on the task
+ * context (rows written before the input guard existed, and the run's own
+ * persisted context on resume), and undelivered `taskInputs` rows (steer /
+ * answer, single input guard). Both fold into sharedContext.decisions,
+ * deduplicated, so a worker restart never double-threads one input.
+ * Folding does NOT mark an input delivered: that happens only when an
+ * agent prompt actually renders it (see `createInputDeliveryAck`).
+ * Never throws: a read failure is logged by omission and the run continues.
  */
 export async function threadUserAnswers(
   deps: RunnerDeps,
@@ -139,29 +143,85 @@ export async function threadUserAnswers(
   sharedContext: SharedTaskContext
 ): Promise<void> {
   // Capability check: legacy / test harnesses may not model getTaskContext.
-  if (typeof deps.api.getTaskContext !== "function") return;
-  const persisted = await deps.api.getTaskContext({ taskId }).catch(() => null);
-  const answers = (persisted?.decisions ?? []) as Array<{
-    decision?: string;
-    reason?: string;
-    createdAt?: number;
-  }>;
-  const seen = new Set(
-    sharedContext.decisions.map((entry) => `${entry.createdAt}:${entry.reason ?? ""}`)
-  );
-  for (const answer of answers) {
-    if (answer.decision !== "user_answer" || !answer.reason) continue;
-    const key = `${answer.createdAt}:${answer.reason}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    sharedContext.decisions = [
-      ...sharedContext.decisions,
-      {
-        decision: "user_answer",
+  if (typeof deps.api.getTaskContext === "function") {
+    const persisted = await deps.api.getTaskContext({ taskId: taskId as never }).catch(() => null);
+    const answers = (persisted?.decisions ?? []) as Array<{
+      decision?: string;
+      reason?: string;
+      createdAt?: number;
+      inputId?: string;
+    }>;
+    for (const answer of answers) {
+      if (answer.decision !== "user_answer" || !answer.reason) continue;
+      foldUserInput(sharedContext, {
         reason: answer.reason,
-        fromAgent: "user",
         createdAt: answer.createdAt ?? Date.now(),
-      },
-    ];
+        inputId: answer.inputId,
+      });
+    }
   }
+  await pullTaskInputs(deps, taskId, sharedContext);
+}
+
+/**
+ * Fold undelivered steer/answer inputs into the shared context. Called at
+ * run start and before every subtask, so a steer sent mid-run reaches the
+ * next agent prompt instead of waiting for a restart.
+ */
+export async function pullTaskInputs(
+  deps: RunnerDeps,
+  taskId: string,
+  sharedContext: SharedTaskContext
+): Promise<void> {
+  if (typeof deps.api.listPendingTaskInputs !== "function") return;
+  const pending = await deps.api.listPendingTaskInputs({ taskId: taskId as never }).catch(() => []);
+  for (const input of pending ?? []) {
+    if (!input?.text) continue;
+    foldUserInput(sharedContext, { reason: input.text, createdAt: input.createdAt, inputId: input._id });
+  }
+}
+
+function foldUserInput(
+  sharedContext: SharedTaskContext,
+  input: { reason: string; createdAt: number; inputId?: string }
+): void {
+  const duplicate = sharedContext.decisions.some(
+    (entry) =>
+      entry.decision === "user_answer" &&
+      ((input.inputId !== undefined && entry.inputId === input.inputId) ||
+        (entry.createdAt === input.createdAt && entry.reason === input.reason))
+  );
+  if (duplicate) return;
+  sharedContext.decisions = [
+    ...sharedContext.decisions,
+    {
+      decision: "user_answer",
+      reason: input.reason,
+      fromAgent: "user",
+      createdAt: input.createdAt,
+      ...(input.inputId ? { inputId: input.inputId } : {}),
+    },
+  ];
+}
+
+/**
+ * The delivery acknowledgement handed to the subtask executor: called with
+ * the input ids a prompt actually rendered, it marks each one delivered
+ * once per run (the backend mutation is idempotent too). Best-effort: a
+ * failed ack leaves the row undelivered, so the input is re-offered rather
+ * than lost.
+ */
+export function createInputDeliveryAck(deps: RunnerDeps): (inputIds: string[]) => void {
+  const acked = new Set<string>();
+  return (inputIds) => {
+    if (typeof deps.api.markTaskInputsDelivered !== "function") return;
+    const fresh = inputIds.filter((id) => !acked.has(id));
+    if (fresh.length === 0) return;
+    for (const id of fresh) acked.add(id);
+    void deps.api
+      .markTaskInputsDelivered({ inputIds: fresh as never })
+      .catch(() => {
+        for (const id of fresh) acked.delete(id);
+      });
+  };
 }

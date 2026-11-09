@@ -74,6 +74,8 @@ export interface TaskDecision {
   decidedBy?: "deterministic" | "llm";
   planVersion?: number;
   step?: number;
+  /** For `user_answer`: the backend taskInputs row it came from (delivery ack). */
+  inputId?: string;
 }
 
 export interface TaskArtifact {

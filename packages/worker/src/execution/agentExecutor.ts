@@ -105,6 +105,11 @@ export interface SubtaskExecutionInput {
   qaBaseUrl?: string;
   /** Shared orchestrator context; when present it replaces the raw prior-output dump. */
   taskContext?: SharedTaskContext;
+  /**
+   * Delivery ack for user steer/answer inputs: called with the taskInputs
+   * ids a built prompt actually rendered (single input guard).
+   */
+  onUserInputsRendered?: (inputIds: string[]) => void;
   priorOutputs: Map<string, string>;
   fileChanges: FileDiff[];
   signal: AbortSignal;
@@ -813,14 +818,20 @@ async function snapshotNativeBaseline(workspacePath: string): Promise<Map<string
  * executions table. The raw dump is only a fallback for callers without a
  * shared context (e.g. resumeTask). Shared by the API and native runtimes.
  */
-function priorContextFor(input: SubtaskExecutionInput): string {
+export function priorContextFor(input: SubtaskExecutionInput): string {
   if (input.taskContext) {
     const curated = buildAgentExecutionContext({
       taskContext: input.taskContext,
       agent: input.agent,
       assignment: `${input.subtask.title} — ${input.subtask.description}`,
     });
-    return `Shared task context:\n${formatAgentContextForPrompt(curated)}`;
+    const rendered = `Shared task context:\n${formatAgentContextForPrompt(curated)}`;
+    // Delivery ack (single input guard): the user's steer/answer text is in
+    // this prompt now, so it is delivered — not before.
+    if (curated.userInputIds && curated.userInputIds.length > 0) {
+      input.onUserInputsRendered?.(curated.userInputIds);
+    }
+    return rendered;
   }
   if (input.priorOutputs.size > 0) {
     const raw = Array.from(input.priorOutputs.entries())

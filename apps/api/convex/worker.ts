@@ -689,6 +689,24 @@ export const getTaskContext = action({
   },
 });
 
+/** Undelivered user inputs (steer / answer) for a task, oldest first. */
+export const listPendingTaskInputs = action({
+  args: { ...tokenArg, taskId: v.id("tasks") },
+  handler: async (ctx, args): Promise<Array<{ _id: string; kind: "steer" | "answer"; text: string; createdAt: number }>> => {
+    const { taskId } = withoutToken(args);
+    return await ctx.runQuery(internal.orchestration.listPendingTaskInputs, { taskId });
+  },
+});
+
+/** Acknowledge inputs the worker actually rendered into an agent prompt. */
+export const markTaskInputsDelivered = action({
+  args: { ...tokenArg, inputIds: v.array(v.id("taskInputs")) },
+  handler: async (ctx, args): Promise<{ marked: number }> => {
+    const { inputIds } = withoutToken(args);
+    return await ctx.runMutation(internal.orchestration.markTaskInputsDelivered, { inputIds });
+  },
+});
+
 export const upsertTaskContext = action({
   args: {
     ...tokenArg,

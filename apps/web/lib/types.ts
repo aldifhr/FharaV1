@@ -4,4 +4,4 @@
  */
 
 /** The minimal agent shape components need to label and colour a member. */
-export type AgentRef = { _id: string; role: string };
+export type AgentRef = { _id: string; role: string; avatarParams?: unknown };

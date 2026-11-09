@@ -469,7 +469,7 @@ export default function TaskThreadPanel({
             const isReview = !m.card;
             return (
               <div key={m._id} className="flex gap-3">
-                <InitialAvatar name={roleLabel(msgAgent?.role)} size={30} />
+                <InitialAvatar agent avatarParams={msgAgent?.avatarParams} name={roleLabel(msgAgent?.role)} size={30} />
                 <div className="min-w-0 flex-1">
                   {nameRow(msgAgent?.role, m._creationTime, isReview ? "review" : undefined)}
                   {m.content?.trim() ? <MessageText content={m.content} size="sm" /> : null}
@@ -505,7 +505,7 @@ export default function TaskThreadPanel({
             const msgAgent = isUser ? null : agentById(m.agentId);
             return (
               <div key={m._id} className="flex gap-3">
-                <InitialAvatar name={isUser ? "You" : roleLabel(msgAgent?.role)} size={30} />
+                <InitialAvatar agent={!isUser} avatarParams={isUser ? undefined : msgAgent?.avatarParams} name={isUser ? "You" : roleLabel(msgAgent?.role)} size={30} />
                 <div className="min-w-0 flex-1">
                   {isUser ? (
                     <p className="flex items-center gap-2 text-[15px] font-semibold text-ink">

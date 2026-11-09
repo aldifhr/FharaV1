@@ -1,6 +1,7 @@
 "use client";
 
 import { pickByName } from "@/lib/utils";
+import { AvatartionAvatarView, avatartionFor, deserializeAvatartion } from "./ui/avatartion";
 
 /**
  * Compact initial avatar matching the workspace design language: a pastel
@@ -49,14 +50,40 @@ export default function InitialAvatar({
   size = 28,
   status,
   label,
+  agent,
+  avatarParams,
 }: {
   name: string;
+  /** Agents get their illustrated avatar (saved params, else derived from the name). */
+  agent?: boolean;
+  avatarParams?: unknown;
   size?: number;
   status?: "idle" | "working" | "queued" | "needs_you" | "reviewing" | "testing" | "waiting" | string;
   /** Decorative by default; pass a label when the avatar stands alone. */
   label?: string;
 }) {
   const initial = (name.trim().charAt(0) || "•").toUpperCase();
+  const illustrated = agent || avatarParams
+    ? (avatarParams ? deserializeAvatartion(avatarParams) : null) ?? avatartionFor(name)
+    : null;
+  if (illustrated) {
+    return (
+      <span
+        aria-hidden={label ? undefined : true}
+        aria-label={label}
+        role={label ? "img" : undefined}
+        className="relative inline-flex shrink-0"
+        style={{ width: size, height: size }}
+      >
+        <AvatartionAvatarView avatar={illustrated} className="h-full w-full" />
+        {status && (
+          <span
+            className={`absolute -bottom-px -right-px h-2 w-2 rounded-full ring-2 ring-panel ${DOT[status] ?? "bg-gray-400"}`}
+          />
+        )}
+      </span>
+    );
+  }
   return (
     <span
       aria-hidden={label ? undefined : true}

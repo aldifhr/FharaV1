@@ -221,7 +221,7 @@ export default function MessageList(props: Props) {
 
   const renderMessageBody = (m: any, index: number, messageAgent: any) => (
     <>
-      <InitialAvatar name={m.authorType === "agent" ? roleLabel(messageAgent?.role) : "You"} size={32} />
+      <InitialAvatar agent={m.authorType === "agent"} avatarParams={m.authorType === "agent" ? messageAgent?.avatarParams : undefined} name={m.authorType === "agent" ? roleLabel(messageAgent?.role) : "You"} size={32} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 pr-9">
           <p className="flex flex-wrap items-center gap-1.5 text-[15px] font-semibold text-ink">

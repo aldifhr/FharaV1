@@ -19,7 +19,7 @@ import {
 import { SectionToggle } from "./SectionToggle";
 import { projectMembers } from "@/lib/projectMembers";
 
-export type TeamAgent = { _id: string; name: string; role: string; isEnabled?: boolean };
+export type TeamAgent = { _id: string; name: string; role: string; isEnabled?: boolean; avatarParams?: unknown };
 
 const SHOWN = 7;
 
@@ -58,7 +58,7 @@ function TeamRows({
                 title={`${roleLabel(a.role)} — ${detail}`}
                 className="flex w-full items-center gap-2.5 rounded-lg px-2 py-[7px] text-left outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
               >
-                <InitialAvatar name={roleLabel(a.role)} size={24} status={disabled ? undefined : word} />
+                <InitialAvatar agent avatarParams={a.avatarParams} name={roleLabel(a.role)} size={24} status={disabled ? undefined : word} />
                 <span className="min-w-0 flex-1 truncate text-[15px] text-ink">{roleLabel(a.role)}</span>
                 <span className={`max-w-[46%] shrink-0 truncate text-right text-[13px] ${disabled ? "text-ink-3" : teamStatusTone(word)}`}>{label}</span>
               </button>

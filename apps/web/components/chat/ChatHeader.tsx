@@ -149,7 +149,7 @@ export default function ChatHeader({
                     aria-label={`${roleLabel(a.role)}, ${teamStatusLabel(status?.[a._id])}`}
                     className="-ml-1 rounded-full ring-2 ring-panel outline-none first:ml-0 focus-visible:ring-brand/50"
                   >
-                    <InitialAvatar name={roleLabel(a.role)} size={17} />
+                    <InitialAvatar agent avatarParams={a.avatarParams} name={roleLabel(a.role)} size={17} />
                   </button>
                 ))}
               </span>

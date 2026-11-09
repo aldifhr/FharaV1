@@ -27,7 +27,7 @@ import { useToast } from "../Toasts";
 import { useAutoGrowRef, type QueuedMessage } from "./useChatQueue";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
-type MentionAgent = { _id: string; name: string; role: string };
+type MentionAgent = { _id: string; name: string; role: string; avatarParams?: unknown };
 type MentionOption = { kind: "agent"; agent: MentionAgent } | { kind: "file"; path: string };
 
 export type SlashCommand = { name: "task" | "qa" | "review" | "push"; hint: string };
@@ -352,7 +352,7 @@ export default function ChatComposer({
                   >
                     {option.kind === "agent" ? (
                       <>
-                        <InitialAvatar name={roleLabel(option.agent.role)} size={20} />
+                        <InitialAvatar agent avatarParams={option.agent.avatarParams} name={roleLabel(option.agent.role)} size={20} />
                         <span className="font-medium text-ink">@{roleLabel(option.agent.role)}</span>
                       </>
                     ) : (
@@ -515,7 +515,7 @@ export default function ChatComposer({
                   aria-label={`Send to ${target ? roleLabel(target.role) : "the team"}`}
                   className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg bg-hover px-2 text-[13.5px] text-ink outline-none transition hover:bg-line focus-visible:ring-2 focus-visible:ring-brand/40"
                 >
-                  {target && <InitialAvatar name={roleLabel(target.role)} size={18} />}
+                  {target && <InitialAvatar agent avatarParams={target.avatarParams} name={roleLabel(target.role)} size={18} />}
                   <span className="truncate">To {target ? roleLabel(target.role) : "team"}</span>
                   <ChevronDown size={13} className="shrink-0 text-ink-3" />
                 </button>
@@ -531,7 +531,7 @@ export default function ChatComposer({
                           }}
                           className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-ink hover:bg-hover ${agent._id === targetId ? "font-medium" : ""}`}
                         >
-                          <InitialAvatar name={roleLabel(agent.role)} size={20} />
+                          <InitialAvatar agent avatarParams={agent.avatarParams} name={roleLabel(agent.role)} size={20} />
                           <span className="flex-1 truncate">{roleLabel(agent.role)}</span>
                           {agent._id === targetId && <span className="text-[12px] text-brand-ink">current</span>}
                         </button>

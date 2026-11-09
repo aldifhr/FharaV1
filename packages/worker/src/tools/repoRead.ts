@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { REPO_TOOL_CAPS, capToolOutput, type RepoToolResult } from "@/api/convex/lib/chat/repoTools";
+import { REPO_TOOL_CAPS, capToolOutput, normalizeRepoToolArgs, type RepoToolResult } from "@/api/convex/lib/chat/repoTools";
 import { maskStringSecrets, validateFilePath } from "@/governance/tools";
 import { resolveSandboxPathAsync } from "./sandbox";
 
@@ -201,7 +201,7 @@ async function grep(workspaceRoot: string, args: Record<string, unknown>): Promi
   const regex = compilePattern(pattern, args.ignoreCase === true);
   const { absolute, relative } = await guardRepoPath(workspaceRoot, str(args.path));
   const glob = str(args.glob).slice(0, REPO_TOOL_CAPS.patternMaxChars);
-  const { files } = await walkFiles(
+  const { files, truncated: filesTruncated } = await walkFiles(
     workspaceRoot,
     absolute,
     REPO_TOOL_CAPS.grepMaxFilesScanned,
@@ -209,12 +209,15 @@ async function grep(workspaceRoot: string, args: Record<string, unknown>): Promi
   );
   files.sort((a, b) => a.relative.localeCompare(b.relative));
   const matches: string[] = [];
-  let truncated = false;
+  // Every match is counted (so "how many X" has an answer); only the first
+  // grepMaxMatches are listed.
+  let total = 0;
+  let stoppedEarly = false;
   // Wall-clock budget: a pathological regex must not stall the worker.
   const deadline = Date.now() + GREP_TIME_BUDGET_MS;
   for (const file of files) {
     if (Date.now() > deadline) {
-      truncated = true;
+      stoppedEarly = true;
       break;
     }
     if (file.size > REPO_TOOL_CAPS.grepMaxFileBytes) continue;
@@ -223,19 +226,28 @@ async function grep(workspaceRoot: string, args: Record<string, unknown>): Promi
     const lines = buffer.toString("utf8").split(/\r?\n/);
     for (let i = 0; i < lines.length; i += 1) {
       if (!regex.test(lines[i])) continue;
-      if (matches.length >= REPO_TOOL_CAPS.grepMaxMatches) {
-        truncated = true;
-        break;
-      }
+      total += 1;
+      if (matches.length >= REPO_TOOL_CAPS.grepMaxMatches) continue;
       const line = lines[i].trim();
       const clipped = line.length > REPO_TOOL_CAPS.grepMaxLineChars ? `${line.slice(0, REPO_TOOL_CAPS.grepMaxLineChars)}…` : line;
       matches.push(`${file.relative}:${i + 1}: ${clipped}`);
     }
-    if (truncated) break;
   }
-  const scope = relative || ".";
-  if (matches.length === 0) return { ok: true, text: `No matches for ${JSON.stringify(pattern)} under ${scope}.` };
-  const header = `${matches.length} match(es) for ${JSON.stringify(pattern)} under ${scope}${truncated ? ` (first ${REPO_TOOL_CAPS.grepMaxMatches}; narrow the search for more)` : ""}:`;
+  const scope = relative || ". (whole repository)";
+  const caveats = [
+    stoppedEarly ? "search stopped early (time budget), so the count may be incomplete" : "",
+    filesTruncated ? `only the first ${REPO_TOOL_CAPS.grepMaxFilesScanned} files were scanned` : "",
+  ].filter(Boolean);
+  const caveat = caveats.length ? ` (${caveats.join("; ")})` : "";
+  if (total === 0) {
+    return {
+      ok: true,
+      text: `0 matches for ${JSON.stringify(pattern)} in ${scope}${glob ? ` (${glob})` : ""}${caveat}. Not found there: report it as not found${relative ? ", or search the whole repository (omit path)" : ""}.`,
+    };
+  }
+  const shown =
+    total > matches.length ? ` — showing the first ${matches.length}; narrow path/glob to see the rest` : "";
+  const header = `${total} match(es) for ${JSON.stringify(pattern)} in ${scope}${glob ? ` (${glob})` : ""}${caveat}${shown}:`;
   return { ok: true, text: capToolOutput(maskStringSecrets([header, ...matches].join("\n"))) };
 }
 
@@ -250,21 +262,38 @@ async function readRepoFile(workspaceRoot: string, args: Record<string, unknown>
   const buffer = await fs.readFile(absolute);
   if (looksBinary(buffer)) return { ok: true, text: `${relative}: binary file, ${stat.size} bytes (not shown).`, files: [relative] };
   const all = buffer.toString("utf8").split(/\r?\n/);
-  const start = int(args.startLine, 1, 1, Math.max(1, all.length));
-  const maxLines = int(args.maxLines, REPO_TOOL_CAPS.readDefaultLines, 1, REPO_TOOL_CAPS.readMaxLines);
+  // A trailing newline is not an extra line.
+  if (all.length > 1 && all[all.length - 1] === "") all.pop();
+  const total = all.length;
+  const start = int(args.start, 1, 1, Math.max(1, total));
+  const requestedLines = int(args.lines, REPO_TOOL_CAPS.readDefaultLines, 1, Number.MAX_SAFE_INTEGER);
+  const maxLines = Math.min(requestedLines, REPO_TOOL_CAPS.readMaxLines);
   const out: string[] = [];
   let bytes = 0;
   let end = start - 1;
-  for (let i = start - 1; i < all.length && out.length < maxLines; i += 1) {
+  for (let i = start - 1; i < total && out.length < maxLines; i += 1) {
     const line = `${i + 1}: ${all[i]}`;
     if (bytes + line.length + 1 > REPO_TOOL_CAPS.readMaxBytes) break;
     out.push(line);
     bytes += line.length + 1;
     end = i + 1;
   }
-  const more = end < all.length ? ` — showing lines ${start}-${end}; call again with startLine ${end + 1} for more` : "";
-  const header = `${relative}: ${stat.size} bytes, ${all.length} lines${more}`;
-  return { ok: true, text: capToolOutput(maskStringSecrets([header, ...out].join("\n"))), files: [relative] };
+  const header = `${relative}: ${stat.size} bytes, ${total} lines total`;
+  const partial = start > 1 || end < total;
+  const notes: string[] = [];
+  if (partial) {
+    notes.push(
+      `truncated: lines ${start}-${end} of ${total}` +
+        (end < total ? `; read again with start=${end + 1} for the rest (or grep this file)` : "") +
+        ". Do not state counts or lists for the whole file from this part."
+    );
+  }
+  if (requestedLines > REPO_TOOL_CAPS.readMaxLines) notes.push(`(at most ${REPO_TOOL_CAPS.readMaxLines} lines per read)`);
+  return {
+    ok: true,
+    text: capToolOutput(maskStringSecrets([header, ...notes, ...out].join("\n"))),
+    files: [relative],
+  };
 }
 
 /** Run one read-only repo tool. Never throws; failures are ok:false with a reason. */
@@ -273,6 +302,8 @@ export async function runRepoReadTool(
   tool: string,
   args: Record<string, unknown>
 ): Promise<RepoToolResult> {
+  // Aliases (maxLines/limit → lines, file → path, query/regex → pattern, …).
+  args = normalizeRepoToolArgs(args ?? {});
   try {
     switch (tool) {
       case "list_files":

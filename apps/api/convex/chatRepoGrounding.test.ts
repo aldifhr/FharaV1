@@ -240,21 +240,45 @@ describe("repoToolCalls queue", () => {
     expect(await t.query(internal.repoTools.get, { callId })).toBeNull();
   });
 
-  test("availability needs a workspace and a fresh online worker", async () => {
+  test("availability needs a workspace and a fresh online worker that serves repo tools", async () => {
     const t = convexTest(schema, modules);
     const withRepo = await seed(t, "/repo");
     const noRepo = await seed(t);
-    expect(await t.query(internal.repoTools.availability, { projectId: withRepo })).toEqual({ available: false });
-    await t.run(async (ctx) =>
+    expect(await t.query(internal.repoTools.availability, { projectId: withRepo })).toEqual({
+      available: false,
+      reason: "no_worker",
+    });
+    // An online worker from before repo tools (no capability) never polls the queue.
+    const old = await t.run(async (ctx) =>
       ctx.db.insert("workers", {
-        workerId: "w1",
+        workerId: "w0",
         capacity: 1,
         activeTasks: 0,
         status: "online",
         lastHeartbeatAt: Date.now(),
       })
     );
+    expect(await t.query(internal.repoTools.availability, { projectId: withRepo })).toEqual({
+      available: false,
+      reason: "worker_outdated",
+    });
+    // A stale heartbeat does not count either.
+    await t.run(async (ctx) =>
+      ctx.db.insert("workers", {
+        workerId: "w-stale",
+        capacity: 1,
+        activeTasks: 0,
+        status: "online",
+        lastHeartbeatAt: Date.now() - 10 * 60_000,
+        capabilities: ["repoTools"],
+      })
+    );
+    expect((await t.query(internal.repoTools.availability, { projectId: withRepo })).available).toBe(false);
+    await t.run(async (ctx) => ctx.db.patch(old, { capabilities: ["repoTools"] }));
     expect(await t.query(internal.repoTools.availability, { projectId: withRepo })).toEqual({ available: true });
-    expect(await t.query(internal.repoTools.availability, { projectId: noRepo })).toEqual({ available: false });
+    expect(await t.query(internal.repoTools.availability, { projectId: noRepo })).toEqual({
+      available: false,
+      reason: "no_workspace",
+    });
   });
 });

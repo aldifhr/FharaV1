@@ -59,9 +59,11 @@ export const heartbeat = action({
     // Optional: ids of the tasks this worker is running right now; only
     // their leases are renewed (see orchestration.heartbeat).
     activeTaskIds: v.optional(v.array(v.string())),
+    // Features this worker build serves (e.g. "repoTools").
+    capabilities: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args): Promise<any> => {
-    const { workerId, hostname, capacity, activeTasks, leaseMs, activeTaskIds } =
+    const { workerId, hostname, capacity, activeTasks, leaseMs, activeTaskIds, capabilities } =
       withoutToken(args);
     return await ctx.runMutation(internal.orchestration.heartbeat, {
       workerId,
@@ -70,6 +72,7 @@ export const heartbeat = action({
       activeTasks,
       leaseMs,
       activeTaskIds,
+      capabilities,
     });
   },
 });

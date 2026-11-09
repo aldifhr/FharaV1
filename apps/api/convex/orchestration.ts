@@ -312,10 +312,13 @@ export const heartbeat = internalMutation({
     // abandoned without settling cannot be kept alive forever by the
     // heartbeat (core H2). Omitted = legacy behaviour (renew all owned).
     activeTaskIds: v.optional(v.array(v.string())),
+    // Features this worker build serves; an older worker sends none.
+    capabilities: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
     const leaseMs = args.leaseMs ?? DEFAULT_LEASE_MS;
+    const capabilities = (args.capabilities ?? []).slice(0, 20).map((c) => c.slice(0, 40));
     const existing = await ctx.db
       .query("workers")
       .withIndex("by_worker_id", (q) => q.eq("workerId", args.workerId))
@@ -327,6 +330,7 @@ export const heartbeat = internalMutation({
         activeTasks: args.activeTasks,
         status: "online",
         lastHeartbeatAt: now,
+        capabilities,
       });
     } else {
       await ctx.db.insert("workers", {
@@ -336,6 +340,7 @@ export const heartbeat = internalMutation({
         activeTasks: args.activeTasks,
         status: "online",
         lastHeartbeatAt: now,
+        capabilities,
       });
     }
 

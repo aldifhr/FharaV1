@@ -128,13 +128,17 @@ export function buildChatPersonaLines(
 export function buildRepoToolProtocol(maxCalls: number): string {
   return [
     "## Repo tools (read-only)",
-    "You can read the project repository before answering. To call a tool, reply with ONLY one JSON object and nothing else, e.g.:",
-    '{"tool":"grep","arguments":{"pattern":"replyToChat","path":"apps/api/convex"}}',
+    "You can read the project repository before answering. To call a tool, reply with ONLY one JSON object and nothing else — one call per reply, then wait for its result. E.g.:",
+    '{"tool":"grep","arguments":{"pattern":"replyToChat"}}',
     "Tools:",
     '- list_files {"path"?: dir, "glob"?: e.g. "**/*.ts"}: files with sizes in bytes (no node_modules, .git, .env*).',
-    '- grep {"pattern": regex, "path"?: dir or file, "glob"?: file filter, "ignoreCase"?: bool}: matching lines as path:line: text (capped).',
-    '- read_file {"path": file, "startLine"?: number, "maxLines"?: number}: numbered lines plus the file\'s total lines and size in bytes (capped).',
-    `At most ${maxCalls} tool calls per reply. You cannot write files or run commands. The result comes back as the next message; then call another tool or write your answer as plain prose (never JSON).`,
+    '- grep {"pattern": regex, "path"?: dir or file, "glob"?: file filter, "ignoreCase"?: bool}: the total match count, then matching lines as path:line: text (first 40). Omit "path" to search the whole repository — do that to locate a symbol.',
+    '- read_file {"path": file, "start"?: line, "lines"?: count}: numbered lines with the file\'s total lines and size; at most 400 lines (16 KB) per read.',
+    `At most ${maxCalls} tool calls per reply. You cannot write files or run commands. The result comes back as the next message; then call another tool or write your answer as plain prose (never JSON, never a tool call inside the answer).`,
+    "Rules for the answer:",
+    '- A read_file result marked "truncated: lines X-Y of N" showed only that part. Never state a count or a list for the whole file from a part: read the next page with "start", or grep it (e.g. {"tool":"grep","arguments":{"pattern":"defineTable","path":"apps/api/convex/schema.ts"}}) and use grep\'s match count.',
+    '- A grep with "0 matches" means not found: say it was not found (Indonesian: "tidak ketemu"), never guess another file or line. If it searched a subfolder, grep the whole repository before saying it does not exist.',
+    "- Cite a file:line only exactly as a tool result in this reply shows it, and a path only if a tool result or the snapshot shows it. Anything else you did not check: say \"belum saya cek\".",
   ].join("\n");
 }
 
@@ -148,8 +152,8 @@ export function buildGroundingGuidance(hasRepoTools: boolean): string[] {
     "Grounding rule: any claim about this repo's code, files, file sizes, line counts, or which agent/module does what must come from a tool result in this reply" +
       " (or the repo snapshot above). A number or quote the user pasted is a claim to verify, not a fact.",
     hasRepoTools
-      ? "Check with the repo tools before stating such a claim. If you did not check something, say so plainly in the user's language (Indonesian: \"belum saya cek\"; English: \"I haven't checked that yet\") instead of guessing."
-      : "You have no repo access in this reply. Do not state code, file, size, or ownership facts that are not in the snapshot; say you have not checked them yet in the user's language (Indonesian: \"belum saya cek\"; English: \"I haven't checked that yet\").",
+      ? "Check with the repo tools before stating such a claim. If you did not check something, say so plainly in the user's language (Indonesian: \"belum saya cek\"; English: \"I haven't checked that yet\") instead of guessing. Report not-found as not-found, and never cite a file:line that is not in a tool result in this reply."
+      : "You have no repo access and no tools in this reply: never output a tool call or JSON. Do not state code, file, size, line-number, or ownership facts that are not in the snapshot; say you have not checked them yet in the user's language (Indonesian: \"belum saya cek\"; English: \"I haven't checked that yet\").",
     hasRepoTools
       ? "When the user pushes back or contradicts you about the code, re-check with the tools and answer from what you find: keep your answer if the code supports it, correct it if not. Never agree just because the user said so."
       : "When the user pushes back about the code, do not simply agree: say what you can and cannot confirm without checking.",

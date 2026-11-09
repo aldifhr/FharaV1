@@ -12,6 +12,7 @@ import { isLeaseLostOrShutdown } from "./services/runner/abort";
 import { processNextPushRequest } from "./services/pushRequests";
 import { processNextMcpTest } from "./services/mcpTests";
 import { processNextRepoToolCall } from "./services/repoTools";
+import { REPO_TOOLS_CAPABILITY } from "@/api/convex/lib/chat/repoTools";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
 
@@ -139,6 +140,9 @@ async function main() {
         // so an abandoned task (no approval row, crashed run) expires and
         // is recovered instead of staying "running" forever (core H2).
         activeTaskIds: Array.from(inFlight.keys()),
+        // Grounded chat only queues repo tool calls when an online worker
+        // advertises that it polls for them (an older build does not).
+        capabilities: [REPO_TOOLS_CAPABILITY],
       })
       .catch((error) => log("heartbeat failed", error));
   // Register the worker row before claiming anything (core H7).

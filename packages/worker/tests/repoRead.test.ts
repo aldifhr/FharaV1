@@ -105,8 +105,31 @@ describe("list_files / grep / read_file", () => {
     const res = await runRepoReadTool(root, "grep", { pattern: "replyToChat", glob: "big.ts" });
     const lines = res.text.split("\n").slice(1);
     expect(lines).toHaveLength(REPO_TOOL_CAPS.grepMaxMatches);
-    expect(res.text).toMatch(/first 40; narrow the search/);
+    // The header counts every match, not just the ones listed.
+    expect(res.text.split("\n")[0]).toMatch(/^1000 match\(es\) for "replyToChat" in \. \(whole repository\) \(big\.ts\) — showing the first 40/);
     expect(res.text.length).toBeLessThanOrEqual(REPO_TOOL_CAPS.resultMaxChars);
+  });
+
+  it("grep searches the whole repository by default and says '0 matches' explicitly", async () => {
+    const whole = await runRepoReadTool(root, "grep", { pattern: "export function replyToChat" });
+    expect(whole.text).toContain("src/lib/util.ts:1: export function replyToChat() {}");
+    const none = await runRepoReadTool(root, "grep", { pattern: "commitAndPush", path: "src" });
+    expect(none.ok).toBe(true);
+    expect(none.text).toMatch(/^0 matches for "commitAndPush" in src\. Not found there: report it as not found, or search the whole repository/);
+    const noneAll = await runRepoReadTool(root, "grep", { pattern: "commitAndPush" });
+    expect(noneAll.text).toMatch(/^0 matches for "commitAndPush" in \. \(whole repository\)\. Not found there: report it as not found\.$/);
+  });
+
+  it("argument aliases: query/regex → pattern, file/filepath → path, maxLines/max_lines/limit → lines", async () => {
+    expect((await runRepoReadTool(root, "grep", { query: "export function replyToChat" })).text).toContain("src/lib/util.ts:1:");
+    expect((await runRepoReadTool(root, "grep", { regex: "export function replyToChat" })).text).toContain("src/lib/util.ts:1:");
+    expect((await runRepoReadTool(root, "read_file", { file: "src/index.ts" })).files).toEqual(["src/index.ts"]);
+    expect((await runRepoReadTool(root, "read_file", { filepath: "src/index.ts" })).files).toEqual(["src/index.ts"]);
+    for (const key of ["maxLines", "max_lines", "limit", "lines"]) {
+      const res = await runRepoReadTool(root, "read_file", { path: "big.ts", [key]: 2 });
+      expect(res.text).toContain("truncated: lines 1-2 of 1000");
+      expect(res.text).not.toContain("3: const line2");
+    }
   });
 
   it("grep treats an invalid regex literally and rejects an empty or huge pattern", async () => {
@@ -119,18 +142,29 @@ describe("list_files / grep / read_file", () => {
     const res = await runRepoReadTool(root, "read_file", { path: "src/index.ts" });
     expect(res.ok).toBe(true);
     expect(res.files).toEqual(["src/index.ts"]);
-    expect(res.text.split("\n")[0]).toMatch(/^src\/index\.ts: \d+ bytes, 3 lines$/);
+    // A trailing newline is not an extra line; a whole read has no truncation note.
+    expect(res.text.split("\n")[0]).toMatch(/^src\/index\.ts: \d+ bytes, 2 lines total$/);
+    expect(res.text).not.toContain("truncated");
     expect(res.text).toContain("1: export const replyToChat = 1;");
 
     const big = await runRepoReadTool(root, "read_file", { path: "big.ts", maxLines: 10_000 });
-    const body = big.text.split("\n").slice(1);
-    expect(body.length).toBeLessThanOrEqual(REPO_TOOL_CAPS.readMaxLines);
-    expect(big.text.length).toBeLessThanOrEqual(REPO_TOOL_CAPS.readMaxBytes + 200);
-    expect(big.text).toMatch(/1000 lines — showing lines 1-\d+; call again with startLine \d+/);
+    const [header, note, ...body] = big.text.split("\n");
+    expect(header).toMatch(/^big\.ts: \d+ bytes, 1000 lines total$/);
+    expect(note).toMatch(/^truncated: lines 1-(\d+) of 1000; read again with start=(\d+) for the rest \(or grep this file\)\. Do not state counts or lists for the whole file from this part\.$/);
+    const [, end, next] = /lines 1-(\d+) of 1000; read again with start=(\d+)/.exec(note)!;
+    expect(Number(next)).toBe(Number(end) + 1);
+    expect(big.text).toContain(`(at most ${REPO_TOOL_CAPS.readMaxLines} lines per read)`);
+    expect(body.filter((l) => /^\d+: /.test(l)).length).toBeLessThanOrEqual(REPO_TOOL_CAPS.readMaxLines);
+    expect(big.text.length).toBeLessThanOrEqual(REPO_TOOL_CAPS.readMaxBytes + 400);
 
     const window = await runRepoReadTool(root, "read_file", { path: "big.ts", startLine: 500, maxLines: 3 });
     expect(window.text).toContain("500: const line499");
-    expect(window.text.split("\n").slice(1)).toHaveLength(3);
+    expect(window.text).toContain("truncated: lines 500-502 of 1000; read again with start=503");
+    expect(window.text.split("\n").filter((l) => /^\d+: /.test(l))).toHaveLength(3);
+    // Canonical names work too.
+    const page = await runRepoReadTool(root, "read_file", { path: "big.ts", start: 999, lines: 5 });
+    expect(page.text).toContain("truncated: lines 999-1000 of 1000.");
+    expect(page.text).toContain("1000: const line999");
   });
 
   it("read_file refuses directories and unknown tools are refused", async () => {

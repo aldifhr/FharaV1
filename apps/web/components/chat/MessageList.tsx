@@ -54,6 +54,25 @@ function CheckedFilesLine({ files }: { files: string[] }) {
   );
 }
 
+/** References the reply cites that no repo check in it showed: one quiet line, never hidden. */
+const UNVERIFIED_SHOWN = 6;
+export function unverifiedRefsLabel(refs: string[]): string {
+  const shown = refs.slice(0, UNVERIFIED_SHOWN).join(", ");
+  const more = refs.length - UNVERIFIED_SHOWN;
+  return `Unverified: ${shown}${more > 0 ? ` +${more} more` : ""}`;
+}
+
+function UnverifiedRefsLine({ refs }: { refs: string[] }) {
+  return (
+    <p
+      className="mt-0.5 max-w-3xl truncate pl-1 text-[12px] text-ink-3"
+      title={`Not seen in any repo check for this reply:\n${refs.join("\n")}`}
+    >
+      {unverifiedRefsLabel(refs)}
+    </p>
+  );
+}
+
 /** Below this many timeline items the plain list is cheaper than the
  *  virtualizer bookkeeping; above it, only the visible window renders. */
 const VIRTUALIZE_THRESHOLD = 40;
@@ -397,6 +416,9 @@ export default function MessageList(props: Props) {
               </div>
               {hasText && !isLive(m) && Array.isArray(m.checkedFiles) && m.checkedFiles.length > 0 && (
                 <CheckedFilesLine files={m.checkedFiles} />
+              )}
+              {hasText && !isLive(m) && Array.isArray(m.unverifiedRefs) && m.unverifiedRefs.length > 0 && (
+                <UnverifiedRefsLine refs={m.unverifiedRefs} />
               )}
               {hasText && String(m._id) === suggestTaskId && taskState[String(m._id)] !== "done" && (
                 <button

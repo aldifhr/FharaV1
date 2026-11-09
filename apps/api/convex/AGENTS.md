@@ -128,7 +128,24 @@ user's repository, so each call is queued in `repoToolCalls`
 (`repoTools.ts`), claimed by an online worker through the token-gated
 `worker.claimRepoToolCall` / `completeRepoToolCall`, run in the project
 workspace (`packages/worker/src/tools/repoRead.ts`, sandboxed, capped,
-secret-masked) and read back by the action, which deletes the row. No
-online worker or no workspace → the reply runs without tools and the
-grounding rule makes it say it has not checked ("belum saya cek").
-Files read are stored on the reply as `messages.checkedFiles`.
+secret-masked) and read back by the action, which deletes the row.
+
+- Availability needs a workspace AND a fresh online worker whose heartbeat
+  advertises the `repoTools` capability (`workers.capabilities`); an older
+  worker build counts as unavailable. A call no worker claims within 3 s
+  fails fast ("worker tidak merespons") and turns tools off for the rest of
+  that reply. Without tools the reply says it has not checked ("belum saya
+  cek"), and the CTO's Thinking trace gets a quiet "Repo tools off: …" reason.
+- Tool-call text never reaches a bubble (`lib/chat/toolCallText.ts`): bare or
+  fenced JSON calls, `<tool_call>` / `<longcat_tool_call>` markup, several
+  calls plus prose in one reply. Grounded: only the first call runs. No tools
+  (every other reply path, handoffs included): held back while streaming,
+  retried once with `NO_TOOLS_RETRY_LINE`, then a short fallback.
+- Argument aliases (`maxLines`/`limit` → `lines`, `file` → `path`,
+  `query`/`regex` → `pattern`, `startLine` → `start`) are normalized on both
+  sides. Partial reads say "truncated: lines X-Y of N; read again with
+  start=…"; grep counts every match and says "0 matches for … in …".
+- Files read are stored on the reply as `messages.checkedFiles`; paths and
+  file:line references the answer cites that no tool result (or the
+  snapshot) showed are stored as `messages.unverifiedRefs` and shown as a
+  quiet "Unverified: …" line (`lib/chat/refCheck.ts`).

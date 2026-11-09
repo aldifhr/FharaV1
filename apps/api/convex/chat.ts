@@ -62,11 +62,20 @@ import { quoteContextLine, quotedResponderId } from "./lib/chat/quote";
 import {
   MAX_REPO_TOOL_CALLS,
   describeRepoToolCall,
-  mayBeToolCall,
   runRepoToolLoop,
   type RepoToolCall,
   type RepoToolResult,
 } from "./lib/chat/repoTools";
+import {
+  NO_TOOLS_RETRY_LINE,
+  hasToolCallText,
+  noToolsFallback,
+  resolveNoToolsReply,
+  streamVisibleText,
+  toolBudgetFallback,
+} from "./lib/chat/toolCallText";
+import { EMPTY_EVIDENCE, collectRepoEvidence, findUnverifiedRefs, type RepoEvidence } from "./lib/chat/refCheck";
+import type { RepoToolsOffReason } from "./repoTools";
 import {
   OPTIONS_GUIDANCE,
   buildAnswerGuidance,
@@ -125,6 +134,8 @@ const TERMINAL_TASK_STATUSES = ["done", "rejected", "failed"];
 
 /** How long one repo tool call may wait for a worker before it counts as not checked. */
 const REPO_TOOL_WAIT_MS = 20_000;
+/** A call no worker has claimed by then fails fast: no live worker serves the queue. */
+const REPO_TOOL_CLAIM_WAIT_MS = 3_000;
 const REPO_TOOL_POLL_MS = 250;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -136,16 +147,36 @@ function joinTrace(trace: string, next: string | undefined): string {
   return trace ? `${trace}\n\n${add}` : add;
 }
 
+/** Quiet Thinking-trace line for a CTO reply that runs without repo tools. */
+export function repoToolsOffNote(reason: RepoToolsOffReason | "unclaimed" | "error" | undefined): string {
+  switch (reason) {
+    case "no_workspace":
+      return "Repo tools off: project folder not set";
+    case "no_worker":
+      return "Repo tools off: no online worker";
+    case "worker_outdated":
+      return "Repo tools off: online worker is outdated (restart it to serve repo tools)";
+    case "unclaimed":
+      return "Repo tools off: worker tidak merespons";
+    default:
+      return "Repo tools off: availability check failed";
+  }
+}
+
+const WORKER_UNRESPONSIVE =
+  "worker tidak merespons: no worker picked up this tool call within 3s, so repo tools are off for the rest of this reply. Treat it as not checked.";
+
 /**
  * Run one read-only repo tool through the worker queue (repoTools.ts):
  * enqueue, poll for the worker's answer, always delete the row. Never
- * throws; a timeout or failure comes back as ok:false.
+ * throws; a timeout or failure comes back as ok:false. A call that no worker
+ * claims within REPO_TOOL_CLAIM_WAIT_MS fails fast with `unclaimed`.
  */
 async function callRepoToolViaWorker(
   ctx: ActionCtx,
   projectId: Id<"projects">,
   call: RepoToolCall
-): Promise<RepoToolResult> {
+): Promise<RepoToolResult & { unclaimed?: boolean }> {
   let callId: Id<"repoToolCalls">;
   try {
     callId = await ctx.runMutation(internal.repoTools.enqueue, {
@@ -157,13 +188,17 @@ async function callRepoToolViaWorker(
     return { ok: false, text: `Tool unavailable (${error?.message ?? "enqueue failed"}); treat as not checked.` };
   }
   try {
-    const deadline = Date.now() + REPO_TOOL_WAIT_MS;
+    const startedAt = Date.now();
+    const deadline = startedAt + REPO_TOOL_WAIT_MS;
     while (Date.now() < deadline) {
       await sleep(REPO_TOOL_POLL_MS);
       const row = await ctx.runQuery(internal.repoTools.get, { callId });
       if (!row) break;
       if (row.status === "done") return { ok: true, text: row.result ?? "", files: row.files ?? [] };
       if (row.status === "error") return { ok: false, text: row.error ?? "Tool failed." };
+      if (row.status === "pending" && Date.now() - startedAt >= REPO_TOOL_CLAIM_WAIT_MS) {
+        return { ok: false, text: WORKER_UNRESPONSIVE, unclaimed: true };
+      }
     }
     return { ok: false, text: "No worker answered this tool call in time; treat it as not checked." };
   } finally {
@@ -171,13 +206,15 @@ async function callRepoToolViaWorker(
   }
 }
 
-/** Repo tools are usable for this reply (workspace set + worker online). Never throws. */
-async function repoToolsAvailable(ctx: ActionCtx, projectId: Id<"projects">): Promise<boolean> {
+/** Repo tools are usable for this reply (workspace set + a repo-tool worker online). Never throws. */
+async function repoToolsAvailability(
+  ctx: ActionCtx,
+  projectId: Id<"projects">
+): Promise<{ available: boolean; reason?: RepoToolsOffReason | "error" }> {
   try {
-    const res = await ctx.runQuery(internal.repoTools.availability, { projectId });
-    return res.available;
+    return await ctx.runQuery(internal.repoTools.availability, { projectId });
   } catch {
-    return false;
+    return { available: false, reason: "error" };
   }
 }
 
@@ -346,12 +383,20 @@ function outsideRepoReply(text: string, outsidePath: string): string {
     : `I won't create a task for this: \`${outsidePath}\` is outside the project repository. The team only changes files inside the project folder.`;
 }
 
+type StreamReplyResult = CompleteResult & {
+  /** The persisted bubble (absent when it was removed as empty). */
+  messageId?: Id<"messages">;
+  /** Grounded replies: what the repo tools showed (for the reference check). */
+  evidence?: RepoEvidence;
+};
+
 type StreamReply = (
   agentId: Id<"agents">,
   config: ChatLlmConfig,
   system: string,
   msgs: { role: string; content: string }[],
-) => Promise<CompleteResult>;
+  opts?: { traceNote?: string },
+) => Promise<StreamReplyResult>;
 
 /**
  * Explicit dispatch: an explicit command ("/task …", "kerjakan …") creates
@@ -626,39 +671,74 @@ export const replyToChat = internalAction({
     const dispatcher = orchestrator ?? agents[0];
     const team = teamAgents ?? agents;
 
+    // The user's message this run answers (fixed fallback copy follows its language).
+    const userText = history[history.length - 1]?.content ?? "";
+
     // Streaming persist helper: create the agent message row first, then
     // patch content/reasoning as SSE chunks arrive so the UI shows the
     // bubble + "Thinking" trace live. Patches are throttled to avoid a
     // mutation per token.
-    const streamReplyToAgent: StreamReply = async (agentId, config, system, msgs) => {
+    //
+    // This path has NO tools. A model that emits a tool call anyway (JSON
+    // or <longcat_tool_call> markup) never gets it shown: it is held back
+    // while streaming, the reply is retried once with an explicit "no tools"
+    // line, and a reply that is still a call becomes a short fallback.
+    const streamReplyToAgent: StreamReply = async (agentId, config, system, msgs, opts) => {
       const messageId = await ctx.runMutation(internal.chatContext.createStreamingAgentMessage, {
         projectId: args.projectId,
         agentId: agentId as any,
         conversationId: args.conversationId,
         replyToMessageId: args.userMessageId,
       });
+      const note = opts?.traceNote ?? "";
       let lastPatchAt = 0;
       // Partial patches run one at a time; the final patch waits for the
       // last one. Fire-and-forget patches could land AFTER the final write
       // and overwrite the full reply with a truncated snapshot.
       let patchChain: Promise<unknown> = Promise.resolve();
-      let raw: Awaited<ReturnType<typeof completeWithAgent>>;
-      try {
-      raw = await completeWithAgent(system, msgs, config, ({ content: rawContent, reasoning }) => {
-        const content = stripToolCallMarkup(rawContent);
+      let traceBase = note;
+      const onChunk = ({ content: rawContent, reasoning }: { content: string; reasoning: string }) => {
+        const content = streamVisibleText(rawContent);
+        const liveTrace = joinTrace(traceBase, reasoning);
         const now = Date.now();
-        if (now - lastPatchAt < 250 || (!content.trim() && !reasoning.trim())) return;
+        if (now - lastPatchAt < 250 || (!content.trim() && !liveTrace.trim())) return;
         lastPatchAt = now;
         patchChain = patchChain
           .then(() =>
             ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
               messageId: messageId as any,
               content,
-              reasoning: reasoning || undefined,
+              reasoning: liveTrace || undefined,
             })
           )
           .catch(() => {});
-      });
+      };
+      let raw: Awaited<ReturnType<typeof completeWithAgent>>;
+      let content: string;
+      let reasoning: string;
+      try {
+        raw = await completeWithAgent(system, msgs, config, onChunk);
+        reasoning = joinTrace(note, raw.reasoning);
+        if (hasToolCallText(raw.content)) {
+          // A tool call with no tools: never shown. Retry once, told plainly.
+          traceBase = joinTrace(reasoning, "Reply was a tool call, but this reply has no tools; asked again for a prose answer.");
+          lastPatchAt = Date.now();
+          patchChain = patchChain
+            .then(() =>
+              ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
+                messageId: messageId as any,
+                content: "",
+                reasoning: traceBase,
+              })
+            )
+            .catch(() => {});
+          const retry = await completeWithAgent(`${system}\n${NO_TOOLS_RETRY_LINE}`, msgs, config, onChunk);
+          content = resolveNoToolsReply(retry.content, userText);
+          reasoning = joinTrace(traceBase, retry.reasoning);
+          raw = { ...retry, reasoningDurationMs: raw.reasoningDurationMs + retry.reasoningDurationMs };
+        } else {
+          content = stripToolCallMarkup(raw.content);
+        }
       } catch (error) {
         // Never leave the bubble animating after a failed call.
         await patchChain;
@@ -670,8 +750,7 @@ export const replyToChat = internalAction({
         throw error;
       }
       await patchChain;
-      // Chat agents have no tools; drop tool-call text some models emit anyway.
-      const result = { ...raw, content: stripToolCallMarkup(raw.content) };
+      const result: StreamReplyResult = { ...raw, content, reasoning, messageId: messageId as any };
       await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
         messageId: messageId as any,
         content: result.content,
@@ -683,14 +762,16 @@ export const replyToChat = internalAction({
       // tokens while thinking) would render as an empty bubble.
       if (!result.content.trim()) {
         await ctx.runMutation(internal.chatContext.removeEmptyAgentMessage, { messageId: messageId as any });
+        result.messageId = undefined;
       }
       return result;
     };
 
     // Grounded reply (CTO with repo tools): the same streaming bubble, but
-    // each LLM step may be a JSON tool call instead of the answer. Tool-call
-    // text is never shown; the trace notes each check, and the files read
-    // are stored as `checkedFiles` for the quiet "Checked: …" line.
+    // each LLM step may be a tool call instead of the answer. Tool-call text
+    // is never shown (several calls in one step: the first runs, the rest is
+    // discarded); the trace notes each check, and the files read are stored
+    // as `checkedFiles` for the quiet "Checked: …" line.
     const streamGroundedReply: StreamReply = async (agentId, config, system, msgs) => {
       const messageId = await ctx.runMutation(internal.chatContext.createStreamingAgentMessage, {
         projectId: args.projectId,
@@ -709,6 +790,9 @@ export const replyToChat = internalAction({
           )
           .catch(() => {});
       };
+      // Once a call goes unclaimed, no live worker serves the queue: every
+      // later call in this reply fails at once instead of waiting again.
+      let workerGone = false;
       let loop: Awaited<ReturnType<typeof runRepoToolLoop>>;
       try {
         loop = await runRepoToolLoop({
@@ -718,7 +802,7 @@ export const replyToChat = internalAction({
             const raw = await completeWithAgent(system, stepMsgs, config, ({ content: rawContent, reasoning }) => {
               const now = Date.now();
               if (now - lastPatchAt < 250) return;
-              const content = mayBeToolCall(rawContent) ? "" : stripToolCallMarkup(rawContent);
+              const content = streamVisibleText(rawContent);
               const liveTrace = joinTrace(trace, reasoning);
               if (!content.trim() && !liveTrace.trim()) return;
               lastPatchAt = now;
@@ -727,7 +811,15 @@ export const replyToChat = internalAction({
             trace = joinTrace(trace, raw.reasoning);
             return { content: raw.content };
           },
-          callTool: (call) => callRepoToolViaWorker(ctx, args.projectId, call),
+          callTool: async (call) => {
+            if (workerGone) return { ok: false, text: WORKER_UNRESPONSIVE };
+            const result = await callRepoToolViaWorker(ctx, args.projectId, call);
+            if (result.unclaimed) {
+              workerGone = true;
+              trace = joinTrace(trace, repoToolsOffNote("unclaimed"));
+            }
+            return result;
+          },
           onToolCall: (call, result) => {
             trace = joinTrace(trace, `Checked ${describeRepoToolCall(call)}${result.ok ? "" : " (failed)"}`);
             lastPatchAt = Date.now();
@@ -744,7 +836,12 @@ export const replyToChat = internalAction({
         throw error;
       }
       await patchChain;
-      const content = stripToolCallMarkup(loop.answer);
+      // The loop's answer is already free of tool-call text; a reply that
+      // never got past tool calls gets the fallback instead of vanishing.
+      let content = stripToolCallMarkup(loop.answer);
+      if (!content.trim() && loop.calls.length > 0) {
+        content = workerGone ? noToolsFallback(userText) : toolBudgetFallback(userText);
+      }
       const reasoningDurationMs = Date.now() - startedAt;
       await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
         messageId: messageId as any,
@@ -754,10 +851,18 @@ export const replyToChat = internalAction({
         streaming: false,
         ...(loop.checkedFiles.length ? { checkedFiles: loop.checkedFiles.slice(0, 20) } : {}),
       });
+      let keptId: Id<"messages"> | undefined = messageId as any;
       if (!content.trim()) {
         await ctx.runMutation(internal.chatContext.removeEmptyAgentMessage, { messageId: messageId as any });
+        keptId = undefined;
       }
-      return { content, reasoning: trace, reasoningDurationMs };
+      return {
+        content,
+        reasoning: trace,
+        reasoningDurationMs,
+        messageId: keptId,
+        evidence: collectRepoEvidence(loop.results),
+      };
     };
 
     // Greeting fast-path: a bare "hi" gets a brief LLM persona reply on
@@ -894,10 +999,11 @@ export const replyToChat = internalAction({
     // Repo tools for the CTO's reply: only when a worker can serve them
     // (the repo lives on the worker's host). Otherwise no tools, and the
     // grounding rule makes the CTO say it has not checked.
-    const ctoHasRepoTools =
+    const ctoRepoTools =
       orchestrator !== null && !isOptionPick && queue.some((a) => a._id === orchestrator._id)
-        ? await repoToolsAvailable(ctx, args.projectId)
-        : false;
+        ? await repoToolsAvailability(ctx, args.projectId)
+        : null;
+    const ctoHasRepoTools = ctoRepoTools?.available === true;
     const selfReview = isSelfReviewRequest(lastUserContent);
     const answered = new Set<string>();
     const handoffFrom = new Map<string, { by: string; request: string }>();
@@ -951,8 +1057,23 @@ export const replyToChat = internalAction({
           perAgentConfig,
           systemWithContext,
           conversation,
+          // Why the CTO answers without repo tools, quietly in the trace.
+          isCto && ctoRepoTools && !ctoRepoTools.available
+            ? { traceNote: repoToolsOffNote(ctoRepoTools.reason) }
+            : undefined,
         );
         content = result.content;
+        // Post-answer check: file paths and file:line references the
+        // answer cites but no tool result (or the snapshot) showed.
+        if (result.messageId && content.trim()) {
+          const unverified = findUnverifiedRefs(content, result.evidence ?? EMPTY_EVIDENCE, repoSnapshot);
+          if (unverified.length > 0) {
+            await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
+              messageId: result.messageId,
+              unverifiedRefs: unverified,
+            });
+          }
+        }
       } catch (err: any) {
         await ctx.runMutation(internal.chatContext.insertAgentMessage, {
           projectId: args.projectId,

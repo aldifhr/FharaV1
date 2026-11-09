@@ -377,6 +377,10 @@ export default defineSchema({
     activeTasks: v.number(),
     status: v.union(v.literal("online"), v.literal("offline")),
     lastHeartbeatAt: v.number(),
+    // Features this worker build serves, sent on every heartbeat (e.g.
+    // "repoTools" for grounded chat). An older worker sends none, so chat
+    // never queues work it would not pick up.
+    capabilities: v.optional(v.array(v.string())),
   })
     .index("by_worker_id", ["workerId"])
     .index("by_status_and_heartbeat", ["status", "lastHeartbeatAt"]),
@@ -429,6 +433,10 @@ export default defineSchema({
     // Repo-grounded chat: workspace files the agent read (read_file) while
     // writing this reply. The bubble shows a quiet "Checked: …" line.
     checkedFiles: v.optional(v.array(v.string())),
+    // Post-answer check: file paths / file:line references in this reply
+    // that no tool result (or the repo snapshot) showed. Quiet
+    // "Unverified: …" line under the bubble.
+    unverifiedRefs: v.optional(v.array(v.string())),
     // Structured chat card rendered next to the text (assignment, push,
     // qa, verification). Optional; plain messages carry none.
     card: v.optional(

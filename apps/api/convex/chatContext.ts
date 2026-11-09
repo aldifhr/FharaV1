@@ -156,6 +156,7 @@ export const updateStreamingAgentMessage = internalMutation({
     reasoningDurationMs: v.optional(v.number()),
     streaming: v.optional(v.boolean()),
     checkedFiles: v.optional(v.array(v.string())),
+    unverifiedRefs: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const { messageId, ...patch } = args;

@@ -13,6 +13,12 @@
  * Pure: no Convex or Node APIs, so it is unit-testable and importable from
  * the worker (`@/api/convex/lib/chat/repoTools`).
  */
+import { extractToolCalls, mayBeToolCall, normalizeRepoToolArgs } from "./toolCallText";
+
+export { mayBeToolCall, normalizeRepoToolArgs };
+
+/** Capability a worker advertises on heartbeat when it serves repo tool calls. */
+export const REPO_TOOLS_CAPABILITY = "repoTools";
 
 export const REPO_TOOL_NAMES = ["list_files", "grep", "read_file"] as const;
 export type RepoToolName = (typeof REPO_TOOL_NAMES)[number];
@@ -61,48 +67,25 @@ export function capToolOutput(text: string, max: number = REPO_TOOL_CAPS.resultM
 }
 
 /**
- * A model reply that is (only) a tool call: a single JSON object with a
- * string `tool`, optionally inside a ```json fence. Prose that merely
- * contains JSON is an answer, not a call.
+ * A model reply that is (only) one tool call: a JSON object with a string
+ * `tool` (or `name` + `arguments`), optionally fenced or tagged. Prose that
+ * merely contains JSON is an answer, not a call. Arguments are normalized
+ * (aliases such as `maxLines` → `lines`). The loop itself uses the lenient
+ * `extractToolCalls`, which also handles several calls plus prose.
  */
 export function parseRepoToolCall(text: string): RepoToolCall | null {
-  let body = text.trim();
-  const fence = /^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i.exec(body);
-  if (fence) body = fence[1].trim();
-  // Some models wrap calls in <tool_call>…</tool_call> (Hermes/Qwen style).
-  const tagged = /^<((?:[a-z_]+_)?tool_call)\b[^>]*>([\s\S]*?)<\/\1>$/i.exec(body);
-  if (tagged) body = tagged[2].trim();
-  if (!body.startsWith("{") || !body.endsWith("}")) return null;
-  try {
-    const parsed = JSON.parse(body) as Record<string, unknown>;
-    const name = typeof parsed.tool === "string" ? parsed.tool : typeof parsed.name === "string" ? parsed.name : "";
-    if (!name.trim()) return null;
-    const rawArgs = parsed.arguments ?? parsed.args ?? {};
-    const args =
-      rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs) ? (rawArgs as Record<string, unknown>) : {};
-    return { tool: name.trim(), args };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * While streaming: could this partial reply still turn out to be a tool
- * call? Such text is not shown in the bubble until it is known to be prose.
- */
-export function mayBeToolCall(partial: string): boolean {
-  const t = partial.trimStart();
-  if (!t) return true;
-  return t.startsWith("{") || t.startsWith("```") || /^<(?:[a-z_]+_)?tool/i.test(t);
+  const { calls, prose, malformed } = extractToolCalls(text);
+  if (calls.length !== 1 || prose || malformed) return null;
+  return calls[0];
 }
 
 /** Short label for a call, e.g. `grep "foo" in src` (for the tool result header). */
 export function describeRepoToolCall(call: RepoToolCall): string {
-  const a = call.args;
+  const a = normalizeRepoToolArgs(call.args ?? {});
   const str = (v: unknown) => (typeof v === "string" ? v : "");
   switch (call.tool) {
     case "read_file":
-      return `read_file ${str(a.path)}${a.startLine ? ` from line ${String(a.startLine)}` : ""}`;
+      return `read_file ${str(a.path)}${a.start ? ` from line ${String(a.start)}` : ""}`;
     case "grep":
       return `grep ${JSON.stringify(str(a.pattern))}${str(a.path) ? ` in ${str(a.path)}` : ""}${str(a.glob) ? ` (${str(a.glob)})` : ""}`;
     case "list_files":
@@ -113,13 +96,17 @@ export function describeRepoToolCall(call: RepoToolCall): string {
 }
 
 /** The user-role message that feeds one tool result back to the model. */
-export function toolResultMessage(call: RepoToolCall, result: RepoToolResult): string {
+export function toolResultMessage(call: RepoToolCall, result: RepoToolResult, note = ""): string {
   const header = `[tool result: ${describeRepoToolCall(call)}${result.ok ? "" : " — failed"}]`;
-  return `${header}\n${capToolOutput(result.text, REPO_TOOL_CAPS.promptResultMaxChars)}`;
+  return `${header}\n${capToolOutput(result.text, REPO_TOOL_CAPS.promptResultMaxChars)}${note ? `\n${note}` : ""}`;
 }
 
+/** Fed back when one reply held several calls (and/or prose): only the first ran. */
+export const ONE_CALL_PER_REPLY =
+  "(Only your first tool call ran; anything else in that reply was discarded. Call one tool per reply and wait for its result before answering.)";
+
 export const TOOL_BUDGET_EXHAUSTED =
-  "Tool budget for this reply is used up. Answer the user now from the tool results above, without calling a tool. For anything you did not check, say you have not checked it yet (Indonesian: \"belum saya cek\").";
+  "Tool budget for this reply is used up. Answer the user now from the tool results above, without calling a tool. For anything you did not check, say you have not checked it yet (Indonesian: \"belum saya cek\"). Cite only files and file:line references that a tool result above shows.";
 
 export interface RepoToolLoopStep {
   content: string;
@@ -137,8 +124,11 @@ export interface RepoToolLoopOptions {
 }
 
 export interface RepoToolLoopResult {
+  /** The answer with every tool-call text removed ("" when none came). */
   answer: string;
   calls: Array<{ call: RepoToolCall; ok: boolean }>;
+  /** What each call returned, as the model saw it (for the post-answer reference check). */
+  results: Array<{ label: string; text: string; files?: string[] }>;
   /** Files successfully read, in first-read order, de-duplicated. */
   checkedFiles: string[];
 }
@@ -152,15 +142,20 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
   const maxCalls = options.maxCalls ?? MAX_REPO_TOOL_CALLS;
   const messages = [...options.messages];
   const calls: RepoToolLoopResult["calls"] = [];
+  const results: RepoToolLoopResult["results"] = [];
   const checked: string[] = [];
+  const done = (answer: string): RepoToolLoopResult => ({ answer, calls, results, checkedFiles: checked });
 
   for (let i = 0; i <= maxCalls; i += 1) {
     const exhausted = i === maxCalls;
     if (exhausted) messages.push({ role: "user", content: TOOL_BUDGET_EXHAUSTED });
     const { content } = await options.step(messages);
-    const call = parseRepoToolCall(content);
-    if (!call) return { answer: content, calls, checkedFiles: checked };
-    if (exhausted) break;
+    // Lenient: one reply may hold several calls and/or prose. Only the
+    // first call runs; prose written next to a call (before any result)
+    // is discarded, and no call text ever reaches the answer.
+    const found = extractToolCalls(content);
+    if (found.calls.length === 0 || exhausted) return done(found.prose);
+    const call: RepoToolCall = { tool: found.calls[0].tool, args: normalizeRepoToolArgs(found.calls[0].args) };
     const result = isRepoToolName(call.tool)
       ? await options.callTool(call)
       : {
@@ -171,9 +166,15 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
     if (result.ok) {
       for (const file of result.files ?? []) if (!checked.includes(file)) checked.push(file);
     }
+    results.push({
+      label: describeRepoToolCall(call),
+      text: capToolOutput(result.text, REPO_TOOL_CAPS.promptResultMaxChars),
+      files: result.ok ? result.files : undefined,
+    });
     await options.onToolCall?.(call, result);
+    const extra = found.calls.length > 1 || found.prose ? ONE_CALL_PER_REPLY : "";
     messages.push({ role: "assistant", content: JSON.stringify({ tool: call.tool, arguments: call.args }) });
-    messages.push({ role: "user", content: toolResultMessage(call, result) });
+    messages.push({ role: "user", content: toolResultMessage(call, result, extra) });
   }
-  return { answer: "", calls, checkedFiles: checked };
+  return done("");
 }

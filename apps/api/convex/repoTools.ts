@@ -8,7 +8,7 @@
  */
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { REPO_TOOL_CAPS } from "./lib/chat/repoTools";
+import { REPO_TOOL_CAPS, REPO_TOOLS_CAPABILITY } from "./lib/chat/repoTools";
 
 /** A worker's claim on a call; an expired lease lets another worker take it. */
 const CLAIM_LEASE_MS = 15_000;
@@ -17,19 +17,31 @@ const WORKER_FRESH_MS = 45_000;
 /** Rows older than this were abandoned by their action (it waits ~20 s). */
 const STALE_ROW_MS = 5 * 60_000;
 
-/** Repo tools are usable for this project: it has a workspace and a worker is online. */
+/** Why repo tools are off for a reply (shown quietly in the Thinking trace). */
+export type RepoToolsOffReason = "no_workspace" | "no_worker" | "worker_outdated";
+
+/**
+ * Repo tools are usable for this project: it has a workspace and an online
+ * worker that advertises repo-tool support on its heartbeat. A fresh worker
+ * without the capability is an older build that never polls the queue, so
+ * calls would only wait out the timeout: it counts as unavailable.
+ */
 export const availability = internalQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, args): Promise<{ available: boolean }> => {
+  handler: async (ctx, args): Promise<{ available: boolean; reason?: RepoToolsOffReason }> => {
     const project = await ctx.db.get(args.projectId);
-    if (!project?.workspacePath) return { available: false };
+    if (!project?.workspacePath) return { available: false, reason: "no_workspace" };
     const fresh = await ctx.db
       .query("workers")
       .withIndex("by_status_and_heartbeat", (q) =>
         q.eq("status", "online").gte("lastHeartbeatAt", Date.now() - WORKER_FRESH_MS)
       )
-      .first();
-    return { available: fresh !== null };
+      .take(50);
+    if (fresh.length === 0) return { available: false, reason: "no_worker" };
+    if (!fresh.some((w) => (w.capabilities ?? []).includes(REPO_TOOLS_CAPABILITY))) {
+      return { available: false, reason: "worker_outdated" };
+    }
+    return { available: true };
   },
 });
 

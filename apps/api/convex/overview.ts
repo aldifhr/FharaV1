@@ -47,7 +47,10 @@ export const get = query({
         running: ptasks.filter((t) => t.status === "running").length,
         needsApproval: ptasks.filter((t) => t.status === "needs_approval").length,
         failed: ptasks.filter((t) => t.status === "failed").length,
+        done: ptasks.filter((t) => t.status === "done").length,
         pendingApprovals: approvals.filter((a) => a.projectId === p._id).length,
+        // tasks are newest first, so the first match is the latest activity
+        lastActivityAt: ptasks[0]?._creationTime ?? null,
       };
     });
 
@@ -74,6 +77,11 @@ export const get = query({
       agentByStatus,
       approvals: approvals.map((a) => ({ ...enrich(a), taskTitle: taskTitleById.get(a.taskId as string) ?? null })),
       recentTasks,
+      // Tasks that stopped and need the user: failed or waiting for input.
+      attentionTasks: tasks
+        .filter((t) => t.status === "failed" || t.status === "waiting_input")
+        .slice(0, 5)
+        .map((t) => ({ ...t, projectName: projectNameById.get(t.projectId as string) ?? "—" })),
       taskCounts: { total: tasks.length, byStatus, truncated: tasksTruncated },
     };
   },

@@ -592,6 +592,10 @@ export const replyToChat = internalAction({
         const picked = pickedId ? pool.filter((a) => String(a._id) === pickedId) : [];
         responders = picked.length ? picked : pickConversationalAgent(team);
       }
+    } else if (isOptionPick) {
+      // A pick is answered by the one agent that offered the options (the
+      // CTO by default), not by the whole team.
+      responders = mentionedAgents.length > 0 ? mentionedAgents.slice(0, 1) : orchestrator ? [orchestrator] : pickConversationalAgent(team);
     } else {
       responders = agents;
     }
@@ -611,7 +615,10 @@ export const replyToChat = internalAction({
         ...buildChatPersonaLines(agent, projectName, queue, repoSnapshot),
         ...(intent.intent === "ask" ? buildAnswerGuidance(intent.subtype) : []),
         ...buildPlanningGuidance(agent, { isOrchestrator: isCto, taskIntent }),
-        ...(isCto ? buildHandoffGuidance(team, String(agent._id)) : []),
+        ...(isCto && !isOptionPick ? buildHandoffGuidance(team, String(agent._id)) : []),
+        ...(isOptionPick
+          ? ["The user's last message is a button pick ('I choose …'), not their language: reply in the language of their earlier messages, in 2-3 sentences, and do not bring teammates in."]
+          : []),
         ...(handoffBy !== undefined ? [buildHandoffNotice(handoffBy)] : []),
         // Questions (compare, explain, recommend) get a prose answer; the
         // options picker is for choosing what to build, not for a verdict.
@@ -655,7 +662,7 @@ export const replyToChat = internalAction({
         // Append response to conversation so subsequent agents have context
         conversation.push({ role: "assistant", content: `${agent.name}: ${content.trim()}` });
         // CTO handoff: teammates it @mentioned answer next, in order.
-        if (isCto) {
+        if (isCto && !isOptionPick) {
           for (const mentioned of extractAgentMentions(content, team, String(agent._id))) {
             if (handoffs >= MAX_CTO_HANDOFFS) break;
             if (answered.has(String(mentioned._id))) continue;

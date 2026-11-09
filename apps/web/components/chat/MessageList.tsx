@@ -225,20 +225,42 @@ export default function MessageList(props: Props) {
     return <div key={m._id}>{inner}</div>;
   };
 
-  const renderMessageBody = (m: any, index: number, messageAgent: any) => (
+  const renderUserBody = (m: any) => (
+    <div className="ml-auto flex min-w-0 max-w-[min(85%,42rem)] flex-col items-end">
+      <div className="mb-1 flex items-center gap-1.5 pr-1 text-[12px] text-ink-3">
+        {m.pinned && <Pin size={11} className="text-brand-ink" aria-label="Pinned" />}
+        <span>{formatTime(m._creationTime)}</span>
+      </div>
+      <div className="flex min-w-0 max-w-full items-center gap-1.5">
+        <MessageActions
+          inline
+          pinned={Boolean(m.pinned)}
+          content={m.content}
+          taskId={blockKey(m) !== "conversation" ? blockKey(m) : undefined}
+          onTogglePin={() => togglePin(m._id, !m.pinned)}
+          onOpenTask={onSelectTask}
+        />
+        <div className="min-w-0 rounded-2xl rounded-tr-md bg-brand-soft px-4 py-2.5 text-ink [&_p]:my-0">
+          <MessageText content={m.content ?? ""} />
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderMessageBody = (m: any, index: number, messageAgent: any) => m.authorType !== "agent" ? renderUserBody(m) : (
     <>
-      <InitialAvatar agent={m.authorType === "agent"} avatarParams={m.authorType === "agent" ? messageAgent?.avatarParams : undefined} name={m.authorType === "agent" ? roleLabel(messageAgent?.role) : "You"} size={32} />
+      <InitialAvatar agent avatarParams={messageAgent?.avatarParams} name={roleLabel(messageAgent?.role)} size={32} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 pr-9">
-          <p className="flex flex-wrap items-center gap-1.5 text-[15px] font-semibold text-ink">
-            {m.authorType === "agent" ? roleLabel(messageAgent?.role) : "You"}
+          <p className="flex flex-wrap items-center gap-1.5 text-[14px] font-semibold text-ink">
+            {roleLabel(messageAgent?.role)}
             {(() => {
               const kind = messageKindOf(m.content);
               const tag = kind === "evaluation" ? "evaluated" : kind === "planning" ? "plan" : kind === "delegation" ? "handoff" : kind === "design" ? "design" : null;
               return tag ? <span className="rounded-md border border-line px-1.5 py-px text-[11px] font-normal text-ink-2">{tag}</span> : null;
             })()}
           </p>
-          <span className="text-[13px] text-ink-3">{formatTime(m._creationTime)}</span>
+          <span className="text-[12px] text-ink-3">{formatTime(m._creationTime)}</span>
           {m.pinned && <Pin size={12} className="self-center text-brand-ink" aria-label="Pinned" />}
         </div>
         <MessageActions
@@ -248,21 +270,30 @@ export default function MessageList(props: Props) {
           onTogglePin={() => togglePin(m._id, !m.pinned)}
           onOpenTask={onSelectTask}
         />
-        <div className="mt-0.5">
-          {m.authorType === "agent" && !m.card && (m.reasoning || !m.content?.trim()) && (
-            <ReasoningLine
-              text={m.reasoning}
-              running={isLive(m) && !m.content?.trim()}
-              seconds={m.reasoningDurationMs}
-            />
-          )}
-          {messageKindOf(m.content) === "delegation" || (m.card && !m.content?.trim()) ? null : (
-            <MessageText
-              content={parseOptions(m.content).text}
-              isAnimating={isLive(m) || (conversationTyping && index === timeline.length - 1)}
-            />
-          )}
-        </div>
+        {(() => {
+          const showReasoning = !m.card && (m.reasoning || !m.content?.trim());
+          const showText = !(messageKindOf(m.content) === "delegation" || (m.card && !m.content?.trim()));
+          if (!showReasoning && !showText) return null;
+          return (
+            <div className="mt-1.5 w-fit min-w-0 max-w-full rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-3">
+              {showReasoning && (
+                <ReasoningLine
+                  text={m.reasoning}
+                  running={isLive(m) && !m.content?.trim()}
+                  seconds={m.reasoningDurationMs}
+                />
+              )}
+              {showText && m.content?.trim() ? (
+                <div className={showReasoning ? "mt-2" : undefined}>
+                  <MessageText
+                    content={parseOptions(m.content).text}
+                    isAnimating={isLive(m) || (conversationTyping && index === timeline.length - 1)}
+                  />
+                </div>
+              ) : null}
+            </div>
+          );
+        })()}
         {m.card && (
           <div className="mt-2 max-w-3xl">
             <ChatCard card={m.card} />
@@ -384,8 +415,8 @@ export default function MessageList(props: Props) {
             size={32}
           />
           <div className="min-w-0 flex-1">
-            <p className="text-[15px] font-semibold text-ink">{roleLabel(typingAgent?.role ?? "cto")}</p>
-            <div className="mt-0.5">
+            <p className="text-[14px] font-semibold text-ink">{roleLabel(typingAgent?.role ?? "cto")}</p>
+            <div className="mt-1.5 w-fit rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-3">
               <ReasoningLine running />
             </div>
           </div>
@@ -428,7 +459,9 @@ function MessageActions({
   taskId,
   onTogglePin,
   onOpenTask,
+  inline = false,
 }: {
+  inline?: boolean;
   pinned: boolean;
   content: string;
   taskId?: string;
@@ -482,7 +515,7 @@ function MessageActions({
 
   const item = "flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-ink hover:bg-hover";
   return (
-    <div ref={ref} className="absolute right-0 top-0">
+    <div ref={ref} className={inline ? "relative shrink-0 self-center" : "absolute right-0 top-0"}>
       <button
         type="button"
         aria-label="Message actions"

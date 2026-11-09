@@ -85,14 +85,6 @@ function OptionPreview({ style }: { style: ChatOption["preview"] }) {
   );
 }
 
-/** Soft per-option tint for the preview area (A blue, B pink, C amber…). */
-const TILE_TINTS = [
-  "bg-[#e7effd] dark:bg-blue-500/15",
-  "bg-[#fde8ec] dark:bg-rose-500/15",
-  "bg-[#fdf1df] dark:bg-amber-500/15",
-  "bg-[#e6f6ee] dark:bg-emerald-500/15",
-];
-
 export default function OptionCards({
   options,
   pickedId,
@@ -117,11 +109,11 @@ export default function OptionCards({
 }) {
   return (
     <div className="mt-3 max-w-2xl">
-      <div className="flex flex-wrap gap-3">
-        {options.map((option, index) => {
+      <div className="grid gap-2 sm:grid-cols-2">
+        {options.map((option) => {
           const selected = pickedId !== undefined && pickedId === option.id;
-          const tint = TILE_TINTS[index % TILE_TINTS.length];
-          const showPreview = !compact;
+          // Layout mockups only for visual choices; "plain" is a text option.
+          const showPreview = !compact && option.preview !== "plain" && Boolean(option.preview);
           return (
             <button
               key={option.id}
@@ -129,26 +121,27 @@ export default function OptionCards({
               disabled={disabled || pickedId !== undefined}
               onClick={() => onPick(option)}
               aria-pressed={selected}
-              className={`group/option w-full overflow-hidden rounded-2xl p-2 text-left outline-none transition sm:w-[calc(50%-0.375rem)] sm:max-w-[19rem] ${
-                showPreview ? tint : "border border-line bg-panel"
-              } ${
-                selected
-                  ? "ring-2 ring-brand ring-offset-2 ring-offset-panel"
-                  : "hover:ring-2 hover:ring-brand/40 focus-visible:ring-2 focus-visible:ring-brand/60"
-              } disabled:cursor-default ${pickedId !== undefined && !selected ? "opacity-70" : ""}`}
+              className={`group/option flex w-full flex-col overflow-hidden rounded-xl border bg-panel text-left outline-none transition ${
+                selected ? "border-brand ring-1 ring-brand" : "border-line hover:border-line-strong focus-visible:ring-2 focus-visible:ring-brand/40"
+              } disabled:cursor-default ${pickedId !== undefined && !selected ? "opacity-50" : ""}`}
             >
               {showPreview && (
-                <div className="overflow-hidden rounded-xl bg-panel shadow-sm">
-                  <OptionPreview style={option.preview === "plain" ? (index % 2 === 0 ? "sheet" : "bold") : option.preview} />
+                <div className="border-b border-line bg-hover/60">
+                  <OptionPreview style={option.preview} />
                 </div>
               )}
-              <div className={`flex flex-wrap items-baseline gap-x-2 gap-y-0.5 ${showPreview ? "px-1.5 pb-1 pt-2.5" : "px-2 py-1.5"}`}>
-                <p className="text-[13px] font-semibold text-ink">
-                  {option.id}, {option.title}
-                </p>
-                {option.summary && (
-                  <p className="text-[12px] text-ink-3">{option.summary}</p>
-                )}
+              <div className="flex items-start gap-3 px-3.5 py-3">
+                <span
+                  className={`mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold ${
+                    selected ? "bg-brand text-white" : "bg-hover text-ink-2"
+                  }`}
+                >
+                  {selected ? <Check size={12} /> : option.id}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[13.5px] font-medium text-ink">{option.title}</span>
+                  {option.summary && <span className="mt-0.5 block text-[12.5px] leading-snug text-ink-3">{option.summary}</span>}
+                </span>
               </div>
             </button>
           );
@@ -156,9 +149,7 @@ export default function OptionCards({
       </div>
       {pickedId !== undefined && (
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-          <span className="inline-flex items-center gap-1 rounded-lg bg-brand-soft px-2.5 py-1 text-[12px] font-medium text-brand-ink dark:bg-indigo-500/20 dark:text-indigo-300">
-            <Check size={12} /> You picked {pickedId}
-          </span>
+          <span className="text-[12px] text-ink-3">You picked {pickedId}</span>
           {ctoAgrees && (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1 text-[12px] font-medium text-ink-2 dark:bg-transparent">
               <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-100 text-[9px] font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">C</span>

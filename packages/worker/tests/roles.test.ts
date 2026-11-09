@@ -8,6 +8,7 @@ import {
   selectAgentsForTask,
 } from "@/orchestrator/roles";
 import type { AgentDefinition } from "@/orchestrator/types";
+import { ROLES, ROLE_KEYS } from "@/api/convex/lib/roles";
 
 const dev: AgentDefinition = { _id: "d1", name: "Dev", role: "frontend", capabilities: ["frontend-development", "backend-development"], isEnabled: true } as any;
 const qa: AgentDefinition = { _id: "q1", name: "QA", role: "qa", capabilities: ["browser-testing"], isEnabled: true } as any;
@@ -38,6 +39,23 @@ describe("roles: normalization + lookup", () => {
   it("roleForAgent reads normalized role; legacy developer → frontend", () => {
     expect(roleForAgent(dev)).toBe("frontend");
     expect(roleForAgent(cto)).toBe("cto");
+  });
+  it("derives every role from the shared registry (apps/api/convex/lib/roles.ts)", () => {
+    expect(Object.keys(ROLE_DEFINITIONS).sort()).toEqual([...ROLE_KEYS].sort());
+    for (const key of ROLE_KEYS) {
+      expect(ROLE_DEFINITIONS[key].systemPromptHint).toBe(ROLES[key].hint);
+      expect(ROLE_DEFINITIONS[key].defaultTools).toEqual([...ROLES[key].defaultTools]);
+      expect(ROLE_DEFINITIONS[key].defaultCapabilities).toEqual([...ROLES[key].capabilities]);
+    }
+  });
+  it("keeps the free-text aliases (titles, legacy roles)", () => {
+    expect(normalizeRole("Frontend Developer")).toBe("frontend");
+    expect(normalizeRole("UI/UX")).toBe("designer");
+    expect(normalizeRole("product analyst")).toBe("researcher");
+    expect(normalizeRole("Security Engineer")).toBe("backend");
+    expect(normalizeRole("technical-writer")).toBe("support");
+    expect(normalizeRole("DevOps Engineer")).toBe("devops");
+    expect(normalizeRole("")).toBe("frontend");
   });
   it("unknown role falls back to frontend without throwing", () => {
     expect(normalizeRole("something-weird")).toBe("frontend");

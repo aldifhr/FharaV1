@@ -6,6 +6,11 @@
  *  - qa, reviewer (Quality)
  *  - researcher (Research)
  *  - designer (Product)
+ *  - support (Operations)
+ *
+ * The role list, titles, capabilities, tools and hints come from the shared
+ * registry apps/api/convex/lib/roles.ts (also read by the Convex seed and the
+ * web app); this module only adds worker-side lookup and selection.
  *
  * Roles are configuration (capabilities + tool defaults) executed by the
  * Agent Runtime on demand — never permanent workers. `architecture` etc.
@@ -15,20 +20,12 @@
  * as researcher, router tie-break always picked it first), ui-ux (duplicate
  * of designer — normalizeRole maps ui-ux to designer).
  */
-import { CAPABILITY } from "@/types";
+import { ROLES, ROLE_KEYS, type RoleKey } from "@/api/convex/lib/roles";
 import { capabilitiesOf } from "./capabilities";
 import type { AgentDefinition } from "@/types";
 
-export type AgentRole =
-  | "cto"
-  | "designer"
-  | "frontend"
-  | "backend"
-  | "qa"
-  | "support"
-  | "devops"
-  | "reviewer"
-  | "researcher";
+/** The nine fixed-team roles — the shared `RoleKey` (apps/api/convex/lib/roles.ts). */
+export type AgentRole = RoleKey;
 
 export interface RoleDefinition {
   role: AgentRole;
@@ -40,104 +37,70 @@ export interface RoleDefinition {
   systemPromptHint: string;
 }
 
-export const ROLE_DEFINITIONS: Record<AgentRole, RoleDefinition> = {
-  cto: {
-    role: "cto",
-    displayName: "CTO",
-    category: "Leadership",
-    description: "Technical architecture, technical decisions, security audit, risk evaluation.",
-    defaultCapabilities: [CAPABILITY.ARCHITECTURE, CAPABILITY.SECURITY],
-    defaultTools: ["read_file"],
-    systemPromptHint: "Decide technical approach, architecture, and risk with brief rationale. Read-only planning and review — no code writing, no over-engineering. Report to the owner in 2-3 plain-language sentences, no bullets, headers, or terminal output.",
-  },
-  designer: {
-    role: "designer",
-    displayName: "Designer",
-    category: "Product",
-    description: "UI/UX, wireframes, design system, component specifications.",
-    defaultCapabilities: [CAPABILITY.DESIGN],
-    defaultTools: ["read_file", "write_file"],
-    systemPromptHint: "Produce implementable design specs (layout, components, tokens, states, responsive) with accessibility considered. Design only — no code edits.",
-  },
-  frontend: {
-    role: "frontend",
-    displayName: "Frontend Developer",
-    category: "Engineering",
-    description: "React and Next.js development. UI implementation.",
-    defaultCapabilities: [CAPABILITY.FRONTEND],
-    defaultTools: ["read_file", "write_file", "run_command"],
-    systemPromptHint: "Implement exactly the assigned frontend subtask, reusing UI primitives; strict TypeScript, accessible markup, English copy. Report changed files and limits. Never mark the global task complete.",
-  },
-  backend: {
-    role: "backend",
-    displayName: "Backend Developer",
-    category: "Engineering",
-    description: "API development and server-side business logic.",
-    defaultCapabilities: [CAPABILITY.BACKEND],
-    defaultTools: ["read_file", "write_file", "run_command"],
-    systemPromptHint: "Implement exactly the assigned backend subtask (Convex functions, schema, validation), keeping security invariants and additive schema changes. Report changed files and limits. Never mark the global task complete.",
-  },
-  qa: {
-    role: "qa",
-    displayName: "QA Engineer",
-    category: "Quality",
-    description: "Test planning, execution, bug detection, quality verification.",
-    defaultCapabilities: [CAPABILITY.BROWSER_TESTING],
-    defaultTools: ["read_file", "run_command"],
-    systemPromptHint: "Verify with the narrowest relevant checks and report evidence. Distinguish executed tests from proposed ones — never fabricate results. Defects go back to the implementer with a concrete repro.",
-  },
-  support: {
-    role: "support",
-    displayName: "Support Specialist",
-    category: "Operations",
-    description: "Documentation, user support, operational assistance, troubleshooting.",
-    defaultCapabilities: [CAPABILITY.DOCUMENTATION, CAPABILITY.GENERAL],
-    defaultTools: ["read_file", "write_file"],
-    systemPromptHint: "Answer the actual question first, then the how. Never invent features or behavior — check the code or say it is unknown. Docs and guidance only, no code changes.",
-  },
-  devops: {
-    role: "devops",
-    displayName: "DevOps Engineer",
-    category: "Engineering",
-    description: "Docker, CI/CD, deployment, infrastructure.",
-    defaultCapabilities: [CAPABILITY.GITHUB, CAPABILITY.SHELL_EXECUTION],
-    defaultTools: ["read_file", "run_command"],
-    systemPromptHint: "Changes are policy-gated. Prefer minimal, reversible infra changes; report exact commands run and their output.",
-  },
-  reviewer: {
-    role: "reviewer",
-    displayName: "Reviewer",
-    category: "Quality",
-    description: "Independent code review. Evaluates implementation quality.",
-    defaultCapabilities: [CAPABILITY.CODE_REVIEW],
-    defaultTools: ["read_file"],
-    systemPromptHint: "Review diffs independently with file references. Never silently modify code or approve your own work.",
-  },
-  researcher: {
-    role: "researcher",
-    displayName: "Researcher",
-    category: "Research",
-    description: "Technical research and information gathering.",
-    defaultCapabilities: [CAPABILITY.RESEARCH],
-    defaultTools: ["read_file"],
-    systemPromptHint: "Prefer official docs; distinguish facts from assumptions with sources. Read-only research — no file modifications.",
-  },
+/**
+ * Worker view of the shared role registry. Derived, never hand-edited: change
+ * a role in apps/api/convex/lib/roles.ts and the web, Convex seed and worker
+ * all follow.
+ */
+export const ROLE_DEFINITIONS: Record<AgentRole, RoleDefinition> = Object.fromEntries(
+  ROLE_KEYS.map((key) => {
+    const role = ROLES[key];
+    const definition: RoleDefinition = {
+      role: key,
+      displayName: role.title,
+      category: role.category,
+      description: role.workerDescription ?? role.description,
+      defaultCapabilities: [...role.capabilities],
+      defaultTools: [...role.defaultTools],
+      systemPromptHint: role.hint,
+    };
+    return [key, definition];
+  }),
+) as Record<AgentRole, RoleDefinition>;
+
+/** Free-text role names (legacy rows, LLM output) that are not a key or title. */
+const ROLE_ALIASES: Readonly<Record<string, AgentRole>> = {
+  orchestrator: "cto",
+  planner: "cto",
+  architect: "cto",
+  "ui-ux": "designer",
+  ux: "designer",
+  "ui/ux": "designer",
+  "ui/ux designer": "designer",
+  "frontend-developer": "frontend",
+  developer: "frontend",
+  "backend-developer": "backend",
+  tester: "qa",
+  documentation: "support",
+  "technical-writer": "support",
+  writer: "support",
+  "dev ops": "devops",
+  "code-review": "reviewer",
+  "code review": "reviewer",
+  research: "researcher",
+  "product-analyst": "researcher",
+  product: "researcher",
+  analyst: "researcher",
+  "product analyst": "researcher",
+  security: "backend",
+  "security auditor": "backend",
+  "security engineer": "backend",
+  database: "backend",
+  "database engineer": "backend",
+  db: "backend",
 };
 
+const ROLE_BY_NAME: ReadonlyMap<string, AgentRole> = new Map<string, AgentRole>([
+  ...ROLE_KEYS.flatMap((key): Array<[string, AgentRole]> => [
+    [key, key],
+    [ROLES[key].title.toLowerCase(), key],
+  ]),
+  ...Object.entries(ROLE_ALIASES),
+]);
+
+/** Free-text role → fixed role; unknown and empty fall back to frontend. */
 export function normalizeRole(role: string): AgentRole {
-  const r = role.trim().toLowerCase();
-  if (r === "cto" || r === "orchestrator" || r === "planner" || r === "architect") return "cto";
-  if (r === "designer" || r === "ui-ux" || r === "ux" || r === "ui/ux" || r === "ui/ux designer") return "designer";
-  if (r === "frontend" || r === "frontend developer" || r === "frontend-developer" || r === "developer") return "frontend";
-  if (r === "backend" || r === "backend developer" || r === "backend-developer") return "backend";
-  if (r === "qa" || r === "qa engineer" || r === "tester") return "qa";
-  if (r === "support" || r === "support specialist" || r === "documentation" || r === "technical-writer" || r === "writer") return "support";
-  if (r === "devops" || r === "dev ops" || r === "devops engineer") return "devops";
-  if (r === "reviewer" || r === "code-review" || r === "code review") return "reviewer";
-  if (r === "researcher" || r === "research" || r === "product-analyst" || r === "product" || r === "analyst" || r === "product analyst") return "researcher";
-  if (r === "security" || r === "security auditor" || r === "security engineer" || r === "database" || r === "database engineer" || r === "db") return "backend";
-  if (r === "general" || r === "") return "frontend";
-  return "frontend";
+  return ROLE_BY_NAME.get(role.trim().toLowerCase()) ?? "frontend";
 }
 
 export function roleForAgent(agent: AgentDefinition): AgentRole {

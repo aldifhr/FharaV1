@@ -1,39 +1,44 @@
+import { ROLES } from "@/api/convex/lib/roles";
 import { CAPABILITY, type AgentDefinition } from "@/types";
 
 /**
  * Pure agent → capability resolution (declared capabilities, else the
  * role-name heuristic). No routing or availability logic: that stays in
  * orchestrator/capabilities, which re-exports these.
+ *
+ * Role patterns take their capabilities from the shared role registry
+ * (apps/api/convex/lib/roles.ts `registryCapabilities`); the non-role
+ * patterns (security, github, shell) are worker-only heuristics.
  */
 
 const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   {
     pattern: /\b(cto|architect|architecture|tech lead|principal)\b/i,
-    capabilities: [CAPABILITY.ARCHITECTURE, CAPABILITY.SECURITY],
+    capabilities: [...ROLES.cto.registryCapabilities],
   },
   {
     pattern: /\b(designer|design|wireframe|ui-ux|figma)\b/i,
-    capabilities: [CAPABILITY.DESIGN],
+    capabilities: [...ROLES.designer.registryCapabilities],
   },
   {
     pattern: /\b(frontend|front-end|ui|ux|react|web)\b/i,
-    capabilities: [CAPABILITY.FRONTEND],
+    capabilities: [...ROLES.frontend.registryCapabilities],
   },
   {
     pattern: /\b(backend|back-end|api|server|database|db)\b/i,
-    capabilities: [CAPABILITY.BACKEND],
+    capabilities: [...ROLES.backend.registryCapabilities],
   },
   {
     pattern: /\b(qa|test|testing|quality|e2e)\b/i,
-    capabilities: [CAPABILITY.BROWSER_TESTING],
+    capabilities: [...ROLES.qa.registryCapabilities],
   },
   {
     pattern: /\b(reviewer|code-?review)\b/i,
-    capabilities: [CAPABILITY.CODE_REVIEW],
+    capabilities: [...ROLES.reviewer.registryCapabilities],
   },
   {
     pattern: /\b(support|documentation|docs|technical-writer|writer)\b/i,
-    capabilities: [CAPABILITY.DOCUMENTATION],
+    capabilities: [...ROLES.support.registryCapabilities],
   },
   {
     pattern: /\b(security|audit|pentest|appsec)\b/i,
@@ -41,7 +46,7 @@ const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   },
   {
     pattern: /\b(research|analyst|investigator)\b/i,
-    capabilities: [CAPABILITY.RESEARCH],
+    capabilities: [...ROLES.researcher.registryCapabilities],
   },
   {
     pattern: /\b(github|git|pr|pull request|issue|repo)\b/i,

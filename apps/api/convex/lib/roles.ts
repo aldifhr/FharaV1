@@ -37,6 +37,11 @@ export interface RoleDefinition {
   description: string;
   /** Description stored on the role registry row. */
   registryDescription: string;
+  /**
+   * Description the worker uses in planner/router prompts, when it differs
+   * from `description` (falls back to `description`).
+   */
+  workerDescription?: string;
   /** Default capabilities seeded onto the fixed-team agent. */
   capabilities: readonly string[];
   /** Capabilities stored on the role registry row. */
@@ -62,6 +67,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     category: "Leadership",
     description: "Technical architecture, technical decisions, risk evaluation.",
     registryDescription: "Technical architecture, technical decisions, risk evaluation.",
+    workerDescription: "Technical architecture, technical decisions, security audit, risk evaluation.",
     capabilities: ["architecture", "security-audit"],
     registryCapabilities: ["architecture", "security-audit"],
     defaultTools: ["read_file"],
@@ -94,6 +100,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     category: "Engineering",
     description: "Frontend implementation, React, Next.js, responsive UI, design fidelity.",
     registryDescription: "Frontend implementation, React, Next.js, responsive UI.",
+    workerDescription: "React and Next.js development. UI implementation.",
     capabilities: ["frontend-development"],
     registryCapabilities: ["frontend-development"],
     defaultTools: ["read_file", "write_file", "run_command"],
@@ -110,6 +117,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     category: "Engineering",
     description: "Backend, API, database implementation, server-side business logic.",
     registryDescription: "Backend, API, database, server-side logic.",
+    workerDescription: "API development and server-side business logic.",
     capabilities: ["backend-development"],
     registryCapabilities: ["backend-development"],
     defaultTools: ["read_file", "write_file", "run_command"],
@@ -126,6 +134,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     category: "Quality",
     description: "Testing, bug detection, quality assurance, verification.",
     registryDescription: "Testing, bug detection, quality assurance, verification.",
+    workerDescription: "Test planning, execution, bug detection, quality verification.",
     capabilities: ["browser-testing"],
     registryCapabilities: ["browser-testing"],
     defaultTools: ["read_file", "run_command"],

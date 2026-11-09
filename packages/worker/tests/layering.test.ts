@@ -16,6 +16,10 @@ import { describe, expect, it } from "vitest";
  *
  * i.e. tools ← execution ← orchestrator ← services. A new top-level
  * directory must be added to LAYERS before it can be imported.
+ *
+ * Pure shared modules from apps/api (no Convex/Node/DOM APIs) listed in
+ * SHARED_FOUNDATION count as foundation, so utils/ may read the shared role
+ * registry.
  */
 const LAYERS: Record<string, number> = {
   types: 0,
@@ -38,6 +42,9 @@ const LAYERS: Record<string, number> = {
   index: 6,
 };
 
+/** apps/api modules that are pure TypeScript and safe at the foundation layer. */
+const SHARED_FOUNDATION = new Set(["convex/lib/roles"]);
+
 const SRC = path.resolve(import.meta.dirname, "../src");
 
 function listSources(dir: string): string[] {
@@ -56,7 +63,10 @@ function unitOf(relative: string): string {
 
 /** The layer unit an import specifier resolves to, or null for packages. */
 function targetUnit(fromRelative: string, specifier: string): string | null {
-  if (specifier.startsWith("@/api/") || specifier.startsWith("@api/")) return "@api";
+  if (specifier.startsWith("@/api/") || specifier.startsWith("@api/")) {
+    const apiPath = specifier.replace(/^@\/?api\//, "").replace(/\.ts$/, "");
+    return SHARED_FOUNDATION.has(apiPath) ? "types" : "@api";
+  }
   if (specifier.startsWith("@/")) return unitOf(specifier.slice(2));
   if (specifier.startsWith(".")) {
     const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(fromRelative), specifier));
@@ -105,6 +115,8 @@ describe("worker layering", () => {
     expect(targetUnit("execution/x.ts", "@/orchestrator/budget")).toBe("orchestrator");
     expect(targetUnit("execution/x.ts", "../orchestrator/types")).toBe("orchestrator");
     expect(targetUnit("services/runner/a.ts", "./types")).toBe("services");
+    expect(targetUnit("utils/x.ts", "@/api/convex/lib/roles")).toBe("types");
+    expect(targetUnit("utils/x.ts", "@/api/convex/_generated/api")).toBe("@api");
     expect(importsOf('import type { A } from "@/types";\nexport { b } from "./b";')).toEqual(["@/types", "./b"]);
   });
 });

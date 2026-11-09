@@ -10,6 +10,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { assertProjectAccess } from "./lib/authz";
 import { changedFields, recordAudit } from "./lib/recordAudit";
+import { syncGithubOAuthEnv } from "./mcpServers";
 
 // GitHub OAuth configuration
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? "";
@@ -208,6 +209,7 @@ export const upsertGithubIntegration = internalMutation({
         projectId: args.projectId,
         details: { changed: ["accessToken", ...(args.refreshToken ? ["refreshToken"] : [])] },
       });
+      await syncGithubOAuthEnv(ctx, args.projectId);
       return existing._id;
     }
 
@@ -224,6 +226,7 @@ export const upsertGithubIntegration = internalMutation({
       updatedAt: now,
     });
     await recordAudit(ctx, { action: "integration.add", target: "github", projectId: args.projectId });
+    await syncGithubOAuthEnv(ctx, args.projectId);
 
     return id;
   },
@@ -342,6 +345,8 @@ export const remove = mutation({
       target: integration.name,
       projectId: integration.projectId,
     });
+    // GitHub MCP servers that borrowed this token lose it too.
+    await syncGithubOAuthEnv(ctx, integration.projectId);
   },
 });
 

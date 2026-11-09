@@ -55,7 +55,10 @@ const SAFE_ENV_KEYS = [
  * worker holds the Convex service token and the provider encryption
  * key, and an MCP server (or a malicious config) must not see them.
  */
-export function buildChildEnv(extra?: Record<string, string>): Record<string, string> {
+export function buildChildEnv(
+  extra?: Record<string, string>,
+  serverEnv?: Record<string, string>
+): Record<string, string> {
   const env: Record<string, string> = {};
   for (const key of SAFE_ENV_KEYS) {
     const value = process.env[key];
@@ -67,8 +70,28 @@ export function buildChildEnv(extra?: Record<string, string>): Record<string, st
     if (/(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY|CREDENTIAL)/i.test(key)) continue;
     env[key] = value;
   }
+  // `serverEnv` is the server's OWN configured env (decrypted from its row,
+  // e.g. GITHUB_PERSONAL_ACCESS_TOKEN). Token-shaped names are allowed here
+  // because the user set them for this server, but the worker's own
+  // secrets and loader hooks never cross.
+  for (const [key, value] of Object.entries(serverEnv ?? {})) {
+    if (WORKER_ONLY_ENV_KEYS.has(key)) continue;
+    env[key] = value;
+  }
   return env;
 }
+
+/** Never forwarded to an MCP child, even when a server row names them. */
+const WORKER_ONLY_ENV_KEYS = new Set([
+  "CONVEX_SERVICE_TOKEN",
+  "PROVIDER_ENCRYPTION_KEY",
+  "PROVIDER_ENCRYPTION_KEY_OLD",
+  "CONVEX_DEPLOY_KEY",
+  "NODE_OPTIONS",
+  "LD_PRELOAD",
+  "DYLD_INSERT_LIBRARIES",
+  "PATH",
+]);
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -104,7 +127,8 @@ export class McpClient {
     readonly cwd: string,
     readonly timeoutMs: number,
     readonly maxResultChars: number,
-    private readonly onStderr: (chunk: string) => void = () => undefined
+    private readonly onStderr: (chunk: string) => void = () => undefined,
+    private readonly serverEnv?: Record<string, string>
   ) {}
 
   static start(options: {
@@ -114,6 +138,8 @@ export class McpClient {
     timeoutMs: number;
     maxResultChars: number;
     onStderr?: (chunk: string) => void;
+    /** The server's own decrypted env (see buildChildEnv). */
+    env?: Record<string, string>;
   }): McpClient {
     return new McpClient(
       options.command,
@@ -121,7 +147,8 @@ export class McpClient {
       options.cwd,
       options.timeoutMs,
       options.maxResultChars,
-      options.onStderr
+      options.onStderr,
+      options.env
     );
   }
 
@@ -129,7 +156,7 @@ export class McpClient {
     if (this.child || this.closed) return;
     const child = spawn(this.command, this.args, {
       cwd: this.cwd,
-      env: buildChildEnv(),
+      env: buildChildEnv(undefined, this.serverEnv),
       stdio: ["pipe", "pipe", "pipe"],
       detached: false,
       windowsHide: true,

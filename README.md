@@ -25,7 +25,7 @@ see [Safety model](#safety-model)). Open work is tracked in
 
 | Workspace | Package | What it holds |
 |---|---|---|
-| `apps/web` | `@moagent/web` | Next.js UI: projects, chat + task threads, cards, team, Settings (LLM providers, MCP), Inbox, Analytics |
+| `apps/web` | `@moagent/web` | Next.js UI: projects, chat + task threads, cards, team, Settings (LLM providers), Integrations (MCP servers + GitHub), Inbox, Analytics |
 | `apps/api` | `@moagent/api` | Convex backend in `apps/api/convex`: schema, chat + CTO assignment, tasks, approvals, permission broker, GitHub push, provider pool |
 | `packages/worker` | `@moagent/worker` | Claims tasks from Convex and runs them end to end |
 | `electron/` | — | Optional desktop shell (`npm run electron:dev` starts api, web, worker and the app window; closing the window stops all) |
@@ -217,6 +217,26 @@ checklist, Write tests first), use the empty-state button on `/library`, or run:
 cd apps/api
 npx convex run skills:seedDefaults   # only seeds an empty library; idempotent
 ```
+
+## Integrations (MCP servers)
+
+`/integrations` (the old `/mcp` redirects there) manages MCP servers globally
+or per project (`?project=<id>`). Add one from a preset (Filesystem, GitHub,
+Browser automation via `@playwright/mcp`, Postgres, Fetch, Custom) or edit a
+row to change its scope, role allowlist, secrets and on/off state.
+
+- **Scope.** A task run gets the global servers plus its project's, enabled
+  only. Each agent then sees only the servers whose role allowlist admits its
+  role (empty = every role).
+- **Secrets.** Env values are encrypted with `PROVIDER_ENCRYPTION_KEY` (the
+  same key as provider API keys, set on Convex and on the worker). The page
+  only ever gets the key names; the worker decrypts at spawn.
+- **Test.** "Test" queues a request that a running worker picks up: it spawns
+  the server, lists its tools and records the result. Without a worker the row
+  stays "Testing…". Remote (SSE/HTTP) servers are saved but not connected:
+  the worker only launches stdio servers today.
+- Host requirements: Node (npx) for most presets, Docker for GitHub, `uv`
+  for Fetch.
 
 ## GitHub push and draft PRs
 

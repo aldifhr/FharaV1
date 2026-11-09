@@ -16,11 +16,16 @@
 import * as path from "node:path";
 import { validateFilePath } from "@/governance/tools";
 import { resolveWithinRootsAsync } from "@/tools/sandbox";
+import { presetChecksPaths, presetToolAction } from "@/api/convex/lib/mcpPresets";
 import type { McpToolAction, McpToolDefinition } from "./types";
 
 /** Tool → action map for the reference filesystem server's tool surface. */
 const TOOL_ACTIONS: Record<string, McpToolAction> = {
   read_file: "read",
+  // Current @modelcontextprotocol/server-filesystem (2.x) names.
+  read_text_file: "read",
+  read_media_file: "read",
+  list_directory_with_sizes: "list",
   read_multiple_files: "read",
   list_directory: "list",
   directory_tree: "list",
@@ -43,7 +48,22 @@ export const REASON_PATH_OUTSIDE = "mcp-path-outside-roots";
 export const REASON_PATH_FORBIDDEN = "mcp-path-forbidden";
 export const REASON_ARGS_INVALID = "mcp-args-invalid";
 
-export function actionForTool(name: string): McpToolAction {
+/**
+ * Which tool table a server uses. Legacy rows (no preset) and the
+ * filesystem preset use TOOL_ACTIONS plus path validation; the other
+ * presets use their own table from lib/mcpPresets (fail closed: a tool the
+ * table does not know is "unknown" and denied). `toolAllowlist` adds
+ * read-level tool names for non-filesystem presets only.
+ */
+export interface ServerToolPolicy {
+  preset?: string;
+  toolAllowlist?: string[];
+}
+
+export function actionForTool(name: string, policy?: ServerToolPolicy): McpToolAction {
+  if (policy && !presetChecksPaths(policy.preset)) {
+    return presetToolAction(policy.preset, name, policy.toolAllowlist) ?? "unknown";
+  }
   return TOOL_ACTIONS[name] ?? "unknown";
 }
 
@@ -114,13 +134,14 @@ export interface AgentScope {
 
 export function filterToolsForAgent(
   tools: McpToolDefinition[],
-  scope: AgentScope
+  scope: AgentScope,
+  policy?: ServerToolPolicy
 ): McpToolDefinition[] {
   const permission = permissionsForRole(scope.role);
   const writeAllowed = scope.allowWrite === true;
   const supported = scope.supportedTools;
   return tools.filter((tool) => {
-    const action = actionForTool(tool.name);
+    const action = actionForTool(tool.name, policy);
     if (action === "unknown") return false;
     if (supported && supported.length > 0 && !supported.includes(tool.name)) return false;
     if (action === "read" || action === "list") return permission.read || permission.list;
@@ -138,6 +159,8 @@ export interface AuthorizeInput {
   scope: AgentScope;
   /** Allowed roots: workspace + configured allowedDirectories. */
   allowedRoots: string[];
+  /** The server's tool table (see ServerToolPolicy). Absent = filesystem. */
+  policy?: ServerToolPolicy;
 }
 
 export type AuthorizeResult =
@@ -162,9 +185,12 @@ function actionAllowed(action: McpToolAction, scope: AgentScope): boolean {
  * so a tool the model saw in the list can still be refused.
  */
 export async function authorizeToolCall(input: AuthorizeInput): Promise<AuthorizeResult> {
-  const action = actionForTool(input.tool);
+  const action = actionForTool(input.tool, input.policy);
   if (action === "unknown") return { ok: false, reason: REASON_TOOL_UNKNOWN };
   if (!actionAllowed(action, input.scope)) return { ok: false, reason: REASON_TOOL_DENIED };
+  // Path arguments of non-filesystem servers are not local paths (a repo
+  // path for GitHub, a URL for fetch): root validation is filesystem-only.
+  if (!presetChecksPaths(input.policy?.preset)) return { ok: true, action };
 
   for (const [, value] of collectPathArgs(input.args)) {
     if (typeof value !== "string" || value.trim().length === 0) {

@@ -67,7 +67,7 @@ import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
 import { runResponsiveQa } from "./qa";
 import { wantsVisualQa } from "@/utils/qaIntent";
-import { getMcpRegistry, type McpHooks, type McpRunConfig } from "@/mcp/registry";
+import { getMcpRegistry, sessionAllowedForRole, type McpHooks, type McpRunConfig } from "@/mcp/registry";
 import { runMcpToolLoop } from "@/mcp/toolLoop";
 import type { McpToolDefinition } from "@/mcp/types";
 
@@ -215,10 +215,12 @@ async function runMcpExploration(
   instruction: string,
   context: string
 ): Promise<{ answer: string; toolCalls: number; toolCount: number } | null> {
-  const sessions = input.mcp?.sessions ?? [];
+  const scope = mcpScope(input);
+  // A run carries global + project servers; each agent only sees the ones
+  // whose `agentRoles` allowlist admits its role.
+  const sessions = (input.mcp?.sessions ?? []).filter((session) => sessionAllowedForRole(session, scope.role));
   if (sessions.length === 0) return null;
 
-  const scope = mcpScope(input);
   const hooks: McpHooks = {
     onEvent: async (type, payload) => {
       // The runner's event sink takes a plain record; the payload is already

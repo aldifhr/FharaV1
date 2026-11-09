@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/api/convex/_generated/api";
 
 /**
- * Server-side route for MCP server config writes (Plan 007 Phase 1).
+ * Server-side route for MCP server config writes (Plan 007 Phase 1, and the
+ * /integrations page: create / update / toggle / test / remove).
  *
  * The worker actions in Convex require the service token
  * (see apps/api/convex/worker.ts — addMcpServer / removeMcpServer).
@@ -57,6 +58,25 @@ export async function POST(request: NextRequest) {
       case "remove": {
         await client.action(api.worker.removeMcpServer, callArgs);
         return NextResponse.json({ ok: true });
+      }
+      // Integrations page. Secret env values pass through this server route
+      // to Convex, which encrypts them before storing; they are never
+      // logged here and never returned.
+      case "create": {
+        const serverId = await client.action(api.worker.createMcpServerFromPreset, callArgs);
+        return NextResponse.json({ ok: true, serverId });
+      }
+      case "update": {
+        await client.action(api.worker.updateMcpServer, callArgs);
+        return NextResponse.json({ ok: true });
+      }
+      case "toggle": {
+        await client.action(api.worker.setMcpServerEnabled, callArgs);
+        return NextResponse.json({ ok: true });
+      }
+      case "test": {
+        const result = await client.action(api.worker.requestMcpServerTest, callArgs);
+        return NextResponse.json({ ok: true, ...result });
       }
       default:
         return NextResponse.json(

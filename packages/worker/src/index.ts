@@ -10,6 +10,7 @@ import { getMcpRegistry } from "./mcp/registry";
 import { processTask, resumeTask, type RunnerDeps } from "./services/taskRunner";
 import { isLeaseLostOrShutdown } from "./services/runner/abort";
 import { processNextPushRequest } from "./services/pushRequests";
+import { processNextMcpTest } from "./services/mcpTests";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
 
@@ -20,6 +21,8 @@ const CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY ?? 1));
 const STALE_GRACE_MS = Number(process.env.WORKER_STALE_GRACE_MS ?? 30_000);
 // Plan 019: how often an idle worker checks for approved push requests.
 const PUSH_POLL_MS = Math.max(1000, Number(process.env.WORKER_PUSH_POLL_MS ?? 5000));
+// Integrations: how often an idle worker checks for MCP "Test connection" requests.
+const MCP_TEST_POLL_MS = Math.max(1000, Number(process.env.WORKER_MCP_TEST_POLL_MS ?? 3000));
 
 const workerId =
   process.env.WORKER_ID ??
@@ -233,8 +236,26 @@ async function main() {
       });
   };
 
+  // Integrations: MCP "Test connection" requests, one at a time beside tasks.
+  let mcpTestInFlight: Promise<void> | null = null;
+  let lastMcpTestPoll = 0;
+  const pollMcpTests = () => {
+    const now = Date.now();
+    if (mcpTestInFlight || stopping || now - lastMcpTestPoll < MCP_TEST_POLL_MS) return;
+    lastMcpTestPoll = now;
+    mcpTestInFlight = processNextMcpTest({ api, workerId, workspaceRoot, log })
+      .then((ran) => {
+        if (ran) lastMcpTestPoll = 0;
+      })
+      .catch((error) => log("mcp test poll error", error instanceof Error ? error.message : String(error)))
+      .finally(() => {
+        mcpTestInFlight = null;
+      });
+  };
+
   while (!stopping) {
     pollPushes();
+    pollMcpTests();
     try {
       if (inFlight.size >= CONCURRENCY) {
         await sleep(200);

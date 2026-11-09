@@ -764,7 +764,7 @@ export const recoverStaleMessages = action({
 export const addMcpServer = action({
   args: {
     ...tokenArg,
-    projectId: v.id("projects"),
+    projectId: v.optional(v.id("projects")),
     name: v.string(),
     type: v.union(v.literal("local"), v.literal("remote")),
     url: v.optional(v.string()),
@@ -780,6 +780,80 @@ export const addMcpServer = action({
   },
 });
 
+// Integrations page: preset-based MCP writes. Reached only through the
+// Next.js server route (apps/web/app/api/mcp-servers), which injects the
+// service token; env values arrive in plaintext and are sealed by the
+// mutation before they are stored.
+const mcpEditableArgs = {
+  name: v.optional(v.string()),
+  fields: v.optional(v.record(v.string(), v.string())),
+  env: v.optional(v.record(v.string(), v.string())),
+  agentRoles: v.optional(v.array(v.string())),
+  toolAllowlist: v.optional(v.array(v.string())),
+  enabled: v.optional(v.boolean()),
+  autoConnect: v.optional(v.boolean()),
+  useGithubOAuth: v.optional(v.boolean()),
+  type: v.optional(v.union(v.literal("local"), v.literal("remote"))),
+  command: v.optional(v.string()),
+  commandArgs: v.optional(v.array(v.string())),
+  url: v.optional(v.string()),
+};
+
+export const createMcpServerFromPreset = action({
+  args: { ...tokenArg, presetId: v.string(), projectId: v.optional(v.id("projects")), ...mcpEditableArgs },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.mcpServers.createFromPreset, withoutToken(args));
+  },
+});
+
+export const updateMcpServer = action({
+  args: {
+    ...tokenArg,
+    serverId: v.id("mcpServers"),
+    projectId: v.optional(v.union(v.id("projects"), v.null())),
+    removeEnvKeys: v.optional(v.array(v.string())),
+    ...mcpEditableArgs,
+  },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.mcpServers.update, withoutToken(args));
+  },
+});
+
+export const setMcpServerEnabled = action({
+  args: { ...tokenArg, serverId: v.id("mcpServers"), enabled: v.boolean() },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.mcpServers.setEnabled, withoutToken(args));
+  },
+});
+
+export const requestMcpServerTest = action({
+  args: { ...tokenArg, serverId: v.id("mcpServers") },
+  handler: async (ctx, args): Promise<{ queued: boolean; message?: string }> => {
+    return await ctx.runMutation(internal.mcpServers.requestTest, withoutToken(args));
+  },
+});
+
+export const claimMcpServerTest = action({
+  args: { ...tokenArg, workerId: v.string(), leaseMs: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.mcpServers.claimTest, withoutToken(args));
+  },
+});
+
+export const completeMcpServerTest = action({
+  args: {
+    ...tokenArg,
+    serverId: v.id("mcpServers"),
+    workerId: v.string(),
+    ok: v.boolean(),
+    toolNames: v.optional(v.array(v.string())),
+    errorMessage: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<boolean> => {
+    return await ctx.runMutation(internal.mcpServers.completeTest, withoutToken(args));
+  },
+});
+
 export const removeMcpServer = action({
   args: { ...tokenArg, serverId: v.id("mcpServers") },
   handler: async (ctx, args): Promise<any> => {
@@ -792,7 +866,7 @@ export const updateMcpServerStatus = action({
   args: {
     ...tokenArg,
     serverId: v.id("mcpServers"),
-    status: v.union(v.literal("connected"), v.literal("disconnected"), v.literal("error")),
+    status: v.union(v.literal("connected"), v.literal("disconnected"), v.literal("error"), v.literal("untested")),
     errorMessage: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {

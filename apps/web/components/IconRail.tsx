@@ -359,7 +359,7 @@ export default function IconRail({
             ))}
             {[
               { icon: Lightbulb, label: "Ideas", href: "/ideas" },
-              { icon: Plug, label: "MCP servers", href: "/mcp" },
+              { icon: Plug, label: "Integrations", href: projectId ? `/integrations?project=${projectId}` : "/integrations" },
             ].map(({ icon: Icon, label, href }) => (
               <Link
                 key={label}

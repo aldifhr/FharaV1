@@ -256,6 +256,18 @@ export class WorkerApi {
     return await this.client.action(api.worker.updateMcpServerStatus, this.args(input));
   }
 
+  async claimMcpServerTest(
+    input: ActionInput<typeof api.worker.claimMcpServerTest>
+  ): Promise<FunctionReturnType<typeof api.worker.claimMcpServerTest>> {
+    return await this.client.action(api.worker.claimMcpServerTest, this.args(input));
+  }
+
+  async completeMcpServerTest(
+    input: ActionInput<typeof api.worker.completeMcpServerTest>
+  ): Promise<FunctionReturnType<typeof api.worker.completeMcpServerTest>> {
+    return await this.client.action(api.worker.completeMcpServerTest, this.args(input));
+  }
+
   async logEvent(
     input: ActionInput<typeof api.worker.logEvent>
   ): Promise<FunctionReturnType<typeof api.worker.logEvent>> {

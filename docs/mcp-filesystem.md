@@ -10,7 +10,7 @@ Reference server: [`@modelcontextprotocol/server-filesystem`](https://github.com
 
 ## Configuration
 
-Add a server on the `/mcp` page (or insert a row into the `mcpServers` table).
+Add a server on the `/integrations` page (formerly `/mcp`), or insert a row into the `mcpServers` table. Servers can be global or per project and limited to roles; see the README's Integrations section.
 Only **local stdio** servers are launched by the worker today; remote HTTP
 configs are stored and labelled but not started.
 
@@ -107,4 +107,5 @@ material is ever included.
 | Client + registry (real stdio, fake server) | `npx --workspace=@moagent/worker vitest run tests/mcpClientAndRegistry.test.ts` |
 | Tool loop | `npx --workspace=@moagent/worker vitest run tests/mcpToolLoop.test.ts` |
 | Backend config | `npx --workspace=@moagent/api vitest run convex/mcpServers.test.ts` |
+| Scope, secrets, test connection | `npx --workspace=@moagent/api vitest run convex/mcpIntegrations.test.ts` and `npx --workspace=@moagent/worker vitest run tests/mcpIntegrations.test.ts` |
 | End-to-end (official server, opt-in) | `RUN_MCP_E2E=1 npx --workspace=@moagent/worker vitest run tests/mcpFilesystem.e2e.test.ts` |

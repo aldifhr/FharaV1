@@ -24,6 +24,8 @@ import {
   isForbiddenRoot,
   type AgentScope,
 } from "./permissions";
+import { mcpRoleAllowed } from "@/api/convex/lib/mcpPresets";
+import { redactSecrets, resolveMcpSpawn } from "./spawn";
 import type { McpCallResult, McpEventFn, McpServerConfig, McpToolDefinition } from "./types";
 
 /** A 4 KB path is never legitimate; args above this are refused before spawn. */
@@ -69,26 +71,17 @@ export interface McpRegistryOptions {
 interface SessionEntry extends McpSession {
   connecting: Promise<McpSession> | null;
   stderr: string;
+  /** Decrypted env values, kept only to redact them from reported errors. */
+  secretValues: string[];
 }
 
-const WORKSPACE_TOKEN = "{workspace}";
-
-function parseArgs(raw: string | undefined): string[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed.map((entry) => String(entry));
-  } catch {
-    // Fall through: a plain space-separated string is also accepted.
-  }
-  return raw.trim().split(/\s+/).filter(Boolean);
+/** Whether an agent's role may use a server (its `agentRoles` allowlist). */
+export function sessionAllowedForRole(session: Pick<McpSession, "config">, role: string | undefined): boolean {
+  return mcpRoleAllowed(session.config.agentRoles, role);
 }
 
-/** `{workspace}` is replaced by the task's resolved workspace path at spawn time. */
-function fillWorkspaceToken(args: string[], workspaceRoot: string): string[] {
-  return args.map((arg) =>
-    arg === WORKSPACE_TOKEN ? workspaceRoot : arg.replaceAll("{workspace}", workspaceRoot)
-  );
+function toolPolicy(config: McpServerConfig) {
+  return { preset: config.preset, toolAllowlist: config.toolAllowlist };
 }
 
 function buildAllowedRoots(workspaceRoot: string, allowedDirectories?: string[]): string[] {
@@ -142,6 +135,7 @@ export class McpRegistry {
         status: "disconnected",
         connecting: null,
         stderr: "",
+        secretValues: [],
       };
       this.sessions.set(key, entry);
       result.push(entry);
@@ -163,17 +157,24 @@ export class McpRegistry {
   }
 
   private async doConnect(entry: SessionEntry, hooks?: McpHooks): Promise<McpSession> {
-    const command = entry.config.command;
-    if (!command) {
+    let spawnSpec: Awaited<ReturnType<typeof resolveMcpSpawn>>;
+    try {
+      // Decrypts the row's env (worker PROVIDER_ENCRYPTION_KEY) and fills
+      // {workspace} / {env:KEY}; a missing key or bad ciphertext is a
+      // server error, never a spawn without credentials.
+      spawnSpec = await resolveMcpSpawn(entry.config, entry.workspaceRoot);
+    } catch (error) {
       entry.status = "error";
-      entry.errorMessage = "No local command configured for this MCP server.";
+      entry.errorMessage = maskMcpError(error);
       await this.reportStatus(entry, hooks);
       return entry;
     }
-    const args = fillWorkspaceToken(parseArgs(entry.config.args), entry.workspaceRoot);
+    const { command, args, env, secretValues } = spawnSpec;
+    entry.secretValues = secretValues;
     const client = McpClient.start({
       command,
       args,
+      env,
       cwd: entry.workspaceRoot,
       timeoutMs: this.options.timeoutMs,
       maxResultChars: this.options.maxResultChars,
@@ -212,7 +213,7 @@ export class McpRegistry {
       return entry;
     } catch (error) {
       entry.status = "error";
-      entry.errorMessage = maskMcpError(error) || entry.stderr.slice(0, 500);
+      entry.errorMessage = redactSecrets(maskMcpError(error) || entry.stderr.slice(0, 500), entry.secretValues);
       await client.dispose().catch(() => undefined);
       await this.reportStatus(entry, hooks);
       await this.emit("mcp.server_error", entry, hooks, {
@@ -228,9 +229,12 @@ export class McpRegistry {
 
   /** Tools an agent may call right now (lazily connecting). Never throws. */
   async toolsFor(entry: McpSession, scope: AgentScope, hooks?: McpHooks): Promise<McpToolDefinition[]> {
+    // Role allowlist first: a server this role may not use is never spawned
+    // on its behalf.
+    if (!sessionAllowedForRole(entry, scope.role)) return [];
     const session = await this.safeConnect(entry, hooks);
     if (session.status !== "connected") return [];
-    return filterToolsForAgent(session.tools, scope);
+    return filterToolsForAgent(session.tools, scope, toolPolicy(session.config));
   }
 
   /**
@@ -258,6 +262,12 @@ export class McpRegistry {
       workspace: entry.workspaceRoot,
     };
 
+    if (!sessionAllowedForRole(entry, scope.role)) {
+      const error = "mcp-role-denied";
+      await this.emit("mcp.tool_denied", entry, hooks, { ...base, durationMs: Date.now() - started, error });
+      return { ok: false, text: `Tool call refused: ${error}.`, isError: true, error };
+    }
+
     const session = await this.safeConnect(entry, hooks);
     if (session.status !== "connected" || !session.client) {
       const error = session.errorMessage ?? "MCP server unavailable";
@@ -284,6 +294,7 @@ export class McpRegistry {
       args: args ?? {},
       scope,
       allowedRoots: session.allowedRoots,
+      policy: toolPolicy(session.config),
     });
     if (!authorized.ok) {
       await this.emit("mcp.tool_denied", entry, hooks, {
@@ -307,7 +318,7 @@ export class McpRegistry {
         signal
       );
       const { text, isError } = flattenToolResult(raw, this.options.maxResultChars);
-      const maskedText = maskMcpError(text);
+      const maskedText = redactSecrets(maskMcpError(text), (session as SessionEntry).secretValues ?? []);
       await this.emit(isError ? "mcp.tool_error" : "mcp.tool_call", entry, hooks, {
         ...base,
         action: authorized.action,
@@ -321,7 +332,7 @@ export class McpRegistry {
         error: isError ? maskedText.slice(0, 500) : undefined,
       };
     } catch (error) {
-      const message = maskMcpError(error);
+      const message = redactSecrets(maskMcpError(error), (session as SessionEntry).secretValues ?? []);
       await this.emit("mcp.tool_error", entry, hooks, {
         ...base,
         action: authorized.action,

@@ -251,6 +251,12 @@ type McpConfigRow = {
   autoConnect?: boolean;
   transport?: string;
   allowedDirectories?: string[];
+  projectId?: string;
+  preset?: string;
+  agentRoles?: string[];
+  toolAllowlist?: string[];
+  envCiphertext?: string;
+  envKeys?: string[];
 };
 
 /**

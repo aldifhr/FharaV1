@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver";
 import type { PromptSkill } from "./lib/skills";
 import { loadPromptSkills } from "./skills";
+import { resolveRunMcpServers } from "./mcpServers";
 import { decidePermissionCore, permissionArgs } from "./permissionBroker";
 import {
   assertProjectAccess,
@@ -180,17 +181,11 @@ export const getRunContext = internalQuery({
     const llmProviders: PoolConnectionPayload[] = project
       ? await loadProviderPool(ctx)
       : [];
-    // MCP config crosses to the worker: name/command/args/allowedDirectories
-    // only. There is no credential material in this row; a disabled server is
-    // not delivered at all.
-    const mcpServers = project
-      ? (
-          await ctx.db
-            .query("mcpServers")
-            .withIndex("by_project", (q) => q.eq("projectId", project._id))
-            .collect()
-        ).filter((row) => row.enabled !== false)
-      : [];
+    // MCP config crosses to the worker: global + this project's servers,
+    // enabled only (mcpServers.resolveRunMcpServers). Env values cross only
+    // as `envCiphertext`, which the worker decrypts at spawn; plaintext
+    // credentials never do. Per-agent role filtering happens in the worker.
+    const mcpServers = project ? await resolveRunMcpServers(ctx, project._id) : [];
 
     return {
       task,

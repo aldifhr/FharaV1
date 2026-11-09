@@ -39,6 +39,17 @@ export interface McpServerConfig {
   autoConnect?: boolean;
   transport?: string;
   allowedDirectories?: string[];
+  /** Integrations: GLOBAL when absent. Informational in the worker. */
+  projectId?: string;
+  /** lib/mcpPresets id; absent = legacy filesystem-style row. */
+  preset?: string;
+  /** Role allowlist (lib/roles keys). Absent/empty = every role. */
+  agentRoles?: string[];
+  /** Extra read-level tool names for non-filesystem presets. */
+  toolAllowlist?: string[];
+  /** AES-GCM ciphertext of the env JSON; decrypted only at spawn. */
+  envCiphertext?: string;
+  envKeys?: string[];
 }
 
 export type McpToolAction = "read" | "write" | "delete" | "move" | "list" | "unknown";

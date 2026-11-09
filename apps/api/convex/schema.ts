@@ -767,13 +767,20 @@ export default defineSchema({
 
   // MCP server connections (Plan 007 Phase 1 — UI config only)
   mcpServers: defineTable({
-    projectId: v.id("projects"),
+    // Integrations: no projectId = a GLOBAL server, delivered to every
+    // project's runs. A run gets global + its own project's servers.
+    projectId: v.optional(v.id("projects")),
     name: v.string(),
     type: v.union(v.literal("local"), v.literal("remote")),
     url: v.optional(v.string()), // for remote: HTTP endpoint
     command: v.optional(v.string()), // for local: executable
     args: v.optional(v.string()), // JSON-encoded string[] for local
-    status: v.union(v.literal("connected"), v.literal("disconnected"), v.literal("error")),
+    status: v.union(
+      v.literal("connected"),
+      v.literal("disconnected"),
+      v.literal("error"),
+      v.literal("untested")
+    ),
     errorMessage: v.optional(v.string()),
     createdAt: v.number(),
     // Plan 009: worker-facing MCP config. All optional — a row written
@@ -782,8 +789,32 @@ export default defineSchema({
     autoConnect: v.optional(v.boolean()),
     transport: v.optional(v.string()), // "stdio" (only supported today)
     allowedDirectories: v.optional(v.array(v.string())),
+    // Integrations page (all additive). `preset` is a lib/mcpPresets id;
+    // missing = legacy filesystem-style row.
+    preset: v.optional(v.string()),
+    // Role allowlist (lib/roles keys). Missing/empty = every role.
+    agentRoles: v.optional(v.array(v.string())),
+    // Extra tool names a custom/non-filesystem server may expose (read-level).
+    toolAllowlist: v.optional(v.array(v.string())),
+    // Env for the child process, JSON {KEY: value} encrypted with
+    // lib/llmCrypto (PROVIDER_ENCRYPTION_KEY). Only `envKeys` reaches the
+    // browser; the worker decrypts at spawn.
+    envCiphertext: v.optional(v.string()),
+    envKeys: v.optional(v.array(v.string())),
+    // GitHub preset: copy the project's OAuth token into the env on connect.
+    useGithubOAuth: v.optional(v.boolean()),
+    // "Test connection": the web sets testRequestedAt; a worker claims it
+    // (lease) and reports the outcome.
+    testRequestedAt: v.optional(v.number()),
+    testWorkerId: v.optional(v.string()),
+    testLeaseExpiresAt: v.optional(v.number()),
+    lastTestedAt: v.optional(v.number()),
+    toolCount: v.optional(v.number()),
+    toolNames: v.optional(v.array(v.string())),
+    updatedAt: v.optional(v.number()),
   })
     .index("by_project", ["projectId"])
+    .index("by_test_requested", ["testRequestedAt"])
     .index("by_name", ["projectId", "name"]),
 
   // Organization: reusable role templates (Plan 008 Phase 1).

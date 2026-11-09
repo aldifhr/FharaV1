@@ -656,6 +656,39 @@ describe("DAG scheduler per-agent concurrency gate (Phase 4)", () => {
     expect(attempts).toBe(1);
   });
 
+  it("a retryable failure that latches a halt keeps its own error (no 'Scheduling halted' overwrite) (e2e ULTRA)", async () => {
+    let halt = false;
+    let attempts = 0;
+    const blocked: string[] = [];
+    const result = await runScheduler(
+      nodes([["a", []], ["b", ["a"]]]),
+      async (node) => {
+        if (node.id === "a") attempts += 1;
+        return { status: "failed", error: "Subtask timed out after 300000ms" } as NodeOutcome;
+      },
+      {
+        maxConcurrency: 1,
+        timeoutMs: 2000,
+        retries: 2,
+        retryDelayMs: 1,
+        shouldHaltNewNodes: () => halt,
+        onStart: async () => undefined,
+        // The decision hook chooses replan for the failure: halt latches.
+        onOutcome: async () => {
+          halt = true;
+          return undefined;
+        },
+        onBlocked: async (node) => {
+          blocked.push(node.id);
+        },
+      }
+    );
+    expect(attempts).toBe(1);
+    expect(result.status).toBe("halted");
+    expect(result.outcomes.get("a")).toMatchObject({ status: "failed", error: "Subtask timed out after 300000ms" });
+    expect(blocked).not.toContain("a");
+  });
+
   it("shouldRetryNode approval keeps the normal retry behavior", async () => {
     let attempts = 0;
     const result = await runScheduler(

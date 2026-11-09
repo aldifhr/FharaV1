@@ -207,6 +207,18 @@ export async function runScheduler(
       failed.push(node.id);
       return;
     }
+    // A halt latched by this very outcome (e.g. the decision hook chose
+    // replan, or the budget/step limit hit) means the retry would never
+    // start: re-queueing it as pending only gets it swept by
+    // blockAllPending, which overwrote the real error ("Subtask timed out
+    // after …") with "Scheduling halted …" — in the subtask row and in the
+    // replan feedback (e2e ULTRA). Settle it as failed with its own error.
+    if (haltLatched || hooks.shouldHaltNewNodes?.()) {
+      states.set(node.id, "failed");
+      outcomes.set(node.id, outcome);
+      failed.push(node.id);
+      return;
+    }
     if (attempt <= hooks.retries && !cancelled) {
       // Even a classifiable retry is vetoed when the surrounding task
       // can no longer pay for it (deadline fired / LLM budget spent).

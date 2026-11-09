@@ -119,11 +119,14 @@ function persistedReviewVerdict(
 /** Read a QA verdict back from the summary executeQa persisted. */
 function persistedQaVerdict(
   output: string
-): "passed" | "failed" | "inconclusive" | null {
-  const match = /QA verdict:\s*(passed|failed|inconclusive)/i.exec(output);
+): "passed" | "failed" | "inconclusive" | "blocked" | null {
+  const match = /QA verdict:\s*(passed|failed|inconclusive|blocked)/i.exec(output);
   if (!match) return null;
   const verdict = match[1].toLowerCase();
-  return verdict === "passed" || verdict === "failed" || verdict === "inconclusive"
+  return verdict === "passed" ||
+    verdict === "failed" ||
+    verdict === "inconclusive" ||
+    verdict === "blocked"
     ? verdict
     : null;
 }
@@ -136,8 +139,10 @@ function persistedQaVerdict(
  *    `(kind, capability, normalized description)` matches a completed old
  *    one (the plan builder reuses descriptions, so a carry-forward match
  *    means "the same work, still done");
- *  - `qaVerdicts` carry over only for subtasks that are literally the same
- *    key (a re-run QA verdict belongs to the old node, not the new one);
+ *  - `qaVerdicts` NEVER carry over: a replan means the code changed, so
+ *    QA must re-validate (QA audit P1-7). QA nodes are never counted as
+ *    completed carried work either. Same-plan resumes keep their verdicts
+ *    through `buildStateFromDb`, not here;
  *  - `completedKeys` is recomputed from the carried-over matches;
  *  - only `feedback` is cleared.
  *
@@ -166,20 +171,18 @@ export function carryForwardState(
   const carriedOutputs = new Map<string, string>();
   const carriedFiles = new Map<string, FileDiff>();
   const completedKeys = new Set<string>();
-  const carriedQa: Record<string, "passed" | "failed" | "inconclusive"> = {};
   let anyMatch = false;
 
   for (const subtask of newPlan.subtasks) {
     const match = signatures.get(signature(subtask));
     if (match === undefined) continue;
     anyMatch = true;
+    // QA must re-run after any replan: never carry its output/completion.
+    if (subtask.kind === "qa") continue;
     const output = previousState.priorOutputs.get(match);
     if (output !== undefined) {
       carriedOutputs.set(subtask.key, output);
       completedKeys.add(subtask.key);
-    }
-    if (previousState.qaVerdicts[subtask.key]) {
-      carriedQa[subtask.key] = previousState.qaVerdicts[subtask.key];
     }
   }
 
@@ -194,7 +197,8 @@ export function carryForwardState(
 
   previousState.priorOutputs = carriedOutputs;
   previousState.fileChanges = carriedFiles;
-  previousState.qaVerdicts = carriedQa;
+  previousState.qaVerdicts = {};
+  previousState.qaChecks = undefined;
   previousState.feedback = [];
   return { state: previousState, completedKeys };
 }

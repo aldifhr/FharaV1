@@ -46,24 +46,26 @@ describe("planner", () => {
   });
 
   it("adds a QA subtask only when a QA signal fires and a capable agent exists", () => {
-    const command = "update the dashboard page";
     const autoPolicy = { ...policy, qaMode: "auto" as const };
+    // Tightened auto: a backend-only change with only a configured QA URL
+    // (no UI work, no browser-QA request) gets no QA node.
+    const backendCommand = "update the billing api endpoint";
     const withoutQa = heuristicPlan({
-      command,
-      classification: classifyCommand(command),
-      agents: [frontend, reviewer, qa],
+      command: backendCommand,
+      classification: classifyCommand(backendCommand),
+      agents: [backend, reviewer, qa],
       policy: autoPolicy,
+      hasQaUrl: true,
     });
-    // "update the dashboard page" has no risk signal, no verification
-    // request, and no QA URL: auto mode adds no QA node.
     expect(withoutQa.subtasks.some((subtask) => subtask.kind === "qa")).toBe(false);
 
+    // A UI change warrants browser QA.
+    const command = "update the dashboard page";
     const withQa = heuristicPlan({
       command,
       classification: classifyCommand(command),
       agents: [frontend, reviewer, qa],
       policy: autoPolicy,
-      hasQaUrl: true,
     });
     expect(withQa.subtasks.some((subtask) => subtask.kind === "qa")).toBe(true);
 
@@ -208,11 +210,12 @@ describe("planner", () => {
   });
 
   it("single-domain change with no risk signal stays direct with one node", () => {
-    const command = "fix the dashboard button";
+    // Backend work: the default qaMode=auto adds browser QA only for UI work.
+    const command = "fix the api endpoint validation";
     const plan = heuristicPlan({
       command,
       classification: classifyCommand(command),
-      agents: [frontend, reviewer, qa],
+      agents: [backend, reviewer, qa],
       policy,
     });
     expect(plan.subtasks).toHaveLength(1);
@@ -323,7 +326,7 @@ describe("planner prompt modes (plan 013 step 6)", () => {
   it("auto describes the risk/verification signals instead of mandating", () => {
     const prompt = promptWith({});
     expect(prompt).toContain("policy reviewMode=auto");
-    expect(prompt).toContain("policy qaMode=never");
+    expect(prompt).toContain("policy qaMode=auto");
     expect(prompt).not.toContain("for every code change");
   });
 });

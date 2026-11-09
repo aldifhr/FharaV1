@@ -12,12 +12,12 @@ const qa: AgentDefinition = { _id: "q", name: "QA", role: "qa", capabilities: ["
 const policy = loadPolicy();
 
 describe("phase6 progressive planning: scenario A (simple task)", () => {
-  it("single code_change node, strategy direct, zero review/QA nodes", () => {
-    const command = "fix the dashboard button";
+  it("simple backend task: single code_change node, strategy direct, zero review/QA nodes", () => {
+    const command = "fix the api endpoint validation";
     const plan = heuristicPlan({
       command,
       classification: classifyCommand(command),
-      agents: [frontend, reviewer, qa],
+      agents: [backend, reviewer, qa],
       policy,
     });
     expect(plan.strategy).toBe("direct");
@@ -27,7 +27,49 @@ describe("phase6 progressive planning: scenario A (simple task)", () => {
     expect(plan.subtasks.some((s) => s.kind === "qa")).toBe(false);
   });
 
-  it("applyPlanningHints adds nothing to a non-risky LLM plan in auto mode", () => {
+  it("simple UI task under the default qaMode=auto gets browser QA but no review", () => {
+    expect(policy.qaMode).toBe("auto");
+    const command = "fix the dashboard button";
+    const plan = heuristicPlan({
+      command,
+      classification: classifyCommand(command),
+      agents: [frontend, reviewer, qa],
+      policy,
+    });
+    expect(plan.subtasks.filter((s) => s.kind === "code_change")).toHaveLength(1);
+    expect(plan.subtasks.some((s) => s.kind === "review")).toBe(false);
+    expect(plan.subtasks.filter((s) => s.kind === "qa")).toHaveLength(1);
+  });
+
+  it("qaMode=never drops QA from a UI task and from LLM-emitted qa nodes", () => {
+    const never = { ...policy, qaMode: "never" as const };
+    const command = "fix the dashboard button";
+    const plan = heuristicPlan({
+      command,
+      classification: classifyCommand(command),
+      agents: [frontend, reviewer, qa],
+      policy: never,
+    });
+    expect(plan.subtasks.some((s) => s.kind === "qa")).toBe(false);
+    const hinted = applyPlanningHints(
+      {
+        version: 1,
+        goal: "x",
+        strategy: "dag",
+        requiresApproval: true,
+        maxConcurrency: 1,
+        subtasks: [
+          { key: "implement", title: "I", description: "x", kind: "code_change", capability: "frontend-development", dependencies: [], order: 0 },
+          { key: "qa", title: "QA", description: "x", kind: "qa", capability: "browser-testing", dependencies: ["implement"], order: 1 },
+        ],
+      },
+      [frontend, reviewer, qa],
+      { command, classification: classifyCommand(command), policy: never }
+    );
+    expect(hinted.subtasks.map((s) => s.kind)).toEqual(["code_change"]);
+  });
+
+  it("applyPlanningHints adds nothing to a non-risky backend LLM plan in auto mode (and drops an unwarranted qa node)", () => {
     const hinted = applyPlanningHints(
       {
         version: 1,
@@ -41,13 +83,22 @@ describe("phase6 progressive planning: scenario A (simple task)", () => {
             title: "Implement",
             description: "create flow.txt",
             kind: "code_change",
-            capability: "frontend-development",
+            capability: "backend-development",
             dependencies: [],
             order: 0,
           },
+          {
+            key: "qa",
+            title: "QA",
+            description: "check it",
+            kind: "qa",
+            capability: "browser-testing",
+            dependencies: ["implement"],
+            order: 1,
+          },
         ],
       },
-      [frontend, reviewer, qa],
+      [backend, reviewer, qa],
       {
         command: "create flow.txt",
         classification: classifyCommand("create flow.txt"),
@@ -55,6 +106,32 @@ describe("phase6 progressive planning: scenario A (simple task)", () => {
       }
     );
     expect(hinted.subtasks).toHaveLength(1);
+    expect(hinted.subtasks[0].kind).toBe("code_change");
+  });
+
+  it("an explicit e2e/browser request warrants QA even for backend work; plain unit tests do not", () => {
+    const base: Parameters<typeof applyPlanningHints>[0] = {
+      version: 1,
+      goal: "g",
+      strategy: "single",
+      requiresApproval: true,
+      maxConcurrency: 1,
+      subtasks: [
+        { key: "implement", title: "I", description: "x", kind: "code_change", capability: "backend-development", dependencies: [], order: 0 },
+      ],
+    };
+    const e2e = applyPlanningHints(base, [backend, reviewer, qa], {
+      command: "fix the api and run an e2e check in the browser",
+      classification: classifyCommand("fix the api and run an e2e check in the browser"),
+      policy,
+    });
+    expect(e2e.subtasks.some((s) => s.kind === "qa")).toBe(true);
+    const unit = applyPlanningHints(base, [backend, reviewer, qa], {
+      command: "add unit tests to the parser",
+      classification: classifyCommand("add unit tests to the parser"),
+      policy,
+    });
+    expect(unit.subtasks.some((s) => s.kind === "qa")).toBe(false);
   });
 });
 

@@ -8,6 +8,7 @@ import { setWorkerLlmConcurrencyLimit } from "./effects/llmCall";
 import { providerHealth } from "./llm/health";
 import { getMcpRegistry } from "./mcp/registry";
 import { processTask, resumeTask, type RunnerDeps } from "./services/taskRunner";
+import { isLeaseLostOrShutdown } from "./services/runner/setup";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
 
@@ -75,6 +76,9 @@ async function main() {
 
   let stopping = false;
   let lastRecovery = 0;
+  // Fired on SIGINT/SIGTERM: every in-flight task aborts and is left for
+  // lease-expiry recovery instead of running on without lease renewal/MCP.
+  const shutdownController = new AbortController();
 
   const deps: RunnerDeps = {
     api,
@@ -82,6 +86,7 @@ async function main() {
     policy,
     workspaceRoot,
     log,
+    shutdownSignal: shutdownController.signal,
   };
 
   log(
@@ -110,7 +115,7 @@ async function main() {
     );
   }
 
-  const heartbeat = setInterval(() => {
+  const sendHeartbeat = () =>
     api
       .heartbeat({
         workerId,
@@ -118,8 +123,16 @@ async function main() {
         capacity: CONCURRENCY,
         activeTasks: inFlight.size,
         leaseMs: LEASE_MS,
+        // Renew ONLY the leases of tasks this process is actually running,
+        // so an abandoned task (no approval row, crashed run) expires and
+        // is recovered instead of staying "running" forever (core H2).
+        activeTaskIds: Array.from(inFlight.keys()),
       })
       .catch((error) => log("heartbeat failed", error));
+  // Register the worker row before claiming anything (core H7).
+  await sendHeartbeat();
+  const heartbeat = setInterval(() => {
+    void sendHeartbeat();
     const now = Date.now();
     if (now - lastRecovery >= 30_000) {
       lastRecovery = now;
@@ -133,14 +146,21 @@ async function main() {
     if (stopping) return;
     stopping = true;
     log(`received ${signal}, shutting down`);
-    clearInterval(heartbeat);
-    // Plan 009: kill every MCP child process before the worker exits.
-    await getMcpRegistry().disposeAll().catch(() => undefined);
-    await api.markOffline({ workerId }).catch(() => undefined);
+    // Order (core M12): 1) stop claiming (stopping=true above); 2) abort
+    // every in-flight task; 3) wait for them to drain while heartbeat and
+    // MCP are still alive; 4) only then stop heartbeat, dispose MCP and
+    // mark offline. Interrupted tasks are not failed: their leases lapse
+    // and recovery hands them to another worker.
+    shutdownController.abort(new Error("Worker shutting down"));
     const deadline = Date.now() + 15_000;
     while (inFlight.size > 0 && Date.now() < deadline) {
       await sleep(200);
     }
+    if (inFlight.size > 0) log(`${inFlight.size} task(s) still draining at exit; leases will expire`);
+    clearInterval(heartbeat);
+    // Plan 009: kill every MCP child process before the worker exits.
+    await getMcpRegistry().disposeAll().catch(() => undefined);
+    await api.markOffline({ workerId }).catch(() => undefined);
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
@@ -150,6 +170,12 @@ async function main() {
     if (inFlight.has(taskId)) return;
     const promise = runner()
       .catch(async (error) => {
+        // A displaced worker (lease fencing) or a shutdown abort must not
+        // fail the task: the new owner / recovery owns it now.
+        if (isLeaseLostOrShutdown(error)) {
+          log("task stopped (no longer owned by this worker)", taskId, error instanceof Error ? error.message : error);
+          return;
+        }
         log("task failed", taskId, error);
         try {
           await api.completeTask({

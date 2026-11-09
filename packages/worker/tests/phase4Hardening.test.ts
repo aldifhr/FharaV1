@@ -32,6 +32,7 @@ import type {
   WorkerSubtask,
   WorkerTask,
 } from "@/workerApi";
+import { withApiDefaults } from "./helpers/fakeApi";
 
 /**
  * Phase 4 hardening — mandatory regression tests 1–7.
@@ -754,7 +755,7 @@ function createRunnerDeps(options: {
   };
   return {
     deps: {
-      api: api as unknown as WorkerApi,
+      api: withApiDefaults(api) as unknown as WorkerApi,
       workerId: "test-worker",
       policy: options.policy,
       workspaceRoot: workspace,

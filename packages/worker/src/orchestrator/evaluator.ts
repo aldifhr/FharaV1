@@ -32,7 +32,7 @@ export interface EvaluationInput {
   subtasks: EvaluationSubtask[];
   fileChanges: EvaluationFileChange[];
   hasApprovalPlan: boolean;
-  qaVerdicts: Record<string, EvaluationVerdict>;
+  qaVerdicts: Record<string, EvaluationVerdict | "blocked">;
   verificationChecks?: EvaluationCheck[];
   /**
    * Shared-context outstanding issues at finalize time (plan 013 step 2).
@@ -114,7 +114,12 @@ export async function evaluateTask(input: EvaluationInput): Promise<EvaluationRe
     );
   }
 
-  const qaEntries = Object.entries(input.qaVerdicts);
+  // Environment-blocked QA is a reported skip, not a verdict on the code.
+  const blockedQa = Object.entries(input.qaVerdicts).filter(([, verdict]) => verdict === "blocked");
+  if (blockedQa.length > 0) {
+    notes.push(`QA skipped (environment blocked): ${blockedQa.map(([key]) => key).join(", ")}`);
+  }
+  const qaEntries = Object.entries(input.qaVerdicts).filter(([, verdict]) => verdict !== "blocked");
   if (qaEntries.length > 0) {
     const failedQa = qaEntries.filter(([, verdict]) => verdict === "failed");
     const inconclusiveQa = qaEntries.filter(([, verdict]) => verdict === "inconclusive");
@@ -124,7 +129,7 @@ export async function evaluateTask(input: EvaluationInput): Promise<EvaluationRe
         failedQa.length > 0 ? "failed" : inconclusiveQa.length > 0 ? "inconclusive" : "passed",
       details: qaEntries.map(([key, verdict]) => `${key}=${verdict}`).join(", "),
     });
-  } else {
+  } else if (blockedQa.length === 0) {
     const hasQaSubtask = input.subtasks.some((subtask) => subtask.kind === "qa");
     if (hasQaSubtask) {
       checks.push({

@@ -9,11 +9,15 @@ const agent = (role: string, name = role) => ({
 });
 
 describe("CTO planning authority", () => {
-  it("prefers CTO over Lead", () => {
-    expect(pickOrchestrator([agent("lead"), agent("cto")])?.role).toBe("cto");
+  it("picks the CTO from the team", () => {
+    expect(pickOrchestrator([agent("frontend"), agent("cto")])?.role).toBe("cto");
   });
 
-  it("falls back to Lead when CTO is unavailable", () => {
-    expect(pickOrchestrator([agent("lead")])?.role).toBe("lead");
+  it("has no Lead fallback: the retired Lead role is never the orchestrator", () => {
+    expect(pickOrchestrator([agent("lead")])).toBeNull();
+  });
+
+  it("falls back to an explicit orchestrator role when no CTO exists", () => {
+    expect(pickOrchestrator([agent("frontend"), agent("orchestrator")])?.role).toBe("orchestrator");
   });
 });

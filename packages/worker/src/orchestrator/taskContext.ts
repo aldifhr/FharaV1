@@ -80,6 +80,8 @@ export interface OutstandingIssue {
   severity: "critical" | "high" | "medium" | "low";
   status: "open" | "resolved" | "ignored";
   raisedBy?: string;
+  /** Capability of the subtask that raised the issue (e.g. "browser-testing" for QA). */
+  source?: string;
   relatedFiles?: string[];
 }
 
@@ -113,20 +115,34 @@ export function resolveIssuesForApproval(
   });
 }
 
-/** A planned QA pass resolves issues whose relatedFiles are all covered
- *  by applied, already-approved work. */
+/** True when the issue was raised by QA itself (browser-testing work). */
+export function isQaRaisedIssue(issue: OutstandingIssue, qaAgentNames: ReadonlySet<string> = new Set()): boolean {
+  if (issue.source === "browser-testing" || issue.source === "qa") return true;
+  if (issue.raisedBy && qaAgentNames.has(issue.raisedBy)) return true;
+  return /^QA\b/.test(issue.description);
+}
+
+/**
+ * A QA pass only proves what QA checked (the page renders, no console or
+ * network errors). It therefore resolves ONLY issues QA itself raised —
+ * never reviewer findings such as security or logic bugs, even when
+ * their files were applied. A QA-raised issue resolves when its related
+ * files are covered by applied work (or it has none: the re-run passed).
+ */
 export function resolveIssuesForQaPass(
   issues: OutstandingIssue[],
-  approvedFiles: ReadonlySet<string>
+  approvedFiles: ReadonlySet<string>,
+  opts: { qaAgentNames?: ReadonlySet<string> } = {}
 ): OutstandingIssue[] {
   return issues.map((issue) => {
     if (issue.status !== "open") return issue;
+    if (!isQaRaisedIssue(issue, opts.qaAgentNames)) return issue;
     if (issue.relatedFiles && issue.relatedFiles.length > 0) {
       return issue.relatedFiles.every((file) => approvedFiles.has(file))
         ? { ...issue, status: "resolved" }
         : issue;
     }
-    return issue;
+    return { ...issue, status: "resolved" };
   });
 }
 
@@ -252,6 +268,7 @@ export function extractDecisionsAndArtifactsFromResult(
         severity: finding.severity,
         status: "open",
         raisedBy: result.agentName,
+        source: result.capability,
         relatedFiles: finding.filePath ? [finding.filePath] : undefined,
       });
     }

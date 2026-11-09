@@ -241,7 +241,23 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     }
   }
 
-  const runAgents = (agents as WorkerAgent[]).map(toAgentDefinition);
+  // When the CTO assigned this task from chat, the backend already narrows
+  // the pool to task.assignedAgentIds ([CTO, assignees, Reviewer, QA]).
+  // Keep the assignment ORDER (assignees before any other agent serving
+  // the same capability) so routing ties go to the assigned implementers.
+  const assignedOrder = ((task as { assignedAgentIds?: string[] }).assignedAgentIds ?? []).map(String);
+  const runAgents = (agents as WorkerAgent[])
+    .map(toAgentDefinition)
+    .map((agent, index) => ({ agent, index }))
+    .sort((a, b) => {
+      const ra = assignedOrder.indexOf(String(a.agent._id));
+      const rb = assignedOrder.indexOf(String(b.agent._id));
+      if (ra === -1 && rb === -1) return a.index - b.index;
+      if (ra === -1) return 1;
+      if (rb === -1) return -1;
+      return ra - rb;
+    })
+    .map(({ agent }) => agent);
   const command = await withFileContexts(deps.workspaceRoot, project.workspacePath, task.command);
   const classification = classifyCommand(command);
   await deps.api.logEvent({
@@ -351,7 +367,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
   // ran with no deadline at all, and a task cancelled during planning
   // still received (and executed) a fresh plan.
   const llmTaskGate = new LlmConcurrencyGate(deps.policy.maxConcurrentLLMCalls);
-  const taskAbort = armTaskAbort(deps.policy);
+  const taskAbort = armTaskAbort(deps.policy, deps.shutdownSignal);
 
   try {
   let plan: ExecutionPlan;
@@ -1294,12 +1310,22 @@ async function executePlan(input: {
     if (!subtask) return null;
     // QA must never fall back to an unrelated engineering agent. A fallback
     // would misattribute the verdict and can run browser checks as Backend.
-    const cto = input.agents.find((candidate) => /^cto$/i.test(candidate.role));
-    const agent = subtask.kind === "review" && cto
-      ? cto
-      : routeCapability(subtask.capability, input.agents, {
-          allowFallback: subtask.kind !== "qa" && subtask.capability !== CAPABILITY.BROWSER_TESTING,
-        });
+    // Review is routed by capability (code-review → the Reviewer). The CTO
+    // oversees but does not review; it is used only as a last resort when
+    // the team has no code-review agent at all.
+    let agent = routeCapability(subtask.capability, input.agents, {
+      allowFallback:
+        subtask.kind !== "qa" &&
+        subtask.kind !== "review" &&
+        subtask.capability !== CAPABILITY.BROWSER_TESTING,
+    });
+    if (!agent && subtask.kind === "review") {
+      agent =
+        input.agents.find((candidate) => /^cto$/i.test(candidate.role)) ??
+        // Teams with neither a reviewer nor a CTO keep the historical
+        // capability fallback rather than leaving the review unassigned.
+        routeCapability(subtask.capability, input.agents, { allowFallback: true });
+    }
     if (agent) agentByKey.set(key, agent);
     return agent;
   };
@@ -1428,6 +1454,7 @@ async function executePlan(input: {
     decisionTerminal: false,
     replanFeedback: null,
     waitingForInput: null,
+    pendingApproval: false,
     delegationSeq: 0,
     fixSeq: 0,
     lastStatusCheck: 0,
@@ -1587,11 +1614,24 @@ async function executePlan(input: {
     !input.approvalResolved &&
     preparedChanges.length > 0;
 
-  if (shouldAsk) {
+  /**
+   * Request the user's approval for the prepared changes and pause the
+   * task (`needs_approval`, lease released by the backend). Shared by the
+   * plan-level `requiresApproval` gate AND the permission broker's "ask"
+   * decision: an "ask" without an approval row would leave the task
+   * `running` forever with nothing for the user to click (core H2).
+   */
+  const requestApplyApproval = async (reason: "plan" | "broker"): Promise<ExecutePlanResult> => {
     const implementer = implementerAgent(plan, input.agents);
     const summary = `Apply changes to ${preparedChanges.length} file(s): ${preparedChanges
       .map((change) => change.filePath)
       .join(", ")}`;
+    // Metrics reflect what actually ran: verification and QA run AFTER the
+    // apply, so before approval they are "not run" unless a previous
+    // invocation recorded a real result.
+    const verificationMetric = state.verification
+      ? state.verification.status
+      : "not run";
     await deps.api.requestApproval({
       taskId,
       projectId: project._id,
@@ -1605,13 +1645,14 @@ async function executePlan(input: {
         policyDryRun: dryRunSummary,
         metrics: {
           files: preparedChanges.length,
-          build: "clean",
-          tests: "passed",
+          review: approvedVerdicts.length > 0 ? "approved" : reviewNodes.length > 0 ? "not approved" : "not run",
+          build: verificationMetric,
+          tests: verificationMetric,
           qa:
             qaNodes.length > 0
               ? (plan.visualQa ?? wantsVisualQa(input.task.command))
-                ? "Visual QA planned"
-                : "Structural QA planned"
+                ? "Visual QA planned (runs after apply)"
+                : "Structural QA planned (runs after apply)"
               : "not requested",
         },
       },
@@ -1622,13 +1663,17 @@ async function executePlan(input: {
       projectId: project._id,
       taskId,
       agentId: implementer?._id as any,
-      content: `Changes are prepared and verified. Ready to apply to workspace. Please approve the diff.`,
+      content: `Changes are prepared${
+        approvedVerdicts.length > 0 ? " and review-approved" : ""
+      } (${preparedChanges.length} file(s)). Verification${
+        qaNodes.length > 0 ? " and QA run" : " runs"
+      } after they are applied. Please approve the diff.`,
     });
     await deps.api.logEvent({
       taskId,
       projectId: project._id,
       type: "task.stage",
-      payload: { stage: "waiting_approval", files: preparedChanges.length },
+      payload: { stage: "waiting_approval", files: preparedChanges.length, reason },
       level: "warn",
     });
     await deps.api.recordAudit({
@@ -1640,9 +1685,13 @@ async function executePlan(input: {
       action: "request",
       decision: "pending",
       target: preparedChanges.map((change) => change.filePath).join(","),
-      details: { dryRun: dryRunSummary },
+      details: { dryRun: dryRunSummary, reason },
     });
     return { status: "waiting_approval" };
+  };
+
+  if (shouldAsk) {
+    return await requestApplyApproval("plan");
   }
 
   if (preparedChanges.length > 0) {
@@ -1650,19 +1699,20 @@ async function executePlan(input: {
     // audit event; Ask (auto-mode project or no live row needed) →
     // request approval wait; Allow → apply.
     const firstApplied = preparedChanges[0];
-    // The broker compares absolute paths (`mainWorkspaceEscape`); the staged
-    // `filePath` is workspace-relative, so a raw relative path would always
-    // "escape" and deny every apply. Resolve it first; the sandbox relabels
-    // each file again at apply time via resolveSandboxPathAsync.
-    const brokerTarget =
-      firstApplied && project
-        ? path.join(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath), firstApplied.filePath)
-        : (project.workspacePath ?? ".");
+    // The broker resolves every target against the workspace root (core
+    // H4): send ALL prepared files (absolute, resolved by the same
+    // resolver the apply phase uses), the plan version for approval
+    // matching, and the worker's resolved root for relative project paths.
+    const resolvedRoot = resolveWorkspacePath(deps.workspaceRoot, project.workspacePath);
+    const targetPaths = preparedChanges.map((change) => path.join(resolvedRoot, change.filePath));
     const broker = await deps.api.checkPermission({
       taskId,
       projectId: project._id,
       kind: "apply_changes",
-      targetPath: brokerTarget,
+      targetPath: targetPaths[0] ?? resolvedRoot,
+      targetPaths,
+      planVersion: input.planVersion ?? plan.version,
+      workspaceRoot: resolvedRoot,
     });
     if (broker.decision === "deny") {
       await deps.api.recordAudit({
@@ -1686,7 +1736,10 @@ async function executePlan(input: {
       return { status: "failed" };
     }
     if (broker.decision === "ask" && input.approvalMode !== "auto") {
-      return { status: "waiting_approval" };
+      // Never return waiting_approval without an approval row (core H2):
+      // the task would stay `running`, its lease renewed by heartbeat,
+      // with nothing for the user to approve.
+      return await requestApplyApproval("broker");
     }
     const applied = await applyStaged(
       preparedChanges,
@@ -1705,17 +1758,53 @@ async function executePlan(input: {
     }
   }
 
-  if (qaNodes.length > 0) {
+  // A decision-engine "complete" latched during the implementation pass
+  // only ends THAT drain. The post-apply stage loops (verification / QA
+  // fixes) must still be able to schedule their own nodes; a replan or
+  // waiting_input already returned through terminalExit above.
+  if (decisionTerminal && replanFeedback === null && waitingForInput === null) {
+    decisionTerminal = false;
+  }
+
+  // Stage order after apply (core H1 / QA P0-1): verification (cheap,
+  // deterministic) → QA (only when the plan has QA nodes) → worktree
+  // commit/merge → final decision boundary. None of these is gated on QA.
+  if (preparedChanges.length > 0) {
     await deps.api.logEvent({
       taskId,
       projectId: project._id,
       type: "task.stage",
       payload: { stage: "verifying", files: preparedChanges.length },
     });
+    // Verify loop (plan 012 step 2): extracted to services/runner/verifyLoop.ts.
+    const stop = await runVerificationLoop(ctx);
+    if (stop === "waiting_approval") return { status: "waiting_approval" };
+    if (stop) {
+      return { status: taskCancelled() ? "cancelled" : stop };
+    }
+    if (stepLimitHit) {
+      return { status: "step_limit" };
+    }
+    {
+      const exit = terminalExit();
+      if (exit) return exit;
+    }
+  }
+
+  if (qaNodes.length > 0) {
+    await deps.api.logEvent({
+      taskId,
+      projectId: project._id,
+      type: "task.stage",
+      payload: { stage: "qa", files: preparedChanges.length },
+    });
     // Plan 005 Step 5.2: QA failures spawn targeted fix subtasks and the
     // same QA nodes re-run; a still-failing QA after the last fix attempt
     // fails the task instead of being silently marked done.
     const qaApproved = await runQaLoop();
+    if (ctx.pendingApproval) {
+      return { status: "waiting_approval" };
+    }
     if (!qaApproved) {
       return { status: taskCancelled() ? "cancelled" : "failed" };
     }
@@ -1727,48 +1816,41 @@ async function executePlan(input: {
       const exit = terminalExit();
       if (exit) return exit;
     }
+  }
 
-    // Verify loop (plan 012 step 2): extracted to services/runner/verifyLoop.ts.
-    if (preparedChanges.length > 0) {
-      const stop = await runVerificationLoop(ctx);
-      if (stop) {
-        return { status: taskCancelled() ? "cancelled" : stop };
-      }
+  if (input.worktree && preparedChanges.length > 0) {
+    try {
+      await commitWorktree(
+        input.worktree.worktreePath,
+        `MOAgent: ${task.title}`,
+        Array.from(state.fileChanges.keys())
+      );
+      await deps.api.mergeBranch({ taskId });
+      await deps.api.logEvent({
+        taskId,
+        projectId: project._id,
+        type: "branch.merged",
+        payload: { branchName: input.worktree.branchName },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await deps.api.logEvent({
+        taskId,
+        projectId: project._id,
+        type: "branch.merge_failed",
+        payload: { branchName: input.worktree.branchName, message },
+        level: "error",
+      });
+      state.feedback.push(`Worktree merge failed: ${message}`);
+      return { status: taskCancelled() ? "cancelled" : "failed" };
     }
-    if (input.worktree && preparedChanges.length > 0) {
-      try {
-        await commitWorktree(
-          input.worktree.worktreePath,
-          `MOAgent: ${task.title}`,
-          preparedChanges.map((change) => change.filePath)
-        );
-        await deps.api.mergeBranch({ taskId });
-        await deps.api.logEvent({
-          taskId,
-          projectId: project._id,
-          type: "branch.merged",
-          payload: { branchName: input.worktree.branchName },
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await deps.api.logEvent({
-          taskId,
-          projectId: project._id,
-          type: "branch.merge_failed",
-          payload: { branchName: input.worktree.branchName, message },
-          level: "error",
-        });
-        state.feedback.push(`Worktree merge failed: ${message}`);
-        return { status: taskCancelled() ? "cancelled" : "failed" };
-      }
-    }
-    // Final boundary before completing (plan 013 step 3): a replan
-    // requested anywhere earlier in this invocation still wins over
-    // "completed".
-    {
-      const exit = terminalExit();
-      if (exit) return exit;
-    }
+  }
+  // Final boundary before completing (plan 013 step 3): a replan
+  // requested anywhere earlier in this invocation still wins over
+  // "completed".
+  {
+    const exit = terminalExit();
+    if (exit) return exit;
   }
   } finally {
     await browser.close().catch(() => undefined);
@@ -1833,7 +1915,7 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
   // return disposes explicitly; everything else flows through the
   // try/finally around executePlan).
   const llmTaskGate = new LlmConcurrencyGate(deps.policy.maxConcurrentLLMCalls);
-  const taskAbort = armTaskAbort(deps.policy);
+  const taskAbort = armTaskAbort(deps.policy, deps.shutdownSignal);
   const persistedWorktree = context.task.worktreePath
     ? resolveWorkspacePath(deps.workspaceRoot, context.task.worktreePath)
     : undefined;

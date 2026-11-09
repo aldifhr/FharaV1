@@ -116,6 +116,11 @@ export interface SubtaskExecutionInput {
   runtime?: "api" | "native-provider";
   /** Optional CLI binary override for the native-provider runtime. */
   nativeProviderCommand?: string;
+  /**
+   * Browser-QA policy. With "never" the code_change prompt does not invite
+   * a browser-testing delegation.
+   */
+  qaMode?: "always" | "auto" | "never";
 }
 
 /**
@@ -236,7 +241,14 @@ export async function executeSubtask(
     // Plan 014: native-provider runtime (provider CLI with its own native
     // tools in the task workspace). Falls back to the API path when the
     // provider binary is unavailable.
-    if (input.runtime === "native-provider") {
+    // QA and review stay deterministic on every runtime: the provider CLI
+    // returns no verdict, so a QA/review node sent there would always
+    // read as failing (QA audit P0-5).
+    if (
+      input.runtime === "native-provider" &&
+      subtask.kind !== "qa" &&
+      subtask.kind !== "review"
+    ) {
       const available = await isNativeProviderAvailable(input.nativeProviderCommand);
       if (!available) {
         await input.onEvent(
@@ -481,7 +493,9 @@ async function executeCodeChange(
     '{"files":[{"filePath":"relative/path","newContent":"FULL file content"}]}',
     "",
     "You may add these optional top-level fields to the same JSON object:",
-    '- "delegationRecommendation":{"targetCapability":"...","reason":"..."} when another capability should take over after you (e.g. browser-testing for QA).',
+    input.qaMode === "never"
+      ? '- "delegationRecommendation":{"targetCapability":"...","reason":"..."} when another capability should take over after you (never browser-testing: browser QA is disabled by policy).'
+      : '- "delegationRecommendation":{"targetCapability":"...","reason":"..."} when another capability should take over after you (e.g. browser-testing for QA).',
     '- "findings":["short description", ...] for concrete problems you noticed but did not fix.',
     "",
     "STRICT FORMAT RULES:",
@@ -748,11 +762,33 @@ async function executeQa(
     report.checks.find((check) => check.label === "application reachable")?.details ??
     input.qaBaseUrl ??
     "the app";
-  const summary = `QA verdict: ${report.verdict} — ${passedCount}/${report.checks.length} checks ok on ${checked}: ${report.checks
-    .map((check) => `${check.label}=${check.status}`)
-    .join(", ")}${report.checks.length > 0 && !visualRegression ? ". No visual comparison — structural checks only" : ""}.`;
+  // Name what was asked and be explicit about what the deterministic
+  // check actually covers, so a pass is never read as "the requested
+  // behaviour was verified" (QA audit P1-8).
+  const requested = (input.subtask.description || input.subtask.title || "").trim().slice(0, 400);
+  const scopeNote = report.verdict === "blocked"
+    ? ""
+    : ` Executed checks cover only: page reachable, rendered with a visible body, no framework overlay, no console/page/network errors${
+        visualRegression ? ", screenshot comparison" : ""
+      }. The task-specific criteria were not asserted automatically.`;
+  const summary = `QA verdict: ${report.verdict} — ${
+    report.verdict === "blocked"
+      ? `QA could not run: ${report.blockedReason ?? "environment problem"}`
+      : `${passedCount}/${report.checks.length} checks ok on ${checked}: ${report.checks
+          .map((check) => `${check.label}=${check.status}`)
+          .join(", ")}${report.checks.length > 0 && !visualRegression ? ". No visual comparison — structural checks only" : ""}`
+  }.${requested ? ` Requested: "${requested}".` : ""}${scopeNote}`;
   await input.onMessage(summary);
 
+  if (report.verdict === "blocked") {
+    // Environment, not code: completed node with a blocked verdict. The
+    // QA loop reports it once and never routes it to an implementer fix.
+    return {
+      status: "completed",
+      output: summary,
+      meta: { verdict: report.verdict, checks: report.checks, blockedReason: report.blockedReason },
+    };
+  }
   if (report.verdict === "failed") {
     return {
       status: "failed",

@@ -87,12 +87,20 @@ export function permissionsForRole(role: string | undefined): Permission {
   if (normalized.includes("research") || normalized.includes("audit")) return ROLE_PERMISSIONS.researcher;
   if (
     normalized.includes("orchestr") ||
-    normalized.includes("lead") ||
+    normalized === "cto" ||
     normalized.includes("architect")
   ) {
     return ROLE_PERMISSIONS.orchestrator;
   }
-  if (normalized.includes("develop") || normalized.includes("engineer")) return ROLE_PERMISSIONS.developer;
+  // Fixed-team implementers are seeded as frontend/backend/devops (core M15):
+  // they are developers for MCP write permission.
+  if (
+    normalized.includes("develop") ||
+    normalized.includes("engineer") ||
+    /^(frontend|backend|devops|dev ops|fullstack|full-stack)\b/.test(normalized)
+  ) {
+    return ROLE_PERMISSIONS.developer;
+  }
   return DEFAULT_PERMISSION;
 }
 

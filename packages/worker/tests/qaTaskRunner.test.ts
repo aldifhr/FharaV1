@@ -11,6 +11,7 @@ import type {
   WorkerSubtask,
   WorkerTask,
 } from "@/workerApi";
+import { withApiDefaults } from "./helpers/fakeApi";
 
 /**
  * Spec §8, runner -> executor hop: processTask must resolve the project's
@@ -255,7 +256,7 @@ function createDeps(projectExtras: Record<string, unknown>) {
   };
 
   return {
-    api: api as unknown as WorkerApi,
+    api: withApiDefaults(api) as unknown as WorkerApi,
     workerId: "test-worker",
     policy: POLICY,
     workspaceRoot: workspace,
@@ -306,8 +307,11 @@ describe("processTask QA URL threading", () => {
     for (const message of qaMessages) {
       expect(message.content).not.toMatch(/^@QA\b/);
     }
-    const passMessage = qaMessages.find((m) => m.content.startsWith("QA validation passed"));
+    const passMessage = qaMessages.find((m) => m.content.startsWith("QA checks passed"));
     expect(passMessage).toBeDefined();
+    // No overclaiming: only executed checks are reported, never "assertions".
+    expect(passMessage?.content).not.toMatch(/assertions/i);
+    expect(passMessage?.content).toContain("not asserted automatically");
     // Specific, not generic: the message names the URL checked and the
     // checks that actually ran.
     expect(passMessage?.content).toContain("http://127.0.0.1:9001");

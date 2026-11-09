@@ -9,7 +9,7 @@ import {
 import { providerHealth } from "@/llm/health";
 import type { TaskLlmResolver } from "@/llm/resolver";
 import { CAPABILITY, type AgentDefinition, type Classification, type ExecutionPlan } from "./types";
-import { routeCapability, capabilitiesOf, describeCapabilities, isAgentEnabled } from "./capabilities";
+import { routeCapability, capabilitiesOf, describeCapabilities, isAgentEnabled, normalizeCapability } from "./capabilities";
 import { validatePlan } from "./planValidator";
 import { extractJson } from "@/utils/json";
 import type { ExecutionPolicy } from "./policy";
@@ -270,7 +270,7 @@ export function buildPlanningPrompt(input: PlannerInput): string {
             "- Do NOT add a QA node: policy qaMode=never forbids it. The plan carries no browser-validation subtask.",
           ]
         : [
-            "- Add a QA node only when the change is user-visible or the request asks for verification (policy qaMode=auto: verification signal, not a mandate).",
+            "- Add a QA node only when the change touches UI (frontend/design files) or the user explicitly asks for QA / e2e / browser testing (policy qaMode=auto). Backend-only, docs, config or unit-test-only changes get no QA node.",
           ]),
     "- Do NOT invent capabilities that are not listed above.",
     "- Keep the plan minimal; do not add decorative steps.",
@@ -290,9 +290,75 @@ export function buildPlanningPrompt(input: PlannerInput): string {
  * default) adds the hint only on the risk/verification signals below.
  *
  * Hints never REMOVE plan nodes: an LLM plan that already carries a review
- * or QA node keeps it.
+ * or QA node keeps it — EXCEPT under qaMode="never", which is enforced
+ * here for every plan source (LLM, heuristic, fallback): qa nodes are
+ * dropped and dependencies on them are removed.
  */
+export function stripQaNodes(plan: ExecutionPlan): ExecutionPlan {
+  const qaKeys = new Set(plan.subtasks.filter((s) => s.kind === "qa").map((s) => s.key));
+  if (qaKeys.size === 0) return plan;
+  return {
+    ...plan,
+    visualQa: undefined,
+    subtasks: plan.subtasks
+      .filter((s) => !qaKeys.has(s.key))
+      .map((s, index) => ({
+        ...s,
+        dependencies: s.dependencies.filter((dep) => !qaKeys.has(dep)),
+        order: index,
+      })),
+  };
+}
+
 export function applyPlanningHints(
+  plan: ExecutionPlan,
+  agents: AgentDefinition[],
+  ctx: {
+    command: string;
+    classification: Classification;
+    policy: Pick<ExecutionPolicy, "reviewMode" | "qaMode">;
+    /** Project has a QA/dev URL (resolveQaBaseUrl). */
+    hasQaUrl?: boolean;
+  }
+): ExecutionPlan {
+  if (ctx.policy.qaMode === "never") {
+    return applyPlanningHintsInner(stripQaNodes(plan), agents, ctx);
+  }
+  const hinted = applyPlanningHintsInner(plan, agents, ctx);
+  // qaMode=auto is tightened (QA audit §5): browser QA only when the plan
+  // touches UI or the user explicitly asked for browser verification. A QA
+  // node the LLM emitted for backend/docs/test-only work is dropped.
+  if (ctx.policy.qaMode !== "always" && !qaWarranted(hinted, ctx.command)) {
+    return stripQaNodes(hinted);
+  }
+  return hinted;
+}
+
+const UI_CAPABILITIES = new Set<string>([CAPABILITY.FRONTEND, CAPABILITY.DESIGN]);
+const UI_PATH = /(\.(tsx|jsx|vue|svelte|astro|html|css|scss|sass|less)\b|(^|\/)(app|pages|components|styles|public)(\/|$))/i;
+
+/** Explicit browser-QA request. Plain "unit tests" does NOT count. */
+export const BROWSER_QA_REQUESTED =
+  /(@qa\b|\bqa\b|\be2e\b|end[- ]to[- ]end|playwright|browser[- ]?(test|testing|check|qa)|(test|verify|check)\s+(it\s+)?in\s+(the\s+)?browser|smoke[- ]?test)/i;
+
+/**
+ * True when browser QA is warranted under qaMode=auto: a code change that
+ * touches UI (frontend/design capability, or UI-ish allowedPaths) or an
+ * explicit browser-QA request. Runtime gates (changes applied, project
+ * browser-runnable) are enforced by the QA stage itself.
+ */
+export function qaWarranted(plan: ExecutionPlan, command: string): boolean {
+  const codeChanges = plan.subtasks.filter((s) => s.kind === "code_change");
+  if (codeChanges.length === 0) return false;
+  if (BROWSER_QA_REQUESTED.test(command)) return true;
+  return codeChanges.some(
+    (s) =>
+      UI_CAPABILITIES.has(normalizeCapability(s.capability)) ||
+      (s.allowedPaths ?? []).some((p) => UI_PATH.test(p))
+  );
+}
+
+function applyPlanningHintsInner(
   plan: ExecutionPlan,
   agents: AgentDefinition[],
   ctx: {
@@ -362,11 +428,12 @@ export function applyPlanningHints(
     (agent) => isAgentEnabled(agent) && capabilitiesOf(agent).includes(CAPABILITY.BROWSER_TESTING)
   );
   if (hasQaAgent && !subtasks.some((subtask) => subtask.kind === "qa")) {
-    const verificationAsked = VERIFICATION_REQUESTED.test(ctx.command);
+    // Tightened auto (QA audit §5): UI-touching change or an explicit
+    // browser-QA request. Risk words, plain "tests" and a configured QA
+    // URL alone no longer add browser QA.
     const addQa =
       ctx.policy.qaMode === "always" ||
-      (ctx.policy.qaMode !== "never" &&
-        (riskSignal || verificationAsked || ctx.hasQaUrl === true));
+      (ctx.policy.qaMode !== "never" && qaWarranted({ ...plan, subtasks }, ctx.command));
     if (addQa) {
       const visualQa = wantsVisualQa(ctx.command);
       subtasks.push({

@@ -64,6 +64,20 @@ export function classifyCommand(command: string): Classification {
   const hasTesting = TESTING.test(text);
   const hasSecurity = SECURITY.test(text);
 
+  // Questions keep their domain hints ("How do I style a React button?"
+  // is a frontend question): domain capabilities first, then research and
+  // code-review, so routing picks the domain expert, not the reviewer.
+  const researchCapabilities = (): string[] =>
+    Array.from(
+      new Set([
+        ...(hasFrontend ? [CAPABILITY.FRONTEND] : []),
+        ...(hasBackend ? [CAPABILITY.BACKEND] : []),
+        ...(hasDesign ? [CAPABILITY.DESIGN] : []),
+        CAPABILITY.RESEARCH,
+        CAPABILITY.CODE_REVIEW,
+      ])
+    );
+
   if (AUDIT_ONLY.test(text) && !hasChangeVerb) {
     return {
       kind: "audit",
@@ -80,7 +94,7 @@ export function classifyCommand(command: string): Classification {
       kind: "research",
       strategy: "single",
       reasons: ["question without a change request"],
-      suggestedCapabilities: [CAPABILITY.RESEARCH, CAPABILITY.CODE_REVIEW],
+      suggestedCapabilities: researchCapabilities(),
     };
   }
 
@@ -95,7 +109,7 @@ export function classifyCommand(command: string): Classification {
       kind: "research",
       strategy: "single",
       reasons: ["question about a change, not a change request"],
-      suggestedCapabilities: [CAPABILITY.RESEARCH, CAPABILITY.CODE_REVIEW],
+      suggestedCapabilities: researchCapabilities(),
     };
   }
 

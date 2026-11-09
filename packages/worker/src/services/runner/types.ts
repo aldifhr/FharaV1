@@ -37,6 +37,11 @@ export interface RunnerDeps {
   policy: ExecutionPolicy;
   workspaceRoot: string;
   log: (...args: unknown[]) => void;
+  /**
+   * Fired by the worker entrypoint on SIGINT/SIGTERM: every in-flight task
+   * aborts promptly and is left for lease-expiry recovery (not failed).
+   */
+  shutdownSignal?: AbortSignal;
 }
 
 /**
@@ -46,7 +51,7 @@ export interface RunnerDeps {
  */
 export interface RunState {
   priorOutputs: Map<string, string>;
-  qaVerdicts: Record<string, "passed" | "failed" | "inconclusive">;
+  qaVerdicts: Record<string, "passed" | "failed" | "inconclusive" | "blocked">;
   /** The exact checks each QA node ran (labels + statuses). Feeds the
    * specific pass message instead of a generic template. */
   qaChecks?: Record<
@@ -214,6 +219,11 @@ export interface RunContext {
   inStageLoop: boolean;
   /** The question this invocation paused for (plan 013 step 4). */
   waitingForInput: string | null;
+  /**
+   * Latched when a stage loop (verification / QA fix in ask mode) requested
+   * an apply approval and the run must end as `waiting_approval`.
+   */
+  pendingApproval?: boolean;
   delegationSeq: number;
   fixSeq: number;
   lastStatusCheck: number;

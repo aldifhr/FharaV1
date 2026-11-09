@@ -11,6 +11,7 @@ import type {
   WorkerSubtask,
   WorkerTask,
 } from "@/workerApi";
+import { withApiDefaults } from "./helpers/fakeApi";
 
 /**
  * Phase 4 hardening — mandatory regression tests 8–10: durable
@@ -368,7 +369,7 @@ function createGenerationDeps(store: Store, workspacePath: string) {
   };
   return {
     deps: {
-      api: api as unknown as WorkerApi,
+      api: withApiDefaults(api) as unknown as WorkerApi,
       workerId: "test-worker",
       policy: POLICY,
       workspaceRoot: workspacePath,

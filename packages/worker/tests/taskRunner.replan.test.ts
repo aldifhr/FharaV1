@@ -9,6 +9,7 @@ import type {
   WorkerApi,
   WorkerTask,
 } from "@/workerApi";
+import { withApiDefaults } from "./helpers/fakeApi";
 
 /**
  * Phase 3: replan is unified. When execution fails, the runner must
@@ -146,7 +147,7 @@ function createDeps(policyOverrides: Partial<ExecutionPolicy>) {
   };
   return {
     deps: {
-      api: api as unknown as WorkerApi,
+      api: withApiDefaults(api) as unknown as WorkerApi,
       workerId: "test-worker",
       policy,
       workspaceRoot: workspace,

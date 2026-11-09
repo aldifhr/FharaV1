@@ -87,7 +87,7 @@ export interface ObjectiveEvidence {
   /** Applied file paths per completed subtask key (code_change nodes). */
   appliedFiles?: Record<string, string[]>;
   /** QA verdicts by subtask key. */
-  qaVerdicts?: Record<string, "passed" | "failed" | "inconclusive">;
+  qaVerdicts?: Record<string, "passed" | "failed" | "inconclusive" | "blocked">;
   /** Static verification result; undefined when it did not run. */
   verification?: { status: "passed" | "failed" | "skipped"; details?: string };
   /** The decision whose expectedOutcome is being checked for satisfaction. */
@@ -187,6 +187,11 @@ export function evaluateObjective(ctx: DecisionContext): ObjectiveEvaluation {
     const verdict = ev.qaVerdicts?.[subtask.key];
     if (verdict === "passed") {
       evidence.push(`${subtask.key}: QA passed`);
+    } else if (verdict === "blocked") {
+      // Environment-blocked QA (no browser, no deps, no dev script) is a
+      // reported skip, not missing work: replanning cannot fix the worker.
+      // QA_REQUIRED makes the QA loop fail the task before this point.
+      evidence.push(`${subtask.key}: QA skipped (environment blocked)`);
     } else {
       missing.push(`${subtask.key}: QA verdict is ${verdict ?? "missing"}`);
     }

@@ -1,9 +1,10 @@
 import type { RunContext } from "./types";
 import type { PlanSubtask } from "@/orchestrator/types";
 import { implementerAgent } from "./setup";
+import { pickFixOwner } from "@/orchestrator/ownership";
+import { applyOrRequestFixApproval } from "./fixApply";
 import { buildFixSubtask } from "@/orchestrator/reviewLoop";
 import { runVerification } from "@/execution/verification";
-import type { FileDiff } from "@/tools/gitDiff";
 import type { ReviewFinding } from "@/utils/json";
 import { CAPABILITY } from "@/orchestrator/types";
 
@@ -18,17 +19,31 @@ import { CAPABILITY } from "@/orchestrator/types";
  * otherwise the terminal reason ("failed" / "cancelled") for the caller
  * to fold into its stage return.
  */
-export async function runVerificationLoop(ctx: RunContext): Promise<"failed" | "cancelled" | null> {
+export async function runVerificationLoop(ctx: RunContext): Promise<"failed" | "cancelled" | "waiting_approval" | null> {
+  if (!ctx.deps.policy.verificationEnabled) return null;
+  if (ctx.state.fileChanges.size === 0) return null;
+
+  // Loop ownership (like the review/QA loops): while verification and its
+  // fixes run, the objective is not judgeable — a fix settling while the
+  // last verification result is still "failed" must not trigger a replan.
+  ctx.inStageLoop = true;
+  try {
+    return await verificationLoopBody(ctx);
+  } finally {
+    ctx.inStageLoop = false;
+  }
+}
+
+async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancelled" | "waiting_approval" | null> {
   const {
     plan, state, dynamicKeys, chainByKey, fixDepthByKey, persistDynamic,
-    deps, input, taskId, project, agents, taskCancelled, applyStaged,
+    deps, input, taskId, project, agents,
   } = ctx;
   const runNodes = (nodes: PlanSubtask[]) => ctx.runNodes(nodes);
-  if (!deps.policy.verificationEnabled) return null;
-  if (state.fileChanges.size === 0 || Array.from(state.fileChanges.values()).length === 0) return null;
-
   const maxVerifyIters = deps.policy.maxReviewIterations;
-  let verifyIteration = 0;
+  // A resumed run (after an ask-mode fix approval) continues the count, so
+  // the bound holds across pauses and fix keys never collide.
+  let verifyIteration = plan.subtasks.filter((c) => c.key.startsWith("fix_verify_")).length;
   while (verifyIteration <= maxVerifyIters) {
     const verification = await runVerification({
       workspacePath: input.workspacePath,
@@ -60,23 +75,26 @@ export async function runVerificationLoop(ctx: RunContext): Promise<"failed" | "
       );
       return "failed";
     }
+    const changedPaths = Array.from(state.fileChanges.keys());
     const findings: ReviewFinding[] = failedChecks.map((c) => ({
       severity: "high" as const,
-      filePath: Array.from(state.fileChanges.keys())[0] ?? "",
+      filePath: changedPaths.find((p) => (c.details ?? "").includes(p)) ?? changedPaths[0] ?? "",
       description: `${c.name}: ${c.details ?? "check failed"}`,
       suggestion: "Fix the failing check and retry verification.",
     }));
     const implementer = implementerAgent(plan, agents);
     if (!implementer) return "cancelled";
-    const codeSubtask = plan.subtasks.find((c) => c.kind === "code_change");
-    const fixSubtask = buildFixSubtask({
-      key: `fix_verify_${verifyIteration + 1}`,
-      title: `Address verification failures (iteration ${verifyIteration + 1})`,
-      intro: "Static verification reported failures.",
-      findings,
-      capability: codeSubtask?.capability ?? CAPABILITY.GENERAL,
-      order: plan.subtasks.reduce((max, c) => Math.max(max, c.order), 0) + 1,
-    });
+    const owner = pickFixOwner(plan.subtasks, findings);
+    const fixSubtask = {
+      ...buildFixSubtask({
+        key: ctx.uniqueSubtaskKey(`fix_verify_${verifyIteration + 1}`),
+        title: `Address verification failures (iteration ${verifyIteration + 1})`,
+        intro: "Static verification reported failures.",
+        findings,
+        capability: owner?.capability ?? CAPABILITY.GENERAL,
+        order: plan.subtasks.reduce((max, c) => Math.max(max, c.order), 0) + 1,
+      }),
+    };
     plan.subtasks.push(fixSubtask);
     dynamicKeys.add(fixSubtask.key);
     chainByKey.set(fixSubtask.key, [fixSubtask.capability]);
@@ -91,14 +109,9 @@ export async function runVerificationLoop(ctx: RunContext): Promise<"failed" | "
     });
     const fixRun = await runNodes([fixSubtask]);
     if (fixRun.status !== "completed") return "cancelled";
-    if (input.approvalMode !== "ask") {
-      const fixPaths = state.appliedFilesBySubtask.get(fixSubtask.key) ?? [];
-      const fixChanges = fixPaths
-        .map((p) => state.fileChanges.get(p))
-        .filter((c): c is FileDiff => Boolean(c));
-      const applied = await applyStaged(fixChanges, "orchestrator");
-      if ("stop" in applied) return "cancelled";
-    }
+    const landed = await applyOrRequestFixApproval(ctx, fixSubtask, "verification");
+    if (landed === "waiting_approval") return "waiting_approval";
+    if (landed === "failed") return "cancelled";
     verifyIteration += 1;
   }
   return null;

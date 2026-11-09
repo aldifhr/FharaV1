@@ -213,6 +213,17 @@ export function evaluateDelegation(input: {
   if (result.delegationRecommendation?.targetCapability) {
     const targetCap = result.delegationRecommendation.targetCapability;
 
+    // qaMode=never is absolute: no browser-testing delegation may bring
+    // QA back in through the side door (QA audit P0-3).
+    if (policy.qaMode === "never" && canonicalCapability(targetCap) === canonicalCapability("browser-testing")) {
+      return {
+        decision: "REJECT",
+        reason: "browser QA is disabled by policy (qaMode=never)",
+        targetCapability: targetCap,
+        shouldCallLLM: false,
+      };
+    }
+
     // Phase 4 Step 4.1: the proposer can serve it itself → no delegation.
     if (proposerCanServe(targetCap)) {
       return {
@@ -336,6 +347,7 @@ export function evaluateDelegation(input: {
   );
 
   if (
+    policy.qaMode !== "never" &&
     needsQa &&
     hasQaAgent &&
     !hasRunQa &&

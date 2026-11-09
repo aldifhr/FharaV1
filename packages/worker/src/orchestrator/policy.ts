@@ -104,16 +104,6 @@ export interface ExecutionPolicy {
   decisionLlmMode?: "off" | "ambiguous" | "always";
   /** Plan 006 Phase 2: bound on decision steps per task run. */
   maxDecisionSteps?: number;
-  /**
-   * Plan 005 Phase 3 (progressive planning): when a review node is added
-   * for a code change.
-   *  - "always": every code change gets a review node (legacy behaviour).
-   *  - "auto": only on a risk signal (auth/security/payments/migrations/
-   *    concurrency, multi-capability, multi-domain, or an agent explicitly
-   *    offering review capability).
-   *  - "never": the orchestrator never adds a review node (the plan's own
-   *    review node, if any, is kept — hints never remove plan nodes).
-   */
   toolLoop?: boolean;
   /**
    * Plan 009: MCP filesystem tool loop.
@@ -132,15 +122,39 @@ export interface ExecutionPolicy {
   mcpMaxToolIterations?: number;
   mcpTimeoutMs?: number;
   mcpMaxResultChars?: number;
+  /**
+   * Plan 005 Phase 3 (progressive planning): when a review node is added
+   * for a code change.
+   *  - "always": every code change gets a review node (legacy behaviour).
+   *  - "auto": only on a risk signal (auth/security/payments/migrations/
+   *    concurrency, multi-capability, multi-domain, or an agent explicitly
+   *    offering review capability).
+   *  - "never": the orchestrator never adds a review node (the plan's own
+   *    review node, if any, is kept — hints never remove plan nodes).
+   */
   reviewMode?: "always" | "auto" | "never";
   /**
    * Plan 005 Phase 3: when a QA node is added for a code change.
    *  - "always": every code change gets a QA node when a QA agent exists.
    *  - "auto": only with a QA agent, a code change, and a risk signal, a
    *    verification request, or a project QA/dev URL.
-   *  - "never": the orchestrator never adds a QA node.
+   *  - "never": no QA node ever runs — planner hints, LLM-emitted qa
+   *    nodes and browser-testing delegation are all filtered out.
+   *  - "auto" (DEFAULT, loadPolicy / ORCHESTRATOR_QA_MODE): browser QA only
+   *    when changes were applied AND the project is browser-runnable AND
+   *    (UI files / frontend-design work OR an explicit QA/e2e/browser
+   *    request). Environment problems → "blocked" QA (skipped with a note),
+   *    never a fix loop or a failed task unless qaRequired.
    */
   qaMode?: "always" | "auto" | "never";
+  /**
+   * When true, an environment-blocked QA run (no browser, no deps, no dev
+   * script) FAILS the task; otherwise it is reported as skipped and the
+   * task can complete. Env: ORCHESTRATOR_QA_REQUIRED / QA_REQUIRED.
+   */
+  qaRequired?: boolean;
+  /** Max automatic QA fix rounds (default 1). Falls back to maxReviewIterations when unset. */
+  qaMaxFixIterations?: number;
 }
 
 function boolFromEnv(name: string, fallback: boolean): boolean {
@@ -248,6 +262,9 @@ export function loadPolicy(): ExecutionPolicy {
     mcpTimeoutMs: intFromEnv("ORCHESTRATOR_MCP_TIMEOUT_MS", 30_000, 1_000, 300_000),
     mcpMaxResultChars: intFromEnv("ORCHESTRATOR_MCP_MAX_RESULT_CHARS", 8_000, 500, 200_000),
     reviewMode: planningModeFromEnv("ORCHESTRATOR_REVIEW_MODE"),
-    qaMode: planningModeFromEnv("ORCHESTRATOR_QA_MODE", "never"),
+    qaMode: planningModeFromEnv("ORCHESTRATOR_QA_MODE", "auto"),
+    // QA gets its own, smaller fix budget than review (QA audit §5).
+    qaMaxFixIterations: intFromEnv("ORCHESTRATOR_QA_MAX_FIX_ITERATIONS", intFromEnv("QA_MAX_FIX_ITERATIONS", 1, 0, 5), 0, 5),
+    qaRequired: boolFromEnv("ORCHESTRATOR_QA_REQUIRED", boolFromEnv("QA_REQUIRED", false)),
   };
 }

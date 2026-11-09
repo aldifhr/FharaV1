@@ -109,6 +109,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         qaBaseUrl: input.qaBaseUrl,
         mcp: input.mcp,
         runtime: deps.policy.executionRuntime ?? "api",
+        qaMode: deps.policy.qaMode,
         nativeProviderCommand: process.env.ORCHESTRATOR_NATIVE_PROVIDER_COMMAND,
         taskContext: input.sharedContext,
         priorOutputs: state.priorOutputs,
@@ -218,7 +219,10 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       });
     },
     {
-      maxConcurrency: 1, // FIFO: one subtask at a time, in DAG order (dependencies + stable order)
+      // Sequential by default (policy.maxConcurrency defaults to 1: FIFO,
+      // one subtask at a time in DAG order). A policy that raises it lets
+      // independent nodes overlap; the per-agent gate below still applies.
+      maxConcurrency: Math.max(1, Math.floor(deps.policy.maxConcurrency ?? 1)),
       timeoutMs: deps.policy.subtaskTimeoutMs,
       retries: deps.policy.subtaskRetries,
       // Phase 3 dynamic work: onOutcome may add delegation/fix subtasks

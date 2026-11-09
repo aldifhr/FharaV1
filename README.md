@@ -115,6 +115,25 @@ LLM_API_KEY=              # fallback API key; per-provider keys live in Settings
 WORKSPACE_ROOT=./workspaces
 ```
 
+### 2a. Browser QA (Chromium)
+
+Browser QA is **on by default** (`ORCHESTRATOR_QA_MODE=auto`): after changes
+are applied and verified (tsc/lint/test), QA opens the app in Chromium when
+the change touches UI or you ask for QA/e2e/browser testing. Install the
+browser once on every worker machine:
+
+```bash
+cd packages/worker && npx playwright install chromium   # add --with-deps on Debian/Ubuntu
+```
+
+On linux-arm64 Playwright's CDN has no Chromium build: install a system
+Chromium and set `QA_CHROMIUM_PATH=/path/to/chromium` (also honoured:
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`). `--no-sandbox` is added when running
+as root or in a container, or with `QA_CHROMIUM_NO_SANDBOX=1`. Without a
+browser, QA is reported as skipped ("blocked") and the task still completes,
+unless `ORCHESTRATOR_QA_REQUIRED=1`. Set `ORCHESTRATOR_QA_MODE=never` to turn
+browser QA off. See `packages/worker/AGENTS.md` for all QA variables.
+
 The LLM provider used per task is normally configured in the web UI
 (Settings -> LLM providers, stored in the `llmProviders` table); the `LLM_*`
 env values are only the fallback when no provider row exists.

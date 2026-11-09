@@ -10,6 +10,7 @@ import type {
   WorkerSubtask,
   WorkerTask,
 } from "@/workerApi";
+import { withApiDefaults } from "./helpers/fakeApi";
 
 /**
  * Phase 5 at the runner level (executor mocked, following the
@@ -299,7 +300,7 @@ function createDeps(
 
   return {
     deps: {
-      api: api as unknown as WorkerApi,
+      api: withApiDefaults(api) as unknown as WorkerApi,
       workerId: "test-worker",
       policy,
       workspaceRoot: workspace,

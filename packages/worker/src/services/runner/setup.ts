@@ -114,12 +114,27 @@ export function resolveQaBaseUrl(
  * or a timeout stops the whole task, not just whichever node happens to
  * be scheduled. dispose() disarms everything.
  */
-export function armTaskAbort(policy: ExecutionPolicy): {
+export const SHUTDOWN_ABORT_MESSAGE = "Worker shutting down";
+export const LEASE_LOST_PREFIX = "Lease lost";
+
+/** True for errors/abort reasons that mean "this worker no longer owns the task". */
+export function isLeaseLostOrShutdown(reason: unknown): boolean {
+  const message = reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "";
+  // Convex wraps server errors ("[CONVEX A(...)] Uncaught Error: Lease lost: ..."),
+  // so match anywhere in the message.
+  return message.includes(`${LEASE_LOST_PREFIX}:`) || message.includes(LEASE_LOST_PREFIX + " ") ||
+    message.startsWith(SHUTDOWN_ABORT_MESSAGE);
+}
+
+export function armTaskAbort(policy: ExecutionPolicy, shutdownSignal?: AbortSignal): {
   controller: AbortController;
   bump: () => void;
   dispose: () => void;
 } {
   const controller = new AbortController();
+  const onShutdown = () => controller.abort(new Error(SHUTDOWN_ABORT_MESSAGE));
+  if (shutdownSignal?.aborted) onShutdown();
+  else shutdownSignal?.addEventListener("abort", onShutdown, { once: true });
   const timer = setTimeout(() => {
     controller.abort(
       new Error(`Task deadline exceeded (${policy.taskTimeoutMs}ms)`)
@@ -149,6 +164,7 @@ export function armTaskAbort(policy: ExecutionPolicy): {
     dispose: () => {
       clearTimeout(timer);
       if (idleTimer) clearInterval(idleTimer);
+      shutdownSignal?.removeEventListener("abort", onShutdown);
     },
   };
 }
@@ -319,6 +335,21 @@ export async function finishCancelledTask(input: {
   const { deps, task, project, signal } = input;
   const reasonText =
     signal.reason instanceof Error ? signal.reason.message : "";
+  // Worker shutdown / lost lease: this worker no longer owns the task.
+  // Do NOT fail it — leave it for lease-expiry recovery (another worker
+  // re-claims it) and just record why this run stopped.
+  if (isLeaseLostOrShutdown(signal.reason)) {
+    await deps.api
+      .logEvent({
+        taskId: task._id,
+        projectId: project._id,
+        type: "task.interrupted",
+        payload: { reason: reasonText },
+        level: "warn",
+      })
+      .catch(() => undefined);
+    return;
+  }
   const timedOut = reasonText.startsWith("Task deadline exceeded");
   const errorMessage = timedOut ? reasonText : "Task cancelled";
   await deps.api.logEvent({

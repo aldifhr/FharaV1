@@ -83,19 +83,34 @@ export class WorkerApi {
   async setPlanning(
     input: ActionInput<typeof api.worker.setPlanning>
   ): Promise<FunctionReturnType<typeof api.worker.setPlanning>> {
-    return await this.client.action(api.worker.setPlanning, this.args(input));
+    // Lease fencing: the backend refuses the write when another worker
+    // holds the task lease ("Lease lost" throw / {applied:false}).
+    return await this.client.action(
+      api.worker.setPlanning,
+      this.args({ workerId: this.workerId, ...input })
+    );
   }
 
   async savePlan(
     input: ActionInput<typeof api.worker.savePlan>
   ): Promise<FunctionReturnType<typeof api.worker.savePlan>> {
-    return await this.client.action(api.worker.savePlan, this.args(input));
+    // Lease fencing: the backend refuses the write when another worker
+    // holds the task lease ("Lease lost" throw / {applied:false}).
+    return await this.client.action(
+      api.worker.savePlan,
+      this.args({ workerId: this.workerId, ...input })
+    );
   }
 
   async saveDynamicSubtasks(
     input: ActionInput<typeof api.worker.saveDynamicSubtasks>
   ): Promise<FunctionReturnType<typeof api.worker.saveDynamicSubtasks>> {
-    return await this.client.action(api.worker.saveDynamicSubtasks, this.args(input));
+    // Lease fencing: the backend refuses the write when another worker
+    // holds the task lease ("Lease lost" throw / {applied:false}).
+    return await this.client.action(
+      api.worker.saveDynamicSubtasks,
+      this.args({ workerId: this.workerId, ...input })
+    );
   }
 
   async startExecution(
@@ -107,7 +122,12 @@ export class WorkerApi {
   async updateExecution(
     input: ActionInput<typeof api.worker.updateExecution>
   ): Promise<FunctionReturnType<typeof api.worker.updateExecution>> {
-    return await this.client.action(api.worker.updateExecution, this.args(input));
+    // Lease fencing: the backend refuses the write when another worker
+    // holds the task lease ("Lease lost" throw / {applied:false}).
+    return await this.client.action(
+      api.worker.updateExecution,
+      this.args({ workerId: this.workerId, ...input })
+    );
   }
 
   async updateSubtask(
@@ -122,7 +142,12 @@ export class WorkerApi {
   async requestApproval(
     input: ActionInput<typeof api.worker.requestApproval>
   ): Promise<FunctionReturnType<typeof api.worker.requestApproval>> {
-    return await this.client.action(api.worker.requestApproval, this.args(input));
+    // Lease fencing: the backend refuses the write when another worker
+    // holds the task lease ("Lease lost" throw / {applied:false}).
+    return await this.client.action(
+      api.worker.requestApproval,
+      this.args({ workerId: this.workerId, ...input })
+    );
   }
 
   /** Plan 015: central broker verdict (Allow/Deny/Ask) for a risky action. */

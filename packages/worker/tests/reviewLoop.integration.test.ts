@@ -10,6 +10,7 @@ import type {
   WorkerFileChange,
   WorkerSubtask,
 } from "@/workerApi";
+import { withApiDefaults } from "./helpers/fakeApi";
 
 const mockState = vi.hoisted(() => ({
   reviewCalls: 0,
@@ -283,7 +284,7 @@ function createDeps() {
 
   return {
     deps: {
-      api: api as unknown as WorkerApi,
+      api: withApiDefaults(api) as unknown as WorkerApi,
       workerId: "test-worker",
       policy: POLICY,
       workspaceRoot: workspace,

@@ -7,7 +7,8 @@ import { decide, applyDecision, evaluateObjective, type DecisionContext, type De
 import { decideWithLlm } from "@/orchestrator/decisionLlm";
 import { buildFixSubtask } from "@/orchestrator/reviewLoop";
 import { kindForCapability, slugifyKeyPart, toAgentResult } from "./setup";
-import { routeCapability } from "@/orchestrator/capabilities";
+import { normalizeCapability, routeCapability } from "@/orchestrator/capabilities";
+import { CAPABILITY } from "@/orchestrator/types";
 import { resolveIssuesForApproval, resolveIssuesForQaPass } from "@/orchestrator/taskContext";
 
 export async function handleNodeOutcome(
@@ -36,14 +37,19 @@ export async function handleNodeOutcome(
   }
   let dynamicNodes: SchedulerNode[] | undefined;
   if (!runCompleted.has(node.id) && executionId) {
-    await deps.api.updateExecution({
+    const written = (await deps.api.updateExecution({
       executionId,
       subtaskKey: node.id,
       status: outcome.status === "completed" ? "completed" : "failed",
       output: outcome.status === "failed" ? undefined : outcome.output,
       error: outcome.status === "failed" ? outcome.error : undefined,
       meta: outcome.status === "failed" ? undefined : outcome.meta,
-    });
+    })) as { applied?: boolean; reason?: string } | null | undefined;
+    // Lease fencing: another worker owns this task now. Stop this run
+    // cleanly (abort) instead of writing over the new owner's state.
+    if (written && written.applied === false && written.reason === "lease_lost") {
+      input.taskAbort?.abort(new Error("Lease lost: another worker owns this task"));
+    }
   }
   // A node that settles completed joins this run's completion set
   // BEFORE the decision engine reads it below, so a finished node is
@@ -68,7 +74,8 @@ export async function handleNodeOutcome(
     subtaskKind === "qa" &&
     (meta?.verdict === "passed" ||
       meta?.verdict === "failed" ||
-      meta?.verdict === "inconclusive")
+      meta?.verdict === "inconclusive" ||
+      meta?.verdict === "blocked")
   ) {
     state.qaVerdicts[node.id] = meta.verdict;
     // Keep the actual checks so the pass message can name the URL
@@ -100,9 +107,11 @@ export async function handleNodeOutcome(
       );
     }
     if (subtaskKind === "qa" && meta?.verdict === "passed") {
+      // Scope: a QA pass resolves only issues QA raised (P0-2).
       input.sharedContext.outstandingIssues = resolveIssuesForQaPass(
         input.sharedContext.outstandingIssues,
-        approvedFiles
+        approvedFiles,
+        { qaAgentNames: new Set(agent?.name ? [agent.name] : []) }
       );
     }
   }
@@ -368,15 +377,53 @@ export async function handleNodeOutcome(
             // and a second fix loop would double the work. (The
             // retired legacy branch enforced the same exclusion.)
             if (subtaskDef.kind === "review" && decision.action === "execute") break;
-            if (applied.nodes.length > 0) {
-              for (const dynamic of applied.nodes) {
+            // Dynamic QA (browser-testing delegation) is stage-managed
+            // (QA audit P0-3): suppressed entirely under qaMode=never, and
+            // otherwise DEFERRED to the post-apply QA stage instead of
+            // running now against the unapplied workspace. When the plan
+            // already has QA nodes they cover it, so it is dropped.
+            const isQaNode = (n: PlanSubtask) =>
+              n.kind === "qa" || normalizeCapability(n.capability) === CAPABILITY.BROWSER_TESTING;
+            const qaSpawned = applied.nodes.filter(isQaNode);
+            const spawnNodes = applied.nodes.filter((n) => !isQaNode(n));
+            if (qaSpawned.length > 0) {
+              const keepQa = deps.policy.qaMode !== "never" && ctx.qaNodes.length === 0;
+              await deps.api
+                .logEvent({
+                  taskId: task._id,
+                  projectId: project._id,
+                  type: keepQa ? "qa.deferred" : "qa.suppressed",
+                  payload: {
+                    keys: qaSpawned.map((n) => n.key),
+                    reason: keepQa
+                      ? "dynamic QA runs in the post-apply QA stage"
+                      : deps.policy.qaMode === "never"
+                        ? "qaMode=never"
+                        : "plan already has QA nodes",
+                  },
+                })
+                .catch(() => undefined);
+              if (keepQa) {
+                const deferred = qaSpawned.map((n) => ({ ...n, kind: "qa" as const }));
+                for (const node of deferred) {
+                  plan.subtasks.push(node);
+                  dynamicKeys.add(node.key);
+                  chainByKey.set(node.key, [...chain, node.capability]);
+                  fixDepthByKey.set(node.key, 0);
+                  ctx.qaNodes.push(node);
+                }
+                await persistDynamic(deferred, "delegation");
+              }
+            }
+            if (spawnNodes.length > 0) {
+              for (const dynamic of spawnNodes) {
                 plan.subtasks.push(dynamic);
                 dynamicKeys.add(dynamic.key);
                 chainByKey.set(dynamic.key, [...chain, dynamic.capability]);
                 fixDepthByKey.set(dynamic.key, 0);
               }
-              await persistDynamic(applied.nodes, decision.action === "execute" ? "fix" : "delegation");
-              dynamicNodes = applied.nodes.map((dynamic) => ({
+              await persistDynamic(spawnNodes, decision.action === "execute" ? "fix" : "delegation");
+              dynamicNodes = spawnNodes.map((dynamic) => ({
                 id: dynamic.key,
                 dependencies: dynamic.dependencies,
                 paths: dynamic.allowedPaths,
@@ -440,6 +487,12 @@ export async function handleNodeOutcome(
               (candidate) => dynamicKeys.has(candidate.key) && !runCompleted.has(candidate.key)
             );
             if (recoveryPending) break;
+            // A staged loop (review / verification / QA) owns recovery
+            // of its own nodes: a failing QA verdict or verify fix is
+            // handled by the loop's bounded fix rounds, which fail the
+            // task on exhaustion. Latching a replan here would halt the
+            // loop's own fix node before it can run.
+            if (ctx.inStageLoop) break;
             ctx.decisionTerminal = true;
             // First request wins: the earliest missing list is the
             // feedback the bounded re-plan will address.

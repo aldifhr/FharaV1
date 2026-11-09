@@ -159,11 +159,25 @@ export async function finalize(input: {
       : reviewVerdicts.every((r) => r.verdict === "approved")
         ? `Review: approved${reviewedFiles > 0 ? ` (${reviewedFiles} file${reviewedFiles === 1 ? "" : "s"} reviewed, no blocking findings)` : ""}.`
         : `Review: changes requested.`;
+  const qaValues = Object.entries(state.qaVerdicts);
+  const blockedQa = qaValues.filter(([, verdict]) => verdict === "blocked");
+  const blockedDetail = blockedQa
+    .flatMap(([key]) => state.qaChecks?.[key] ?? [])
+    .find((check) => check.label === "qa-environment")?.details;
+  const qaLine =
+    qaValues.length === 0
+      ? ""
+      : blockedQa.length > 0
+        ? `QA: skipped — ${blockedDetail ?? "the QA environment could not run browser checks"}.`
+        : qaValues.every(([, verdict]) => verdict === "passed")
+          ? "QA: structural browser checks passed."
+          : "";
   const message = [
     evaluation.verdict === "inconclusive"
       ? `Finished, but verification is inconclusive: ${details || "not all checks were performed"}.`
       : "Done.",
     reviewLine,
+    qaLine,
     `Verification: ${evaluation.verdict}.`,
   ]
     .filter(Boolean)

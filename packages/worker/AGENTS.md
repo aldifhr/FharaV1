@@ -51,12 +51,23 @@ import backend internals.
 - Dynamic subtasks must be persisted (`upsertDynamicSubtasks`) so recovery keeps
   them. In-memory-only plan mutation is a bug.
 - Review/QA nodes are conditional (plan 005 Phase 3): `reviewMode` defaults to
-  `"auto"`, `qaMode` defaults to `"never"` (browser QA disabled by default
-  until it gets faster) (`ORCHESTRATOR_REVIEW_MODE` / `ORCHESTRATOR_QA_MODE`)
-  decide when `applyPlanningHints` adds them — a risk signal (auth/security/payments/
-  migrations/concurrency, multi-domain, multi-capability) or a verification
-  request/URL. There is no always-review/always-QA pipeline anymore; `"always"`
-  restores the legacy mandate for one knob at a time.
+  `"auto"` (risk signal: auth/security/payments/migrations/concurrency,
+  multi-domain, multi-capability). `qaMode` defaults to `"auto"` with
+  tightened triggers: browser QA runs only when changes were APPLIED, the
+  project is browser-runnable (QA/dev URL, `dev`/`start` script, or a root
+  `index.html`), AND the change touches UI (frontend/design work or UI paths)
+  or the user explicitly asks for QA / e2e / browser testing ("unit tests"
+  alone does not count). `"never"` removes QA everywhere (LLM plans,
+  heuristic plans, browser-testing delegation); `"always"` adds it to every
+  code change.
+- Stage order after apply: verification loop → QA loop → worktree
+  commit/merge → final decision boundary. None of these is gated on QA.
+- QA outcomes: `passed`; `failed` (app defect → at most
+  `ORCHESTRATOR_QA_MAX_FIX_ITERATIONS`, default 1, fix round, routed to the UI
+  owner with its `allowedPaths`; in ask mode the fix is put up for approval);
+  `blocked` (environment: no Chromium, missing `node_modules`, no dev script,
+  not browser-runnable) → one "QA skipped" note, never a fix loop, and the
+  task can still complete unless `ORCHESTRATOR_QA_REQUIRED=1`.
 - Delegation is bounded: `maxDelegations` (task-wide count) and
   `maxDelegationDepth` (chain depth). Circular delegation must stay rejected.
 - A failing QA node is corrected by the runner itself, not by a full replan:
@@ -139,7 +150,12 @@ import backend internals.
 | `ORCHESTRATOR_DECISION_LLM` | `ambiguous` | `off` / `ambiguous` / `always` — when the LLM decision advisor is consulted |
 | `ORCHESTRATOR_MAX_DECISION_STEPS` | `20` | Decision-step bound per task run |
 | `ORCHESTRATOR_REVIEW_MODE` | `auto` | `always` / `auto` / `never` — when planning adds review nodes |
-| `ORCHESTRATOR_QA_MODE` | `never` | `always` / `auto` / `never` — when planning adds QA nodes (browser QA off by default) |
+| `ORCHESTRATOR_QA_MODE` | `auto` | `always` / `auto` / `never` — when browser QA runs (auto: applied UI changes in a browser-runnable project, or an explicit QA/e2e request) |
+| `ORCHESTRATOR_QA_MAX_FIX_ITERATIONS` | `1` | Automatic QA fix rounds (separate from review) |
+| `ORCHESTRATOR_QA_REQUIRED` | `false` | When true, an environment-blocked QA run fails the task instead of being reported as skipped |
+| `QA_STARTUP_TIMEOUT_MS` | `90000` | How long QA waits for the auto-started dev server |
+| `QA_CHROMIUM_PATH` | — | Chromium executable for QA (fallback `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, then Playwright's bundled browser). Use on linux-arm64, where Playwright's CDN has no build |
+| `QA_CHROMIUM_NO_SANDBOX` | auto | `1` adds `--no-sandbox`; it is also added automatically when running as root or inside a container (`/.dockerenv`). `0` disables it |
 | `ORCHESTRATOR_MCP_TOOL_LOOP` | `true` | Read-only agents may use discovered MCP tools mid-task |
 | `ORCHESTRATOR_MCP_WRITE_TOOLS` | `false` | Expose write/move MCP tools to developers (delete stays denied) |
 | `ORCHESTRATOR_MCP_MAX_TOOL_ITERATIONS` | `6` | Bound on tool-loop rounds per subtask |
@@ -148,6 +164,21 @@ import backend internals.
 | `WORKER_LLM_MAX_CONCURRENCY` | from policy | Worker-wide LLM gate (set once) |
 
 The worker loads the root `.env` (`../../.env` from `packages/worker`).
+
+### Browser QA setup
+
+QA drives a real Chromium through Playwright. Install the browser once per
+worker machine/image:
+
+```
+cd packages/worker && npx playwright install chromium   # add --with-deps on Debian/Ubuntu images
+```
+
+Playwright's CDN has no linux-arm64 Chromium build. There, install a system
+Chromium (e.g. Debian's `chromium` package) and point QA at it with
+`QA_CHROMIUM_PATH=/path/to/chromium`. Without a browser, QA reports
+"QA skipped: Chromium is not installed" and the task still completes (unless
+`ORCHESTRATOR_QA_REQUIRED=1`).
 
 ## Tests
 

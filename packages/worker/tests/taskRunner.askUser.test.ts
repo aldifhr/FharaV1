@@ -8,6 +8,7 @@ import type {
   WorkerApi,
   WorkerTask,
 } from "@/workerApi";
+import { withApiDefaults } from "./helpers/fakeApi";
 
 /**
  * Plan 013 step 4: the engine's `ask_user` outcome pauses the task in
@@ -185,7 +186,7 @@ function createDeps() {
   };
   return {
     deps: {
-      api: api as unknown as WorkerApi,
+      api: withApiDefaults(api) as unknown as WorkerApi,
       workerId: "test-worker",
       policy,
       workspaceRoot: workspace,

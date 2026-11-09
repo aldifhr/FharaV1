@@ -117,6 +117,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
       else opts.signal.addEventListener("abort", onExternalAbort, { once: true });
     }
     let response: Response;
+    let responseBody: string;
+    // The timeout and the caller's abort cover the WHOLE request,
+    // including reading the body (core M16): a stalled body no longer
+    // hangs until the subtask timeout, and a task cancel is observed.
     try {
       response = await fetch(`${this.baseUrl.replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
@@ -127,8 +131,12 @@ export class OpenAICompatibleProvider implements LLMProvider {
         body: JSON.stringify({ model: model ?? this.model, messages, max_tokens: 4096 }),
         signal: controller.signal,
       });
+      responseBody = await response.text();
     } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
+      if (
+        (error instanceof DOMException && error.name === "AbortError") ||
+        (controller.signal.aborted && error instanceof Error && error.name === "AbortError")
+      ) {
         if (opts?.signal?.aborted) {
           throw new Error(`LLM request aborted by caller at ${this.baseUrl}/chat/completions`);
         }
@@ -139,7 +147,6 @@ export class OpenAICompatibleProvider implements LLMProvider {
       clearTimeout(timeout);
       opts?.signal?.removeEventListener("abort", onExternalAbort);
     }
-    const responseBody = await response.text();
     if (!response.ok) {
       const details = responseBody.trim().slice(0, 500);
       throw new Error(

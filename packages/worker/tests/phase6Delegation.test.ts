@@ -52,6 +52,7 @@ vi.mock("../src/execution/agentExecutor", () => ({
 }));
 
 import { processTask } from "@/services/taskRunner";
+import { withApiDefaults } from "./helpers/fakeApi";
 
 const BASE_POLICY: ExecutionPolicy = {
   maxSubtasks: 8,
@@ -227,7 +228,7 @@ function createDeps() {
 
   return {
     deps: {
-      api: api as unknown as WorkerApi,
+      api: withApiDefaults(api) as unknown as WorkerApi,
       workerId: "test-worker",
       policy: BASE_POLICY,
       workspaceRoot: workspace,

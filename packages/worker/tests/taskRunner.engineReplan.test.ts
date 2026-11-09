@@ -57,6 +57,7 @@ vi.mock("../src/execution/agentExecutor", () => ({
 }));
 
 import { processTask } from "@/services/taskRunner";
+import { withApiDefaults } from "./helpers/fakeApi";
 
 const IMPLEMENTER = {
   _id: "agent-implementer",
@@ -152,7 +153,7 @@ function createDeps(policyOverrides: Partial<ExecutionPolicy>) {
   };
   return {
     deps: {
-      api: api as unknown as WorkerApi,
+      api: withApiDefaults(api) as unknown as WorkerApi,
       workerId: "test-worker",
       policy,
       workspaceRoot: workspace,

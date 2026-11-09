@@ -4,7 +4,14 @@
  * chatIntent.test.ts.
  */
 
-export type ChatAgent = { _id: string; name: string; role: string; systemPrompt?: string };
+export type ChatAgent = {
+  _id: string;
+  name: string;
+  role: string;
+  systemPrompt?: string;
+  /** Pre-rendered library skills (`## Skill: …` sections), budgeted. */
+  skillsSection?: string;
+};
 
 /** The chat orchestrator: role exactly "cto" (legacy "architect"). */
 export const ORCHESTRATOR_ROLE = /^(cto|architect)$/i;

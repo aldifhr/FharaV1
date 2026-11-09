@@ -324,6 +324,22 @@ export const update = mutation({
 });
 
 /**
+ * Library skills attached to an agent, in prompt order. Replaces the whole
+ * list; unknown ids are rejected, duplicates dropped, empty clears it.
+ */
+export const setSkills = mutation({
+  args: { agentId: v.id("agents"), skillIds: v.array(v.id("skills")) },
+  handler: async (ctx, args) => {
+    await assertAgentAccess(ctx, args.agentId);
+    const ids = Array.from(new Set(args.skillIds));
+    for (const id of ids) {
+      if (!(await ctx.db.get(id))) throw new Error("Skill not found");
+    }
+    await ctx.db.patch(args.agentId, { skillIds: ids.length ? ids : undefined });
+  },
+});
+
+/**
  * OpenCode model ids are `provider/model` (the model part may itself hold
  * slashes, e.g. `openrouter/anthropic/claude`). Empty/null clears it.
  * Exported for tests.

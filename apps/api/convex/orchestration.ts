@@ -3,6 +3,8 @@ import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver";
+import type { PromptSkill } from "./lib/skills";
+import { loadPromptSkills } from "./skills";
 import { decidePermissionCore, permissionArgs } from "./permissionBroker";
 import {
   assertProjectAccess,
@@ -125,7 +127,12 @@ export const getRunContext = internalQuery({
   ): Promise<{
     task: Doc<"tasks">;
     project: Doc<"projects"> | null;
-    agents: Doc<"agents">[];
+    /**
+     * Agent rows (credential fields stripped) plus their attached library
+     * skills, resolved in order. The worker appends them after the static
+     * system prompt (lib/skills.appendSkillsToPrompt).
+     */
+    agents: Array<Doc<"agents"> & { attachedSkills: PromptSkill[] }>;
     plan: Doc<"plans"> | null;
     subtasks: Doc<"subtasks">[];
     /**
@@ -188,7 +195,12 @@ export const getRunContext = internalQuery({
     return {
       task,
       project,
-      agents: agents.map(projectAgentForWorker),
+      agents: await Promise.all(
+        agents.map(async (agent) => ({
+          ...projectAgentForWorker(agent),
+          attachedSkills: await loadPromptSkills(ctx, agent),
+        }))
+      ),
       plan: plans[0] ?? null,
       subtasks,
       executions,

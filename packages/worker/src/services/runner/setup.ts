@@ -23,8 +23,9 @@ import { getMcpRegistry, type McpRunConfig } from "@/mcp/registry";
 import type { WebClientConfig } from "@/tools/webClient";
 import type { NodeOutcome, SchedulerResult } from "@/scheduler/dagScheduler";
 import type { FileDiff } from "@/tools/gitDiff";
+import { appendSkillsToPrompt } from "@/api/convex/lib/skills";
 import type {
-  WorkerAgent,
+  WorkerRunAgent,
   WorkerProject,
   WorkerTask,
 } from "@/workerApi";
@@ -208,12 +209,15 @@ export function slugifyKeyPart(value: string): string {
 }
 
 
-export function toAgentDefinition(agent: WorkerAgent): AgentDefinition {
+export function toAgentDefinition(agent: WorkerRunAgent): AgentDefinition {
   return {
     _id: agent._id,
     name: agent.name,
     role: agent.role,
-    systemPrompt: agent.systemPrompt,
+    // Library skills go AFTER the static system prompt (prefix caching),
+    // budgeted to SKILLS_PROMPT_BUDGET chars. Every execution path (API
+    // messages, OpenCode prompt, curated context) reads this field.
+    systemPrompt: appendSkillsToPrompt(agent.systemPrompt, agent.attachedSkills),
     description: agent.description,
     capabilities: agent.capabilities,
     supportedTools: agent.supportedTools,

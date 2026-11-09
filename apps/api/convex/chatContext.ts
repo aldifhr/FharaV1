@@ -3,6 +3,8 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { loadProviderPool } from "./lib/llmResolver";
 import { activeParticipantRows, selectDefaultChatAgents } from "./conversations";
+import { formatSkillsSection } from "./lib/skills";
+import { loadPromptSkills } from "./skills";
 
 /** Drop the `--- File: <path> ---` blocks `attachMentionedFiles` appends so
  *  repeated file context does not accumulate in the chat prompt. */
@@ -241,11 +243,14 @@ export const getContext = internalQuery({
       contextSummary = summaries[0]?.summary;
     }
 
-    const agentShape = (a: Doc<"agents">) => ({
+    // Library skills ride as a separate pre-rendered section so only the
+    // chat persona (not the classifier/chooser snippets) carries them.
+    const agentShape = async (a: Doc<"agents">) => ({
       _id: a._id,
       name: a.name,
       role: a.role,
       systemPrompt: a.systemPrompt,
+      skillsSection: formatSkillsSection(await loadPromptSkills(ctx, a)) || undefined,
     });
 
     // The whole project team — the conversational agent is picked from here,
@@ -262,8 +267,8 @@ export const getContext = internalQuery({
     const llmProviders = await loadProviderPool(ctx);
 
     return {
-      agents: selected.map(agentShape),
-      team: team.map(agentShape),
+      agents: await Promise.all(selected.map(agentShape)),
+      team: await Promise.all(team.map(agentShape)),
       projectName: project.name,
       history,
       contextSummary,

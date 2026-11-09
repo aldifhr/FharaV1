@@ -1,5 +1,5 @@
 import * as fs from "node:fs/promises";
-import type { WorkerAgent, WorkerTask } from "@/workerApi";
+import type { WorkerRunAgent, WorkerTask } from "@/workerApi";
 import type { SubtaskKind } from "@/types";
 import { classifyCommand } from "@/orchestrator/classifier";
 import { policyForComplexity } from "@/orchestrator/policy";
@@ -139,7 +139,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
   // Keep the assignment ORDER (assignees before any other agent serving
   // the same capability) so routing ties go to the assigned implementers.
   const assignedOrder = ((task as { assignedAgentIds?: string[] }).assignedAgentIds ?? []).map(String);
-  const runAgents = (agents as WorkerAgent[])
+  const runAgents = (agents as WorkerRunAgent[])
     .map(toAgentDefinition)
     .map((agent, index) => ({ agent, index }))
     .sort((a, b) => {

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 
 import { useQuery } from "convex/react";
 import {
   Activity,
+  BookOpen,
   Cpu,
   Home,
   Inbox,
@@ -263,6 +264,7 @@ export default function IconRail({
       <span aria-hidden="true" className="my-2 h-px w-6 bg-line max-[979px]:hidden" />
       <RailButton icon={MessagesSquare} label="Chats" href={chatHref} active={inChat} />
       <RailButton icon={Users} label="Team" href={projectId ? `/team?project=${projectId}` : "/team"} active={pathname === "/team"} />
+      <RailButton icon={BookOpen} label="Library" href="/library" active={pathname === "/library"} />
       {projectId && (
         <>
           <RailButton icon={KanbanSquare} label="Board" href={`/chats/${projectId}?tab=tasks`} />

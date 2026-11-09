@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { Dices } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
@@ -24,6 +25,7 @@ type AgentDoc = {
   executionRuntime?: string;
   opencodeModel?: string;
   avatarParams?: unknown;
+  skillIds?: string[];
 };
 
 function avatarArgs(seed: AvatartionAvatar | null) {
@@ -172,6 +174,9 @@ export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onCl
 
 export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: () => void }) {
   const updateAgent = useMutation(api.agents.update);
+  const setAgentSkills = useMutation(api.agents.setSkills);
+  const librarySkills = useQuery(api.skills.list, {});
+  const [skillIds, setSkillIds] = useState<string[]>(agent.skillIds ?? []);
   const llmProviders = useQuery(api.llmProviders.list, {});
   const llmModels = useQuery(api.llmModels.list, {});
   const [agentName, setAgentName] = useState(agent.name);
@@ -225,6 +230,11 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
         opencodeModel: agentOpencodeModel.trim() || null,
         ...avatarArgs(avatarSeed),
       });
+      // Library skills are saved separately so the update payload stays as-is.
+      const before = agent.skillIds ?? [];
+      if (before.length !== skillIds.length || before.some((id, i) => id !== skillIds[i])) {
+        await setAgentSkills({ agentId: agent._id as never, skillIds: skillIds as never });
+      }
       onClose();
     } catch (err) {
       setAgentError(err instanceof Error ? err.message : "Failed to update agent");
@@ -294,6 +304,35 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
             className={`${field} resize-y leading-relaxed`}
           />
         </label>
+
+        <fieldset className="grid gap-2">
+          <legend className="mb-1.5 flex w-full justify-between text-[12.5px] text-ink-3">
+            Skills
+            <Link href="/library" className="text-ink-3 underline-offset-2 hover:text-ink hover:underline">Library</Link>
+          </legend>
+          {librarySkills === undefined ? (
+            <p className={hint}>Loading…</p>
+          ) : librarySkills.length === 0 ? (
+            <p className={hint}>No skills in the library yet.</p>
+          ) : (
+            <div className="grid max-h-40 gap-1.5 overflow-y-auto rounded-lg border border-line p-3">
+              {librarySkills.map((skill: any) => (
+                <label key={skill._id} className="flex min-w-0 cursor-pointer items-center gap-2 text-[13px] text-ink">
+                  <input
+                    type="checkbox"
+                    checked={skillIds.includes(skill._id)}
+                    onChange={() =>
+                      setSkillIds((prev) => (prev.includes(skill._id) ? prev.filter((id) => id !== skill._id) : [...prev, skill._id]))
+                    }
+                    className="accent-current"
+                  />
+                  <span className="truncate">{skill.name}</span>
+                  {skill.description && <span className="truncate text-ink-3">· {skill.description}</span>}
+                </label>
+              ))}
+            </div>
+          )}
+        </fieldset>
 
         <details className="group rounded-lg border border-line">
           <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[13px] text-ink-2 [&::-webkit-details-marker]:hidden">

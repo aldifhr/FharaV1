@@ -2,11 +2,14 @@ import type { ConvexHttpClient } from "convex/browser";
 import { api } from "@/api/convex/_generated/api";
 import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
 import type { Doc } from "@/api/convex/_generated/dataModel";
+import type { PromptSkill } from "@/api/convex/lib/skills";
 
 /** Convex document shapes returned by the worker API. */
 export type WorkerTask = Doc<"tasks">;
 export type WorkerProject = Doc<"projects">;
 export type WorkerAgent = Doc<"agents">;
+/** Agent row as getRunContext delivers it: plus its attached library skills. */
+export type WorkerRunAgent = WorkerAgent & { attachedSkills?: PromptSkill[] };
 export type WorkerPlanRecord = Doc<"plans">;
 export type WorkerSubtask = Doc<"subtasks">;
 export type WorkerFileChange = Doc<"fileChanges">;

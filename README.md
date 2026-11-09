@@ -201,6 +201,23 @@ a temporary config; the key travels only in the child process env
 (`MOAGENT_OPENCODE_API_KEY`). Each run is killed after
 `ORCHESTRATOR_NATIVE_TIMEOUT_MS`.
 
+## Skills library
+
+`/library` holds reusable agent skills: short markdown instructions you attach
+to agents (from the library's "Used by" list or the Skills section of the
+agent form). When an agent runs, in a chat reply or a task subtask, each
+attached skill is appended after its system prompt as
+`## Skill: <name>`. The total is capped at 12,000 characters. Skills that
+don't fit get truncated, and later ones are dropped.
+
+To add the three starter skills (Conventional commits, Accessible UI
+checklist, Write tests first), use the empty-state button on `/library`, or run:
+
+```bash
+cd apps/api
+npx convex run skills:seedDefaults   # only seeds an empty library; idempotent
+```
+
 ## GitHub push and draft PRs
 
 1. Create a GitHub OAuth app with the callback

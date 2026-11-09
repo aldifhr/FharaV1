@@ -151,6 +151,9 @@ export default defineSchema({
     // Set once when syncFixedTeam retires a removed role; a later manual
     // re-enable is respected because retired rows are never re-disabled.
     retiredAt: v.optional(v.number()),
+    // Library skills attached to this agent (skills table). Distinct from
+    // the legacy `skills: string[]` capability tags above.
+    skillIds: v.optional(v.array(v.id("skills"))),
   }).index("by_enabled", ["isEnabled"]),
 
   tasks: defineTable({
@@ -810,4 +813,15 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_agent", ["agentId"])
     .index("by_project_and_agent", ["projectId", "agentId"]),
+
+  // Library: reusable agent skills (markdown instructions). Attached to
+  // agents via `agents.skillIds` and appended to their prompt at run time.
+  skills: defineTable({
+    name: v.string(),
+    description: v.string(),
+    instructions: v.string(),
+    tags: v.optional(v.array(v.string())),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_name", ["name"]),
 });

@@ -103,6 +103,10 @@ const PERMANENT_SUBTASK_ERROR_PATTERNS: readonly RegExp[] = [
   /unparseable/i,
   /invalid json/i,
   /failed to parse [^.]*json/i,
+  // A failed QA verdict on unchanged code: the QA loop owns the fix round;
+  // a blind retry only re-ran the same browser check (two identical
+  // "QA verdict: failed" messages on different ports).
+  /^QA failed: .*Framework error overlay is visible/,
   // Plan validation failures (planValidator messages)
   /^plan\.(goal|subtasks) /i,
   /plan has \d+ subtasks; limit is/i,

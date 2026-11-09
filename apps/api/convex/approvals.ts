@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { assertProjectAccess, canViewProject, getViewerId, getVisibleTask } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
 import { onPlanApproved, onPlanRejected } from "./planReview";
+import { scheduleDecisionEvaluation } from "./lib/calibration/store";
 
 export const listPendingAll = query({
   args: {},
@@ -72,6 +73,8 @@ export const reject = mutation({
     await ctx.db.patch(args.approvalId, { status: "rejected", resolvedAt: now });
     // Plan Inspector: a rejected plan ends its task as rejected.
     if (approval.kind === "plan") await onPlanRejected(ctx, approval);
+    // Decision Outcome Calibration: a human rejection is an outcome signal.
+    await scheduleDecisionEvaluation(ctx, approval.taskId);
     await ctx.db.insert("taskEvents", {
       taskId: approval.taskId,
       projectId: approval.projectId,

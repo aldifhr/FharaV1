@@ -167,5 +167,21 @@ describe("buildPlanEstimate (worker wiring)", () => {
     // maxConcurrency 1: the high end is at least the serial sum.
     const serial = estimate.perSubtask.reduce((sum, s) => sum + s.durationMs.high, 0);
     expect(estimate.durationMs.high).toBe(serial);
+
+    // Decision Outcome Calibration: the project's per-role × complexity
+    // multiplier reaches the routed role only.
+    const calibrated = buildPlanEstimate({
+      plan,
+      agents,
+      samples: [],
+      expectedModel: () => null,
+      now: 1,
+      multipliers: [{ role: "frontend", complexity: "high", tokens: 2 }],
+      complexity: "high",
+    });
+    const plain = buildPlanEstimate({ plan, agents, samples: [], expectedModel: () => null, now: 1 });
+    expect(calibrated.perSubtask[0].inputTokens).toBe(plain.perSubtask[0].inputTokens * 2);
+    expect(calibrated.perSubtask[1].inputTokens).toBe(plain.perSubtask[1].inputTokens);
+    expect(calibrated.calibrated).toBe(true);
   });
 });

@@ -157,6 +157,8 @@ async function estimateFor(pctx: PlanningContext, plan: ExecutionPlan) {
     plan,
     agents: pctx.agents,
     llmResolver: pctx.llmResolver,
+    multipliers: pctx.project.estimatorMultipliers,
+    complexity: pctx.classification.complexity ?? null,
   });
 }
 

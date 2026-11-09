@@ -436,6 +436,8 @@ export const editPlan = mutation({
       subtasks: subtasks.map((s) => ({ key: s.key, kind: s.kind, role: roles.get(s.key) ?? null, dependencies: s.dependencies })),
       samples: await loadEstimateSamples(ctx, task.projectId),
       models: (previous?.models ?? {}) as Record<string, EstimateModel>,
+      multipliers: (await ctx.db.get(task.projectId))?.estimatorMultipliers,
+      complexity: previous?.complexity ?? null,
       maxConcurrency: typeof (result.plan as { maxConcurrency?: unknown }).maxConcurrency === "number"
         ? ((result.plan as { maxConcurrency: number }).maxConcurrency)
         : undefined,

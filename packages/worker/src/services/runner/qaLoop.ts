@@ -298,6 +298,16 @@ export async function runQaLoop(ctx: RunContext): Promise<boolean> {
         return false;
       }
       if (iteration >= maxIterations) {
+        // Decision Outcome Calibration: the loop's stop decision.
+        await Promise.resolve(
+          deps.api.logEvent({
+            taskId,
+            projectId: project._id,
+            type: "qa.loop_stopped",
+            payload: { iteration, maxIterations, findings: findings.length, reason: "max_iterations" },
+            level: "warn",
+          })
+        ).catch(() => undefined);
         state.feedback.push(
           `QA still failing after ${maxIterations} fix attempt(s): ${findings
             .map((finding) => finding.description)

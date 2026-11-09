@@ -4,6 +4,7 @@ import { routeCapability } from "@/orchestrator/capabilities";
 import type { TaskLlmResolver } from "@/llm/resolver";
 import {
   estimatePlan,
+  type EstimateMultiplier,
   type EstimateModel,
   type EstimateSample,
   type PlanEstimate,
@@ -30,6 +31,9 @@ export function buildPlanEstimate(input: {
   expectedModel: (agent: AgentDefinition) => EstimateModel | null;
   allowFallback?: boolean;
   now: number;
+  /** Decision Outcome Calibration: the project's estimator multipliers and the task complexity. */
+  multipliers?: EstimateMultiplier[];
+  complexity?: string | null;
 }): PlanEstimate {
   const models: Record<string, EstimateModel | undefined> = {};
   const subtasks = input.plan.subtasks.map((subtask) => {
@@ -44,6 +48,8 @@ export function buildPlanEstimate(input: {
     models,
     maxConcurrency: input.plan.maxConcurrency,
     now: input.now,
+    multipliers: input.multipliers,
+    complexity: input.complexity ?? null,
   });
 }
 
@@ -59,6 +65,8 @@ export async function computePlanEstimate(input: {
   plan: ExecutionPlan;
   agents: AgentDefinition[];
   llmResolver: TaskLlmResolver;
+  multipliers?: EstimateMultiplier[];
+  complexity?: string | null;
 }): Promise<PlanEstimate | null> {
   const { deps } = input;
   try {
@@ -75,6 +83,8 @@ export async function computePlanEstimate(input: {
       expectedModel: (agent) => input.llmResolver.expectedModelFor?.(agent) ?? null,
       allowFallback: deps.policy.allowFallback,
       now: Date.now(),
+      multipliers: input.multipliers,
+      complexity: input.complexity ?? null,
     });
   } catch (error) {
     await deps.api

@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
+import { scheduleDecisionEvaluation } from "./lib/calibration/store";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   assertProjectAccess,
@@ -295,6 +296,8 @@ export const cancel = mutation({
     // approvals would otherwise stay actionable in the inbox, and running
     // executions would read "running" until their lease lapsed and then
     // "Worker lease expired".
+    // Decision Outcome Calibration: a cancelled run's decisions get labels.
+    await scheduleDecisionEvaluation(ctx, task._id);
     const cancelledApprovals = await closeApprovals(ctx, task._id, ["pending"], "task_cancelled", now);
     const affectedAgents = new Set<Id<"agents">>();
     let cancelledExecutions = 0;

@@ -2,6 +2,11 @@ import { internalMutation, internalQuery, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
+import {
+  recordDecisionForEvent,
+  recordDecisionForEventId,
+  scheduleDecisionEvaluation,
+} from "./lib/calibration/store";
 import { openIncident } from "./lib/incidents";
 import { scheduleShadowReview } from "./lib/reviewer/shadowSchedule";
 import { subtaskContractFields } from "./lib/contractValidators";
@@ -1680,6 +1685,8 @@ export const completeTask = internalMutation({
       if (args.status === "failed") {
         await openIncident(ctx, { taskId: task._id, trigger: "task_failed", error: args.errorMessage });
       }
+      // Decision Outcome Calibration: label this run's decisions (scheduled).
+      if (TERMINAL_TASK_STATUSES.has(args.status)) await scheduleDecisionEvaluation(ctx, task._id);
     }
     return { applied: true, status: args.status };
   },
@@ -1822,6 +1829,10 @@ export const updateSubtask = internalMutation({
     // Scheduled, never awaited: it cannot block or change the run.
     if (nextStatus === "completed" && subtask.status !== "completed") {
       await scheduleShadowReview(ctx, args.taskId, args.key);
+    }
+    // Decision Outcome Calibration: provisional labels once a node ends.
+    if ((nextStatus === "completed" || nextStatus === "failed") && nextStatus !== subtask.status) {
+      await scheduleDecisionEvaluation(ctx, args.taskId);
     }
     return true;
   },
@@ -2031,10 +2042,12 @@ export const logEvent = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    await ctx.db.insert("taskEvents", {
+    const eventId = await ctx.db.insert("taskEvents", {
       ...args,
       createdAt: now,
     });
+    // Decision Outcome Calibration: the decision this event records, if any.
+    await recordDecisionForEvent(ctx, { _id: eventId, ...args, createdAt: now });
     // Plan 025: the typed execution observations this event carries.
     await recordObservationsForEvent(ctx, args.taskId, args.projectId, {
       type: args.type,
@@ -2666,13 +2679,14 @@ export const recordDelegation = internalMutation({
   },
   handler: async (ctx, args) => {
     const id = await ctx.db.insert("delegations", { ...args, createdAt: Date.now() });
-    await ctx.db.insert("taskEvents", {
+    const eventId = await ctx.db.insert("taskEvents", {
       taskId: args.taskId,
       projectId: args.projectId,
       type: "orchestrator.delegation",
       payload: { decision: args.decision, reason: args.reason ?? null, capability: args.capability ?? null },
       level: args.decision === "BLOCKED" ? "warn" : "info",
     });
+    await recordDecisionForEventId(ctx, eventId);
     return id;
   },
 });

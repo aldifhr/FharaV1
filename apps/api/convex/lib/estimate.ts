@@ -45,6 +45,37 @@ export interface EstimateModel {
 
 export type EstimateSource = "role" | "kind" | "default";
 
+/**
+ * Decision Outcome Calibration: a per-role (optionally per complexity)
+ * correction the user applied from /calibration. Unset = 1.
+ */
+export interface EstimateMultiplier {
+  role: string;
+  complexity?: string;
+  tokens?: number;
+  duration?: number;
+}
+
+/** The multiplier for role × complexity: the exact complexity entry, else the role-wide one, else 1. */
+export function multiplierFor(
+  multipliers: EstimateMultiplier[] | undefined,
+  role: string | null,
+  complexity: string | null | undefined,
+  metric: "tokens" | "duration"
+): number {
+  if (!multipliers || multipliers.length === 0 || !role) return 1;
+  const r = role.trim().toLowerCase().replace(/\s+/g, "-");
+  const c = (complexity ?? "").trim().toLowerCase();
+  const sameRole = multipliers.filter((m) => m.role.trim().toLowerCase().replace(/\s+/g, "-") === r);
+  const exact = c ? sameRole.find((m) => (m.complexity ?? "").trim().toLowerCase() === c) : undefined;
+  const wide = sameRole.find((m) => !m.complexity || m.complexity === "any");
+  for (const entry of [exact, wide]) {
+    const value = entry?.[metric];
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  }
+  return 1;
+}
+
 export interface PlanEstimate {
   version: 1;
   subtaskCount: number;
@@ -71,6 +102,10 @@ export interface PlanEstimate {
     source: EstimateSource;
   }>;
   computedAt: number;
+  /** Task complexity the multipliers were matched against (calibration). */
+  complexity?: string | null;
+  /** True when a calibration multiplier changed some subtask's numbers. */
+  calibrated?: boolean;
 }
 
 /** Fewer matching samples than this and the estimate widens to the next tier. */
@@ -159,7 +194,11 @@ export function estimatePlan(input: {
   models: Record<string, EstimateModel | undefined>;
   maxConcurrency?: number;
   now: number;
+  /** Calibration multipliers (project setting) and the task complexity they match. */
+  multipliers?: EstimateMultiplier[];
+  complexity?: string | null;
 }): PlanEstimate {
+  let calibrated = false;
   const perSubtask: PlanEstimate["perSubtask"] = [];
   const basis = { fromRole: 0, fromKind: 0, fromDefault: 0, samples: input.samples.length };
   const roleNorm = (role: string | null) => (role ?? "").trim().toLowerCase();
@@ -207,6 +246,21 @@ export function estimatePlan(input: {
         mid: base,
         high: Math.round(base * DEFAULT_SPREAD.high),
       };
+    }
+    const tokenFactor = multiplierFor(input.multipliers, role || null, input.complexity, "tokens");
+    const durationFactor = multiplierFor(input.multipliers, role || null, input.complexity, "duration");
+    if (tokenFactor !== 1) {
+      inputTokens = Math.round(inputTokens * tokenFactor);
+      outputTokens = Math.round(outputTokens * tokenFactor);
+      calibrated = true;
+    }
+    if (durationFactor !== 1) {
+      durationMs = {
+        low: Math.round(durationMs.low * durationFactor),
+        mid: Math.round(durationMs.mid * durationFactor),
+        high: Math.round(durationMs.high * durationFactor),
+      };
+      calibrated = true;
     }
     const model = role ? input.models[role] : undefined;
     if (source === "role") basis.fromRole += 1;
@@ -260,6 +314,8 @@ export function estimatePlan(input: {
     basis,
     perSubtask,
     computedAt: input.now,
+    ...(input.complexity ? { complexity: input.complexity } : {}),
+    ...(calibrated ? { calibrated: true } : {}),
   };
 }
 

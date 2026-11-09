@@ -2,6 +2,13 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { permissionModeValidator } from "./lib/permissionModes";
 import {
+  decisionExpectedValidator,
+  decisionOutcomeValidator,
+  decisionTypeValidator,
+  estimatorMultiplierValidator,
+  outcomeLabelValidator,
+} from "./lib/calibration/validators";
+import {
   acceptanceStatusValidator,
   escalationValidator,
   gateResultValidator,
@@ -157,6 +164,10 @@ export default defineSchema({
     loadAwareRouting: v.optional(v.boolean()),
     // Context Snapshot retention in days (additive). Unset = 14.
     contextSnapshotRetentionDays: v.optional(v.number()),
+    // Decision Outcome Calibration (additive): per-role (× complexity)
+    // multipliers the Task Estimator applies. Unset = 1. Changed only by
+    // an explicit, audited Apply on /calibration.
+    estimatorMultipliers: v.optional(v.array(estimatorMultiplierValidator)),
   }).index("by_owner", ["ownerId"]),
 
   agents: defineTable({
@@ -1352,4 +1363,48 @@ export default defineSchema({
     response: v.string(),
     responseTruncatedChars: v.optional(v.number()),
   }).index("by_snapshot", ["snapshotId"]),
+
+  // Decision Outcome Calibration: one row per orchestrator decision,
+  // derived from the event that recorded it (lib/calibration/capture.ts),
+  // and its deterministic outcome once the subtask/task ends.
+  decisions: defineTable({
+    projectId: v.id("projects"),
+    taskId: v.id("tasks"),
+    subtaskKey: v.optional(v.string()),
+    type: decisionTypeValidator,
+    chosen: v.string(),
+    alternatives: v.array(v.string()),
+    reason: v.optional(v.string()),
+    expected: v.optional(decisionExpectedValidator),
+    snapshotId: v.optional(v.id("contextSnapshots")),
+    sourceEventId: v.optional(v.id("taskEvents")),
+    dedupeKey: v.string(),
+    agentId: v.optional(v.id("agents")),
+    agentName: v.optional(v.string()),
+    capability: v.optional(v.string()),
+    role: v.optional(v.string()),
+    planVersion: v.optional(v.number()),
+    meta: v.optional(v.any()),
+    decidedAt: v.number(),
+    outcome: v.optional(decisionOutcomeValidator),
+    label: v.optional(outcomeLabelValidator),
+    backfilled: v.optional(v.boolean()),
+  })
+    .index("by_task", ["taskId", "decidedAt"])
+    .index("by_dedupe", ["dedupeKey"])
+    .index("by_project", ["projectId", "decidedAt"])
+    .index("by_decided", ["decidedAt"]),
+
+  // Apply / Dismiss on a calibration recommendation (audited).
+  calibrationActions: defineTable({
+    projectId: v.optional(v.id("projects")),
+    recId: v.string(),
+    action: v.union(v.literal("applied"), v.literal("dismissed")),
+    title: v.string(),
+    change: v.optional(v.any()),
+    actor: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_rec", ["recId", "createdAt"])
+    .index("by_created", ["createdAt"]),
 });

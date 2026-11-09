@@ -24,6 +24,7 @@ import RunContext from "@/components/context/RunContext";
 import ReplanDiff from "@/components/runs/ReplanDiff";
 import Requirements from "@/components/runs/Requirements";
 import Observations from "@/components/runs/Observations";
+import Decisions from "@/components/runs/Decisions";
 import { MODEL_TIER_LABELS, type ModelTierKey } from "@/api/convex/lib/modelTiers";
 import { formatEstimateLine } from "@/api/convex/lib/estimate";
 import {
@@ -676,6 +677,8 @@ export default function RunTracePage() {
               <Section title="Routing">
                 <RoutingInspector routing={run.routing} instruction={run.task.command} />
               </Section>
+
+              <Decisions taskId={String(run.task._id)} projectId={String(run.task.projectId)} />
 
               <ReplaySession taskId={String(run.task._id)} />
               <RunContext taskId={String(run.task._id)} />

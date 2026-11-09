@@ -7,7 +7,7 @@
 import type { IntentSubtype } from "../chat/intent";
 import { MAX_CTO_HANDOFFS } from "../chat/team";
 
-type Persona = { name: string; role: string; systemPrompt?: string; skillsSection?: string };
+type Persona = { name: string; role: string; systemPrompt?: string; skillsSection?: string; memorySection?: string };
 
 /** Clip user text quoted into a classifier/chooser prompt. */
 function clip500(text: string): string {
@@ -110,6 +110,8 @@ export function buildChatPersonaLines(
     agent.systemPrompt ?? "",
     // Library skills right after the static persona prompt.
     agent.skillsSection ?? "",
+    // Pinned memories after the skills (still ahead of per-turn context).
+    agent.memorySection ?? "",
     repoSnapshot
       ? `Your chat replies are grounded in this repo snapshot (read-only, provided by the host):\n${repoSnapshot}\nYou still cannot run commands or read other files; for anything deeper, ask the user to Create a task.`
       : "",

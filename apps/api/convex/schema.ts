@@ -883,4 +883,24 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_name", ["name"]),
+
+  // Memory: markdown notes agents carry between runs. Pinned rows are
+  // injected as a "## Memory" section after the skills (lib/memory.ts):
+  // shared → project (projectId) → agent (agentId). Unpinned rows are
+  // reference-only for now.
+  memories: defineTable({
+    scope: v.union(v.literal("shared"), v.literal("project"), v.literal("agent")),
+    projectId: v.optional(v.id("projects")),
+    agentId: v.optional(v.id("agents")),
+    title: v.string(),
+    content: v.string(),
+    tags: v.optional(v.array(v.string())),
+    pinned: v.boolean(),
+    source: v.union(v.literal("user"), v.literal("agent")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_scope", ["scope", "pinned"])
+    .index("by_project", ["projectId", "scope"])
+    .index("by_agent", ["agentId"]),
 });

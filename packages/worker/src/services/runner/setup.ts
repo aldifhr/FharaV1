@@ -24,6 +24,7 @@ import type { WebClientConfig } from "@/tools/webClient";
 import type { NodeOutcome, SchedulerResult } from "@/scheduler/dagScheduler";
 import type { FileDiff } from "@/tools/gitDiff";
 import { appendSkillsToPrompt } from "@/api/convex/lib/skills";
+import { appendMemoryToPrompt } from "@/api/convex/lib/memory";
 import type {
   WorkerRunAgent,
   WorkerProject,
@@ -217,7 +218,12 @@ export function toAgentDefinition(agent: WorkerRunAgent): AgentDefinition {
     // Library skills go AFTER the static system prompt (prefix caching),
     // budgeted to SKILLS_PROMPT_BUDGET chars. Every execution path (API
     // messages, OpenCode prompt, curated context) reads this field.
-    systemPrompt: appendSkillsToPrompt(agent.systemPrompt, agent.attachedSkills),
+    // Then the pinned-memory section (shared → project → agent, capped at
+    // MEMORY_PROMPT_BUDGET), still after everything static.
+    systemPrompt: appendMemoryToPrompt(
+      appendSkillsToPrompt(agent.systemPrompt, agent.attachedSkills),
+      agent.memorySection
+    ),
     description: agent.description,
     capabilities: agent.capabilities,
     supportedTools: agent.supportedTools,

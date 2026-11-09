@@ -11,6 +11,8 @@ export type ChatAgent = {
   systemPrompt?: string;
   /** Pre-rendered library skills (`## Skill: …` sections), budgeted. */
   skillsSection?: string;
+  /** Pre-rendered pinned memories (`## Memory`), budgeted; after the skills. */
+  memorySection?: string;
 };
 
 /** The chat orchestrator: role exactly "cto" (legacy "architect"). */

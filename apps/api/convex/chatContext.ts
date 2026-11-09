@@ -5,6 +5,7 @@ import { loadProviderPool } from "./lib/llmResolver";
 import { activeParticipantRows, selectDefaultChatAgents } from "./conversations";
 import { formatSkillsSection } from "./lib/skills";
 import { loadPromptSkills } from "./skills";
+import { loadMemorySection } from "./memories";
 
 /** Drop the `--- File: <path> ---` blocks `attachMentionedFiles` appends so
  *  repeated file context does not accumulate in the chat prompt. */
@@ -251,6 +252,8 @@ export const getContext = internalQuery({
       role: a.role,
       systemPrompt: a.systemPrompt,
       skillsSection: formatSkillsSection(await loadPromptSkills(ctx, a)) || undefined,
+      // Pinned memories for this agent in this project, after the skills.
+      memorySection: (await loadMemorySection(ctx, { projectId: args.projectId, agentId: a._id })) || undefined,
     });
 
     // The whole project team — the conversational agent is picked from here,

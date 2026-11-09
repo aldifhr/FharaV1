@@ -6,6 +6,7 @@ import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver"
 import type { PromptSkill } from "./lib/skills";
 import { loadPromptSkills } from "./skills";
 import { resolveRunMcpServers } from "./mcpServers";
+import { loadMemorySection } from "./memories";
 import { decidePermissionCore, permissionArgs } from "./permissionBroker";
 import {
   assertProjectAccess,
@@ -133,7 +134,7 @@ export const getRunContext = internalQuery({
      * skills, resolved in order. The worker appends them after the static
      * system prompt (lib/skills.appendSkillsToPrompt).
      */
-    agents: Array<Doc<"agents"> & { attachedSkills: PromptSkill[] }>;
+    agents: Array<Doc<"agents"> & { attachedSkills: PromptSkill[]; memorySection?: string }>;
     plan: Doc<"plans"> | null;
     subtasks: Doc<"subtasks">[];
     /**
@@ -194,6 +195,12 @@ export const getRunContext = internalQuery({
         agents.map(async (agent) => ({
           ...projectAgentForWorker(agent),
           attachedSkills: await loadPromptSkills(ctx, agent),
+          // Pinned memories (shared → project → agent), pre-rendered and
+          // capped (lib/memory.ts). The worker appends it after the skills.
+          ...(await (async () => {
+            const section = await loadMemorySection(ctx, { projectId: task.projectId, agentId: agent._id });
+            return section ? { memorySection: section } : {};
+          })()),
         }))
       ),
       plan: plans[0] ?? null,

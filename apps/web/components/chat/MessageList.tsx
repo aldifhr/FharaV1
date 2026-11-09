@@ -1,7 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Copy, MoreHorizontal, PanelRightOpen, Pin, PinOff, Plus } from "lucide-react";
+import { Brain, Copy, MoreHorizontal, PanelRightOpen, Pin, PinOff, Plus } from "lucide-react";
+import { useMutation } from "convex/react";
+import { api } from "@/api/convex/_generated/api";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import { parseOptions } from "@/lib/options";
@@ -256,6 +258,7 @@ export default function MessageList(props: Props) {
         <MessageActions
           inline
           pinned={Boolean(m.pinned)}
+          messageId={m._id}
           content={m.content}
           taskId={blockKey(m) !== "conversation" ? blockKey(m) : undefined}
           onTogglePin={() => togglePin(m._id, !m.pinned)}
@@ -286,6 +289,7 @@ export default function MessageList(props: Props) {
         </div>
         <MessageActions
           pinned={Boolean(m.pinned)}
+          messageId={m._id}
           content={m.content}
           taskId={blockKey(m) !== "conversation" ? blockKey(m) : undefined}
           onTogglePin={() => togglePin(m._id, !m.pinned)}
@@ -495,9 +499,10 @@ export default function MessageList(props: Props) {
   );
 }
 
-/** Hover ⋯ (or long-press on touch) menu for one message: pin, copy, open thread. */
+/** Hover ⋯ (or long-press on touch) menu for one message: pin, copy, remember, open thread. */
 function MessageActions({
   pinned,
+  messageId,
   content,
   taskId,
   onTogglePin,
@@ -506,12 +511,14 @@ function MessageActions({
 }: {
   inline?: boolean;
   pinned: boolean;
+  messageId?: string;
   content: string;
   taskId?: string;
   onTogglePin: () => void;
   onOpenTask: (taskId: string) => void;
 }) {
   const toast = useToast();
+  const rememberMessage = useMutation(api.memories.rememberMessage);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -589,6 +596,24 @@ function MessageActions({
           >
             <Copy size={15} className="text-ink-3" /> Copy text
           </button>
+          {messageId && content?.trim() && (
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              onClick={() => {
+                setOpen(false);
+                // Saved as a pinned project memory: the project's agents get it
+                // in their next prompt. Editable on /memory.
+                rememberMessage({ messageId: messageId as never }).then(
+                  (r) => toast("success", r.created ? "Remembered" : "Already remembered", "Pinned to this project's memory"),
+                  (err) => toast("error", "Couldn't remember", err instanceof Error ? err.message : undefined),
+                );
+              }}
+            >
+              <Brain size={15} className="text-ink-3" /> Remember
+            </button>
+          )}
           {taskId && (
             <button type="button" role="menuitem" className={item} onClick={() => { setOpen(false); onOpenTask(taskId); }}>
               <PanelRightOpen size={15} className="text-ink-3" /> Open task thread

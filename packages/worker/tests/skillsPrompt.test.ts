@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { appendSkillsToPrompt, formatSkillsSection, SKILLS_PROMPT_BUDGET } from "@/api/convex/lib/skills";
 import { toAgentDefinition } from "@/services/runner/setup";
+import { appendMemoryToPrompt } from "@/api/convex/lib/memory";
 
 describe("library skills in the agent prompt", () => {
   it("appends each skill after the static system prompt", () => {
@@ -42,5 +43,27 @@ describe("library skills in the agent prompt", () => {
       attachedSkills: [{ name: "Tests first", instructions: "write a failing test" }],
     } as never);
     expect(def.systemPrompt).toBe("static\n\n## Skill: Tests first\nwrite a failing test");
+  });
+});
+
+describe("memory in the agent prompt", () => {
+  it("toAgentDefinition puts the memory section after the skills", () => {
+    const def = toAgentDefinition({
+      _id: "a1",
+      _creationTime: 0,
+      name: "Frontend",
+      role: "frontend",
+      status: "idle",
+      systemPrompt: "static",
+      attachedSkills: [{ name: "S", instructions: "skill body" }],
+      memorySection: "## Memory\n\n### Note\nremember me",
+    } as never);
+    expect(def.systemPrompt).toBe("static\n\n## Skill: S\nskill body\n\n## Memory\n\n### Note\nremember me");
+  });
+
+  it("memory alone still follows the static prompt; no memory leaves it untouched", () => {
+    expect(appendMemoryToPrompt("static", "## Memory\nx")).toBe("static\n\n## Memory\nx");
+    expect(appendMemoryToPrompt("static", undefined)).toBe("static");
+    expect(appendMemoryToPrompt(undefined, "## Memory\nx")).toBe("## Memory\nx");
   });
 });

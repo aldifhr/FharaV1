@@ -9,6 +9,7 @@ import {
   Activity,
   BarChart3,
   BookOpen,
+  Brain,
   Cpu,
   GitBranch,
   Home,
@@ -269,6 +270,7 @@ export default function IconRail({
       <RailButton icon={MessagesSquare} label="Chats" href={chatHref} active={inChat} />
       <RailButton icon={Users} label="Team" href={projectId ? `/team?project=${projectId}` : "/team"} active={pathname === "/team"} />
       <RailButton icon={BookOpen} label="Library" href="/library" active={pathname === "/library"} />
+      <RailButton icon={Brain} label="Memory" href={projectId ? `/memory?scope=project&project=${projectId}` : "/memory"} active={pathname === "/memory"} />
       <RailButton icon={GitBranch} label="Runs" href={projectId ? `/runs?project=${projectId}` : "/runs"} active={pathname.startsWith("/runs")} />
       {projectId && (
         <>

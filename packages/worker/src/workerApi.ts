@@ -8,8 +8,11 @@ import type { PromptSkill } from "@/api/convex/lib/skills";
 export type WorkerTask = Doc<"tasks">;
 export type WorkerProject = Doc<"projects">;
 export type WorkerAgent = Doc<"agents">;
-/** Agent row as getRunContext delivers it: plus its attached library skills. */
-export type WorkerRunAgent = WorkerAgent & { attachedSkills?: PromptSkill[] };
+/**
+ * Agent row as getRunContext delivers it: plus its attached library skills
+ * and its pre-rendered "## Memory" section (pinned memories, capped).
+ */
+export type WorkerRunAgent = WorkerAgent & { attachedSkills?: PromptSkill[]; memorySection?: string };
 export type WorkerPlanRecord = Doc<"plans">;
 export type WorkerSubtask = Doc<"subtasks">;
 export type WorkerFileChange = Doc<"fileChanges">;

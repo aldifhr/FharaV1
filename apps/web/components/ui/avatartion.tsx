@@ -1,7 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
-
 export interface AvatartionAvatar {
   face: number;
   hair: number;
@@ -21,16 +19,6 @@ const BACKGROUNDS = [
   "#d9eaf7",
   "#e7dcf9",
   "#f9e0ef",
-];
-
-const FALLBACK_COLORS = [
-  "bg-rose-500",
-  "bg-amber-500",
-  "bg-emerald-500",
-  "bg-sky-500",
-  "bg-violet-500",
-  "bg-pink-500",
-  "bg-teal-500",
 ];
 
 function hashName(name: string): number {
@@ -98,19 +86,6 @@ export function deserializeAvatartion(value: unknown): AvatartionAvatar | null {
   };
 }
 
-export function fallbackColor(name: string): string {
-  return FALLBACK_COLORS[hashName(name) % FALLBACK_COLORS.length];
-}
-
-export function initials(name: string): string {
-  return name
-    .split(" ")
-    .map((word) => word[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-}
-
 function Part({
   src,
   className,
@@ -159,8 +134,4 @@ export function AvatartionAvatarView({
       <Part src={`/avatars/parts/facial-hair/FacialHair${pad(avatar.facialHair)}.svg`} />
     </div>
   );
-}
-
-export function useAvatartion(name: string): AvatartionAvatar {
-  return useMemo(() => avatartionFor(name), [name]);
 }

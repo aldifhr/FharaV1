@@ -1,6 +1,6 @@
 "use client";
 import { AvatartionAvatarView, avatartionFor, deserializeAvatartion, type AvatartionAvatar } from "./ui/avatartion";
-import type { AvatarParams } from "@/lib/avatar";
+import type { AvatarParams } from "@/api/convex/lib/avatar";
 
 type Props = {
   name: string;

@@ -6,7 +6,7 @@ export function ShellBackground({ className }: { className?: string }) {
       aria-hidden="true"
       className={cn("pointer-events-none fixed inset-0 -z-10 overflow-hidden", className)}
     >
-      <div className="absolute inset-0 bg-[#f7f7fb] dark:bg-[#06060b]" />
+      <div className="absolute inset-0 bg-canvas" />
     </div>
   );
 }

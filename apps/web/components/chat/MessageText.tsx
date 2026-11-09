@@ -42,7 +42,7 @@ function Strong({ children, className }: { children?: ReactNode; className?: str
     return (
       <span
         data-mention={roleKey ?? text.slice(1).toLowerCase()}
-        className="font-medium text-[#5148e0] dark:text-indigo-300"
+        className="font-medium text-brand-ink"
       >
         {text}
       </span>
@@ -56,16 +56,19 @@ const COMPONENTS = { strong: Strong };
 export default function MessageText({
   content,
   isAnimating = false,
+  size = "md",
 }: {
   content: string;
   isAnimating?: boolean;
+  /** md: chat body (15px); sm: dense contexts like the task thread (14px). */
+  size?: "md" | "sm";
 }) {
   const toast = useToast();
   // Make agent routing explicit in the transcript without changing the
   // persisted message text or mention semantics used by the worker.
   const highlighted = markMentions(content ?? "");
   return (
-    <div className="mt-1 max-w-3xl space-y-2 text-[13px] leading-5 text-[#4c4a55] dark:text-gray-200">
+    <div className={`max-w-3xl space-y-2 text-ink ${size === "md" ? "text-[15px] leading-[1.6]" : "text-[14px] leading-[1.55]"}`}>
       <div className="markdown-body">
         <Streamdown
           mode={isAnimating ? "streaming" : "static"}

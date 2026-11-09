@@ -27,10 +27,12 @@ const COLORS = [
 const DOT: Record<string, string> = {
   working: "bg-emerald-500",
   idle: "bg-gray-300 dark:bg-gray-600",
-  queued: "bg-amber-400",
+  queued: "bg-gray-400",
   needs_you: "bg-orange-500",
+  waiting_on_you: "bg-orange-500",
   reviewing: "bg-blue-500",
-  testing: "bg-teal-500",
+  testing: "bg-blue-500",
+  elsewhere: "bg-blue-500",
   waiting: "bg-orange-500",
 };
 
@@ -44,22 +46,27 @@ export default function InitialAvatar({
   name,
   size = 28,
   status,
+  label,
 }: {
   name: string;
   size?: number;
   status?: "idle" | "working" | "queued" | "needs_you" | "reviewing" | "testing" | "waiting" | string;
+  /** Decorative by default; pass a label when the avatar stands alone. */
+  label?: string;
 }) {
   const initial = (name.trim().charAt(0) || "•").toUpperCase();
   return (
     <span
-      aria-hidden="true"
-      className={`relative inline-flex shrink-0 items-center justify-center rounded-full font-bold ${colorForName(name)}`}
-      style={{ width: size, height: size, fontSize: size * 0.42 }}
+      aria-hidden={label ? undefined : true}
+      aria-label={label}
+      role={label ? "img" : undefined}
+      className={`relative inline-flex shrink-0 items-center justify-center rounded-full font-semibold ${colorForName(name)}`}
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
     >
       {initial}
       {status && (
         <span
-          className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white dark:ring-gray-900 ${DOT[status] ?? "bg-gray-400"}`}
+          className={`absolute -bottom-px -right-px h-2 w-2 rounded-full ring-2 ring-panel ${DOT[status] ?? "bg-gray-400"}`}
         />
       )}
     </span>

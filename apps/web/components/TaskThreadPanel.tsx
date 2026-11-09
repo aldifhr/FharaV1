@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { api } from "@/api/convex/_generated/api";
 import MessageText from "./chat/MessageText";
 import { roleLabel } from "@/lib/agentRoles";
-import { TASK_STATUS_PILL, NEUTRAL_PILL, subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
+import { subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
 import ApprovalCard from "./ApprovalCard";
 import DiffCard from "./DiffCard";
 import InitialAvatar from "./InitialAvatar";
@@ -14,10 +14,12 @@ import ReviewSnippet from "./chat/cards/ReviewSnippet";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
 import { Skeleton } from "@/app/WorkspaceContext";
-import { ArrowLeft, Check, ChevronLeft, Loader2 as SendLoader, RotateCcw, Send, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, AtSign, Check, ChevronLeft, Loader2 as SendLoader, Minimize2, Paperclip, RotateCcw, SendHorizontal, X } from "lucide-react";
 
 const MIN_WIDTH = 280;
-const MAX_WIDTH = 640;
+const MAX_WIDTH = 720;
+const DEFAULT_WIDTH = 390;
+const WIDE_WIDTH = 640;
 const KEYBOARD_STEP = 16;
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
@@ -74,6 +76,8 @@ export default function TaskThreadPanel({
   const [alsoSendToChat, setAlsoSendToChat] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const replyRef = useRef<HTMLTextAreaElement>(null);
 
   const startResize = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
@@ -126,14 +130,14 @@ export default function TaskThreadPanel({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0, transition: { duration: 0.15 } }}
         transition={{ duration: 0.2, ease: "easeOut" }}
-        className="flex h-full w-11 shrink-0 items-start justify-center border-l border-[#ebe9f0] bg-white/80 pt-3 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80"
+        className="flex h-full w-11 shrink-0 items-start justify-center border-l border-line bg-panel pt-4"
       >
         <button
           type="button"
           onClick={onToggle}
           title="Expand task thread"
           aria-label="Expand task thread"
-          className="rounded-lg p-1.5 text-gray-500 outline-none hover:bg-gray-100 hover:text-gray-800 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+          className="rounded-lg p-1.5 text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
         >
           <ChevronLeft size={17} />
         </button>
@@ -142,18 +146,32 @@ export default function TaskThreadPanel({
   }
 
   const shellClass = fullScreen
-    ? "relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-white dark:bg-gray-950"
-    : "relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-[#ebe9f0] bg-white/90 shadow-[-8px_0_24px_rgba(40,35,80,0.04)] backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80";
+    ? "relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-panel text-ink"
+    : "relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-line bg-panel text-ink";
 
   const closeButton = fullScreen ? (
-    <button type="button" onClick={onClose} aria-label="Back to chat" className="-ml-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-600 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-300 dark:hover:bg-gray-800">
+    <button type="button" onClick={onClose} aria-label="Back to chat" className="-ml-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40">
       <ArrowLeft size={18} />
     </button>
   ) : null;
+  const wide = panelWidth >= WIDE_WIDTH - 20;
+  const headerBtn =
+    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40";
   const xButton = !fullScreen ? (
-    <button type="button" onClick={onClose} title="Close task thread" aria-label="Close task thread" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-500 outline-none hover:bg-gray-100 hover:text-gray-800 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200">
-      <X size={16} />
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => onPanelWidthChange(wide ? DEFAULT_WIDTH : WIDE_WIDTH)}
+        title={wide ? "Narrow the thread" : "Widen the thread"}
+        aria-label={wide ? "Narrow the thread" : "Widen the thread"}
+        className={headerBtn}
+      >
+        {wide ? <Minimize2 size={15} /> : <ArrowUpRight size={16} />}
+      </button>
+      <button type="button" onClick={onClose} title="Close task thread" aria-label="Close task thread" className={headerBtn}>
+        <X size={17} />
+      </button>
+    </>
   ) : null;
 
   const resizeHandle = !fullScreen ? (
@@ -170,14 +188,14 @@ export default function TaskThreadPanel({
         if (e.key === "ArrowLeft") { e.preventDefault(); onPanelWidthChange(Math.min(MAX_WIDTH, panelWidth + KEYBOARD_STEP)); }
         if (e.key === "ArrowRight") { e.preventDefault(); onPanelWidthChange(Math.max(MIN_WIDTH, panelWidth - KEYBOARD_STEP)); }
       }}
-      className="group absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none outline-none hover:bg-[#635bff]/30 focus-visible:bg-[#635bff]/40 active:bg-[#635bff]/50"
+      className="group absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none outline-none hover:bg-brand/25 focus-visible:bg-brand/40 active:bg-brand/50"
       title="Drag to resize"
     >
       <div className="absolute left-0 top-1/2 h-8 w-0.5 -translate-y-1/2 rounded-full bg-gray-300 opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-600" />
     </div>
   ) : null;
 
-  const asideStyle = fullScreen ? undefined : { width: panelWidth, marginLeft: 6 };
+  const asideStyle = fullScreen ? undefined : { width: panelWidth };
 
   // Loading / deleted states (previously both read "Queued" forever).
   if (task === undefined || task === null) {
@@ -185,7 +203,7 @@ export default function TaskThreadPanel({
       <div className={shellClass}>
         {resizeHandle}
         <aside style={asideStyle} className="flex h-full min-h-0 flex-col">
-          <header className="flex min-h-[60px] items-center gap-2 border-b border-[#ebe9f0] px-4 py-3 dark:border-gray-800">
+          <header className="flex min-h-[64px] items-center gap-2 border-b border-line px-5 py-3">
             {closeButton}
             <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">{task === null ? "Task not found" : "Loading task…"}</h2>
             {xButton}
@@ -197,7 +215,7 @@ export default function TaskThreadPanel({
               <Skeleton className="h-3 w-2/5" />
             </div>
           ) : (
-            <p className="p-4 text-sm text-gray-600 dark:text-gray-300">This task was deleted or is no longer available.</p>
+            <p className="p-5 text-[14px] text-ink-2">This task was deleted or is no longer available.</p>
           )}
         </aside>
       </div>
@@ -208,19 +226,35 @@ export default function TaskThreadPanel({
   // tool.completed events exist (verification is disabled in dev).
   const checks = (agentEvents ?? []).filter((e: any) => e.type === "tool.completed");
   const taskStatus = (task as any).status as string;
+  const busy = sendingReply || steering;
   const threadOptions: string[] = Array.isArray((task as any).pendingOptions) ? (task as any).pendingOptions : [];
   const subtasks: any[] = [...((execution as any)?.subtasks ?? [])].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
 
-  const submitReply = async () => {
+  // Every reply lands in the thread (so the user sees it went through); a
+  // running task is also steered, a waiting one is answered. "Also send to
+  // chat" mirrors the reply into the project chat.
+  const submit = async () => {
     const text = reply.trim();
-    if (!text) return;
-    setSendingReply(true);
+    if (!text || busy) return;
+    const steer = taskStatus === "running";
+    const answer = taskStatus === "waiting_input";
+    if (steer) setSteering(true);
+    else setSendingReply(true);
     try {
+      if (answer) {
+        const res = await answerQuestion({ taskId: task._id as any, answer: text });
+        if (!res.applied) throw new Error("The task is no longer waiting for an answer.");
+      } else if (steer) {
+        const res = await steerTask({ taskId: task._id as any, instruction: text });
+        if (!res.applied) throw new Error("The task is no longer running.");
+      }
       await sendThreadMessage({ projectId: task.projectId, taskId: task._id, content: text, alsoSendToChat });
       setReply("");
+      if (steer) toast("success", "Sent to the running agent");
     } catch (err) {
-      toast("error", "Couldn't send reply", errorText(err));
+      toast("error", answer ? "Couldn't send answer" : steer ? "Couldn't steer the task" : "Couldn't send reply", errorText(err));
     } finally {
+      setSteering(false);
       setSendingReply(false);
     }
   };
@@ -230,6 +264,7 @@ export default function TaskThreadPanel({
     setSendingReply(true);
     try {
       await answerQuestion({ taskId: task._id as any, answer: trimmed });
+      await sendThreadMessage({ projectId: task.projectId, taskId: task._id, content: trimmed, alsoSendToChat });
       setReply("");
     } catch (err) {
       toast("error", "Couldn't send answer", errorText(err));
@@ -237,25 +272,18 @@ export default function TaskThreadPanel({
       setSendingReply(false);
     }
   };
-  const submitSteer = async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    setSteering(true);
-    try {
-      await steerTask({ taskId: task._id as any, instruction: trimmed });
-      setReply("");
-      toast("success", "Sent to the running agent");
-    } catch (err) {
-      toast("error", "Couldn't steer the task", errorText(err));
-    } finally {
-      setSteering(false);
+  const attachFile = async (file: File) => {
+    if (file.size > 200_000) {
+      toast("error", "File too large", "Attach text files up to 200 KB.");
+      return;
     }
-  };
-  const submit = () => {
-    if (sendingReply || steering) return;
-    if (taskStatus === "waiting_input") void submitAnswer(reply);
-    else if (taskStatus === "running") void submitSteer(reply);
-    else void submitReply();
+    const text = await file.text();
+    if (text.includes("\u0000")) {
+      toast("error", "Only text files can be attached", file.name);
+      return;
+    }
+    const ext = file.name.split(".").pop() ?? "";
+    setReply((r) => `${r}${r ? "\n\n" : ""}\`${file.name}\`:\n\`\`\`${ext}\n${text.trimEnd()}\n\`\`\`\n`);
   };
   const doRetry = async () => {
     setRetrying(true);
@@ -297,11 +325,35 @@ export default function TaskThreadPanel({
   const isDelegationHandoff = (m: any) => m.authorType === "agent" && typeof m.content === "string" && /^@[\w-]+\s/.test(m.content);
   // Agent replies plus the user's own replies/steers, so the user can see
   // that what they sent went through.
+  // The task's own command (first user message) is the thread's subject,
+  // not a reply.
+  const commandMessageId = (messages ?? []).find((m: any) => m.authorType === "user")?._id;
   const threadReplies = (messages ?? []).filter(
-    (m: any) => (m.authorType === "agent" && !ctoMessages.includes(m) && !isDelegationHandoff(m)) || m.authorType === "user",
+    (m: any) =>
+      (m.authorType === "agent" && !ctoMessages.includes(m) && !isDelegationHandoff(m)) ||
+      (m.authorType === "user" && m._id !== commandMessageId),
   );
   const replyCount = threadReplies.length;
-  const busy = sendingReply || steering;
+
+  const needsYou = taskStatus === "needs_approval" || taskStatus === "waiting_input" || pendingApprovals.length > 0;
+  const pill = needsYou
+    ? { label: "Needs you", cls: "bg-warn-soft text-warn" }
+    : taskStatus === "running"
+      ? { label: "In progress", cls: "bg-brand-soft text-brand-ink" }
+      : taskStatus === "done"
+        ? { label: "Done", cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" }
+        : taskStatus === "failed" || taskStatus === "rejected"
+          ? { label: taskStatusLabel(taskStatus), cls: "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300" }
+          : { label: taskStatusLabel(taskStatus), cls: "bg-hover text-ink-2" };
+  const placeholder =
+    taskStatus === "waiting_input" ? "Answer to continue the task" : taskStatus === "running" ? "Steer the running task" : "Reply to the thread";
+  const nameRow = (role: string | undefined, at: number, tag?: string) => (
+    <p className="flex items-center gap-2 text-[15px] font-semibold text-ink">
+      {roleLabel(role)}
+      {tag && <span className="rounded-md border border-line px-1.5 py-px text-[12px] font-normal text-ink-2">{tag}</span>}
+      <span className="text-[13px] font-normal text-ink-3">{timeOf(at)}</span>
+    </p>
+  );
 
   return (
     <div className={shellClass}>
@@ -315,43 +367,31 @@ export default function TaskThreadPanel({
         style={asideStyle}
         className="flex h-full min-h-0 flex-col overflow-hidden"
       >
-        <header className="flex min-h-[60px] items-start justify-between gap-2 border-b border-[#ebe9f0] bg-white/50 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] dark:border-gray-800 dark:bg-gray-950/20">
+        <header className="flex min-h-[64px] items-center gap-2 border-b border-line px-5 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
           {closeButton}
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 className="min-w-0 flex-1 truncate text-sm font-semibold leading-5">{(task as any).title}</h2>
-              <span className={`shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold leading-4 ${TASK_STATUS_PILL[taskStatus] ?? NEUTRAL_PILL}`}>
-                {taskStatusLabel(taskStatus)}
-              </span>
-            </div>
-            <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">Task thread · {(project as any)?.name ?? "Workspace"}</p>
+            <h2 className="truncate text-[16px] font-semibold leading-tight text-ink">{(task as any).title}</h2>
+            <p className="mt-0.5 truncate text-[13px] text-ink-3">Task thread · {(project as any)?.name ?? "Workspace"}</p>
           </div>
+          <span className={`shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-[13px] font-medium leading-none ${pill.cls}`}>{pill.label}</span>
           {xButton}
         </header>
 
-        <div className="h-0 min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-[#fcfcfe] p-4 dark:bg-gray-950/40">
+        <div className="shell-scroll h-0 min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-5">
           {(taskStatus === "failed" || taskStatus === "rejected") && (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300">
-              <p className="font-semibold">
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3.5 text-[14px] text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300">
+              <p className="font-medium">
                 {taskStatus === "rejected" ? "Task rejected" : "Task failed"}
                 {(task as any).errorMessage ? `: ${(task as any).errorMessage}` : ""}
               </p>
-              <div className="mt-2 flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={retrying}
-                  onClick={() => void doRetry()}
-                  className="flex items-center gap-1.5 rounded-xl bg-[#635bff] px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm outline-none hover:bg-[#5346d8] focus-visible:ring-2 focus-visible:ring-[#635bff]/50 focus-visible:ring-offset-2 disabled:opacity-50 dark:focus-visible:ring-offset-gray-950"
-                >
-                  <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
-                </button>
-              </div>
-            </div>
-          )}
-          {taskStatus === "running" && (
-            <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-900/60 dark:bg-sky-950/20 dark:text-sky-300">
-              <p className="font-semibold">Task is running</p>
-              <p className="mt-0.5">A reply below steers the in-flight agent: it adjusts its next step without a new task.</p>
+              <button
+                type="button"
+                disabled={retrying}
+                onClick={() => void doRetry()}
+                className="mt-2.5 flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-[13px] font-medium text-white hover:bg-brand-hover disabled:opacity-50"
+              >
+                <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
+              </button>
             </div>
           )}
           {pendingApprovals.map((a: any) => (
@@ -365,29 +405,23 @@ export default function TaskThreadPanel({
             />
           ))}
           {taskStatus === "waiting_input" && (task as any).pendingQuestion && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300">
-              <p className="font-semibold">The team asked you:</p>
-              <p className="mt-1 whitespace-pre-wrap break-words">{(task as any).pendingQuestion}</p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
+            <div className="rounded-xl border border-line bg-panel-2 p-3.5">
+              <p className="text-[13px] font-medium text-warn">The team asked you</p>
+              <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-ink">{(task as any).pendingQuestion}</p>
+              <div className="mt-3 flex flex-wrap gap-1.5">
                 {threadOptions.map((option, index) => (
                   <button
                     key={`${index}-${option}`}
                     type="button"
                     disabled={sendingReply}
                     onClick={() => void submitAnswer(option)}
-                    className="rounded-xl border border-amber-300 bg-white/80 px-3 py-2 text-left text-[13px] font-semibold text-amber-800 outline-none hover:bg-amber-100 focus-visible:ring-2 focus-visible:ring-amber-400/60 disabled:opacity-50 dark:border-amber-800 dark:bg-gray-900 dark:text-amber-300 dark:hover:bg-amber-950/40"
+                    className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-1.5 text-left text-[14px] text-ink outline-none hover:border-brand/40 hover:bg-brand-soft focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
                   >
-                    <span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-200 text-[11px] font-bold text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-                      {String.fromCharCode(65 + index)}
-                    </span>
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-hover text-[11px] font-semibold text-ink-2">{String.fromCharCode(65 + index)}</span>
                     {option}
                   </button>
                 ))}
-                <button
-                  type="button"
-                  onClick={askCancel}
-                  className="rounded-xl border border-amber-300 px-3 py-2 text-[13px] font-semibold text-amber-700 outline-none hover:bg-amber-100 focus-visible:ring-2 focus-visible:ring-amber-400/60 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/40"
-                >
+                <button type="button" onClick={askCancel} className="rounded-lg px-3 py-1.5 text-[14px] text-ink-2 hover:bg-hover hover:text-ink">
                   Cancel task
                 </button>
               </div>
@@ -395,51 +429,38 @@ export default function TaskThreadPanel({
           )}
           {subtasks.length > 0 && (
             <section aria-label="Subtasks">
-              <div className="flex items-center gap-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Subtasks</h3>
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {subtasks.filter((s) => s.status === "completed").length}/{subtasks.length}
-                </span>
-                <span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
+              <div className="flex items-center gap-3 text-[13px] text-ink-3">
+                <span>Subtasks {subtasks.filter((s) => s.status === "completed").length}/{subtasks.length}</span>
+                <span className="h-px flex-1 bg-line" />
               </div>
-              <ul className="mt-2 space-y-1.5">
+              <ul className="mt-2.5 space-y-2">
                 {subtasks.map((s: any) => {
                   const meta = subtaskStatusMeta(s.status);
                   const Icon = meta.icon;
                   const agent = agentById(s.assignedAgentId);
                   return (
-                    <li key={s._id} className="flex items-center gap-2 text-xs">
-                      <Icon size={13} className={`shrink-0 ${meta.cls}${s.status === "running" ? " animate-spin" : ""}`} aria-hidden="true" />
-                      <span className="min-w-0 flex-1 truncate font-medium text-gray-700 dark:text-gray-200">
+                    <li key={s._id} className="flex items-center gap-2.5 text-[14px]">
+                      <Icon size={15} className={`shrink-0 ${meta.cls}${s.status === "running" ? " animate-spin" : ""}`} aria-hidden="true" />
+                      <span className="min-w-0 flex-1 truncate text-ink">
                         {s.title}
-                        {typeof s.reviewRound === "number" && s.reviewRound > 1 ? (
-                          <span className="ml-1 font-normal text-gray-500 dark:text-gray-400">(round {s.reviewRound})</span>
-                        ) : null}
+                        {typeof s.reviewRound === "number" && s.reviewRound > 1 ? <span className="ml-1 text-ink-3">(round {s.reviewRound})</span> : null}
                       </span>
-                      {agent && <span className="shrink-0 text-[11px] text-gray-500 dark:text-gray-400">{roleLabel(agent.role)}</span>}
-                      <span className={`shrink-0 text-[11px] font-semibold ${meta.cls}`}>{meta.label}</span>
+                      {agent && <span className="shrink-0 text-[13px] text-ink-3">{roleLabel(agent.role)}</span>}
+                      <span className={`w-16 shrink-0 text-right text-[13px] ${meta.cls}`}>{meta.label}</span>
                     </li>
                   );
                 })}
               </ul>
             </section>
           )}
-          {/* Diffs render inline under the CTO summary (see ctoMessages).
-              This top section is only the fallback for tasks with no CTO
-              messages at all. */}
           {ctoMessages.length === 0 && fileChanges && fileChanges.length > 0 && (
-            <section>
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">File changes</h3>
-                <span className="font-mono text-[11px] text-gray-500 dark:text-gray-400">
-                  {fileChanges.length} file{fileChanges.length > 1 ? "s" : ""}
-                </span>
-              </div>
-              <div className="mt-2 space-y-2">
-                {fileChanges.map((fc: any) => (
-                  <DiffCard key={fc._id} filePath={fc.filePath} diff={fc.diff} changeType={fc.changeType} oldContent={fc.oldContent} newContent={fc.newContent} />
-                ))}
-              </div>
+            <section className="space-y-2">
+              <p className="text-[13px] text-ink-3">
+                {fileChanges.length} file{fileChanges.length > 1 ? "s" : ""} changed
+              </p>
+              {fileChanges.map((fc: any) => (
+                <DiffCard key={fc._id} filePath={fc.filePath} diff={fc.diff} changeType={fc.changeType} oldContent={fc.oldContent} newContent={fc.newContent} />
+              ))}
             </section>
           )}
           {ctoMessages.map((m: any, index: number) => {
@@ -447,19 +468,13 @@ export default function TaskThreadPanel({
             const isLastCto = index === ctoMessages.length - 1;
             const isReview = !m.card;
             return (
-              <div key={m._id} className="flex gap-2.5">
-                <InitialAvatar name={roleLabel(msgAgent?.role)} size={28} />
+              <div key={m._id} className="flex gap-3">
+                <InitialAvatar name={roleLabel(msgAgent?.role)} size={30} />
                 <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-800 dark:text-neutral-100">
-                    {roleLabel(msgAgent?.role)}
-                    {isReview && (
-                      <span className="rounded-md border border-[#e3e1ea] px-1.5 py-px text-[11px] font-medium text-[#8a8796] dark:border-white/15 dark:text-neutral-400">review</span>
-                    )}
-                    <span className="text-[11px] font-normal text-[#8a8796] dark:text-neutral-400">{timeOf(m._creationTime)}</span>
-                  </p>
-                  {m.content?.trim() ? <MessageText content={m.content} /> : null}
+                  {nameRow(msgAgent?.role, m._creationTime, isReview ? "review" : undefined)}
+                  {m.content?.trim() ? <MessageText content={m.content} size="sm" /> : null}
                   {m.card && (
-                    <div className="mt-2">
+                    <div className="mt-2.5">
                       <ChatCard card={m.card} />
                     </div>
                   )}
@@ -478,36 +493,30 @@ export default function TaskThreadPanel({
             );
           })}
           {replyCount > 0 && (
-            <div className="flex items-center gap-3 pt-1">
-              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{replyCount} {replyCount === 1 ? "reply" : "replies"}</span>
-              <span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
+            <div className="flex items-center gap-3 text-[13px] text-ink-3">
+              <span>
+                {replyCount} {replyCount === 1 ? "reply" : "replies"}
+              </span>
+              <span className="h-px flex-1 bg-line" />
             </div>
           )}
           {threadReplies.map((m: any) => {
-            if (m.authorType === "user") {
-              return (
-                <div key={m._id} className="flex justify-end">
-                  <div className="max-w-[85%] rounded-2xl rounded-br-md bg-[#eeecfb] px-3 py-2 dark:bg-indigo-950/50">
-                    <p className="text-[11px] font-semibold text-[#5147b4] dark:text-indigo-300">
-                      You <span className="ml-1 font-normal text-gray-500 dark:text-gray-400">{timeOf(m._creationTime)}</span>
-                    </p>
-                    <MessageText content={m.content} />
-                  </div>
-                </div>
-              );
-            }
-            const msgAgent = agentById(m.agentId);
+            const isUser = m.authorType === "user";
+            const msgAgent = isUser ? null : agentById(m.agentId);
             return (
-              <div key={m._id} className="flex gap-2.5">
-                <InitialAvatar name={roleLabel(msgAgent?.role)} size={28} />
+              <div key={m._id} className="flex gap-3">
+                <InitialAvatar name={isUser ? "You" : roleLabel(msgAgent?.role)} size={30} />
                 <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-800 dark:text-neutral-100">
-                    {roleLabel(msgAgent?.role)}
-                    <span className="text-[11px] font-normal text-[#8a8796] dark:text-neutral-400">{timeOf(m._creationTime)}</span>
-                  </p>
-                  {m.content?.trim() ? <MessageText content={m.content} /> : null}
+                  {isUser ? (
+                    <p className="flex items-center gap-2 text-[15px] font-semibold text-ink">
+                      You <span className="text-[13px] font-normal text-ink-3">{timeOf(m._creationTime)}</span>
+                    </p>
+                  ) : (
+                    nameRow(msgAgent?.role, m._creationTime)
+                  )}
+                  {m.content?.trim() ? <MessageText content={m.content} size="sm" /> : null}
                   {m.card && (
-                    <div className="mt-2">
+                    <div className="mt-2.5">
                       <ChatCard card={m.card} />
                     </div>
                   )}
@@ -516,76 +525,108 @@ export default function TaskThreadPanel({
             );
           })}
           {checks.length > 0 && (
-            <section className="border-t border-gray-200 pt-3 dark:border-gray-800">
-              <div className="flex items-center gap-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Checks</h3>
-                <span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
+            <section>
+              <div className="flex items-center gap-3 text-[13px] text-ink-3">
+                <span>Checks</span>
+                <span className="h-px flex-1 bg-line" />
               </div>
-              <div className="mt-3 space-y-2">
+              <ul className="mt-2.5 space-y-2">
                 {Array.from(new Map(checks.map((event: any) => [event.payload?.label, event])).values()).map((event: any) => {
                   const passed = event.payload?.status === "passed" || event.payload?.status === "clean";
+                  const failed = event.payload?.status === "failed";
                   return (
-                    <div key={event._id} className="flex items-center gap-2 text-sm">
-                      <span aria-hidden="true" className={passed ? "text-emerald-600" : "text-amber-600"}>{passed ? "✓" : "◔"}</span>
-                      <span className="flex-1">{event.payload?.label ?? "QA check"}</span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">{passed ? "clean" : event.payload?.status ?? "not run"}</span>
-                    </div>
+                    <li key={event._id} className="flex items-center gap-2.5 text-[14px]">
+                      {passed ? (
+                        <Check size={15} className="shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                      ) : failed ? (
+                        <X size={15} className="shrink-0 text-red-600 dark:text-red-400" aria-hidden="true" />
+                      ) : (
+                        <SendLoader size={15} className="shrink-0 animate-spin text-warn" aria-hidden="true" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate text-ink">{event.payload?.label ?? "QA check"}</span>
+                      <span className="shrink-0 text-[13px] text-ink-3">{passed ? "clean" : (event.payload?.status ?? "running")}</span>
+                    </li>
                   );
                 })}
-              </div>
+              </ul>
             </section>
           )}
         </div>
 
         <form
-          className="shrink-0 border-t border-[#ebe9f0] bg-white/80 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80"
+          className="shrink-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2"
           onSubmit={(event) => {
             event.preventDefault();
-            submit();
+            void submit();
           }}
         >
-          <div className="rounded-2xl border border-[#e5e3eb] bg-white px-4 pb-3 pt-3 shadow-sm transition focus-within:border-[#a29ae8] focus-within:ring-2 focus-within:ring-[#e5e1ff] dark:border-gray-700 dark:bg-gray-900 dark:focus-within:border-indigo-400 dark:focus-within:ring-indigo-900">
+          <div className="rounded-2xl border border-line-strong bg-panel transition focus-within:border-brand/50 focus-within:ring-4 focus-within:ring-brand/10">
             <textarea
+              ref={replyRef}
               value={reply}
               onChange={(event) => setReply(event.target.value)}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing || event.keyCode === 229) return;
                 if (event.key === "Enter" && !event.shiftKey) {
+                  const touch = window.matchMedia?.("(hover: none) and (pointer: coarse)").matches;
+                  if (touch) return;
                   event.preventDefault();
-                  submit();
+                  void submit();
                 }
               }}
               rows={2}
-              aria-label={taskStatus === "waiting_input" ? "Answer the team" : taskStatus === "running" ? "Steer the running task" : "Reply to the thread"}
-              placeholder={
-                taskStatus === "waiting_input"
-                  ? "Answer to continue the task…"
-                  : taskStatus === "running"
-                    ? "Steer the running task…"
-                    : "Reply to the thread"
-              }
-              className="w-full resize-none bg-transparent px-0.5 text-base leading-6 text-gray-900 outline-none placeholder:text-gray-400 sm:text-[15px] dark:text-white dark:placeholder:text-gray-500"
+              aria-label={placeholder}
+              placeholder={placeholder}
+              className="block w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-base leading-6 text-ink outline-none placeholder:text-ink-3 sm:text-[15px]"
             />
-            <div className="mt-1 flex items-center gap-2">
-              {taskStatus !== "waiting_input" && taskStatus !== "running" && (
-                <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-                  <input
-                    type="checkbox"
-                    checked={alsoSendToChat}
-                    onChange={(event) => setAlsoSendToChat(event.target.checked)}
-                    className="rounded"
-                  />
-                  Also send to chat
-                </label>
-              )}
-              <span className="ml-auto hidden text-[11px] text-gray-500 sm:block dark:text-gray-400">Enter to send · Shift+Enter for a new line</span>
+            <div className="flex items-center gap-1 px-2 pb-2">
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                aria-label="Attach a text file"
+                title="Attach a text file"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+              >
+                <Paperclip size={16} />
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void attachFile(file);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setReply((r) => `${r}${r && !/\s$/.test(r) ? " " : ""}@`);
+                  requestAnimationFrame(() => replyRef.current?.focus());
+                }}
+                aria-label="Mention a teammate"
+                title="Mention"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+              >
+                <AtSign size={16} />
+              </button>
+              <label className="ml-1 flex cursor-pointer select-none items-center gap-2 text-[13.5px] text-ink-2">
+                <input
+                  type="checkbox"
+                  checked={alsoSendToChat}
+                  onChange={(event) => setAlsoSendToChat(event.target.checked)}
+                  className="h-4 w-4 rounded border-line-strong accent-[var(--shell-brand)]"
+                />
+                Also send to chat
+              </label>
               <button
                 type="submit"
                 disabled={busy || !reply.trim()}
                 aria-label={taskStatus === "waiting_input" ? "Send answer" : taskStatus === "running" ? "Steer task" : "Send reply"}
-                className="ml-auto flex h-9 w-9 items-center justify-center rounded-xl bg-[#635bff] text-white shadow-sm outline-none transition hover:bg-[#5346d8] focus-visible:ring-2 focus-visible:ring-[#635bff]/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 sm:ml-0 sm:h-8 sm:w-8 dark:focus-visible:ring-offset-gray-900"
+                className="ml-auto flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-white shadow-sm outline-none transition hover:bg-brand-hover focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {busy ? <SendLoader size={14} className="animate-spin" /> : <Send size={14} />}
+                {busy ? <SendLoader size={15} className="animate-spin" /> : <SendHorizontal size={16} />}
               </button>
             </div>
           </div>

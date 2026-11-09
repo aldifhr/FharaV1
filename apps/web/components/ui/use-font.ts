@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 export type FontChoice = "geist" | "inter" | "system" | "jetbrains";
 
 const STORAGE_KEY = "moagent-font";
-const DEFAULT_FONT: FontChoice = "geist";
+const DEFAULT_FONT: FontChoice = "inter";
 
 function applyFont(choice: FontChoice) {
   document.documentElement.setAttribute("data-font", choice);

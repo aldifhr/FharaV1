@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import IconRail from "@/components/IconRail";
 import Sidebar from "@/components/Sidebar";
@@ -21,7 +21,26 @@ function WorkspaceShell({
   children: ReactNode;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const taskParam = searchParams.get("task");
   const isDesktop = useMediaQuery(DESKTOP_QUERY, true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      setSidebarCollapsed(localStorage.getItem("moagent-sidebar-collapsed") === "1");
+    } catch {
+      /* storage denied */
+    }
+  }, []);
+  const toggleSidebarCollapsed = () =>
+    setSidebarCollapsed((collapsed) => {
+      try {
+        localStorage.setItem("moagent-sidebar-collapsed", collapsed ? "0" : "1");
+      } catch {
+        /* storage denied */
+      }
+      return !collapsed;
+    });
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [threadCollapsed, setThreadCollapsed] = useState(false);
   const [panelWidth, setPanelWidth] = useState(390);
@@ -76,13 +95,15 @@ function WorkspaceShell({
     }
   };
 
+  // Project switch resets the thread; a `?task=` link (Needs you, Inbox)
+  // opens that task's thread. Parents' effects run after children's, so the
+  // reset and the deep link live in the same effect.
   useEffect(() => {
-    setSelectedTaskId(null);
+    setSelectedTaskId(taskParam);
     setThreadCollapsed(false);
-    setPanelWidth(390);
     setSidebarOpen(false);
     userClosedRef.current = false;
-  }, [projectId]);
+  }, [projectId, taskParam]);
 
   const closeThread = () => { userClosedRef.current = true; setSelectedTaskId(null); };
 
@@ -99,6 +120,8 @@ function WorkspaceShell({
     openAgent,
     deleteTask,
     openSidebar: () => setSidebarOpen(true),
+    sidebarCollapsed: isDesktop && sidebarCollapsed,
+    toggleSidebarCollapsed,
   };
 
   const thread = selectedTaskId ? (
@@ -116,33 +139,36 @@ function WorkspaceShell({
 
   return (
     <WorkspaceProvider value={value}>
-      <div className="flex h-dvh overflow-hidden bg-[#f7f7fb] dark:bg-[#06060b]">
-        <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-transparent max-[979px]:flex-col">
+      <div className="flex h-dvh overflow-hidden bg-panel text-ink">
+        <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden max-[979px]:flex-col">
           <ConfirmDialog
             request={confirmReq}
             pending={confirmPending}
             onCancel={() => setConfirmReq(null)}
             onConfirm={() => confirmReq?.onOk()}
           />
-          <IconRail projectId={projectId} />
-          <Sidebar
-            projectId={projectId}
-            drawerOpen={sidebarOpen}
-            onCloseDrawer={() => setSidebarOpen(false)}
-            onSelectProject={() => setSidebarOpen(false)}
-          />
+          <IconRail projectId={projectId} mobile="hidden" />
+          {!(isDesktop && sidebarCollapsed) && (
+            <Sidebar
+              projectId={projectId}
+              drawerOpen={sidebarOpen}
+              onCloseDrawer={() => setSidebarOpen(false)}
+              onSelectProject={() => setSidebarOpen(false)}
+              onCollapse={toggleSidebarCollapsed}
+            />
+          )}
           {project ? (
             children
           ) : (
             // Child queries assert project access and would throw for a
             // deleted project; render them only once it is known to exist.
-            <main className="min-h-0 min-w-0 flex-1 px-5 py-6" aria-busy="true">
+            <main className="min-h-0 min-w-0 flex-1 bg-panel px-5 py-6" aria-busy="true">
               <SectionLoading />
             </main>
           )}
           {isDesktop ? (
             <motion.div
-              animate={{ width: selectedTaskId ? (threadCollapsed ? 44 : panelWidth + 6) : 0 }}
+              animate={{ width: selectedTaskId ? (threadCollapsed ? 44 : panelWidth) : 0 }}
               transition={{ duration: 0.24, ease: [0.32, 0.72, 0, 1] }}
               className="h-full min-h-0 shrink-0 overflow-hidden"
             >
@@ -157,7 +183,7 @@ function WorkspaceShell({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 24 }}
                   transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
-                  className="fixed inset-0 z-40 flex flex-col bg-white dark:bg-gray-950"
+                  className="fixed inset-0 z-40 flex flex-col bg-panel"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Task thread"

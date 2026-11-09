@@ -135,13 +135,13 @@ export default function TaskBoard({
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Filter tasks…"
           aria-label="Filter tasks"
-          className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-[#635bff]/40 sm:text-sm dark:border-gray-700 dark:bg-gray-800"
+          className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-brand/40 sm:text-sm"
         />
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           aria-label="Filter by status"
-          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-[#635bff]/40 sm:text-sm dark:border-gray-700 dark:bg-gray-800"
+          className="rounded-lg border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-brand/40 sm:text-sm"
         >
           {["all", ...TASK_STATUSES].map((s) => (
             <option key={s} value={s}>
@@ -163,13 +163,13 @@ export default function TaskBoard({
           }}
           placeholder="Create a task manually…"
           aria-label="New task"
-          className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-[#635bff]/40 sm:text-sm dark:border-gray-700 dark:bg-gray-800"
+          className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-brand/40 sm:text-sm"
         />
         <button
           type="button"
           onClick={() => void handleCreate()}
           disabled={creating || !manual.trim()}
-          className="flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white outline-none focus-visible:ring-2 focus-visible:ring-[#635bff]/50 disabled:opacity-50 dark:bg-white dark:text-gray-900"
+          className="flex items-center gap-1 rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white outline-none hover:bg-brand-hover focus-visible:ring-2 focus-visible:ring-brand/50 disabled:opacity-50"
         >
           {creating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
           Create
@@ -179,9 +179,9 @@ export default function TaskBoard({
       {tasks === undefined ? (
         <SectionLoading />
       ) : tasks.length === 0 ? (
-        <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">No tasks yet. Ask the team in Chat, or create one above.</p>
+        <p className="py-8 text-center text-sm text-ink-3">No tasks yet. Ask the team in Chat, or create one above.</p>
       ) : visible.length === 0 ? (
-        <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">No tasks match this filter.</p>
+        <p className="py-8 text-center text-sm text-ink-3">No tasks match this filter.</p>
       ) : null}
 
       {/* Sprint board: agile phases as swimlanes. Each task is indivisible —
@@ -195,10 +195,10 @@ export default function TaskBoard({
           return (
             <section key={phase.key} className="space-y-2">
               <header className="flex items-center gap-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-3">
                   {phase.label}
                 </h3>
-                <span className="text-[11px] text-gray-500 dark:text-gray-400">{inPhase.length}</span>
+                <span className="text-[11px] text-ink-3">{inPhase.length}</span>
               </header>
               {inPhase.map(({ t, subtasks }) => {
         const done = subtasks.filter((s) => s.status === "completed").length;
@@ -217,17 +217,17 @@ export default function TaskBoard({
             layout="position"
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            className={`rounded-xl border bg-white p-3 dark:bg-gray-900 ${
-              selectedTaskId === t._id ? "border-[#6252d8]/60" : "border-gray-200 dark:border-gray-800"
+            className={`rounded-xl border bg-panel p-3 ${
+              selectedTaskId === t._id ? "border-brand/60" : "border-line"
             }`}
           >
             <div className="flex items-start justify-between gap-3">
-              <button type="button" onClick={() => onSelectTask(t._id)} className="min-w-0 flex-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-[#635bff]/40">
-                <p className="truncate text-sm font-medium dark:text-white">{t.title}</p>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+              <button type="button" onClick={() => onSelectTask(t._id)} className="min-w-0 flex-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
+                <p className="truncate text-sm font-medium">{t.title}</p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-3">
                   <span className={`rounded-full px-2 py-0.5 font-semibold ${TASK_STATUS_PILL[t.status] ?? NEUTRAL_PILL}`}>{taskStatusLabel(t.status)}</span>
                   {subtasks.length > 0 && (
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5 font-medium dark:bg-gray-800">
+                    <span className="rounded-full bg-hover px-2 py-0.5 font-medium">
                       {done}/{subtasks.length} subtasks
                     </span>
                   )}
@@ -241,7 +241,7 @@ export default function TaskBoard({
               <div className="flex shrink-0 items-center gap-2">
                 <div className="flex gap-1">
                   {[...assigned.entries()].slice(0, 4).map(([name, id]) => (
-                    <span key={name} title={name} className="flex h-5 w-5 items-center justify-center rounded-full bg-[#eeecfb] text-[9px] font-semibold text-[#4c42a3] dark:bg-gray-800 dark:text-gray-300">
+                    <span key={name} title={name} className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-soft text-[9px] font-semibold text-brand-ink">
                       {name.slice(0, 2).toUpperCase()}
                     </span>
                   ))}
@@ -254,7 +254,7 @@ export default function TaskBoard({
                   onClick={() => setExpanded((prev) => ({ ...prev, [t._id]: !isOpen }))}
                   aria-label={isOpen ? `Collapse ${t.title}` : `Expand ${t.title}`}
                   aria-expanded={isOpen}
-                  className="rounded-md p-1.5 text-gray-500 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-400 dark:hover:bg-gray-800"
+                  className="rounded-md p-1.5 text-ink-3 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
                 >
                   {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                 </button>
@@ -264,7 +264,7 @@ export default function TaskBoard({
                   disabled={t.status === "running"}
                   title={t.status === "running" ? "Running tasks cannot be deleted" : "Delete task"}
                   aria-label={t.status === "running" ? "Running tasks cannot be deleted" : `Delete task ${t.title}`}
-                  className="rounded-md p-1.5 text-gray-500 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-400/50 disabled:opacity-30 dark:text-gray-400 dark:hover:bg-red-950/50"
+                  className="rounded-md p-1.5 text-ink-3 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-400/50 disabled:opacity-30 dark:hover:bg-red-950/50"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -272,15 +272,15 @@ export default function TaskBoard({
             </div>
 
             {isOpen && (
-              <div className="mt-3 space-y-1.5 border-t border-gray-100 pt-3 dark:border-gray-800">
+              <div className="mt-3 space-y-1.5 border-t border-line pt-3">
                 {plan && (
-                  <p className="text-[11px] text-gray-500">
-                    <span className="font-semibold text-gray-600 dark:text-gray-300">Goal:</span> {plan.goal}
-                    <span className="ml-2 text-gray-500 dark:text-gray-400">v{plan.version} · {plan.createdBy}</span>
+                  <p className="text-[11px] text-ink-3">
+                    <span className="font-semibold text-ink-2">Goal:</span> {plan.goal}
+                    <span className="ml-2 text-ink-3">v{plan.version} · {plan.createdBy}</span>
                   </p>
                 )}
                 {subtasks.length === 0 && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400">No subtasks yet.</p>
+                  <p className="text-xs text-ink-3">No subtasks yet.</p>
                 )}
                 {subtasks.map((s: any) => {
                   const meta = subtaskStatusMeta(s.status);
@@ -289,17 +289,17 @@ export default function TaskBoard({
                   return (
                     <div key={s._id} className="flex items-center gap-2 text-xs">
                       <Icon size={13} className={`${meta.cls}${s.status === "running" ? " animate-spin" : ""}`} />
-                      <span className="min-w-0 flex-1 truncate font-medium text-gray-700 dark:text-gray-200">
+                      <span className="min-w-0 flex-1 truncate font-medium text-ink">
                         {s.title}
                         {s.reviewRound && s.reviewRound > 1 ? (
-                          <span className="ml-1 font-normal text-gray-500 dark:text-gray-400">(round {s.reviewRound})</span>
+                          <span className="ml-1 font-normal text-ink-3">(round {s.reviewRound})</span>
                         ) : null}
                       </span>
-                      <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-800">
+                      <span className="shrink-0 rounded bg-hover px-1.5 py-0.5 text-[10px] font-medium text-ink-3">
                         {s.capability}
                       </span>
                       {s.assignedAgentName && (
-                        <span className="flex shrink-0 items-center gap-1 text-[11px] text-gray-500">
+                        <span className="flex shrink-0 items-center gap-1 text-[11px] text-ink-3">
                           {roleLabel(agent?.role)}
                         </span>
                       )}
@@ -321,19 +321,19 @@ export default function TaskBoard({
                         <span
                           className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                             active
-                              ? "bg-[#5147b4] text-white"
+                              ? "bg-brand text-white"
                               : passed
                                 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                                : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                                : "bg-hover text-ink-3"
                           }`}
                         >
                           {phase.label}
                         </span>
-                        {i < PHASES.length - 1 && <span aria-hidden="true" className="text-gray-300 dark:text-gray-600">→</span>}
+                        {i < PHASES.length - 1 && <span aria-hidden="true" className="text-ink-2">→</span>}
                       </span>
                     );
                   })}
-                  {t.sprint && <span className="ml-auto text-[10px] text-gray-400">Sprint {t.sprint}</span>}
+                  {t.sprint && <span className="ml-auto text-[10px] text-ink-3">Sprint {t.sprint}</span>}
                 </div>
               </div>
             )}

@@ -1,28 +1,18 @@
+import Link from "next/link";
 import IconRail from "@/components/IconRail";
 import Sidebar from "@/components/Sidebar";
-import Link from "next/link";
-import { TextGenerateEffect } from "@/components/ui/text-generate-effect";
 
 export default function ChatPage() {
   return (
-    <div className="flex h-screen overflow-hidden bg-transparent text-[#24232d] dark:text-gray-100 max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
+    <div className="flex h-dvh overflow-hidden bg-panel text-ink max-[979px]:h-auto max-[979px]:min-h-dvh max-[979px]:flex-col">
       <IconRail />
       <Sidebar />
-      <main className="relative flex min-w-0 flex-1 items-center justify-center bg-transparent p-6">
-        <div className="relative max-w-md text-center">
-          <TextGenerateEffect
-            duration={0.4}
-            className="text-center text-xl font-semibold leading-snug text-gray-900 dark:text-white"
-            words="Select a project"
-          />
-          <p className="mt-2 text-sm text-gray-500">
-            Choose a project from the sidebar to open its agent chat and tasks.
-          </p>
-          <Link
-            href="/"
-            className="mt-4 inline-block rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
-          >
-            View projects →
+      <main className="flex min-w-0 flex-1 items-center justify-center p-6">
+        <div className="max-w-sm text-center">
+          <h1 className="text-[17px] font-semibold">Pick a project</h1>
+          <p className="mt-1.5 text-[15px] text-ink-2">Choose a project from the sidebar to open its team chat, tasks and files.</p>
+          <Link href="/" className="mt-4 inline-flex h-9 items-center rounded-lg bg-brand px-4 text-[14px] font-medium text-white hover:bg-brand-hover">
+            View overview
           </Link>
         </div>
       </main>

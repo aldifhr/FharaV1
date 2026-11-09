@@ -1,253 +1,341 @@
 "use client";
+
 import Link from "next/link";
-import { Home, Inbox, Lightbulb, MessageSquare, Plus, Settings, Cpu, Search, Share2 } from "lucide-react";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { useQuery } from "convex/react";
-import { motion } from "framer-motion";
+import {
+  Activity,
+  Cpu,
+  Home,
+  Inbox,
+  KanbanSquare,
+  Lightbulb,
+  MessagesSquare,
+  Moon,
+  Plug,
+  Plus,
+  Search,
+  Settings,
+  Share2,
+  Sun,
+  Users,
+} from "lucide-react";
+import { api } from "@/api/convex/_generated/api";
 import { useNewProject } from "./NewProject";
 import { useSettings } from "./Settings";
 import { useLlmSettings } from "./LlmSettings";
-import { api } from "@/api/convex/_generated/api";
+import { useTheme } from "./ui/use-theme";
 import CommandMenu from "./CommandMenu";
-const MENU = [
-  { icon: Home, label: "Home", href: "/" },
-  { icon: Inbox, label: "Inbox", href: "/inbox" },
-  { icon: MessageSquare, label: "Chat", href: "/chats" },
-  { icon: Lightbulb, label: "Ideas", href: "/ideas" },
-];
+import QueryBoundary from "./shell/QueryBoundary";
+import { focusTeam } from "@/lib/shellEvents";
 
-export default function IconRail({
-  onNewProject,
-  projectId,
+type IconType = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
+
+const railBtn =
+  "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40";
+
+/** Rail button with a hover/focus tooltip rendered in a portal (the rail scrolls). */
+function RailButton({
+  icon: Icon,
+  label,
+  href,
+  onClick,
+  active = false,
+  dot = false,
+  buttonRef,
+  expanded,
 }: {
-  onNewProject?: () => void;
-  projectId?: string;
+  icon: IconType;
+  label: string;
+  href?: string;
+  onClick?: () => void;
+  active?: boolean;
+  dot?: boolean;
+  buttonRef?: React.Ref<HTMLButtonElement>;
+  expanded?: boolean;
 }) {
-  const { openNewProject } = useNewProject();
-  const { openSettings } = useSettings();
-  const { openLlmSettings } = useLlmSettings();
-  const pathname = usePathname();
-  const inbox = useQuery(api.inbox.list, {});
-  const inboxCount = inbox ? inbox.approvals.length + inbox.tasks.length + inbox.agents.length : 0;
-  const [commandOpen, setCommandOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [userMenuPos, setUserMenuPos] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
-  const avatarBtnRef = useRef<HTMLButtonElement>(null);
-  const userMenuRef = useRef<HTMLDivElement>(null);
-  const RailBtn = ({ icon: Icon, label, href, active, onClick, count }: any) => {
-    const [tooltip, setTooltip] = useState<{ x: number; y: number } | null>(null);
-
-    const showTooltip = (event: MouseEvent<HTMLElement>) => {
-      const rect = event.currentTarget.getBoundingClientRect();
-      setTooltip({ x: rect.right + 10, y: rect.top + rect.height / 2 });
-    };
-    const hideTooltip = () => setTooltip(null);
-
-    const shared = {
-      title: label,
-      "aria-label": label,
-      onMouseEnter: showTooltip,
-      onMouseMove: showTooltip,
-      onMouseLeave: hideTooltip,
-      "aria-current": active ? ("page" as const) : undefined,
-      className: `group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[#5147b4] outline-none transition focus-visible:ring-2 focus-visible:ring-[#635bff]/50 hover:bg-[#eceaf3] hover:text-[#3d34a0] dark:text-white/65 dark:hover:bg-white/15 dark:hover:text-white ${active ? "bg-[#5147b4] text-white shadow-sm hover:bg-[#5147b4] dark:bg-white/20 dark:hover:bg-white/15" : ""}`,
-    };
-
-    const inner = (
-      <>
-        <Icon size={20} />
-        {count > 0 && (
-          <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
-            {count > 9 ? "9+" : count}
-          </span>
-        )}
-      </>
-    );
-
-    return (
-      <motion.div whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.94 }}>
+  const [tip, setTip] = useState<{ x: number; y: number } | null>(null);
+  const show = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    setTip({ x: r.right + 10, y: r.top + r.height / 2 });
+  };
+  const common = {
+    "aria-label": label,
+    onMouseEnter: (e: React.MouseEvent<HTMLElement>) => show(e.currentTarget),
+    onMouseLeave: () => setTip(null),
+    onFocus: (e: React.FocusEvent<HTMLElement>) => show(e.currentTarget),
+    onBlur: () => setTip(null),
+    className: `${railBtn} ${active ? "bg-brand-soft text-brand-ink hover:bg-brand-soft hover:text-brand-ink" : ""}`,
+  };
+  const inner = (
+    <>
+      <Icon size={19} strokeWidth={1.75} />
+      {dot && <span aria-hidden="true" className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500 ring-2 ring-panel" />}
+    </>
+  );
+  return (
+    <>
       {href ? (
-        <Link href={href} onClick={onClick} {...shared}>
+        <Link href={href} aria-current={active ? "page" : undefined} onClick={onClick} {...common}>
           {inner}
         </Link>
       ) : (
-        <button type="button" onClick={onClick} {...shared}>
+        <button type="button" ref={buttonRef} onClick={onClick} aria-expanded={expanded} {...common}>
           {inner}
         </button>
       )}
-      {tooltip && typeof document !== "undefined" && createPortal(
-        <span
-          className="pointer-events-none fixed z-[70] -translate-y-1/2 whitespace-nowrap rounded-lg bg-gray-900 px-2 py-1 text-xs text-white shadow-lg"
-          style={{ left: tooltip.x, top: tooltip.y }}
-        >
-          {label}
-        </span>,
-        document.body,
-      )}
-      </motion.div>
-    );
-  };
+      {tip &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <span
+            role="tooltip"
+            className="pointer-events-none fixed z-[80] -translate-y-1/2 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-xs font-medium text-white shadow-lg dark:bg-gray-100 dark:text-gray-900"
+            style={{ left: tip.x, top: tip.y }}
+          >
+            {label}
+          </span>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+/** Inbox dot: anything needing the user across projects. */
+function InboxButton({ active }: { active: boolean }) {
+  const needs = useQuery(api.shell.needsYou, {});
+  return <RailButton icon={Inbox} label="Inbox" href="/inbox" active={active} dot={(needs?.total ?? 0) > 0} />;
+}
+
+/** Floating panel anchored to the right of a rail button. */
+function RailPanel({
+  anchor,
+  onClose,
+  children,
+  width = 300,
+}: {
+  anchor: HTMLElement | null;
+  onClose: () => void;
+  children: ReactNode;
+  width?: number;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
+  useEffect(() => {
+    if (!anchor) return;
+    const r = anchor.getBoundingClientRect();
+    const left = Math.min(r.right + 10, window.innerWidth - width - 8);
+    setPos(r.top > window.innerHeight / 2 ? { left, bottom: window.innerHeight - r.bottom } : { left, top: r.top });
+  }, [anchor, width]);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (ref.current?.contains(t) || anchor?.contains(t)) return;
+      onClose();
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onClose);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onClose);
+    };
+  }, [anchor, onClose]);
+  if (!pos || typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      ref={ref}
+      className="fixed z-[70] overflow-hidden rounded-xl border border-line bg-panel text-sm text-ink shadow-[0_16px_40px_-12px_rgba(20,20,40,0.3)]"
+      style={{ ...pos, width }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+const EVENT_LABEL: Record<string, string> = {
+  "task.stage": "Stage",
+  "task.check": "Check",
+  "task.error": "Error",
+  "task.steered": "You steered",
+  "task.input_answered": "You answered",
+  "approval.held": "Approval held",
+};
+
+function eventSummary(e: { type: string; payload?: any }): string {
+  const p = e.payload ?? {};
+  const detail = p.label ?? p.stage ?? p.message ?? p.instruction ?? p.answer ?? p.status ?? "";
+  const label = EVENT_LABEL[e.type] ?? e.type.replace(/^task\./, "").replace(/[._]/g, " ");
+  return detail ? `${label} · ${String(detail).slice(0, 80)}` : label;
+}
+
+function ActivityFeed({ projectId }: { projectId: string }) {
+  const events = useQuery(api.taskEvents.listByProject, { projectId: projectId as never, limit: 20 });
+  const tasks = useQuery(api.tasks.listByProject, { projectId: projectId as never });
+  const title = (id: string) => (tasks ?? []).find((t: any) => t._id === id)?.title;
+  return (
+    <div>
+      <p className="border-b border-line px-3.5 py-2.5 text-[13px] font-semibold">Activity</p>
+      <ul className="shell-scroll max-h-[360px] overflow-y-auto py-1">
+        {events === undefined && <li className="px-3.5 py-3 text-ink-3">Loading…</li>}
+        {events?.length === 0 && <li className="px-3.5 py-3 text-ink-3">No activity yet in this project.</li>}
+        {(events ?? []).map((e: any) => (
+          <li key={e._id} className="px-3.5 py-2">
+            <p className={`truncate text-[13px] ${e.level === "error" ? "text-red-600 dark:text-red-400" : "text-ink"}`}>{eventSummary(e)}</p>
+            <p className="mt-0.5 truncate text-xs text-ink-3">
+              {title(e.taskId) ?? "Task"} · {new Date(e._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export default function IconRail({
+  projectId,
+  mobile = "bar",
+}: {
+  projectId?: string;
+  /** Below 980px: a top bar (standalone pages) or hidden (workspace, which has its own drawer). */
+  mobile?: "bar" | "hidden";
+}) {
+  const pathname = usePathname();
+  const { openNewProject } = useNewProject();
+  const { openSettings } = useSettings();
+  const { openLlmSettings } = useLlmSettings();
+  const { theme, toggleTheme: toggle } = useTheme();
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [panel, setPanel] = useState<"activity" | "user" | null>(null);
+  const activityRef = useRef<HTMLButtonElement>(null);
+  const userRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
+    const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setCommandOpen(true);
       }
     };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  useEffect(() => {
-    if (!userMenuOpen) return;
-    const handlePointerDown = (event: globalThis.MouseEvent) => {
-      const target = event.target as Node;
-      if (avatarBtnRef.current?.contains(target) || userMenuRef.current?.contains(target)) return;
-      setUserMenuOpen(false);
-    };
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setUserMenuOpen(false);
-    };
-    const handleResize = () => setUserMenuOpen(false);
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("resize", handleResize);
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("resize", handleResize);
-    };
-  }, [userMenuOpen]);
-
-  const toggleUserMenu = () => {
-    if (userMenuOpen) {
-      setUserMenuOpen(false);
-      return;
-    }
-    const rect = avatarBtnRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const menuWidth = 220;
-    const isTopBar = rect.top < 80;
-    const left = Math.min(
-      Math.max(8, isTopBar ? rect.right - menuWidth : rect.right + 10),
-      Math.max(8, window.innerWidth - menuWidth - 8)
-    );
-    setUserMenuPos(
-      isTopBar
-        ? { left, top: rect.bottom + 8 }
-        : { left, bottom: window.innerHeight - rect.top + 8 }
-    );
-    setUserMenuOpen(true);
-  };
-
-  const isMenuActive = (href: string) => {
-    if (href === "/") return pathname === "/";
-    // Highlight Chat inside a project too (/chats/<id>).
-    return pathname === href || pathname.startsWith(`${href}/`);
-  };
+  const inChat = pathname.startsWith("/chats");
+  const chatHref = projectId ? `/chats/${projectId}` : "/chats";
 
   return (
-    <nav className="flex h-full w-[64px] shrink-0 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto border-r border-[#e7e5ef] bg-white py-3 pt-9 shadow-[inset_-1px_0_rgba(30,25,60,.04)] dark:border-white/5 dark:bg-[#0e0b20] max-[979px]:h-14 max-[979px]:w-full max-[979px]:flex-row max-[979px]:justify-between max-[979px]:overflow-x-auto max-[979px]:overflow-y-hidden max-[979px]:border-r-0 max-[979px]:border-b max-[979px]:px-3 max-[979px]:pt-3">
+    <nav
+      aria-label="Workspace"
+      className={`shell-scroll flex h-full w-[60px] shrink-0 flex-col items-center gap-1 overflow-y-auto overflow-x-hidden border-r border-line bg-panel py-3 ${
+        mobile === "hidden"
+          ? "max-[979px]:hidden"
+          : "max-[979px]:h-14 max-[979px]:w-full max-[979px]:flex-row max-[979px]:overflow-x-auto max-[979px]:overflow-y-hidden max-[979px]:border-b max-[979px]:border-r-0 max-[979px]:px-3 max-[979px]:py-2"
+      }`}
+    >
       <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} />
-      <div className="flex shrink-0 flex-col items-center gap-2">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#635bff] text-white shadow-sm">
-          <Share2 size={18} />
-        </div>
-        <button
-          onClick={onNewProject ?? openNewProject}
-          title="New project"
-          aria-label="New project"
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e7e5ef] bg-white text-[#5147b4] hover:bg-[#eceaf3] dark:border-white/25 dark:bg-transparent dark:text-white dark:hover:bg-white/15"
-        >
-          <Plus size={18} />
-        </button>
-        <button
-          onClick={() => setCommandOpen(true)}
-          title="Search"
-          aria-label="Search"
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e7e5ef] bg-white text-[#5147b4] hover:bg-[#eceaf3] dark:border-white/25 dark:bg-transparent dark:text-white dark:hover:bg-white/15"
-        >
-          <Search size={18} />
-        </button>
-      </div>
-      <div className="mt-5 flex shrink-0 flex-col gap-1 max-[979px]:mt-0 max-[979px]:flex-row">
-        {MENU.map((m) => (
-          <RailBtn
-            key={m.label}
-            {...m}
-            active={isMenuActive(m.href)}
-            count={m.label === "Inbox" ? inboxCount : 0}
+      <Link
+        href="/"
+        aria-label="MOAgent home"
+        className="mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand text-white shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+      >
+        <Share2 size={18} strokeWidth={2} />
+      </Link>
+      <button
+        type="button"
+        onClick={openNewProject}
+        aria-label="New project"
+        title="New project"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+      >
+        <Plus size={18} strokeWidth={1.75} />
+      </button>
+      <span aria-hidden="true" className="my-2 h-px w-6 bg-line max-[979px]:hidden" />
+      <RailButton icon={Home} label="Home" href="/" active={pathname === "/"} />
+      <QueryBoundary fallback={<RailButton icon={Inbox} label="Inbox" href="/inbox" active={pathname === "/inbox"} />}>
+        <InboxButton active={pathname === "/inbox"} />
+      </QueryBoundary>
+      <RailButton icon={Search} label="Search (⌘K)" onClick={() => setCommandOpen(true)} />
+      <span aria-hidden="true" className="my-2 h-px w-6 bg-line max-[979px]:hidden" />
+      <RailButton icon={MessagesSquare} label="Chats" href={chatHref} active={inChat} />
+      {projectId && (
+        <>
+          <RailButton icon={KanbanSquare} label="Board" href={`/chats/${projectId}?tab=tasks`} />
+          <RailButton icon={Users} label="Team" onClick={focusTeam} />
+          <RailButton
+            icon={Activity}
+            label="Activity"
+            buttonRef={activityRef}
+            expanded={panel === "activity"}
+            onClick={() => setPanel((p) => (p === "activity" ? null : "activity"))}
           />
-        ))}
-      </div>
-      <div className="mt-auto flex shrink-0 flex-col items-center gap-1 pt-2 max-[979px]:mt-0 max-[979px]:flex-row max-[979px]:pt-0">
+        </>
+      )}
+      <div className="mt-auto flex flex-col items-center gap-1 pt-3 max-[979px]:ml-auto max-[979px]:mt-0 max-[979px]:flex-row max-[979px]:pt-0">
+        <RailButton icon={theme === "dark" ? Sun : Moon} label={theme === "dark" ? "Light mode" : "Dark mode"} onClick={toggle} />
+        <RailButton icon={Settings} label="Settings" onClick={openSettings} />
         <button
-          ref={avatarBtnRef}
+          ref={userRef}
           type="button"
-          onClick={toggleUserMenu}
+          onClick={() => setPanel((p) => (p === "user" ? null : "user"))}
           aria-haspopup="menu"
-          aria-expanded={userMenuOpen}
-          aria-label="User account"
-          title="User account"
-          className="mt-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#1e1b2e] text-[11px] font-bold text-white shadow-xs ring-2 ring-white transition hover:opacity-90 dark:ring-gray-900"
+          aria-expanded={panel === "user"}
+          aria-label="Account"
+          className="mt-1 flex h-9 w-9 shrink-0 max-[979px]:hidden items-center justify-center rounded-full bg-hover text-[12px] font-semibold text-ink-2 outline-none ring-1 ring-line transition hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
         >
-          AF
+          OA
         </button>
       </div>
-      {userMenuOpen && userMenuPos && typeof document !== "undefined" && createPortal(
-        <motion.div
-          ref={userMenuRef}
-          role="menu"
-          aria-label="User account"
-          initial={{ opacity: 0, y: 4, scale: 0.97 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.14, ease: "easeOut" }}
-          className="fixed z-[70] w-[220px] rounded-xl border border-[#ebe9f0] bg-white p-1.5 shadow-xl dark:border-gray-800 dark:bg-gray-900"
-          style={{ left: userMenuPos.left, top: userMenuPos.top, bottom: userMenuPos.bottom }}
-        >
-          <div className="flex items-center gap-2.5 px-2 py-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#1e1b2e] text-[11px] font-bold text-white">
-              AF
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-medium">Local user</span>
-              <span className="block truncate text-xs text-gray-500">Single-user workspace</span>
-            </span>
+      {panel === "activity" && projectId && (
+        <RailPanel anchor={activityRef.current} onClose={() => setPanel(null)}>
+          <ActivityFeed projectId={projectId} />
+        </RailPanel>
+      )}
+      {panel === "user" && (
+        <RailPanel anchor={userRef.current} onClose={() => setPanel(null)} width={232}>
+          <div role="menu" aria-label="Account" className="p-1.5">
+            <div className="px-2 py-2">
+              <p className="text-[13px] font-semibold">Local user</p>
+              <p className="text-xs text-ink-3">Single-user workspace</p>
+            </div>
+            <div className="my-1 h-px bg-line" />
+            {[
+              { icon: Settings, label: "Settings", run: openSettings },
+              { icon: Cpu, label: "LLM settings", run: () => openLlmSettings(projectId) },
+            ].map(({ icon: Icon, label, run }) => (
+              <button
+                key={label}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setPanel(null);
+                  run();
+                }}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-hover"
+              >
+                <Icon size={15} className="text-ink-3" /> {label}
+              </button>
+            ))}
+            {[
+              { icon: Lightbulb, label: "Ideas", href: "/ideas" },
+              { icon: Plug, label: "MCP servers", href: "/mcp" },
+            ].map(({ icon: Icon, label, href }) => (
+              <Link
+                key={label}
+                href={href}
+                role="menuitem"
+                onClick={() => setPanel(null)}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] hover:bg-hover"
+              >
+                <Icon size={15} className="text-ink-3" /> {label}
+              </Link>
+            ))}
           </div>
-          <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setUserMenuOpen(false);
-              openSettings();
-            }}
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition hover:bg-gray-100 dark:hover:bg-white/10"
-          >
-            <Settings size={16} className="shrink-0 text-gray-500" />
-            Settings
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setUserMenuOpen(false);
-              openLlmSettings(projectId);
-            }}
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition hover:bg-gray-100 dark:hover:bg-white/10"
-          >
-            <Cpu size={16} className="shrink-0 text-gray-500" />
-            LLM Settings
-          </button>
-          <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
-          <p className="px-2 py-1 text-[11px] leading-snug text-gray-400">
-            No sign-out — this device runs locally in single-user mode.
-          </p>
-        </motion.div>,
-        document.body,
+        </RailPanel>
       )}
     </nav>
   );

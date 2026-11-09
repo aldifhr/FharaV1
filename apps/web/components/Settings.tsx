@@ -1,11 +1,12 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { Check, Moon, Sun } from "lucide-react";
 import Modal from "./Modal";
 import { useFont, type FontChoice } from "@/components/ui/use-font";
 import { useTheme } from "@/components/ui/use-theme";
+import { BUDGET_STORAGE_KEY, readLocalBudget } from "@/lib/usageWeek";
 
 const FONT_OPTIONS: { value: FontChoice; label: string; description: string; style: CSSProperties }[] = [
   { value: "geist", label: "Geist", description: "Modern default", style: { fontFamily: "var(--font-geist)" } },
@@ -38,6 +39,43 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** Weekly token budget for the sidebar usage meter, kept on this device. */
+function BudgetField() {
+  const [value, setValue] = useState("");
+  useEffect(() => setValue(String(readLocalBudget() ?? "")), []);
+  const save = (next: string) => {
+    setValue(next);
+    const n = Math.floor(Number(next));
+    try {
+      if (Number.isFinite(n) && n > 0) localStorage.setItem(BUDGET_STORAGE_KEY, String(n));
+      else localStorage.removeItem(BUDGET_STORAGE_KEY);
+    } catch {
+      /* storage denied */
+    }
+    window.dispatchEvent(new Event("moagent:budget-changed"));
+  };
+  return (
+    <section className="rounded-xl border border-line bg-panel p-3">
+      <h2 className="text-[13px] font-semibold">Usage budget</h2>
+      <p className="mt-0.5 text-[12px] text-ink-3">
+        Weekly token budget for the sidebar meter (resets Monday 09:00). Leave empty to use the server&apos;s
+        MOAGENT_WEEKLY_TOKEN_BUDGET, or show raw tokens when neither is set.
+      </p>
+      <input
+        type="number"
+        min={0}
+        step={100000}
+        inputMode="numeric"
+        value={value}
+        onChange={(e) => save(e.target.value)}
+        placeholder="e.g. 2000000"
+        aria-label="Weekly token budget"
+        className="mt-2 h-9 w-full rounded-lg border border-line bg-panel px-3 text-[14px] text-ink outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/15"
+      />
+    </section>
+  );
+}
+
 function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { theme, setTheme } = useTheme();
   const { font, setFont } = useFont();
@@ -48,7 +86,7 @@ function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }
     <Modal title="Settings" onClose={onClose} maxWidth="max-w-md">
       <div className="mt-4 grid gap-3">
           {/* ponytail: grid stack instead of Tailwind v4 space-y-/divide- for per-section spacing */}
-          <section className="rounded-xl border border-[#ebe9f0] bg-white/70 p-3 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
+          <section className="rounded-xl border border-line bg-panel p-3">
             <h2 className="text-[13px] font-semibold">Appearance</h2>
             <p className="mt-0.5 text-[11px] text-gray-500">Choose how the workspace looks on this device.</p>
             <div className="mt-2 grid grid-cols-2 gap-1.5">
@@ -67,8 +105,8 @@ function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }
                     aria-pressed={active}
                     className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-[13px] font-medium transition ${
                       active
-                        ? "border-[#6252d8] bg-[#6252d8]/10 text-[#4d3fbe] dark:text-[#b9b2ff]"
-                        : "border-[#e5e3eb] hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                        ? "border-brand bg-brand-soft text-brand-ink"
+                        : "border-line hover:bg-hover"
                     }`}
                   >
                     <Icon size={14} />
@@ -80,7 +118,7 @@ function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }
             </div>
           </section>
 
-          <section className="rounded-xl border border-[#ebe9f0] bg-white/70 p-3 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
+          <section className="rounded-xl border border-line bg-panel p-3">
             <h2 className="text-[13px] font-semibold">Font</h2>
             <p className="mt-0.5 text-[11px] text-gray-500">Interface typeface, saved on this device.</p>
             <div className="mt-2 grid grid-cols-2 gap-1.5">
@@ -94,13 +132,13 @@ function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }
                     aria-pressed={active}
                     className={`rounded-lg border px-2 py-1.5 text-left transition ${
                       active
-                        ? "border-[#6252d8] bg-[#6252d8]/10 dark:bg-[#6252d8]/15"
-                        : "border-[#e5e3eb] hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                        ? "border-brand bg-brand-soft"
+                        : "border-line hover:bg-hover"
                     }`}
                   >
                     <span className="flex items-center justify-between gap-2">
                       <span className="truncate text-[13px] font-semibold">{option.label}</span>
-                      {active && <Check size={12} className="shrink-0 text-[#6252d8]" />}
+                      {active && <Check size={12} className="shrink-0 text-brand-ink" />}
                     </span>
                     <span className="mt-0.5 block truncate text-[11px] text-gray-500">{option.description}</span>
                     <span className="mt-0.5 block truncate text-[11px]" style={option.style}>
@@ -111,6 +149,7 @@ function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }
               })}
             </div>
           </section>
+          <BudgetField />
       </div>
     </Modal>
   );

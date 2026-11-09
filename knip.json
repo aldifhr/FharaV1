@@ -5,8 +5,8 @@
   ],
   "workspaces": {
     ".": {
-      "entry": ["electron/main.cjs", "electron/preload.cjs"],
-      "project": ["electron/**/*.cjs"]
+      "entry": ["electron/main.cjs", "electron/preload.cjs", "scripts/*.mjs"],
+      "project": ["electron/**/*.cjs", "scripts/**/*.mjs"]
     },
     "apps/web": {
       "entry": [

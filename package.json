@@ -7,13 +7,18 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run --workspace=@moagent/web dev",
+    "dev": "concurrently -k -n api,web,worker -c blue,magenta,green \"npm run --workspace=@moagent/api dev\" \"npm run dev:web\" \"npm run worker:supervised\"",
+    "dev:web": "npm run --workspace=@moagent/web dev",
+    "dev:api": "npm run --workspace=@moagent/api dev",
     "build": "npm run --workspace=@moagent/web build",
     "worker": "npm run --workspace=@moagent/worker start",
-    "convex": "PATH=\"$HOME/.nvm/versions/node/v24.14.1/bin:$PATH\" npm run --workspace=@moagent/api codegen --silent && PATH=\"$HOME/.nvm/versions/node/v24.14.1/bin:$PATH\" concurrently -k \"npm run --workspace=@moagent/api dev\" \"npm run worker\"",
-    "electron:dev": "concurrently -k \"npm run --workspace=@moagent/web dev\" \"wait-on http://localhost:3000 && electron electron/main.cjs\"",
+    "worker:supervised": "node scripts/supervise.mjs --name worker --cwd packages/worker -- npx tsx src/index.ts",
+    "convex": "npm run --workspace=@moagent/api codegen --silent && concurrently -k -n api,worker \"npm run --workspace=@moagent/api dev\" \"npm run worker\"",
+    "doctor": "node scripts/doctor.mjs",
+    "electron:dev": "concurrently -k \"npm run dev:web\" \"wait-on http://localhost:3000 && electron electron/main.cjs\"",
     "typecheck": "npm run --workspace=@moagent/web typecheck && npm run --workspace=@moagent/api typecheck && npm run --workspace=@moagent/worker typecheck",
     "test": "npm run --workspace=@moagent/worker test",
+    "test:scripts": "node --test scripts/*.test.mjs",
     "knip": "knip --include files,dependencies,devDependencies,unlisted,unresolved,binaries,duplicates",
     "knip:all": "knip"
   },

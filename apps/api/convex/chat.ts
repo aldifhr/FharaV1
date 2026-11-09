@@ -25,6 +25,7 @@ import {
   classifyChatIntent,
   explicitTaskCommand,
   findOfferedTask,
+  commandNeedsChatContext,
   hasAskShape,
   isGoReply,
   isPastedContent,
@@ -87,7 +88,8 @@ import {
   OPTIONS_GUIDANCE,
   buildAnswerGuidance,
   buildChatPersonaLines,
-  buildConversationContext,
+  buildChatMessages,
+  buildTurnContextSection,
   buildCtoAssignmentSystem,
   buildGreetingSystem,
   buildGroundingGuidance,
@@ -433,9 +435,14 @@ async function dispatchTaskFromChat(
     dispatcher: ChatAgent;
     projectName: string;
     conversation: { role: string; content: string }[];
+    /** System section: summary, quoted message (buildTurnContextSection). */
+    turnContext?: string;
     llmProviders?: PoolConnectionPayload[];
     globalConfig: ChatLlmConfig;
     streamReplyToAgent: StreamReply;
+    /** Set when the command was composed from a CTO offer ("kerjakan itu"). */
+    title?: string;
+    conversationContext?: boolean;
   }
 ): Promise<void> {
   const { text, team, orchestrator, dispatcher } = opts;
@@ -480,7 +487,7 @@ async function dispatchTaskFromChat(
         const plan = await opts.streamReplyToAgent(
           orchestrator._id as any,
           ctoConfig,
-          buildCtoAssignmentSystem(orchestrator, opts.projectName, team, userAssignees),
+          [buildCtoAssignmentSystem(orchestrator, opts.projectName, team, userAssignees), opts.turnContext ?? ""].filter(Boolean).join("\n"),
           opts.conversation,
         );
         ctoAssignees = extractAgentMentions(plan.content, team, String(orchestrator._id));
@@ -503,8 +510,9 @@ async function dispatchTaskFromChat(
     const taskId = await (ctx as any).runMutation(api.tasks.createFromCommand, {
       projectId: args.projectId,
       command: text,
-      title: text.slice(0, 80),
+      title: opts.title ?? text.slice(0, 80),
       conversationId: args.conversationId,
+      ...(opts.conversationContext === false ? { conversationContext: false } : {}),
       ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
       ...(assignees.length ? { assignedAgentIds: assignees.map((a) => a._id) } : {}),
     });
@@ -520,7 +528,7 @@ async function dispatchTaskFromChat(
           kind: "assignment",
           data: {
             taskId: String(taskId),
-            title: text.slice(0, 80),
+            title: opts.title ?? text.slice(0, 80),
             assignees: (assignees.length ? assignees : team)
               .filter((a) => a._id !== orchestrator._id)
               .map((a) => ({ agentId: String(a._id), name: a.name, role: a.role })),
@@ -565,6 +573,8 @@ async function startOfferedTask(
       command: offer.command,
       title,
       conversationId: args.conversationId,
+      // Built from the CTO's offer and the request it answered: no other turns.
+      conversationContext: false,
       ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
       ...(assignees.length ? { assignedAgentIds: assignees.map((a) => a._id) } : {}),
     });
@@ -653,27 +663,22 @@ export const replyToChat = internalAction({
       return;
     }
 
-    const conversation = history.map((m) => ({
-      role: m.authorType === "agent" ? "assistant" : "user",
-      content: m.content,
-    }));
-    // Plan 006 Phase 3: prompt builder uses summary + last 12. The summary
-    // carries the compacted tail so the LLM keeps bounded context.
-    if (data.contextSummary) {
-      conversation.unshift({
-        role: "system",
-        content: `Conversation summary: ${data.contextSummary}`,
-      });
-    }
-    // The quoted message sits right before the user's reply so the agent
-    // knows what "this"/"ini" refers to, even when it is older than the
-    // history window.
-    if (quoteInfo) {
-      const line = { role: "system", content: quoteContextLine(quoteInfo.quote) };
-      const last = conversation.length - 1;
-      if (last >= 0 && conversation[last].role === "user") conversation.splice(last, 0, line);
-      else conversation.push(line);
-    }
+    // Prompt shape: the history goes in as real chat messages with the
+    // user's latest message LAST (buildChatMessages); the compacted summary,
+    // the quoted message and teammates' replies from this turn go in a
+    // system section (buildTurnContextSection). The latest message is never
+    // followed by anything, so a pasted multi-line request is what gets
+    // answered (night e2e A5).
+    const agentNameOf = (id: string | undefined) =>
+      [...agents, ...(teamAgents ?? [])].find((a) => String(a._id) === String(id ?? ""))?.name;
+    const messagesFor = (agentId: string | undefined) =>
+      buildChatMessages(history, { selfAgentId: agentId, nameOf: agentNameOf });
+    // The quoted message is named so the agent knows what "this"/"ini"
+    // refers to, even when it is older than the history window.
+    const quoteLine = quoteInfo ? quoteContextLine(quoteInfo.quote) : undefined;
+    const turnReplies: Array<{ name: string; content: string }> = [];
+    const turnContext = () =>
+      buildTurnContextSection({ summary: data.contextSummary, quoteLine, turnReplies });
 
     // Only an agent whose ROLE is exactly "cto" may act as the orchestrator
     // (legacy "architect" accepted for backward compat). Anchored: an
@@ -986,15 +991,21 @@ export const replyToChat = internalAction({
     // ("/task …", "kerjakan …") or a bare go reply to the CTO's Create task
     // offer starts one here; the Create task button is the other way in.
     const explicitCommand = isOptionPick ? null : explicitTaskCommand(lastUserContent);
+    const roleOf = (id: string | undefined) => [...team, ...agents].find((a) => String(a._id) === String(id ?? ""))?.role;
     if (explicitCommand) {
+      // "kerjakan itu" right after a CTO offer: the task is that offer and
+      // the request it answered, not the bare words plus random turns.
+      const backOffer = commandNeedsChatContext(explicitCommand) ? findOfferedTask(history, roleOf) : null;
       await dispatchTaskFromChat(ctx, args, {
-        text: explicitCommand,
+        text: backOffer ? `${explicitCommand}\n\n${backOffer.command}` : explicitCommand,
+        ...(backOffer ? { title: backOffer.title, conversationContext: false } : {}),
         agents,
         team,
         orchestrator,
         dispatcher,
         projectName,
-        conversation,
+        conversation: messagesFor(orchestrator ? String(orchestrator._id) : undefined),
+        turnContext: turnContext(),
         llmProviders,
         globalConfig,
         streamReplyToAgent,
@@ -1002,7 +1013,6 @@ export const replyToChat = internalAction({
       return;
     }
     if (!isOptionPick && isGoReply(lastUserContent)) {
-      const roleOf = (id: string | undefined) => [...team, ...agents].find((a) => String(a._id) === String(id ?? ""))?.role;
       const offer = findOfferedTask(history, roleOf);
       if (offer) {
         await startOfferedTask(ctx, args, { offer, team, orchestrator, dispatcher });
@@ -1032,8 +1042,8 @@ export const replyToChat = internalAction({
 
     // Intelligent Router (Fast Router):
     // - Multiple @mentions → sequential multi-agent replies in the user's
-    //   order (FIFO per agent). The conversation context is appended to the
-    //   SAME array, so later mentions answer after the earlier replies.
+    //   order (FIFO per agent). Each answers only as itself; earlier replies
+    //   of this turn reach later speakers through their system section.
     // - A single mention or no mention → the conversational agent (ASK) /
     //   orchestrator (TASK). Pure questions get the cheapest adequate agent.
     const mentionedAgents = (args.preferredAgentIds ?? [])
@@ -1146,7 +1156,7 @@ export const replyToChat = internalAction({
           : skillLoader
             ? buildSkillToolProtocol()
             : "",
-        buildConversationContext(conversation),
+        turnContext(),
       ]
         .filter(Boolean)
         .join("\n");
@@ -1163,7 +1173,7 @@ export const replyToChat = internalAction({
           agent._id as any,
           perAgentConfig,
           systemWithContext,
-          conversation,
+          messagesFor(String(agent._id)),
           useToolLoop
             ? {
                 maxCalls: useRepoTools ? callCap : 0,
@@ -1204,8 +1214,9 @@ export const replyToChat = internalAction({
       }
 
       if (content.trim()) {
-        // Append response to conversation so subsequent agents have context
-        conversation.push({ role: "assistant", content: `${agent.name}: ${content.trim()}` });
+        // Later speakers in this turn see this reply in their system
+        // section; the user's message stays the last chat message.
+        turnReplies.push({ name: agent.name, content: content.trim() });
         // CTO handoff: teammates it @mentioned answer next, in order.
         if (isCto && !isOptionPick) {
           // With repo tools off for the rest of the turn, a teammate asked to

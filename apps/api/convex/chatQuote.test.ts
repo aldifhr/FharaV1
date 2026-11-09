@@ -108,10 +108,11 @@ describe("reply quote routing", () => {
     expect(calls).toHaveLength(1);
     const line = `The user is replying to Frontend's message: "I'd move the header into components/Header.tsx."`;
     expect(calls[0].system).toContain(line);
-    // The line sits right before the user's reply in the message list too.
+    // The line lives in the system prompt only; the user's reply is the
+    // last chat message and no system-role row sits in the history.
     const msgs = calls[0].msgs;
     expect(msgs[msgs.length - 1]).toEqual({ role: "user", content: "kenapa ini perlu?" });
-    expect(msgs[msgs.length - 2]).toEqual({ role: "system", content: line });
+    expect(msgs.some((m: { role: string }) => m.role === "system")).toBe(false);
   });
 
   test("an @mention in the reply beats the quoted teammate", async () => {

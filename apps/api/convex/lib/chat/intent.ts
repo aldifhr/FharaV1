@@ -280,6 +280,101 @@ export interface OfferedTask {
 }
 
 /**
+ * A follow-up that reacts to the conversation instead of asking for work:
+ * "kok bikin task?", "kenapa begitu?", a bare go word, punctuation only.
+ * Never the request a Create task offer answers.
+ */
+const META_FOLLOW_UP =
+  /^(?:kok|kenapa|knp|ngapain|mengapa|why|how come|loh|lho|lah|hah|eh|wait|tunggu|maksud(?:nya)?|apa maksud(?:nya)?|serius|beneran)\b/i;
+export function isMetaFollowUp(text: string): boolean {
+  const t = text.trim();
+  if (!t || /^[\s.?!…,]+$/.test(t)) return true;
+  if (isGoReply(t) || OPTION_PICK.test(t)) return true;
+  return META_FOLLOW_UP.test(t);
+}
+
+const OVERLAP_STOPWORDS = new Set(
+  (
+    "yang dan atau untuk dengan saya aku kita kami kamu anda dia bisa nggak gak tidak ini itu ada aja dong ya juga " +
+    "buat bikin tolong mau akan sudah belum lagi kalau kalo jadi supaya agar dari pada oleh nya the and for with you " +
+    "your this that can could please make add want will would should are was have has not just into from bilang kata"
+  ).split(" ")
+);
+function contentWords(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((w) => w.length >= 3 && !OVERLAP_STOPWORDS.has(w))
+  );
+}
+
+/** "dia bilang: buat halaman FAQ" → "buat halaman FAQ" (titles only). */
+function stripRelayPrefix(text: string): string {
+  return text.replace(/^(?:kata|katanya|dia bilang|doi bilang|mereka bilang|he said|she said|they said)\s*[:,-]?\s*/i, "").trim();
+}
+
+/**
+ * The user request a CTO offer (at `offerIndex`) answers. Walks back over
+ * the user's messages before the offer (at most 6), skipping meta
+ * follow-ups ("kok bikin task?"), and keeps the one whose words the offer
+ * shares most (ties: the nearest). With no overlap anywhere, the nearest
+ * real request. "" when there is none — the offer then stands alone.
+ */
+export function requestAnsweredByOffer(
+  history: Array<{ authorType: string; content: string }>,
+  offerIndex: number
+): string {
+  const offerWords = contentWords(history[offerIndex]?.content ?? "");
+  let best = "";
+  let bestScore = 0;
+  let nearest = "";
+  let seen = 0;
+  for (let j = offerIndex - 1; j >= 0 && seen < 6; j -= 1) {
+    const m = history[j];
+    if (m.authorType !== "user") continue;
+    seen += 1;
+    const text = m.content.trim();
+    if (isMetaFollowUp(text)) continue;
+    if (!nearest) nearest = text;
+    let score = 0;
+    for (const w of contentWords(text)) if (offerWords.has(w)) score += 1;
+    if (score > bestScore) {
+      best = text;
+      bestScore = score;
+    }
+  }
+  return best || nearest;
+}
+
+/**
+ * The Create task command for a CTO reply, composed for both the button
+ * (apps/web ChatPanel) and a bare go reply: an option pick right before the
+ * reply, else the user request the reply answers (requestAnsweredByOffer),
+ * then the reply itself. The title comes from the request, never from a
+ * meta follow-up such as "kok bikin task?".
+ */
+export function composeOfferedTask(
+  history: Array<{ authorType: string; content: string }>,
+  offerIndex: number
+): { command: string; title?: string; pick?: string } {
+  const reply = (history[offerIndex]?.content ?? "").trim();
+  let prevUser: string | null = null;
+  for (let j = offerIndex - 1; j >= 0; j -= 1) {
+    if (history[j].authorType === "user") {
+      prevUser = history[j].content.trim();
+      break;
+    }
+  }
+  const pick = prevUser?.match(OPTION_PICK)?.[1]?.trim();
+  if (pick) return { command: [`Chosen option: ${pick}`, reply].filter(Boolean).join("\n\n"), title: `Implement ${pick}`.slice(0, 80), pick };
+  const ask = requestAnsweredByOffer(history, offerIndex);
+  const titleSource = ask ? stripRelayPrefix(ask) || ask : reply;
+  const title = titleSource.split("\n")[0].trim().slice(0, 80) || undefined;
+  return { command: [ask, reply].filter(Boolean).join("\n\n"), title };
+}
+
+/**
  * The task a bare go reply starts: the CTO reply right before the user's
  * latest message (teammates it pulled in may sit in between) that offered
  * Create task. Mirrors `suggestTaskId` + `createTaskFromMessage` in the web
@@ -306,9 +401,26 @@ export function findOfferedTask(
     }
     const pick = prevUser?.match(OPTION_PICK)?.[1];
     if (!pick && !OFFERS_CREATE_TASK.test(m.content)) return null;
-    const ask = prevUser && !pick ? prevUser : "";
-    const command = [pick ? `Chosen option: ${pick}` : ask, m.content.trim()].filter(Boolean).join("\n\n");
-    return { index: i, command, title: pick ? `Implement ${pick}` : undefined, reply: m.content };
+    const { command, title } = composeOfferedTask(history, i);
+    return { index: i, command, title, reply: m.content };
   }
   return null;
+}
+
+/**
+ * A task command that only makes sense with the chat before it: it points
+ * back ("kerjakan yang tadi", "do that", "itu aja") or is a bare verb
+ * ("buatin", "push"). A self-contained command ("buat halaman login,
+ * register, logout") gets no earlier chat turns appended to it.
+ */
+const BACK_REFERENCE =
+  /\b(?:yang tadi|tadi|barusan|di atas|sebelumnya|tersebut|itu|ini|that|this|it|above|previous|earlier|same)\b/i;
+const BARE_COMMAND = /^(?:git pull|pull|push|checkout|buatin|buat|bikin|bikinin|lakukan|do it|continue)[\s!.]*$/i;
+export function commandNeedsChatContext(command: string): boolean {
+  const t = command.trim();
+  if (!t) return false;
+  if (BARE_COMMAND.test(t)) return true;
+  // Long commands carry their own subject.
+  if (t.length >= 60 || /\n/.test(t)) return false;
+  return BACK_REFERENCE.test(t);
 }

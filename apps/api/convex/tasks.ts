@@ -14,6 +14,7 @@ import { refreshAgentStatus } from "./orchestration";
 import { taskStatus } from "./schema";
 import { permissionModeValidator, projectDefaultPermissionMode } from "./lib/permissionModes";
 import { admitTaskInput } from "./lib/taskInputGuard";
+import { commandNeedsChatContext } from "./lib/chat/intent";
 
 /** A worker currently holds an unexpired lease on the task (e.g. resuming it). */
 function holdsLiveLease(task: Doc<"tasks">): boolean {
@@ -132,6 +133,11 @@ export const createFromCommand = mutation({
     permissionMode: v.optional(permissionModeValidator),
     /** Shadow Agent: Reviewer observes this task; defaults to the project's. */
     shadowAgent: v.optional(v.boolean()),
+    /**
+     * false: the command is already composed from the chat (a CTO offer and
+     * the request it answered), so no earlier chat turns are appended.
+     */
+    conversationContext: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
@@ -162,7 +168,10 @@ export const createFromCommand = mutation({
       args.title?.trim() ||
       (rawCommand.length > 80 ? rawCommand.slice(0, 80) + "..." : rawCommand);
 
-    // Conversation context: opt-in, deduped, error-filtered.
+    // Conversation context: only for a command that points back at the
+    // chat ("kerjakan yang tadi"), deduped, error-filtered. Unrelated
+    // earlier turns appended to a self-contained command steer the planner
+    // to old topics (night e2e B2).
     // Do NOT leak LLM/agent error chatter into the task command.
     const isErrorChatter = (content: string) =>
       /I couldn'?t reply|No LLM API key|LLM request failed|Unexpected non-whitespace|Check global LLM settings|I can'?t run shell|Gue nggak bisa jalanin|nggak punya akses terminal/i.test(content);
@@ -184,9 +193,9 @@ export const createFromCommand = mutation({
         m.content.trim() !== rawCommand.trim()
     );
     // Only include context if the user message itself is short / ambiguous
-    const needsContext = rawCommand.length < 80 || /^(git pull|pull|push|checkout|buatin|buat)$/i.test(rawCommand);
+    const needsContext = args.conversationContext !== false && commandNeedsChatContext(rawCommand);
     const historyLines = needsContext
-      ? conversationMsgs.slice(0, 6).reverse().map((m) => `${m.authorType === "user" ? "User" : "Agent"}: ${m.content.slice(0, 500)}`).join("\n\n")
+      ? conversationMsgs.slice(0, 2).reverse().map((m) => `${m.authorType === "user" ? "User" : "Agent"}: ${m.content.slice(0, 500)}`).join("\n\n")
       : "";
     const contextBlock = historyLines ? `\n\n--- Conversation context ---\n${historyLines}` : "";
     let command = rawCommand + contextBlock;

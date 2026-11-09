@@ -27,6 +27,7 @@ import { clockTime, isSameDay, shortDate } from "@/lib/format";
 import { projectMembers } from "@/lib/projectMembers";
 import { projectDefaultPermissionMode, type PermissionMode } from "@/api/convex/lib/permissionModes";
 import { buildDecisionTray, latestOpenOptionPrompt, type TrayAction, type TrayItem } from "@/api/convex/lib/decisionTray";
+import { composeOfferedTask } from "@/api/convex/lib/chat/intent";
 import { parseOptions } from "@/lib/options";
 import DecisionsTray, { trayPlaceholder, useDecisionTray } from "./chat/DecisionsTray";
 
@@ -323,18 +324,20 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     const at = list.findIndex((m) => String(m._id) === messageId);
     const reply = list[at];
     if (!reply) return;
-    let prevUser: any = null;
-    for (let j = at - 1; j >= 0; j--) if (list[j].authorType === "user") { prevUser = list[j]; break; }
-    const pick = prevUser?.content?.trim().match(/^i choose\s+[a-z0-9]+\s*:\s*(.+)$/i)?.[1];
-    const ask = prevUser && !pick ? prevUser.content.trim() : "";
-    const command = [pick ? `Chosen option: ${pick}` : ask, reply.content.trim()].filter(Boolean).join("\n\n");
+    // Same composition as a "gas" reply: the request this reply answers
+    // (never a meta follow-up like "kok bikin task?") plus the reply.
+    const { command, title, pick } = composeOfferedTask(
+      list.map((m) => ({ authorType: String(m.authorType ?? ""), content: String(m.content ?? "") })),
+      at,
+    );
     const assignees = mentions.mentionedAgentIds(reply.content);
     try {
       const taskId = await createTask({
         projectId: projectId as never,
         permissionMode,
         command,
-        title: pick ? `Implement ${pick}` : undefined,
+        title,
+        conversationContext: false,
         ...(assignees.length ? { assignedAgentIds: assignees as never[] } : {}),
         ...((activeConversation as any)?.conversation?._id ? { conversationId: (activeConversation as any).conversation._id } : {}),
       });

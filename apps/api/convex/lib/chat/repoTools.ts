@@ -139,6 +139,30 @@ export const ONE_CALL_PER_REPLY =
 export const TOOL_BUDGET_EXHAUSTED =
   "Tool budget for this reply is used up. Answer the user now from the tool results above, without calling a tool. For anything you did not check, say you have not checked it yet (Indonesian: \"belum saya cek\"). Cite only files and file:line references that a tool result above shows.";
 
+/** Fed back when the model stopped on narration or a call with no budget left. */
+export const FINAL_ANSWER_NOW =
+  "Stop checking. Write your final answer to the user now, in their language, from the tool results above: no tool call, no JSON, and no line about what you will check next. For anything you did not check, say \"belum saya cek\" (English: \"I haven't checked that yet\").";
+
+/** Fed back once when a reply only announced a check without making it. */
+export const CALL_OR_ANSWER =
+  "Your last reply only said what you would check. Either reply with ONLY the JSON tool call now, or write your final answer.";
+
+/**
+ * A reply that only narrates the next step ("Saya cek ulang tiap nama
+ * secara terpisah.", "Let me check the schema.") instead of answering.
+ * Night e2e R-a3: the tool loop ended on such a line, with no answer.
+ */
+const NARRATION =
+  /^(?:(?:oke|ok|baik|sip|siap|alright|okay|sure)[,!.\s]+)?(?:saya|aku|gue|gw|kita|let me|let's|i'?ll|i will|i'?m going to|i am going to|now i|next i|sebentar|tunggu|mari)\b[^.!?\n]{0,160}\b(?:cek|check|periksa|lihat|baca|look|read|verify|verifikasi|search|cari|grep|telusuri|pastikan|inspect)/i;
+export function isNarrationOnly(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (t.length > 240 || t.split(/(?<=[.!?…:])\s+/).filter(Boolean).length > 2) return false;
+  // A finding, not a plan: "Saya sudah cek: tidak ketemu", "I checked src/x.ts".
+  if (/\b(?:sudah|telah|udah|tidak ketemu|nggak ketemu|ditemukan|ketemu|found|checked|i'?ve|have|has|hasilnya|result)\b|`|\w\.(?:ts|tsx|js|json|md)\b|:\d+/i.test(t)) return false;
+  return NARRATION.test(t) || /(?:…|\.\.\.|:)\s*$/.test(t) && /\b(?:cek|check|periksa|lihat|look|verify)\b/i.test(t);
+}
+
 export interface RepoToolLoopStep {
   content: string;
 }
@@ -192,6 +216,16 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
   const done = (answer: string): RepoToolLoopResult => ({ answer, calls, results, checkedFiles: checked, repoCalls });
   const steps = maxCalls + maxLocal;
 
+  // The loop always ends on an answer: when the model stops on narration
+  // ("Saya cek ulang…") or on a call it has no budget for, one more step
+  // is forced with FINAL_ANSWER_NOW (and no tools).
+  const forceFinal = async (): Promise<RepoToolLoopResult> => {
+    messages.push({ role: "user", content: FINAL_ANSWER_NOW });
+    const { content } = await options.step(messages);
+    const prose = extractToolCalls(content).prose.trim();
+    return done(isNarrationOnly(prose) ? "" : prose);
+  };
+  let nudged = false;
   for (let i = 0; i <= steps; i += 1) {
     const exhausted = i === steps || (repoCalls >= maxCalls && localCalls >= maxLocal);
     if (exhausted) messages.push({ role: "user", content: TOOL_BUDGET_EXHAUSTED });
@@ -200,7 +234,25 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
     // first call runs; prose written next to a call (before any result)
     // is discarded, and no call text ever reaches the answer.
     const found = extractToolCalls(content);
-    if (found.calls.length === 0 || exhausted) return done(found.prose);
+    if (exhausted) {
+      const prose = found.prose.trim();
+      if (found.calls.length > 0 || !prose || isNarrationOnly(prose)) return forceFinal();
+      return done(found.prose);
+    }
+    if (found.calls.length === 0) {
+      const prose = found.prose.trim();
+      if (!isNarrationOnly(prose) && prose) return done(found.prose);
+      if (!nudged) {
+        // One nudge: make the announced check, or answer. Does not use a step.
+        nudged = true;
+        messages.push({ role: "assistant", content: prose || "(empty reply)" });
+        messages.push({ role: "user", content: CALL_OR_ANSWER });
+        i -= 1;
+        continue;
+      }
+      if (prose) messages.push({ role: "assistant", content: prose });
+      return forceFinal();
+    }
     const call: RepoToolCall = { tool: found.calls[0].tool, args: normalizeRepoToolArgs(found.calls[0].args) };
     let result: RepoToolResult;
     if (localNames.includes(call.tool)) {
@@ -242,5 +294,5 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
       : toolResultMessage(call, result, extra);
     messages.push({ role: "user", content: fed });
   }
-  return done("");
+  return forceFinal();
 }

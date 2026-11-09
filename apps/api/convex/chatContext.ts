@@ -8,6 +8,7 @@ import { normalizeSkillLoading, skillsSectionFor } from "./lib/skillRuntime";
 import { loadPromptSkills } from "./skills";
 import { loadMemorySection } from "./memories";
 import { extractAgentMentions } from "./lib/chat/team";
+import { stripLeakedToolCallTags } from "./lib/chat/strip";
 
 /** Drop the `--- File: <path> ---` blocks `attachMentionedFiles` appends so
  *  repeated file context does not accumulate in the chat prompt. */
@@ -61,7 +62,7 @@ export const insertAgentMessage = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
-    const content = args.content.trim();
+    const content = stripLeakedToolCallTags(args.content.trim());
     if (!content && !args.card) return null;
     return await ctx.db.insert("messages", {
       projectId: args.projectId,
@@ -168,6 +169,7 @@ export const updateStreamingAgentMessage = internalMutation({
     for (const [key, value] of Object.entries(patch)) {
       if (value !== undefined) cleaned[key] = value;
     }
+    if (typeof patch.content === "string") cleaned.content = stripLeakedToolCallTags(patch.content);
     await ctx.db.patch(messageId, cleaned);
     return null;
   },

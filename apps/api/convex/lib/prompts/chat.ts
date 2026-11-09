@@ -96,6 +96,24 @@ export function buildCtoAssignmentSystem(
     .join("\n");
 }
 
+/**
+ * Several agents answer one message (the user @mentioned them, or the CTO
+ * pulled them in): each posts its own reply. Night e2e: with @Frontend
+ * @Backend @QA, Frontend answered for all three, then they answered again.
+ */
+export function buildSeparateSpeakersLine(
+  agent: { name: string; role: string },
+  participants: Array<{ name: string; role: string }>
+): string {
+  const others = participants.filter((a) => a.name !== agent.name);
+  if (others.length === 0) return "";
+  const list = others.map((a) => `${a.name} (${a.role})`).join(", ");
+  return [
+    `Other teammates answer this message separately, each in their own reply: ${list}.`,
+    `Answer only as yourself (${agent.name}, ${agent.role}), from your own role. Never answer for them, speak for them, guess what they will say, or write sections or lines labelled with their names.`,
+  ].join(" ");
+}
+
 /** Opening lines of a chat-loop reply: identity, persona, repo grounding. */
 export function buildChatPersonaLines(
   agent: Persona,
@@ -104,11 +122,9 @@ export function buildChatPersonaLines(
   repoSnapshot: string | null,
   repoTools = false
 ): string[] {
-  const multiNotice = participants.length > 1
-    ? ` You are participating in a multi-agent discussion with: ${participants.map((a) => `${a.name} (${a.role})`).join(", ")}.`
-    : "";
   return [
-    `You are ${agent.name}, a ${agent.role} on the agent team of project "${projectName}".${multiNotice}`,
+    `You are ${agent.name}, a ${agent.role} on the agent team of project "${projectName}".`,
+    buildSeparateSpeakersLine(agent, participants),
     NOT_THE_MODEL,
     agent.systemPrompt ?? "",
     // Library skills right after the static persona prompt.
@@ -206,11 +222,77 @@ export function buildHandoffNotice(ctoName: string, request = ""): string {
   ].filter(Boolean).join(" ");
 }
 
-/** The transcript appended to the system prompt, in turn order. */
-export function buildConversationContext(conversation: Array<{ role: string; content: string }>): string {
-  return conversation.length > 0
-    ? `Conversation so far (follow this order):\n${conversation.map((m) => `${m.role}: ${m.content.slice(0, 500)}`).join("\n")}`
-    : "";
+/** One chat history row as getContext returns it. */
+export type ChatHistoryRow = { authorType: string; content: string; agentId?: string };
+export type ChatPromptMessage = { role: "user" | "assistant"; content: string };
+
+/** Older turns are clipped; the message being answered never is. */
+const OLDER_TURN_MAX_CHARS = 1500;
+function clipTurn(text: string): string {
+  return text.length > OLDER_TURN_MAX_CHARS ? `${text.slice(0, OLDER_TURN_MAX_CHARS)}…` : text;
+}
+
+/**
+ * The chat history as real messages for one agent's reply. The user's
+ * latest message (the one this reply answers) is always the LAST message,
+ * whole; earlier turns come before it in order, clipped. The agent's own
+ * earlier replies are `assistant`; a teammate's are `assistant` lines
+ * prefixed with its name. Consecutive older turns of one role are merged
+ * and leading agent turns dropped, so the list starts with the user; the
+ * latest message is never merged into an earlier one. Nothing here goes into the system prompt (night e2e A5:
+ * history serialized inside the tools section made the CTO answer an
+ * earlier greeting instead of a pasted multi-line request).
+ */
+export function buildChatMessages(
+  history: ChatHistoryRow[],
+  opts: { selfAgentId?: string; nameOf?: (agentId: string | undefined) => string | undefined } = {}
+): ChatPromptMessage[] {
+  let last = history.length - 1;
+  while (last >= 0 && history[last].authorType !== "user") last -= 1;
+  const latest = last >= 0 ? history[last].content.trim() : "";
+  const older: ChatPromptMessage[] = [];
+  for (const row of history.slice(0, Math.max(0, last))) {
+    const text = row.content?.trim();
+    if (!text) continue;
+    let msg: ChatPromptMessage;
+    if (row.authorType === "agent") {
+      const self = opts.selfAgentId !== undefined && String(row.agentId ?? "") === String(opts.selfAgentId);
+      const name = self ? undefined : opts.nameOf?.(row.agentId);
+      msg = { role: "assistant", content: clipTurn(name ? `${name}: ${text}` : text) };
+    } else {
+      msg = { role: "user", content: clipTurn(text) };
+    }
+    const prev = older[older.length - 1];
+    if (prev && prev.role === msg.role) prev.content = `${prev.content}\n\n${msg.content}`;
+    else older.push(msg);
+  }
+  while (older.length && older[0].role === "assistant") older.shift();
+  return latest ? [...older, { role: "user", content: latest }] : older;
+}
+
+/**
+ * System-prompt section with the turn's own context: the compacted summary
+ * of older chat, the message the user quoted, and the replies teammates
+ * already posted in this turn. Ends with which message to answer.
+ */
+export function buildTurnContextSection(opts: {
+  summary?: string;
+  quoteLine?: string;
+  turnReplies?: Array<{ name: string; content: string }>;
+}): string {
+  const lines: string[] = ["## This turn"];
+  if (opts.summary?.trim()) lines.push(`Summary of the earlier conversation: ${opts.summary.trim()}`);
+  if (opts.quoteLine?.trim()) lines.push(opts.quoteLine.trim());
+  if (opts.turnReplies?.length) {
+    lines.push(
+      "Teammates already replied to this message (their words, not yours; do not repeat them):",
+      ...opts.turnReplies.map((r) => `- ${r.name}: ${clipTurn(r.content.trim())}`)
+    );
+  }
+  lines.push(
+    "Answer the user's LAST message in the conversation, as a whole (it may span several lines, e.g. a pasted spec). Earlier messages are context only: never answer them again (an earlier greeting is not the question now)."
+  );
+  return lines.join("\n");
 }
 
 export function buildPlanningGuidance(agent: { role: string }, opts: { isOrchestrator: boolean; hasRepoTools?: boolean; taskIntent: { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean } }): string[] {

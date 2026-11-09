@@ -375,6 +375,7 @@ export const replyToChat = internalAction({
       projectId: args.projectId,
       conversationId: args.conversationId,
       preferredAgentIds: args.preferredAgentIds,
+      userMessageId: args.userMessageId,
     })) as ChatContextData;
 
     const { agents, team: teamAgents, projectName, history, llmProviders } = data;

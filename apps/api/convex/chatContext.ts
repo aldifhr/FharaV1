@@ -145,10 +145,14 @@ export const getContext = internalQuery({
     projectId: v.id("projects"),
     conversationId: v.optional(v.id("conversations")),
     preferredAgentIds: v.optional(v.array(v.id("agents"))),
+    /** The user message being answered: history stops there, so a reply
+     *  never answers a newer message sent while it was queued. */
+    userMessageId: v.optional(v.id("messages")),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
     if (!project) return { agents: [], projectName: "", history: [] };
+    const anchor = args.userMessageId ? await ctx.db.get(args.userMessageId) : null;
 
     // Plan 007: when a conversation is given, participation is read from the
     // persisted participant rows (still gated on membership + enabled, since a
@@ -190,9 +194,10 @@ export const getContext = internalQuery({
     // ONLY from that conversation (never other conversations in the same
     // project). Messages without conversationId are legacy pre-007 and
     // are only included when no conversation is scoped.
-    const scoped = args.conversationId
+    const scoped = (args.conversationId
       ? rows.filter((m) => m.conversationId === args.conversationId)
-      : rows;
+      : rows
+    ).filter((m) => !anchor || m._creationTime <= anchor._creationTime);
     const history = scoped
       .filter((m) => !m.taskId)
       .slice(0, 12)

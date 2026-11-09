@@ -9,6 +9,10 @@
 // rule: questions, advice and analysis never become tasks.
 const QUESTION_SHAPE =
   /\b(how do i|how to|how can|how does|why|what is|what are|what's|what does|what do|where is|explain|describe|summari[sz]e|document|understand)\b/i;
+// Indonesian questions, comparisons and opinion asks ("mana yang cocok?",
+// "menurutmu …", "bandingkan A vs B") are discussion, never a task.
+const QUESTION_SHAPE_ID =
+  /\b(apa itu|apa yang|apa bedanya|apakah|bagaimana|gimana|kenapa|mengapa|kok|mana yang|yang mana|menurut(mu| kamu| lo| lu| anda)?|bandingkan|perbandingan|jelaskan|jelasin)\b|\bvs\.?\b/i;
 // "can you …" / "bisa …?" / "kamu bisa …?" — a question to the agent, not an
 // order to build something. Was missing: the shape above only covered
 // "can I …", so capability questions ("can you be CTO?") fell through to
@@ -69,18 +73,18 @@ export function classifyChatIntent(text: string): { kind: string; frontend: bool
   // Boundary guard (same as worker router): question/advice shapes never
   // become tasks, even when they contain a change verb. Capability/
   // confirmation questions ("can you be X?", "bisa kan?") belong here too.
-  if (QUESTION_SHAPE.test(text) || ADVICE_SHAPE.test(text) || CONFIRMATION_SHAPE.test(text)) {
+  if ((QUESTION_SHAPE.test(text) || QUESTION_SHAPE_ID.test(text)) || ADVICE_SHAPE.test(text) || CONFIRMATION_SHAPE.test(text)) {
     return { kind: "chat", frontend, backend, testing, security };
   }
   // Read-only analysis without a change verb is chat (audit/research).
-  const hasChangeVerb = /\b(buat|tambah|implement|build|create|fix|perbaiki|refactor|update|change|add|remove)\b/i.test(t);
+  const hasChangeVerb = /\b(buat\w*|tambah\w*|implement|build|create|fix|perbaiki|refactor|update|change|add|remove)\b/i.test(t);
   const isReadOnly = /\b(audit|review|research|investigate|analyze|analyse)\b/i.test(t);
   if (isReadOnly && !hasChangeVerb) {
     return { kind: "chat", frontend, backend, testing, security };
   }
 
   // If command contains impl keywords, treat as task regardless
-  const impl = /\b(buatin|buat|tambah|implement|build|create|fix|perbaiki|refactor|update|change|add|remove|migrate|convert|scaffold|setup|install|pindah|konversi|pasang|sesuaikan)\b/.test(t);
+  const impl = /\b(buatin|buat\w*|tambah\w*|implement|build|create|fix|perbaiki|refactor|update|change|add|remove|migrate|convert|scaffold|setup|install|pindah|konversi|pasang|sesuaikan)\b/.test(t);
   return { kind: impl ? "task" : "chat", frontend, backend, testing, security };
 }
 
@@ -145,7 +149,7 @@ export function parseIntentResult(raw: string): IntentResult | null {
 export function hasAskShape(text: string): boolean {
   return (
     EXPLICIT_NEGATION.test(text) ||
-    QUESTION_SHAPE.test(text) ||
+    (QUESTION_SHAPE.test(text) || QUESTION_SHAPE_ID.test(text)) ||
     ADVICE_SHAPE.test(text) ||
     CONFIRMATION_SHAPE.test(text)
   );

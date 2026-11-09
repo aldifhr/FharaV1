@@ -25,7 +25,7 @@ export interface AgentDefinition {
   // "opencode" (OpenCode CLI with native tools in the task worktree).
   // Unset = global ORCHESTRATOR_EXECUTION_RUNTIME default.
   executionRuntime?: "api" | "opencode";
-  /** Optional OpenCode model (`provider/model`); unset = MOAgent's own LLM. */
+  /** Optional OpenCode model (`provider/model`); unset = Fhara's own LLM. */
   opencodeModel?: string;
   /**
    * Skill v2: set only when the agent's skillLoading is "on_demand". The

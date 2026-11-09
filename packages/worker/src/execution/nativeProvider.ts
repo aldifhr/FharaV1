@@ -20,7 +20,7 @@ export { NATIVE_PROMPT_MESSAGE, workspaceHeader, buildNativePrompt } from "@/pro
  *    output is still accepted as a fallback.
  *  - A temporary config (OPENCODE_CONFIG, 0600, deleted after the run)
  *    carries the safety permissions and — when the agent has no explicit
- *    OpenCode model — a custom provider pointing at MOAgent's own LLM
+ *    OpenCode model — a custom provider pointing at Fhara's own LLM
  *    endpoint. The API key never lands in argv or in that file: the config
  *    references `{env:MOAGENT_OPENCODE_API_KEY}` and the key travels only in
  *    the child's environment.
@@ -97,8 +97,8 @@ export type SpawnImpl = (
 
 /** Env var the generated config reads the API key from (never argv/file). */
 export const OPENCODE_KEY_ENV = "MOAGENT_OPENCODE_API_KEY";
-/** Provider id of the generated MOAgent LLM provider (`moagent/<model>`). */
-export const OPENCODE_PROVIDER_ID = "moagent";
+/** Provider id of the generated Fhara LLM provider (`fhara/<model>`). */
+export const OPENCODE_PROVIDER_ID = "fhara";
 
 export interface NativeArgvOptions {
   /** `provider/model` for `-m`. */
@@ -166,8 +166,8 @@ function providerPackageFor(provider: string): string | null {
  * Build the temporary OpenCode config + the model to pin.
  *  - explicit `model` (agent's OpenCode model): permissions only, `-m model`;
  *    OpenCode uses its own credentials for that provider.
- *  - otherwise, with a usable MOAgent LLM config: a custom provider
- *    (`moagent`) pointed at that endpoint, `-m moagent/<model>`; the key is
+ *  - otherwise, with a usable Fhara LLM config: a custom provider
+ *    (`fhara`) pointed at that endpoint, `-m fhara/<model>`; the key is
  *    referenced as `{env:MOAGENT_OPENCODE_API_KEY}` and returned in `env`.
  *  - otherwise: permissions only, OpenCode's own default model.
  * The returned `config` never contains key material.
@@ -191,7 +191,7 @@ export function buildOpencodeConfig(input: { model?: string; llm?: NativeLlmConf
   config.provider = {
     [OPENCODE_PROVIDER_ID]: {
       npm: pkg,
-      name: "MOAgent LLM",
+      name: "Fhara LLM",
       options: {
         baseURL: llm.baseUrl,
         ...(llm.apiKey ? { apiKey: `{env:${OPENCODE_KEY_ENV}}` } : {}),
@@ -442,7 +442,7 @@ export interface NativeRunInput {
   command?: string;
   /** Agent's OpenCode model (`provider/model`); wins over `llm`. */
   model?: string;
-  /** MOAgent's resolved LLM config, used when no `model` is set. */
+  /** Fhara's resolved LLM config, used when no `model` is set. */
   llm?: NativeLlmConfig;
   /** Hard wall-clock limit; default ORCHESTRATOR_NATIVE_TIMEOUT_MS or 10 min. */
   timeoutMs?: number;
@@ -472,7 +472,7 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
       provider: command,
       cwd: input.workspacePath,
       ...(model ? { model } : {}),
-      llmSource: input.model?.trim() ? "agent-opencode-model" : model ? "moagent-llm" : "opencode-default",
+      llmSource: input.model?.trim() ? "agent-opencode-model" : model ? "fhara-llm" : "opencode-default",
       timeoutMs,
     },
     "info"
@@ -548,7 +548,7 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
   let tmpDir: string | undefined;
   let ran: { stdout: string; stderr: string; code: number | null };
   try {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-native-"));
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-native-"));
     const promptFile = path.join(tmpDir, "prompt.md");
     const configFile = path.join(tmpDir, "opencode.json");
     await fs.writeFile(promptFile, workspaceHeader(input.workspacePath) + input.prompt, { encoding: "utf-8", mode: 0o600 });

@@ -1,6 +1,6 @@
-# MOAgent — repository guidance
+# Fhara — repository guidance
 
-MOAgent is a multi-agent orchestrator: a planner builds a DAG of subtasks, agents
+Fhara is a multi-agent orchestrator: a planner builds a DAG of subtasks, agents
 execute them (code change, review, QA, audit/research), file changes pass a human
 approval gate, and results are verified before a task is marked done.
 
@@ -64,9 +64,9 @@ If a change needs one of these rules changed, stop and write a plan first.
 ## Layout
 
 ```
-apps/web          Next.js 16 UI (React 19, Tailwind 4) — @moagent/web
-apps/api/convex   Convex backend — @moagent/api
-packages/worker   Task worker: orchestrator, scheduler, LLM, tools — @moagent/worker
+apps/web          Next.js 16 UI (React 19, Tailwind 4) — @fhara/web
+apps/api/convex   Convex backend — @fhara/api
+packages/worker   Task worker: orchestrator, scheduler, LLM, tools — @fhara/worker
 electron/         Optional desktop shell (electron/main.cjs)
 convex/           Root marker only; real backend code lives in apps/api/convex
 ```
@@ -84,17 +84,17 @@ The worker loads `../../.env` relative to its own directory, so the single root
 | Worker only | `npm run worker` |
 | Electron shell | `npm run electron:dev` |
 | All workspace typechecks | `npm run typecheck` |
-| Worker tests | `npm test` (or `npm run --workspace=@moagent/worker test`) |
-| Backend tests (in-memory) | `npm run --workspace=@moagent/api test` |
-| Codegen only | `npm run --workspace=@moagent/api codegen` |
-| One backend file of tests | `npx --workspace=@moagent/api vitest run convex/<file>.test.ts` |
-| One worker file of tests | `npx --workspace=@moagent/worker vitest run tests/<file>.test.ts` |
-| Narrow typecheck | `npm run --workspace=@moagent/api typecheck` / `npm run --workspace=@moagent/web typecheck` / `npm run --workspace=@moagent/worker typecheck` |
+| Worker tests | `npm test` (or `npm run --workspace=@fhara/worker test`) |
+| Backend tests (in-memory) | `npm run --workspace=@fhara/api test` |
+| Codegen only | `npm run --workspace=@fhara/api codegen` |
+| One backend file of tests | `npx --workspace=@fhara/api vitest run convex/<file>.test.ts` |
+| One worker file of tests | `npx --workspace=@fhara/worker vitest run tests/<file>.test.ts` |
+| Narrow typecheck | `npm run --workspace=@fhara/api typecheck` / `npm run --workspace=@fhara/web typecheck` / `npm run --workspace=@fhara/worker typecheck` |
 | Unused files / deps | `npm run knip` (`npm run knip:all` also reports unused exports) |
 
 `apps/api/convex/_generated/` is gitignored. A fresh clone has no generated
 client, so backend and worker typecheck fail until `npx convex dev` (or
-`npm run --workspace=@moagent/api codegen`) has run once. That is expected, not a
+`npm run --workspace=@fhara/api codegen`) has run once. That is expected, not a
 code error.
 
 ## Checks
@@ -102,12 +102,12 @@ code error.
 Run the narrowest check that can catch your mistake, then say what you left out.
 Broad runs are expensive and slow the machine:
 
-1. Change in the backend → `npm run --workspace=@moagent/api typecheck` and the
+1. Change in the backend → `npm run --workspace=@fhara/api typecheck` and the
    relevant `convex/*.test.ts` file.
-2. Change in the worker → `npm run --workspace=@moagent/worker typecheck` and the
+2. Change in the worker → `npm run --workspace=@fhara/worker typecheck` and the
    relevant `packages/worker/tests/*.test.ts` file (or `npm test` for the whole
    worker suite, which is fast).
-3. Change in the web app → `npm run --workspace=@moagent/web typecheck` and
+3. Change in the web app → `npm run --workspace=@fhara/web typecheck` and
    `npm run build` when the change affects routing, bundling, or server
    components. Do not run `next build` for a pure copy or style change.
 4. Run the root `npm run typecheck` only before handing work off, or when you

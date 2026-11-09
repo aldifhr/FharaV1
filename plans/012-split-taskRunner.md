@@ -144,8 +144,8 @@ consumer anywhere in `packages/` or `apps/`. `sleep` and `finalizeRecordEval`
 were only reachable from dead code paths; `heuristicPlanForTest` was an
 exported test helper that no test imported.
 
-**Check**: `npm run --workspace=@moagent/worker typecheck` → clean. ✅
-**Check**: `npm run --workspace=@moagent/worker test` → 463 passed / 3 skipped. ✅
+**Check**: `npm run --workspace=@fhara/worker typecheck` → clean. ✅
+**Check**: `npm run --workspace=@fhara/worker test` → 463 passed / 3 skipped. ✅
 **Check**: byte-exactness of every moved function vs. the pre-split file,
 verified with an AST-range comparator → 0 diffs. ✅
 
@@ -172,7 +172,7 @@ same arguments. `runner/runNodes.ts` also receives the `runNodes` scheduler
 closure (with `onOutcome`'s decision handling extracted in Step 3) so
 `executePlan` becomes the thin orchestration the split is aiming at.
 
-**Check**: `npm run --workspace=@moagent/worker typecheck` → clean.
+**Check**: `npm run --workspace=@fhara/worker typecheck` → clean.
 **Check**: `npm test` → same pass count.
 
 ### Step 3: extract the `onOutcome` decision handling
@@ -185,7 +185,7 @@ block (`taskRunner.ts:2000`–`2572`) into `runner/decision.ts` as
 `persistDynamic` callback; those become context fields so the mutation stays
 visible to `executePlan`.
 
-**Check**: `npm run --workspace=@moagent/worker typecheck` → clean.
+**Check**: `npm run --workspace=@fhara/worker typecheck` → clean.
 **Check**: `npm test` → same pass count.
 **Check**: `wc -l src/services/taskRunner.ts` → under 700 lines.
 
@@ -202,7 +202,7 @@ visible to `executePlan`.
 
 ## Completion criteria
 
-- [ ] `npm run --workspace=@moagent/worker typecheck` clean.
+- [ ] `npm run --workspace=@fhara/worker typecheck` clean.
 - [ ] `npm test` pass count unchanged from the pre-split baseline.
 - [ ] `taskRunner.ts` under 700 lines; no file in `src/services/` over 600.
 - [ ] `npm run knip` shows no new unused file or unresolved import.

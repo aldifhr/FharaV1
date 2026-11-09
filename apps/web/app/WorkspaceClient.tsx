@@ -27,7 +27,7 @@ function WorkspaceShell({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   useEffect(() => {
     try {
-      setSidebarCollapsed(localStorage.getItem("moagent-sidebar-collapsed") === "1");
+      setSidebarCollapsed(localStorage.getItem("fhara-sidebar-collapsed") === "1");
     } catch {
       /* storage denied */
     }
@@ -35,7 +35,7 @@ function WorkspaceShell({
   const toggleSidebarCollapsed = () =>
     setSidebarCollapsed((collapsed) => {
       try {
-        localStorage.setItem("moagent-sidebar-collapsed", collapsed ? "0" : "1");
+        localStorage.setItem("fhara-sidebar-collapsed", collapsed ? "0" : "1");
       } catch {
         /* storage denied */
       }

@@ -55,7 +55,7 @@ function LegacyPinsFeed({ projectId, onChange }: { projectId: string; onChange: 
   return null;
 }
 
-const TARGET_KEY = (projectId: string) => `moagent-chat-target-${projectId}`;
+const TARGET_KEY = (projectId: string) => `fhara-chat-target-${projectId}`;
 
 export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpenAgent, selectedTaskId }: Props) {
   const { openSidebar, sidebarCollapsed, toggleSidebarCollapsed } = useWorkspace();
@@ -457,7 +457,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
 
   // Dismissible agent-error banners for the selected task.
   const taskEvents = useQuery(api.taskEvents.listByTask, selectedTask ? { taskId: selectedTask._id } : "skip");
-  const dismissedKey = `moagent-dismissed-errors-${projectId}`;
+  const dismissedKey = `fhara-dismissed-errors-${projectId}`;
   const [dismissedErrors, setDismissedErrors] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set();
     try {

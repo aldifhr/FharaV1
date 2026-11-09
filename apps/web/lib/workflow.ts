@@ -49,7 +49,7 @@ export interface WorkflowIssue {
   message: string;
 }
 
-const STORAGE_KEY = "moagent.workflows.v1";
+const STORAGE_KEY = "fhara.workflows.v1";
 
 export function newId(prefix: string): string {
   const rand =

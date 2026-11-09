@@ -1,6 +1,6 @@
 ---
 name: improve
-description: Audit one area of MOAgent, prove each finding with path:line, fix the cheap ones, and write a plan for the expensive ones. Use when asked to improve, audit, review, harden, or "find what is wrong" in a file, a module, or a surface.
+description: Audit one area of Fhara, prove each finding with path:line, fix the cheap ones, and write a plan for the expensive ones. Use when asked to improve, audit, review, harden, or "find what is wrong" in a file, a module, or a surface.
 ---
 
 # Improve
@@ -73,9 +73,9 @@ implement a plan in the same pass unless the user asks.
   code.
 - Add a test only for a protected invariant or a regression that would come back.
 - Run the narrowest checks:
-  - backend → `npm run --workspace=@moagent/api typecheck` + the relevant test file
-  - worker → `npm run --workspace=@moagent/worker typecheck` + the relevant test file
-  - web → `npm run --workspace=@moagent/web typecheck`
+  - backend → `npm run --workspace=@fhara/api typecheck` + the relevant test file
+  - worker → `npm run --workspace=@fhara/worker typecheck` + the relevant test file
+  - web → `npm run --workspace=@fhara/web typecheck`
 - Never weaken a test, never widen a type to `any` to pass a check.
 
 ## Step 5 — Report

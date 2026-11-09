@@ -59,7 +59,7 @@ const AGENTS = [
 
 let workspace: string;
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-plan-review-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-plan-review-"));
   mocks.createPlanCalls = [];
   mocks.executed = [];
 });

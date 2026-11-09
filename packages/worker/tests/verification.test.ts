@@ -7,7 +7,7 @@ import { runVerification } from "@/execution/verification";
 let root: string;
 
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-verify-"));
+  root = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-verify-"));
 });
 
 afterEach(async () => {

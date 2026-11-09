@@ -212,9 +212,9 @@ export default function AgentDetailPanel({
         <Section title="Runtime">
           <p className="text-sm text-gray-600 dark:text-gray-300">
             {agent.executionRuntime === "opencode"
-              ? `OpenCode${agent.opencodeModel ? ` · ${agent.opencodeModel}` : " · MOAgent LLM"}`
+              ? `OpenCode${agent.opencodeModel ? ` · ${agent.opencodeModel}` : " · Fhara LLM"}`
               : agent.executionRuntime === "api"
-                ? "API (MOAgent host tools)"
+                ? "API (Fhara host tools)"
                 : "Worker default"}
           </p>
         </Section>

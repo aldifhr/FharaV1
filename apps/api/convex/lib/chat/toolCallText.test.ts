@@ -62,7 +62,7 @@ describe("extractToolCalls", () => {
 
   test("prose that only quotes JSON (inline, or a non-call object in a fence) is left alone", () => {
     expect(extractToolCalls('Here is the config: {"tool":"grep"}')).toMatchObject({ calls: [], prose: 'Here is the config: {"tool":"grep"}' });
-    const fenced = 'Contoh:\n```json\n{"name":"moagent","version":"1.0.0"}\n```\nselesai';
+    const fenced = 'Contoh:\n```json\n{"name":"fhara","version":"1.0.0"}\n```\nselesai';
     expect(extractToolCalls(fenced)).toMatchObject({ calls: [], prose: fenced });
     expect(hasToolCallText("schema.ts punya 1069 baris.")).toBe(false);
   });

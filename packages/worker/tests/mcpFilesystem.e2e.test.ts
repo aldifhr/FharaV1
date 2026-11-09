@@ -4,7 +4,7 @@
  * Opt-in: RUN_MCP_E2E=1. Downloads/launches
  * `@modelcontextprotocol/server-filesystem` via npx, so it costs network
  * and a real subprocess. It proves the integration is not mock-only: the
- * registry spawns the official server, discovers its tools, and MOAgent's
+ * registry spawns the official server, discovers its tools, and Fhara's
  * own path/permission checks refuse `.env` and out-of-root reads before the
  * server is ever called.
  */
@@ -21,8 +21,8 @@ let workspace: string;
 let outside: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-mcp-e2e-ws-"));
-  outside = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-mcp-e2e-out-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-mcp-e2e-ws-"));
+  outside = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-mcp-e2e-out-"));
   await fs.mkdir(path.join(workspace, "src"), { recursive: true });
   await fs.writeFile(path.join(workspace, "src", "index.ts"), "export const e2e = true;\n", "utf-8");
   await fs.writeFile(path.join(workspace, ".env"), "SECRET_E2E=do-not-read\n", "utf-8");
@@ -36,7 +36,7 @@ afterEach(async () => {
 });
 
 describe.skipIf(!RUN)("MCP filesystem server (RUN_MCP_E2E=1)", () => {
-  it("discovers the official tool surface and reads a file through MOAgent", async () => {
+  it("discovers the official tool surface and reads a file through Fhara", async () => {
     const registry = getMcpRegistry();
     const config: McpServerConfig = {
       _id: "e2e-fs",
@@ -73,7 +73,7 @@ describe.skipIf(!RUN)("MCP filesystem server (RUN_MCP_E2E=1)", () => {
     expect(result.text).toContain("export const e2e = true;");
   });
 
-  it("refuses .env and out-of-root paths in MOAgent before the server sees them", async () => {
+  it("refuses .env and out-of-root paths in Fhara before the server sees them", async () => {
     const registry = getMcpRegistry();
     const config: McpServerConfig = {
       _id: "e2e-fs-2",
@@ -89,7 +89,7 @@ describe.skipIf(!RUN)("MCP filesystem server (RUN_MCP_E2E=1)", () => {
       timeoutMs: 120_000,
       maxResultChars: 8_000,
     })[0];
-    // Warm the connection so the refusal is attributed to MOAgent, not spawn.
+    // Warm the connection so the refusal is attributed to Fhara, not spawn.
     await registry.toolsFor(session, { role: "researcher" });
 
     const secret = await registry.callTool(

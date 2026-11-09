@@ -50,7 +50,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
 
   useEffect(() => {
-    setDesktopReady(Boolean(window.moagentDesktop));
+    setDesktopReady(Boolean(window.fharaDesktop));
   }, []);
 
   useEffect(() => {
@@ -104,11 +104,11 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
   }
 
   async function handleSelectFolder() {
-    if (!window.moagentDesktop) return;
+    if (!window.fharaDesktop) return;
     setSelectingFolder(true);
     setError("");
     try {
-      const selectedPath = await window.moagentDesktop.selectFolder();
+      const selectedPath = await window.fharaDesktop.selectFolder();
       if (selectedPath) {
         setWorkspacePath(selectedPath);
         if (!name) {
@@ -135,7 +135,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
               <input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="E.g. MOAgent"
+                placeholder="E.g. Fhara"
                 required
                 autoFocus
                 className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
@@ -147,7 +147,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
                 <input
                   value={workspacePath}
                   onChange={(event) => setWorkspacePath(event.target.value)}
-                  placeholder="C:\projects\MOAgent"
+                  placeholder="C:\projects\Fhara"
                   required
                   className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
                 />

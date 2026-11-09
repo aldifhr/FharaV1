@@ -1,5 +1,5 @@
 /** Per-conversation last-read timestamp, kept on this device. */
-const key = (conversationKey: string) => `moagent-chat-lastseen-${conversationKey}`;
+const key = (conversationKey: string) => `fhara-chat-lastseen-${conversationKey}`;
 
 export function readLastRead(conversationKey: string): number | null {
   try {

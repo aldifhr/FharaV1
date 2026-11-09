@@ -1,7 +1,7 @@
 declare module "*.css";
 
 interface Window {
-  moagentDesktop?: {
+  fharaDesktop?: {
     selectFolder: () => Promise<string | null>;
   };
 }

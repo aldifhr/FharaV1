@@ -1,4 +1,4 @@
-# Architecture Validation Matrix — MOAgent
+# Architecture Validation Matrix — Fhara
 
 Date: 2026-11-07 baseline. Worker baseline: 40 files / 307 tests green; typecheck 57 pre-existing.
 API baseline: 4 files / 25 tests green; typecheck clean. Web typecheck clean. Knip: 8 unused files / 10 unused deps / 1 dup (baseline).

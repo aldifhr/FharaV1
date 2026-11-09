@@ -389,7 +389,7 @@ function simulateStaleRecovery(store: Store): void {
 let workspace: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-p4h-rec-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-p4h-rec-"));
   mockState.executed = [];
   mockState.hangKeys = new Set();
 });

@@ -40,8 +40,8 @@ const clients: McpClient[] = [];
 const registries: McpRegistry[] = [];
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-mcp-client-ws-"));
-  outside = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-mcp-client-out-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-mcp-client-ws-"));
+  outside = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-mcp-client-out-"));
   await fs.mkdir(path.join(workspace, "src"), { recursive: true });
   await fs.writeFile(path.join(workspace, "src", "index.ts"), "export const x = 1;\n", "utf-8");
 });

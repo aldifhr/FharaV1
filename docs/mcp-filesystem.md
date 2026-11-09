@@ -1,8 +1,8 @@
 # Filesystem MCP integration
 
-MOAgent treats MCP servers as **external tool providers**: the worker spawns
+Fhara treats MCP servers as **external tool providers**: the worker spawns
 the server, discovers its tools over the MCP protocol, and lets agents use
-those tools inside the project workspace. There is no MOAgent-native
+those tools inside the project workspace. There is no Fhara-native
 filesystem tool duplication — if a server already provides `read_file`, the
 worker does not implement a second one.
 
@@ -103,9 +103,9 @@ material is ever included.
 
 | Suite | Command |
 | --- | --- |
-| Permissions + path checks | `npx --workspace=@moagent/worker vitest run tests/mcpPermissions.test.ts` |
-| Client + registry (real stdio, fake server) | `npx --workspace=@moagent/worker vitest run tests/mcpClientAndRegistry.test.ts` |
-| Tool loop | `npx --workspace=@moagent/worker vitest run tests/mcpToolLoop.test.ts` |
-| Backend config | `npx --workspace=@moagent/api vitest run convex/mcpServers.test.ts` |
-| Scope, secrets, test connection | `npx --workspace=@moagent/api vitest run convex/mcpIntegrations.test.ts` and `npx --workspace=@moagent/worker vitest run tests/mcpIntegrations.test.ts` |
-| End-to-end (official server, opt-in) | `RUN_MCP_E2E=1 npx --workspace=@moagent/worker vitest run tests/mcpFilesystem.e2e.test.ts` |
+| Permissions + path checks | `npx --workspace=@fhara/worker vitest run tests/mcpPermissions.test.ts` |
+| Client + registry (real stdio, fake server) | `npx --workspace=@fhara/worker vitest run tests/mcpClientAndRegistry.test.ts` |
+| Tool loop | `npx --workspace=@fhara/worker vitest run tests/mcpToolLoop.test.ts` |
+| Backend config | `npx --workspace=@fhara/api vitest run convex/mcpServers.test.ts` |
+| Scope, secrets, test connection | `npx --workspace=@fhara/api vitest run convex/mcpIntegrations.test.ts` and `npx --workspace=@fhara/worker vitest run tests/mcpIntegrations.test.ts` |
+| End-to-end (official server, opt-in) | `RUN_MCP_E2E=1 npx --workspace=@fhara/worker vitest run tests/mcpFilesystem.e2e.test.ts` |

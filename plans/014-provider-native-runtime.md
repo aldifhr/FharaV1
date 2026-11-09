@@ -12,7 +12,7 @@
 
 ## Why this is needed
 
-The current execution path implements coding tools in MOAgent (`packages/worker/src/tools/`), so every agent feature depends on MOAgent maintaining its own sandbox, command allowlist, browser, GitHub, and MCP tooling. The developer wants a provider-native runtime where coding agents use their provider's native tools instead, while MOAgent remains responsible for planning, approval, budget accounting, and verification.
+The current execution path implements coding tools in Fhara (`packages/worker/src/tools/`), so every agent feature depends on Fhara maintaining its own sandbox, command allowlist, browser, GitHub, and MCP tooling. The developer wants a provider-native runtime where coding agents use their provider's native tools instead, while Fhara remains responsible for planning, approval, budget accounting, and verification.
 
 ## Target behaviour
 
@@ -51,7 +51,7 @@ What a user can do after the change:
 
 Add an execution runtime adapter contract so task execution can choose `api` or `native-provider` without changing orchestration decisions.
 
-**Check**: `npm run --workspace=@moagent/worker typecheck` → exit 0.
+**Check**: `npm run --workspace=@fhara/worker typecheck` → exit 0.
 
 ### Step 2: Implement provider CLI/ACP adapter
 

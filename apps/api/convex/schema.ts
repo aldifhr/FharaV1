@@ -199,11 +199,11 @@ export default defineSchema({
     llmSelectionPolicy: v.optional(
       v.union(v.literal("fixed"), v.literal("priority"), v.literal("weighted"))
     ),
-    // Execution runtime override: "api" (MOAgent host tools + gated LLM) or
+    // Execution runtime override: "api" (Fhara host tools + gated LLM) or
     // "opencode" (OpenCode CLI with native tools in the task worktree).
     // Unset = the worker's global ORCHESTRATOR_EXECUTION_RUNTIME default.
     executionRuntime: v.optional(v.union(v.literal("api"), v.literal("opencode"))),
-    // Optional OpenCode model ("provider/model"); unset = MOAgent's own LLM.
+    // Optional OpenCode model ("provider/model"); unset = Fhara's own LLM.
     opencodeModel: v.optional(v.string()),
     status: agentStatus,
     avatarParams: v.optional(v.any()),

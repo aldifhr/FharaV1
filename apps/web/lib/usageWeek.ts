@@ -42,7 +42,7 @@ export function llmDisplayName(model: string | null, providerKind: string | null
 }
 
 /** Local override of the weekly token budget (Settings), else the server's. */
-export const BUDGET_STORAGE_KEY = "moagent-weekly-token-budget";
+export const BUDGET_STORAGE_KEY = "fhara-weekly-token-budget";
 
 export function readLocalBudget(): number | null {
   try {

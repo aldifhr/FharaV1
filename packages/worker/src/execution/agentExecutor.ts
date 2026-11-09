@@ -172,7 +172,7 @@ export interface SubtaskExecutionInput {
   nativeProviderCommand?: string;
   /**
    * Agent's OpenCode model (`provider/model`) for the native runtime.
-   * Unset: OpenCode is pointed at this subtask's resolved MOAgent LLM.
+   * Unset: OpenCode is pointed at this subtask's resolved Fhara LLM.
    */
   nativeModel?: string;
   /** Native runtime wall-clock limit (default ORCHESTRATOR_NATIVE_TIMEOUT_MS / 10 min). */
@@ -397,7 +397,7 @@ export function invalidAnswerEvent(content: string): { parseError: string; answe
 
 /** git merge-file -p base/ours/theirs: merged text, or null on conflict/error. */
 export async function mergeThreeWay(base: string, ours: string, theirs: string): Promise<string | null> {
-  const dir = await fs.mkdtemp(path.join(tmpdir(), "moagent-merge-"));
+  const dir = await fs.mkdtemp(path.join(tmpdir(), "fhara-merge-"));
   try {
     const [b, o, t] = ["base", "ours", "theirs"].map((name) => path.join(dir, name));
     await Promise.all([fs.writeFile(b, base), fs.writeFile(o, ours), fs.writeFile(t, theirs)]);
@@ -705,7 +705,7 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
   const preRunHead = await readGitHead(workspacePath, signal);
 
   // OpenCode uses the agent's own OpenCode model when set; otherwise the
-  // same LLM the rest of MOAgent resolved for this agent (first handle of
+  // same LLM the rest of Fhara resolved for this agent (first handle of
   // the resolver chain, else the task/global config).
   const llm = input.llmHandles?.[0]?.config ?? input.llmConfig ?? getGlobalLLMConfig();
   const result = await runNativeProvider({

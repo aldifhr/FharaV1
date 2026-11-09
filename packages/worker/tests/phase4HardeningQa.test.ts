@@ -45,7 +45,7 @@ async function readPid(file: string): Promise<number> {
 let workspace: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-p4h-qa-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-p4h-qa-"));
   await fs.writeFile(
     path.join(workspace, "package.json"),
     JSON.stringify({

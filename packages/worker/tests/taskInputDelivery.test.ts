@@ -77,7 +77,7 @@ function sharedContext() {
 
 let workspace: string;
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-input-guard-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-input-guard-"));
   captured.inputs = [];
   captured.renderInPrompt = false;
 });

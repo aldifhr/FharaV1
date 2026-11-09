@@ -3,7 +3,7 @@
  *
  * The worker treats MCP servers as an external tool provider. The wire
  * shape comes from the MCP protocol (stdio, newline-delimited JSON-RPC);
- * MOAgent does not vendor the protocol SDK — the client in `client.ts`
+ * Fhara does not vendor the protocol SDK — the client in `client.ts`
  * implements the three calls the worker needs (`initialize`, `tools/list`,
  * `tools/call`) with `node:child_process` only.
  */

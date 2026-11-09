@@ -97,7 +97,7 @@ export interface ExecutionPolicy {
   /**
    * Plan 014 (provider-native runtime): which execution runtime serves
    * subtasks.
-   *  - "api" (default): the agent's LLM calls drive MOAgent's own host
+   *  - "api" (default): the agent's LLM calls drive Fhara's own host
    *    tools (governance registry, sandbox, allowlist) — fully gated.
    *  - "native-provider": the provider CLI runs its own native tools in
    *    the task workspace (danger-full-access per the recorded Plan 014

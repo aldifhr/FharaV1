@@ -12,7 +12,7 @@
 
 ## Why this is needed
 
-The user wants a MausBot-equivalent authorization layer for MOAgent task runtime: one enforcement endpoint for risky agent actions (Allow/Deny/Ask), a per-tool permission decision that is visible and persistent across recovery, recorded approvals for audit, and durable task-start instructions (shared instructions persisted, not just prompt-discarded).
+The user wants a MausBot-equivalent authorization layer for Fhara task runtime: one enforcement endpoint for risky agent actions (Allow/Deny/Ask), a per-tool permission decision that is visible and persistent across recovery, recorded approvals for audit, and durable task-start instructions (shared instructions persisted, not just prompt-discarded).
 
 ## Target behaviour
 
@@ -57,19 +57,19 @@ In `apps/api/convex/permissionBroker.ts` create `decidePermission` (query) and u
 - Evaluate: would deny if action runs outside the workspace; deny if action lacks a valid approval when required (via approval rows); ask-user if no row.
 - It must be a runtime query/mutation callable by backend (not worker-only token).
 
-**Check**: `npx --workspace=@moagent/api vitest run convex/<permissionBroker>.test.ts` passes.
+**Check**: `npx --workspace=@fhara/api vitest run convex/<permissionBroker>.test.ts` passes.
 
 ### Step 3: Runtime prompt sufficiency note
 
 Ensure durable shared instructions load from `projects.instructions`/`agents.instructions` into execution planning prompts when present. No new planner; reuse existing `buildPlanningGuidance`.
 
-**Check**: `npm run --workspace=@moagent/worker typecheck` → exit 0.
+**Check**: `npm run --workspace=@fhara/worker typecheck` → exit 0.
 
 ### Step 4: Enforce in worker paths
 
 Wire broker verdict into the risky action execution (`applyChanges`, `git_push`, `run_command`, `merge_pr`) reuse approval row already required; broker Deniability is the guard. Record denial to audit events (`taskEvents`/`approval` log).
 
-**Check**: worker tests cover denied path; `npm run --workspace=@moagent/web typecheck` passes.
+**Check**: worker tests cover denied path; `npm run --workspace=@fhara/web typecheck` passes.
 
 ## Test plan
 

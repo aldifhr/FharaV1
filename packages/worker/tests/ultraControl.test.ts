@@ -123,7 +123,7 @@ describe("(a) LLM max tokens and per-call timeout are configurable", () => {
 describe("(b) invalid-JSON retry checks the remaining subtask time", () => {
   let workspace: string;
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-ultra-"));
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-ultra-"));
     await fs.mkdir(path.join(workspace, "src"), { recursive: true });
     await fs.writeFile(path.join(workspace, "src", "hello.ts"), "export const hello = 1;\n");
   });

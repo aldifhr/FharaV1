@@ -79,7 +79,7 @@ const IMPLEMENTER = {
 
 let workspace: string;
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-preserve-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-preserve-"));
   mock.plannerCalls = [];
   mock.executed = [];
 });

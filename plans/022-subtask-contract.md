@@ -18,7 +18,7 @@ means, an executor that stops and escalates instead of widening its own
 scope, acceptance checked against evidence rather than the executor's own
 claim, idempotent dispatch keys, and a strong-model / worker-model split —
 were inspired by the astra-luna project (Apache-2.0). Only the ideas were
-adopted; no text or code was copied, and the shapes below are MOAgent's own.
+adopted; no text or code was copied, and the shapes below are Fhara's own.
 
 ## Why this is needed
 

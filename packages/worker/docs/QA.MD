@@ -73,7 +73,7 @@ Daripada worker auto-start server, buat `qa` subtask kind baru yang menjalankan 
 
 ## Rekomendasi
 
-**Opsi B (Workspace-level Dev Server Management)** paling robust untuk use case MOAgent: worker ephemeral, workspace sementara, tidak ada port conflict karena 1 task per workspace.
+**Opsi B (Workspace-level Dev Server Management)** paling robust untuk use case Fhara: worker ephemeral, workspace sementara, tidak ada port conflict karena 1 task per workspace.
 
 Implementasi bertahap:
 

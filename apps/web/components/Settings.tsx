@@ -52,7 +52,7 @@ function BudgetField() {
     } catch {
       /* storage denied */
     }
-    window.dispatchEvent(new Event("moagent:budget-changed"));
+    window.dispatchEvent(new Event("fhara:budget-changed"));
   };
   return (
     <section className="rounded-xl border border-line bg-panel p-3">

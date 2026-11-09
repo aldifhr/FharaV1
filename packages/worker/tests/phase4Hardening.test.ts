@@ -758,7 +758,7 @@ function createRunnerDeps(options: {
 let workspace: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-p4h-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-p4h-"));
   mockState.executed = [];
   mockState.sawAbort = false;
   mockState.mode = "track";

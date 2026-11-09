@@ -7,7 +7,7 @@ import { applyFileChange, computeDiff, StaleFileError } from "@/tools/gitDiff";
 let root: string;
 
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-changes-"));
+  root = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-changes-"));
 });
 
 afterEach(async () => {

@@ -1,6 +1,6 @@
 ---
 name: smoke
-description: Start the MOAgent stack and prove a change works in the real app. Use when asked to smoke test, QA, verify, or check a change or PR in the running UI, the worker, or the backend. Covers the web app, the worker, and Convex.
+description: Start the Fhara stack and prove a change works in the real app. Use when asked to smoke test, QA, verify, or check a change or PR in the running UI, the worker, or the backend. Covers the web app, the worker, and Convex.
 ---
 
 # Smoke
@@ -44,7 +44,7 @@ say so and stop.
 - Start long-running commands in the background and wait for the port or the
   Convex "Convex functions ready" line, not for a fixed number of seconds.
 - Convex codegen is required first on a fresh clone:
-  `npm run --workspace=@moagent/api codegen`.
+  `npm run --workspace=@fhara/api codegen`.
 - A full task run spends real provider quota. Keep the prompt short and use a
   cheap model. Say in the report that you spent quota.
 

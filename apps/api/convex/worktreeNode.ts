@@ -16,7 +16,7 @@ function makeBranchName(taskId: string, title: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 40);
-  return `moagent/${taskId}/${slug || "task"}`;
+  return `fhara/${taskId}/${slug || "task"}`;
 }
 
 export const createBranch = internalAction({

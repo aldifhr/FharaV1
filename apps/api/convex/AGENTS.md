@@ -97,8 +97,8 @@ auth provider by design (recorded decision in `README.md` and `ROADMAP.md`).
 `convex-test` runs the real functions in memory — no deployment, no codegen.
 
 ```
-npm run --workspace=@moagent/api test
-npx --workspace=@moagent/api vitest run convex/securityInvariants.test.ts
+npm run --workspace=@fhara/api test
+npx --workspace=@fhara/api vitest run convex/securityInvariants.test.ts
 ```
 
 `securityInvariants.test.ts` protects three things the worker suite cannot reach:

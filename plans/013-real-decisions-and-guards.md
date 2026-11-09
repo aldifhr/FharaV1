@@ -163,8 +163,8 @@ Schema:
 - Tests: advisor call is metered and gated; missing chain → explicit fallback
   reason, never an env-based call.
 
-**Check**: `npm run --workspace=@moagent/worker typecheck` &&
-`npx --workspace=@moagent/worker vitest run tests/decision.test.ts tests/orchestrator.test.ts`
+**Check**: `npm run --workspace=@fhara/worker typecheck` &&
+`npx --workspace=@fhara/worker vitest run tests/decision.test.ts tests/orchestrator.test.ts`
 → green.
 
 ### Step 2: Issue lifecycle and the final completion guard
@@ -181,8 +181,8 @@ Schema:
 - This step lands BEFORE replan becomes real, so recovery can never loop on
   permanently-unmet objectives.
 
-**Check**: `npm run --workspace=@moagent/worker typecheck` &&
-`npx --workspace=@moagent/worker vitest run tests/taskContext.test.ts tests/evaluator.test.ts tests/phase6Completion.test.ts`
+**Check**: `npm run --workspace=@fhara/worker typecheck` &&
+`npx --workspace=@fhara/worker vitest run tests/taskContext.test.ts tests/evaluator.test.ts tests/phase6Completion.test.ts`
 → green.
 
 ### Step 3: Real replan, complete, and halt outcomes
@@ -204,8 +204,8 @@ Schema:
   rule (missing work → replan, else ask_user); `ask_user` remains a recorded
   no-op until Step 4 — no behaviour regression between steps.
 
-**Check**: `npm run --workspace=@moagent/worker typecheck` &&
-`npx --workspace=@moagent/worker vitest run tests/taskRunner.replan.test.ts tests/phase5Runner.test.ts tests/phase4HardeningRecovery.test.ts`
+**Check**: `npm run --workspace=@fhara/worker typecheck` &&
+`npx --workspace=@fhara/worker vitest run tests/taskRunner.replan.test.ts tests/phase5Runner.test.ts tests/phase4HardeningRecovery.test.ts`
 → green.
 
 ### Step 4: `ask_user` end to end
@@ -224,10 +224,10 @@ Schema:
   that calls the answer mutation. Reuse existing components; no redesign.
   Handle the new status wherever the UI switches on `taskStatus`.
 
-**Check**: `npm run --workspace=@moagent/api typecheck` &&
-`npx --workspace=@moagent/api vitest run convex/securityInvariants.test.ts` &&
-`npm run --workspace=@moagent/web typecheck` &&
-`npm run --workspace=@moagent/worker typecheck` → green; worker recovery test
+**Check**: `npm run --workspace=@fhara/api typecheck` &&
+`npx --workspace=@fhara/api vitest run convex/securityInvariants.test.ts` &&
+`npm run --workspace=@fhara/web typecheck` &&
+`npm run --workspace=@fhara/worker typecheck` → green; worker recovery test
 exercises pause → answer → resume.
 
 ### Step 5: Consult the advisor where judgment matters
@@ -242,8 +242,8 @@ exercises pause → answer → resume.
   `taskRunner.ts:2182-2188`); the recovery decision now comes from `decide()`
   and every outcome is real (Steps 3–4).
 
-**Check**: `npm run --workspace=@moagent/worker typecheck` &&
-`npx --workspace=@moagent/worker vitest run tests/decision.test.ts tests/orchestrator.test.ts`
+**Check**: `npm run --workspace=@fhara/worker typecheck` &&
+`npx --workspace=@fhara/worker vitest run tests/decision.test.ts tests/orchestrator.test.ts`
 → green. New cases: unmet objective consults the advisor; mode `off` →
 deterministic recovery; BLOCKED/step-limit never consult; invalid advisor
 output falls back with a recorded reason.
@@ -256,8 +256,8 @@ output falls back with a recorded reason.
   The hints layer (`applyPlanningHints`) stays as the enforcement layer and
   still never removes LLM-provided nodes.
 
-**Check**: `npm run --workspace=@moagent/worker typecheck` &&
-`npx --workspace=@moagent/worker vitest run tests/planner.test.ts` → green
+**Check**: `npm run --workspace=@fhara/worker typecheck` &&
+`npx --workspace=@fhara/worker vitest run tests/planner.test.ts` → green
 for all three modes.
 
 ### Step 7: One decision path, parity, dead code

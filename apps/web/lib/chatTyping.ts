@@ -1,4 +1,4 @@
-export const CHAT_TYPING_EVENT = "moagent:chat-typing";
+export const CHAT_TYPING_EVENT = "fhara:chat-typing";
 
 export interface ChatTypingDetail {
   agentIds: string[];

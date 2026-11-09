@@ -52,7 +52,7 @@ let workspace: string;
 const registries: McpRegistry[] = [];
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-mcp-int-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-mcp-int-"));
 });
 afterEach(async () => {
   for (const registry of registries) await registry.disposeAll().catch(() => undefined);

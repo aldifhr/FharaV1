@@ -68,8 +68,8 @@ local by design. Do not present them as secure in UI copy.
 ## Checks
 
 ```
-npm run --workspace=@moagent/web typecheck
-npm run --workspace=@moagent/web build     # routing / bundling / server components
+npm run --workspace=@fhara/web typecheck
+npm run --workspace=@fhara/web build     # routing / bundling / server components
 ```
 
 Run `build` only when the change affects routing, data fetching, or bundling.

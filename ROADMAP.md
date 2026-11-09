@@ -1,4 +1,4 @@
-# MOAgent roadmap
+# Fhara roadmap
 
 Open work only — finished items live in the git history. Grouped by when it
 should happen:

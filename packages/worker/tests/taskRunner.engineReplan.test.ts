@@ -86,7 +86,7 @@ const IMPLEMENTER = {
 let workspace: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-engine-replan-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-engine-replan-"));
   plannerMock.createPlanCalls = [];
   plannerMock.repeatSame = false;
 });

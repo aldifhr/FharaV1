@@ -47,11 +47,11 @@ describe("opencode argv + config", () => {
     expect(nativeArgv("opencode", ["m"], { json: false, auto: false }).args).toEqual(["run", "m"]);
   });
 
-  it("generates a MOAgent provider config that references the key via env only", () => {
+  it("generates a Fhara provider config that references the key via env only", () => {
     const { config, model, env } = buildOpencodeConfig({ llm: LLM });
-    expect(model).toBe("moagent/nous");
+    expect(model).toBe("fhara/nous");
     expect(env).toEqual({ [OPENCODE_KEY_ENV]: SECRET });
-    const provider = (config.provider as Record<string, any>).moagent;
+    const provider = (config.provider as Record<string, any>).fhara;
     expect(provider.npm).toBe("@ai-sdk/openai-compatible");
     expect(provider.options.baseURL).toBe(LLM.baseUrl);
     expect(provider.options.apiKey).toBe(`{env:${OPENCODE_KEY_ENV}}`);
@@ -60,7 +60,7 @@ describe("opencode argv + config", () => {
     expect((config.permission as any).external_directory).toBe("deny");
   });
 
-  it("an explicit OpenCode model wins and carries no MOAgent provider/key", () => {
+  it("an explicit OpenCode model wins and carries no Fhara provider/key", () => {
     const { config, model, env } = buildOpencodeConfig({ model: " anthropic/claude-sonnet ", llm: LLM });
     expect(model).toBe("anthropic/claude-sonnet");
     expect(env).toEqual({});
@@ -88,9 +88,9 @@ describe("opencode argv + config", () => {
     };
     const result = await runNativeProvider({ workspacePath: os.tmpdir(), prompt: "p", llm: LLM, spawnImpl });
     expect(result.status).toBe("completed");
-    expect(result.model).toBe("moagent/nous");
+    expect(result.model).toBe("fhara/nous");
     expect(seen.args).toContain("-m");
-    expect(seen.args[seen.args.indexOf("-m") + 1]).toBe("moagent/nous");
+    expect(seen.args[seen.args.indexOf("-m") + 1]).toBe("fhara/nous");
     expect(seen.args.join(" ")).not.toContain(SECRET);
     expect(seen.env?.[OPENCODE_KEY_ENV]).toBe(SECRET);
     // Pinned to the worktree: OpenCode prefers $PWD over cwd.
@@ -201,7 +201,7 @@ describe("timeout + process tree kill", () => {
   });
 
   it.skipIf(process.platform === "win32")("kills the real process tree on timeout (stdin closed)", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-oc-kill-"));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-oc-kill-"));
     const script = path.join(dir, "fake-opencode");
     // Proves stdin is closed (cat returns), then spawns a grandchild and hangs.
     await fs.writeFile(
@@ -244,7 +244,7 @@ describe("executeSubtask on the OpenCode runtime", () => {
   let ws: string;
   beforeEach(async () => {
     ws = createTempGitRepo({
-      prefix: "moagent-oc-exec-",
+      prefix: "fhara-oc-exec-",
       files: { "src/a.ts": "export const a = 1;\n", "README.md": "readme\n" },
     }).dir;
   });
@@ -293,12 +293,12 @@ describe("executeSubtask on the OpenCode runtime", () => {
     const { base, saved, events } = input(agent, spawnImpl);
     const result = await executeSubtask(base);
     expect(result.status).toBe("completed");
-    expect(argv[argv.indexOf("-m") + 1]).toBe("moagent/nous");
+    expect(argv[argv.indexOf("-m") + 1]).toBe("fhara/nous");
     expect(saved.sort()).toEqual(["src/a.ts", "src/b.ts"]);
     expect(await fs.readFile(path.join(ws, "README.md"), "utf-8")).toBe("readme\n");
     await expect(fs.stat(path.join(ws, ".env"))).rejects.toThrow();
     expect(events).toContain("native.change.rejected");
-    expect(result.meta).toMatchObject({ runtime: "native-provider", model: "moagent/nous" });
+    expect(result.meta).toMatchObject({ runtime: "native-provider", model: "fhara/nous" });
   });
 
   it("uses the agent's OpenCode model when set", async () => {

@@ -103,7 +103,7 @@ export function buildPrBody(input: {
   } else {
     lines.push("- not run");
   }
-  lines.push("", "_Opened as a draft by MOAgent after an explicit push approval._");
+  lines.push("", "_Opened as a draft by Fhara after an explicit push approval._");
   return lines.join("\n");
 }
 

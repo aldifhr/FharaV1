@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Browser Lab (frontend only): an interactive browser inside MOAgent.
+ * Browser Lab (frontend only): an interactive browser inside Fhara.
  * You load a URL, watch it live in the embedded viewport, trigger
  * captures (screenshot, DOM, console, network) from the headless
  * Chromium behind `/api/browser-lab`, queue Playwright actions, and

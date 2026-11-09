@@ -75,8 +75,8 @@ interface IntentResult {
 }
 ```
 
-**Check**: `npm run --workspace=@moagent/worker typecheck` and
-`npm run --workspace=@moagent/api typecheck` both exit 0.
+**Check**: `npm run --workspace=@fhara/worker typecheck` and
+`npm run --workspace=@fhara/api typecheck` both exit 0.
 
 ### Step 2: Worker router upgrade
 
@@ -89,7 +89,7 @@ interface IntentResult {
 - `routeMessage`: deterministic fast path first; LLM classifier for the rest;
   invalid/failed LLM → deterministic fallback.
 
-**Check**: `npx --workspace=@moagent/worker vitest run tests/semantic.test.ts
+**Check**: `npx --workspace=@fhara/worker vitest run tests/semantic.test.ts
 tests/router.test.ts tests/validation-unit.test.ts` all pass.
 
 ### Step 3: Backend LLM classifier
@@ -100,7 +100,7 @@ tests/router.test.ts tests/validation-unit.test.ts` all pass.
 - Keep `EXPLICIT_NEGATION` / `GREETING` / `CONFIRMATION_SHAPE` as the fast path.
 - Feed conversation history + active task into the prompt.
 
-**Check**: `npx --workspace=@moagent/api vitest run convex/chatIntent.test.ts` passes
+**Check**: `npx --workspace=@fhara/api vitest run convex/chatIntent.test.ts` passes
 with new structured cases.
 
 ### Step 4: Answer Engine subtypes
@@ -112,7 +112,7 @@ ASK branch maps subtype → agent + prompt:
 - audit → reviewer
 `requiresWorkspace` toggles the repo snapshot block.
 
-**Check**: `npm run --workspace=@moagent/api test` passes.
+**Check**: `npm run --workspace=@fhara/api test` passes.
 
 ### Step 5: TASK branch passes subtype
 
@@ -127,7 +127,7 @@ implementation vs debugging vs testing.
 `apps/api/convex/chatContext.ts:115` `getContext` returns the project's running/queued
 task (title + status) so the router prompt can see it.
 
-**Check**: `npm run --workspace=@moagent/api test` passes.
+**Check**: `npm run --workspace=@fhara/api test` passes.
 
 ## Test plan
 
@@ -141,8 +141,8 @@ task (title + status) so the router prompt can see it.
 ## Completion criteria
 
 - [ ] `npm run typecheck` (root) exit 0.
-- [ ] `npm run --workspace=@moagent/api test` all pass.
-- [ ] `npm run --workspace=@moagent/worker test` — no new failures vs baseline.
+- [ ] `npm run --workspace=@fhara/api test` all pass.
+- [ ] `npm run --workspace=@fhara/worker test` — no new failures vs baseline.
 - [ ] Live smoke: "kamu beneran kan bisa jadi CTO..." stays chat; "buatkan tabel" dispatches a task.
 
 ## STOP conditions

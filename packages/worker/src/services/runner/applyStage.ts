@@ -204,7 +204,7 @@ export async function commitAndMergeWorktree(
   try {
     const committed = await commitWorktree(
       worktree.worktreePath,
-      `MOAgent: ${task.title}`,
+      `Fhara: ${task.title}`,
       Array.from(state.fileChanges.keys())
     );
     // Plan 019: the push card. Recorded before the local merge (which

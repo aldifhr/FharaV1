@@ -118,7 +118,7 @@ where `orchestrator` = role `cto`, `lead` = role `lead`, `executors` =
 group by role label. No Convex import; operates on plain objects with a
 `role` field.
 
-**Check**: `npm run --workspace=@moagent/web typecheck` → exit 0.
+**Check**: `npm run --workspace=@fhara/web typecheck` → exit 0.
 
 ### Step 2: Single "Team thread" panel component
 
@@ -147,7 +147,7 @@ Add `apps/web/components/TeamThreadPanel.tsx` ("use client"):
 - Loading state: render skeleton rows while `agents === undefined`
   (per web AGENTS.md, never an empty state as a loading state).
 
-**Check**: `npm run --workspace=@moagent/web typecheck` → exit 0.
+**Check**: `npm run --workspace=@fhara/web typecheck` → exit 0.
 
 ### Step 3: Mount it in the single thread
 
@@ -166,8 +166,8 @@ Add `apps/web/components/TeamThreadPanel.tsx` ("use client"):
   `handleSaveProject` keeps saving the remaining fields and must no longer
   call `updateTeam`.
 
-**Check**: `npm run --workspace=@moagent/web typecheck` → exit 0;
-`npm run --workspace=@moagent/web build` → exit 0 (routing/tab change).
+**Check**: `npm run --workspace=@fhara/web typecheck` → exit 0;
+`npm run --workspace=@fhara/web build` → exit 0 (routing/tab change).
 
 ### Step 4: De-duplicate Sidebar
 
@@ -178,7 +178,7 @@ Add `apps/web/components/TeamThreadPanel.tsx` ("use client"):
 - Do not remove the Sidebar Team list itself in this step; it stays as the
   compact status overview.
 
-**Check**: `npm run --workspace=@moagent/web typecheck` → exit 0;
+**Check**: `npm run --workspace=@fhara/web typecheck` → exit 0;
 `npm run knip` → no new unused-file/unused-export findings for the moved
 form component.
 
@@ -219,8 +219,8 @@ form component.
   codebase (grep for the form's submit handler returns one definition).
 - [ ] Manage-project modal no longer contains team-assignment checkboxes.
 - [ ] Mention from the Team tab inserts `@<Role>` into the chat composer draft.
-- [ ] `npm run --workspace=@moagent/web typecheck` passes.
-- [ ] `npm run --workspace=@moagent/web build` passes.
+- [ ] `npm run --workspace=@fhara/web typecheck` passes.
+- [ ] `npm run --workspace=@fhara/web build` passes.
 - [ ] `npm run knip` reports no new findings.
 - [ ] Root `npm run typecheck` run before handoff, result stated.
 - [ ] Smoke steps in Step 5 executed and reported, including what was not checked.

@@ -113,7 +113,7 @@ const QA_AGENT = {
 let workspace: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-p6-completion-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-p6-completion-"));
   qaState.attempts = 0;
   qaState.fixRuns = 0;
   qaState.passAfterFixes = 1;

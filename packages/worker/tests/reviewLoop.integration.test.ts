@@ -145,7 +145,7 @@ const AGENTS: any[] = [
 let workspace: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-review-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-review-"));
   mockState.reviewCalls = 0;
   mockState.changesRequestedCount = 2;
   mockState.subtaskCalls = [];

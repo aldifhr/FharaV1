@@ -90,7 +90,7 @@ describe("staged edits are kept by later nodes", () => {
 describe("executeSubtask code_change (sequential nodes on one file)", () => {
   let workspace: string;
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-staged-"));
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-staged-"));
     await fs.writeFile(path.join(workspace, "index.html"), HEADER);
     await fs.writeFile(path.join(workspace, "header.js"), "export const header = 1;\n");
   });
@@ -300,7 +300,7 @@ describe("an empty model answer is retryable, not a permanent parse failure", ()
 
 describe("a later node returning a staged file to its pre-task content", () => {
   it("withdraws the staged edit instead of failing as a no-op", async () => {
-    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-revert-"));
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-revert-"));
     try {
       await fs.writeFile(path.join(workspace, "main.js"), "render();\n");
       const staged = new Map<string, FileDiff>([["main.js", diffFromContents("main.js", "render();\n", "render();\naddToggle();\n")]]);

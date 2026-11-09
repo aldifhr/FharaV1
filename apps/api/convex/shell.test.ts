@@ -83,7 +83,7 @@ describe("shell.needsYou task pushes", () => {
       const otherTask = await ctx.db.insert("tasks", { projectId: otherId, title: "Ledger push", command: "x", status: "done" });
       const hidden = await ctx.db.insert("projects", { name: "Nope", workspacePath: "/tmp/n", ownerId: "someone-else" });
       const hiddenTask = await ctx.db.insert("tasks", { projectId: hidden, title: "Hidden push task", command: "x", status: "done" });
-      const base = { branchName: "moagent/t", commitSha: "a".repeat(40), commitMessage: "m", filesChanged: 3, attempts: 0, createdAt: now, updatedAt: now };
+      const base = { branchName: "fhara/t", commitSha: "a".repeat(40), commitMessage: "m", filesChanged: 3, attempts: 0, createdAt: now, updatedAt: now };
       const ready = await ctx.db.insert("taskPushes", { ...base, taskId: task, projectId, status: "ready" });
       const failed = await ctx.db.insert("taskPushes", { ...base, taskId: otherTask, projectId: otherId, status: "failed", error: "denied" });
       await ctx.db.insert("taskPushes", { ...base, taskId: task, projectId, status: "pushed" });

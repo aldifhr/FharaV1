@@ -186,7 +186,7 @@ export class McpRegistry {
       await client.request("initialize", {
         protocolVersion: "2024-11-05",
         capabilities: {},
-        clientInfo: { name: "moagent-worker", version: "1.0.0" },
+        clientInfo: { name: "fhara-worker", version: "1.0.0" },
       });
       client.notify("notifications/initialized", {});
       const listed = await client.request<{ tools?: unknown }>("tools/list");

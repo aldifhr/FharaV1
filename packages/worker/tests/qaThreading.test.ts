@@ -48,7 +48,7 @@ describe("resolveQaBaseUrl precedence", () => {
 
 function makeQaInput(overrides: Partial<SubtaskExecutionInput> = {}): SubtaskExecutionInput {
   return {
-    workspacePath: "/tmp/moagent-ws",
+    workspacePath: "/tmp/fhara-ws",
     command: "Run QA on the app",
     plan: {
       version: 1,
@@ -93,7 +93,7 @@ describe("executeQa threading", () => {
     const result = await executeSubtask(makeQaInput({ qaBaseUrl: "http://127.0.0.1:5173" }));
     expect(result.status).toBe("completed");
     expect(qaSpy.calls).toHaveLength(1);
-    expect(qaSpy.calls[0].workspacePath).toBe("/tmp/moagent-ws");
+    expect(qaSpy.calls[0].workspacePath).toBe("/tmp/fhara-ws");
     expect(qaSpy.calls[0].options.baseUrl).toBe("http://127.0.0.1:5173");
   });
 

@@ -1,6 +1,6 @@
 # FUTURE.MD — Evaluasi paket & backlog fitur
 
-Catatan evaluasi paket eksternal terhadap arsitektur MOAgent saat ini
+Catatan evaluasi paket eksternal terhadap arsitektur Fhara saat ini
 (Next.js 16 + Convex + worker terpisah). Paket yang dipasang harus punya
 surface yang benar-benar memakainya — dependensi tak terpakai ditandai
 `knip` dan menambah bundle.
@@ -13,6 +13,29 @@ surface yang benar-benar memakainya — dependensi tak terpakai ditandai
 | Highlighting / Mermaid / LaTeX | Via plugin Streamdown (`shiki`, `mermaid`, `remark-math`, `rehype-katex`, `katex` transitif) |
 | State global frontend | `zustand` (store toast) |
 | Virtualisasi list panjang | `@tanstack/react-virtual` (MessageList ≥40 pesan) |
+| Visualisasi graf force-directed | `sigma` + `graphology` + `@react-sigma/core` + `@react-sigma/layout-forceatlas2` + `graphology-layout-forceatlas2` + `graphology-communities-louvain` (`/intelligence`) |
+
+## Diadopsi dari Threadbear (mikecann/threadbear)
+
+Threadbear = app Mac/iPhone + `runner/` (daemon pengelola sesi CLI
+Claude/Codex per thread) + backend Convex untuk sinkronisasi. Tidak ada
+planner/DAG/delegasi antar-agent seperti Fhara — yang diambil hanya
+gagasan UX & operasinya, sesuai tabel di bawah.
+
+| Ide | Nilai | Ditulis di | Prasyarat sebelum dikerjakan |
+|---|---|---|---|
+| Approval/question sebagai kartu tombol inline di transcript + notifikasi saat task butuh user | Paling besar — `/inbox` saat ini berupa baris, Threadbear membuatnya bisa diklik langsung di chat | `TaskThreadPanel`, approval gate (`packages/worker/src/services/runner/applyStage.ts`), inbox (`apps/api/convex/inbox.ts`, `apps/web/app/inbox/page.tsx`) | Kartu approval interaktif di panel chat + notifikasi desktop untuk `waiting_input`/`needs_approval` |
+| "Always allow" persisten per command | Mengurangi friksi approval berulang tanpa melemahkan gate | `governance/` (`packages/worker/src/governance/tools.ts`, policy + audit) | Daftar command terpercaya per project; tercatat di audit log, tetap bisa revoke |
+| Tanpa project picker (task di project default, classifier yang mem-filing belakangan) | Workflow "start anywhere, file later" | `orchestrator/classifier.ts`, `apps/web/components/NewProject.tsx` | Project default "Unfiled" + auto-classify task baru |
+| Idle session release + resume (pola Threadbear: hanya proses thread aktif yang hidup) | Hemat proses/cost pada native provider | `execution/nativeProvider.ts` | Sesi OpenCode dihentikan setelah idle, di-resume by session id |
+| Self-update sebagai task (release harian → merge → test → minta izin land) | Dogfooding lewat pipeline QA sendiri | `runner/` (`runQaLoop`), repo update flow | Task khusus upgrade repo sendiri dengan QA gate |
+| Task terjadwal (cron) | Threadbear: schedule thread berulang di mesin mana pun | Convex crons + `tasks.create` | Fitur memakai Convex Scheduler (konsisten dengan verdict `croner` di bawah) |
+| Patches sebagai panel/tombol interaktif dari skill | Versi kecil: blok interaktif di chat | Skills registry (`apps/web/components/Settings.tsx`, skill v2) | Render blok "jalankan" dari skill, bukan sistem patch penuh |
+
+Sengaja **tidak** diambil: app Swift (Fhara web + Electron), satu CLI per
+thread (Fhara berbasis provider API), relay sharing (sudah ada task page/link).
+
+## Backlog kecil dari pekerjaan Streamdown
 
 ## Dievaluasi, belum dipasang
 

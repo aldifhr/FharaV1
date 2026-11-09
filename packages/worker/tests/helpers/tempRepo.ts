@@ -33,7 +33,7 @@ export function createTempGitRepo(
     branch?: string;
   } = {}
 ): TempGitRepo {
-  const dir = makeTempDir(options.prefix ?? "moagent-repo-");
+  const dir = makeTempDir(options.prefix ?? "fhara-repo-");
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: dir, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
   git("init", "-q", ...(options.branch ? ["-b", options.branch] : []));

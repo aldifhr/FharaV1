@@ -11,17 +11,17 @@ function git(cwd: string, args: string[]): string {
 
 describe("commitWorktree", () => {
   it("commits only the given files and skips a clean tree", async () => {
-    const { dir, cleanup } = createTempGitRepo({ prefix: "moagent-worktree-" });
+    const { dir, cleanup } = createTempGitRepo({ prefix: "fhara-worktree-" });
     try {
       writeFileSync(join(dir, "a.txt"), "one");
       writeFileSync(join(dir, "b.txt"), "two");
-      const committed = await commitWorktree(dir, "MOAgent: test", ["a.txt"]);
+      const committed = await commitWorktree(dir, "Fhara: test", ["a.txt"]);
       expect(committed).toBe(true);
-      expect(git(dir, ["log", "-1", "--format=%s"]).trim()).toBe("MOAgent: test");
+      expect(git(dir, ["log", "-1", "--format=%s"]).trim()).toBe("Fhara: test");
       expect(git(dir, ["show", "--name-only", "--format=", "HEAD"]).trim()).toBe("a.txt");
       writeFileSync(join(dir, "b.txt"), "two again");
-      expect(await commitWorktree(dir, "MOAgent: b", ["b.txt"])).toBe(true);
-      expect(await commitWorktree(dir, "MOAgent: noop", ["b.txt"])).toBe(false);
+      expect(await commitWorktree(dir, "Fhara: b", ["b.txt"])).toBe(true);
+      expect(await commitWorktree(dir, "Fhara: noop", ["b.txt"])).toBe(false);
     } finally {
       cleanup();
     }

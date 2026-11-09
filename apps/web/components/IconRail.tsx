@@ -256,7 +256,7 @@ export default function IconRail({
       <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} />
       <Link
         href="/"
-        aria-label="MOAgent home"
+        aria-label="Fhara home"
         className="mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand text-white shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
       >
         <Share2 size={18} strokeWidth={2} />

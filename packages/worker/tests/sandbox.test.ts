@@ -49,8 +49,8 @@ describe("symlink-aware async resolution", () => {
   let outside: string;
 
   beforeEach(async () => {
-    root = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-sandbox-"));
-    outside = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-outside-"));
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-sandbox-"));
+    outside = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-outside-"));
     await fs.mkdir(path.join(root, "src"), { recursive: true });
     await fs.writeFile(path.join(root, "src", "index.ts"), "export {};", "utf-8");
   });

@@ -114,8 +114,8 @@ describe("signed OAuth state (lib)", () => {
     expect(safeReturnTo("//evil.example")).toBeUndefined();
     expect(safeReturnTo("https://evil.example")).toBeUndefined();
     expect(appOrigin()).toBe("https://app.example.com");
-    process.env.APP_ORIGIN = "https://moagent.example.org/some/path";
-    expect(appOrigin()).toBe("https://moagent.example.org");
+    process.env.APP_ORIGIN = "https://fhara.example.org/some/path";
+    expect(appOrigin()).toBe("https://fhara.example.org");
   });
 });
 
@@ -278,9 +278,9 @@ async function claimToken(t: ReturnType<typeof convexTest>, projectId: any): Pro
     taskId,
     projectId,
     workerId: "w1",
-    branchName: "moagent/t/ship-it",
+    branchName: "fhara/t/ship-it",
     commitSha: SHA,
-    commitMessage: "MOAgent: Ship it",
+    commitMessage: "Fhara: Ship it",
     filesChanged: 1,
   })) as any;
   await t.mutation(api.githubPush.requestPush, { pushId, openPr: false });
@@ -324,9 +324,9 @@ describe("token resolution for pushes", () => {
       taskId,
       projectId: projectA,
       workerId: "w1",
-      branchName: "moagent/t/ship-it",
+      branchName: "fhara/t/ship-it",
       commitSha: SHA,
-      commitMessage: "MOAgent: Ship it",
+      commitMessage: "Fhara: Ship it",
       filesChanged: 1,
     })) as any;
     await expect(t.mutation(api.githubPush.requestPush, { pushId, openPr: false })).rejects.toThrow(/Connect GitHub/);

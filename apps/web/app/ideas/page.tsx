@@ -20,7 +20,7 @@ type Idea = {
 
 type IdeaFilter = "all" | "active" | "done";
 
-const IDEAS_STORAGE_KEY = "moagent.ideas";
+const IDEAS_STORAGE_KEY = "fhara.ideas";
 
 const FILTERS: { key: IdeaFilter; label: string }[] = [
   { key: "all", label: "All" },
@@ -112,7 +112,7 @@ export default function IdeasPage() {
             <div className="min-w-0">
               <h1 className="text-xl font-semibold">Ideas</h1>
               <p className="mt-1 text-sm text-gray-500">
-                Next MOAgent ideas, parked here as a todo list.
+                Next Fhara ideas, parked here as a todo list.
               </p>
             </div>
           </motion.div>
@@ -123,7 +123,7 @@ export default function IdeasPage() {
                 <Input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  placeholder="What should MOAgent try next?"
+                  placeholder="What should Fhara try next?"
                   aria-label="New idea"
                 />
                 <Button
@@ -183,7 +183,7 @@ export default function IdeasPage() {
                   ? "No completed ideas yet."
                   : filter === "active"
                     ? "No active ideas. Add the next one below."
-                    : "No ideas yet. Add your first MOAgent idea below."}
+                    : "No ideas yet. Add your first Fhara idea below."}
               </div>
             ) : (
               visibleIdeas.map((idea, i) => (

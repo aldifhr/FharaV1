@@ -216,7 +216,7 @@ const IMPLEMENTER = {
 
 let workspace: string;
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-trace-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-trace-"));
 });
 afterEach(async () => {
   await fs.rm(workspace, { recursive: true, force: true });

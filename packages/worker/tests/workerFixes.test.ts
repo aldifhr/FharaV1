@@ -148,7 +148,7 @@ function planOf(subtasks: ExecutionPlan["subtasks"], requiresApproval = true): E
 let workspace: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-fixes-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-fixes-"));
   mock.executed = [];
   mock.qaVerdicts = [];
   mock.verifyResults = [];

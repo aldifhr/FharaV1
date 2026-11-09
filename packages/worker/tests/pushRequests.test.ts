@@ -16,7 +16,7 @@ function claim(overrides: Partial<PushClaim> = {}): PushClaim {
     taskId: "task1",
     projectId: "proj1",
     workspacePath: "/repo",
-    branchName: "moagent/task1/dark-mode",
+    branchName: "fhara/task1/dark-mode",
     commitSha: SHA,
     openPr: true,
     existingPrNumber: undefined,
@@ -84,7 +84,7 @@ describe("handlePushRequest", () => {
       "push",
       "--porcelain",
       "https://github.com/acme/app.git",
-      `${SHA}:refs/heads/moagent/task1/dark-mode`,
+      `${SHA}:refs/heads/fhara/task1/dark-mode`,
     ]);
     // Token never in argv; present only as the extraheader env value.
     for (const call of h.gitCalls) expect(call.args.join(" ")).not.toContain(TOKEN);
@@ -97,7 +97,7 @@ describe("handlePushRequest", () => {
     const create = h.fetchCalls[0];
     expect(create.url).toBe("https://api.github.com/repos/acme/app/pulls");
     expect(JSON.parse(String(create.init?.body))).toMatchObject({
-      head: "moagent/task1/dark-mode",
+      head: "fhara/task1/dark-mode",
       base: "develop",
       draft: true,
       title: "Add dark mode",
@@ -201,7 +201,7 @@ describe("handlePushRequest", () => {
       execGit: h.execGit,
       fetchImpl: fetchImpl as any,
     });
-    expect(calls[1]).toMatch(/^GET .*pulls\?head=acme%3Amoagent%2Ftask1%2Fdark-mode/);
+    expect(calls[1]).toMatch(/^GET .*pulls\?head=acme%3Afhara%2Ftask1%2Fdark-mode/);
     expect(h.completed[0].pr).toMatchObject({ number: 3, state: "open" });
   });
 });
@@ -223,7 +223,7 @@ describe("gitPush helpers", () => {
 
 describe("describeCommit", () => {
   it("reports sha, files, line counts and ahead/behind against the base", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "moagent-describe-"));
+    const dir = mkdtempSync(join(tmpdir(), "fhara-describe-"));
     const git = (args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf-8" });
     try {
       git(["init", "-q", "-b", "main"]);
@@ -236,10 +236,10 @@ describe("describeCommit", () => {
       writeFileSync(join(dir, "a.txt"), "one\nTWO\nthree\n");
       writeFileSync(join(dir, "b.txt"), "new\n");
       git(["add", "."]);
-      git(["commit", "-q", "-m", "MOAgent: change"]);
+      git(["commit", "-q", "-m", "Fhara: change"]);
       const summary = await describeCommit(dir, "main");
       expect(summary.sha).toBe(git(["rev-parse", "HEAD"]).trim());
-      expect(summary.message).toBe("MOAgent: change");
+      expect(summary.message).toBe("Fhara: change");
       expect(summary).toMatchObject({ filesChanged: 2, additions: 3, deletions: 1, ahead: 1, behind: 0, comparedTo: "main" });
     } finally {
       rmSync(dir, { recursive: true, force: true });

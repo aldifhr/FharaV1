@@ -23,9 +23,9 @@ export async function commitWorktree(
     "git",
     [
       "-c",
-      "user.name=MOAgent",
+      "user.name=Fhara",
       "-c",
-      "user.email=moagent@localhost",
+      "user.email=fhara@localhost",
       "commit",
       "-m",
       message,

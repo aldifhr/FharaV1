@@ -14,8 +14,8 @@ Saat ini agen menulis langsung ke workspace (branch `main`). Untuk workflow PR y
 ### Branch Naming
 
 ```
-moagent/<task-id>/<slug>
-# contoh: moagent/jx70s9cevkn6/summon-api-route
+fhara/<task-id>/<slug>
+# contoh: fhara/jx70s9cevkn6/summon-api-route
 ```
 
 Slug derived dari task title (sanitized, max 40 chars).
@@ -51,7 +51,7 @@ Dua opsi:
 #### `worker:createBranch`
 ```ts
 mutation createBranch(taskId: Id, workspacePath: string, branchName: string): Promise<{
-  branch: string;       // misal "moagent/jx70s9cevkn6/summon-api-route"
+  branch: string;       // misal "fhara/jx70s9cevkn6/summon-api-route"
   worktreePath: string; // "/path/to/workspaces/<projectId>/<branch-name>"
 }>
 ```

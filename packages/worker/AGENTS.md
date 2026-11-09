@@ -163,7 +163,7 @@ import backend internals.
 Subtasks run on one of two runtimes (`execution/nativeProvider.ts`,
 `agentExecutor.ts` → `executeNativeProvider`):
 
-- `api` (default): the agent's LLM drives MOAgent's own host tools.
+- `api` (default): the agent's LLM drives Fhara's own host tools.
 - OpenCode (`native-provider`): `opencode run --format json --auto [-m model]
   <message> -f prompt.md` runs in the task worktree with OpenCode's own tools.
 
@@ -175,9 +175,9 @@ back to the API path with a `native.runtime.unavailable` warning.
 
 Model: the agent's `opencodeModel` (`provider/model`) is passed as `-m` and uses
 OpenCode's own credentials. Without it, a temporary `OPENCODE_CONFIG` (0600,
-deleted after the run) defines a `moagent` provider (`@ai-sdk/openai-compatible`
-or `@ai-sdk/anthropic`) on the agent's resolved MOAgent LLM, and the run is
-pinned to `moagent/<model>`. The key is referenced as
+deleted after the run) defines a `fhara` provider (`@ai-sdk/openai-compatible`
+or `@ai-sdk/anthropic`) on the agent's resolved Fhara LLM, and the run is
+pinned to `fhara/<model>`. The key is referenced as
 `{env:MOAGENT_OPENCODE_API_KEY}` and passed only in the child env — never in
 argv, the config file, events, or logs (outputs are redacted).
 
@@ -249,7 +249,7 @@ Vitest, pure unit/integration — no Convex deployment, no live provider.
 
 ```
 npm test                                              # whole worker suite
-npx --workspace=@moagent/worker vitest run tests/orchestrator.test.ts
+npx --workspace=@fhara/worker vitest run tests/orchestrator.test.ts
 ```
 
 Existing suites: `orchestrator`, `delegation`, `budget`, `taskContext`,

@@ -2586,7 +2586,7 @@ export const cleanupWorktreeContext = internalQuery({
     return {
       workspacePath: project.workspacePath,
       worktreesPath: project.worktreesPath,
-      branchPrefix: `moagent/${args.taskId}/`,
+      branchPrefix: `fhara/${args.taskId}/`,
     };
   },
 });

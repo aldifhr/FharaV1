@@ -180,7 +180,7 @@ export function buildRunMarkdown(run: RunExportData, opts: RunExportOptions): st
     `started ${stamp(task.startedAt)}`,
     `exported ${stamp(opts.exportedAt)}`,
     `times ${zoneLabel(opts.exportedAt)}`,
-    opts.appVersion ? `MOAgent v${opts.appVersion}` : null,
+    opts.appVersion ? `Fhara v${opts.appVersion}` : null,
   ].filter(Boolean);
   head.push("");
   head.push(`_${meta.join(" · ")}_`);

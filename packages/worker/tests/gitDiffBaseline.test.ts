@@ -15,7 +15,7 @@ let cleanup: () => void;
 
 beforeEach(() => {
   ({ dir: repo, cleanup } = createTempGitRepo({
-    prefix: "moagent-gitdiff-",
+    prefix: "fhara-gitdiff-",
     files: { "index.html": "<h1>old</h1>\n" },
   }));
 });

@@ -61,7 +61,7 @@ const CONFIG: GlobalLLMConfig = {
 let workspace: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-p4-exec-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-p4-exec-"));
   await fs.mkdir(path.join(workspace, "src"), { recursive: true });
   await fs.writeFile(
     path.join(workspace, "src", "hello.ts"),

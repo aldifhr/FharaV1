@@ -166,7 +166,7 @@ describe("environment problems are 'blocked', not code defects (QA audit P1-1)",
   let workspace: string;
   const saved = { ...process.env };
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-qa-env-"));
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-qa-env-"));
   });
   afterEach(async () => {
     process.env = { ...saved };
@@ -221,7 +221,7 @@ const chromiumPath = process.env.QA_CHROMIUM_PATH;
 describe.skipIf(!chromiumPath || !existsSync(chromiumPath))("real browser QA (static site)", () => {
   let workspace: string;
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-qa-real-"));
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-qa-real-"));
   });
   afterEach(async () => {
     await fs.rm(workspace, { recursive: true, force: true });

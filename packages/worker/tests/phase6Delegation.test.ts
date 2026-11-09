@@ -101,7 +101,7 @@ const securityAuditor: WorkerAgent = {
 let workspace: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-p6-delegation-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-p6-delegation-"));
   mockState.executed = [];
   mockState.recommend = null;
 });

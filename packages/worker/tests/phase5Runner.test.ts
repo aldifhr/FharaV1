@@ -112,7 +112,7 @@ const IMPLEMENTER = {
 let workspace: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-p5-runner-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-p5-runner-"));
   mockState.callsStarted = new Map();
 });
 

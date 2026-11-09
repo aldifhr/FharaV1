@@ -8,7 +8,7 @@ import { evaluateTask } from "@/orchestrator/evaluator";
 let root: string;
 
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-eval-"));
+  root = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-eval-"));
 });
 
 afterEach(async () => {

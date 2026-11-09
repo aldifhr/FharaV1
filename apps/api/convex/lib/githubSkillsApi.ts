@@ -39,7 +39,7 @@ export class GithubClient {
   private async raw(url: string, accept: string): Promise<Fetched> {
     const headers: Record<string, string> = {
       Accept: accept,
-      "User-Agent": "MOAgent-skills-import",
+      "User-Agent": "Fhara-skills-import",
       "X-GitHub-Api-Version": "2022-11-28",
     };
     if (this.token && url.startsWith(API)) headers.Authorization = `Bearer ${this.token}`;

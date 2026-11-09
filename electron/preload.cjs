@@ -1,5 +1,5 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("moagentDesktop", {
+contextBridge.exposeInMainWorld("fharaDesktop", {
   selectFolder: () => ipcRenderer.invoke("select-folder"),
 });

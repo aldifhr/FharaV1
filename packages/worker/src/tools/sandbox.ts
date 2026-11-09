@@ -108,7 +108,7 @@ async function resolveRealWithinRoot(
  * Multi-root containment check for MCP tool arguments.
  *
  * MCP filesystem servers take absolute paths (the server itself confines
- * them to the directories it was launched with), so MOAgent validates
+ * them to the directories it was launched with), so Fhara validates
  * before forwarding: the path must be absolute, must resolve inside one
  * of `roots` (symlink-aware), and is then checked by the caller against
  * the protected-name rules.

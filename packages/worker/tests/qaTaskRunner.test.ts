@@ -133,7 +133,7 @@ const AGENTS: WorkerAgent[] = [
 let workspace: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-qa-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-qa-"));
   execSpy.inputs = [];
 });
 

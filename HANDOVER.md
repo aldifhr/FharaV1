@@ -1,7 +1,7 @@
 # Handover for Testing (No-Docs)
 
 ## Summary
-Implemented Intelligent Orchestrator with Shared Task Context, Conditional Delegation, and Budget enforcement on top of existing MOAgent stack (Convex + worker + existing DAG planner).
+Implemented Intelligent Orchestrator with Shared Task Context, Conditional Delegation, and Budget enforcement on top of existing Fhara stack (Convex + worker + existing DAG planner).
 
 ## Implementation Details (evidence-linked)
 - **Arch overview**: `packages/worker/src/orchestrator/orchestrator.ts` (routing + post-execution evaluation), `packages/worker/src/orchestrator/delegation.ts`, `packages/worker/src/orchestrator/taskContext.ts`, `packages/worker/src/orchestrator/agentContext.ts`, `packages/worker/src/orchestrator/budget.ts`.
@@ -38,7 +38,7 @@ Implemented Intelligent Orchestrator with Shared Task Context, Conditional Deleg
 - `tokenUsage` — added `by_task` index for per-task token aggregation
 
 ## Validation Evidence
-- Worker tests: `npm run --workspace=@moagent/worker test` → `17 passed`, `92 tests passed` (incl. new orchestrator/delegation/budget/context tests)
+- Worker tests: `npm run --workspace=@fhara/worker test` → `17 passed`, `92 tests passed` (incl. new orchestrator/delegation/budget/context tests)
 - Typecheck: `npm run typecheck` → all workspaces pass (web, api, worker)
 - Smoke: `npx convex codegen` in `apps/api` succeeds. Worker starts, retries `recover` with error surfacing, then proceeds when Convex local `http://127.0.0.1:3210` ready.
 

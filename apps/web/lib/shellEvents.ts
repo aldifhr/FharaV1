@@ -1,5 +1,5 @@
 /** Cross-component shell signals (rail → sidebar). */
-const FOCUS_TEAM = "moagent:focus-team";
+const FOCUS_TEAM = "fhara:focus-team";
 
 export function focusTeam(): void {
   window.dispatchEvent(new Event(FOCUS_TEAM));

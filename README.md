@@ -1,6 +1,6 @@
-# MOAgent
+# Fhara
 
-MOAgent is a multi-agent software team you talk to in chat. You describe a
+Fhara is a multi-agent software team you talk to in chat. You describe a
 change to your project; the CTO agent plans it and assigns it to teammates
 by `@mention`; agents write the code in your repository; the change is
 reviewed, approved by you, verified (typecheck / lint / test / build) and
@@ -25,9 +25,9 @@ see [Safety model](#safety-model)). Open work is tracked in
 
 | Workspace | Package | What it holds |
 |---|---|---|
-| `apps/web` | `@moagent/web` | Next.js UI: projects, chat + task threads, cards, team, Settings (LLM providers), Integrations (MCP servers + GitHub), Inbox, Analytics |
-| `apps/api` | `@moagent/api` | Convex backend in `apps/api/convex`: schema, chat + CTO assignment, tasks, approvals, permission broker, GitHub push, provider pool |
-| `packages/worker` | `@moagent/worker` | Claims tasks from Convex and runs them end to end |
+| `apps/web` | `@fhara/web` | Next.js UI: projects, chat + task threads, cards, team, Settings (LLM providers), Integrations (MCP servers + GitHub), Inbox, Analytics |
+| `apps/api` | `@fhara/api` | Convex backend in `apps/api/convex`: schema, chat + CTO assignment, tasks, approvals, permission broker, GitHub push, provider pool |
+| `packages/worker` | `@fhara/worker` | Claims tasks from Convex and runs them end to end |
 | `electron/` | — | Optional desktop shell (`npm run electron:dev` starts api, web, worker and the app window; closing the window stops all) |
 
 Module map (details in each `AGENTS.md`):
@@ -98,7 +98,7 @@ push.
 Requires Node ≥ 20.9 (`.nvmrc`: 24) and git.
 
 ```bash
-git clone <this repo> MOAgent && cd MOAgent
+git clone <this repo> Fhara && cd Fhara
 npm install
 
 cp .env.example .env                          # the only env file you edit (worker, web and Convex)
@@ -192,14 +192,14 @@ Key rotation: set the new key, then `npx convex run migrations:rotateEncryptionK
 Agents can run on two runtimes:
 
 - **`api`** (default) — the agent's LLM (provider pool or `LLM_*`) with
-  MOAgent's own host tools, every action gated.
+  Fhara's own host tools, every action gated.
 - **`opencode`** — the [OpenCode](https://opencode.ai) CLI
   (`npm i -g opencode-ai`) runs its own tools in the task worktree. Its
   changes still pass the staging and approval gate.
 
 Set the global default with `ORCHESTRATOR_EXECUTION_RUNTIME`, or per agent in
 the agent form (Runtime, optional OpenCode `provider/model`). Without an
-OpenCode model the CLI is pointed at the agent's resolved MOAgent LLM through
+OpenCode model the CLI is pointed at the agent's resolved Fhara LLM through
 a temporary config; the key travels only in the child process env
 (`MOAGENT_OPENCODE_API_KEY`). Each run is killed after
 `ORCHESTRATOR_NATIVE_TIMEOUT_MS`.
@@ -291,7 +291,7 @@ Integrations), each project keeps using its old token.
 After a task commits, its push card offers **Push**. The click records an
 approved `git_push` approval; the worker pushes `<sha>:refs/heads/<branch>`
 with the token passed only through `GIT_CONFIG_*` env (never argv, git
-config or logs) and opens a draft PR. A cron refreshes PR state. MOAgent
+config or logs) and opens a draft PR. A cron refreshes PR state. Fhara
 never pushes without that click.
 
 ### GitHub webhooks (optional)
@@ -366,7 +366,7 @@ npm run doctor                             # setup checks (exit 1 on a required 
 npm run stats:roles -- --days 30            # workload per role from your Convex (--project <name|id>, --json)
 npm run typecheck                          # web + api + worker (needs convex/_generated)
 npm test                                   # worker unit/integration tests (vitest)
-npm run --workspace=@moagent/api test      # backend tests (convex-test, in-memory)
+npm run --workspace=@fhara/api test      # backend tests (convex-test, in-memory)
 npm run test:scripts                       # doctor / supervisor unit tests (node:test)
 cd apps/web && npx next build              # production build (needs NEXT_PUBLIC_CONVEX_URL)
 npm run knip                               # unused files / dependencies

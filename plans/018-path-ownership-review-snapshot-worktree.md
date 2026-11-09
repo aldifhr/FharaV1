@@ -18,7 +18,7 @@ Borrowed from Nebula (fork of pingdotgg/t3code): declared per-task path
 ownership + deny rules checked against the whole delta, shared-resource
 leases serializing write contention, independent review bound to an immutable
 snapshot, bounded retry/remediation, and an Integration Engine that applies
-artifacts in a separate worktree. MOAgent today has global forbidden paths
+artifacts in a separate worktree. Fhara today has global forbidden paths
 and sandboxing, a FIFO scheduler (`maxConcurrency: 1`), review over the staged
 diff, and worktree infrastructure that is wired in the backend but disabled in
 the runner — so two subtasks can claim the same file, a review verdict is not
@@ -65,8 +65,8 @@ planner prompt to declare tight scope for `code_change`; enforce in
 subtask rows (`schema.ts` optional field + `savePlan`/`upsertDynamicSubtasks`
 arg validators and inserts).
 
-**Check**: `npm run --workspace=@moagent/worker typecheck` and
-`npm run --workspace=@moagent/api typecheck` → clean.
+**Check**: `npm run --workspace=@fhara/worker typecheck` and
+`npm run --workspace=@fhara/api typecheck` → clean.
 
 ### Step 2: Review snapshot binding
 
@@ -77,7 +77,7 @@ the verdict; `executePlan` recomputes it from the change set about to be
 applied and fails closed (`review.snapshot_mismatch` event) when an approving
 verdict's id differs; approval payload carries `reviewSnapshotId`.
 
-**Check**: `npx --workspace=@moagent/worker vitest run tests/reviewLoop.test.ts` → green.
+**Check**: `npx --workspace=@fhara/worker vitest run tests/reviewLoop.test.ts` → green.
 
 ### Step 3: applyStaged workspace alignment (prep, behaviour-neutral)
 

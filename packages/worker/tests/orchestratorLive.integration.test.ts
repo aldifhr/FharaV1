@@ -146,7 +146,7 @@ const REVIEWER = {
 let workspace: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-live-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-live-"));
   mockState.inputs = [];
   mockState.reviewVerdicts = [];
   mockState.implementRecommendation = null;

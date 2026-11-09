@@ -139,7 +139,7 @@ const QA_AGENT = {
 let workspace: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-p4-runner-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-p4-runner-"));
   mockState.executed = [];
   mockState.activeByAgent = new Map();
   mockState.peakByAgent = new Map();

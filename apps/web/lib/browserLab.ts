@@ -103,7 +103,7 @@ export function captureSummary(capture: BrowserCapture): string {
   return `Browser capture of ${capture.finalUrl} ("${capture.title}") — ${capture.console.length} console entries (${errors} errors), ${capture.network.length} network requests (${failed} failed), DOM ${capture.dom.length} chars.`;
 }
 
-const HISTORY_KEY = "moagent.browserLab.sessions.v1";
+const HISTORY_KEY = "fhara.browserLab.sessions.v1";
 
 export function loadSessions(): BrowserSession[] {
   try {

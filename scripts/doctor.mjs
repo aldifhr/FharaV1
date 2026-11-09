@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `npm run doctor` — checks a local MOAgent setup and prints ✓ / ! / ✗ with a
+ * `npm run doctor` — checks a local Fhara setup and prints ✓ / ! / ✗ with a
  * fix hint per problem. Exits 1 when a REQUIRED check fails.
  *
  * Secrets are never printed: env checks report variable NAMES only, the LLM
@@ -144,7 +144,7 @@ async function run() {
     console.log(formatResult(r));
   };
 
-  console.log("MOAgent doctor\n");
+  console.log("Fhara doctor\n");
 
   // Node
   const nvmrc = fs.existsSync(path.join(ROOT, ".nvmrc")) ? fs.readFileSync(path.join(ROOT, ".nvmrc"), "utf-8").trim() : undefined;

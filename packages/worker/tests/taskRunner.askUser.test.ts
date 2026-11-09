@@ -95,7 +95,7 @@ const IMPLEMENTER = {
 let workspace: string;
 
 beforeEach(async () => {
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-ask-user-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-ask-user-"));
   knobs.decideAsksUser = false;
   knobs.contextDecisions = [];
 });

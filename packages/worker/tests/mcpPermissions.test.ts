@@ -44,8 +44,8 @@ let root: string;
 let outside: string;
 
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-mcp-ws-"));
-  outside = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-mcp-out-"));
+  root = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-mcp-ws-"));
+  outside = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-mcp-out-"));
   await fs.mkdir(path.join(root, "src"), { recursive: true });
   await fs.writeFile(path.join(root, "src", "index.ts"), "export {};", "utf-8");
   await fs.writeFile(path.join(outside, "secret.txt"), "secret", "utf-8");

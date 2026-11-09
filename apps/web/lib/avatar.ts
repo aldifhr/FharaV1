@@ -1,39 +1,6 @@
-export interface AvatarParams {
-  avatarStyle: string;
-  topType: string;
-  accessoriesType: string;
-  hatColor: string;
-  hairColor: string;
-  facialHairType: string;
-  facialHairColor: string;
-  clotheType: string;
-  clotheColor: string;
-  eyeType: string;
-  eyebrowType: string;
-  mouthType: string;
-  skinColor: string;
-}
+import type { AvatarParams } from "@/api/convex/lib/avatar";
 
-export function defaultAvatarParams(name: string): AvatarParams {
-  const palettes = ["Black", "Brown", "Blonde", "Red", "PastelPink"];
-  let hash = 0;
-  for (const character of name) hash = (hash * 31 + character.charCodeAt(0)) | 0;
-  return {
-    avatarStyle: "Circle",
-    topType: "ShortHairShortFlat",
-    accessoriesType: "Blank",
-    hatColor: "Black",
-    hairColor: palettes[Math.abs(hash) % palettes.length],
-    facialHairType: "Blank",
-    facialHairColor: "Brown",
-    clotheType: "ShirtCrewNeck",
-    clotheColor: "Blue03",
-    eyeType: "Default",
-    eyebrowType: "Default",
-    mouthType: "Smile",
-    skinColor: "Light",
-  };
-}
+export { defaultAvatarParams, type AvatarParams } from "@/api/convex/lib/avatar";
 
 const FALLBACK_COLORS = [
   "bg-rose-500", "bg-amber-500", "bg-emerald-500", "bg-sky-500",

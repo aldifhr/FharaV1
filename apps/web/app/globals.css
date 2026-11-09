@@ -6,6 +6,7 @@
 @source "../../../node_modules/@streamdown/math/dist/*.js";
 @source "../../../node_modules/@streamdown/mermaid/dist/*.js";
 @source "../../../node_modules/@streamdown/cjk/dist/*.js";
+@source "../../api/convex/lib/roles.ts";
 
 @custom-variant dark (&:where(.dark, .dark *));
 

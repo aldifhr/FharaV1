@@ -265,7 +265,7 @@ function SkillModal({ skill, agents, onClose }: { skill: Skill | null; agents: A
         <label className={label}>
           <span className="flex justify-between">
             Instructions
-            <span>{instructions.length.toLocaleString()} / {SKILL_INSTRUCTIONS_MAX.toLocaleString()}</span>
+            <span>{instructions.length.toLocaleString("en-US")} / {SKILL_INSTRUCTIONS_MAX.toLocaleString("en-US")}</span>
           </span>
           <textarea
             value={instructions}

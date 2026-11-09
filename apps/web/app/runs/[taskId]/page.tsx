@@ -82,7 +82,7 @@ function Mono({ label, text, defaultOpen = false }: { label: string; text: strin
       >
         {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         {label}
-        <span className="font-normal tabular-nums text-ink-3">{text.length.toLocaleString()} chars</span>
+        <span className="font-normal tabular-nums text-ink-3">{text.length.toLocaleString("en-US")} chars</span>
       </button>
       {open && (
         <pre
@@ -368,7 +368,7 @@ function ExportMenu({ run }: { run: Run }) {
     const md = buildRunMarkdown(run, opts());
     if (!navigator.clipboard?.writeText) throw new Error("Clipboard is not available in this browser.");
     await navigator.clipboard.writeText(md);
-    toast("success", "Run report copied", `${md.length.toLocaleString()} chars of Markdown`);
+    toast("success", "Run report copied", `${md.length.toLocaleString("en-US")} chars of Markdown`);
   });
   const downloadMarkdown = run_(() => {
     const o = opts();

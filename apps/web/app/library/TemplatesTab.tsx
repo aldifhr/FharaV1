@@ -246,7 +246,7 @@ function TemplateModal({
         <label className={label}>
           <span className="flex justify-between">
             Instructions
-            <span>{prompt.length.toLocaleString()} / {TEMPLATE_PROMPT_MAX.toLocaleString()}</span>
+            <span>{prompt.length.toLocaleString("en-US")} / {TEMPLATE_PROMPT_MAX.toLocaleString("en-US")}</span>
           </span>
           <textarea
             value={prompt}

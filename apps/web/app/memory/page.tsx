@@ -181,7 +181,7 @@ function MemoryInner() {
           </p>
           <p className="mt-1 text-[12.5px] text-ink-3">
             Only pinned memories are added to an agent's instructions (shared, then project, then the agent's own, up to{" "}
-            {MEMORY_PROMPT_BUDGET.toLocaleString()} characters). Unpinned ones are kept for reference.
+            {MEMORY_PROMPT_BUDGET.toLocaleString("en-US")} characters). Unpinned ones are kept for reference.
           </p>
           {error && <p role="alert" className="mt-3 text-[13px] text-red-600 dark:text-red-400">{error}</p>}
 
@@ -337,7 +337,7 @@ function MemoryModal({
         <label className={label}>
           <span className="flex justify-between">
             Content
-            <span>{content.length.toLocaleString()} / {MEMORY_CONTENT_MAX.toLocaleString()}</span>
+            <span>{content.length.toLocaleString("en-US")} / {MEMORY_CONTENT_MAX.toLocaleString("en-US")}</span>
           </span>
           <textarea
             value={content}

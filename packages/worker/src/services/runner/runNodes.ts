@@ -4,6 +4,7 @@ import type {
 } from "@/types";
 import { runScheduler, type NodeOutcome, type SchedulerResult } from "@/scheduler/dagScheduler";
 import { executeSubtask } from "@/execution/agentExecutor";
+import type { SiblingSubtask } from "@/execution/agentContext";
 import { resolveExecutionRuntime } from "@/execution/nativeProvider";
 import { capabilitiesOf } from "@/orchestrator/capabilities";
 import { combineSignals } from "./abort";
@@ -46,6 +47,9 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
   if (ctx.loadAwareRouting || ctx.performanceRouting) await refreshLoadSnapshot(ctx);
   if (ctx.performanceRouting) await refreshPerformanceScores(ctx);
   const ackInputs = createInputDeliveryAck(deps);
+  // Sibling context: which subtasks of this invocation are running now and
+  // which have settled, so each node's prompt can list the others.
+  const siblingTracker = createSiblingTracker(subsetKeys);
   // Subset runs (the review/QA loops re-run their own nodes) filter out
   // dependencies that live outside the subset, because the scheduler can
   // only order nodes it was given. Review/QA nodes are stage-managed by
@@ -109,6 +113,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       id: subtask.key,
       dependencies: subtask.dependencies.filter((dependency) => subsetKeys.has(dependency)),
       paths: subtask.allowedPaths,
+      writes: subtask.kind === "code_change" || subtask.kind === "shell",
     })),
     async (node, signal, runInfo): Promise<NodeOutcome> => {
       const subtask = plan.subtasks.find((candidate) => candidate.key === node.id)!;
@@ -179,6 +184,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         subtask,
         agent,
         browser,
+        siblings: siblingTracker.siblingsOf(node.id, plan.subtasks, runCompleted, (key) => assign(key)?.role),
         llmConfig: input.llmConfig,
         llmHandles,
         llmTaskGate: input.llmTaskGate,
@@ -487,6 +493,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       },
       onStart: async (node, attempt) => {
         if (runCompleted.has(node.id)) return;
+        siblingTracker.started(node.id);
         const subtask = plan.subtasks.find((candidate) => candidate.key === node.id)!;
         const agent = assign(node.id);
         if (!agent) throw new Error(`No enabled agent for capability ${subtask.capability}`);
@@ -556,9 +563,14 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         });
         executionIds.set(node.id, executionId);
       },
-      onOutcome: async (node, outcome, attempt) =>
-        handleNodeOutcome(ctx, node, outcome, attempt),
+      onOutcome: async (node, outcome, attempt) => {
+        siblingTracker.settled(node.id);
+        const added = await handleNodeOutcome(ctx, node, outcome, attempt);
+        if (Array.isArray(added)) siblingTracker.admitted(added.map((candidate) => candidate.id));
+        return added;
+      },
       onBlocked: async (node, reason) => {
+        siblingTracker.settled(node.id);
         // Plan 022: nodes held back by a user pause stay pending — they
         // are the work Resume continues with, not a failure.
         if (ctx.paused && !ctx.cancelled) {
@@ -651,4 +663,50 @@ async function refreshLoadSnapshot(ctx: RunContext): Promise<void> {
   } catch {
     // Keep the previous snapshot; this run's own counts still apply.
   }
+}
+
+/**
+ * Tracks the live status of the nodes in one runNodes invocation for the
+ * "Running alongside you" prompt section: started → running, any outcome
+ * or block → settled (a retry re-enters through `started`). Everything
+ * else in the run that has not completed is queued.
+ */
+export function createSiblingTracker(initialKeys: Iterable<string>) {
+  const inRun = new Set(initialKeys);
+  const running = new Set<string>();
+  const settledKeys = new Set<string>();
+  return {
+    started(key: string) {
+      inRun.add(key);
+      running.add(key);
+      settledKeys.delete(key);
+    },
+    settled(key: string) {
+      running.delete(key);
+      settledKeys.add(key);
+    },
+    admitted(keys: string[]) {
+      for (const key of keys) inRun.add(key);
+    },
+    siblingsOf(
+      self: string,
+      subtasks: PlanSubtask[],
+      completed: { has(key: string): boolean },
+      roleOf: (key: string) => string | undefined
+    ): SiblingSubtask[] {
+      const out: SiblingSubtask[] = [];
+      for (const subtask of subtasks) {
+        if (subtask.key === self || !inRun.has(subtask.key)) continue;
+        if (completed.has(subtask.key) || settledKeys.has(subtask.key)) continue;
+        out.push({
+          key: subtask.key,
+          role: roleOf(subtask.key) ?? subtask.capability,
+          title: subtask.title,
+          allowedPaths: subtask.allowedPaths,
+          status: running.has(subtask.key) ? "running" : "queued",
+        });
+      }
+      return out;
+    },
+  };
 }

@@ -22,6 +22,7 @@ import { contractDefinition, writePlanVersion } from "./lib/planStore";
 import { decidePermissionCore, permissionArgs } from "./permissionBroker";
 import { clearSubtaskLive } from "./subtaskLive";
 import { recordAudit } from "./lib/recordAudit";
+import { FINISHED_TASK_STATUSES, worktreeCleanupBlocker } from "./lib/worktreeRetention";
 import {
   autoApprovalDecision,
   normalizePermissionMode,
@@ -2593,6 +2594,62 @@ export const cleanupWorktreeContext = internalQuery({
       // Current fhara/<id>/ plus legacy moagent/<id>/ (pre-rename branches).
       branchPrefixes: taskBranchPrefixes(args.taskId),
     };
+  },
+});
+
+/** Bounded batch of finished tasks whose worktree may be removed now. */
+const WORKTREE_SWEEP_BATCH = 20;
+
+export const listStaleWorktreeTasks = internalQuery({
+  args: { now: v.number(), retentionMs: v.number() },
+  handler: async (ctx, args) => {
+    const cutoff = args.now - args.retentionMs;
+    const out: Array<{ taskId: Id<"tasks"> }> = [];
+    for (const status of FINISHED_TASK_STATUSES) {
+      const rows = await ctx.db
+        .query("tasks")
+        .withIndex("by_status_and_updated", (q) => q.eq("status", status).lt("updatedAt", cutoff))
+        .order("asc")
+        .take(200);
+      for (const task of rows) {
+        if (out.length >= WORKTREE_SWEEP_BATCH) break;
+        if (!task.worktreePath) continue;
+        const pushes = await ctx.db
+          .query("taskPushes")
+          .withIndex("by_task", (q) => q.eq("taskId", task._id))
+          .take(50);
+        const blocker = worktreeCleanupBlocker(
+          {
+            status: task.status,
+            worktreePath: task.worktreePath,
+            finishedAt: task.completedAt ?? task.updatedAt,
+            pushes: pushes.map((push) => ({ status: push.status, prState: push.prState })),
+          },
+          args.now,
+          args.retentionMs
+        );
+        if (blocker === null) out.push({ taskId: task._id });
+      }
+      if (out.length >= WORKTREE_SWEEP_BATCH) break;
+    }
+    return out;
+  },
+});
+
+/** The sweep removed this task's worktree; the branch is kept. */
+export const worktreeCleaned = internalMutation({
+  args: { taskId: v.id("tasks"), removed: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return;
+    await ctx.db.patch(args.taskId, { worktreePath: undefined });
+    await ctx.db.insert("taskEvents", {
+      taskId: args.taskId,
+      projectId: task.projectId,
+      type: "branch.worktree_cleaned",
+      payload: { branchName: task.branchName, removed: args.removed },
+      level: "info",
+    });
   },
 });
 

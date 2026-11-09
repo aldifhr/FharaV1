@@ -8,6 +8,8 @@ import { internal } from "./_generated/api";
 import { buildChildEnv } from "./lib/childEnv";
 import { gitIdentityArgs } from "./lib/gitIdentity";
 import { makeTaskBranchName, taskWorktreesFromPorcelain } from "./lib/taskBranch";
+import { worktreeRetentionMs } from "./lib/worktreeRetention";
+import type { Id } from "./_generated/dataModel";
 
 // execFile, not a shell string: branch names, paths and the identity
 // (`user.name=Some Name`) are passed as argv, never re-split or interpreted.
@@ -175,6 +177,33 @@ export const discardBranch = internalAction({
   },
 });
 
+/**
+ * Remove every worktree of this task (fhara/<id>/ and legacy moagent/<id>/
+ * branches, read from `worktree list --porcelain`), never the main
+ * checkout. Branches are kept. Returns the removed paths.
+ */
+function removeTaskWorktrees(workspacePath: string, taskId: string): string[] {
+  const removed: string[] = [];
+  try {
+    // Porcelain output, matched on the branch: the human `worktree list`
+    // lines start with the path followed by sha and branch, so they never
+    // named a removable path.
+    const porcelain = gitExec(workspacePath, ["worktree", "list", "--porcelain"]);
+    const main = path.resolve(workspacePath);
+    for (const wtPath of taskWorktreesFromPorcelain(porcelain, taskId)) {
+      if (path.resolve(wtPath) === main) continue;
+      try {
+        gitExec(workspacePath, ["worktree", "remove", "--force", wtPath]);
+        removed.push(wtPath);
+      } catch {}
+    }
+    try {
+      gitExec(workspacePath, ["worktree", "prune"]);
+    } catch {}
+  } catch {}
+  return removed;
+}
+
 export const cleanupStaleWorktrees = internalAction({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
@@ -182,20 +211,33 @@ export const cleanupStaleWorktrees = internalAction({
       workspacePath: string;
       branchPrefixes: string[];
     } | null;
-    if (!data) return;
+    if (!data) return [];
+    return removeTaskWorktrees(data.workspacePath, args.taskId);
+  },
+});
 
-    try {
-      // Porcelain output, matched on the branch (fhara/<id>/ and the legacy
-      // moagent/<id>/): the human `worktree list` lines start with the path
-      // followed by sha and branch, so they never named a removable path.
-      const porcelain = gitExec(data.workspacePath, ["worktree", "list", "--porcelain"]);
-      const main = path.resolve(data.workspacePath);
-      for (const wtPath of taskWorktreesFromPorcelain(porcelain, args.taskId)) {
-        if (path.resolve(wtPath) === main) continue;
-        try {
-          gitExec(data.workspacePath, ["worktree", "remove", "--force", wtPath]);
-        } catch {}
-      }
-    } catch {}
+/**
+ * Cron sweep: remove the worktrees of finished tasks past the retention
+ * window (FHARA_WORKTREE_RETENTION_HOURS, default 72) unless their PR is
+ * still open or a push is in flight. The task branch is kept.
+ */
+export const sweepStaleWorktrees = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const tasks = (await ctx.runQuery(internal.orchestration.listStaleWorktreeTasks, {
+      now: Date.now(),
+      retentionMs: worktreeRetentionMs(),
+    })) as Array<{ taskId: Id<"tasks"> }>;
+    let cleaned = 0;
+    for (const { taskId } of tasks) {
+      const data = (await ctx.runQuery(internal.orchestration.cleanupWorktreeContext, { taskId })) as {
+        workspacePath: string;
+      } | null;
+      if (!data) continue;
+      const removed = removeTaskWorktrees(data.workspacePath, taskId);
+      await ctx.runMutation(internal.orchestration.worktreeCleaned, { taskId, removed });
+      cleaned += 1;
+    }
+    return { cleaned };
   },
 });

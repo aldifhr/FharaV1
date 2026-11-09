@@ -91,12 +91,55 @@ export interface PushInput {
   signal?: AbortSignal;
   timeoutMs?: number;
   execGit?: ExecGit;
+  /**
+   * The repository's base branch (the PR target). A push whose target is
+   * the base branch, or main/master, is refused unless `allowBaseBranch`
+   * (or FHARA_ALLOW_BASE_BRANCH_PUSH=true) says otherwise.
+   */
+  baseBranch?: string;
+  allowBaseBranch?: boolean;
+  /** Force-push (`+sha:ref`). Refused unless `allowForce` (or FHARA_ALLOW_FORCE_PUSH=true). */
+  force?: boolean;
+  allowForce?: boolean;
+}
+
+/** Branch names a task push may never target without an explicit override. */
+const ALWAYS_PROTECTED = new Set(["main", "master"]);
+
+function envFlag(name: string): boolean {
+  return /^(1|true|yes|on)$/i.test((process.env[name] ?? "").trim());
+}
+
+/**
+ * Push guard: task pushes go to their own task branch. Pushing straight to
+ * the base branch (or main/master) and force-pushing both need an explicit
+ * allow, per call or by env. Throws with the reason; returns nothing.
+ */
+export function assertPushAllowed(input: {
+  branchName: string;
+  baseBranch?: string;
+  allowBaseBranch?: boolean;
+  force?: boolean;
+  allowForce?: boolean;
+}): void {
+  const target = input.branchName.replace(/^refs\/heads\//, "");
+  const base = input.baseBranch?.replace(/^refs\/heads\//, "").trim();
+  const protectedTarget = ALWAYS_PROTECTED.has(target) || (base !== undefined && base !== "" && target === base);
+  if (protectedTarget && !(input.allowBaseBranch ?? envFlag("FHARA_ALLOW_BASE_BRANCH_PUSH"))) {
+    throw new Error(
+      `Push blocked: "${target}" is the base branch; task pushes go to their own branch (set FHARA_ALLOW_BASE_BRANCH_PUSH=true to allow)`
+    );
+  }
+  if (input.force && !(input.allowForce ?? envFlag("FHARA_ALLOW_FORCE_PUSH"))) {
+    throw new Error("Push blocked: force push is not allowed (set FHARA_ALLOW_FORCE_PUSH=true to allow)");
+  }
 }
 
 export async function pushCommitToGithub(input: PushInput): Promise<{ remoteUrl: string }> {
   if (!NAME.test(input.owner) || !NAME.test(input.repo)) throw new Error("Invalid GitHub repository");
   if (!SHA.test(input.commitSha)) throw new Error("Invalid commit sha");
   if (!BRANCH.test(input.branchName)) throw new Error(`Invalid branch name: ${input.branchName}`);
+  assertPushAllowed(input);
   const execGit = input.execGit ?? defaultExecGit;
   const remoteUrl = `https://github.com/${input.owner}/${input.repo}.git`;
   const timeoutMs = input.timeoutMs ?? 120_000;
@@ -114,7 +157,7 @@ export async function pushCommitToGithub(input: PushInput): Promise<{ remoteUrl:
   }
   try {
     await execGit(
-      ["push", "--porcelain", remoteUrl, `${input.commitSha}:refs/heads/${input.branchName}`],
+      ["push", "--porcelain", remoteUrl, `${input.force ? "+" : ""}${input.commitSha}:refs/heads/${input.branchName}`],
       { cwd: input.repoPath, env: githubAuthEnv(input.token), signal: input.signal, timeoutMs }
     );
   } catch (error) {

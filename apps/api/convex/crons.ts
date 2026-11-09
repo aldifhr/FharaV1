@@ -16,4 +16,9 @@ crons.daily("prune context snapshots", { hourUTC: 19, minuteUTC: 30 }, internal.
 // so nothing stays in planning/replanning limbo (taskWatchdog.ts).
 crons.interval("task watchdog", { minutes: 5 }, internal.taskWatchdog.run, {});
 
+// Stale worktrees: finished tasks past FHARA_WORKTREE_RETENTION_HOURS
+// (default 72) lose their worktree unless a PR is still open; the branch
+// is kept. Bounded batch per run.
+crons.interval("sweep stale task worktrees", { hours: 6 }, internal.worktreeNode.sweepStaleWorktrees, {});
+
 export default crons;

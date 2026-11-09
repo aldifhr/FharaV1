@@ -215,11 +215,28 @@ export function policyForComplexity(policy: ExecutionPolicy, complexity?: TaskCo
   };
 }
 
+/**
+ * Default subtask parallelism. Parallel runs are on by default ONLY when
+ * worktree isolation is on (the task runs in its own git worktree, never
+ * in the user's checkout): then ORCHESTRATOR_PARALLEL_DEFAULT (default 2,
+ * 1–3) independent, non-conflicting DAG nodes may run side by side.
+ * Without isolation the default stays sequential (1). An explicit
+ * ORCHESTRATOR_MAX_CONCURRENCY always wins.
+ */
+export function defaultParallelism(worktreeIsolation: boolean): number {
+  if (!worktreeIsolation) return 1;
+  return intFromEnv("ORCHESTRATOR_PARALLEL_DEFAULT", 2, 1, 3);
+}
+
 export function loadPolicy(): ExecutionPolicy {
   const maxReplans = intFromEnv("ORCHESTRATOR_MAX_REPLANS", 1, 0, 3);
+  // Off by default: isolation fails tasks whose workspace is not a git
+  // repo, and needs the Convex node action to share the worker's disk.
+  const worktreeIsolation = boolFromEnv("ORCHESTRATOR_WORKTREE_ISOLATION", false);
+  const parallelism = defaultParallelism(worktreeIsolation);
   return {
     maxSubtasks: intFromEnv("ORCHESTRATOR_MAX_SUBTASKS", 8, 1, 20),
-    maxConcurrency: intFromEnv("ORCHESTRATOR_MAX_CONCURRENCY", 1, 1, 8),
+    maxConcurrency: intFromEnv("ORCHESTRATOR_MAX_CONCURRENCY", parallelism, 1, 8),
     maxReplans,
     // Spec alias: defaults to the maxReplans value so the two never drift;
     // ORCHESTRATOR_MAX_PLANNING_ITERATIONS overrides the iteration bound
@@ -287,7 +304,9 @@ export function loadPolicy(): ExecutionPolicy {
     // tasks and subtasks never overlap (WORKER_CONCURRENCY=1 + FIFO
     // scheduler). Raise ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS for
     // provider-parallel work.
-    maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", 1, 1, 8),
+    // Follows the parallel default so side-by-side nodes do not queue on
+    // the LLM gate (1 unless worktree isolation is on).
+    maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", parallelism, 1, 8),
     maxTokenBudgetPerTask: intFromEnv("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK", 2_000_000, 1_000, 100_000_000),
     allowFallback: boolFromEnv("ORCHESTRATOR_ALLOW_FALLBACK", true),
     orchestratorAuthoritative: boolFromEnv("ORCHESTRATOR_AUTHORITATIVE", true),
@@ -306,7 +325,7 @@ export function loadPolicy(): ExecutionPolicy {
     // (resolveExecutionRuntime). ORCHESTRATOR_EXECUTION_RUNTIME wins over
     // the legacy ORCHESTRATOR_RUNTIME; "opencode" aliases "native-provider".
     executionRuntime: executionRuntimeFromEnv(),
-    worktreeIsolation: boolFromEnv("ORCHESTRATOR_WORKTREE_ISOLATION", false),
+    worktreeIsolation,
     // Plan 013 step 7: the decision engine is the only orchestrator path
     // (flag deleted; default is irrevocably on).
     // Plan 005 Phase 4 Step 4.3 (enabled once Phase 4 tests went green):

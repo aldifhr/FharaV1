@@ -158,6 +158,10 @@ deployment env. All are listed in `.env.example`.
 | `QA_CHROMIUM_PATH` | `.env` | Playwright's Chromium | System Chromium (fallback `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`) |
 | `QA_CHROMIUM_NO_SANDBOX` | `.env` | auto | `1` = `--no-sandbox` (auto as root / in containers) |
 | `ORCHESTRATOR_WORKTREE_ISOLATION` | `.env` | `0` | Run each task on its own branch (needed for push / PR) |
+| `ORCHESTRATOR_PARALLEL_DEFAULT` | `.env` | `2` | Parallel subtasks (1–3) when worktree isolation is on; `1` without it |
+| `FHARA_ALLOW_BASE_BRANCH_PUSH` | `.env` | `0` | Allow pushes to the base branch / main / master |
+| `FHARA_ALLOW_FORCE_PUSH` | `.env` | `0` | Allow force pushes |
+| `FHARA_WORKTREE_RETENTION_HOURS` | Convex env | `72` | Remove finished tasks' worktrees after this (kept while the PR is open) |
 | `ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK` | `.env` | `2000000` | Per-task token budget |
 | `ORCHESTRATOR_BUDGET_MODE` | `.env` | warn | `enforce` = hard stop at the budget |
 | `WORKER_POLL_INTERVAL_MS` | `.env` | `1500` | Task poll interval |

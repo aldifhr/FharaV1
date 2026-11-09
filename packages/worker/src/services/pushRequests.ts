@@ -49,6 +49,8 @@ export async function handlePushRequest(claim: PushClaim, deps: PushDeps): Promi
       repo: claim.repo,
       commitSha: claim.commitSha,
       branchName: claim.branchName,
+      // Push guard: never the base branch, never forced, unless allowed.
+      baseBranch: claim.baseBranch,
       token,
       signal: deps.signal,
       execGit: deps.execGit,

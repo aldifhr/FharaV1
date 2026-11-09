@@ -319,6 +319,9 @@ const twoParallelImpl = (): ExecutionPlan =>
       capability: "frontend-development",
       dependencies: [],
       order: 0,
+      // Disjoint scopes: two unscoped writers are serialized by the
+      // conflict guard, which would hide the per-agent gate under test.
+      allowedPaths: ["src/a"],
     },
     {
       key: "impl_b",
@@ -328,6 +331,7 @@ const twoParallelImpl = (): ExecutionPlan =>
       capability: "frontend-development",
       dependencies: [],
       order: 1,
+      allowedPaths: ["src/b"],
     },
   ]);
 

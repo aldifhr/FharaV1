@@ -35,6 +35,8 @@ import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/types";
 import {
   buildAgentExecutionContext,
   formatAgentContextForPrompt,
+  formatSiblingsSection,
+  type SiblingSubtask,
 } from "./agentContext";
 import {
   runNativeProvider,
@@ -116,6 +118,11 @@ export interface SubtaskExecutionInput {
   qaBaseUrl?: string;
   /** Shared orchestrator context; when present it replaces the raw prior-output dump. */
   taskContext?: SharedTaskContext;
+  /**
+   * Other subtasks of this task running or queued when this one starts
+   * (rendered as the "Running alongside you" section).
+   */
+  siblings?: SiblingSubtask[];
   /**
    * Delivery ack for user steer/answer inputs: called with the taskInputs
    * ids a built prompt actually rendered (single input guard).
@@ -909,6 +916,7 @@ export function priorContextFor(input: SubtaskExecutionInput): string {
       taskContext: input.taskContext,
       agent: input.agent,
       assignment: `${input.subtask.title} — ${input.subtask.description}`,
+      siblings: input.siblings,
     });
     const rendered = `Shared task context:\n${formatAgentContextForPrompt(curated)}`;
     // Delivery ack (single input guard): the user's steer/answer text is in
@@ -922,9 +930,10 @@ export function priorContextFor(input: SubtaskExecutionInput): string {
     const raw = Array.from(input.priorOutputs.entries())
       .map(([key, value]) => `### ${key}\n${value.slice(0, 4000)}`)
       .join("\n\n");
-    return `Previous subtask outputs:\n${raw}`;
+    const siblings = formatSiblingsSection(input.siblings);
+    return `Previous subtask outputs:\n${raw}${siblings ? `\n\n${siblings}` : ""}`;
   }
-  return "";
+  return formatSiblingsSection(input.siblings);
 }
 
 function baseMessages(input: SubtaskExecutionInput, userContent: string) {

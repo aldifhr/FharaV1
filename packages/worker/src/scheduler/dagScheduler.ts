@@ -15,6 +15,24 @@ export interface SchedulerNode {
   id: string;
   dependencies: string[];
   paths?: string[];
+  /**
+   * Whether the node edits files (code_change / shell). Two writing nodes
+   * that both have no declared paths can touch anything, so they conflict.
+   */
+  writes?: boolean;
+}
+
+/**
+ * Conflict guard for parallel runs: two nodes conflict (and are run one
+ * after the other, never side by side) when their owned paths overlap —
+ * an unscoped node overlaps any scoped one — or when both write files
+ * with no declared scope at all.
+ */
+export function nodesConflict(a: SchedulerNode, b: SchedulerNode | undefined): boolean {
+  if (!b) return false;
+  if (pathsOverlap(a.paths, b.paths)) return true;
+  const unscoped = (node: SchedulerNode) => !node.paths || node.paths.length === 0;
+  return unscoped(a) && unscoped(b) && a.writes === true && b.writes === true;
 }
 
 export type NodeOutcome =
@@ -494,8 +512,11 @@ export async function runScheduler(
         // It becomes runnable again as soon as a same-agent node
         // settles and frees a slot.
         if (hooks.canStartNode && !hooks.canStartNode(node)) continue;
+        // Conflict guard: a ready node whose files overlap a running
+        // node's (including one started earlier in this same pass) is
+        // deferred until that node settles — serialized, not failed.
         const ownedOverlap = Array.from(running.keys()).some((runningId) =>
-          pathsOverlap(node.paths, byId.get(runningId)?.paths)
+          nodesConflict(node, byId.get(runningId))
         );
         if (ownedOverlap) continue;
         start(node);

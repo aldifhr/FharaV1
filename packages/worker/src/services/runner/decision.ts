@@ -473,6 +473,7 @@ export async function handleNodeOutcome(
                 id: dynamic.key,
                 dependencies: dynamic.dependencies,
                 paths: dynamic.allowedPaths,
+                writes: dynamic.kind === "code_change" || dynamic.kind === "shell",
               }));
             }
             break;

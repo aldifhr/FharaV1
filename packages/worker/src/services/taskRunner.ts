@@ -706,7 +706,7 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         const missing = outcome.replanFeedback ?? "objective not satisfied";
         if (replans < maxPlanningIterations) {
           replans += 1;
-          feedback = buildReplanFeedback(`Objective not satisfied: ${missing}`, sharedContext);
+          feedback = buildReplanFeedback(`Objective not satisfied: ${missing}`, sharedContext, [...state.priorOutputs.keys()].map((key) => { const s = plan.subtasks.find((c) => c.key === key); return s ? { key: s.key, kind: s.kind, capability: s.capability, description: s.description } : { key, kind: "", capability: "", description: state.priorOutputs.get(key)?.slice(0, 200) ?? "" }; }));
           let replanned: Awaited<ReturnType<typeof createAuthoritativePlan>>;
           try {
             replanned = await createAuthoritativePlan({

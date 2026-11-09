@@ -112,7 +112,6 @@ export default function TaskThreadPanel({
   // (ORCHESTRATOR_VERIFICATION_ENABLED=false) so the section was always
   // empty. Add when verification is re-enabled.
   const checks = (agentEvents ?? []).filter((e: any) => e.type === "tool.completed");
-  const errors = (agentEvents ?? []).filter((e: any) => e.type === "task.failed");
   const taskStatus = (task as any)?.status;
   // Scope the "thinking" banner to THIS task: a globally-working agent from
   // an old/failed task (stale `status` in the DB) used to leak "Backend is
@@ -272,12 +271,6 @@ export default function TaskThreadPanel({
                 <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
               </button>
             </div>
-          </div>
-        )}
-        {errors.length > 0 && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-            <p className="font-semibold">Agent error</p>
-            <p className="mt-1 break-words">{errors[errors.length - 1].payload?.message ?? "Task failed to process."}</p>
           </div>
         )}
         {taskStatus === "running" && (

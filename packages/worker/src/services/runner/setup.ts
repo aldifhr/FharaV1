@@ -400,9 +400,18 @@ export function slugifyKeyPart(value: string): string {
  */
 export function buildReplanFeedback(
   base: string,
-  sharedContext: SharedTaskContext
+  sharedContext: SharedTaskContext,
+  completedSubtasks?: Array<{ key: string; kind: string; capability: string; description: string }>
 ): string {
   const parts = [base];
+  if (completedSubtasks && completedSubtasks.length > 0) {
+    parts.push(
+      "Already completed (DO NOT repeat these; reuse their descriptions verbatim so carry-forward matches): " +
+        completedSubtasks
+          .map((s) => `${s.key}: [${s.kind}/${s.capability}] ${s.description}`)
+          .join(" | ")
+    );
+  }
   const decisions = sharedContext.decisions.slice(-6);
   if (decisions.length > 0) {
     parts.push(

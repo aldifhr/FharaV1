@@ -210,7 +210,7 @@ export function loadPolicy(): ExecutionPolicy {
     // scheduler). Raise ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS for
     // provider-parallel work.
     maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", 1, 1, 8),
-    maxTokenBudgetPerTask: intFromEnv("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK", 10_000_000, 1_000, 100_000_000),
+    maxTokenBudgetPerTask: intFromEnv("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK", 2_000_000, 1_000, 100_000_000),
     allowFallback: boolFromEnv("ORCHESTRATOR_ALLOW_FALLBACK", true),
     orchestratorAuthoritative: boolFromEnv("ORCHESTRATOR_AUTHORITATIVE", true),
     // Plan 006 Phase 1: the router is deterministic by default; the advisor

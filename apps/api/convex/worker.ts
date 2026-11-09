@@ -119,6 +119,8 @@ export const savePlan = action({
         capability: v.string(),
         dependencies: v.array(v.string()),
         order: v.number(),
+        allowedPaths: v.optional(v.array(v.string())),
+        origin: v.optional(v.string()),
       })
     ),
   },
@@ -146,6 +148,7 @@ export const saveDynamicSubtasks = action({
         capability: v.string(),
         dependencies: v.array(v.string()),
         order: v.number(),
+        allowedPaths: v.optional(v.array(v.string())),
         origin: v.optional(v.string()),
       })
     ),

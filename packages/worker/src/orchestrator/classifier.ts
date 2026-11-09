@@ -3,8 +3,11 @@ import { CAPABILITY, type Classification } from "./types";
 const GREETING = /^(hi|hello|hey|halo|hai|yo|good (morning|afternoon|evening))[!.,?\s]*$/i;
 // Expanded verb coverage (Stage A fast path only — semantic stage below
 // correctly handles migrate/convert/indirect phrasing without this list).
+// Strong change verbs only: generic words (perlu/menggunakan/pakai/jalankan)
+// were removed — they match plain questions ("Kenapa API ini menggunakan
+// Convex?" is research, not a code change). QUESTION is checked first below.
 const CHANGE_VERB =
-  /\b(add|create|build|implement|make|update|edit|fix|change|refactor|remove|delete|rename|move|style|redesign|tambah|buat|ubah|perbaiki|hapus|migrate|convert|scaffold|porting|port|setup|install|pindah|konversi|pasang|sesuaikan|jalankan|ganti|perlu|perlu di|perlu di-refactor|perlu refactor|harusnya|kayaknya|kayaknya perlu|bisa jalan pakai|bisa jalan dengan|dapat jalan pakai|pakai docker|menggunakan|pakai next|switch|ganti ke|pindah ke|too slow|should switch|switch to|jalankan|pakai postgres|postgres)\b/i;
+  /\b(add|create|build|implement|make|update|edit|fix|change|refactor|remove|delete|rename|move|style|redesign|tambah|buat|ubah|perbaiki|hapus|migrate|convert|scaffold|porting|port|setup|install|pindah|konversi|pasang|sesuaikan|ganti|switch|ganti ke|pindah ke|too slow|should switch|switch to|postgres)\b/i;
 const AUDIT_ONLY =
   /\b(audit|review|inspect|analy[sz]e|check for|security review|code review)\b/i;
 const QUESTION =
@@ -62,6 +65,18 @@ export function classifyCommand(command: string): Classification {
       kind: "research",
       strategy: "single",
       reasons: ["question without a change request"],
+      suggestedCapabilities: [CAPABILITY.RESEARCH, CAPABILITY.CODE_REVIEW],
+    };
+  }
+
+  // Question-first: "Kenapa ... menggunakan ...?" is research even if a
+  // weak verb matched. Strong change verbs still win when both match and
+  // no question marker exists (handled above).
+  if (QUESTION.test(text) && !/\b(add|create|build|implement|fix|refactor|tambah|buat|ubah|perbaiki|hapus)\b/i.test(text)) {
+    return {
+      kind: "research",
+      strategy: "single",
+      reasons: ["question pattern detected"],
       suggestedCapabilities: [CAPABILITY.RESEARCH, CAPABILITY.CODE_REVIEW],
     };
   }

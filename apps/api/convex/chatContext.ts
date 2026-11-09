@@ -44,7 +44,7 @@ export const insertAgentMessage = internalMutation({
     conversationId: v.optional(v.id("conversations")),
     card: v.optional(
       v.object({
-        kind: v.union(v.literal("assignment"), v.literal("push"), v.literal("qa"), v.literal("verification")),
+        kind: v.union(v.literal("assignment"), v.literal("push"), v.literal("qa"), v.literal("verification"), v.literal("changes")),
         data: v.any(),
       })
     ),

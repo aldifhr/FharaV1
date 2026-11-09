@@ -1,7 +1,20 @@
 "use client";
 import { useState } from "react";
-import { Bell, Check, GitBranch, Hand, Eye } from "lucide-react";
+import { Bell, Check } from "lucide-react";
 import { useToast } from "./Toasts";
+import {
+  BTN_OUTLINE,
+  BTN_PRIMARY,
+  BTN_TEXT,
+  CARD_DIVIDER,
+  CardHeader,
+  CardShell,
+  IconTile,
+  MUTED,
+  Pill,
+  StatusWord,
+  type StepStatus,
+} from "./chat/cards/primitives";
 
 type Approval = {
   _id: string;
@@ -22,12 +35,13 @@ const KIND_LABEL: Record<string, string> = {
 
 type Handler = (approvalId: string) => unknown;
 
-/** Colour for a verification metric: green only for a real pass. */
-function metricTone(value: unknown): string {
+/** Verification metric → status word: green only for a real pass. */
+function metricStatus(value: unknown): StepStatus {
   const v = String(value ?? "").toLowerCase();
-  if (v === "passed" || v === "clean" || v === "ok") return "text-emerald-600 dark:text-emerald-400";
-  if (v === "failed" || v === "error" || v === "errors") return "text-rose-600 dark:text-rose-400";
-  return "text-gray-500 dark:text-gray-400";
+  if (v === "passed" || v === "clean" || v === "ok") return "passed";
+  if (v === "failed" || v === "error" || v === "errors") return "failed";
+  if (v === "running") return "running";
+  return "not_run";
 }
 
 /**
@@ -49,7 +63,10 @@ export default function ApprovalCard({
   onReject,
   onHold,
   onReview,
+  agent,
 }: {
+  /** Requesting agent, shown in the shared card header when known. */
+  agent?: { role?: string } | null;
   approval: Approval;
   taskTitle?: string;
   busy?: boolean;
@@ -80,108 +97,93 @@ export default function ApprovalCard({
   };
 
   const metricCell = (label: string, value: unknown, neutral = false) => (
-    <div className="px-3 text-center">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{label}</p>
-      <p
-        className={`mt-0.5 text-sm font-bold ${neutral ? "text-gray-800 dark:text-gray-100" : metricTone(value)}`}
-        title={value == null ? "No result reported for this check" : undefined}
-      >
-        {value == null || value === "" ? "not run" : String(value)}
-      </p>
+    <div className="min-w-0 px-4 py-3">
+      <p className={`text-[12px] ${MUTED}`}>{label}</p>
+      <div className="mt-1 truncate text-[15px] font-semibold" title={value == null ? "No result reported for this check" : undefined}>
+        {neutral ? (
+          <span className="text-[#26242e] dark:text-neutral-100">{value == null || value === "" ? "—" : String(value)}</span>
+        ) : (
+          <StatusWord
+            status={metricStatus(value)}
+            label={value == null || value === "" ? "Not run" : metricStatus(value) === "not_run" ? String(value) : undefined}
+          />
+        )}
+      </div>
     </div>
   );
 
-  const btnBase =
-    "flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-[#635bff]/50 focus-visible:ring-offset-2 disabled:opacity-50 dark:focus-visible:ring-offset-gray-900";
-  const btnSecondary = `${btnBase} border border-[#e5e3eb] bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800`;
+  const time = approval._creationTime
+    ? new Date(approval._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+    : null;
 
   return (
-    <div className="mt-1 overflow-hidden rounded-xl border border-[#f3d9b0] bg-[#fffaf2] dark:border-amber-900/60 dark:bg-amber-950/20">
-      <div className="flex items-center gap-2.5 px-4 pt-3.5">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400">
-          <Bell size={16} aria-hidden="true" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold dark:text-white">{approval.summary}</p>
-          <p className="truncate text-xs text-gray-500 dark:text-gray-400">
-            {KIND_LABEL[approval.kind] ?? approval.kind}
-            {taskTitle ? ` · ${taskTitle}` : ""}
-            {approval._creationTime
-              ? ` · ${new Date(approval._creationTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`
-              : ""}
-          </p>
-        </div>
-        <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-          Needs you
-        </span>
-      </div>
-      {metrics && (
-        // Only show what the worker actually reported: a missing check reads
-        // "not run" in neutral grey, never a green "passed".
-        <div className="mx-4 mt-3 grid grid-cols-4 divide-x divide-amber-200/60 rounded-xl border border-amber-200/60 bg-white/70 py-2.5 shadow-sm dark:divide-amber-900/60 dark:border-amber-900/60 dark:bg-black/20">
-          {metricCell("files", metrics.files ?? "—", true)}
-          {metricCell("build", metrics.build)}
-          {metricCell("tests", metrics.tests)}
-          {metricCell("qa", metrics.qa)}
-        </div>
-      )}
-      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => void run("approve", onApprove)}
-          className={`${btnBase} bg-[#635bff] text-white shadow-sm hover:bg-[#5346d8]`}
-        >
-          <Check size={14} aria-hidden="true" /> {acting === "approve" ? "Approving…" : approveLabel}
-        </button>
-        {onReview && (
-          <button type="button" disabled={disabled} onClick={() => onReview(approval.taskId)} className={btnSecondary}>
-            <Eye size={14} aria-hidden="true" /> Review diff
+    <CardShell
+      className="mt-1 max-w-2xl"
+      agent={agent ? { role: agent.role, label: "asks for approval" } : null}
+      header={
+        <CardHeader
+          icon={
+            <IconTile tone="orange">
+              <Bell size={15} />
+            </IconTile>
+          }
+          title={approval.summary}
+          subtitle={[KIND_LABEL[approval.kind] ?? approval.kind, taskTitle, time].filter(Boolean).join(" · ")}
+          pill={<Pill tone="orange">Needs you</Pill>}
+        />
+      }
+      actions={
+        <>
+          <button type="button" disabled={disabled} onClick={() => void run("approve", onApprove)} className={BTN_PRIMARY}>
+            <Check size={14} aria-hidden="true" /> {acting === "approve" ? "Approving…" : approveLabel}
           </button>
-        )}
-        <button type="button" disabled={disabled} onClick={() => void run("hold", onHold)} className={btnSecondary}>
-          <Hand size={14} aria-hidden="true" /> Hold
-        </button>
-        {confirmReject ? (
-          <span className="flex items-center gap-1.5">
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => void run("reject", onReject)}
-              className={`${btnBase} bg-red-600 text-white hover:bg-red-700`}
-            >
-              Confirm reject
+          {onReview && (
+            <button type="button" disabled={disabled} onClick={() => onReview(approval.taskId)} className={BTN_OUTLINE}>
+              Review diff
             </button>
-            <button
-              type="button"
-              onClick={() => setConfirmReject(false)}
-              className="rounded-xl px-2.5 py-2 text-[13px] font-semibold text-gray-500 outline-none hover:text-gray-800 focus-visible:ring-2 focus-visible:ring-[#635bff]/50 dark:text-gray-400 dark:hover:text-gray-200"
-            >
-              Keep
+          )}
+          <button type="button" disabled={disabled} onClick={() => void run("hold", onHold)} className={BTN_TEXT}>
+            Hold
+          </button>
+          {confirmReject ? (
+            <span className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => void run("reject", onReject)}
+                className={`${BTN_PRIMARY} bg-[#d83a3a] hover:bg-[#c02f2f]`}
+              >
+                Confirm reject
+              </button>
+              <button type="button" onClick={() => setConfirmReject(false)} className={BTN_TEXT}>
+                Keep
+              </button>
+            </span>
+          ) : (
+            <button type="button" disabled={disabled} onClick={() => setConfirmReject(true)} className={BTN_TEXT}>
+              Reject
             </button>
+          )}
+          <span className={`ml-auto text-[12px] ${MUTED}`}>
+            {acting !== null
+              ? "Processing your decision…"
+              : lastAction === "hold"
+                ? "Held — stays pending in the task timeline"
+                : "Waits for your decision"}
           </span>
-        ) : (
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => setConfirmReject(true)}
-            className="rounded-xl px-2.5 py-2 text-[13px] font-semibold text-gray-500 outline-none hover:text-gray-800 focus-visible:ring-2 focus-visible:ring-[#635bff]/50 disabled:opacity-50 dark:text-gray-400 dark:hover:text-gray-200"
-          >
-            Reject
-          </button>
-        )}
-        <span className="ml-auto flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400">
-          <GitBranch size={11} aria-hidden="true" /> waits for your decision
-        </span>
-      </div>
-      {acting === null && lastAction === "hold" && (
-        <p role="status" className="px-4 pb-3 text-[11px] text-amber-700 dark:text-amber-400">
-          Held. The approval stays pending and is recorded in the task timeline.
-        </p>
+        </>
+      }
+    >
+      {metrics && (
+        // Only what the worker reported: a missing check reads "Not run" in
+        // grey, never a green "passed".
+        <div className={`grid grid-cols-2 border-t sm:grid-cols-4 ${CARD_DIVIDER} [&>*]:border-[#efeef3] dark:[&>*]:border-white/[0.07] [&>*:nth-child(2n)]:border-l sm:[&>*:not(:first-child)]:border-l [&>*:nth-child(n+3)]:border-t sm:[&>*:nth-child(n+3)]:border-t-0`}>
+          {metricCell("Files", metrics.files ?? null, true)}
+          {metricCell("Build", metrics.build)}
+          {metricCell("Tests", metrics.tests)}
+          {metricCell("QA", metrics.qa)}
+        </div>
       )}
-      {acting !== null && (
-        <p role="status" className="px-4 pb-3 text-[11px] text-gray-500 dark:text-gray-400">Processing your decision…</p>
-      )}
-    </div>
+    </CardShell>
   );
 }

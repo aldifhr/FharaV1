@@ -73,7 +73,25 @@ type Props = {
   onExpandedChange?: (expanded: boolean) => void;
   /** Side-by-side (split) view instead of unified. */
   splitView?: boolean;
+  /** "flush": a section inside a multi-file card (no own border/margin). */
+  variant?: "card" | "flush";
+  /** Always render the parsed unified diff (old/new gutters), never the
+   *  full-file viewer — the chat "Changed N files" card uses this. */
+  forceUnified?: boolean;
 };
+
+/** "site/lib/pricing.ts" → dimmed directory + bold file name. */
+export function PathLabel({ path }: { path: string }) {
+  const at = path.lastIndexOf("/");
+  const dir = at >= 0 ? path.slice(0, at + 1) : "";
+  const file = at >= 0 ? path.slice(at + 1) : path;
+  return (
+    <span className="min-w-0 flex-1 truncate font-mono text-[12px]" title={path}>
+      {dir && <span className="text-[#8a8796] dark:text-neutral-500">{dir}</span>}
+      <span className="font-semibold text-[#26242e] dark:text-neutral-100">{file}</span>
+    </span>
+  );
+}
 
 export default function DiffCard({
   filePath,
@@ -89,6 +107,8 @@ export default function DiffCard({
   expanded = true,
   onExpandedChange,
   splitView = false,
+  variant = "card",
+  forceUnified = false,
 }: Props) {
   const rows = useMemo(() => parseDiff(diff), [diff]);
   const { added, removed } = useMemo(() => countLines(diff), [diff]);
@@ -112,11 +132,17 @@ export default function DiffCard({
   // A new file has no old content (and vice versa): pass an empty string
   // on that side so the viewer still renders the additions/deletions
   // instead of dropping to the plain unified-diff fallback.
-  const hasContents = oldContent != null || newContent != null;
+  const hasContents = !forceUnified && (oldContent != null || newContent != null);
 
   return (
-    <div className="mt-2 overflow-hidden rounded-xl border border-[#e5e3eb] bg-white shadow-[0_1px_2px_rgba(30,25,60,.04)] dark:border-gray-800 dark:bg-gray-900">
-      <div className="flex items-center gap-2 border-b border-[#eeeef3] bg-[#fbfbfd] px-3 py-2 dark:border-gray-800 dark:bg-gray-800/60">
+    <div
+      className={
+        variant === "flush"
+          ? "border-t border-[#efeef3] dark:border-white/[0.07]"
+          : "mt-2 overflow-hidden rounded-xl border border-[#e9e8ef] bg-white shadow-[0_1px_2px_rgba(30,25,60,.04)] dark:border-white/10 dark:bg-[#1c1c1f]"
+      }
+    >
+      <div className={`flex items-center gap-2 px-3 py-2 ${variant === "flush" ? "bg-white dark:bg-[#1c1c1f]" : "border-b border-[#efeef3] bg-[#fbfbfd] dark:border-white/[0.07] dark:bg-white/[0.03]"}`}>
         <button
           type="button"
           onClick={() => {
@@ -125,17 +151,17 @@ export default function DiffCard({
           }}
           aria-expanded={isExpanded}
           aria-label={isExpanded ? `Collapse ${filePath}` : `Expand ${filePath}`}
-          className="rounded p-1 text-gray-500 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-gray-400 dark:hover:bg-gray-800"
+          className="rounded p-1 text-[#8a8796] outline-none hover:bg-[#f3f2f7] focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:text-neutral-400 dark:hover:bg-white/10"
         >
           {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#494752] dark:text-gray-200">{filePath}</span>
-        {changeType === "new" && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">New</span>}
+        <PathLabel path={filePath} />
+        {changeType === "new" && <span className="rounded-md bg-[#e9f8ef] px-1.5 py-0.5 text-[11px] font-medium text-[#1f8a4c] dark:bg-emerald-500/15 dark:text-emerald-300">New</span>}
         {changeType === "deleted" && <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-950 dark:text-rose-300">Deleted</span>}
         {applied && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">applied</span>}
         <span className="flex shrink-0 gap-1.5 tabular-nums text-[11px] font-semibold">
-          {added > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{added}</span>}
-          {removed > 0 && <span className="text-rose-500 dark:text-rose-400">−{removed}</span>}
+          {added > 0 && <span className="text-[#1f9d55] dark:text-emerald-400">+{added}</span>}
+          {removed > 0 && <span className="text-[#d83a3a] dark:text-rose-400">−{removed}</span>}
         </span>
         {approvalId && (
           <span className="ml-auto flex gap-1.5">
@@ -182,32 +208,38 @@ export default function DiffCard({
             />
           </div>
         ) : (
-          <div className="max-h-72 overflow-auto py-1 font-mono text-[11px] leading-[1.7]">
+          <div className={`${variant === "flush" ? "max-h-[28rem]" : "max-h-72"} overflow-auto border-t border-[#efeef3] font-mono text-[12px] leading-[1.75] dark:border-white/[0.07]`}>
             {rows.map((row, i) => {
               if (row.type === "hunk") {
-                return (
-                  <div key={i} className="flex bg-gray-50 text-[10px] text-gray-400 dark:bg-gray-800/50">
-                    <span className="w-10 shrink-0 select-none px-2 text-right">{row.oldStart}</span>
-                    <span className="w-10 shrink-0 select-none px-2 text-right">{row.newStart}</span>
-                    <span className="px-2">@@</span>
+                // A gap between hunks; the first hunk needs no separator.
+                return i === 0 ? null : (
+                  <div key={i} className="flex bg-[#f7f7fa] text-[11px] text-[#a3a0ad] dark:bg-white/[0.03] dark:text-neutral-500">
+                    <span className="w-10 shrink-0 select-none px-2 text-right">⋯</span>
+                    <span className="w-10 shrink-0 select-none px-2 text-right" />
+                    <span className="px-2">@@ {row.oldStart},{row.newStart}</span>
                   </div>
                 );
               }
               const bg =
                 row.type === "add"
-                  ? "bg-emerald-50 dark:bg-emerald-950/40"
+                  ? "bg-[#e8f6ec] dark:bg-[#12301f]"
                   : row.type === "del"
-                    ? "bg-rose-50 dark:bg-rose-950/40"
+                    ? "bg-[#fdecec] dark:bg-[#3a1618]"
                     : "";
-              const signColor = row.type === "add" ? "text-emerald-600 dark:text-emerald-400" : row.type === "del" ? "text-rose-500" : "text-transparent";
+              const signColor =
+                row.type === "add"
+                  ? "text-[#1f9d55] dark:text-emerald-400"
+                  : row.type === "del"
+                    ? "text-[#d83a3a] dark:text-rose-400"
+                    : "text-transparent";
               return (
-                <div key={i} className={`flex ${bg}`}>
-                  <span className="w-10 shrink-0 select-none px-2 text-right text-gray-400">{row.oldNo ?? ""}</span>
-                  <span className="w-10 shrink-0 select-none px-2 text-right text-gray-400">{row.newNo ?? ""}</span>
-                  <span className={`w-4 shrink-0 select-none text-center font-bold ${signColor}`}>
+                <div key={i} className={`flex min-w-max ${bg}`}>
+                  <span className="w-10 shrink-0 select-none px-2 text-right text-[#a3a0ad] dark:text-neutral-500">{row.oldNo ?? ""}</span>
+                  <span className="w-10 shrink-0 select-none px-2 text-right text-[#a3a0ad] dark:text-neutral-500">{row.newNo ?? ""}</span>
+                  <span className={`w-5 shrink-0 select-none text-center ${signColor}`}>
                     {row.type === "add" ? "+" : row.type === "del" ? "−" : ""}
                   </span>
-                  <span className="min-w-0 flex-1 whitespace-pre pr-3 text-gray-700 dark:text-gray-300">{row.text}</span>
+                  <span className="whitespace-pre pr-4 text-[#34323d] dark:text-neutral-200">{row.text}</span>
                 </div>
               );
             })}

@@ -3,12 +3,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { motion } from "framer-motion";
 import { api } from "@/api/convex/_generated/api";
-import AgentAvatar from "./AgentAvatar";
 import MessageText from "./chat/MessageText";
 import { roleLabel } from "@/lib/agentRoles";
 import { TASK_STATUS_PILL, NEUTRAL_PILL, subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
 import ApprovalCard from "./ApprovalCard";
 import DiffCard from "./DiffCard";
+import InitialAvatar from "./InitialAvatar";
+import ChatCard from "./chat/cards/ChatCard";
+import ReviewSnippet from "./chat/cards/ReviewSnippet";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
 import { Skeleton } from "@/app/WorkspaceContext";
@@ -443,40 +445,33 @@ export default function TaskThreadPanel({
           {ctoMessages.map((m: any, index: number) => {
             const msgAgent = agentById(m.agentId);
             const isLastCto = index === ctoMessages.length - 1;
+            const isReview = !m.card;
             return (
               <div key={m._id} className="flex gap-2.5">
-                <AgentAvatar name={roleLabel(msgAgent?.role)} size={28} avatarParams={msgAgent?.avatarParams} />
+                <InitialAvatar name={roleLabel(msgAgent?.role)} size={28} />
                 <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-800 dark:text-gray-100">
+                  <p className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-800 dark:text-neutral-100">
                     {roleLabel(msgAgent?.role)}
-                    <span className="rounded-full border border-gray-200 px-1.5 py-px text-[10px] font-medium text-gray-500 dark:border-gray-700 dark:text-gray-400">review</span>
-                    <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">{timeOf(m._creationTime)}</span>
+                    {isReview && (
+                      <span className="rounded-md border border-[#e3e1ea] px-1.5 py-px text-[11px] font-medium text-[#8a8796] dark:border-white/15 dark:text-neutral-400">review</span>
+                    )}
+                    <span className="text-[11px] font-normal text-[#8a8796] dark:text-neutral-400">{timeOf(m._creationTime)}</span>
                   </p>
-                  <MessageText content={m.content} />
-                  {/* The CTO's summary message carries the run's file diffs
-                      inline, like a review note — not in a separate panel. */}
-                  {isLastCto && fileChanges && fileChanges.length > 0 && (
-                    <div className="mt-2 space-y-2">
-                      {fileChanges.map((fc: any) => (
-                        <DiffCard key={fc._id} filePath={fc.filePath} diff={fc.diff} changeType={fc.changeType} oldContent={fc.oldContent} newContent={fc.newContent} />
-                      ))}
-                      <div className="flex flex-wrap gap-1.5">
-                        {approvedByHuman ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                            <Check size={11} /> Approved
-                          </span>
-                        ) : (agentEvents ?? []).some((e: any) => e.type === "agent.completed") ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-700 dark:bg-gray-800 dark:text-gray-200">
-                            <Check size={11} /> Completed
-                          </span>
-                        ) : null}
-                        {!fileChanges.some((fc: any) => /(^|\/)package(-lock)?\.json$/.test(fc.filePath) || /pnpm-lock\.yaml$/.test(fc.filePath) || fc.filePath.endsWith("yarn.lock")) && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-                            no new packages
-                          </span>
-                        )}
-                      </div>
+                  {m.content?.trim() ? <MessageText content={m.content} /> : null}
+                  {m.card && (
+                    <div className="mt-2">
+                      <ChatCard card={m.card} />
                     </div>
+                  )}
+                  {/* The CTO's latest review note carries a snippet of the
+                      run's diff and its status chips; the full diff is one
+                      click away. */}
+                  {isLastCto && isReview && fileChanges && fileChanges.length > 0 && (
+                    <ReviewSnippet
+                      files={fileChanges as any}
+                      approved={approvedByHuman}
+                      completed={(agentEvents ?? []).some((e: any) => e.type === "agent.completed")}
+                    />
                   )}
                 </div>
               </div>
@@ -504,13 +499,18 @@ export default function TaskThreadPanel({
             const msgAgent = agentById(m.agentId);
             return (
               <div key={m._id} className="flex gap-2.5">
-                <AgentAvatar name={roleLabel(msgAgent?.role)} size={28} avatarParams={msgAgent?.avatarParams} />
+                <InitialAvatar name={roleLabel(msgAgent?.role)} size={28} />
                 <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-800 dark:text-gray-100">
+                  <p className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-800 dark:text-neutral-100">
                     {roleLabel(msgAgent?.role)}
-                    <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">{timeOf(m._creationTime)}</span>
+                    <span className="text-[11px] font-normal text-[#8a8796] dark:text-neutral-400">{timeOf(m._creationTime)}</span>
                   </p>
-                  <MessageText content={m.content} />
+                  {m.content?.trim() ? <MessageText content={m.content} /> : null}
+                  {m.card && (
+                    <div className="mt-2">
+                      <ChatCard card={m.card} />
+                    </div>
+                  )}
                 </div>
               </div>
             );

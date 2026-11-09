@@ -349,4 +349,37 @@ export class WorkerApi {
   ): Promise<FunctionReturnType<typeof api.worker.recoverStaleMessages>> {
     return await this.client.action(api.worker.recoverStaleMessages, this.args(input));
   }
+
+  // Plan 019: stage cards + task-branch push flow.
+  async postTaskCard(
+    input: ActionInput<typeof api.worker.postTaskCard>
+  ): Promise<FunctionReturnType<typeof api.worker.postTaskCard>> {
+    // Lease fencing: a displaced worker's card is refused.
+    return await this.client.action(
+      api.worker.postTaskCard,
+      this.args({ workerId: this.workerId, ...input })
+    );
+  }
+
+  async recordTaskCommit(
+    input: ActionInput<typeof api.worker.recordTaskCommit>
+  ): Promise<FunctionReturnType<typeof api.worker.recordTaskCommit>> {
+    return await this.client.action(
+      api.worker.recordTaskCommit,
+      this.args({ workerId: this.workerId, ...input })
+    );
+  }
+
+  /** The result carries the project's GitHub token: never log it. */
+  async claimPushRequest(
+    input: ActionInput<typeof api.worker.claimPushRequest>
+  ): Promise<FunctionReturnType<typeof api.worker.claimPushRequest>> {
+    return await this.client.action(api.worker.claimPushRequest, this.args(input));
+  }
+
+  async completePushRequest(
+    input: ActionInput<typeof api.worker.completePushRequest>
+  ): Promise<FunctionReturnType<typeof api.worker.completePushRequest>> {
+    return await this.client.action(api.worker.completePushRequest, this.args(input));
+  }
 }

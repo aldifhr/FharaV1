@@ -217,6 +217,17 @@ export interface RunContext {
   replanFeedback: string | null;
   /** True while a review/QA staged loop owns the remaining work. */
   inStageLoop: boolean;
+  /**
+   * Plan 019: the live QA checklist card of the QA pass in flight. runNodes
+   * folds each QA `task.check` into it; the QA loop posts the final state.
+   */
+  qaCard?: {
+    key: string;
+    iteration: number;
+    rows: import("@/api/convex/cardTypes").QaCardRow[];
+    url?: string;
+    agentId?: string;
+  };
   /** The question this invocation paused for (plan 013 step 4). */
   waitingForInput: string | null;
   /**

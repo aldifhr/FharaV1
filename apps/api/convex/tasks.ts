@@ -195,6 +195,7 @@ export const createFromCommand = mutation({
       command,
       status: "queued",
       assignedAgentIds: args.assignedAgentIds,
+      ...(args.conversationId ? { conversationId: args.conversationId } : {}),
       updatedAt: now,
     });
     await ctx.db.insert("messages", {
@@ -234,6 +235,7 @@ export const remove = mutation({
         | "agentEvents"
         | "delegations"
         | "lifecycleHistory"
+        | "taskPushes"
     ) => {
       const records = await ctx.db
         .query(table)
@@ -255,6 +257,7 @@ export const remove = mutation({
       "agentEvents",
       "delegations",
       "lifecycleHistory",
+      "taskPushes",
     ] as const) {
       await deleteByTask(table);
     }

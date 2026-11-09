@@ -73,6 +73,25 @@ export const approvalStatus = v.union(
   v.literal("cancelled")
 );
 
+/** Lifecycle of a task-branch push (plan 019). */
+export const pushStatus = v.union(
+  // Commit recorded; nothing leaves the machine until the user clicks.
+  v.literal("ready"),
+  // The user clicked Push (explicit approval recorded); waiting for a worker.
+  v.literal("requested"),
+  // A worker holds the push lease and is running git push / the PR call.
+  v.literal("pushing"),
+  v.literal("pushed"),
+  v.literal("failed")
+);
+
+export const prState = v.union(
+  v.literal("draft"),
+  v.literal("open"),
+  v.literal("merged"),
+  v.literal("closed")
+);
+
 export default defineSchema({
   projects: defineTable({
     name: v.string(),
@@ -172,6 +191,9 @@ export default defineSchema({
     // Agile: the sprint this task belongs to (1-based per project). A
     // sprint groups one planning round and its review/verification.
     sprint: v.optional(v.number()),
+    // Plan 019 (additive): the chat conversation the task was dispatched
+    // from, so stage cards (verification / QA / push) land in that chat.
+    conversationId: v.optional(v.id("conversations")),
     // Agile: the phase within the sprint. The board shows these as columns;
     // the DAG scheduler still owns the true ordering.
     phase: v.optional(
@@ -321,7 +343,9 @@ export default defineSchema({
           v.literal("assignment"),
           v.literal("push"),
           v.literal("qa"),
-          v.literal("verification")
+          v.literal("verification"),
+          // Plan 019: "Changed N files" diff card after a code change.
+          v.literal("changes")
         ),
         data: v.any(),
       })
@@ -646,6 +670,9 @@ export default defineSchema({
     // GitHub specific
     githubOwner: v.optional(v.string()),
     githubRepo: v.optional(v.string()),
+    // Plan 019 (additive): PR base branch for task pushes (default: the
+    // repository's default branch, else "main").
+    githubBaseBranch: v.optional(v.string()),
     webhookSecret: v.optional(v.string()),
     status: v.union(v.literal("active"), v.literal("error"), v.literal("disconnected")),
     errorMessage: v.optional(v.string()),
@@ -656,6 +683,52 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_type", ["type"])
     .index("by_project_and_type", ["projectId", "type"]),
+
+  // Plan 019: one row per committed task branch that can be pushed to
+  // GitHub. The push card in chat reads this row live; the worker claims
+  // `requested` rows with a lease (same pattern as tasks/messages).
+  taskPushes: defineTable({
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    conversationId: v.optional(v.id("conversations")),
+    messageId: v.optional(v.id("messages")),
+    branchName: v.string(),
+    commitSha: v.string(),
+    commitMessage: v.string(),
+    filesChanged: v.number(),
+    additions: v.optional(v.number()),
+    deletions: v.optional(v.number()),
+    ahead: v.optional(v.number()),
+    behind: v.optional(v.number()),
+    // Local branch ahead/behind were measured against.
+    comparedTo: v.optional(v.string()),
+    status: pushStatus,
+    openPr: v.optional(v.boolean()),
+    // The approved `git_push` approval row the user's click created.
+    approvalId: v.optional(v.id("approvals")),
+    // Set by the card's Hold button; cleared when the push is requested.
+    heldAt: v.optional(v.number()),
+    requestedAt: v.optional(v.number()),
+    workerId: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    attempts: v.number(),
+    error: v.optional(v.string()),
+    pushedAt: v.optional(v.number()),
+    baseBranch: v.optional(v.string()),
+    repoFullName: v.optional(v.string()),
+    prNumber: v.optional(v.number()),
+    prUrl: v.optional(v.string()),
+    prTitle: v.optional(v.string()),
+    prState: v.optional(prState),
+    prCheckedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_task", ["taskId"])
+    .index("by_task_and_sha", ["taskId", "commitSha"])
+    .index("by_status_and_requested", ["status", "requestedAt"])
+    .index("by_status_and_lease", ["status", "leaseExpiresAt"])
+    .index("by_pr_state_and_checked", ["prState", "prCheckedAt"]),
 
   // Integration webhook events (for async processing)
   integrationEvents: defineTable({

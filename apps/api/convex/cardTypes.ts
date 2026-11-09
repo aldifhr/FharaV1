@@ -1,0 +1,100 @@
+/**
+ * Plan 019: data carried by structured chat cards (`messages.card`).
+ *
+ * Type-only module shared by the backend, the worker (which builds the
+ * verification / QA payloads) and the web renderer. `messages.card.data`
+ * is stored as `v.any()`, so these interfaces are the contract — keep
+ * every field optional-safe on the reader side (old rows predate fields).
+ */
+
+export type CardKind = "assignment" | "push" | "qa" | "verification" | "changes";
+
+export interface AssignmentCardData {
+  taskId: string;
+  title: string;
+  assignees: Array<{ agentId: string; name: string; role: string }>;
+  assignedBy?: string;
+}
+
+/** A check that did not execute is "not_run" — never reported as passed. */
+export type CardCheckStatus = "passed" | "failed" | "not_run";
+
+export interface VerificationCardCheck {
+  /** Step name: typecheck | lint | test | build | verification. */
+  name: string;
+  /** Package the step ran in (monorepo target), when known. */
+  target?: string;
+  status: CardCheckStatus;
+  durationMs?: number;
+  /** Short reason, e.g. "no script" for a step that did not run. */
+  detail?: string;
+  /** Test counts parsed from the runner output, only when it printed them. */
+  counts?: { passed: number; total: number };
+}
+
+export interface VerificationCardData {
+  taskId: string;
+  /** 0 for the first run, n for the run after the n-th fix round. */
+  iteration: number;
+  outcome: "passed" | "failed" | "inconclusive";
+  checks: VerificationCardCheck[];
+  durationMs?: number;
+  /** Bounded tail of the failing step's output (already truncated). */
+  logTail?: string;
+  idempotencyKey?: string;
+}
+
+/** One line of the QA checklist (a viewport in visual mode). */
+export interface QaCardRow {
+  /** Display label, e.g. "1440 px, desktop" or "structural check". */
+  label: string;
+  /** Viewport width in px, for "checking <url> at 375 px". */
+  width?: number;
+  status: "pending" | "running" | "passed" | "failed" | "not_run";
+  detail?: string;
+}
+
+export interface QaCardData {
+  taskId: string;
+  iteration: number;
+  /** "running" while the browser checks are in flight (card updated live). */
+  outcome: "running" | "passed" | "failed" | "blocked";
+  rows?: QaCardRow[];
+  reason?: string;
+  urls: string[];
+  issues: string[];
+  checks: Array<{ label: string; status: string; detail?: string }>;
+  /** Only URLs the backend can serve; local screenshot paths are never sent. */
+  screenshots?: Array<{ url: string; label?: string }>;
+  idempotencyKey?: string;
+}
+
+export interface PushCardData {
+  taskId: string;
+  pushId: string;
+  branchName: string;
+  commitSha: string;
+  commitMessage: string;
+  filesChanged: number;
+  additions?: number;
+  deletions?: number;
+  ahead?: number;
+  behind?: number;
+}
+
+export interface ChangesCardFile {
+  path: string;
+  changeType: "new" | "modified" | "deleted";
+  additions: number;
+  deletions: number;
+}
+
+/** "Changed N files" card; the diffs themselves are read from fileChanges. */
+export interface ChangesCardData {
+  taskId: string;
+  subtaskKey?: string;
+  files: ChangesCardFile[];
+  additions: number;
+  deletions: number;
+  idempotencyKey?: string;
+}

@@ -7,6 +7,7 @@ import { CAPABILITY } from "@/orchestrator/types";
 import { wantsVisualQa } from "@/orchestrator/planner";
 import { pickFixOwner, type FixCandidate } from "@/orchestrator/ownership";
 import { applyOrRequestFixApproval } from "./fixApply";
+import { buildQaCard, plannedQaRows, postStageCard } from "./cards";
 
 /**
  * Fix owner for QA findings: QA exercises the UI, so the UI owner
@@ -56,8 +57,36 @@ export async function runQaLoop(ctx: RunContext): Promise<boolean> {
     agents.find((a) => capabilitiesOf(a).includes(CAPABILITY.BROWSER_TESTING));
   const runNodes = (nodes: PlanSubtask[]) => ctx.runNodes(nodes);
   if (qaNodes.length === 0) return true;
+  const visual = plan.visualQa ?? wantsVisualQa(input.task.command);
+  /** Plan 019: post / update the QA checklist card (best-effort). */
+  const postQaCard = async (
+    outcome: "running" | "passed" | "failed" | "blocked",
+    extra: { reason?: string; issues?: string[]; content?: string } = {}
+  ) => {
+    const live = ctx.qaCard;
+    const checks = qaNodes.flatMap((node) => state.qaChecks?.[node.key] ?? []);
+    await postStageCard(deps.api, {
+      taskId,
+      projectId: project._id,
+      agentId: qaAgent()?._id,
+      kind: "qa",
+      content: extra.content,
+      data: buildQaCard({
+        outcome,
+        iteration: live?.iteration ?? 0,
+        reason: extra.reason,
+        checks,
+        rows: live?.rows,
+        issues: extra.issues,
+        fallbackUrl: live?.url ?? input.qaBaseUrl,
+        idempotencyKey: live?.key ?? `qa:${outcome}:${Date.now()}`,
+      }),
+    });
+  };
   /** One clear QA-skipped note; fails only when QA is required. */
   const reportBlocked = async (reason: string): Promise<boolean> => {
+    await postQaCard("blocked", { reason });
+    ctx.qaCard = undefined;
     await deps.api.logEvent({
       taskId,
       projectId: project._id,
@@ -136,8 +165,20 @@ export async function runQaLoop(ctx: RunContext): Promise<boolean> {
         runCompleted.delete(node.key);
       }
 
+      ctx.qaCard = {
+        key: `qa:${iteration}:${Date.now()}`,
+        iteration,
+        rows: plannedQaRows(visual),
+        url: input.qaBaseUrl,
+        agentId: qaAgent()?._id,
+      };
+      await postQaCard("running");
       const qaRun = await runNodes(qaNodes);
-      if (qaRun.status === "cancelled") return false;
+      if (qaRun.status === "cancelled") {
+        await postQaCard("failed", { reason: "QA was cancelled" });
+        ctx.qaCard = undefined;
+        return false;
+      }
 
       // Environment-blocked QA (no browser / deps / dev script) is not a
       // code defect: report it once, never route it to a fix.
@@ -161,6 +202,8 @@ export async function runQaLoop(ctx: RunContext): Promise<boolean> {
           payload: { iteration },
           message: "QA passed: the executed browser checks succeeded.",
         });
+        await postQaCard("passed");
+        ctx.qaCard = undefined;
         const qaAgentDef = qaAgent();
         if (qaAgentDef) {
           // Describe what actually ran, not a boilerplate list: the URL
@@ -170,7 +213,7 @@ export async function runQaLoop(ctx: RunContext): Promise<boolean> {
           // because the word appears). No @QA mention here: the message
           // is authored by the QA agent itself, so a leading self-tag
           // reads as QA talking about itself.
-          const visualQa = plan.visualQa ?? wantsVisualQa(input.task.command);
+          const visualQa = visual;
           const ranChecks = qaNodes.flatMap((node) => state.qaChecks?.[node.key] ?? []);
           const passedCount = ranChecks.filter((check) => check.status === "passed").length;
           const baselineOnly = ranChecks.some((check) => /baseline created/i.test(check.details ?? ""));
@@ -204,11 +247,18 @@ export async function runQaLoop(ctx: RunContext): Promise<boolean> {
       }
 
       if (qaRun.status !== "completed" && failedNodes.length === 0) {
+        await postQaCard("failed", { reason: "QA did not complete" });
+        ctx.qaCard = undefined;
         return false;
       }
 
       // Synthesize findings from the QA checks/failures on the outcomes.
       const findings = qaFindings(qaRun, failedNodes);
+      await postQaCard("failed", {
+        issues: findings.map((finding) => finding.description.replace(/^QA /, "")),
+        reason: iteration >= maxIterations ? "Still failing after the automatic fix round" : "A fix round is starting",
+      });
+      ctx.qaCard = undefined;
       await deps.api.logEvent({
         taskId,
         projectId: project._id,

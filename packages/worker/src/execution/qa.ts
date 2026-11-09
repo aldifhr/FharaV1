@@ -232,7 +232,7 @@ async function browserInstalled(): Promise<boolean> {
   }
 }
 
-const VIEWPORTS = [
+export const QA_VIEWPORTS = [
   { label: "desktop", width: 1440, height: 900 },
   { label: "tablet", width: 768, height: 1024 },
   { label: "mobile", width: 375, height: 812 },
@@ -417,7 +417,7 @@ export async function runResponsiveQa(
       }
       try {
         const qaViewports = options.visualRegression
-      ? VIEWPORTS
+      ? QA_VIEWPORTS
       : [{ label: "structural", width: 1280, height: 720 }];
     for (const viewport of qaViewports) {
           // Cancellation is checked between Playwright steps: an

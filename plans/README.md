@@ -27,6 +27,7 @@ execution order and a definition of done.
 | 016 | [LLM intent router (structured classifier + answer engine)](016-llm-intent-router.md) | P1 | M | 013, 006 | DONE (implemented; live smoke pending) |
 | 017 | [Orchestrator / Executor / Lead management through a single thread/UI](017-single-thread-agent-management.md) | P2 | M | 007 | TODO |
 | 018 | [Path ownership, review snapshot binding, worktree isolation](018-path-ownership-review-snapshot-worktree.md) | P1 | M | 012, 013 | IN PROGRESS (Steps 1-4 implemented, Step 4 default-off; live smoke pending) |
+| 019 | [Chat cards and the GitHub push / PR flow](019-chat-cards-and-github-push.md) | P1 | L | 018 | IN PROGRESS (implemented with unit tests; live GitHub smoke pending) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

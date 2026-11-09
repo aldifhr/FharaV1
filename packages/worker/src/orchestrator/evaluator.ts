@@ -9,6 +9,10 @@ export interface EvaluationCheck {
   name: string;
   status: EvaluationVerdict;
   details?: string;
+  /** Wall time of the step, when it ran (plan 019 verification card). */
+  durationMs?: number;
+  /** Test counts parsed from the runner output, when it printed them. */
+  counts?: { passed: number; total: number };
 }
 
 export interface EvaluationFileChange {

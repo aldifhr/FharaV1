@@ -84,7 +84,10 @@ export function buildCtoAssignmentSystem(
   return [
     `You are ${orchestrator.name}, the CTO of project "${projectName}".`,
     "You are NOT the underlying LLM model. Never name the model or the provider.",
-    orchestrator.systemPrompt ?? "",
+    // The CTO persona prompt (read-only advisor, long technical answers) is
+    // left out on purpose: here the task already exists and this bubble is
+    // only the hand-off. With the persona in, the CTO answered the request
+    // itself (code, risks, "I'm read-only", "@Frontend please create the task").
     ...buildAssignmentGuidance(team, String(orchestrator._id), requested),
   ]
     .filter(Boolean)
@@ -185,6 +188,8 @@ export function buildAssignmentGuidance(
     `In one or two short sentences in the user's language, say who does what and address each owner as @Name. Teammates: ${others.map((a) => `@${a.name}`).join(", ")}. Pick only the ones really needed.`,
     requested.length ? `The user asked for ${requested.map((a) => `@${a.name}`).join(", ")}; include them.` : "",
     "Do not tell the user to click Create task and do not claim anything has run.",
+    "The task is ALREADY created; the team executes it. Do not solve it yourself: no code, no code blocks, no implementation details, no risk analysis, no mention of being read-only, and never ask anyone to create a task.",
+    "Format: at most 2 sentences, under 40 words. Example: \"Siap. @Frontend tambahkan formatRupiah di utils beserta tesnya, lalu @Reviewer cek hasilnya.\"",
   ].filter(Boolean);
 }
 

@@ -25,6 +25,24 @@ const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET ?? "";
 const GITHUB_OAUTH_CALLBACK_URL =
   process.env.GITHUB_OAUTH_CALLBACK_URL ?? "http://localhost:3000/api/integrations/github/callback";
 
+// Convex runs in a V8 isolate without the Node `Buffer` global, so the
+// OAuth `state` uses Web-standard base64url via btoa/atob + TextEncoder.
+function encodeOAuthState(payload: { projectId: string; timestamp: number }): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function decodeOAuthState(state: string): { projectId: string; timestamp: number } {
+  const base64 = state.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
 /**
  * Start GitHub OAuth flow - returns the authorization URL
  */
@@ -35,9 +53,7 @@ export const getOAuthUrl = query({
     // No OAuth app configured on this deployment: the UI says so instead
     // of opening a GitHub page that rejects an empty client id.
     if (!GITHUB_CLIENT_ID) return null;
-    const state = Buffer.from(
-      JSON.stringify({ projectId: args.projectId, timestamp: Date.now() })
-    ).toString("base64url");
+    const state = encodeOAuthState({ projectId: args.projectId, timestamp: Date.now() });
 
     const params = new URLSearchParams({
       client_id: GITHUB_CLIENT_ID,
@@ -95,7 +111,7 @@ export const handleOAuthCallback = httpAction(async (ctx, request) => {
   // Decode state to get projectId
   let projectId: string;
   try {
-    const decoded = JSON.parse(Buffer.from(state, "base64url").toString());
+    const decoded = decodeOAuthState(state);
     projectId = decoded.projectId;
     if (typeof projectId !== "string" || typeof decoded.timestamp !== "number") throw new Error("bad state");
     if (Date.now() - decoded.timestamp > OAUTH_STATE_MAX_AGE_MS) {

@@ -10,6 +10,7 @@ import { roleLabel } from "@/lib/agentRoles";
 import SubtaskActivity from "./SubtaskActivity";
 import { NEUTRAL_PILL, TASK_STATUSES, TASK_STATUS_PILL, isClosedStatus, subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
 import { SectionLoading, useWorkspace } from "@/app/WorkspaceContext";
+import ConfirmDialog from "./ConfirmDialog";
 
 type TaskRow = any;
 
@@ -63,13 +64,22 @@ export default function TaskBoard({
   const { deleteTask } = useWorkspace();
   const createTask = useMutation(api.tasks.createFromCommand);
   const cancelTask = useMutation(api.tasks.cancel);
-  const stopTask = async (t: { _id: string; title: string }) => {
-    if (!window.confirm(`Stop "${t.title}"? You can delete it once it has stopped.`)) return;
+  // Stop asks in the app's own modal (window.confirm looked like a
+  // browser error: "localhost:3000 says").
+  const [stopReq, setStopReq] = useState<{ _id: string; title: string } | null>(null);
+  const [stopping, setStopping] = useState(false);
+  const stopTask = (t: { _id: string; title: string }) => setStopReq(t);
+  const confirmStop = async () => {
+    if (!stopReq) return;
+    setStopping(true);
     try {
-      await cancelTask({ taskId: t._id as never });
+      await cancelTask({ taskId: stopReq._id as never });
       toast("success", "Task stopped");
     } catch (err) {
       toast("error", "Failed to stop task", err instanceof Error ? err.message : "Failed");
+    } finally {
+      setStopping(false);
+      setStopReq(null);
     }
   };
   const toast = useToast();
@@ -139,6 +149,13 @@ export default function TaskBoard({
   };
 
   return (
+    <>
+    <ConfirmDialog
+      request={stopReq ? { title: "Stop this task?", message: `"${stopReq.title}" stops now. You can delete it once it has stopped.`, confirmLabel: "Stop task", icon: "stop" } : null}
+      pending={stopping}
+      onCancel={() => setStopReq(null)}
+      onConfirm={() => void confirmStop()}
+    />
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <input
@@ -215,7 +232,10 @@ export default function TaskBoard({
         const done = subtasks.filter((s) => s.status === "completed").length;
         const plan = planOf.get(t._id);
         const pending = (pendingApprovals ?? []).filter((a: any) => a.taskId === t._id && a.status === "pending");
-        const isOpen = !!expanded[t._id] || selectedTaskId === t._id;
+        // The user's own toggle wins; with none, the selected task starts
+        // open. (`expanded || selected` kept a selected task open forever,
+        // so its chevron did nothing.)
+        const isOpen = expanded[t._id] ?? selectedTaskId === t._id;
         const assigned = new Map<string, string>();
         for (const s of subtasks) {
           const role = agentNameById.get(s.assignedAgentId ?? "")?.role;
@@ -373,5 +393,6 @@ export default function TaskBoard({
       </div>
 
     </div>
+    </>
   );
 }

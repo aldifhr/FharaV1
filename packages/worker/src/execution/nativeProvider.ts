@@ -2,6 +2,11 @@ import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { EventSink } from "@/types/events";
+import { NATIVE_PROMPT_MESSAGE, workspaceHeader } from "@/prompts/native";
+
+// Prompt text lives in `@/prompts/native`; re-exported for existing importers.
+export { NATIVE_PROMPT_MESSAGE, workspaceHeader, buildNativePrompt } from "@/prompts/native";
 
 /**
  * Provider-native runtime (plan 014): executes a subtask through a
@@ -89,25 +94,6 @@ export type SpawnImpl = (
   args: string[],
   options: SpawnOptions
 ) => Promise<{ stdout: string; stderr: string; code: number | null }>;
-
-/** Short message passed verbatim on the provider CLI argv; the full prompt
- *  travels via an attached file (`-f`) so argv stays well under the Windows
- *  limit (~32k) regardless of audit/repository context size. Message first,
- *  `-f` after: `--file` is an [array] and swallows the positional message
- *  when it comes first (`File not found: <first word>` on opencode 1.x). */
-export const NATIVE_PROMPT_MESSAGE =
-  "Read the attached prompt file and execute the instructions in it. The attached file sits in a temporary folder that is NOT the workspace: work only in the current working directory, using relative paths. When done, write a short summary: what you changed, files touched, and anything that needs follow-up.";
-
-/** Header pinning the workspace for the model: without it, models tend to
- *  treat the attached prompt file's temp folder as the project (seen in the
- *  live smoke run) and every write there is denied as external. */
-export function workspaceHeader(workspacePath: string): string {
-  return [
-    `Workspace (your current working directory): ${workspacePath}`,
-    "All reads and writes must stay inside this directory; paths outside it are denied.",
-    "",
-  ].join("\n");
-}
 
 /** Env var the generated config reads the API key from (never argv/file). */
 export const OPENCODE_KEY_ENV = "MOAGENT_OPENCODE_API_KEY";
@@ -264,29 +250,6 @@ function probeAvailability(command: string): Promise<boolean> {
     child.on("error", () => finish(false));
     child.on("close", (code) => finish(code === 0));
   });
-}
-
-export function buildNativePrompt(input: {
-  title: string;
-  description: string;
-  command: string;
-  systemPrompt?: string;
-  priorContext?: string;
-  fileContext?: string;
-}): string {
-  return [
-    input.systemPrompt ? `Role: ${input.systemPrompt}` : "",
-    `Task: ${input.command}`,
-    `Your part: ${input.title} — ${input.description}`,
-    input.priorContext ? `\nPrior context:\n${input.priorContext}` : "",
-    input.fileContext ? `\nWorkspace context:\n${input.fileContext}` : "",
-    "",
-    "You have full workspace access (the current working directory is the task workspace). Make the changes yourself; do not ask for approval.",
-    "Only touch files inside the current working directory; use relative paths. Do not commit or push.",
-    "When done, write a short summary: what you changed, files touched, and anything that needs follow-up.",
-  ]
-    .filter(Boolean)
-    .join("\n");
 }
 
 // ── JSON event parsing ────────────────────────────────────────────────
@@ -486,7 +449,7 @@ export interface NativeRunInput {
   /** Request JSON events (default true). */
   json?: boolean;
   signal?: AbortSignal;
-  onEvent?: (type: string, payload: Record<string, unknown>, level?: "info" | "warn" | "error") => Promise<void>;
+  onEvent?: EventSink;
   onChunk?: (delta: string) => Promise<void>;
   onMessage?: (text: string) => Promise<void>;
   spawnImpl?: SpawnImpl;

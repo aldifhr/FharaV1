@@ -1,5 +1,5 @@
 import { isAgentAvailable, routeCapability } from "../orchestrator/capabilities";
-import type { AgentDefinition } from "../orchestrator/types";
+import type { AgentDefinition } from "@/types";
 
 export interface AgentSelection {
   agentIds: string[];

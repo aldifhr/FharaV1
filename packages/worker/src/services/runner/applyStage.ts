@@ -1,0 +1,241 @@
+import * as path from "node:path";
+import { wantsVisualQa } from "@/orchestrator/planner";
+import type { ReviewResult } from "@/utils/json";
+import type { FileDiff } from "@/tools/gitDiff";
+import { commitWorktree, describeCommit } from "@/tools/gitWorktree";
+import type { RunContext } from "./types";
+import { implementerAgent, resolveWorkspacePath } from "./setup";
+
+/** What the apply stage hands the approval request. */
+export interface PreparedApply {
+  preparedChanges: FileDiff[];
+  reviewSnapshotId: string;
+  approvedVerdicts: ReviewResult[];
+  dryRunSummary?: { filePaths: string[]; count: number; changes: string[] };
+}
+
+/**
+ * Request the user's approval for the prepared changes and pause the
+ * task (`needs_approval`, lease released by the backend). Shared by the
+ * plan-level `requiresApproval` gate AND the permission broker's "ask"
+ * decision: an "ask" without an approval row would leave the task
+ * `running` forever with nothing for the user to click (core H2).
+ */
+export async function requestApplyApproval(
+  ctx: RunContext,
+  prepared: PreparedApply,
+  reason: "plan" | "broker"
+): Promise<{ status: "waiting_approval" }> {
+  const { deps, project, plan, state, input, taskId, reviewNodes, qaNodes } = ctx;
+  const { preparedChanges, approvedVerdicts, reviewSnapshotId, dryRunSummary } = prepared;
+  const implementer = implementerAgent(plan, input.agents);
+  const summary = `Apply changes to ${preparedChanges.length} file(s): ${preparedChanges
+    .map((change) => change.filePath)
+    .join(", ")}`;
+  // Metrics reflect what actually ran: verification and QA run AFTER the
+  // apply, so before approval they are "not run" unless a previous
+  // invocation recorded a real result.
+  const verificationMetric = state.verification
+    ? state.verification.status
+    : "not run";
+  await deps.api.requestApproval({
+    taskId,
+    projectId: project._id,
+    subtaskKey: plan.subtasks.find((subtask) => subtask.kind === "code_change")?.key,
+    kind: "apply_changes",
+    summary,
+    payload: {
+      filePaths: preparedChanges.map((change) => change.filePath),
+      planVersion: plan.version,
+      reviewSnapshotId: approvedVerdicts.length > 0 ? reviewSnapshotId : undefined,
+      policyDryRun: dryRunSummary,
+      metrics: {
+        files: preparedChanges.length,
+        review: approvedVerdicts.length > 0 ? "approved" : reviewNodes.length > 0 ? "not approved" : "not run",
+        build: verificationMetric,
+        tests: verificationMetric,
+        qa:
+          qaNodes.length > 0
+            ? (plan.visualQa ?? wantsVisualQa(input.task.command))
+              ? "Visual QA planned (runs after apply)"
+              : "Structural QA planned (runs after apply)"
+            : "not requested",
+      },
+    },
+    requestedByAgentId: implementer?._id as any,
+    planVersion: plan.version,
+  });
+  await deps.api.appendAgentMessage({
+    projectId: project._id,
+    taskId,
+    agentId: implementer?._id as any,
+    content: `Changes are prepared${
+      approvedVerdicts.length > 0 ? " and review-approved" : ""
+    } (${preparedChanges.length} file(s)). Verification${
+      qaNodes.length > 0 ? " and QA run" : " runs"
+    } after they are applied. Please approve the diff.`,
+  });
+  await deps.api.logEvent({
+    taskId,
+    projectId: project._id,
+    type: "task.stage",
+    payload: { stage: "waiting_approval", files: preparedChanges.length, reason },
+    level: "warn",
+  });
+  await deps.api.recordAudit({
+    taskId,
+    projectId: project._id,
+    workerId: deps.workerId,
+    actor: implementer?.name ?? "orchestrator",
+    tool: "apply_changes",
+    action: "request",
+    decision: "pending",
+    target: preparedChanges.map((change) => change.filePath).join(","),
+    details: { dryRun: dryRunSummary, reason },
+  });
+  return { status: "waiting_approval" };
+}
+
+/**
+ * Plan 015: broker pre-check before applying. Deny → stop with an audit
+ * event; Ask (non-auto project) → request approval wait; Allow → apply.
+ * Returns the terminal status to end the invocation with, or null when
+ * the changes were applied and the run continues.
+ */
+export async function brokerCheckAndApply(
+  ctx: RunContext,
+  prepared: PreparedApply
+): Promise<"failed" | "cancelled" | "waiting_approval" | null> {
+  const { deps, project, plan, input, taskId } = ctx;
+  const { preparedChanges } = prepared;
+  const firstApplied = preparedChanges[0];
+  // The broker resolves every target against the workspace root (core
+  // H4): send ALL prepared files (absolute, resolved by the same
+  // resolver the apply phase uses), the plan version for approval
+  // matching, and the worker's resolved root for relative project paths.
+  const resolvedRoot = resolveWorkspacePath(deps.workspaceRoot, project.workspacePath);
+  const targetPaths = preparedChanges.map((change) => path.join(resolvedRoot, change.filePath));
+  const broker = await deps.api.checkPermission({
+    taskId,
+    projectId: project._id,
+    kind: "apply_changes",
+    targetPath: targetPaths[0] ?? resolvedRoot,
+    targetPaths,
+    planVersion: input.planVersion ?? plan.version,
+    workspaceRoot: resolvedRoot,
+  });
+  if (broker.decision === "deny") {
+    await deps.api.recordAudit({
+      taskId,
+      projectId: project._id,
+      workerId: deps.workerId,
+      actor: "permission-broker",
+      tool: "apply_changes",
+      action: "deny",
+      decision: "denied",
+      target: firstApplied?.filePath ?? project.workspacePath ?? ".",
+      details: { reason: broker.reason },
+    });
+    await deps.api.logEvent({
+      taskId,
+      projectId: project._id,
+      type: "permission.denied",
+      payload: { action: "apply_changes", reason: broker.reason },
+      level: "error",
+    });
+    return "failed";
+  }
+  if (broker.decision === "ask" && input.approvalMode !== "auto") {
+    // Never return waiting_approval without an approval row (core H2):
+    // the task would stay `running`, its lease renewed by heartbeat,
+    // with nothing for the user to approve.
+    return (await requestApplyApproval(ctx, prepared, "broker")).status;
+  }
+  const applied = await ctx.applyStaged(
+    preparedChanges,
+    input.approvalResolved ? "user" : "orchestrator"
+  );
+  if ("stop" in applied) {
+    return applied.stop;
+  }
+  if (input.approvalResolved && applied.applied.length > 0) {
+    await deps.api.appendAgentMessage({
+      projectId: project._id,
+      taskId,
+      agentId: implementerAgent(plan, input.agents)?._id as any,
+      content: `Approved changes applied to ${applied.applied.length} file(s). Running verification.`,
+    });
+  }
+  return null;
+}
+
+/**
+ * Worktree isolation: commit the task branch, record the push card
+ * (plan 019, best-effort), then merge. Returns false when the commit or
+ * merge failed (the failure is recorded in state.feedback).
+ */
+export async function commitAndMergeWorktree(
+  ctx: RunContext,
+  worktree: { branchName: string; worktreePath: string }
+): Promise<boolean> {
+  const { deps, project, plan, state, input, taskId, task } = ctx;
+  try {
+    const committed = await commitWorktree(
+      worktree.worktreePath,
+      `MOAgent: ${task.title}`,
+      Array.from(state.fileChanges.keys())
+    );
+    // Plan 019: the push card. Recorded before the local merge (which
+    // removes the task branch); the commit stays reachable by sha, which
+    // is what the push request pushes. Best-effort: the card never
+    // decides whether the task completes.
+    if (committed) {
+      try {
+        const summary = await describeCommit(worktree.worktreePath, project.mainBranch ?? "main");
+        await deps.api.recordTaskCommit({
+          taskId,
+          projectId: project._id,
+          agentId: implementerAgent(plan, input.agents)?._id,
+          branchName: worktree.branchName,
+          commitSha: summary.sha,
+          commitMessage: summary.message,
+          filesChanged: summary.filesChanged,
+          additions: summary.additions,
+          deletions: summary.deletions,
+          ahead: summary.ahead,
+          behind: summary.behind,
+          comparedTo: summary.comparedTo,
+        });
+      } catch (error) {
+        await deps.api
+          .logEvent({
+            taskId,
+            projectId: project._id,
+            type: "card.post_failed",
+            payload: { kind: "push", message: error instanceof Error ? error.message : String(error) },
+            level: "warn",
+          })
+          .catch(() => undefined);
+      }
+    }
+    await deps.api.mergeBranch({ taskId });
+    await deps.api.logEvent({
+      taskId,
+      projectId: project._id,
+      type: "branch.merged",
+      payload: { branchName: worktree.branchName },
+    });
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await deps.api.logEvent({
+      taskId,
+      projectId: project._id,
+      type: "branch.merge_failed",
+      payload: { branchName: worktree.branchName, message },
+      level: "error",
+    });
+    state.feedback.push(`Worktree merge failed: ${message}`);
+    return false;
+  }
+}

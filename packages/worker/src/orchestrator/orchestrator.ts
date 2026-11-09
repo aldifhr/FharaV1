@@ -1,6 +1,6 @@
-import type { AgentDefinition, Classification, ExecutionPlan, PlanSubtask } from "./types";
+import type { AgentDefinition, Classification, ExecutionPlan } from "@/types";
 import { classifyCommand } from "./classifier";
-import { routeCapability, capabilitiesOf, isAgentEnabled } from "./capabilities";
+import { routeCapability } from "./capabilities";
 import { BudgetTracker } from "./budget";
 import { loadPolicy, type ExecutionPolicy } from "./policy";
 import { createPlan, type PlannerInput } from "./planner";
@@ -9,7 +9,6 @@ import type { TaskLlmResolver } from "../llm/resolver";
 import type { LlmConcurrencyGate } from "../effects/llmCall";
 import {
   createSharedTaskContext,
-  appendExecution,
   addDecision,
   extractDecisionsAndArtifactsFromResult,
   type SharedTaskContext,

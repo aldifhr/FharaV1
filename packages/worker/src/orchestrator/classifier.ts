@@ -1,4 +1,4 @@
-import { CAPABILITY, type Classification, type Concern } from "./types";
+import { CAPABILITY, type Classification, type Concern } from "@/types";
 
 const GREETING = /^(hi|hello|hey|halo|hai|yo|good (morning|afternoon|evening))[!.,?\s]*$/i;
 // Expanded verb coverage (Stage A fast path only — semantic stage below

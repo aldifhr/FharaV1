@@ -5,7 +5,7 @@ import {
   type ExecutionPlan,
   type PlanSubtask,
   type SubtaskKind,
-} from "./types";
+} from "@/types";
 import type { BudgetSnapshot } from "./budget";
 import type { ExecutionPolicy } from "./policy";
 import type { ExecutionHistoryEntry, OutstandingIssue } from "./taskContext";
@@ -18,6 +18,8 @@ import { findCycle } from "./planValidator";
 import { pickFixOwner } from "./ownership";
 import { preventCircularDelegation } from "./delegation";
 import type { DelegationDecision } from "./delegation";
+import type { QaVerdict } from "@/types/qa";
+import { engineFixDescription } from "@/prompts/fix";
 
 /**
  * Plan 006 Phase 2 (adopts plan 005 Phase 2): the decision contract.
@@ -87,7 +89,7 @@ export interface ObjectiveEvidence {
   /** Applied file paths per completed subtask key (code_change nodes). */
   appliedFiles?: Record<string, string[]>;
   /** QA verdicts by subtask key. */
-  qaVerdicts?: Record<string, "passed" | "failed" | "inconclusive" | "blocked">;
+  qaVerdicts?: Record<string, QaVerdict>;
   /** Static verification result; undefined when it did not run. */
   verification?: { status: "passed" | "failed" | "skipped"; details?: string };
   /** The decision whose expectedOutcome is being checked for satisfaction. */
@@ -113,10 +115,6 @@ export function isRecoveryNode(subtask: { origin?: string; key: string }, dynami
   if (subtask.origin === "planned") return false;
   if (dynamicKeys?.has(subtask.key)) return true;
   return /^(decision_delegate|fix_qa|delegate_)/.test(subtask.key);
-}
-
-export function isPlannedNode(subtask: { origin?: string; key: string }, dynamicKeys?: Set<string> | ReadonlySet<string>): boolean {
-  return !isRecoveryNode(subtask, dynamicKeys);
 }
 
 /**
@@ -677,18 +675,10 @@ export function nextDeterministicDecision(
         task: {
           key: "",
           title: "Address findings",
-          description: [
-            "Address the reported findings and return the updated file content.",
-            // Parity with the legacy fix subtask (buildFixSubtask): the
-            // SPAWNED node carries the structured findings so the fix
-            // agent addresses them (the legacy path embedded them via
-            // formatReviewFindings; the engine path must too — otherwise
-            // the fix executes without knowing what it fixes).
-            ...(observation.findings ?? []).map(
-              (finding) =>
-                `- [${finding.severity}] ${finding.filePath ? `${finding.filePath}: ` : ""}${finding.description}${finding.suggestion ? ` — ${finding.suggestion}` : ""}`
-            ),
-          ].join("\n"),
+          // Parity with the legacy fix subtask (buildFixSubtask): the
+          // SPAWNED node carries the structured findings so the fix agent
+          // addresses them.
+          description: engineFixDescription(observation.findings ?? []),
           kind: "code_change",
           capability,
         },

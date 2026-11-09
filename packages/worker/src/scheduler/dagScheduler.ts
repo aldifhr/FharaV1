@@ -1,5 +1,5 @@
 import { isTransientLlmError } from "@/effects/llmCall";
-import { pathsOverlap } from "@/orchestrator/ownership";
+import { pathsOverlap } from "@/utils/ownershipPaths";
 
 /** Default interval at which running nodes re-check for cancellation. */
 const CANCEL_POLL_MS = 2_000;

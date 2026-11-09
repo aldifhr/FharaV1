@@ -42,6 +42,13 @@ export interface McpHooks {
   onStatus?: McpStatusFn;
 }
 
+/** The MCP tool provider one task run hands its executors. */
+export interface McpRunConfig {
+  sessions: McpSession[];
+  writeTools: boolean;
+  maxIterations: number;
+}
+
 export interface McpSession {
   serverId: string;
   serverName: string;

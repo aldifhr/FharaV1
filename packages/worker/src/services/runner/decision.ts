@@ -1,14 +1,13 @@
 import type { RunContext, RunState } from "./types";
 import type { SchedulerNode, NodeOutcome } from "@/scheduler/dagScheduler";
-import type { PlanSubtask } from "@/orchestrator/types";
+import type { PlanSubtask } from "@/types";
 import type { ReviewResult } from "@/utils/json";
 import { evaluateAfterExecution } from "@/orchestrator/orchestrator";
 import { decide, applyDecision, evaluateObjective, type DecisionContext, type DecisionObservation } from "@/orchestrator/decision";
 import { decideWithLlm } from "@/orchestrator/decisionLlm";
-import { buildFixSubtask } from "@/orchestrator/reviewLoop";
-import { kindForCapability, slugifyKeyPart, toAgentResult } from "./setup";
+import { toAgentResult } from "./setup";
 import { normalizeCapability, routeCapability } from "@/orchestrator/capabilities";
-import { CAPABILITY } from "@/orchestrator/types";
+import { CAPABILITY } from "@/types";
 import { resolveIssuesForApproval, resolveIssuesForQaPass } from "@/orchestrator/taskContext";
 
 export async function handleNodeOutcome(
@@ -20,9 +19,9 @@ export async function handleNodeOutcome(
   const {
     agentByKey, executionIds, runCompleted, activeByAgent, chainByKey,
     fixDepthByKey, dynamicKeys, plannedCapabilities, budgetEnforced,
-    authoritative, decisionEngine, plan, state, deps, task, project,
+    plan, state, deps, task, project,
     input, taskId,
-    assign, uniqueSubtaskKey, nextOrder, persistDynamic,
+    uniqueSubtaskKey, persistDynamic,
   } = ctx;
 {
   const agent = agentByKey.get(node.id);

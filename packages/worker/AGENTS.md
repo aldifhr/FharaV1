@@ -10,16 +10,29 @@ Read the root [`AGENTS.md`](../../AGENTS.md) first.
 
 ```
 index.ts            bootstrap: dotenv, policy, LLM concurrency, provider-health mirror
-services/taskRunner processTask / resumeTask — the single task lifecycle
+services/taskRunner processTask (setup → plan → bounded replan loop); re-exports resumeTask
+services/runner/    planning (initial plan), replan (replanOnce), executePlan (stage driver),
+                    runContext, applyStage (approval/broker/worktree), resume, session
+                    (budget gate, usage sink), terminal (task endings), abort, review/QA/verify loops
 orchestrator/       classifier → planner → orchestrator plan → evaluator → delegation
-context/            compaction (deterministic trigger >40 msgs / >24k chars, budget-gated summarize, prompt builder summary+last12)
 scheduler/          dagScheduler — ready-set selection, per-agent gates
-execution/          agentExecutor, qa, verification, repositoryContext
+execution/          agentExecutor, agentContext, qa, verification, repositoryContext, nativeProvider
+tools/              sandbox, runCommand, readFile, gitDiff, gitWorktree, gitPush, githubPr, webClient
+mcp/                MCP client/registry/permissions/tool loop
 effects/llmCall     worker-wide + per-task LLM gates, one AbortController per task
 llm/                resolver (priority → weighted → modelPatterns), health (circuit breaker), crypto
-tools/              sandbox, runCommand, readFile, writeFile, gitDiff, github, liveBrowser, webClient
 governance/         tools (policy + audit + redaction) + registry (tool_search/describe/call, supportedTools scope)
+context/            compaction (deterministic trigger >40 msgs / >24k chars, budget-gated summarize)
+prompts/            ALL LLM prompt text, as named builders (planner, decision, codeChange, review, ...)
+types/              domain types split by domain (agent, plan, subtask, task, execution, qa, llm, events)
+utils/              pure helpers (json, draft parsing, ownership paths, capability resolution, ...)
 ```
+
+Layering (enforced by `tests/layering.test.ts`): a module imports only from
+its own layer or a lower one — types/prompts/utils ← llm/effects/governance/
+context/workerApi ← tools/mcp ← execution ← orchestrator/scheduler/router ←
+services ← index. Prompt wording lives only in `src/prompts/`; shared types
+only in `src/types/`. Test fixtures: `tests/helpers/`.
 
 Anything that changes task state goes through `WorkerApi` (`src/workerApi.ts`)
 into a `worker.ts` action. Do not call the Convex HTTP API directly and do not

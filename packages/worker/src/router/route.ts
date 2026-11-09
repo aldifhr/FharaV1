@@ -1,5 +1,5 @@
 import { classifyCommand } from "../orchestrator/classifier";
-import type { AgentDefinition, Classification } from "../orchestrator/types";
+import type { AgentDefinition, Classification } from "@/types";
 import { selectAgentsForChat } from "./selectAgents";
 
 export type RouterIntent =
@@ -59,24 +59,6 @@ export interface RouterInput {
    */
   advise?: (text: string, capabilities: string[]) => Promise<IntentResult | string>;
 }
-
-const ALL_INTENTS: RouterIntent[] = [
-  "chat",
-  "question",
-  "advice",
-  "research",
-  "audit",
-  "task",
-  "ambiguous",
-];
-
-const CHAT_INTENTS: ReadonlySet<RouterIntent> = new Set([
-  "chat",
-  "question",
-  "advice",
-  "research",
-  "audit",
-]);
 
 // Boundary guard: imperative change requests ("Add a login form") do not
 // match; question/advice shapes ("How do I add…?", "Should I use…?") do —

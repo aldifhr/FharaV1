@@ -5,14 +5,20 @@ import {
   usageMetaFor,
   type FallbackHandle,
   type LlmConcurrencyGate,
-  type TokenUsageMeta,
 } from "@/effects/llmCall";
+import type { TokenUsageFn } from "@/types/llm";
 import { providerHealth } from "@/llm/health";
 import type { TaskLlmResolver } from "@/llm/resolver";
-import { CAPABILITY, type AgentDefinition, type Classification, type ExecutionPlan } from "./types";
+import { CAPABILITY, type AgentDefinition, type Classification, type ExecutionPlan } from "@/types";
 import { routeCapability, capabilitiesOf, describeCapabilities, isAgentEnabled, normalizeCapability } from "./capabilities";
 import { validatePlan } from "./planValidator";
 import { extractJson } from "@/utils/json";
+import { planningPrompt, PLAN_NODE_INSTRUCTIONS } from "@/prompts/planner";
+import { wantsVisualQa } from "@/utils/qaIntent";
+
+// The visual-QA intent heuristic lives in `@/utils/qaIntent` (the executor
+// reads it too); re-exported for existing importers.
+export { wantsVisualQa } from "@/utils/qaIntent";
 import type { ExecutionPolicy } from "./policy";
 
 export interface PlannerInput {
@@ -29,7 +35,7 @@ export interface PlannerInput {
    * fallback across its chain. Takes precedence over `llmConfig`.
    */
   llmResolver?: TaskLlmResolver;
-  onTokenUsage?: (inputTokens: number, outputTokens: number, model: string, agentName: string, agentId?: string, meta?: TokenUsageMeta) => Promise<void>;
+  onTokenUsage?: TokenUsageFn;
   /**
    * Pre-call budget gate (Phase 5): invoked BEFORE the planner's LLM
    * call. Enforce mode throws BudgetExhaustedError — deliberately NOT
@@ -220,108 +226,7 @@ export function pickOrchestrator(agents: AgentDefinition[]): AgentDefinition | n
 
 /** Builds the CTO planning prompt. Exported for prompt-shape tests. */
 export function buildPlanningPrompt(input: PlannerInput): string {
-  const { command, classification, agents, policy } = input;
-  return [
-    "You are the CTO decision-maker for the multi-agent software engineering workspace.",
-    ...(input.sharedInstructions
-      ? [`Durable shared instructions for this project (must follow): ${input.sharedInstructions}`]
-      : []),
-    "Your team consists of specialized agents: CTO, Designer, Frontend, Backend, QA, Support, DevOps, Reviewer, Researcher.",
-    "Analyze the user task, identify which agents are strictly relevant, and produce an execution plan as STRICT JSON.",
-    ...(input.workspaceLayout && input.workspaceLayout.length > 0
-      ? [
-          `Workspace layout (real paths; directories end with "/"): ${input.workspaceLayout.join(", ")}`,
-          "Declare allowedPaths only from this layout (or new files/directories inside it). A shared root file a subtask may edit (e.g. a stylesheet, index.html, README.md) must be listed explicitly.",
-        ]
-      : []),
-    "Do NOT force all agents into every task. Only assign agents whose capabilities match the requirements.",
-    "For simple or single-discipline tasks, use strategy 'single' with 1 subtask and empty dependencies [].",
-    "For multi-agent work, independent subtasks must have empty dependencies [] so they can run concurrently in parallel.",
-    "Dependent subtasks must declare dependencies on the earlier subtask keys they wait for.",
-    "Role collaboration patterns:",
-    "- When design, visual layout, or pricing directions are needed:",
-    "  Designer (ui-ux-design) drafts layout options / proposals (Option A vs Option B).",
-    "- Reviewer (code-review): independent code review of implementation diffs.",
-    "- CTO (architecture, security-audit): technical architecture decisions, decomposition, and risk evaluation; oversees but does not perform code review itself.",
-    "- CTO must verify before approval: frontend/backend boundaries are sensible; project-standard technologies are used consistently; database and API designs are correct; service-to-service communication is explicit; no duplicate implementation is introduced; the solution is scalable and maintainable; and architectural changes are justified, minimal, and reversible.",
-    "- CTO must reject or request revision when any of those checks fail or when the plan lacks enough evidence to decide. Do not approve by default just because an agent completed.",
-    "- Technical-debt findings must include evidence, root cause, impact, and a durable remediation owner. The CTO directs the implementer agent to coordinate cross-agent fixes; do not hide debt behind a local patch or add a second orchestration path.",
-    "- Frontend (frontend-development): UI components, tokens, styling, client implementation, and Next.js app code including src/lib types and utils (lib/resume is frontend unless it contains Convex/api routes).",
-    "- Backend (backend-development): Convex/API routes, database schema, server logic. A plain Next.js lib/ file with TypeScript types is frontend, not backend.",
-    "- DevOps (github, shell-execution): repositories, issues/PRs, CI, infra commands.",
-    "- QA (browser-testing): perform only the verification explicitly requested. Structural QA checks HTML, browser reachability, console, and network errors. Responsive viewport and screenshot-baseline checks are opt-in only; never add them when the user says not to.",
-    "- Support (documentation-support): documentation, customer communication, release notes.",
-    "- Researcher (research): technical research, evidence gathering, fact vs assumption separation.",
-    "Agents available (only use capabilities listed here):",
-    describeCapabilities(agents),
-    "",
-    `User task: ${command}`,
-    `Classification: ${classification.kind} (${classification.reasons.join("; ")})`,
-    `Suggested capabilities: ${classification.suggestedCapabilities.join(", ")}`,
-    policy.maxReplans > 0 && input.feedback
-      ? `A previous attempt failed. Feedback to address:\n${input.feedback}`
-      : "",
-    ...(classification.complexity === "high" || classification.complexity === "ultra"
-      ? [
-          `Complexity: ${classification.complexity}.${
-            classification.concerns && classification.concerns.length > 1
-              ? ` The request has ${classification.concerns.length} separate concerns: ${classification.concerns
-                  .map((concern, index) => `(${index + 1}) ${concern.category}: "${concern.text}"`)
-                  .join("; ")}.`
-              : ""
-          }`,
-          "- Split multi-concern changes: one code_change subtask per concern / file group (e.g. dark-mode styles, header component refactor, tests, README docs), never one subtask that does everything. Each subtask's answer must stay small (only its own files).",
-          "- Concerns that edit the same files run in request order: each depends on the previous one.",
-        ]
-      : []),
-    ...(input.feedback && /Subtask timed out/.test(input.feedback)
-      ? [
-          "- A subtask TIMED OUT in the previous attempt: do not plan it again as-is. Split it into smaller subtasks (one per concern or per file group) so every step finishes well inside the time limit.",
-        ]
-      : []),
-    "",
-    "Rules:",
-    `- 1 to ${policy.maxSubtasks} subtasks.`,
-    "- Each subtask: key (lowercase slug), title, description, kind, capability, dependencies (keys), order.",
-    "- code_change subtasks must declare allowedPaths: the tightest workspace-relative file/directory scope they may modify (e.g. [\"apps/web\"]). Omit only when the scope is genuinely unknown; the executor refuses files outside the declared scope.",
-    "- kind is one of: analysis, code_change, review, qa, research, audit, shell.",
-    "- kind shell is ONLY for git read-only commands. File creation/write and",
-    "  running tests/build must use code_change, never shell.",
-    "- Framework requests (React/Vue/Next.js) MUST scaffold a real project:",
-    "  package.json, vite/next config, index.html, src/main + src/App (or equivalent).",
-    "  Never return a single index.html with CDN <script> tags as a 'migration'.",
-    "- Dependencies must reference earlier subtasks and must not form cycles.",
-    // Plan 013 step 6: the prompt follows reviewMode/qaMode like the
-    // hints layer does, instead of mandating a review for every change.
-    ...(policy.reviewMode === "always"
-      ? [
-          "- Add a review node served by the Reviewer agent for every code change. (policy reviewMode=always).",
-        ]
-      : policy.reviewMode === "never"
-        ? [
-            "- Do NOT add a review node: policy reviewMode=never forbids it. The CTO quality gate still verifies the plan outcome, but the plan carries no review subtask.",
-          ]
-        : [
-            "- Add a review node served by the Reviewer agent only for risky changes: auth, security, payments, migrations, concurrency, multi-domain, or multi-capability work. Simple single-capability changes get no review node. (policy reviewMode=auto: risk signal, not a mandate.)",
-          ]),
-    ...(policy.qaMode === "always"
-      ? [
-          "- Add a QA node for every code change: the app must be validated in the browser (policy qaMode=always).",
-        ]
-      : policy.qaMode === "never"
-        ? [
-            "- Do NOT add a QA node: policy qaMode=never forbids it. The plan carries no browser-validation subtask.",
-          ]
-        : [
-            "- Add a QA node only when the change touches UI (frontend/design files) or the user explicitly asks for QA / e2e / browser testing (policy qaMode=auto). Backend-only, docs, config or unit-test-only changes get no QA node.",
-          ]),
-    "- Do NOT invent capabilities that are not listed above.",
-    "- Keep the plan minimal; do not add decorative steps.",
-    "",
-    'Schema: {"goal":"...","strategy":"single"|"dag","requiresApproval":true,"maxConcurrency":1,"subtasks":[{"key":"implement","title":"...","description":"...","kind":"code_change","capability":"frontend-development","dependencies":[],"order":0,"allowedPaths":["apps/web"]}]}',
-  ]
-    .filter((line) => line !== "")
-    .join("\n");
+  return planningPrompt({ ...input, capabilityList: describeCapabilities(input.agents) });
 }
 
 /**
@@ -461,7 +366,7 @@ function applyPlanningHintsInner(
       review = {
         key: uniqueKey("review", subtasks),
         title: "Review implementation diff for regressions",
-        description: "Reviewer must inspect the completed implementation diff and either approve it or request revision. Check code quality, security, regression risk, performance, contract compatibility, project conventions, duplication, scalability, maintainability, and whether architectural changes are justified. Do NOT run verification commands (tsc, lint, test, build) — those are executed by the runtime verification loop, not by the reviewer (read-only). For every finding, identify the root cause, define the smallest durable fix, and direct the implementer agent to coordinate the remediation when it spans agents or subsystems.",
+        description: PLAN_NODE_INSTRUCTIONS.review,
         kind: "review",
         capability: CAPABILITY.CODE_REVIEW,
         dependencies: codeChangeKeys,
@@ -487,8 +392,8 @@ function applyPlanningHintsInner(
         key: uniqueKey("qa", subtasks),
         title: visualQa ? "Verify responsive visuals" : "Validate HTML and browser reachability",
         description: visualQa
-          ? "Run the app after changes are applied and verify responsive visuals, console errors and network failures."
-          : "Validate the HTML structure, open the page in a browser, and check console and network errors; do not compare visual baselines.", 
+          ? PLAN_NODE_INSTRUCTIONS.qaVisual
+          : PLAN_NODE_INSTRUCTIONS.qaStructural, 
         kind: "qa",
         capability: CAPABILITY.BROWSER_TESTING,
         dependencies: [review?.key ?? codeChangeKeys.at(-1) ?? ""].filter(Boolean),
@@ -509,28 +414,8 @@ function applyPlanningHintsInner(
   };
 }
 
-/**
- * Single source of truth for "does this request want visual QA?".
- * A negated prohibition anywhere in the request wins over the positive
- * signal, which is what makes "@QA must not run screenshots/viewports"
- * authoritative rather than advisory.
- */
-export function wantsVisualQa(command: string): boolean {
-  const prohibited =
-    /\b(?:no|not|without|don't|do\s+not|jangan|tanpa)\b[\s\S]{0,160}\b(?:visual|screenshots?|baselines?|pixels?|responsive|viewports?|desktop|tablet|mobile)\b/i.test(
-      command
-    );
-  if (prohibited) return false;
-  return /\b(?:visual\s+regression|screenshots?|baselines?|pixel(?:-diff)?|responsive\s+(?:layout|viewports?)|(?:desktop|tablet|mobile)\s+(?:and\s+\w+\s+)?viewports?|viewport\s+testing)\b/i.test(
-    command
-  );
-}
-
 const RISK_SIGNAL =
   /\b(auth(?:entication|orization|entication)?|login|sign-?in|password|token|session|oauth|jwt|permission|rbac|acl|security|vulnerab|xss|csrf|injection|secret|payment|billing|checkout|stripe|invoice|migrat(?:e|ion)|schema|concurr(?:ent|ency)|race|lock|transaction|balance)\b/i;
-
-const VERIFICATION_REQUESTED =
-  /\b(test|tests|qa|e2e|playwright|vitest|coverage|verify|verification|verify in browser|manual check|smoke)\b/i;
 
 /**
  * Legacy entry point: every code change gets a review node, and QA when a
@@ -640,7 +525,7 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
           key: "reply",
           title: "Reply to the user",
           description:
-            "Respond briefly and ask for the concrete change the user wants. Do not modify files.",
+            PLAN_NODE_INSTRUCTIONS.reply,
           kind: "analysis",
           capability: CAPABILITY.GENERAL,
           dependencies: [],
@@ -653,10 +538,10 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
   if (classification.kind === "audit") {
     // Codebase audit: split into frontend/backend/security lanes when capable agents exist.
     const lanes: Array<{ key: string; title: string; capability: string; description: string }> = [];
-    if (hasCapability(CAPABILITY.FRONTEND)) lanes.push({ key: "audit-frontend", title: "Audit frontend", capability: CAPABILITY.FRONTEND, description: "Read-only audit of frontend (components, pages, styles, a11y, state). Report findings with file refs. No code changes." });
-    if (hasCapability(CAPABILITY.BACKEND)) lanes.push({ key: "audit-backend", title: "Audit backend", capability: CAPABILITY.BACKEND, description: "Read-only audit of backend (API routes, Convex/DB, auth, validation, errors). Report findings with file refs. No code changes." });
-    if (hasCapability(CAPABILITY.SECURITY)) lanes.push({ key: "audit-security", title: "Security audit", capability: CAPABILITY.SECURITY, description: "Read-only security audit (auth, secrets, injection, CORS, deps). Report findings with severity + file refs. No code changes." });
-    if (hasCapability(CAPABILITY.CODE_REVIEW)) lanes.push({ key: "audit-consolidate", title: "Consolidate audit findings", capability: CAPABILITY.CODE_REVIEW, description: "Consolidate frontend/backend/security findings into prioritized report with severity, impact, recommendation. No code changes." });
+    if (hasCapability(CAPABILITY.FRONTEND)) lanes.push({ key: "audit-frontend", title: "Audit frontend", capability: CAPABILITY.FRONTEND, description: PLAN_NODE_INSTRUCTIONS.auditFrontend });
+    if (hasCapability(CAPABILITY.BACKEND)) lanes.push({ key: "audit-backend", title: "Audit backend", capability: CAPABILITY.BACKEND, description: PLAN_NODE_INSTRUCTIONS.auditBackend });
+    if (hasCapability(CAPABILITY.SECURITY)) lanes.push({ key: "audit-security", title: "Security audit", capability: CAPABILITY.SECURITY, description: PLAN_NODE_INSTRUCTIONS.auditSecurity });
+    if (hasCapability(CAPABILITY.CODE_REVIEW)) lanes.push({ key: "audit-consolidate", title: "Consolidate audit findings", capability: CAPABILITY.CODE_REVIEW, description: PLAN_NODE_INSTRUCTIONS.auditConsolidate });
 
     if (lanes.length > 1) {
       const subtasks = lanes.map((lane, i) => ({
@@ -691,7 +576,7 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
         {
           key: "audit",
           title: "Repository audit",
-          description: "Read-only audit. Report concrete findings with file references. Do not modify files.",
+          description: PLAN_NODE_INSTRUCTIONS.audit,
           kind: "audit",
           capability,
           dependencies: [],

@@ -1,12 +1,13 @@
+import { VERIFY_FIX_INTRO } from "@/prompts/fix";
 import type { RunContext } from "./types";
-import type { PlanSubtask } from "@/orchestrator/types";
+import type { PlanSubtask } from "@/types";
 import { implementerAgent } from "./setup";
 import { pickFixOwner } from "@/orchestrator/ownership";
 import { applyOrRequestFixApproval } from "./fixApply";
 import { buildFixSubtask } from "@/orchestrator/reviewLoop";
 import { runVerification } from "@/execution/verification";
 import type { ReviewFinding } from "@/utils/json";
-import { CAPABILITY } from "@/orchestrator/types";
+import { CAPABILITY } from "@/types";
 import { buildVerificationCard, postStageCard } from "./cards";
 
 /**
@@ -106,7 +107,7 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
       ...buildFixSubtask({
         key: ctx.uniqueSubtaskKey(`fix_verify_${verifyIteration + 1}`),
         title: `Address verification failures (iteration ${verifyIteration + 1})`,
-        intro: "Static verification reported failures.",
+        intro: VERIFY_FIX_INTRO,
         findings,
         capability: owner?.capability ?? CAPABILITY.GENERAL,
         order: plan.subtasks.reduce((max, c) => Math.max(max, c.order), 0) + 1,

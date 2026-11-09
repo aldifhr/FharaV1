@@ -1,6 +1,9 @@
 import { Effect, Schedule } from "effect";
 import { effectiveLlmTimeoutMs, type GlobalLLMConfig, type LLMMessage, type LLMProvider, type LLMResult } from "@/llm";
 import type { ProviderHealthRegistry } from "@/llm/health";
+import type { TokenUsageMeta } from "@/types/llm";
+
+export type { TokenUsageMeta } from "@/types/llm";
 
 /**
  * Whether an LLM call failure is worth retrying.
@@ -162,10 +165,6 @@ function workerGateLimitFromEnv(): number {
 
 const workerLlmGate = new LlmConcurrencyGate(workerGateLimitFromEnv());
 
-export function getWorkerLlmGate(): LlmConcurrencyGate {
-  return workerLlmGate;
-}
-
 /**
  * Bootstrap-only: size the worker-wide gate from the worker's loaded
  * policy. Called ONCE by the worker entrypoint (index.ts) at process
@@ -287,18 +286,6 @@ export interface FallbackHandle {
   /** Registry pricing for the served model, when the operator filled it in. */
   inputPricePer1k?: number;
   outputPricePer1k?: number;
-}
-
-/**
- * Per-call usage attribution (Phase 5): which provider connection and
- * registry model actually served a call, and its estimated cost. Fields
- * are absent — never guessed — when the serving handle has no registry
- * identity (env fallback) or no pricing.
- */
-export interface TokenUsageMeta {
-  providerId?: string;
-  modelRowId?: string;
-  estimatedCost?: number;
 }
 
 /**

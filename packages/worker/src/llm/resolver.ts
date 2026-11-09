@@ -4,7 +4,7 @@ import {
   type GlobalLLMConfig,
   type LLMProvider,
 } from "@/llm";
-import type { AgentDefinition } from "@/orchestrator/types";
+import type { AgentDefinition } from "@/types";
 import { decryptApiKey } from "./crypto";
 import { providerHealth, type ProviderHealthRegistry } from "./health";
 
@@ -459,13 +459,4 @@ export class TaskLlmResolver {
   defaultConfig(): GlobalLLMConfig {
     return this.configFor(undefined);
   }
-}
-
-/**
- * Thin wrapper kept for the call sites that historically used a single
- * task config: the task default is simply the resolver's agent-less
- * primary over the materialized pool.
- */
-export function resolveTaskLlmConfig(pool: PoolConnection[]): GlobalLLMConfig {
-  return new TaskLlmResolver(pool).defaultConfig();
 }

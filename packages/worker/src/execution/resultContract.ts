@@ -6,7 +6,7 @@
  * Orchestrator owns the lifecycle; an agent response alone never marks
  * a task completed.
  */
-import type { AgentResult } from "../orchestrator/taskContext";
+import type { AgentResult } from "@/types";
 
 export interface StructuredResult {
   status: "COMPLETED" | "FAILED" | "SKIPPED";

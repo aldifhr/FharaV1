@@ -91,6 +91,23 @@ export interface Classification {
   strategy: ExecutionPlan["strategy"];
   reasons: string[];
   suggestedCapabilities: string[];
+  /**
+   * Size of the requested change (code_change/multi only): low = one
+   * focused concern, medium = two, high = three or a risky/multi-domain
+   * change, ultra = four or more concerns. Drives the subtask timeout,
+   * per-concern planning and the review hint.
+   */
+  complexity?: "low" | "medium" | "high" | "ultra";
+  /** The separate concerns of a change request, in request order. */
+  concerns?: Concern[];
+}
+
+/** One concern of a multi-part change request ("tambah test", "update README"). */
+export interface Concern {
+  /** Category: theme | refactor | tests | docs | style | change. */
+  category: "theme" | "refactor" | "tests" | "docs" | "style" | "change";
+  /** The clause of the request this concern came from. */
+  text: string;
 }
 
 export interface TaskContext {

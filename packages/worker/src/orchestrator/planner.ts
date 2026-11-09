@@ -1,3 +1,4 @@
+import { splitMultiConcernNodes } from "./concernSplit";
 import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig } from "@/llm";
 import {
   runLlmCallWithFallback,
@@ -136,7 +137,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         input.policy.maxSubtasks
       );
       if (validation.ok && validation.plan) {
-        const hinted = applyPlanningHints(validation.plan, input.agents, {
+        const hinted = applyPlanningHints(splitForComplexity(validation.plan, input, notes), input.agents, {
           command: input.command,
           classification: input.classification,
           policy: input.policy,
@@ -180,7 +181,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   // Apply the same CTO review/QA policy to fallback plans. Previously the
   // deterministic fallback bypassed applyPlanningHints, so a provider response
   // with empty/non-JSON content silently removed requested review and QA nodes.
-  const fallback = applyPlanningHints(heuristicPlan(input), input.agents, {
+  const fallback = applyPlanningHints(splitForComplexity(heuristicPlan(input), input, notes), input.agents, {
     command: input.command,
     classification: input.classification,
     policy: input.policy,
@@ -193,6 +194,19 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
     notes,
     degradedReason: notes.join("; "),
   };
+}
+
+/**
+ * High/ultra requests: one code_change node per concern (see
+ * concernSplit). Room is left for the review/QA hints added afterwards.
+ */
+function splitForComplexity(plan: ExecutionPlan, input: PlannerInput, notes: string[]): ExecutionPlan {
+  const { plan: split, split: keys } = splitMultiConcernNodes(plan, input.classification, {
+    maxSubtasks: Math.max(1, input.policy.maxSubtasks - 2),
+    agents: input.agents,
+  });
+  if (keys.length > 0) notes.push(`split multi-concern node(s) per concern: ${keys.join(", ")}`);
+  return split;
 }
 
 export function pickOrchestrator(agents: AgentDefinition[]): AgentDefinition | null {
@@ -247,6 +261,24 @@ export function buildPlanningPrompt(input: PlannerInput): string {
     policy.maxReplans > 0 && input.feedback
       ? `A previous attempt failed. Feedback to address:\n${input.feedback}`
       : "",
+    ...(classification.complexity === "high" || classification.complexity === "ultra"
+      ? [
+          `Complexity: ${classification.complexity}.${
+            classification.concerns && classification.concerns.length > 1
+              ? ` The request has ${classification.concerns.length} separate concerns: ${classification.concerns
+                  .map((concern, index) => `(${index + 1}) ${concern.category}: "${concern.text}"`)
+                  .join("; ")}.`
+              : ""
+          }`,
+          "- Split multi-concern changes: one code_change subtask per concern / file group (e.g. dark-mode styles, header component refactor, tests, README docs), never one subtask that does everything. Each subtask's answer must stay small (only its own files).",
+          "- Concerns that edit the same files run in request order: each depends on the previous one.",
+        ]
+      : []),
+    ...(input.feedback && /Subtask timed out/.test(input.feedback)
+      ? [
+          "- A subtask TIMED OUT in the previous attempt: do not plan it again as-is. Split it into smaller subtasks (one per concern or per file group) so every step finishes well inside the time limit.",
+        ]
+      : []),
     "",
     "Rules:",
     `- 1 to ${policy.maxSubtasks} subtasks.`,
@@ -391,6 +423,10 @@ function applyPlanningHintsInner(
   const riskSignal =
     RISK_SIGNAL.test(ctx.command) ||
     ctx.classification.kind === "multi" ||
+    // High/ultra complexity (many concerns, risky or multi-domain change)
+    // gets the review gate even when one capability does all of it.
+    ctx.classification.complexity === "high" ||
+    ctx.classification.complexity === "ultra" ||
     (() => {
       const capabilities = new Set(
         subtasks

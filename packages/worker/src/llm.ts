@@ -15,6 +15,14 @@ export interface LLMCallOptions {
   /** External cancellation (task cancel/deadline). Enforcement lands in
    *  Phase 4; the plumbing is here so providers honor it end-to-end. */
   signal?: AbortSignal;
+  /**
+   * Per-call timeout. Bounded by the configured LLM timeout
+   * (ORCHESTRATOR_LLM_TIMEOUT_MS); callers pass the subtask's remaining
+   * time so one slow call can never outlive the subtask that made it.
+   */
+  timeoutMs?: number;
+  /** Per-call output cap; defaults to ORCHESTRATOR_LLM_MAX_TOKENS. */
+  maxTokens?: number;
 }
 
 export interface LLMProvider {
@@ -38,7 +46,37 @@ export function getGlobalLLMConfig(env?: Record<string, string | undefined>): Gl
   return { provider, model, baseUrl, apiKey };
 }
 
-const LLM_TIMEOUT_MS = 300_000;
+export const DEFAULT_LLM_MAX_TOKENS = 8192;
+export const DEFAULT_LLM_TIMEOUT_MS = 300_000;
+
+function intEnv(name: string, fallback: number, min: number, max: number, env: Record<string, string | undefined>): number {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Max output tokens per LLM call (ORCHESTRATOR_LLM_MAX_TOKENS). A hard
+ * cap of 4k tokens truncated full-file JSON answers from code-change
+ * subtasks, which then failed as "invalid file changes JSON" (e2e ULTRA).
+ */
+export function llmMaxTokens(env: Record<string, string | undefined> = process.env): number {
+  return intEnv("ORCHESTRATOR_LLM_MAX_TOKENS", DEFAULT_LLM_MAX_TOKENS, 256, 200_000, env);
+}
+
+/** Ceiling for one LLM request (ORCHESTRATOR_LLM_TIMEOUT_MS). */
+export function llmTimeoutMs(env: Record<string, string | undefined> = process.env): number {
+  return intEnv("ORCHESTRATOR_LLM_TIMEOUT_MS", DEFAULT_LLM_TIMEOUT_MS, 1_000, 3_600_000, env);
+}
+
+/** Effective timeout of one call: the per-call bound, never above the ceiling. */
+export function effectiveLlmTimeoutMs(requested?: number): number {
+  const ceiling = llmTimeoutMs();
+  if (requested === undefined || !Number.isFinite(requested)) return ceiling;
+  return Math.max(1, Math.min(ceiling, Math.floor(requested)));
+}
 
 export class AnthropicProvider implements LLMProvider {
   private client: Anthropic;
@@ -50,9 +88,9 @@ export class AnthropicProvider implements LLMProvider {
       // Honor custom base URLs (direct provider / gateway) exactly like
       // the OpenAI-compatible path; previously baseUrl was ignored here.
       ...(baseUrl ? { baseURL: baseUrl } : {}),
-      // Same 300s ceiling as the OpenAI-compatible path; retries are owned
+      // Same ceiling as the OpenAI-compatible path; retries are owned
       // by the llmCall layer, not the SDK.
-      timeout: LLM_TIMEOUT_MS,
+      timeout: llmTimeoutMs(),
       maxRetries: 0,
     });
     this.model = model;
@@ -63,10 +101,10 @@ export class AnthropicProvider implements LLMProvider {
     const user = messages.filter((m) => m.role !== "system");
     const res = await this.client.messages.create({
       model: model ?? this.model,
-      max_tokens: 4096,
+      max_tokens: opts?.maxTokens ?? llmMaxTokens(),
       system: system || undefined,
       messages: user.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-    }, { signal: opts?.signal });
+    }, { signal: opts?.signal, timeout: effectiveLlmTimeoutMs(opts?.timeoutMs) });
     const text = res.content
       .filter((c): c is Anthropic.TextBlock => c.type === "text")
       .map((c) => c.text)
@@ -83,11 +121,11 @@ export class AnthropicProvider implements LLMProvider {
     const user = messages.filter((m) => m.role !== "system");
     const stream = await this.client.messages.create({
       model: model ?? this.model,
-      max_tokens: 4096,
+      max_tokens: opts?.maxTokens ?? llmMaxTokens(),
       system: system || undefined,
       messages: user.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
       stream: true,
-    }, { signal: opts?.signal });
+    }, { signal: opts?.signal, timeout: effectiveLlmTimeoutMs(opts?.timeoutMs) });
     let full = "";
     for await (const event of stream) {
       if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
@@ -108,7 +146,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
   async complete(messages: LLMMessage[], model?: string, opts?: LLMCallOptions): Promise<LLMResult> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+    const timeoutMs = effectiveLlmTimeoutMs(opts?.timeoutMs);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     // Combine the internal timeout with the caller's signal: whichever
     // aborts first cancels the request.
     const onExternalAbort = () => controller.abort();
@@ -128,7 +167,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
           "content-type": "application/json",
           authorization: `Bearer ${this.apiKey}`,
         },
-        body: JSON.stringify({ model: model ?? this.model, messages, max_tokens: 4096 }),
+        body: JSON.stringify({ model: model ?? this.model, messages, max_tokens: opts?.maxTokens ?? llmMaxTokens() }),
         signal: controller.signal,
       });
       responseBody = await response.text();
@@ -140,7 +179,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         if (opts?.signal?.aborted) {
           throw new Error(`LLM request aborted by caller at ${this.baseUrl}/chat/completions`);
         }
-        throw new Error(`LLM request timed out after 300s at ${this.baseUrl}/chat/completions`);
+        throw new Error(`LLM request timed out after ${Math.round(timeoutMs / 1000)}s at ${this.baseUrl}/chat/completions`);
       }
       throw error;
     } finally {

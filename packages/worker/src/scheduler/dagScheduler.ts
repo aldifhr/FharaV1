@@ -12,6 +12,13 @@ export type NodeOutcome =
   | { status: "failed"; error: string; meta?: unknown }
   | { status: "waiting_approval"; output?: string; meta?: unknown };
 
+/** Per-attempt facts the executor needs to budget its own work. */
+export interface NodeRunInfo {
+  /** Epoch ms at which this attempt's subtask timeout fires. */
+  deadlineAt: number;
+  attempt: number;
+}
+
 export interface SchedulerHooks {
   maxConcurrency: number;
   timeoutMs: number;
@@ -131,7 +138,7 @@ type State =
 
 export async function runScheduler(
   nodes: SchedulerNode[],
-  execute: (node: SchedulerNode, signal: AbortSignal) => Promise<NodeOutcome>,
+  execute: (node: SchedulerNode, signal: AbortSignal, info: NodeRunInfo) => Promise<NodeOutcome>,
   hooks: SchedulerHooks
 ): Promise<SchedulerResult> {
   const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -250,6 +257,7 @@ export async function runScheduler(
     controllers.set(node.id, controller);
     let timer: NodeJS.Timeout | undefined;
     let timedOut = false;
+    const deadlineAt = Date.now() + hooks.timeoutMs;
     const timeout = new Promise<NodeOutcome>((resolve) => {
       timer = setTimeout(() => {
         timedOut = true;
@@ -261,7 +269,7 @@ export async function runScheduler(
       try {
         await hooks.onStart(node, attempt);
         const outcome = await Promise.race([
-          execute(node, controller.signal),
+          execute(node, controller.signal, { deadlineAt, attempt }),
           timeout,
         ]);
         if (timedOut) {

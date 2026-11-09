@@ -17,6 +17,8 @@ import {
   type SubtaskKind,
 } from "@/orchestrator/types";
 import { classifyCommand } from "@/orchestrator/classifier";
+import { splitTimedOutNodes, timedOutKeys } from "@/orchestrator/concernSplit";
+import { policyForComplexity } from "@/orchestrator/policy";
 import { wantsVisualQa } from "@/orchestrator/planner";
 import { validatePlan } from "@/orchestrator/planValidator";
 import { BudgetTracker, isBudgetExhaustedError } from "@/orchestrator/budget";
@@ -261,6 +263,8 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
     .map(({ agent }) => agent);
   const command = await withFileContexts(deps.workspaceRoot, project.workspacePath, task.command);
   const classification = classifyCommand(command);
+  // High/ultra changes run under the larger subtask timeout / deadline.
+  deps = { ...deps, policy: policyForComplexity(deps.policy, classification.complexity) };
   await deps.api.logEvent({
     taskId: task._id,
     projectId: project._id,
@@ -269,6 +273,9 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
       kind: classification.kind,
       strategy: classification.strategy,
       reasons: classification.reasons,
+      ...(classification.complexity ? { complexity: classification.complexity } : {}),
+      ...(classification.concerns ? { concerns: classification.concerns.map((c) => c.category) } : {}),
+      subtaskTimeoutMs: deps.policy.subtaskTimeoutMs,
     },
   });
 
@@ -1036,6 +1043,23 @@ export async function processTask(task: WorkerTask, deps: RunnerDeps): Promise<v
         }
         const previousPlan = plan;
         plan = replanned.plan;
+        // A timed-out node is never retried as-is: the replan's copy of it
+        // is split into smaller nodes (per concern / per file group).
+        const timedOut = timedOutKeys(failureSummary);
+        if (timedOut.length > 0) {
+          const resplit = splitTimedOutNodes(plan, previousPlan, timedOut, classification, {
+            maxSubtasks: deps.policy.maxSubtasks,
+            agents: runAgents,
+          });
+          plan = resplit.plan;
+          await deps.api.logEvent({
+            taskId: task._id,
+            projectId: project._id,
+            type: "plan.timeout_split",
+            payload: { timedOut, split: resplit.split, unsplittable: resplit.unsplittable },
+            level: "warn",
+          });
+        }
         planVersion += 1;
         await persistPlan(deps, {
           taskId: task._id,
@@ -1948,6 +1972,9 @@ export async function resumeTask(taskId: string, deps: RunnerDeps): Promise<void
   // Leaving it at `needs_approval` made the UI advertise an approval button
   // that no longer exists while the resumed run is in flight.
   await deps.api.setTaskStatus({ taskId, status: "running" });
+  // High/ultra changes keep their larger subtask timeout / deadline on
+  // resume (scaled before the deadline is armed below).
+  deps = { ...deps, policy: policyForComplexity(deps.policy, classifyCommand(context.task.command).complexity) };
   // Phase 4 hardening: the resumed run gets its OWN per-task LLM gate
   // and its deadline is armed before execution setup begins (the
   // timer is disposed on every exit path below — the resolver-failure

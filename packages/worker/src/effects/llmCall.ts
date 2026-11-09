@@ -1,5 +1,5 @@
 import { Effect, Schedule } from "effect";
-import type { GlobalLLMConfig, LLMMessage, LLMProvider, LLMResult } from "@/llm";
+import { effectiveLlmTimeoutMs, type GlobalLLMConfig, type LLMMessage, type LLMProvider, type LLMResult } from "@/llm";
 import type { ProviderHealthRegistry } from "@/llm/health";
 
 /**
@@ -225,10 +225,14 @@ export function llmCallEffect(
   options: { retries?: number; timeoutMs?: number; signal?: AbortSignal } = {}
 ) {
   const retries = options.retries ?? 2;
-  const timeoutMs = options.timeoutMs ?? 300_000;
+  // Bounded by the configured ceiling (ORCHESTRATOR_LLM_TIMEOUT_MS) and,
+  // when the caller passes one, by the subtask's remaining time.
+  const timeoutMs = effectiveLlmTimeoutMs(options.timeoutMs);
 
+  // The provider gets the same bound so the HTTP request itself is
+  // aborted (not just abandoned by Effect.timeout).
   const callPromise = () =>
-    provider.complete(messages, model, { signal: options.signal }).then((res) => res as LLMResult);
+    provider.complete(messages, model, { signal: options.signal, timeoutMs }).then((res) => res as LLMResult);
 
   return Effect.tryPromise({
     try: callPromise,

@@ -20,6 +20,14 @@ export interface ExecutionPolicy {
   maxPlanningIterations?: number;
   maxReviewIterations: number;
   subtaskTimeoutMs: number;
+  /**
+   * Subtask timeout for high/ultra complexity tasks
+   * (ORCHESTRATOR_SUBTASK_TIMEOUT_HIGH_MS). Applied by policyForComplexity;
+   * hand-built policies that omit it keep subtaskTimeoutMs for every task.
+   */
+  subtaskTimeoutMsHigh?: number;
+  /** Task deadline for high/ultra complexity tasks (ORCHESTRATOR_TASK_TIMEOUT_HIGH_MS). */
+  taskTimeoutMsHigh?: number;
   subtaskRetries: number;
   approvalTimeoutMs: number;
   /**
@@ -171,6 +179,23 @@ function planningModeFromEnv(name: string, fallback: "auto" | "never" = "auto"):
   return raw === "always" || raw === "auto" || raw === "never" ? raw : fallback;
 }
 
+export type TaskComplexity = "low" | "medium" | "high" | "ultra";
+
+/**
+ * The policy one task runs under: high/ultra complexity tasks get the
+ * larger subtask timeout and task deadline (a multi-concern change with a
+ * slow model cannot finish inside the low-complexity bounds). Never
+ * shrinks a bound: the high values only apply when they are larger.
+ */
+export function policyForComplexity(policy: ExecutionPolicy, complexity?: TaskComplexity): ExecutionPolicy {
+  if (complexity !== "high" && complexity !== "ultra") return policy;
+  return {
+    ...policy,
+    subtaskTimeoutMs: Math.max(policy.subtaskTimeoutMs, policy.subtaskTimeoutMsHigh ?? 0),
+    taskTimeoutMs: Math.max(policy.taskTimeoutMs, policy.taskTimeoutMsHigh ?? 0),
+  };
+}
+
 export function loadPolicy(): ExecutionPolicy {
   const maxReplans = intFromEnv("ORCHESTRATOR_MAX_REPLANS", 1, 0, 3);
   return {
@@ -187,10 +212,24 @@ export function loadPolicy(): ExecutionPolicy {
       3
     ),
     maxReviewIterations: intFromEnv("ORCHESTRATOR_MAX_REVIEW_ITERATIONS", 2, 0, 5),
-    subtaskTimeoutMs: intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", 300_000, 30_000, 300_000),
+    // Configurable up to 1h (was clamped to 300s, which a slow model
+    // cannot meet on a multi-file change — e2e ULTRA).
+    subtaskTimeoutMs: intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", 300_000, 30_000, 3_600_000),
+    subtaskTimeoutMsHigh: intFromEnv(
+      "ORCHESTRATOR_SUBTASK_TIMEOUT_HIGH_MS",
+      Math.max(600_000, intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", 300_000, 30_000, 3_600_000)),
+      30_000,
+      3_600_000
+    ),
     subtaskRetries: intFromEnv("ORCHESTRATOR_SUBTASK_RETRIES", 1, 0, 3),
     approvalTimeoutMs: intFromEnv("ORCHESTRATOR_APPROVAL_TIMEOUT_MS", 30 * 60_000, 60_000, 24 * 60 * 60_000),
-    taskTimeoutMs: intFromEnv("ORCHESTRATOR_TASK_TIMEOUT_MS", 20 * 60_000, 60_000, 20 * 60_000),
+    taskTimeoutMs: intFromEnv("ORCHESTRATOR_TASK_TIMEOUT_MS", 20 * 60_000, 60_000, 3 * 60 * 60_000),
+    taskTimeoutMsHigh: intFromEnv(
+      "ORCHESTRATOR_TASK_TIMEOUT_HIGH_MS",
+      Math.max(40 * 60_000, intFromEnv("ORCHESTRATOR_TASK_TIMEOUT_MS", 20 * 60_000, 60_000, 3 * 60 * 60_000)),
+      60_000,
+      3 * 60 * 60_000
+    ),
     // MausBot mechanism: progress-based termination. Build steps keep the
     // task alive; only true inactivity trips this. 0 = disabled.
     idleTimeoutMs: intFromEnv("ORCHESTRATOR_IDLE_TIMEOUT_MS", 10 * 60_000, 60_000, 24 * 60 * 60_000),

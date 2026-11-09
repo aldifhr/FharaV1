@@ -74,7 +74,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       dependencies: subtask.dependencies.filter((dependency) => subsetKeys.has(dependency)),
       paths: subtask.allowedPaths,
     })),
-    async (node, signal): Promise<NodeOutcome> => {
+    async (node, signal, runInfo): Promise<NodeOutcome> => {
       const subtask = plan.subtasks.find((candidate) => candidate.key === node.id)!;
       const agent = assign(node.id);
       if (!agent) {
@@ -125,6 +125,9 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         // per-node signal (subtask timeout / scheduler cancel) and the
         // per-task signal (task deadline / task-level cancel).
         signal: combineSignals(signal, input.taskAbort?.signal),
+        // The subtask's own timeout: LLM calls and retries are budgeted
+        // against it instead of each assuming the full LLM timeout.
+        deadlineAt: runInfo?.deadlineAt,
         // Pre-call budget gate (Phase 5): the executor checks it before
         // every LLM call this subtask makes.
         assertBudgetForCall: input.assertBudgetForCall,

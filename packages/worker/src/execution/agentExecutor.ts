@@ -83,6 +83,12 @@ export interface SubtaskExecutionInput {
   priorOutputs: Map<string, string>;
   fileChanges: FileDiff[];
   signal: AbortSignal;
+  /**
+   * Epoch ms at which the scheduler's subtask timeout fires. Every LLM call
+   * is bounded by the time left until then, and a retry that cannot fit in
+   * it is skipped instead of being started and killed mid-flight.
+   */
+  deadlineAt?: number;
   onEvent: (
     type: string,
     payload: Record<string, unknown>,
@@ -217,6 +223,7 @@ async function runMcpExploration(
       const { result: llmResult, servedBy } = await runLlmCallWithFallback(handles, loopMessages, {
         health,
         signal: input.signal,
+        timeoutMs: llmCallTimeoutMs(input),
         taskGate: input.llmTaskGate,
       });
       if (input.onTokenUsage) {
@@ -242,6 +249,37 @@ async function runMcpExploration(
 export type SubtaskExecutionResult =
   | { status: "completed"; output?: string; meta?: Record<string, unknown> }
   | { status: "failed"; error: string; meta?: Record<string, unknown> };
+
+/** Safety margin kept between an LLM call's own timeout and the subtask deadline. */
+const DEADLINE_MARGIN_MS = 2_000;
+/** A retry is never started with less than this left in the subtask. */
+export const MIN_RETRY_WINDOW_MS = 15_000;
+
+/**
+ * Timeout for one LLM call of this subtask: the time left until the
+ * subtask deadline (minus a margin), capped by the configured LLM timeout
+ * inside the provider. Undefined (= configured timeout) without a deadline.
+ */
+export function llmCallTimeoutMs(input: Pick<SubtaskExecutionInput, "deadlineAt">, now = Date.now()): number | undefined {
+  if (input.deadlineAt === undefined) return undefined;
+  return Math.max(1_000, input.deadlineAt - now - DEADLINE_MARGIN_MS);
+}
+
+/**
+ * Whether a second LLM call fits before the subtask deadline: it needs at
+ * least as long as the first call took (+25%) and never less than
+ * MIN_RETRY_WINDOW_MS. Without a deadline a retry is always allowed.
+ */
+export function canAffordRetry(
+  deadlineAt: number | undefined,
+  previousCallMs: number,
+  now = Date.now()
+): { ok: boolean; remainingMs: number } {
+  if (deadlineAt === undefined) return { ok: true, remainingMs: Number.POSITIVE_INFINITY };
+  const remainingMs = Math.max(0, deadlineAt - now - DEADLINE_MARGIN_MS);
+  const needed = Math.max(MIN_RETRY_WINDOW_MS, Math.ceil(previousCallMs * 1.25));
+  return { ok: remainingMs >= needed, remainingMs };
+}
 
 export async function executeSubtask(
   input: SubtaskExecutionInput
@@ -642,10 +680,11 @@ async function executeCodeChange(
   // Pre-call budget gate (Phase 5): no LLM call starts once the task's
   // call/token budget is spent (enforce mode throws here).
   input.assertBudgetForCall?.();
+  const firstCallStartedAt = Date.now();
   let { result: response, servedBy } = await runLlmCallWithFallback(
     handles,
     baseMessages(input, basePayload),
-    { health: healthFor(input), signal: input.signal, taskGate: input.llmTaskGate }
+    { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
   );
   if (input.onTokenUsage) {
     await input.onTokenUsage(
@@ -656,8 +695,34 @@ async function executeCodeChange(
     );
   }
 
+  const firstCallMs = Date.now() - firstCallStartedAt;
   let draft = parseDraft(response.content);
   if (!draft) {
+    // The retry is a full second call: start it only when the subtask has
+    // time left for one (as long as the first call took, plus margin).
+    // Otherwise the scheduler would kill it mid-flight and report a
+    // timeout that hides the real problem (invalid JSON).
+    const retryCheck = canAffordRetry(input.deadlineAt, firstCallMs);
+    if (!retryCheck.ok) {
+      await onEvent(
+        "agent.context",
+        {
+          capability: subtask.capability,
+          retry: false,
+          reason: "invalid-file-changes-json",
+          skipped: "insufficient-time",
+          remainingMs: retryCheck.remainingMs,
+          firstCallMs,
+        },
+        "warn"
+      );
+      return {
+        status: "failed",
+        error: `The implementation agent did not return valid file changes JSON (retry skipped: ${Math.round(
+          retryCheck.remainingMs / 1000
+        )}s left in the subtask, the first call took ${Math.round(firstCallMs / 1000)}s)`,
+      };
+    }
     await onEvent("agent.context", {
       capability: subtask.capability,
       retry: true,
@@ -673,7 +738,7 @@ async function executeCodeChange(
         input,
         `${basePayload}\n\nYour previous response was not a valid file-changes JSON object. Return ONLY the JSON object again.\n\nPrevious response (for reference):\n${response.content.slice(0, 2000)}`
       ),
-      { health: healthFor(input), signal: input.signal, taskGate: input.llmTaskGate }
+      { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
     ));
     if (input.onTokenUsage) {
       await input.onTokenUsage(
@@ -799,7 +864,7 @@ async function executeReview(
         "Reject only for concrete correctness, security, or regression risks. Do not request style-only changes.",
       ].join("\n")
     ),
-    { health: healthFor(input), signal: input.signal, taskGate: input.llmTaskGate }
+    { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
   );
   if (input.onTokenUsage) {
     await input.onTokenUsage(
@@ -1082,7 +1147,7 @@ async function executeReadOnly(
               await input.onChunk(delta);
             },
             primary.config.model,
-            { signal: input.signal }
+            { signal: input.signal, timeoutMs: llmCallTimeoutMs(input) }
           ),
         { signal: input.signal, taskGate: input.llmTaskGate }
       );
@@ -1103,6 +1168,7 @@ async function executeReadOnly(
       const fallback = await runLlmCallWithFallback(handles.slice(1), messages, {
         health,
         signal: input.signal,
+        timeoutMs: llmCallTimeoutMs(input),
         taskGate: input.llmTaskGate,
       });
       response = fallback.result;
@@ -1114,6 +1180,7 @@ async function executeReadOnly(
     const { result, servedBy } = await runLlmCallWithFallback(handles, messages, {
       health,
       signal: input.signal,
+      timeoutMs: llmCallTimeoutMs(input),
       taskGate: input.llmTaskGate,
     });
     response = result;
@@ -1183,6 +1250,7 @@ async function executeShell(
   const { result: response } = await runLlmCallWithFallback(handles, messages, {
     health,
     signal,
+    timeoutMs: llmCallTimeoutMs(input),
     taskGate: input.llmTaskGate,
   });
   const parsed = parseShellCommand(response.content);

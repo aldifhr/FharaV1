@@ -359,6 +359,9 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
   // must be captured now: reading it from disk after the run would make
   // every change look identical to its pre-task state.
   const preRunDirty = await snapshotNativeBaseline(workspacePath);
+  // Commits are the runner's job. Remember HEAD so a commit the provider
+  // makes anyway is undone (soft) and its files still pass the gate below.
+  const preRunHead = await readGitHead(workspacePath, signal);
 
   // OpenCode uses the agent's own OpenCode model when set; otherwise the
   // same LLM the rest of MOAgent resolved for this agent (first handle of
@@ -377,6 +380,19 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
     onChunk: input.onChunk,
     onMessage,
   });
+
+  if (preRunHead) {
+    const postRunHead = await readGitHead(workspacePath, signal);
+    if (postRunHead && postRunHead !== preRunHead) {
+      try {
+        await runCommand(workspacePath, "git", ["reset", "--soft", preRunHead], { signal });
+        await runCommand(workspacePath, "git", ["reset", "-q"], { signal });
+        await onEvent("native.commit.undone", { from: postRunHead, to: preRunHead }, "warn");
+      } catch (error) {
+        return { status: "failed", error: `Native provider committed and the commit could not be undone: ${error instanceof Error ? error.message : String(error)}` };
+      }
+    }
+  }
 
   if (input.onTokenUsage && (result.inputTokens > 0 || result.outputTokens > 0)) {
     await input.onTokenUsage(result.inputTokens, result.outputTokens, result.model ?? "native-provider", undefined);
@@ -1291,4 +1307,15 @@ async function buildWebContext(
 export function isForbiddenPath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, "/");
   return FORBIDDEN_PATHS.some((pattern) => pattern.test(normalized));
+}
+
+
+/** Current HEAD sha, or null when the workspace is not a git repo. */
+async function readGitHead(workspacePath: string, signal?: AbortSignal): Promise<string | null> {
+  try {
+    const { stdout } = await runCommand(workspacePath, "git", ["rev-parse", "HEAD"], { signal });
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
 }

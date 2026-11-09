@@ -204,7 +204,7 @@ a temporary config; the key travels only in the child process env
 ## Skills library
 
 `/library` holds reusable agent skills: short markdown instructions you attach
-to agents (from the library's "Used by" list or the Skills section of the
+to agents (from a skill's "Assign to roles" list or the Skills section of the
 agent form). When an agent runs, in a chat reply or a task subtask, each
 attached skill is appended after its system prompt as
 `## Skill: <name>`. The total is capped at 12,000 characters. Skills that
@@ -217,6 +217,20 @@ checklist, Write tests first), use the empty-state button on `/library`, or run:
 cd apps/api
 npx convex run skills:seedDefaults   # only seeds an empty library; idempotent
 ```
+
+### Import from GitHub
+
+"Import from GitHub" on `/library` takes a repository, folder
+(`…/tree/main/skills`) or single `SKILL.md` URL, lists every `SKILL.md`
+(name and description from the front matter; size; whether it needs
+trimming), and imports the ones you pick. Imported skills keep their source
+(repo, path, commit, license) and can be refreshed from the row's ⋯ menu
+("Update from source"). Bodies over the import cap (11,929 chars, so a skill
+fits the 12,000-char prompt budget with its header) are trimmed at section
+headings with a `(trimmed from N chars; full: <url>)` line. Public repos work
+without sign-in; a connected GitHub integration is used for rate limits and
+private repos. See [docs/skills-import.md](docs/skills-import.md) for the
+recommended role mapping for `emilkowalski/skills`.
 
 ## Integrations (MCP servers)
 

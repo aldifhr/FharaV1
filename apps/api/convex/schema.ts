@@ -914,6 +914,21 @@ export default defineSchema({
     description: v.string(),
     instructions: v.string(),
     tags: v.optional(v.array(v.string())),
+    // Set on skills imported from GitHub (skills.importFromGithub). `sha` is
+    // the commit the content was read at; re-import overwrites when it moves.
+    source: v.optional(
+      v.object({
+        kind: v.literal("github"),
+        repo: v.string(), // "owner/repo"
+        path: v.string(), // repo-relative SKILL.md path
+        sha: v.string(),
+        license: v.optional(v.string()), // SPDX id, e.g. "MIT"
+        licenseUrl: v.optional(v.string()),
+        url: v.string(), // html URL of the SKILL.md at `sha`
+      })
+    ),
+    // True when the import dropped trailing sections to fit the cap.
+    trimmed: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_name", ["name"]),

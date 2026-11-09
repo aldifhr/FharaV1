@@ -9,6 +9,13 @@ import {
   modelTiersValidator,
 } from "./lib/contractValidators";
 
+/** file:line evidence on a Reviewer opinion or shadow note. */
+const reviewEvidenceValidator = v.object({
+  file: v.string(),
+  line: v.optional(v.number()),
+  note: v.optional(v.string()),
+});
+
 export const taskStatus = v.union(
   v.literal("queued"),
   v.literal("running"),
@@ -136,6 +143,9 @@ export default defineSchema({
     // Plan 022 (additive): model tier per role (llmModels ids). Explicit
     // agent assignment > tier > default.
     modelTiers: v.optional(modelTiersValidator),
+    // Shadow Agent (additive): new tasks start with the Reviewer observing.
+    // Unset = off.
+    shadowAgentDefault: v.optional(v.boolean()),
   }).index("by_owner", ["ownerId"]),
 
   agents: defineTable({
@@ -231,6 +241,9 @@ export default defineSchema({
     // cleared on resume.
     pausedBy: v.optional(v.literal("user")),
     pausedAt: v.optional(v.number()),
+    // Shadow Agent (additive): the Reviewer observes this task and leaves
+    // notes after each completed subtask. Never executes or blocks.
+    shadowAgent: v.optional(v.boolean()),
     // Agile: the sprint this task belongs to (1-based per project). A
     // sprint groups one planning round and its review/verification.
     sprint: v.optional(v.number()),
@@ -996,6 +1009,114 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_agent", ["agentId"])
     .index("by_project_and_agent", ["projectId", "agentId"]),
+
+  // Second Opinion + Shadow Agent: read-only Reviewer results. A second
+  // opinion (user-requested, one subtask or one chat reply) carries a
+  // verdict; a shadow review (automatic, after each completed subtask of a
+  // task with shadowAgent on) carries notes. Neither ever changes the run.
+  reviewOpinions: defineTable({
+    projectId: v.id("projects"),
+    taskId: v.optional(v.id("tasks")),
+    subtaskKey: v.optional(v.string()),
+    messageId: v.optional(v.id("messages")),
+    conversationId: v.optional(v.id("conversations")),
+    mode: v.union(v.literal("second_opinion"), v.literal("shadow")),
+    target: v.union(v.literal("subtask"), v.literal("chat")),
+    status: v.union(v.literal("running"), v.literal("done"), v.literal("error"), v.literal("skipped")),
+    verdict: v.optional(v.union(v.literal("agree"), v.literal("concerns"), v.literal("disagree"))),
+    reason: v.optional(v.string()),
+    evidence: v.optional(v.array(reviewEvidenceValidator)),
+    notes: v.optional(
+      v.array(
+        v.object({
+          kind: v.union(v.literal("risk"), v.literal("missed_requirement"), v.literal("suggestion")),
+          text: v.string(),
+          evidence: v.array(reviewEvidenceValidator),
+        })
+      )
+    ),
+    model: v.optional(v.string()),
+    inputTokens: v.optional(v.number()),
+    outputTokens: v.optional(v.number()),
+    toolCalls: v.optional(v.number()),
+    error: v.optional(v.string()),
+    // "Replan with this note": when the user sent this opinion to the
+    // planner, and how it landed (replanned / requeued / steered).
+    replanRequestedAt: v.optional(v.number()),
+    replanOutcome: v.optional(v.string()),
+    createdAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_task", ["taskId"])
+    .index("by_message", ["messageId"])
+    .index("by_project_and_target", ["projectId", "target"]),
+
+  // Incident Room: one record per failure worth a look (task failed,
+  // subtask escalated / blocked), grouping where it failed, the error, the
+  // last events, the escalation and related audit rows.
+  incidents: defineTable({
+    projectId: v.id("projects"),
+    taskId: v.id("tasks"),
+    trigger: v.union(v.literal("task_failed"), v.literal("subtask_escalated"), v.literal("subtask_blocked")),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    title: v.string(),
+    subtaskKey: v.optional(v.string()),
+    failurePoint: v.optional(
+      v.object({ subtaskKey: v.optional(v.string()), title: v.optional(v.string()), role: v.optional(v.string()), stage: v.optional(v.string()) })
+    ),
+    error: v.optional(v.string()),
+    lastEvents: v.array(
+      v.object({
+        type: v.string(),
+        level: v.optional(v.string()),
+        subtaskKey: v.optional(v.string()),
+        text: v.optional(v.string()),
+        at: v.number(),
+      })
+    ),
+    escalation: v.optional(escalationValidator),
+    auditIds: v.array(v.id("audit")),
+    owner: v.optional(v.string()),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+  })
+    .index("by_task", ["taskId"])
+    .index("by_project_and_status", ["projectId", "status"])
+    .index("by_status", ["status"]),
+
+  // Self-Improvement Lab: an LLM-proposed change to a prompt, skill or role
+  // config after a failed run. Applied only on the user's Apply (audited).
+  improvementSuggestions: defineTable({
+    projectId: v.id("projects"),
+    taskId: v.id("tasks"),
+    incidentId: v.optional(v.id("incidents")),
+    status: v.union(
+      v.literal("running"),
+      v.literal("ready"),
+      v.literal("no_change"),
+      v.literal("applied"),
+      v.literal("dismissed"),
+      v.literal("error")
+    ),
+    targetKind: v.optional(v.union(v.literal("agent_prompt"), v.literal("skill"), v.literal("role_prompt"))),
+    targetId: v.optional(v.string()),
+    targetLabel: v.optional(v.string()),
+    baseText: v.optional(v.string()),
+    proposedText: v.optional(v.string()),
+    diff: v.optional(v.string()),
+    rationale: v.optional(v.string()),
+    error: v.optional(v.string()),
+    model: v.optional(v.string()),
+    inputTokens: v.optional(v.number()),
+    outputTokens: v.optional(v.number()),
+    createdAt: v.number(),
+    decidedAt: v.optional(v.number()),
+  })
+    .index("by_incident", ["incidentId"])
+    .index("by_task", ["taskId"])
+    .index("by_status", ["status"]),
 
   // Library: reusable agent skills (markdown instructions). Attached to
   // agents via `agents.skillIds` and appended to their prompt at run time.

@@ -2,6 +2,8 @@ import { internalMutation, internalQuery, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
+import { openIncident } from "./lib/incidents";
+import { scheduleShadowReview } from "./lib/reviewer/shadowSchedule";
 import { subtaskContractFields } from "./lib/contractValidators";
 import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver";
 import type { PromptSkill } from "./lib/skills";
@@ -567,6 +569,7 @@ export const recoverStale = internalMutation({
         },
         level: "warn",
       });
+      await openIncident(ctx, { taskId: task._id, trigger: "task_failed", stage: "recovery" });
       recovered.push(task._id);
     }
 
@@ -1663,6 +1666,10 @@ export const completeTask = internalMutation({
           .filter((agentId): agentId is Id<"agents"> => Boolean(agentId))
       );
       for (const agentId of agentIds) await refreshAgentStatus(ctx, agentId);
+      // Incident Room: a failed run opens an incident (read-only on the task).
+      if (args.status === "failed") {
+        await openIncident(ctx, { taskId: task._id, trigger: "task_failed", error: args.errorMessage });
+      }
     }
     return { applied: true, status: args.status };
   },
@@ -1801,6 +1808,11 @@ export const updateSubtask = internalMutation({
     });
     // Live output tail only exists while running (subtaskLive.ts).
     if (nextStatus !== "running") await clearSubtaskLive(ctx, args.taskId, args.key);
+    // Shadow Agent: the Reviewer observes each newly completed subtask.
+    // Scheduled, never awaited: it cannot block or change the run.
+    if (nextStatus === "completed" && subtask.status !== "completed") {
+      await scheduleShadowReview(ctx, args.taskId, args.key);
+    }
     return true;
   },
 });

@@ -129,6 +129,8 @@ export const createFromCommand = mutation({
     conversationId: v.optional(v.id("conversations")),
     /** Plan 020: the mode chosen in the composer; defaults to the project's. */
     permissionMode: v.optional(permissionModeValidator),
+    /** Shadow Agent: Reviewer observes this task; defaults to the project's. */
+    shadowAgent: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
@@ -201,6 +203,7 @@ export const createFromCommand = mutation({
       assignedAgentIds: args.assignedAgentIds,
       ...(args.conversationId ? { conversationId: args.conversationId } : {}),
       permissionMode: args.permissionMode ?? projectDefaultPermissionMode(project),
+      ...(args.shadowAgent ?? project.shadowAgentDefault ? { shadowAgent: true } : {}),
       updatedAt: now,
     });
     await ctx.db.insert("messages", {
@@ -342,12 +345,28 @@ export const retry = mutation({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
     const task = await assertTaskAccess(ctx, args.taskId);
-    if (task.status === "running") throw new Error("Running tasks cannot be retried");
-    // A needs_approval task a worker is resuming holds a live lease:
-    // re-queuing it would run it twice.
-    if (holdsLiveLease(task)) {
-      throw new Error("A worker is resuming this task; wait or cancel it first");
-    }
+    await requeueForRetry(ctx, task);
+    return true;
+  },
+});
+
+/**
+ * Manual retry: re-queue a non-running task, keeping completed subtasks.
+ * Shared by tasks.retry and the Reviewer's "Replan with this note" on a
+ * finished task (which also sets planReviewNote so the worker replans).
+ */
+export async function requeueForRetry(
+  ctx: MutationCtx,
+  task: Doc<"tasks">,
+  extra: { planReviewNote?: string } = {}
+): Promise<void> {
+  const args = { taskId: task._id };
+  if (task.status === "running") throw new Error("Running tasks cannot be retried");
+  // A needs_approval task a worker is resuming holds a live lease:
+  // re-queuing it would run it twice.
+  if (holdsLiveLease(task)) {
+    throw new Error("A worker is resuming this task; wait or cancel it first");
+  }
     const now = Date.now();
     // The previous attempt's approvals are superseded: a pending one would
     // stay actionable, an old rejection would make the resumed run reject
@@ -369,6 +388,7 @@ export const retry = mutation({
       // the count and never resets it, so a poisoned plan still hits
       // the recovery bound.
       recoveryCount: 0,
+      ...(extra.planReviewNote ? { planReviewNote: extra.planReviewNote } : {}),
     });
     // Reset only the subtasks that never finished, so the worker
     // replans the remaining work cleanly. Completed subtasks keep their
@@ -390,9 +410,7 @@ export const retry = mutation({
       },
       level: "info",
     });
-    return true;
-  },
-});
+}
 
 export const answerQuestion = mutation({
   args: {
@@ -445,25 +463,33 @@ export const steerTask = mutation({
   args: { taskId: v.id("tasks"), instruction: v.string() },
   handler: async (ctx, args) => {
     const task = await assertTaskAccess(ctx, args.taskId);
-    const instruction = args.instruction.trim();
-    if (instruction.length === 0) {
-      return { applied: false as const, reason: "empty_instruction" as const };
-    }
-    const admission = await admitTaskInput(ctx, args.taskId, "steer");
-    if (!admission.ok) return { applied: false as const, reason: admission.reason };
-    const now = Date.now();
-    await recordTaskInput(ctx, task, "steer", instruction, now);
-    await ctx.db.insert("taskEvents", {
-      taskId: task._id,
-      projectId: task.projectId,
-      type: "task.steered",
-      payload: { instruction: instruction.slice(0, 500) },
-      level: "info",
-    });
-    await emitCanonical(ctx, task.projectId, task._id, undefined, undefined, "message.created", { instruction: instruction.slice(0, 500) });
-    return { applied: true as const };
+    return await steerWith(ctx, task, args.instruction);
   },
 });
+
+/**
+ * Steer a task through the single input guard (shared by steerTask and the
+ * Reviewer's "Replan with this note" on a running task).
+ */
+export async function steerWith(ctx: MutationCtx, task: Doc<"tasks">, rawInstruction: string) {
+  const instruction = rawInstruction.trim();
+  if (instruction.length === 0) {
+    return { applied: false as const, reason: "empty_instruction" as const };
+  }
+  const admission = await admitTaskInput(ctx, task._id, "steer");
+  if (!admission.ok) return { applied: false as const, reason: admission.reason };
+  const now = Date.now();
+  await recordTaskInput(ctx, task, "steer", instruction, now);
+  await ctx.db.insert("taskEvents", {
+    taskId: task._id,
+    projectId: task.projectId,
+    type: "task.steered",
+    payload: { instruction: instruction.slice(0, 500) },
+    level: "info",
+  });
+  await emitCanonical(ctx, task.projectId, task._id, undefined, undefined, "message.created", { instruction: instruction.slice(0, 500) });
+  return { applied: true as const };
+}
 
 /** Append one canonical event with a monotonic sequence. */
 async function emitCanonical(

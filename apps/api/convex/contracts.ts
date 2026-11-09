@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { holdsTaskLease } from "./orchestration";
 import { assertProjectAccess } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
+import { openIncident } from "./lib/incidents";
 import { MODEL_TIER_KEYS, normalizeModelTiers } from "./lib/modelTiers";
 import {
   acceptanceStatusValidator,
@@ -63,6 +64,17 @@ export const recordSubtaskAcceptance = internalMutation({
       subtaskKey: args.key,
       level: args.acceptanceStatus === "accepted" || args.acceptanceStatus === "delivered" ? "info" : "warn",
     });
+    // Incident Room: an escalation or a blocked acceptance opens an incident.
+    if (args.acceptanceStatus === "escalated" || args.acceptanceStatus === "blocked") {
+      await openIncident(ctx, {
+        taskId: args.taskId,
+        trigger: args.acceptanceStatus === "escalated" ? "subtask_escalated" : "subtask_blocked",
+        subtaskKey: args.key,
+        error: args.acceptanceReason,
+        escalation: args.escalation,
+        stage: "acceptance",
+      });
+    }
     return { applied: true as const };
   },
 });

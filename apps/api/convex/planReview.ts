@@ -494,36 +494,53 @@ export const replanWithNote = mutation({
   args: { approvalId: v.id("approvals"), note: v.string() },
   handler: async (ctx, args) => {
     const { approval, task } = await pendingPlanApproval(ctx, args.approvalId);
-    const note = args.note.trim();
-    if (!note) return { ok: false as const, errors: ["write a note for the planner first"] };
-    if (note.length > NOTE_MAX) return { ok: false as const, errors: [`the note is longer than ${NOTE_MAX} characters`] };
-    const now = Date.now();
-    await closePlanApproval(ctx, approval, "replan_requested", now);
-    await ctx.db.patch(task._id, {
-      status: "queued",
-      planReviewNote: note,
-      workerId: undefined,
-      leaseExpiresAt: undefined,
-      updatedAt: now,
-    });
-    await ctx.db.insert("taskEvents", {
-      taskId: task._id,
-      projectId: task.projectId,
-      type: "plan.replan_requested",
-      payload: { planVersion: approval.planVersion ?? null, note: note.slice(0, 500) },
-      level: "info",
-    });
-    await recordAudit(ctx, {
-      tool: "approval",
-      action: "plan.replan",
-      decision: "recorded",
-      target: approval.summary,
-      projectId: task.projectId,
-      taskId: task._id,
-    });
-    return { ok: true as const };
+    return await replanPendingPlan(ctx, approval, task, args.note);
   },
 });
+
+/** The pending plan review of a task, if any (Reviewer "Replan with this note"). */
+export async function findPendingPlanApproval(ctx: MutationCtx, taskId: Id<"tasks">): Promise<Doc<"approvals"> | null> {
+  const approvals = await ctx.db
+    .query("approvals")
+    .withIndex("by_task", (q) => q.eq("taskId", taskId))
+    .collect();
+  return approvals.find((approval) => approval.kind === "plan" && approval.status === "pending") ?? null;
+}
+
+/**
+ * Discard the pending plan and re-queue the task with `note` as planner
+ * feedback. Shared by replanWithNote and the Reviewer's second opinion.
+ */
+export async function replanPendingPlan(ctx: MutationCtx, approval: Doc<"approvals">, task: Doc<"tasks">, rawNote: string) {
+  const note = rawNote.trim();
+  if (!note) return { ok: false as const, errors: ["write a note for the planner first"] };
+  if (note.length > NOTE_MAX) return { ok: false as const, errors: [`the note is longer than ${NOTE_MAX} characters`] };
+  const now = Date.now();
+  await closePlanApproval(ctx, approval, "replan_requested", now);
+  await ctx.db.patch(task._id, {
+    status: "queued",
+    planReviewNote: note,
+    workerId: undefined,
+    leaseExpiresAt: undefined,
+    updatedAt: now,
+  });
+  await ctx.db.insert("taskEvents", {
+    taskId: task._id,
+    projectId: task.projectId,
+    type: "plan.replan_requested",
+    payload: { planVersion: approval.planVersion ?? null, note: note.slice(0, 500) },
+    level: "info",
+  });
+  await recordAudit(ctx, {
+    tool: "approval",
+    action: "plan.replan",
+    decision: "recorded",
+    target: approval.summary,
+    projectId: task.projectId,
+    taskId: task._id,
+  });
+  return { ok: true as const };
+}
 
 /**
  * Called by `approvals.approve` for a `plan` approval (after it is marked

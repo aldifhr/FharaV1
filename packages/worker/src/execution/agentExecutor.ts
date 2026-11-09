@@ -597,13 +597,13 @@ export async function executeSubtask(
   // Context Snapshot: what this subtask's LLM calls are for.
   const callRole = subtask.kind === "review" ? "reviewer" : subtask.kind === "qa" ? "qa" : "executor";
   return await withSnapshotScope(
-    { callRole, subtaskKey: subtask.key, agentId: input.agent._id, agentRole: input.agent.role },
-    () => executeSubtaskScoped(input)
+    { callRole, subtaskKey: subtask.key, agentId: rawInput.agent._id, agentRole: rawInput.agent.role },
+    () => executeSubtaskScoped(rawInput)
   );
 }
 
-async function executeSubtaskScoped(input: SubtaskExecutionInput): Promise<SubtaskExecutionResult> {
-  const { subtask } = input;
+async function executeSubtaskScoped(rawInput: SubtaskExecutionInput): Promise<SubtaskExecutionResult> {
+  const { subtask } = rawInput;
   try {
     const input = await withOnDemandSkills(rawInput);
     // Plan 014: native-provider runtime (provider CLI with its own native

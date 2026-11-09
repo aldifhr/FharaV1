@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { motion } from "framer-motion";
-import { ChevronDown, ChevronRight, Loader2, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Plus, Square, Trash2 } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { useToast } from "./Toasts";
 import { roleLabel } from "@/lib/agentRoles";
@@ -61,6 +61,16 @@ export default function TaskBoard({
   const agents = useQuery(api.agents.list, {});
   const { deleteTask } = useWorkspace();
   const createTask = useMutation(api.tasks.createFromCommand);
+  const cancelTask = useMutation(api.tasks.cancel);
+  const stopTask = async (t: { _id: string; title: string }) => {
+    if (!window.confirm(`Stop "${t.title}"? You can delete it once it has stopped.`)) return;
+    try {
+      await cancelTask({ taskId: t._id as never });
+      toast("success", "Task stopped");
+    } catch (err) {
+      toast("error", "Failed to stop task", err instanceof Error ? err.message : "Failed");
+    }
+  };
   const toast = useToast();
 
   const [filter, setFilter] = useState<string>("all");
@@ -258,16 +268,27 @@ export default function TaskBoard({
                 >
                   {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                 </button>
+                {t.status === "running" ? (
+                <button
+                  type="button"
+                  onClick={() => stopTask({ _id: t._id, title: t.title })}
+                  title="Stop task (delete it after it stops)"
+                  aria-label={`Stop task ${t.title}`}
+                  className="rounded-md p-1.5 text-ink-3 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-400/50 dark:hover:bg-red-950/50"
+                >
+                  <Square size={13} />
+                </button>
+                ) : (
                 <button
                   type="button"
                   onClick={() => deleteTask({ _id: t._id, title: t.title, status: t.status })}
-                  disabled={t.status === "running"}
-                  title={t.status === "running" ? "Running tasks cannot be deleted" : "Delete task"}
-                  aria-label={t.status === "running" ? "Running tasks cannot be deleted" : `Delete task ${t.title}`}
+                  title="Delete task"
+                  aria-label={`Delete task ${t.title}`}
                   className="rounded-md p-1.5 text-ink-3 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-400/50 disabled:opacity-30 dark:hover:bg-red-950/50"
                 >
                   <Trash2 size={14} />
                 </button>
+                )}
               </div>
             </div>
 

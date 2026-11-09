@@ -164,6 +164,8 @@ deployment env. All are listed in `.env.example`.
 | `MOAGENT_WEEKLY_TOKEN_BUDGET` | Convex | — | Weekly budget shown in the usage meter (display only) |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Convex | — | GitHub OAuth app (push / draft PR) |
 | `GITHUB_OAUTH_CALLBACK_URL` | Convex | `http://localhost:3000/api/integrations/github/callback` | OAuth redirect |
+| `OAUTH_STATE_SECRET` | Convex | `PROVIDER_ENCRYPTION_KEY` | HMAC key for the signed, one-time OAuth `state` |
+| `APP_ORIGIN` | Convex | origin of `GITHUB_OAUTH_CALLBACK_URL` | Web app origin the OAuth popup posts its result to |
 | `GITHUB_WEBHOOK_SECRET` | Convex | — | Fallback GitHub webhook secret when a project has none (webhooks are rejected with 401 without any secret) |
 | `CONVEX_SITE_URL` | web | derived | Convex HTTP actions URL for the OAuth callback forwarder |
 
@@ -262,8 +264,29 @@ row to change its scope, role allowlist, secrets and on/off state.
    `apps/web/.env.local` if the HTTP actions do not run on the API port + 1.
 3. Turn on `ORCHESTRATOR_WORKTREE_ISOLATION=1` so every task gets a
    committed branch.
-4. In the project's **Manage project → GitHub**, connect and pick the repo
-   and base branch.
+4. **Integrations → Account → GitHub account → Connect** (once, for every
+   project). The token is stored encrypted with `PROVIDER_ENCRYPTION_KEY`.
+5. In each project's **Manage project → GitHub**, pick the repo and base
+   branch. Projects only hold this binding (and their webhook secret).
+
+Connecting uses a signed `state` (HMAC-SHA256 with `OAUTH_STATE_SECRET`,
+else `PROVIDER_ENCRYPTION_KEY`) carrying a one-time nonce: the callback
+rejects a forged, expired (10 min) or reused state, and the popup reports
+back only to the web app origin (`APP_ORIGIN`, else the callback URL's).
+
+Manual token instead of OAuth (also account-wide):
+`npx convex run integrations:upsertGithubIntegration '{"accessToken":"gho_…"}'`.
+
+Upgrading from per-project GitHub connections: run once (idempotent)
+
+```bash
+npm run migrate:github-global   # = cd apps/api && npx convex run integrations:migrateGithubToGlobal
+```
+
+It promotes the most recently updated connected project token to the
+account connection, clears the old plaintext project tokens, and keeps
+every project's repo and webhook secret. Until it runs (or you connect in
+Integrations), each project keeps using its old token.
 
 After a task commits, its push card offers **Push**. The click records an
 approved `git_push` approval; the worker pushes `<sha>:refs/heads/<branch>`
@@ -278,7 +301,7 @@ Every delivery is verified as HMAC-SHA256 of the raw body
 deduped on `X-GitHub-Delivery`. With no secret configured the endpoint
 answers 401.
 
-1. **Integrations → GitHub account → Webhook**: click **Generate secret**.
+1. **Integrations** (scope: the project) **→ Repo → Webhook**: click **Generate secret**.
    The secret is shown once and stored encrypted with
    `PROVIDER_ENCRYPTION_KEY`. Without that key, set `GITHUB_WEBHOOK_SECRET`
    in the root `.env` instead (`npm run env:sync` copies it to Convex).

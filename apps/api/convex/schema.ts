@@ -847,6 +847,44 @@ export default defineSchema({
   }).index("by_provider", ["providerId"]),
 
   // Integrations (e.g. GitHub MCP connector)
+  // One GitHub account for the whole deployment (single-owner app). Every
+  // project pushes, opens PRs and lists repos with this token; a project
+  // keeps only its repo binding + webhook secret in `integrations`.
+  // Tokens are AES-GCM ciphertext (lib/llmCrypto, PROVIDER_ENCRYPTION_KEY).
+  githubConnections: defineTable({
+    scope: v.literal("global"),
+    // Viewer that connected it (auth subject), when an identity was present.
+    ownerId: v.optional(v.string()),
+    login: v.optional(v.string()),
+    accessTokenCiphertext: v.optional(v.string()),
+    refreshTokenCiphertext: v.optional(v.string()),
+    tokenExpiresAt: v.optional(v.number()),
+    status: v.union(v.literal("active"), v.literal("error"), v.literal("disconnected")),
+    errorMessage: v.optional(v.string()),
+    lastSyncAt: v.optional(v.number()),
+    // Set when the migration promoted a legacy per-project row.
+    migratedFromIntegrationId: v.optional(v.id("integrations")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_scope", ["scope"]),
+
+  // Signed OAuth `state` nonces: created by integrations.getOAuthUrl,
+  // consumed exactly once by the callback, pruned after an hour.
+  oauthStates: defineTable({
+    nonce: v.string(),
+    provider: v.literal("github"),
+    ownerId: v.optional(v.string()),
+    returnTo: v.optional(v.string()),
+    createdAt: v.number(),
+    usedAt: v.optional(v.number()),
+  })
+    .index("by_nonce", ["nonce"])
+    .index("by_createdAt", ["createdAt"]),
+
+  // Per-project GitHub repo binding (owner/repo/base branch) + webhook
+  // secret. `accessToken`/`refreshToken` are LEGACY (pre-global, plaintext):
+  // read only as a fallback until migrateGithubToGlobal promotes one to
+  // `githubConnections` and clears them.
   integrations: defineTable({
     projectId: v.id("projects"),
     type: v.union(v.literal("github")),

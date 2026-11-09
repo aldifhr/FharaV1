@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import * as integrationsModule from "./integrations";
 import schema from "./schema";
+import { decryptApiKey } from "./lib/llmCrypto";
 
 /**
  * Phase 6 backend harness (convex-test) — minimal, invariant-focused.
@@ -143,13 +144,23 @@ describe("integrations token store is internal-only (Phase 6 fix)", () => {
     };
     expect(registration.isInternal).toBe(true);
 
-    const id = await t.mutation(
-      internal.integrations.upsertGithubIntegration,
-      args
-    );
-    expect(id).toBeTruthy();
-    const stored = await t.run(async (ctx) => await ctx.db.get(id));
-    expect(stored?.accessToken).toBe("gho_test_token");
+    const previousKey = process.env.PROVIDER_ENCRYPTION_KEY;
+    process.env.PROVIDER_ENCRYPTION_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    try {
+      const id = await t.mutation(
+        internal.integrations.upsertGithubIntegration,
+        args
+      );
+      expect(id).toBeTruthy();
+      // Account-level connection: the token is stored sealed, never plaintext.
+      const stored = await t.run(async (ctx) => await ctx.db.get(id));
+      expect(stored?.accessTokenCiphertext).toMatch(/^v1:/);
+      expect(JSON.stringify(stored)).not.toContain("gho_test_token");
+      expect(await decryptApiKey(stored!.accessTokenCiphertext!, "t")).toBe("gho_test_token");
+    } finally {
+      if (previousKey === undefined) delete process.env.PROVIDER_ENCRYPTION_KEY;
+      else process.env.PROVIDER_ENCRYPTION_KEY = previousKey;
+    }
   });
 });
 

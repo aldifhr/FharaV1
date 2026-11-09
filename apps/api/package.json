@@ -7,7 +7,8 @@
     "codegen": "convex codegen",
     "dev": "convex dev",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p convex/tsconfig.json"
+    "typecheck": "tsc --noEmit -p convex/tsconfig.json",
+    "migrate:github-global": "convex run integrations:migrateGithubToGlobal"
   },
   "dependencies": {
     "@convex-dev/agent": "^0.7.9",

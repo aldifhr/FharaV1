@@ -176,7 +176,7 @@ describe("MCP secret masking", () => {
     ).rejects.toThrow(/reserved/);
   });
 
-  test("GitHub preset borrows the project's OAuth token and follows disconnects", async () => {
+  test("GitHub preset borrows the account-level OAuth token and follows disconnects", async () => {
     const t = convexTest(schema, modules);
     const { projectId } = await seedRunnableTask(t);
     await t.mutation(internal.integrations.upsertGithubIntegration, { projectId, accessToken: "gho_first" });
@@ -193,10 +193,7 @@ describe("MCP secret masking", () => {
     stored = await t.run((ctx) => ctx.db.get(serverId));
     expect(JSON.parse(await decryptApiKey(stored!.envCiphertext!, "t")).GITHUB_PERSONAL_ACCESS_TOKEN).toBe("gho_second");
 
-    const integration = await t.run((ctx) =>
-      ctx.db.query("integrations").withIndex("by_project", (q) => q.eq("projectId", projectId)).first()
-    );
-    await t.mutation(api.integrations.remove, { integrationId: integration!._id });
+    await t.mutation(api.integrations.disconnectGithub, {});
     stored = await t.run((ctx) => ctx.db.get(serverId));
     expect(stored!.envKeys).toEqual([]);
     expect(stored!.envCiphertext).toBeUndefined();

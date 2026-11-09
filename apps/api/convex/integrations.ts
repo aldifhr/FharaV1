@@ -8,9 +8,27 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { assertProjectAccess } from "./lib/authz";
+import type { Id } from "./_generated/dataModel";
+import { assertProjectAccess, assertRegistryWriteAccess, getViewerId } from "./lib/authz";
 import { changedFields, recordAudit } from "./lib/recordAudit";
-import { syncGithubOAuthEnv } from "./mcpServers";
+import { syncGithubOAuthEnv, syncGithubOAuthEnvAll } from "./mcpServers";
+import {
+  githubConnectionState,
+  globalGithubConnection,
+  projectGithubBinding,
+  resolveGithubToken,
+  scrubLegacyGithubTokens,
+} from "./lib/githubAuth";
+import {
+  OAUTH_STATE_MAX_AGE_MS,
+  OAUTH_STATE_RETENTION_MS,
+  appOrigin,
+  newOAuthNonce,
+  oauthStateSecret,
+  safeReturnTo,
+  signOAuthState,
+  verifyOAuthState,
+} from "./lib/oauthState";
 import { decryptApiKey, encryptApiKey } from "./lib/llmCrypto";
 import {
   HANDLED_GITHUB_EVENTS,
@@ -20,55 +38,117 @@ import {
 } from "./lib/githubWebhook";
 
 // GitHub OAuth configuration
-const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? "";
-const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET ?? "";
-const GITHUB_OAUTH_CALLBACK_URL =
+// Read per call (not at module load) so env changes and tests see them.
+const githubClientId = () => process.env.GITHUB_CLIENT_ID ?? "";
+const githubClientSecret = () => process.env.GITHUB_CLIENT_SECRET ?? "";
+const githubCallbackUrl = () =>
   process.env.GITHUB_OAUTH_CALLBACK_URL ?? "http://localhost:3000/api/integrations/github/callback";
 
-// Convex runs in a V8 isolate without the Node `Buffer` global, so the
-// OAuth `state` uses Web-standard base64url via btoa/atob + TextEncoder.
-function encodeOAuthState(payload: { projectId: string; timestamp: number }): string {
-  const bytes = new TextEncoder().encode(JSON.stringify(payload));
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
+/**
+ * Account-level GitHub connection (one per deployment; the app is
+ * single-owner). Connect and disconnect are registry-level writes
+ * (`assertRegistryWriteAccess`: a signed-in viewer, or local single-user
+ * mode). Projects keep only a repo binding + webhook secret in
+ * `integrations`; see lib/githubAuth for how a token is resolved.
+ */
 
-function decodeOAuthState(state: string): { projectId: string; timestamp: number } {
-  const base64 = state.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return JSON.parse(new TextDecoder().decode(bytes));
+const OAUTH_SCOPE = "repo read:user write:repo_hook";
+
+function oauthPage(title: string, body: string, message: Record<string, unknown>, redirectPath?: string): Response {
+  // The popup reports to its opener on the web app origin only, never "*".
+  const origin = appOrigin();
+  const fallback = redirectPath ? `${origin}${redirectPath}` : null;
+  return new Response(
+    `<html><body>
+      <h1>${escapeHtml(title)}</h1>
+      <p>${escapeHtml(body)}</p>
+      <script>
+        if (window.opener) {
+          window.opener.postMessage(${JSON.stringify(message).replace(/</g, "\\u003c")}, ${JSON.stringify(origin)});
+          setTimeout(() => window.close(), 800);
+        }${fallback ? ` else { window.location.replace(${JSON.stringify(fallback).replace(/</g, "\\u003c")}); }` : ""}
+      </script>
+    </body></html>`,
+    { headers: { "Content-Type": "text/html", "Cache-Control": "no-store" } }
+  );
 }
 
 /**
- * Start GitHub OAuth flow - returns the authorization URL
+ * Start the GitHub OAuth flow: records a one-time nonce and returns the
+ * authorization URL with a signed `state`. An ACTION so the nonce comes
+ * from real randomness; the row is written through an internal mutation
+ * that also checks access. Null when no OAuth app is configured.
  */
-export const getOAuthUrl = query({
-  args: { projectId: v.id("projects") },
+export const getOAuthUrl = action({
+  args: { returnTo: v.optional(v.string()) },
   handler: async (ctx, args): Promise<string | null> => {
-    await assertProjectAccess(ctx, args.projectId);
-    // No OAuth app configured on this deployment: the UI says so instead
-    // of opening a GitHub page that rejects an empty client id.
-    if (!GITHUB_CLIENT_ID) return null;
-    const state = encodeOAuthState({ projectId: args.projectId, timestamp: Date.now() });
-
+    if (!githubClientId()) return null;
+    const secret = oauthStateSecret();
+    if (!secret) {
+      throw new Error("Set OAUTH_STATE_SECRET (or PROVIDER_ENCRYPTION_KEY) on the Convex deployment to connect GitHub.");
+    }
+    const nonce = newOAuthNonce();
+    const iat = await ctx.runMutation(internal.integrations.createOAuthState, {
+      nonce,
+      returnTo: safeReturnTo(args.returnTo),
+    });
+    const state = await signOAuthState({ v: 1, p: "github", n: nonce, iat }, secret);
     const params = new URLSearchParams({
-      client_id: GITHUB_CLIENT_ID,
-      redirect_uri: GITHUB_OAUTH_CALLBACK_URL,
-      scope: "repo read:user write:repo_hook",
+      client_id: githubClientId(),
+      redirect_uri: githubCallbackUrl(),
+      scope: OAUTH_SCOPE,
       state,
     });
-
     return `https://github.com/login/oauth/authorize?${params.toString()}`;
   },
 });
 
-const OAUTH_STATE_MAX_AGE_MS = 15 * 60_000;
+/** Record a nonce (access-checked) and prune old ones. Returns its createdAt. */
+export const createOAuthState = internalMutation({
+  args: { nonce: v.string(), returnTo: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<number> => {
+    await assertRegistryWriteAccess(ctx);
+    const now = Date.now();
+    const stale = await ctx.db
+      .query("oauthStates")
+      .withIndex("by_createdAt", (q) => q.lt("createdAt", now - OAUTH_STATE_RETENTION_MS))
+      .take(50);
+    for (const row of stale) await ctx.db.delete(row._id);
+    await ctx.db.insert("oauthStates", {
+      nonce: args.nonce,
+      provider: "github",
+      ownerId: (await getViewerId(ctx)) ?? undefined,
+      returnTo: safeReturnTo(args.returnTo),
+      createdAt: now,
+    });
+    return now;
+  },
+});
 
-/** Escape a value for HTML text and for a JS string inside a <script>. */
+/**
+ * Consume a nonce exactly once. A mutation is serializable, so two
+ * concurrent callbacks with the same state cannot both succeed.
+ */
+export const consumeOAuthState = internalMutation({
+  args: { nonce: v.string() },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ ok: true; returnTo?: string; ownerId?: string } | { ok: false; reason: "unknown" | "reused" | "expired" }> => {
+    const row = await ctx.db
+      .query("oauthStates")
+      .withIndex("by_nonce", (q) => q.eq("nonce", args.nonce))
+      .first();
+    if (!row || row.provider !== "github") return { ok: false, reason: "unknown" };
+    if (row.usedAt !== undefined) return { ok: false, reason: "reused" };
+    const now = Date.now();
+    await ctx.db.patch(row._id, { usedAt: now });
+    if (now - row.createdAt > OAUTH_STATE_MAX_AGE_MS) return { ok: false, reason: "expired" };
+    return { ok: true, returnTo: row.returnTo, ownerId: row.ownerId };
+  },
+});
+
+/** Escape a value for HTML text. */
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -79,7 +159,8 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Handle GitHub OAuth callback - exchange code for access token
+ * Handle GitHub OAuth callback: verify the signed state, consume its nonce,
+ * exchange the code, and store the account-level connection.
  */
 export const handleOAuthCallback = httpAction(async (ctx, request) => {
   const url = new URL(request.url);
@@ -88,172 +169,331 @@ export const handleOAuthCallback = httpAction(async (ctx, request) => {
   const error = url.searchParams.get("error");
 
   if (error) {
-    return new Response(
-      `<html><body>
-        <h1>GitHub OAuth Error</h1>
-        <p>${escapeHtml(error)}</p>
-        <p>${escapeHtml(url.searchParams.get("error_description") ?? "")}</p>
-        <script>
-          if (window.opener) {
-            window.opener.postMessage({ type: "github_oauth_error", error: ${JSON.stringify(escapeHtml(error))} }, "*");
-            window.close();
-          }
-        </script>
-      </body></html>`,
-      { headers: { "Content-Type": "text/html" } }
+    return oauthPage(
+      "GitHub OAuth Error",
+      `${error} ${url.searchParams.get("error_description") ?? ""}`.trim(),
+      { type: "github_oauth_error", error: error.slice(0, 200) }
     );
   }
-
   if (!code || !state) {
     return new Response("Missing code or state parameter", { status: 400 });
   }
 
-  // Decode state to get projectId
-  let projectId: string;
-  try {
-    const decoded = decodeOAuthState(state);
-    projectId = decoded.projectId;
-    if (typeof projectId !== "string" || typeof decoded.timestamp !== "number") throw new Error("bad state");
-    if (Date.now() - decoded.timestamp > OAUTH_STATE_MAX_AGE_MS) {
-      return new Response("OAuth state expired; start the GitHub connection again", { status: 400 });
-    }
-  } catch {
-    return new Response("Invalid state parameter", { status: 400 });
+  const secret = oauthStateSecret();
+  if (!secret) return new Response("OAuth state secret is not configured", { status: 500 });
+  const verified = await verifyOAuthState(state, secret);
+  if (!verified.ok) {
+    return new Response(
+      verified.reason === "expired"
+        ? "OAuth state expired; start the GitHub connection again"
+        : "Invalid state parameter",
+      { status: 400 }
+    );
+  }
+  const consumed = await ctx.runMutation(internal.integrations.consumeOAuthState, { nonce: verified.payload.n });
+  if (!consumed.ok) {
+    return new Response(
+      consumed.reason === "expired"
+        ? "OAuth state expired; start the GitHub connection again"
+        : "Invalid or already used state parameter",
+      { status: 400 }
+    );
   }
 
-  // Exchange code for access token
-  const tokenResponse = await fetch(
-    "https://github.com/login/oauth/access_token",
-    {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        client_id: GITHUB_CLIENT_ID,
-        client_secret: GITHUB_CLIENT_SECRET,
-        code,
-        redirect_uri: GITHUB_OAUTH_CALLBACK_URL,
-      }),
-    }
-  );
-
+  const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: githubClientId(),
+      client_secret: githubClientSecret(),
+      code,
+      redirect_uri: githubCallbackUrl(),
+    }),
+  });
   const tokenData = (await tokenResponse.json()) as {
     access_token?: string;
     refresh_token?: string;
     expires_in?: number;
     error?: string;
   };
-
   if (tokenData.error || !tokenData.access_token) {
-    return new Response(
-      `<html><body>
-        <h1>Token Exchange Error</h1>
-        <p>${escapeHtml(tokenData.error ?? "Failed to get access token")}</p>
-        <script>
-          if (window.opener) {
-            window.opener.postMessage({ type: "github_oauth_error", error: ${JSON.stringify(escapeHtml(tokenData.error ?? "token_exchange_failed"))} }, "*");
-            window.close();
-          }
-        </script>
-      </body></html>`,
-      { headers: { "Content-Type": "text/html" } }
-    );
+    return oauthPage("Token Exchange Error", tokenData.error ?? "Failed to get access token", {
+      type: "github_oauth_error",
+      error: (tokenData.error ?? "token_exchange_failed").slice(0, 200),
+    });
   }
 
-  // Store the integration
-  const integrationId = await ctx.runMutation(
-    internal.integrations.upsertGithubIntegration,
-    {
-      projectId: projectId as any,
-      accessToken: tokenData.access_token!,
-      refreshToken: tokenData.refresh_token,
-      expiresIn: tokenData.expires_in,
-    }
-  );
+  // The account login, best effort (shown in Integrations).
+  let login: string | undefined;
+  try {
+    const userResponse = await fetch("https://api.github.com/user", {
+      headers: { Authorization: `Bearer ${tokenData.access_token}`, Accept: "application/vnd.github+json" },
+    });
+    if (userResponse.ok) login = ((await userResponse.json()) as { login?: string }).login;
+  } catch {
+    // refresh fills it later
+  }
 
-  return new Response(
-    `<html><body>
-      <h1>GitHub Connected!</h1>
-      <p>Redirecting...</p>
-      <script>
-        if (window.opener) {
-          window.opener.postMessage({ 
-            type: "github_oauth_success",
-            integrationId: ${JSON.stringify(String(integrationId))}
-          }, "*");
-          setTimeout(() => window.close(), 1000);
-        }
-      </script>
-    </body></html>`,
-    { headers: { "Content-Type": "text/html" } }
+  await ctx.runMutation(internal.integrations.upsertGithubIntegration, {
+    accessToken: tokenData.access_token,
+    refreshToken: tokenData.refresh_token,
+    expiresIn: tokenData.expires_in,
+    login,
+    ownerId: consumed.ownerId,
+  });
+
+  return oauthPage(
+    "GitHub Connected!",
+    login ? `Signed in as ${login}.` : "Redirecting...",
+    { type: "github_oauth_success", login: login ?? null },
+    consumed.returnTo ?? "/integrations"
   );
 });
 
 /**
- * Internal mutation to upsert GitHub integration
+ * Store the account-level GitHub connection (OAuth callback, or the manual
+ * token path: `npx convex run integrations:upsertGithubIntegration
+ * '{"accessToken":"gho_…"}'`). Tokens are sealed with PROVIDER_ENCRYPTION_KEY.
+ * `projectId` is optional and only ensures that project has a binding row.
+ * Once stored, legacy per-project plaintext tokens are cleared (repo
+ * bindings kept) and every OAuth-borrowing MCP server is re-sealed.
  */
 export const upsertGithubIntegration = internalMutation({
   args: {
-    projectId: v.id("projects"),
+    projectId: v.optional(v.id("projects")),
     accessToken: v.string(),
     refreshToken: v.optional(v.string()),
     expiresIn: v.optional(v.number()),
+    login: v.optional(v.string()),
+    ownerId: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
-    // Check if integration already exists for this project
-    const existing = await ctx.db
-      .query("integrations")
-      .withIndex("by_project_and_type", (q) =>
-        q.eq("projectId", args.projectId).eq("type", "github")
-      )
-      .first();
-
+  handler: async (ctx, args): Promise<Id<"githubConnections">> => {
+    if (!args.accessToken.trim()) throw new Error("accessToken is empty");
+    let accessTokenCiphertext: string;
+    let refreshTokenCiphertext: string | undefined;
+    try {
+      accessTokenCiphertext = await encryptApiKey(args.accessToken.trim());
+      refreshTokenCiphertext = args.refreshToken ? await encryptApiKey(args.refreshToken) : undefined;
+    } catch {
+      throw new Error("PROVIDER_ENCRYPTION_KEY is not set on the Convex deployment, so the GitHub token cannot be stored encrypted. Set it and connect again.");
+    }
     const now = Date.now();
-    const tokenExpiresAt = args.expiresIn
-      ? now + args.expiresIn * 1000
-      : undefined;
-
+    const tokenExpiresAt = args.expiresIn ? now + args.expiresIn * 1000 : undefined;
+    const existing = await globalGithubConnection(ctx);
+    const fields = {
+      accessTokenCiphertext,
+      refreshTokenCiphertext,
+      tokenExpiresAt,
+      status: "active" as const,
+      errorMessage: undefined,
+      updatedAt: now,
+      ...(args.login ? { login: args.login, lastSyncAt: now } : {}),
+      ...(args.ownerId ? { ownerId: args.ownerId } : {}),
+    };
+    let id: Id<"githubConnections">;
     if (existing) {
-      // Update existing integration
-      await ctx.db.patch(existing._id, {
-        accessToken: args.accessToken,
-        refreshToken: args.refreshToken,
-        tokenExpiresAt,
+      await ctx.db.patch(existing._id, { ...fields, ...(args.login ? {} : { login: existing.status === "disconnected" ? undefined : existing.login }) });
+      id = existing._id;
+    } else {
+      id = await ctx.db.insert("githubConnections", { scope: "global", createdAt: now, ...fields });
+    }
+    // Token values never reach the audit row.
+    await recordAudit(ctx, {
+      action: existing && existing.status !== "disconnected" ? "integration.reconnect" : "integration.add",
+      target: "github",
+      details: { scope: "global", ...(args.login ? { login: args.login } : {}) },
+    });
+    if (args.projectId && !(await projectGithubBinding(ctx, args.projectId))) {
+      if (!(await ctx.db.get(args.projectId))) throw new Error("Project not found");
+      await ctx.db.insert("integrations", {
+        projectId: args.projectId,
+        type: "github",
+        name: "GitHub",
         status: "active",
-        errorMessage: undefined,
+        createdAt: now,
         updatedAt: now,
       });
-      // Token values never reach the audit row.
-      await recordAudit(ctx, {
-        action: "integration.reconnect",
-        target: "github",
-        projectId: args.projectId,
-        details: { changed: ["accessToken", ...(args.refreshToken ? ["refreshToken"] : [])] },
-      });
-      await syncGithubOAuthEnv(ctx, args.projectId);
+    }
+    await scrubLegacyGithubTokens(ctx);
+    await syncGithubOAuthEnvAll(ctx);
+    return id;
+  },
+});
+
+/**
+ * One-time, idempotent migration to the account-level connection:
+ *   npx convex run integrations:migrateGithubToGlobal   (npm run migrate:github-global)
+ * If no global connection exists, the most recently updated ACTIVE
+ * per-project row that holds a token is promoted (token sealed with
+ * PROVIDER_ENCRYPTION_KEY). Whenever a global connection exists, legacy
+ * plaintext tokens are cleared from every project row; repo bindings and
+ * webhook secrets are kept. Re-running changes nothing.
+ */
+export const migrateGithubToGlobal = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db
+      .query("integrations")
+      .withIndex("by_type", (q) => q.eq("type", "github"))
+      .collect();
+    const existing = await globalGithubConnection(ctx);
+    let promotedFrom: Id<"integrations"> | null = null;
+    if (!existing) {
+      const candidate = rows
+        .filter((row) => row.status === "active" && row.accessToken)
+        .sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))[0];
+      if (candidate?.accessToken) {
+        const now = Date.now();
+        await ctx.db.insert("githubConnections", {
+          scope: "global",
+          accessTokenCiphertext: await encryptApiKey(candidate.accessToken),
+          refreshTokenCiphertext: candidate.refreshToken ? await encryptApiKey(candidate.refreshToken) : undefined,
+          tokenExpiresAt: candidate.tokenExpiresAt,
+          status: "active",
+          migratedFromIntegrationId: candidate._id,
+          createdAt: now,
+          updatedAt: now,
+        });
+        promotedFrom = candidate._id;
+        await recordAudit(ctx, {
+          action: "integration.migrate",
+          target: "github",
+          projectId: candidate.projectId,
+          details: { scope: "global", from: candidate._id },
+        });
+      }
+    }
+    const hasGlobal = Boolean(existing || promotedFrom);
+    const legacyTokensCleared = hasGlobal ? await scrubLegacyGithubTokens(ctx) : 0;
+    if (promotedFrom || legacyTokensCleared > 0) await syncGithubOAuthEnvAll(ctx);
+    return {
+      globalExisted: Boolean(existing),
+      promotedFrom,
+      legacyTokensCleared,
+      repoBindingsKept: rows.filter((row) => row.githubOwner && row.githubRepo).length,
+    };
+  },
+});
+
+/** What the global Integrations section shows. Never a token. */
+export const githubAccount = query({
+  args: {},
+  handler: async (ctx) => {
+    let canManage = true;
+    try {
+      await assertRegistryWriteAccess(ctx);
+    } catch {
+      canManage = false;
+    }
+    const configured = Boolean(githubClientId());
+    if (!canManage) return { configured, canManage, connected: false, source: null, login: null, status: null, errorMessage: null, connectedAt: null };
+    const state = await githubConnectionState(ctx);
+    const global = await globalGithubConnection(ctx);
+    return {
+      configured,
+      canManage,
+      connected: state.connected,
+      source: state.source,
+      login: state.login ?? null,
+      status: state.status ?? null,
+      errorMessage: state.errorMessage ?? null,
+      connectedAt: global && global.status !== "disconnected" ? global.updatedAt : null,
+    };
+  },
+});
+
+/**
+ * Disconnect the account-level GitHub connection. Every project loses
+ * push/PR access; repo bindings stay so reconnecting restores them.
+ */
+export const disconnectGithub = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await assertRegistryWriteAccess(ctx);
+    const now = Date.now();
+    const existing = await globalGithubConnection(ctx);
+    const disconnected = {
+      status: "disconnected" as const,
+      accessTokenCiphertext: undefined,
+      refreshTokenCiphertext: undefined,
+      tokenExpiresAt: undefined,
+      errorMessage: undefined,
+      updatedAt: now,
+    };
+    if (existing) await ctx.db.patch(existing._id, disconnected);
+    // Not migrated yet: a disconnected global row stops the legacy fallback.
+    else await ctx.db.insert("githubConnections", { scope: "global", createdAt: now, ...disconnected });
+    await scrubLegacyGithubTokens(ctx);
+    await recordAudit(ctx, { action: "integration.remove", target: "github", details: { scope: "global" } });
+    await syncGithubOAuthEnvAll(ctx);
+  },
+});
+
+/**
+ * Bind a project to a repository (creates the project's binding row when
+ * it has none). The token comes from the account-level connection.
+ */
+export const bindRepo = mutation({
+  args: {
+    projectId: v.id("projects"),
+    githubOwner: v.string(),
+    githubRepo: v.string(),
+    githubBaseBranch: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<Id<"integrations">> => {
+    await assertProjectAccess(ctx, args.projectId);
+    assertRepoFields(args);
+    if (!args.githubOwner || !args.githubRepo) throw new Error("Choose a repository as owner/name");
+    const now = Date.now();
+    const existing = await projectGithubBinding(ctx, args.projectId);
+    const binding = {
+      githubOwner: args.githubOwner,
+      githubRepo: args.githubRepo,
+      githubBaseBranch: args.githubBaseBranch || undefined,
+      updatedAt: now,
+    };
+    if (existing) {
+      const updates = { ...binding, ...(existing.status === "disconnected" ? { status: "active" as const, errorMessage: undefined } : {}) };
+      await ctx.db.patch(existing._id, updates);
+      const changed = changedFields(existing as Record<string, unknown>, updates);
+      if (changed.length) {
+        await recordAudit(ctx, { action: "integration.update", target: existing.name, projectId: args.projectId, details: { changed } });
+      }
       return existing._id;
     }
-
-    // Create new integration
     const id = await ctx.db.insert("integrations", {
       projectId: args.projectId,
       type: "github",
       name: "GitHub",
-      accessToken: args.accessToken,
-      refreshToken: args.refreshToken,
-      tokenExpiresAt,
       status: "active",
       createdAt: now,
-      updatedAt: now,
+      ...binding,
     });
-    await recordAudit(ctx, { action: "integration.add", target: "github", projectId: args.projectId });
-    await syncGithubOAuthEnv(ctx, args.projectId);
-
+    await recordAudit(ctx, {
+      action: "integration.update",
+      target: "GitHub",
+      projectId: args.projectId,
+      details: { changed: ["githubOwner", "githubRepo", ...(args.githubBaseBranch ? ["githubBaseBranch"] : [])] },
+    });
     return id;
   },
 });
+
+// These values end up in git push URLs and GitHub API paths.
+const REPO_NAME = /^[A-Za-z0-9_.-]{1,100}$/;
+const BRANCH_NAME = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,200}$/;
+
+function assertRepoFields(args: { githubOwner?: string; githubRepo?: string; githubBaseBranch?: string }): void {
+  if (args.githubOwner !== undefined && args.githubOwner !== "" && !REPO_NAME.test(args.githubOwner)) {
+    throw new Error("Invalid GitHub owner");
+  }
+  if (args.githubRepo !== undefined && args.githubRepo !== "" && !REPO_NAME.test(args.githubRepo)) {
+    throw new Error("Invalid GitHub repository name");
+  }
+  if (args.githubBaseBranch !== undefined && args.githubBaseBranch !== "" && !BRANCH_NAME.test(args.githubBaseBranch)) {
+    throw new Error("Invalid base branch name");
+  }
+}
 
 /**
  * GitHub webhook receiver.
@@ -581,7 +821,9 @@ export const get = query({
 });
 
 /**
- * Delete/disconnect an integration
+ * Unbind a project's repository (per-project row): clears the binding's
+ * webhook secret and any legacy token. The account-level connection is
+ * untouched; use `disconnectGithub` for that.
  */
 export const remove = mutation({
   args: { integrationId: v.id("integrations") },
@@ -610,20 +852,13 @@ export const remove = mutation({
 });
 
 /**
- * Refresh GitHub integration - re-fetch user info and update integration.
- *
- * An ACTION (core H8): queries and mutations cannot do network I/O, so the
- * old mutation threw on every `fetch` and rolled its own error patch back.
- * The action authorizes and reads the token through an internal query, calls
- * GitHub, then records the outcome through an internal mutation.
+ * Re-check the account-level GitHub connection: fetch the login and record
+ * the outcome. An ACTION (queries and mutations cannot do network I/O).
  */
 export const refresh = action({
-  args: { integrationId: v.id("integrations") },
-  handler: async (ctx, args): Promise<{ status: "active"; githubOwner?: string }> => {
-    const target = await ctx.runQuery(internal.integrations.getForRefresh, {
-      integrationId: args.integrationId,
-    });
-
+  args: {},
+  handler: async (ctx): Promise<{ status: "active"; login?: string }> => {
+    const target = await ctx.runQuery(internal.integrations.getTokenForUse, {});
     let login: string | undefined;
     try {
       const userResponse = await fetch("https://api.github.com/user", {
@@ -639,79 +874,67 @@ export const refresh = action({
       login = user.login;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      await ctx.runMutation(internal.integrations.recordRefreshResult, {
-        integrationId: args.integrationId,
-        ok: false,
-        errorMessage: message,
-      });
+      await ctx.runMutation(internal.integrations.recordRefreshResult, { ok: false, errorMessage: message });
       throw error;
     }
-    await ctx.runMutation(internal.integrations.recordRefreshResult, {
-      integrationId: args.integrationId,
-      ok: true,
-      githubOwner: login,
-    });
-    return { status: "active", githubOwner: login };
+    await ctx.runMutation(internal.integrations.recordRefreshResult, { ok: true, login });
+    return { status: "active", login };
   },
 });
 
-/** Authorize a refresh and hand the action the token (internal only). */
-export const getForRefresh = internalQuery({
-  args: { integrationId: v.id("integrations") },
+/**
+ * Authorize a GitHub API call and hand the action the token (internal only).
+ * With a project: project access + that project's resolved token (global,
+ * legacy fallback). Without: registry access + the account-level token.
+ */
+export const getTokenForUse = internalQuery({
+  args: { projectId: v.optional(v.id("projects")) },
   handler: async (ctx, args) => {
-    const integration = await ctx.db.get(args.integrationId);
-    if (!integration) throw new Error("Integration not found");
-    await assertProjectAccess(ctx, integration.projectId);
-    if (integration.type !== "github") throw new Error("Not a GitHub integration");
-    if (!integration.accessToken) throw new Error("No access token");
-    return { accessToken: integration.accessToken };
+    if (args.projectId) await assertProjectAccess(ctx, args.projectId);
+    else await assertRegistryWriteAccess(ctx);
+    const resolved = await resolveGithubToken(ctx, args.projectId);
+    if (!resolved) throw new Error("GitHub is not connected. Connect it in Integrations.");
+    return { accessToken: resolved.token, source: resolved.source };
   },
 });
 
 export const recordRefreshResult = internalMutation({
   args: {
-    integrationId: v.id("integrations"),
     ok: v.boolean(),
-    githubOwner: v.optional(v.string()),
+    login: v.optional(v.string()),
     errorMessage: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const integration = await ctx.db.get(args.integrationId);
-    if (!integration) return;
+    // Legacy-only deployments (not migrated) have no global row to update.
+    const global = await globalGithubConnection(ctx);
+    if (!global || global.status === "disconnected") return;
     const now = Date.now();
     if (args.ok) {
-      await ctx.db.patch(args.integrationId, {
-        // githubOwner doubles as the selected repository's owner (plan 019):
-        // once a repository is chosen, the account login must not replace it.
-        ...(args.githubOwner !== undefined && !integration.githubRepo ? { githubOwner: args.githubOwner } : {}),
+      await ctx.db.patch(global._id, {
+        ...(args.login ? { login: args.login } : {}),
         status: "active",
         errorMessage: undefined,
         lastSyncAt: now,
         updatedAt: now,
       });
     } else {
-      await ctx.db.patch(args.integrationId, {
-        status: "error",
-        errorMessage: args.errorMessage,
-        updatedAt: now,
-      });
+      await ctx.db.patch(global._id, { status: "error", errorMessage: args.errorMessage, updatedAt: now });
     }
   },
 });
 
 /**
- * Repositories the connected GitHub account can push to (plan 019 repo
- * picker). Reads the token through the access-checked internal query.
+ * Repositories the connected GitHub account can push to (repo picker).
+ * Uses the account-level token; reads it through the access-checked
+ * internal query.
  */
 export const listGithubRepos = action({
-  args: { integrationId: v.id("integrations") },
+  args: { projectId: v.optional(v.id("projects")) },
   handler: async (
     ctx,
     args
   ): Promise<Array<{ fullName: string; owner: string; name: string; defaultBranch: string; private: boolean }>> => {
-    const target = await ctx.runQuery(internal.integrations.getForRefresh, {
-      integrationId: args.integrationId,
-    });
+    const target = await ctx.runQuery(internal.integrations.getTokenForUse, { projectId: args.projectId });
     const response = await fetch(
       "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member",
       {
@@ -761,19 +984,7 @@ export const updateConfig = mutation({
     const updates: Record<string, unknown> = {
       updatedAt: Date.now(),
     };
-
-    // These values end up in git push URLs and GitHub API paths.
-    const NAME = /^[A-Za-z0-9_.-]{1,100}$/;
-    const BRANCH = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,200}$/;
-    if (args.githubOwner !== undefined && args.githubOwner !== "" && !NAME.test(args.githubOwner)) {
-      throw new Error("Invalid GitHub owner");
-    }
-    if (args.githubRepo !== undefined && args.githubRepo !== "" && !NAME.test(args.githubRepo)) {
-      throw new Error("Invalid GitHub repository name");
-    }
-    if (args.githubBaseBranch !== undefined && args.githubBaseBranch !== "" && !BRANCH.test(args.githubBaseBranch)) {
-      throw new Error("Invalid base branch name");
-    }
+    assertRepoFields(args);
 
     if (args.githubOwner !== undefined) updates.githubOwner = args.githubOwner || undefined;
     if (args.githubRepo !== undefined) updates.githubRepo = args.githubRepo || undefined;
@@ -805,13 +1016,15 @@ export const getMcpConfig = internalQuery({
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration not found");
     if (integration.status !== "active") throw new Error("Integration not active");
-    if (!integration.accessToken) throw new Error("No access token");
+    // Account-level token (legacy project token until migrated).
+    const resolved = await resolveGithubToken(ctx, integration.projectId);
+    if (!resolved) throw new Error("No access token");
 
     return {
       type: "github",
       // The worker will use these to spawn the MCP server
       env: {
-        GITHUB_TOKEN: integration.accessToken,
+        GITHUB_TOKEN: resolved.token,
       },
       // Tool allowlist for this integration
       allowedTools: [

@@ -45,6 +45,7 @@ import {
   type GithubSkillUrl,
 } from "./lib/githubSkills";
 import { GithubClient, mapLimit, resolveGithubRepo, type ResolvedRepo } from "./lib/githubSkillsApi";
+import { resolveGithubToken } from "./lib/githubAuth";
 
 /**
  * Library of agent skills: reusable markdown instructions attached to agents
@@ -800,13 +801,16 @@ export const assignRoles = mutation({
 // Import from GitHub
 // ---------------------------------------------------------------------------
 
-/** Token of any active GitHub integration, used only for rate limits / private repos. */
+/** The account-level GitHub token (legacy project token until migrated), used only for rate limits / private repos. */
 export const githubTokenForImport = internalQuery({
   args: {},
   handler: async (ctx): Promise<string | null> => {
-    const rows = await ctx.db.query("integrations").collect();
-    const row = rows.find((r) => r.type === "github" && r.status === "active" && r.accessToken);
-    return row?.accessToken ?? null;
+    try {
+      return (await resolveGithubToken(ctx))?.token ?? null;
+    } catch {
+      // Undecryptable token: import still works unauthenticated.
+      return null;
+    }
   },
 });
 

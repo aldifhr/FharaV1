@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { assertProjectAccess, visibleProjectIds } from "./lib/authz";
 import { decryptApiKey, encryptApiKey } from "./lib/llmCrypto";
+import { resolveGithubToken } from "./lib/githubAuth";
 import { ROLE_KEYS } from "./lib/roles";
 import { changedFields, recordAudit } from "./lib/recordAudit";
 import {
@@ -199,14 +200,13 @@ function assertRemoteUrl(url: string): string {
   return trimmed;
 }
 
-/** The project's active GitHub OAuth token, or undefined. */
+/**
+ * The GitHub OAuth token a project's server borrows: the account-level
+ * connection (legacy per-project token until migrated), or undefined.
+ */
 async function githubOAuthToken(ctx: MutationCtx, projectId: Id<"projects">): Promise<string | undefined> {
-  const integration = await ctx.db
-    .query("integrations")
-    .withIndex("by_project_and_type", (q) => q.eq("projectId", projectId).eq("type", "github"))
-    .first();
-  if (!integration || integration.status !== "active") return undefined;
-  return integration.accessToken ?? undefined;
+  const resolved = await resolveGithubToken(ctx, projectId);
+  return resolved?.token;
 }
 
 const GITHUB_TOKEN_KEY = "GITHUB_PERSONAL_ACCESS_TOKEN";
@@ -217,11 +217,26 @@ const GITHUB_TOKEN_KEY = "GITHUB_PERSONAL_ACCESS_TOKEN";
  * too. Called from integrations.ts on upsert/remove.
  */
 export async function syncGithubOAuthEnv(ctx: MutationCtx, projectId: Id<"projects">): Promise<void> {
-  const token = await githubOAuthToken(ctx, projectId);
   const rows = (await projectRows(ctx, projectId)).filter(
     (row) => row.preset === "github" && row.useGithubOAuth === true
   );
+  await resealGithubRows(ctx, rows);
+}
+
+/**
+ * Same, for every project: the account-level connection changed (connect,
+ * reconnect, disconnect, migration), so every OAuth-borrowing row follows.
+ */
+export async function syncGithubOAuthEnvAll(ctx: MutationCtx): Promise<void> {
+  const rows = (await ctx.db.query("mcpServers").collect()).filter(
+    (row) => row.preset === "github" && row.useGithubOAuth === true && row.projectId
+  );
+  await resealGithubRows(ctx, rows);
+}
+
+async function resealGithubRows(ctx: MutationCtx, rows: McpRow[]): Promise<void> {
   for (const row of rows) {
+    const token = row.projectId ? await githubOAuthToken(ctx, row.projectId) : undefined;
     const env = await readEnv(row);
     if (token) env[GITHUB_TOKEN_KEY] = token;
     else delete env[GITHUB_TOKEN_KEY];

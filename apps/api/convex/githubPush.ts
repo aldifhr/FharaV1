@@ -11,6 +11,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { assertProjectAccess } from "./lib/authz";
+import { githubConnectionState, projectGithubBinding, resolveGithubToken } from "./lib/githubAuth";
 import { holdsTaskLease } from "./orchestration";
 import { prState } from "./schema";
 import type { QaCardData, VerificationCardData } from "./cardTypes";
@@ -27,7 +28,7 @@ import type { QaCardData, VerificationCardData } from "./cardTypes";
  *     explicit approval, AGENTS.md rule 5) and moves the row to
  *     `requested`. Nothing is pushed by the backend.
  *  3. The worker (it owns the local repository) claims the request with a
- *     lease (`claimPushRequest`), pushes with the project's GitHub token
+ *     lease (`claimPushRequest`), pushes with the account-level GitHub token
  *     passed through the environment only, opens a draft PR, and reports
  *     back with `completePushRequest` → `pushed` / `failed`.
  *  4. `refreshOpenPrs` (cron) and `refreshPrStatus` (button) keep the PR
@@ -111,25 +112,29 @@ function truncate(text: string | undefined, limit = ERROR_LIMIT): string | undef
   return text.length <= limit ? text : `${text.slice(0, limit)}…`;
 }
 
+/** The project's repo binding (owner/repo/base branch). Holds no token once migrated. */
 async function githubIntegration(ctx: QueryCtx | MutationCtx, projectId: Id<"projects">) {
-  return await ctx.db
-    .query("integrations")
-    .withIndex("by_project_and_type", (q) => q.eq("projectId", projectId).eq("type", "github"))
-    .first();
+  return await projectGithubBinding(ctx, projectId);
 }
 
-function repoReady(integration: Doc<"integrations"> | null): integration is Doc<"integrations"> & {
-  accessToken: string;
-  githubOwner: string;
-  githubRepo: string;
-} {
-  return Boolean(
-    integration &&
-      integration.status !== "disconnected" &&
-      integration.accessToken &&
-      integration.githubOwner &&
-      integration.githubRepo
-  );
+type RepoBinding = Doc<"integrations"> & { githubOwner: string; githubRepo: string };
+
+function repoBound(integration: Doc<"integrations"> | null): integration is RepoBinding {
+  return Boolean(integration && integration.status !== "disconnected" && integration.githubOwner && integration.githubRepo);
+}
+
+/**
+ * Push target for a project: its repo binding plus the account-level GitHub
+ * token (legacy per-project token until migrated). Null when either is missing.
+ */
+async function pushTarget(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">
+): Promise<{ integration: RepoBinding; token: string } | null> {
+  const integration = await githubIntegration(ctx, projectId);
+  if (!repoBound(integration)) return null;
+  const resolved = await resolveGithubToken(ctx, projectId);
+  return resolved ? { integration, token: resolved.token } : null;
 }
 
 /** Latest card of a kind on a task (bounded scan, newest first). */
@@ -352,11 +357,12 @@ export const claimPushRequest = internalMutation({
         await fail("The task or project no longer exists.");
         continue;
       }
-      const integration = await githubIntegration(ctx, row.projectId);
-      if (!repoReady(integration)) {
+      const target = await pushTarget(ctx, row.projectId);
+      if (!target) {
         await fail("GitHub is not connected or no repository is selected for this project.");
         continue;
       }
+      const { integration } = target;
       const leaseMs = args.leaseMs ?? DEFAULT_PUSH_LEASE_MS;
       await ctx.db.patch(row._id, {
         status: "pushing",
@@ -382,7 +388,7 @@ export const claimPushRequest = internalMutation({
         owner: integration.githubOwner,
         repo: integration.githubRepo,
         baseBranch,
-        token: integration.accessToken,
+        token: target.token,
         prTitle: task.title.slice(0, 200),
         prBody: buildPrBody({
           title: task.title,
@@ -471,6 +477,7 @@ export const get = query({
     if (!row) return null;
     await assertProjectAccess(ctx, row.projectId);
     const integration = await githubIntegration(ctx, row.projectId);
+    const connection = await githubConnectionState(ctx, row.projectId);
     const project = await ctx.db.get(row.projectId);
     const verification = (await latestCard(ctx, row.taskId, "verification")) as VerificationCardData | null;
     const qa = (await latestCard(ctx, row.taskId, "qa")) as QaCardData | null;
@@ -505,7 +512,7 @@ export const get = query({
       prState: row.prState,
       prCheckedAt: row.prCheckedAt,
       github: {
-        connected: Boolean(integration?.accessToken) && integration?.status !== "disconnected",
+        connected: connection.connected,
         repoFullName:
           row.repoFullName ??
           (integration?.githubOwner && integration?.githubRepo
@@ -536,8 +543,8 @@ export const requestPush = mutation({
       return { status: row.status, changed: false };
     }
     const integration = await githubIntegration(ctx, row.projectId);
-    if (!repoReady(integration)) {
-      throw new Error("Connect GitHub and choose a repository in project settings first.");
+    if (!repoBound(integration) || !(await githubConnectionState(ctx, row.projectId)).connected) {
+      throw new Error("Connect GitHub in Integrations and choose a repository in project settings first.");
     }
     const now = Date.now();
     const repoFullName = `${integration.githubOwner}/${integration.githubRepo}`;
@@ -610,10 +617,11 @@ export const getPrRefreshTarget = internalQuery({
     if (!row || row.prNumber === undefined) return null;
     if (args.checkAccess) await assertProjectAccess(ctx, row.projectId);
     const integration = await githubIntegration(ctx, row.projectId);
-    if (!integration?.accessToken) return null;
-    const [owner, repo] = (row.repoFullName ?? `${integration.githubOwner}/${integration.githubRepo}`).split("/");
-    if (!owner || !repo) return null;
-    return { pushId: row._id, owner, repo, prNumber: row.prNumber, token: integration.accessToken };
+    const resolved = await resolveGithubToken(ctx, row.projectId);
+    if (!resolved) return null;
+    const [owner, repo] = (row.repoFullName ?? `${integration?.githubOwner}/${integration?.githubRepo}`).split("/");
+    if (!owner || !repo || owner === "undefined" || repo === "undefined") return null;
+    return { pushId: row._id, owner, repo, prNumber: row.prNumber, token: resolved.token };
   },
 });
 

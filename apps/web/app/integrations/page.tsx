@@ -28,6 +28,7 @@ import {
 import { ROLE_KEYS, roleLabel } from "@/api/convex/lib/roles";
 import IconRail from "@/components/IconRail";
 import GithubWebhookSetup from "@/components/GithubWebhookSetup";
+import GithubAccountRow from "@/components/GithubAccount";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toasts";
 
@@ -156,68 +157,30 @@ function Section({ title, count, children }: { title: string; count?: number; ch
   );
 }
 
-/** GitHub OAuth row: per project, reusing the existing connect flow. */
-function GithubOAuthRow({ projectId }: { projectId?: string }) {
-  const toast = useToast();
-  const integrations = useQuery(api.integrations.listByProject, projectId ? { projectId: projectId as never } : "skip");
-  const oauthUrl = useQuery(api.integrations.getOAuthUrl, projectId ? { projectId: projectId as never } : "skip");
-  const github = (integrations ?? []).find((row) => row.type === "github" && row.status !== "disconnected");
-
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      const type = (event.data as { type?: string } | null)?.type;
-      if (type === "github_oauth_success") toast("success", "GitHub connected");
-      if (type === "github_oauth_error") toast("error", "GitHub connection failed", String((event.data as { error?: string }).error ?? ""));
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [toast]);
-
-  let detail: string;
-  let dot = "bg-ink-3";
-  if (!projectId) detail = "Connected per project. Pick a project above to connect.";
-  else if (integrations === undefined) detail = "Loading…";
-  else if (!github) detail = "Not connected. Used for pushes and pull requests.";
-  else if (github.status === "error") {
-    detail = github.errorMessage ?? "Connection error";
-    dot = "bg-red-500";
-  } else {
-    detail = github.githubOwner && github.githubRepo ? `Connected · ${github.githubOwner}/${github.githubRepo}` : "Connected · no repository chosen";
-    dot = "bg-emerald-500";
-  }
+/**
+ * This project's GitHub repository binding. The account itself is global
+ * (top section); a project only picks its repo, in project settings.
+ */
+function GithubProjectRepoRow({ projectId }: { projectId: string }) {
+  const integrations = useQuery(api.integrations.listByProject, { projectId: projectId as never });
+  const binding = (integrations ?? []).find((row) => row.type === "github" && row.status !== "disconnected");
+  const repo = binding?.githubOwner && binding?.githubRepo ? `${binding.githubOwner}/${binding.githubRepo}` : null;
 
   return (
     <>
-    <li className="flex items-center gap-3 px-4 py-3">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-bubble text-ink-2">
-        <GitBranch size={15} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[14px]">GitHub account</p>
-        <p className="truncate text-[12.5px] text-ink-3">OAuth · {detail}</p>
-      </div>
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
-      {projectId &&
-        (github && github.status === "active" ? (
-          <Link href={`/chats/${projectId}`} className={GHOST_BTN}>
-            Repository
-          </Link>
-        ) : oauthUrl === null ? (
-          <span className="text-[12.5px] text-ink-3" title="Set GITHUB_CLIENT_ID on the Convex deployment">
-            OAuth app not configured
-          </span>
-        ) : (
-          <button
-            type="button"
-            disabled={!oauthUrl}
-            onClick={() => oauthUrl && window.open(oauthUrl, "github-oauth", "width=720,height=780")}
-            className={PRIMARY_BTN}
-          >
-            Connect
-          </button>
-        ))}
-    </li>
-    {projectId && github && github.status === "active" && <GithubWebhookSetup integrationId={github._id} />}
+      <li className="flex items-center gap-3 px-4 py-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-bubble text-ink-2">
+          <GitBranch size={15} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px]">{integrations === undefined ? "Loading…" : `Repo: ${repo ?? "none chosen"}`}</p>
+          <p className="truncate text-[12.5px] text-ink-3">Pushes and pull requests use the GitHub account above.</p>
+        </div>
+        <Link href={`/chats/${projectId}`} className={GHOST_BTN}>
+          {repo ? "Change" : "Choose"}
+        </Link>
+      </li>
+      {binding && repo && <GithubWebhookSetup integrationId={binding._id} />}
     </>
   );
 }
@@ -497,7 +460,7 @@ function ServerModal({
                 onChange={(e) => setUseOAuth(e.target.checked)}
               />
               <span>
-                Use this project&apos;s GitHub connection
+                Use the GitHub account connection
                 {!projectScoped && <span className="block text-[12px]">Only for a project scope. A global server needs its own token.</span>}
               </span>
             </label>
@@ -725,16 +688,22 @@ function IntegrationsPage() {
             </select>
           </header>
 
-          <Section title="Connected" count={servers ? servers.length + 1 : undefined}>
+          <Section title="Account">
+            <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
+              <GithubAccountRow />
+            </ul>
+          </Section>
+
+          <Section title="Connected" count={servers ? servers.length + (projectId ? 1 : 0) : undefined}>
             {servers === undefined ? (
               <div className="space-y-3" aria-label="Loading integrations">
                 {[0, 1].map((i) => (
                   <div key={i} className="h-14 animate-pulse rounded-xl bg-hover" />
                 ))}
               </div>
-            ) : (
+            ) : !projectId && servers.length === 0 ? null : (
               <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
-                <GithubOAuthRow projectId={projectId} />
+                {projectId && <GithubProjectRepoRow projectId={projectId} />}
                 {servers.map((server) => {
                   const preset = presetFor(server);
                   const Icon = ICONS[preset.icon];

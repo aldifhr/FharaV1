@@ -108,8 +108,8 @@ export default function OptionCards({
   onOpenTask?: (taskId: string) => void;
 }) {
   return (
-    <div className="mt-3 max-w-2xl">
-      <div className="grid gap-2 sm:grid-cols-2">
+    <div className={`mt-3 ${options.length >= 3 ? "max-w-4xl" : "max-w-2xl"}`}>
+      <div className={`grid gap-2 sm:grid-cols-2 ${options.length >= 3 ? "lg:grid-cols-3" : ""}`}>
         {options.map((option) => {
           const selected = pickedId !== undefined && pickedId === option.id;
           // Layout mockups only for visual choices; "plain" is a text option.

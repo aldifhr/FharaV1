@@ -3,8 +3,7 @@
 import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
-import { motion } from "framer-motion";
-import { Bot, Cpu, Plus, Users } from "lucide-react";
+import { Plus } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import IconRail from "@/components/IconRail";
 import InitialAvatar from "@/components/InitialAvatar";
@@ -68,87 +67,69 @@ function TeamPage() {
   }, [allAgents, memberIds, projectId, status]);
   const busy = agents.filter((a) => status[a._id] && a.isEnabled !== false).length;
 
+  const projectName = (project as { name?: string } | null | undefined)?.name;
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
       <IconRail projectId={projectId} />
-      <main className="min-w-0 flex-1 overflow-y-auto p-6 max-[979px]:p-4">
-        <div className="mx-auto max-w-5xl">
-          <motion.header
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
-            className="flex flex-wrap items-start gap-3"
-          >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-ink">
-              <Users size={20} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-xl font-semibold">Team</h1>
-              <p className="mt-1 text-sm text-ink-3">
-                {allAgents === undefined
-                  ? "Loading agents…"
-                  : `${agents.length} agent${agents.length === 1 ? "" : "s"}${(project as any)?.name ? ` in ${(project as any).name}` : ""} · ${busy} working now`}
-              </p>
+      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
+        <div className="mx-auto max-w-3xl">
+          <header className="flex items-end justify-between gap-4">
+            <div className="min-w-0">
+              {projectName && <p className="truncate text-[13px] text-ink-3">{projectName}</p>}
+              <h1 className="mt-1 text-[26px] font-semibold tracking-tight">Team</h1>
             </div>
             <button
               type="button"
               onClick={() => setCreating(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3.5 py-2 text-sm font-medium text-white outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-brand/40"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
             >
-              <Plus size={16} /> Create agent
+              <Plus size={14} /> Agent
             </button>
-          </motion.header>
+          </header>
+          <p className="mt-6 text-[15px] text-ink-2">
+            {allAgents === undefined
+              ? "Loading…"
+              : `${agents.length} ${agents.length === 1 ? "agent" : "agents"} · ${busy ? `${busy} working now` : "all idle"}`}
+          </p>
 
           {allAgents === undefined ? (
-            <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="h-[132px] animate-pulse rounded-xl border border-line bg-panel" />
+            <div className="mt-10 space-y-3" aria-label="Loading team">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="h-14 animate-pulse rounded-xl bg-hover" />
               ))}
             </div>
           ) : agents.length === 0 ? (
-            <p className="mt-10 text-center text-sm text-ink-3">No agents yet. Create one to get started.</p>
+            <p className="mt-10 rounded-xl border border-dashed border-line px-4 py-5 text-[13px] text-ink-3">No agents yet. Add one to get started.</p>
           ) : (
-            <ul className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {agents.map((a, i) => {
+            <ul className="mt-10 divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
+              {agents.map((a) => {
                 const entry = status[a._id];
                 const disabled = a.isEnabled === false;
                 const word: TeamStatusWord = entry?.status ?? "idle";
+                const active = !disabled && word !== "idle";
                 return (
-                  <motion.li
-                    key={a._id}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.18, delay: Math.min(i, 8) * 0.03 }}
-                  >
+                  <li key={a._id}>
                     <button
                       type="button"
                       onClick={() => setDetail(a)}
-                      className={`flex h-full w-full flex-col rounded-xl border border-line bg-panel p-4 text-left outline-none transition hover:border-brand/40 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-brand/40 ${disabled ? "opacity-60" : ""}`}
+                      className={`flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition hover:bg-hover focus-visible:bg-hover ${disabled ? "opacity-50" : ""}`}
                     >
-                      <div className="flex items-center gap-3">
-                        <InitialAvatar agent avatarParams={a.avatarParams} name={roleLabel(a.role)} size={40} status={disabled ? undefined : word} />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate font-medium">{roleLabel(a.role)}</p>
-                          <p className="truncate text-[13px] text-ink-3">@{a.name}</p>
-                        </div>
-                        <span className={`shrink-0 text-[12.5px] font-medium ${disabled ? "text-ink-3" : teamStatusTone(word)}`}>
-                          {disabled ? "disabled" : teamStatusLabel(entry)}
-                        </span>
+                      <InitialAvatar agent avatarParams={a.avatarParams} name={roleLabel(a.role)} size={32} status={active ? word : undefined} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[14px]">
+                          <span className="font-medium">{roleLabel(a.role)}</span>
+                          <span className={active ? ` ${teamStatusTone(word)}` : " text-ink-3"}>
+                            {" · "}
+                            {disabled ? "disabled" : teamStatusLabel(entry)}
+                          </span>
+                        </p>
+                        <p className="truncate text-[12.5px] text-ink-3">
+                          {entry?.taskTitle ?? `${modelLabel(a)} · ${runtimeLabel(a)}`}
+                        </p>
                       </div>
-                      <p className="mt-3 min-h-[20px] truncate text-[13px] text-ink-2">
-                        {entry?.taskTitle ? entry.taskTitle : <span className="text-ink-3">No task right now</span>}
-                      </p>
-                      <div className="mt-3 flex flex-wrap gap-1.5 text-[11.5px] text-ink-3">
-                        <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-hover px-1.5 py-0.5">
-                          <Cpu size={12} className="shrink-0" />
-                          <span className="truncate">{modelLabel(a)}</span>
-                        </span>
-                        <span className="inline-flex items-center gap-1 rounded-md bg-hover px-1.5 py-0.5">
-                          <Bot size={12} /> {runtimeLabel(a)}
-                        </span>
-                      </div>
+                      {active && <span className="shell-dots flex shrink-0 items-center gap-[3px] text-ink-3" aria-hidden="true"><i /><i /><i /></span>}
                     </button>
-                  </motion.li>
+                  </li>
                 );
               })}
             </ul>

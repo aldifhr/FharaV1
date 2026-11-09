@@ -274,24 +274,27 @@ export default function MessageList(props: Props) {
           const showReasoning = !m.card && (m.reasoning || !m.content?.trim());
           const showText = !(messageKindOf(m.content) === "delegation" || (m.card && !m.content?.trim()));
           if (!showReasoning && !showText) return null;
+          const hasText = showText && Boolean(m.content?.trim());
           return (
-            <div className="mt-1.5 w-fit min-w-0 max-w-full rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-3">
-              {showReasoning && (
-                <ReasoningLine
-                  text={m.reasoning}
-                  running={isLive(m) && !m.content?.trim()}
-                  seconds={m.reasoningDurationMs}
-                />
+            <>
+              {/* Reasoning is meta, so it sits above the bubble; while the
+                  reply has no text yet the bubble itself shows Thinking. */}
+              {showReasoning && hasText && (
+                <div className="mt-1">
+                  <ReasoningLine text={m.reasoning} running={false} seconds={m.reasoningDurationMs} />
+                </div>
               )}
-              {showText && m.content?.trim() ? (
-                <div className={showReasoning ? "mt-2" : undefined}>
+              <div className="mt-1.5 w-fit min-w-0 max-w-full rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-3">
+                {hasText ? (
                   <MessageText
                     content={parseOptions(m.content).text}
                     isAnimating={isLive(m) || (conversationTyping && index === timeline.length - 1)}
                   />
-                </div>
-              ) : null}
-            </div>
+                ) : (
+                  <ReasoningLine text={m.reasoning} running={isLive(m)} seconds={m.reasoningDurationMs} />
+                )}
+              </div>
+            </>
           );
         })()}
         {m.card && (

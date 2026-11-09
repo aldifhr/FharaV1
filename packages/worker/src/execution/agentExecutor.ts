@@ -24,7 +24,15 @@ import type { SharedTaskContext } from "@/orchestrator/taskContext";
 import { extractFileHint, parseDelegation, parseDraft, parseReview, sanitizeForChat } from "@/utils/json";
 import { validateFilePath } from "@/governance/tools";
 import { isPathWithinOwnership } from "@/orchestrator/ownership";
-import { computeDiff, snapshotIdForChanges, type FileDiff } from "@/tools/gitDiff";
+import {
+  computeDiff,
+  diffFromContents,
+  isNoOpChange,
+  readHeadContent,
+  snapshotDirtyFiles,
+  snapshotIdForChanges,
+  type FileDiff,
+} from "@/tools/gitDiff";
 import { isCommandAllowed, runCommand } from "@/tools/runCommand";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import { promises as fs } from "node:fs";
@@ -321,6 +329,14 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
     fileContext: context,
   });
 
+  // The native provider writes straight to disk, so the "before" content
+  // must be captured now: reading it from disk after the run would make
+  // every change look identical to its pre-task state.
+  const preRunDirty =
+    subtask.kind === "code_change" || subtask.kind === "shell"
+      ? await snapshotDirtyFiles(workspacePath)
+      : new Map<string, string | null>();
+
   const result = await runNativeProvider({
     workspacePath,
     prompt,
@@ -358,7 +374,12 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
         try {
           const resolved = await resolveSandboxPathAsync(workspacePath, filePath);
           const newContent = await fs.readFile(resolved, "utf-8");
-          const diff = await computeDiff(workspacePath, filePath, newContent);
+          const baseline = preRunDirty.has(filePath)
+            ? preRunDirty.get(filePath) ?? undefined
+            : await readHeadContent(workspacePath, filePath);
+          // Dirty before the run and untouched by the provider: not its change.
+          if (baseline === newContent) continue;
+          const diff = diffFromContents(filePath, baseline, newContent);
           await input.saveFileChange(diff);
           prepared.push({ filePath });
         } catch {
@@ -550,6 +571,7 @@ async function executeCodeChange(
   // resolve late). A response that lost that race must not stage any
   // file changes (Phase 4 anti-zombie rule).
   if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
+  const unchanged: string[] = [];
   for (const file of draft.files.slice(0, 5)) {
     // Check between files: once aborted, no further changes are staged.
     if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
@@ -565,6 +587,12 @@ async function executeCodeChange(
     }
     try {
       const diff = await computeDiff(workspacePath, file.filePath, file.newContent);
+      if (isNoOpChange(diff)) {
+        // Identical to what is on disk: staging it would only fail final
+        // disk verification ("unchanged from its pre-task state").
+        unchanged.push(file.filePath);
+        continue;
+      }
       await input.saveFileChange(diff);
       prepared.push(diff);
     } catch (error) {
@@ -575,9 +603,19 @@ async function executeCodeChange(
     }
   }
 
-  const output = `Prepared ${prepared.length} file change(s): ${prepared
-    .map((change) => change.filePath)
-    .join(", ")}`;
+  if (prepared.length === 0 && unchanged.length > 0) {
+    return {
+      status: "failed",
+      error: `No effective change: ${unchanged.join(", ")} would be identical to the current content. Make the requested edit or report why none is needed.`,
+    };
+  }
+
+  const output = [
+    `Prepared ${prepared.length} file change(s): ${prepared.map((change) => change.filePath).join(", ")}`,
+    unchanged.length > 0 ? `Skipped ${unchanged.length} unchanged file(s): ${unchanged.join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
   return {
     status: "completed",
     output,

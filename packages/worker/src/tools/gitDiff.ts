@@ -42,28 +42,100 @@ export async function computeDiff(
 ): Promise<FileDiff> {
   const resolved = await resolveSandboxPathAsync(workspaceRoot, filePath);
   let oldContent: string | undefined;
-  let changeType: "new" | "modified" | "deleted" = "modified";
-
   try {
     oldContent = await fs.readFile(resolved, "utf-8");
   } catch (error) {
     if (isMissing(error)) {
-      changeType = "new";
       oldContent = undefined;
     } else {
       throw error;
     }
   }
+  return diffFromContents(filePath, oldContent, newContent);
+}
 
+/**
+ * A diff from explicit before/after contents. `oldContent === undefined`
+ * means the file did not exist before (a "new" file).
+ */
+export function diffFromContents(
+  filePath: string,
+  oldContent: string | undefined,
+  newContent: string
+): FileDiff {
   return {
     filePath,
-    changeType,
+    changeType: oldContent === undefined ? "new" : "modified",
     oldContent,
     newContent,
     oldContentHash: hashContent(oldContent ?? ""),
     newContentHash: hashContent(newContent),
     diff: makeUnifiedDiff(filePath, oldContent ?? "", newContent),
   };
+}
+
+/** A "modified" change whose new content is byte-identical to the old. */
+export function isNoOpChange(change: FileDiff): boolean {
+  return (
+    change.changeType === "modified" &&
+    change.oldContentHash !== undefined &&
+    change.oldContentHash === change.newContentHash
+  );
+}
+
+/**
+ * Content of `filePath` at HEAD, or `undefined` when the file is not
+ * tracked at HEAD (or the workspace is not a git repo).
+ */
+export async function readHeadContent(
+  workspaceRoot: string,
+  filePath: string
+): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync("git", ["show", `HEAD:${filePath}`], {
+      cwd: workspaceRoot,
+      maxBuffer: 10 * 1024 * 1024,
+      shell: false,
+      windowsHide: true,
+    });
+    return stdout;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Paths `git status --porcelain` reports as dirty, with their current
+ * content (`null` when the path does not exist on disk). Taken before a
+ * runtime that writes straight to disk, so pre-existing edits are neither
+ * attributed to the agent nor used as a wrong baseline.
+ */
+export async function snapshotDirtyFiles(
+  workspaceRoot: string
+): Promise<Map<string, string | null>> {
+  const snapshot = new Map<string, string | null>();
+  let stdout = "";
+  try {
+    ({ stdout } = await execFileAsync("git", ["status", "--porcelain"], {
+      cwd: workspaceRoot,
+      maxBuffer: 10 * 1024 * 1024,
+      shell: false,
+      windowsHide: true,
+    }));
+  } catch {
+    return snapshot;
+  }
+  for (const line of stdout.split(/\r?\n/)) {
+    const filePath = line.slice(3).trim();
+    if (!filePath) continue;
+    try {
+      const resolved = await resolveSandboxPathAsync(workspaceRoot, filePath);
+      snapshot.set(filePath, await readIfExists(resolved));
+    } catch {
+      // Paths outside the sandbox are not ours to track.
+    }
+  }
+  return snapshot;
 }
 
 export async function gitDiff(workspaceRoot: string): Promise<string> {

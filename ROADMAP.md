@@ -22,11 +22,6 @@ Each item says where it lives and why it matters.
   worker dies during planning stays stuck or fails when reclaimed; there is
   no re-plan on reclaim (`services/runner/setup.ts`, `orchestration.recoverStale`).
   *Why:* a worker restart (or sandbox reboot) mid-plan loses the task.
-- **A failed review replan re-runs completed code nodes.** When review fails
-  and the plan is redone, finished nodes run again instead of being carried
-  forward (`orchestrator/replan`, `services/runner/decision.ts`). *Why:* each
-  re-run is another 2–5 minute model call on slow providers; ULTRA tasks run
-  close to the deadline because of it.
 - **Truncated model output (longcat).** Answers cut off at ~2 KB or returned
   empty when reasoning tokens eat `ORCHESTRATOR_LLM_MAX_TOKENS` (8192).
   Record `finish_reason` / `stop_reason` on every call (`llm.ts`), surface
@@ -151,3 +146,27 @@ Each item says where it lives and why it matters.
   project has an owner (`apps/api/convex/lib/authz.ts`); the single-user,
   no-auth local mode is accepted by the owner for now. Revisit before any
   multi-user deployment.
+
+### From FUTURE (merged)
+
+- **No project picker — "start anywhere, file later".** Tasks land in a
+  default "Unfiled" project; `orchestrator/classifier.ts` files them after.
+  *Why:* removes a friction step from task creation.
+- **Idle session release + resume (Threadbear model).** Only active
+  OpenCode sessions stay alive; idle ones stop and resume by session id
+  (`execution/nativeProvider.ts`). *Why:* process and cost savings.
+- **Self-upgrade as a task.** The repo upgrades itself through the same
+  pipeline (release → merge → test → ask to land). *Why:* dogfooding QA.
+- **Scheduled tasks (cron).** Recurring threads via Convex crons +
+  `tasks.create`. *Why:* repeatable automations without a new scheduler.
+- **Skill patches as interactive chat blocks.** Render a "run" block from a
+  skill instead of a full patch system (`components/Settings.tsx`, skill v2).
+  *Why:* small, visible action surface.
+
+### Small leftovers (streamdown)
+
+- `ReasoningLine` (`components/ui/trace.tsx`) still renders plain text —
+  consider static Streamdown markdown after a visual check.
+- `MessageList` virtualisation has no visual test with a >40-message
+  timeline; add one.
+- Visual smoke for streaming animation, caret, and copy-code toast.

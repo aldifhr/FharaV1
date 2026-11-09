@@ -1,7 +1,7 @@
 /**
  * Worker-side decryption for provider API keys (spec §5).
  *
- * Mirrors apps/api/convex/llmCrypto.ts: AES-256-GCM, ciphertext format
+ * Mirrors apps/api/convex/lib/llmCrypto.ts: AES-256-GCM, ciphertext format
  * `v1:<iv b64>:<tag b64>:<cipher b64>`, key from the
  * `PROVIDER_ENCRYPTION_KEY` env var (base64-encoded 32 bytes) which must be
  * set to the SAME value on the worker and the Convex deployment.

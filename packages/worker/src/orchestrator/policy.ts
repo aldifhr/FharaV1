@@ -1,3 +1,5 @@
+import { executionRuntimeFromEnv } from "@/execution/nativeProvider";
+
 function intFromEnv(name: string, fallback: number, min: number, max: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
@@ -238,10 +240,10 @@ export function loadPolicy(): ExecutionPolicy {
           ? "ambiguous"
           : "off",
     chatMaxAgents: intFromEnv("ORCHESTRATOR_CHAT_MAX_AGENTS", 1, 1, 5),
-    executionRuntime:
-      (process.env.ORCHESTRATOR_RUNTIME ?? "").trim().toLowerCase() === "native-provider"
-        ? "native-provider"
-        : "api",
+    // Global default; an agent's own `executionRuntime` overrides it
+    // (resolveExecutionRuntime). ORCHESTRATOR_EXECUTION_RUNTIME wins over
+    // the legacy ORCHESTRATOR_RUNTIME; "opencode" aliases "native-provider".
+    executionRuntime: executionRuntimeFromEnv(),
     worktreeIsolation: boolFromEnv("ORCHESTRATOR_WORKTREE_ISOLATION", false),
     // Plan 013 step 7: the decision engine is the only orchestrator path
     // (flag deleted; default is irrevocably on).

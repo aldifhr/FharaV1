@@ -47,6 +47,12 @@ export interface AgentDefinition {
   llmFallbackProviderId?: string;
   llmFallbackModelId?: string;
   llmSelectionPolicy?: "fixed" | "priority" | "weighted";
+  // Execution runtime override: "api" (host tools + gated LLM) or
+  // "opencode" (OpenCode CLI with native tools in the task worktree).
+  // Unset = global ORCHESTRATOR_EXECUTION_RUNTIME default.
+  executionRuntime?: "api" | "opencode";
+  /** Optional OpenCode model (`provider/model`); unset = MOAgent's own LLM. */
+  opencodeModel?: string;
 }
 
 export interface PlanSubtask {

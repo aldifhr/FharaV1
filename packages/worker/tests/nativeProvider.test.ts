@@ -87,9 +87,10 @@ describe("nativeProvider", () => {
     });
     expect(result.status).toBe("completed");
     expect(seenArgs[0]).toBe("run");
-    expect(seenArgs[1]).toBe(NATIVE_PROMPT_MESSAGE);
-    expect(seenArgs[2]).toBe("-f");
-    expect(seenArgs[3]).toMatch(/prompt\.md$/);
+    const msgAt = seenArgs.indexOf(NATIVE_PROMPT_MESSAGE);
+    expect(msgAt).toBeGreaterThan(0);
+    expect(seenArgs[msgAt + 1]).toBe("-f");
+    expect(seenArgs[msgAt + 2]).toMatch(/prompt\.md$/);
     expect(seenArgs.join(" ")).not.toContain(bigPrompt);
   });
 

@@ -517,6 +517,8 @@ export function toAgentDefinition(agent: WorkerAgent): AgentDefinition {
     llmFallbackProviderId: agent.llmFallbackProviderId,
     llmFallbackModelId: agent.llmFallbackModelId,
     llmSelectionPolicy: agent.llmSelectionPolicy,
+    executionRuntime: agent.executionRuntime,
+    opencodeModel: agent.opencodeModel,
   };
 }
 

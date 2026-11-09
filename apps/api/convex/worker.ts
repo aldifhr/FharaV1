@@ -767,3 +767,78 @@ export const updateMcpServerStatus = action({
 });
 
 
+
+// Plan 019: stage cards and the GitHub push flow. Card/commit writes are
+// lease-fenced through `workerId` like every other task write; push
+// requests are claimed with their own lease (githubPush.claimPushRequest).
+export const postTaskCard = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    workerId: v.optional(v.string()),
+    agentId: v.optional(v.id("agents")),
+    kind: v.union(v.literal("verification"), v.literal("qa")),
+    content: v.optional(v.string()),
+    data: v.any(),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.githubPush.postTaskCard, withoutToken(args));
+  },
+});
+
+export const recordTaskCommit = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    workerId: v.optional(v.string()),
+    agentId: v.optional(v.id("agents")),
+    branchName: v.string(),
+    commitSha: v.string(),
+    commitMessage: v.string(),
+    filesChanged: v.number(),
+    ahead: v.optional(v.number()),
+    behind: v.optional(v.number()),
+    comparedTo: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.githubPush.recordTaskCommit, withoutToken(args));
+  },
+});
+
+/**
+ * Claim the next approved push request. The result carries the project's
+ * GitHub token for the push; the worker passes it to git through the
+ * environment only and never logs it.
+ */
+export const claimPushRequest = action({
+  args: { ...tokenArg, workerId: v.string(), leaseMs: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<any> => {
+    const { workerId, leaseMs } = withoutToken(args);
+    return await ctx.runMutation(internal.githubPush.claimPushRequest, { workerId, leaseMs });
+  },
+});
+
+export const completePushRequest = action({
+  args: {
+    ...tokenArg,
+    pushId: v.id("taskPushes"),
+    workerId: v.string(),
+    outcome: v.union(v.literal("pushed"), v.literal("failed")),
+    error: v.optional(v.string()),
+    pr: v.optional(
+      v.object({
+        number: v.number(),
+        url: v.string(),
+        title: v.string(),
+        state: v.union(v.literal("draft"), v.literal("open"), v.literal("merged"), v.literal("closed")),
+      })
+    ),
+    repoFullName: v.optional(v.string()),
+    baseBranch: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.githubPush.completePushRequest, withoutToken(args));
+  },
+});

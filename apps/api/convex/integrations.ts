@@ -21,7 +21,11 @@ const GITHUB_OAUTH_CALLBACK_URL =
  */
 export const getOAuthUrl = query({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<string | null> => {
+    await assertProjectAccess(ctx, args.projectId);
+    // No OAuth app configured on this deployment: the UI says so instead
+    // of opening a GitHub page that rejects an empty client id.
+    if (!GITHUB_CLIENT_ID) return null;
     const state = Buffer.from(
       JSON.stringify({ projectId: args.projectId, timestamp: Date.now() })
     ).toString("base64url");
@@ -37,6 +41,18 @@ export const getOAuthUrl = query({
   },
 });
 
+const OAUTH_STATE_MAX_AGE_MS = 15 * 60_000;
+
+/** Escape a value for HTML text and for a JS string inside a <script>. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /**
  * Handle GitHub OAuth callback - exchange code for access token
  */
@@ -50,11 +66,11 @@ export const handleOAuthCallback = httpAction(async (ctx, request) => {
     return new Response(
       `<html><body>
         <h1>GitHub OAuth Error</h1>
-        <p>${error}</p>
-        <p>${url.searchParams.get("error_description") ?? ""}</p>
+        <p>${escapeHtml(error)}</p>
+        <p>${escapeHtml(url.searchParams.get("error_description") ?? "")}</p>
         <script>
           if (window.opener) {
-            window.opener.postMessage({ type: "github_oauth_error", error: "${error}" }, "*");
+            window.opener.postMessage({ type: "github_oauth_error", error: ${JSON.stringify(escapeHtml(error))} }, "*");
             window.close();
           }
         </script>
@@ -72,6 +88,10 @@ export const handleOAuthCallback = httpAction(async (ctx, request) => {
   try {
     const decoded = JSON.parse(Buffer.from(state, "base64url").toString());
     projectId = decoded.projectId;
+    if (typeof projectId !== "string" || typeof decoded.timestamp !== "number") throw new Error("bad state");
+    if (Date.now() - decoded.timestamp > OAUTH_STATE_MAX_AGE_MS) {
+      return new Response("OAuth state expired; start the GitHub connection again", { status: 400 });
+    }
   } catch {
     return new Response("Invalid state parameter", { status: 400 });
   }
@@ -105,10 +125,10 @@ export const handleOAuthCallback = httpAction(async (ctx, request) => {
     return new Response(
       `<html><body>
         <h1>Token Exchange Error</h1>
-        <p>${tokenData.error ?? "Failed to get access token"}</p>
+        <p>${escapeHtml(tokenData.error ?? "Failed to get access token")}</p>
         <script>
           if (window.opener) {
-            window.opener.postMessage({ type: "github_oauth_error", error: "${tokenData.error}" }, "*");
+            window.opener.postMessage({ type: "github_oauth_error", error: ${JSON.stringify(escapeHtml(tokenData.error ?? "token_exchange_failed"))} }, "*");
             window.close();
           }
         </script>
@@ -135,8 +155,8 @@ export const handleOAuthCallback = httpAction(async (ctx, request) => {
       <script>
         if (window.opener) {
           window.opener.postMessage({ 
-            type: "github_oauth_success", 
-            integrationId: "${integrationId}" 
+            type: "github_oauth_success",
+            integrationId: ${JSON.stringify(String(integrationId))}
           }, "*");
           setTimeout(() => window.close(), 1000);
         }
@@ -257,6 +277,10 @@ export const listByProject = query({
       lastSyncAt: integration.lastSyncAt,
       createdAt: integration.createdAt,
       updatedAt: integration.updatedAt,
+      // Repository selection (plan 019) — not credential material.
+      githubOwner: integration.githubOwner,
+      githubRepo: integration.githubRepo,
+      githubBaseBranch: integration.githubBaseBranch,
       // Don't expose access tokens
       hasAccessToken: !!integration.accessToken,
     }));
@@ -379,7 +403,9 @@ export const recordRefreshResult = internalMutation({
     const now = Date.now();
     if (args.ok) {
       await ctx.db.patch(args.integrationId, {
-        ...(args.githubOwner !== undefined ? { githubOwner: args.githubOwner } : {}),
+        // githubOwner doubles as the selected repository's owner (plan 019):
+        // once a repository is chosen, the account login must not replace it.
+        ...(args.githubOwner !== undefined && !integration.githubRepo ? { githubOwner: args.githubOwner } : {}),
         status: "active",
         errorMessage: undefined,
         lastSyncAt: now,
@@ -396,6 +422,50 @@ export const recordRefreshResult = internalMutation({
 });
 
 /**
+ * Repositories the connected GitHub account can push to (plan 019 repo
+ * picker). Reads the token through the access-checked internal query.
+ */
+export const listGithubRepos = action({
+  args: { integrationId: v.id("integrations") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<Array<{ fullName: string; owner: string; name: string; defaultBranch: string; private: boolean }>> => {
+    const target = await ctx.runQuery(internal.integrations.getForRefresh, {
+      integrationId: args.integrationId,
+    });
+    const response = await fetch(
+      "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member",
+      {
+        headers: {
+          Authorization: `Bearer ${target.accessToken}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      }
+    );
+    if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
+    const repos = (await response.json()) as Array<{
+      full_name: string;
+      name: string;
+      owner?: { login?: string };
+      default_branch?: string;
+      private?: boolean;
+      permissions?: { push?: boolean };
+    }>;
+    return repos
+      .filter((repo) => repo.permissions?.push !== false)
+      .map((repo) => ({
+        fullName: repo.full_name,
+        owner: repo.owner?.login ?? repo.full_name.split("/")[0],
+        name: repo.name,
+        defaultBranch: repo.default_branch ?? "main",
+        private: Boolean(repo.private),
+      }));
+  },
+});
+
+/**
  * Update integration config (e.g., selected repository)
  */
 export const updateConfig = mutation({
@@ -403,6 +473,7 @@ export const updateConfig = mutation({
     integrationId: v.id("integrations"),
     githubOwner: v.optional(v.string()),
     githubRepo: v.optional(v.string()),
+    githubBaseBranch: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const integration = await ctx.db.get(args.integrationId);
@@ -413,8 +484,22 @@ export const updateConfig = mutation({
       updatedAt: Date.now(),
     };
 
-    if (args.githubOwner !== undefined) updates.githubOwner = args.githubOwner;
-    if (args.githubRepo !== undefined) updates.githubRepo = args.githubRepo;
+    // These values end up in git push URLs and GitHub API paths.
+    const NAME = /^[A-Za-z0-9_.-]{1,100}$/;
+    const BRANCH = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,200}$/;
+    if (args.githubOwner !== undefined && args.githubOwner !== "" && !NAME.test(args.githubOwner)) {
+      throw new Error("Invalid GitHub owner");
+    }
+    if (args.githubRepo !== undefined && args.githubRepo !== "" && !NAME.test(args.githubRepo)) {
+      throw new Error("Invalid GitHub repository name");
+    }
+    if (args.githubBaseBranch !== undefined && args.githubBaseBranch !== "" && !BRANCH.test(args.githubBaseBranch)) {
+      throw new Error("Invalid base branch name");
+    }
+
+    if (args.githubOwner !== undefined) updates.githubOwner = args.githubOwner || undefined;
+    if (args.githubRepo !== undefined) updates.githubRepo = args.githubRepo || undefined;
+    if (args.githubBaseBranch !== undefined) updates.githubBaseBranch = args.githubBaseBranch || undefined;
 
     await ctx.db.patch(args.integrationId, updates);
   },

@@ -214,6 +214,19 @@ export const ensureForChat = internalMutation({
         team,
         seeded.map((a) => a._id)
       );
+    } else {
+      // Migrate legacy default (Researcher/Support) to CTO once.
+      const teamById = new Map(team.map((a) => [String(a._id), a]));
+      const activeAgents = active
+        .map((row) => teamById.get(String(row.agentId)))
+        .filter(Boolean) as AgentDoc[];
+      const isLegacyDefault = activeAgents.every((a) =>
+        /^(researcher|support|general|assistant)$/i.test(a.role)
+      );
+      const cto = team.find((a) => /^cto$/i.test(a.role));
+      if (isLegacyDefault && cto && !activeAgents.some((a) => /^cto$/i.test(a.role))) {
+        await syncParticipants(ctx, conversation._id, project, team, [cto._id]);
+      }
     }
     return conversation._id;
   },

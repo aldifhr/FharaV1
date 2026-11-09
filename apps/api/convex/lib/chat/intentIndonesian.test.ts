@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyChatIntent, hasAskShape } from "./intent";
+import { classifyChatIntent, explicitTaskCommand, hasAskShape } from "./intent";
 
 describe("Indonesian question shapes stay chat", () => {
   const asks = [
@@ -17,8 +17,11 @@ describe("Indonesian question shapes stay chat", () => {
     it(text, () => {
       expect(hasAskShape(text)).toBe(true);
       expect(classifyChatIntent(text).kind).toBe("chat");
+      expect(explicitTaskCommand(text)).toBeNull();
     });
   }
+  // Work requests are a SUGGESTION (plan + Create task button), never a
+  // task started by chat itself.
   const tasks = [
     "tambahkan fungsi formatRupiah(angka) di utils beserta tesnya",
     "buat halaman /about yang berisi nama project",
@@ -30,6 +33,7 @@ describe("Indonesian question shapes stay chat", () => {
     it(text, () => {
       expect(hasAskShape(text)).toBe(false);
       expect(classifyChatIntent(text).kind).toBe("task");
+      expect(explicitTaskCommand(text)).toBeNull();
     });
   }
   const prepositionOnly = ["ini cuma buat kamu aja", "itu buat ke depannya nanti"];

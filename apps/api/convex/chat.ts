@@ -23,7 +23,11 @@ import { TASK_INPUT_REFUSAL_COPY, type TaskInputRefusal } from "./lib/taskInputG
 import {
   GREETING,
   classifyChatIntent,
+  explicitTaskCommand,
+  findOfferedTask,
   hasAskShape,
+  isGoReply,
+  isPastedContent,
   isOptionPick as isOptionPickText,
   isRefusalReply,
   isSelfReviewRequest,
@@ -193,8 +197,13 @@ async function loadRepoSnapshot(ctx: ActionCtx, projectId: Id<"projects">): Prom
 /**
  * Plan 016: LLM Intent Classifier with structured output. Deterministic
  * shapes are a fast path; the classifier decides the ambiguous rest and
- * fails closed to `ask` — a classifier can enable a *chat* answer, never
- * silently create a task.
+ * fails closed to `ask`.
+ *
+ * The result is a SUGGESTION that shapes the reply only: `task` means "this
+ * looks like a work request", so the CTO answers with a short plan and the
+ * Create task button. It never dispatches — a task starts only from the
+ * button, an explicit command (explicitTaskCommand) or a go reply to a CTO
+ * offer (isGoReply + findOfferedTask).
  */
 async function resolveIntent(
   ctx: ActionCtx,
@@ -223,6 +232,18 @@ async function resolveIntent(
       reasoning: "option pick",
     };
   }
+  // Pasted or relayed text ("kata AI Agent saya …") is discussion material,
+  // not a request: answer it, never propose a plan for it.
+  if (isPastedContent(text)) {
+    return {
+      intent: "ask",
+      subtype: "explanation",
+      requiresWorkspace: false,
+      requiresExecution: false,
+      confidence: 1,
+      reasoning: "pasted or relayed content",
+    };
+  }
   if (fast.kind === "task" && !fastIsAsk) {
     return {
       intent: "task",
@@ -230,7 +251,7 @@ async function resolveIntent(
       requiresWorkspace: true,
       requiresExecution: true,
       confidence: 1,
-      reasoning: "deterministic change request",
+      reasoning: "deterministic change request (suggestion only)",
     };
   }
   if (fastIsAsk) {
@@ -333,8 +354,9 @@ type StreamReply = (
 ) => Promise<CompleteResult>;
 
 /**
- * Auto-dispatch: a task intent creates the task row and skips the chat loop.
- * Idempotent per message: the same user message can only create one task.
+ * Explicit dispatch: an explicit command ("/task …", "kerjakan …") creates
+ * the task row and skips the chat loop. Never reached from the classifier.
+ * Idempotent per message: the same command can only create one live task.
  */
 async function dispatchTaskFromChat(
   ctx: ActionCtx,
@@ -453,6 +475,65 @@ async function dispatchTaskFromChat(
       replyToMessageId: args.userMessageId,
     });
     // do not pretend execution is running
+  }
+}
+
+/**
+ * A bare go reply ("gas", "lanjut") right after a CTO reply that offered
+ * Create task starts that offered task — the same command and assignees as
+ * clicking the button (apps/web ChatPanel createTaskFromMessage).
+ */
+async function startOfferedTask(
+  ctx: ActionCtx,
+  args: ReplyArgs,
+  opts: { offer: { command: string; title?: string; reply: string }; team: ChatAgent[]; orchestrator: ChatAgent | null; dispatcher: ChatAgent }
+): Promise<void> {
+  const { offer, team, orchestrator, dispatcher } = opts;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { api } = (await import("./_generated/api.js")) as any;
+  const existing = (await ctx.runQuery(api.tasks.listByProject, { projectId: args.projectId })) as any[];
+  if (existing.some((t: any) => t.command === offer.command && !TERMINAL_TASK_STATUSES.includes(t.status))) return;
+  const assignees = extractAgentMentions(offer.reply, team, String(orchestrator?._id ?? ""));
+  const title = offer.title ?? offer.command.split("\n")[0].slice(0, 80);
+  try {
+    const taskId = await ctx.runMutation(api.tasks.createFromCommand, {
+      projectId: args.projectId,
+      command: offer.command,
+      title,
+      conversationId: args.conversationId,
+      ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
+      ...(assignees.length ? { assignedAgentIds: assignees.map((a) => a._id) } : {}),
+    });
+    if (orchestrator) {
+      await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+        projectId: args.projectId,
+        agentId: orchestrator._id as any,
+        conversationId: args.conversationId,
+        replyToMessageId: args.userMessageId,
+        taskId: taskId as any,
+        content: "",
+        card: {
+          kind: "assignment",
+          data: {
+            taskId: String(taskId),
+            title,
+            assignees: (assignees.length ? assignees : team)
+              .filter((a) => a._id !== orchestrator._id)
+              .map((a) => ({ agentId: String(a._id), name: a.name, role: a.role })),
+            assignedBy: orchestrator.name,
+          },
+        },
+      });
+    }
+  } catch (e: any) {
+    console.error("Offered task start failed:", e?.message ?? e);
+    await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+      projectId: args.projectId,
+      agentId: dispatcher._id as any,
+      conversationId: args.conversationId,
+      content: `I couldn't create the task (${e?.message ?? "unknown error"}). Use the Create task button under the plan instead.`,
+      replyToMessageId: args.userMessageId,
+    });
   }
 }
 
@@ -722,8 +803,41 @@ export const replyToChat = internalAction({
     const isOptionPick = isOptionPickText(lastContent);
 
     const lastUserContent = lastContent;
+
+    // Chat never starts a task by itself. Only an explicit command
+    // ("/task …", "kerjakan …") or a bare go reply to the CTO's Create task
+    // offer starts one here; the Create task button is the other way in.
+    const explicitCommand = isOptionPick ? null : explicitTaskCommand(lastUserContent);
+    if (explicitCommand) {
+      await dispatchTaskFromChat(ctx, args, {
+        text: explicitCommand,
+        agents,
+        team,
+        orchestrator,
+        dispatcher,
+        projectName,
+        conversation,
+        llmProviders,
+        globalConfig,
+        streamReplyToAgent,
+      });
+      return;
+    }
+    if (!isOptionPick && isGoReply(lastUserContent)) {
+      const roleOf = (id: string | undefined) => [...team, ...agents].find((a) => String(a._id) === String(id ?? ""))?.role;
+      const offer = findOfferedTask(history, roleOf);
+      if (offer) {
+        await startOfferedTask(ctx, args, { offer, team, orchestrator, dispatcher });
+        return;
+      }
+      // No offer to start: a bare "gas" is just chat.
+    }
+
+    // The intent below is a suggestion that shapes the reply (answer vs a
+    // plan proposal with the Create task button); it never dispatches.
     const intent = await resolveIntent(ctx, args.projectId, lastUserContent, isOptionPick, globalConfig);
-    // Back-compat: the chat loop below still reads `taskIntent`.
+    // `taskIntent.kind === "task"` makes the CTO propose a short plan and
+    // end with the Create task sentence the web button keys on.
     const taskIntent = {
       ...classifyChatIntent(lastUserContent),
       kind: intent.intent === "task" ? "task" : "chat",
@@ -738,21 +852,6 @@ export const replyToChat = internalAction({
       // Fall through to chat for anything unmatched.
     }
 
-    if (intent.intent === "task") {
-      await dispatchTaskFromChat(ctx, args, {
-        text: lastUserContent,
-        agents,
-        team,
-        orchestrator,
-        dispatcher,
-        projectName,
-        conversation,
-        llmProviders,
-        globalConfig,
-        streamReplyToAgent,
-      });
-      return; // skip normal chat reply loop
-    }
     // Intelligent Router (Fast Router):
     // - Multiple @mentions → sequential multi-agent replies in the user's
     //   order (FIFO per agent). The conversation context is appended to the
@@ -763,7 +862,9 @@ export const replyToChat = internalAction({
       .map((id) => agents.find((a) => a._id === String(id)))
       .filter((a): a is ChatAgent => Boolean(a));
     let responders: ChatAgent[];
-    if (intent.intent === "ask" && !isOptionPick) {
+    // A suggested work request ("task") is answered like a question: the
+    // CTO (or the @mentioned agent) replies, with a plan proposal.
+    if ((intent.intent === "ask" || intent.intent === "task") && !isOptionPick) {
       if (mentionedAgents.length > 0) {
         responders = mentionedAgents;
       } else if (orchestrator !== null) {

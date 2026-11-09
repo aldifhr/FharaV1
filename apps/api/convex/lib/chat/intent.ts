@@ -206,3 +206,109 @@ export function hasAskShape(text: string): boolean {
 export function isOptionPick(text: string): boolean {
   return /^i choose ([a-z0-9]+)\s*:\s*(.+)$/i.test(text.trim());
 }
+
+// ---------------------------------------------------------------------------
+// Explicit task starts (chat never starts a task by itself).
+//
+// A task starts only from the Create task button, an explicit command
+// ("/task …", or a message that opens with a go word such as "kerjakan …"),
+// or a bare go reply ("gas", "lanjut", "ok kerjakan") right after a CTO reply
+// that offered Create task. Everything else is chat: the regex/LLM
+// classifier only shapes the reply (answer vs plan proposal with the button).
+// ---------------------------------------------------------------------------
+
+/** Words that, opening a message, make it an explicit order to start a task. */
+export const EXPLICIT_GO_WORDS = ["kerjakan", "jalankan", "eksekusi", "do it", "run this"] as const;
+
+const SLASH_TASK = /^\/task\s+([\s\S]+)$/i;
+const GO_PREFIX = /^(kerjakan|jalankan|eksekusi|do it|run this)(?=$|[\s:,.!\-–—])[\s:,.!\-–—]*([\s\S]*)$/i;
+// "kata AI Agent saya …", "dia bilang …", "katanya …": the user is relaying
+// someone else's words, not giving an order.
+const RELAYED_SPEECH = /^(kata|katanya|dia bilang|doi bilang|mereka bilang|he said|she said|they said)\b/i;
+const QUOTE_START = /^[>"“”'‘’`]/;
+
+/**
+ * Pasted or relayed content: multi-line text, a quote/code block, or a line
+ * that opens with "kata …" / "dia bilang …". Never a command, even when it
+ * contains a go word or change verbs.
+ */
+export function isPastedContent(text: string): boolean {
+  const t = text.trim();
+  return /\n/.test(t) || t.includes("```") || QUOTE_START.test(t) || RELAYED_SPEECH.test(t);
+}
+
+/**
+ * The task text when the message is an explicit command, else null:
+ *   "/task <text>"                          → <text> (always honored)
+ *   "kerjakan|jalankan|eksekusi|do it|run this <text>" → <text>
+ * A go-word message is not a command when it is pasted/relayed content, a
+ * question (ends with "?"), or carries an explicit "no task" instruction.
+ * A bare go word with no text is a go reply (see isGoReply), not a command.
+ */
+export function explicitTaskCommand(text: string): string | null {
+  const t = text.trim();
+  const slash = SLASH_TASK.exec(t);
+  if (slash) return slash[1].trim() || null;
+  if (isPastedContent(t) || /\?\s*$/.test(t) || EXPLICIT_NEGATION.test(t)) return null;
+  const go = GO_PREFIX.exec(t);
+  if (!go) return null;
+  const rest = go[2].trim();
+  return rest ? rest : null;
+}
+
+const GO_REPLY =
+  /^(?:(?:ok(?:e|ay)?|sip|ya|yes|yup|siap|y)[\s,]+)?(?:gas+(?:kan)?|lanjut(?:kan)?|go|kerjakan|jalankan|eksekusi|do it|run it|run this|let'?s go|ship it)(?:\s+(?:aja|ya|dong|sekarang|now|please|bro|kak))?[\s!.]*$/i;
+
+/** A bare short go reply ("gas", "lanjut", "ok kerjakan", "yes do it"). */
+export function isGoReply(text: string): boolean {
+  const t = text.trim();
+  return t.length <= 32 && GO_REPLY.test(t);
+}
+
+/** The CTO's "Create task" offer — same rule as the button in the web chat. */
+const OFFERS_CREATE_TASK = /\b(create|bikin|buat)\s+task\b/i;
+const OPTION_PICK = /^i choose\s+[a-z0-9]+\s*:\s*(.+)$/i;
+
+export interface OfferedTask {
+  /** Index of the CTO reply that offered Create task, in `history`. */
+  index: number;
+  /** The task command, composed exactly like the Create task button does. */
+  command: string;
+  title?: string;
+  /** The offering reply (its @mentions become the assignees). */
+  reply: string;
+}
+
+/**
+ * The task a bare go reply starts: the CTO reply right before the user's
+ * latest message (teammates it pulled in may sit in between) that offered
+ * Create task. Mirrors `suggestTaskId` + `createTaskFromMessage` in the web
+ * chat, so "gas" does exactly what clicking the button would. Null when the
+ * latest message is not preceded by such an offer.
+ */
+export function findOfferedTask(
+  history: Array<{ authorType: string; content: string; agentId?: string }>,
+  roleOf: (agentId: string | undefined) => string | undefined
+): OfferedTask | null {
+  const last = history.length - 1;
+  if (last < 1 || history[last].authorType !== "user") return null;
+  for (let i = last - 1; i >= 0; i -= 1) {
+    const m = history[i];
+    if (m.authorType === "user") return null;
+    if (m.authorType !== "agent" || !m.content?.trim()) continue;
+    if (String(roleOf(m.agentId) ?? "").trim().toLowerCase() !== "cto") continue;
+    let prevUser: string | null = null;
+    for (let j = i - 1; j >= 0; j -= 1) {
+      if (history[j].authorType === "user") {
+        prevUser = history[j].content.trim();
+        break;
+      }
+    }
+    const pick = prevUser?.match(OPTION_PICK)?.[1];
+    if (!pick && !OFFERS_CREATE_TASK.test(m.content)) return null;
+    const ask = prevUser && !pick ? prevUser : "";
+    const command = [pick ? `Chosen option: ${pick}` : ask, m.content.trim()].filter(Boolean).join("\n\n");
+    return { index: i, command, title: pick ? `Implement ${pick}` : undefined, reply: m.content };
+  }
+  return null;
+}

@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { describe, expect, test, it } from "vitest";
-import { classifyChatIntent, parseIntentResult } from "./lib/chat/intent";
+import { classifyChatIntent, explicitTaskCommand, parseIntentResult } from "./lib/chat/intent";
 import { resolveAssignees, suggestAssigneesByKeywords, extractAgentMentions, selectHandoffs, handoffRequestFor, parseResponderSelection, pickConversationalAgent, pickGreetingResponders } from "./lib/chat/team";
 import { stripToolCallMarkup } from "./lib/chat/strip";
 import { buildAssignmentGuidance, buildHandoffGuidance } from "./lib/prompts/chat";
@@ -25,9 +25,13 @@ describe("chat intent (mirrors worker router)", () => {
     expect(classifyChatIntent("Should I use Redux or Zustand? Give pros and cons, do not create a task.").kind).toBe("chat");
     expect(classifyChatIntent("Refactor auth, jangan buat task").kind).toBe("chat");
   });
-  test("imperative create still dispatches task", () => {
+  test("imperative create is only a work suggestion, never a dispatch", () => {
+    // kind "task" shapes the CTO reply (plan + Create task button); chat
+    // starts a task only from an explicit command or the button.
     expect(classifyChatIntent("Create a file called hello.txt").kind).toBe("task");
     expect(classifyChatIntent("Refactor the authentication flow across frontend and backend.").kind).toBe("task");
+    expect(explicitTaskCommand("Create a file called hello.txt")).toBeNull();
+    expect(explicitTaskCommand("Refactor the authentication flow across frontend and backend.")).toBeNull();
   });
   test("read-only audit without change verb is chat", () => {
     expect(classifyChatIntent("Audit this workspace: list risks. Read-only, do not modify files.").kind).toBe("chat");

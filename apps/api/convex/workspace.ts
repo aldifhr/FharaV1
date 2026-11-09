@@ -35,6 +35,9 @@ export const listSubtasksByProject = query({
         error: s.error,
         attempts: s.attempts,
         reviewRound: (s as any).reviewRound,
+        // Live "what the agent is doing" line (worker:setSubtaskActivity).
+        activity: (s as any).activity as string | undefined,
+        activityAt: (s as any).activityAt as number | undefined,
         completedAt: s.completedAt,
       })),
     }));

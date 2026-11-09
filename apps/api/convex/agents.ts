@@ -532,10 +532,46 @@ export const FIXED_AGENTS = [
     description: "Documentation, user support, operational assistance, troubleshooting.",
     systemPrompt:
       "You are the Support Specialist. Write clear, step-by-step user documentation, API references, and troubleshooting guides in English. Answer the actual question first, then the how. Never invent features, endpoints, or behavior you cannot verify — check the code or say it is unknown. Boundaries: docs and guidance only, no code changes. Output: structured guide with prerequisites, steps, and expected results.",
-    capabilities: ["documentation-support"],
+    capabilities: ["documentation-support", "general"],
     supportedTools: ["read_file", "write_file"],
     priority: 6,
     maxConcurrency: 1,
+  },
+  {
+    key: "reviewer",
+    name: "Reviewer",
+    role: "reviewer",
+    description: "Independent code review. Evaluates implementation quality.",
+    systemPrompt:
+      "You are the Reviewer. Review diffs independently with file references, call out defects and risks concretely. Never silently modify code or approve your own work. Verification commands (tsc, lint, test, build) are executed by the runtime, not by you — review the diff only.",
+    capabilities: ["code-review"],
+    supportedTools: ["read_file"],
+    priority: 7,
+    maxConcurrency: 2,
+  },
+  {
+    key: "researcher",
+    name: "Researcher",
+    role: "researcher",
+    description: "Technical research and information gathering.",
+    systemPrompt:
+      "You are the Researcher. Prefer official docs; distinguish facts from assumptions with sources. Read-only research -- no file modifications.",
+    capabilities: ["research"],
+    supportedTools: ["read_file"],
+    priority: 6,
+    maxConcurrency: 2,
+  },
+  {
+    key: "devops",
+    name: "DevOps",
+    role: "devops",
+    description: "Docker, CI/CD, deployment, infrastructure.",
+    systemPrompt:
+      "You are the DevOps Engineer. Make minimal, reversible infra changes. Report the exact commands run and their output.",
+    capabilities: ["github", "shell-execution"],
+    supportedTools: ["read_file", "run_command"],
+    priority: 7,
+    maxConcurrency: 2,
   },
 ];
 
@@ -543,6 +579,19 @@ export const ensureFixedTeam = mutation({
   args: { projectId: v.optional(v.id("projects")) },
   handler: async (ctx, args) => {
     const existingAgents = await ctx.db.query("agents").collect();
+
+    // Retired roles (deleted from FIXED_AGENTS): disable once so existing
+    // projects never route new work to them again.
+    const retired = existingAgents.filter((a) =>
+      ["lead", "growth", "product-analyst"].includes(a.role)
+    );
+    const retiredIds = new Set<string>();
+    for (const agent of retired) {
+      retiredIds.add(String(agent._id));
+      if (agent.isEnabled !== false) {
+        await ctx.db.patch(agent._id, { isEnabled: false, status: "idle" });
+      }
+    }
     const createdAgentIds: string[] = [];
 
     for (const def of FIXED_AGENTS) {
@@ -578,7 +627,8 @@ export const ensureFixedTeam = mutation({
     if (args.projectId) {
       const project = await ctx.db.get(args.projectId);
       if (project) {
-        const combined = Array.from(new Set([...(project.agentIds ?? []), ...createdAgentIds]));
+        const kept = (project.agentIds ?? []).filter((id: string) => !retiredIds.has(String(id)));
+        const combined = Array.from(new Set([...kept, ...createdAgentIds]));
         await ctx.db.patch(project._id, { agentIds: combined as any });
       }
     }

@@ -1506,7 +1506,7 @@ async function executePlan(input: {
   if (implementation.status !== "completed") {
     if (implementation.outcomes) {
       for (const [key, o] of implementation.outcomes) {
-        if (o.status === "failed") state.feedback.push(`${key}: ${o.error}`);
+        if (o.status === "failed") state.feedback.push(`${key}: ${o.error ?? "failed without detail"}`);
       }
     }
     return { status: taskCancelled() ? "cancelled" : "failed" };

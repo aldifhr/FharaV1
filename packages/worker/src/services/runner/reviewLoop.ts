@@ -56,6 +56,11 @@ export async function runReviewLoop(ctx: RunContext): Promise<boolean> {
         // The loop deliberately re-runs its own nodes: clear this run's
         // completion mark so the scheduler executes them again.
         runCompleted.delete(key);
+        // Label round in UI: "Review (round 2)" after a fix, not confusing "running" again.
+        if (iteration > 0) {
+          const rt = plan.subtasks.find((s) => s.key === key);
+          if (rt) rt.title = `Review (round ${iteration + 1})`;
+        }
       }
 
       await deps.api.logEvent({
@@ -108,7 +113,18 @@ export async function runReviewLoop(ctx: RunContext): Promise<boolean> {
         return false;
       }
 
-      const codeSubtask = plan.subtasks.find((candidate) => candidate.kind === "code_change");
+      const codeSubtask = (() => {
+        const files = findings.map((f) => f.filePath ?? "").join(" ").toLowerCase();
+        const candidates = plan.subtasks.filter((s) => s.kind === "code_change");
+        // Prefer the subtask whose allowedPaths touches a finding file.
+        const byPath = candidates.find((s) =>
+          s.allowedPaths?.some((p) => files.includes(p.toLowerCase())) ||
+          s.allowedPaths?.some((p) => p.toLowerCase().split("/")[0] && files.includes(p.split("/")[0].toLowerCase()))
+        );
+        if (byPath) return byPath;
+        // Prefer the LAST code_change (most recent implementer), not first (often Backend type-only).
+        return candidates.at(-1) ?? candidates[0];
+      })();
       const fixSubtask = buildReviewFixSubtask({
         iteration: iteration + 1,
         findings,

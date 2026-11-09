@@ -113,18 +113,6 @@ export default function TaskThreadPanel({
   // empty. Add when verification is re-enabled.
   const checks = (agentEvents ?? []).filter((e: any) => e.type === "tool.completed");
   const taskStatus = (task as any)?.status;
-  // Scope the "thinking" banner to THIS task: a globally-working agent from
-  // an old/failed task (stale `status` in the DB) used to leak "Backend is
-  // thinking" into every thread of the project.
-  const assignedIds = (task as any)?.assignedAgentIds as string[] | undefined;
-  const workingAgent =
-    taskStatus === "running"
-      ? (agents ?? []).find(
-          (agent: any) =>
-            agent.status === "working" &&
-            (!assignedIds?.length || assignedIds.includes(agent._id))
-        )
-      : undefined;
   const threadOptions: string[] = Array.isArray((task as any)?.pendingOptions)
     ? (task as any).pendingOptions
     : [];
@@ -239,16 +227,6 @@ export default function TaskThreadPanel({
       </header>
 
       <div className="flex items-center gap-1.5 px-4 pt-3" />
-      {workingAgent && (
-        <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-700">
-          <span>{roleLabel(workingAgent.role)} is thinking</span>
-          <span className="flex gap-0.5">
-            <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-500" />
-            <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-500 [animation-delay:120ms]" />
-            <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-500 [animation-delay:240ms]" />
-          </span>
-        </div>
-      )}
 
       <div className="h-0 min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-[#fcfcfe] p-4 dark:bg-gray-950/40">
         {taskStatus === "failed" && (

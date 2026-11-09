@@ -5,14 +5,15 @@
  *  - frontend, backend, devops (Engineering)
  *  - qa, reviewer (Quality)
  *  - researcher (Research)
- *  - designer, ui-ux (Product)
+ *  - designer (Product)
  *
  * Roles are configuration (capabilities + tool defaults) executed by the
  * Agent Runtime on demand — never permanent workers. `architecture` etc.
  * are capabilities, not extra roles.
  * Deleted: lead (duplicates orchestrator/CTO planning), growth (SEO-only,
  * never suggested for dev tasks), product-analyst (same research capability
- * as researcher, router tie-break always picked it first).
+ * as researcher, router tie-break always picked it first), ui-ux (duplicate
+ * of designer — normalizeRole maps ui-ux to designer).
  */
 import { CAPABILITY } from "./types";
 import { capabilitiesOf } from "./capabilities";
@@ -27,8 +28,7 @@ export type AgentRole =
   | "support"
   | "devops"
   | "reviewer"
-  | "researcher"
-  | "ui-ux";
+  | "researcher";
 
 export interface RoleDefinition {
   role: AgentRole;
@@ -91,7 +91,7 @@ export const ROLE_DEFINITIONS: Record<AgentRole, RoleDefinition> = {
     displayName: "Support Specialist",
     category: "Operations",
     description: "Documentation, user support, operational assistance, troubleshooting.",
-    defaultCapabilities: [CAPABILITY.DOCUMENTATION],
+    defaultCapabilities: [CAPABILITY.DOCUMENTATION, CAPABILITY.GENERAL],
     defaultTools: ["read_file", "write_file"],
     systemPromptHint: "Answer the actual question first, then the how. Never invent features or behavior — check the code or say it is unknown. Docs and guidance only, no code changes.",
   },
@@ -121,15 +121,6 @@ export const ROLE_DEFINITIONS: Record<AgentRole, RoleDefinition> = {
     defaultCapabilities: [CAPABILITY.RESEARCH],
     defaultTools: ["read_file"],
     systemPromptHint: "Prefer official docs; distinguish facts from assumptions with sources. Read-only research — no file modifications.",
-  },
-  "ui-ux": {
-    role: "ui-ux",
-    displayName: "UI/UX Designer",
-    category: "Product",
-    description: "User experience and interface design.",
-    defaultCapabilities: [CAPABILITY.DESIGN],
-    defaultTools: ["read_file"],
-    systemPromptHint: "Design guidance only — layout, hierarchy, and UX rationale. The Frontend Developer implements it.",
   },
 };
 

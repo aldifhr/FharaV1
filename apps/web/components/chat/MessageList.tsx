@@ -14,6 +14,7 @@ import { ReasoningLine } from "../ui/trace";
 import MessageText from "./MessageText";
 import OptionCards from "./OptionCards";
 import TaskCard from "./TaskCard";
+import { Bubble, BubbleContent } from "@/components/ui/bubble";
 
 export type MessageKind = "evaluation" | "planning" | "delegation" | "design" | null;
 
@@ -221,10 +222,14 @@ export default function MessageList(props: Props) {
             />
           )}
           {messageKindOf(m.content) === "delegation" ? null : (
-            <MessageText
-              content={parseOptions(m.content).text}
-              isAnimating={conversationTyping && index === timeline.length - 1}
-            />
+            <Bubble variant={m.authorType === "user" ? "tinted" : "ghost"} align={m.authorType === "user" ? "end" : "start"} className="max-w-full">
+              <BubbleContent>
+                <MessageText
+                  content={parseOptions(m.content).text}
+                  isAnimating={conversationTyping && index === timeline.length - 1}
+                />
+              </BubbleContent>
+            </Bubble>
           )}
         </div>
         {(() => {

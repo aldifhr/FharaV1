@@ -26,10 +26,6 @@ const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
     capabilities: [CAPABILITY.CODE_REVIEW],
   },
   {
-    pattern: /\b(cto|architect|architecture|tech lead|principal)\b/i,
-    capabilities: [CAPABILITY.ARCHITECTURE, CAPABILITY.SECURITY],
-  },
-  {
     pattern: /\b(support|documentation|docs|technical-writer|writer)\b/i,
     capabilities: [CAPABILITY.DOCUMENTATION],
   },

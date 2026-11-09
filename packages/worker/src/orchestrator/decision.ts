@@ -848,7 +848,8 @@ export function applyDecision(
 ): AppliedDecision {
   const order = ctx.plan.subtasks.length;
   const toNode = (task: DecisionTask, index: number): PlanSubtask => {
-    const capability = task.capability ?? decision.target?.capability ?? CAPABILITY.GENERAL;
+    const implementer = ctx.plan.subtasks.find((s) => s.kind === "code_change");
+    const capability = task.capability ?? decision.target?.capability ?? implementer?.capability ?? CAPABILITY.GENERAL;
     const key = task.key && task.key.trim().length > 0 ? task.key : uniqueKey(`decision_${decision.action}`);
     return {
       key,

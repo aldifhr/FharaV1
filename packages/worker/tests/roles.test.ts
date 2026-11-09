@@ -24,7 +24,7 @@ describe("roles: normalization + lookup", () => {
     expect(normalizeRole("architect")).toBe("cto");
   });
   it("every org role (spec §2) has capabilities and tools", () => {
-    for (const role of ["cto", "frontend", "backend", "devops", "qa", "reviewer", "researcher", "ui-ux", "designer", "support"] as const) {
+    for (const role of ["cto", "frontend", "backend", "devops", "qa", "reviewer", "researcher", "designer", "support"] as const) {
       expect(ROLE_DEFINITIONS[role].defaultCapabilities.length).toBeGreaterThan(0);
       expect(ROLE_DEFINITIONS[role].defaultTools.length).toBeGreaterThan(0);
     }

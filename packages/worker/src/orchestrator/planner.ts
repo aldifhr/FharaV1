@@ -207,7 +207,7 @@ export function buildPlanningPrompt(input: PlannerInput): string {
     ...(input.sharedInstructions
       ? [`Durable shared instructions for this project (must follow): ${input.sharedInstructions}`]
       : []),
-    "Your team consists of specialized agents: CTO, Designer, Frontend, Backend, QA, Support, DevOps, Reviewer, Researcher, UI-UX.",
+    "Your team consists of specialized agents: CTO, Designer, Frontend, Backend, QA, Support, DevOps, Reviewer, Researcher.",
     "Analyze the user task, identify which agents are strictly relevant, and produce an execution plan as STRICT JSON.",
     "Do NOT force all agents into every task. Only assign agents whose capabilities match the requirements.",
     "For simple or single-discipline tasks, use strategy 'single' with 1 subtask and empty dependencies [].",
@@ -221,8 +221,8 @@ export function buildPlanningPrompt(input: PlannerInput): string {
     "- CTO must verify before approval: frontend/backend boundaries are sensible; project-standard technologies are used consistently; database and API designs are correct; service-to-service communication is explicit; no duplicate implementation is introduced; the solution is scalable and maintainable; and architectural changes are justified, minimal, and reversible.",
     "- CTO must reject or request revision when any of those checks fail or when the plan lacks enough evidence to decide. Do not approve by default just because an agent completed.",
     "- Technical-debt findings must include evidence, root cause, impact, and a durable remediation owner. The CTO directs the implementer agent to coordinate cross-agent fixes; do not hide debt behind a local patch or add a second orchestration path.",
-    "- Frontend (frontend-development): UI components, tokens, styling, and client implementation.",
-    "- Backend (backend-development): APIs, schema, integration, server logic.",
+    "- Frontend (frontend-development): UI components, tokens, styling, client implementation, and Next.js app code including src/lib types and utils (lib/resume is frontend unless it contains Convex/api routes).",
+    "- Backend (backend-development): Convex/API routes, database schema, server logic. A plain Next.js lib/ file with TypeScript types is frontend, not backend.",
     "- DevOps (github, shell-execution): repositories, issues/PRs, CI, infra commands.",
     "- QA (browser-testing): perform only the verification explicitly requested. Structural QA checks HTML, browser reachability, console, and network errors. Responsive viewport and screenshot-baseline checks are opt-in only; never add them when the user says not to.",
     "- Support (documentation-support): documentation, customer communication, release notes.",
@@ -347,8 +347,8 @@ export function applyPlanningHints(
     if (addReview && (hasReviewer || ctx.policy.reviewMode === "always")) {
       review = {
         key: uniqueKey("review", subtasks),
-        title: "CTO quality, architecture, and technical-debt review",
-        description: "CTO must inspect the completed implementation and either approve it or request revision. Check code quality, security, regression risk, performance, API/database contract compatibility, project conventions, duplication, scalability, maintainability, and whether architectural changes are justified. Also identify technical debt and architecture failures: duplicated code, frontend/backend contract drift, dependencies scheduled before prerequisites complete, repeated worker retries, inconsistent cross-agent context, and regressions in existing features. For every finding, identify the root cause, define the smallest durable fix, and direct the Lead to coordinate the remediation when it spans agents or subsystems.",
+        title: "Review implementation diff for regressions",
+        description: "Reviewer must inspect the completed implementation diff and either approve it or request revision. Check code quality, security, regression risk, performance, contract compatibility, project conventions, duplication, scalability, maintainability, and whether architectural changes are justified. Do NOT run verification commands (tsc, lint, test, build) — those are executed by the runtime verification loop, not by the reviewer (read-only). For every finding, identify the root cause, define the smallest durable fix, and direct the implementer agent to coordinate the remediation when it spans agents or subsystems.",
         kind: "review",
         capability: CAPABILITY.CODE_REVIEW,
         dependencies: codeChangeKeys,

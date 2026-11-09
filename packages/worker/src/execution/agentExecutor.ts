@@ -107,6 +107,11 @@ export interface SubtaskExecutionInput {
    * this one read its context, so the later write cannot drop it.
    */
   getStagedChange?: (filePath: string) => FileDiff | undefined;
+  /**
+   * Un-stage a file: a later subtask returned it to its pre-task content
+   * (the earlier staged edit is withdrawn instead of failing as a no-op).
+   */
+  discardFileChange?: (filePath: string) => Promise<void>;
   onTokenUsage?: (inputTokens: number, outputTokens: number, model: string, meta?: TokenUsageMeta) => Promise<void>;
   /**
    * Pre-call budget gate (Phase 5): invoked BEFORE every LLM call this
@@ -1001,6 +1006,7 @@ async function executeCodeChange(
   // file changes (Phase 4 anti-zombie rule).
   if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
   const unchanged: string[] = [];
+  const reverted: string[] = [];
   for (const file of draft.files.slice(0, 5)) {
     // Check between files: once aborted, no further changes are staged.
     if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
@@ -1041,6 +1047,13 @@ async function executeCodeChange(
         }
       }
       const diff = await computeDiff(workspacePath, file.filePath, newContent);
+      if (isNoOpChange(diff) && current && current.changeType !== "deleted" && input.discardFileChange) {
+        // Back to the pre-task content while an earlier edit is staged:
+        // that is a real change (withdraw the staged edit), not a no-op.
+        await input.discardFileChange(file.filePath);
+        reverted.push(file.filePath);
+        continue;
+      }
       if (isNoOpChange(diff)) {
         // Identical to what is on disk: staging it would only fail final
         // disk verification ("unchanged from its pre-task state").
@@ -1057,7 +1070,7 @@ async function executeCodeChange(
     }
   }
 
-  if (prepared.length === 0 && unchanged.length > 0) {
+  if (prepared.length === 0 && reverted.length === 0 && unchanged.length > 0) {
     return {
       status: "failed",
       error: `No effective change: ${unchanged.join(", ")} would be identical to the current content. Make the requested edit or report why none is needed.`,
@@ -1066,6 +1079,7 @@ async function executeCodeChange(
 
   const output = [
     `Prepared ${prepared.length} file change(s): ${prepared.map((change) => change.filePath).join(", ")}`,
+    reverted.length > 0 ? `Reverted ${reverted.length} staged file(s) to their original content: ${reverted.join(", ")}` : "",
     unchanged.length > 0 ? `Skipped ${unchanged.length} unchanged file(s): ${unchanged.join(", ")}` : "",
   ]
     .filter(Boolean)
@@ -1075,6 +1089,7 @@ async function executeCodeChange(
     output,
     meta: {
       filePaths: prepared.map((change) => change.filePath),
+      ...(reverted.length > 0 ? { revertedPaths: reverted } : {}),
       ...delegationMeta,
     },
   };

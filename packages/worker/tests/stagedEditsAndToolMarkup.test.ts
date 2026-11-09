@@ -297,3 +297,45 @@ describe("an empty model answer is retryable, not a permanent parse failure", ()
     expect(isPermanentSubtaskError("The review agent returned an unparseable review; refusing to proceed")).toBe(true);
   });
 });
+
+describe("a later node returning a staged file to its pre-task content", () => {
+  it("withdraws the staged edit instead of failing as a no-op", async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-revert-"));
+    try {
+      await fs.writeFile(path.join(workspace, "main.js"), "render();\n");
+      const staged = new Map<string, FileDiff>([["main.js", diffFromContents("main.js", "render();\n", "render();\naddToggle();\n")]]);
+      const discarded: string[] = [];
+      const config: GlobalLLMConfig = { provider: "openai-compatible", model: "m", baseUrl: "http://127.0.0.1:9", apiKey: "k" };
+      const provider: LLMProvider = {
+        complete: async () => ({ content: JSON.stringify({ files: [{ filePath: "main.js", newContent: "render();\n" }] }) }),
+      };
+      const handle: FallbackHandle = { connectionId: "c", connectionName: "t", config, provider };
+      const result = await executeSubtask({
+        workspacePath: workspace,
+        command: "remove the duplicate toggle",
+        plan: { version: 1, goal: "g", strategy: "single", requiresApproval: false, maxConcurrency: 1, subtasks: [] },
+        subtask: { key: "review_fix_1", title: "fix", description: "Delete the duplicate toggle block in main.js", kind: "code_change", capability: "frontend-development", dependencies: [], order: 0 },
+        agent: { _id: "a", name: "Frontend", role: "frontend", capabilities: ["frontend-development"] },
+        llmHandles: [handle],
+        priorOutputs: new Map(),
+        fileChanges: Array.from(staged.values()),
+        getStagedChange: (filePath) => staged.get(filePath),
+        discardFileChange: async (filePath) => {
+          discarded.push(filePath);
+          staged.delete(filePath);
+        },
+        signal: new AbortController().signal,
+        deadlineAt: Date.now() + 10 * 60_000,
+        onEvent: async () => undefined,
+        onMessage: async () => undefined,
+        onChunk: async () => undefined,
+        saveFileChange: async () => undefined,
+      });
+      expect(result.status).toBe("completed");
+      expect(discarded).toEqual(["main.js"]);
+      expect((result as { meta?: { revertedPaths?: string[] } }).meta?.revertedPaths).toEqual(["main.js"]);
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true });
+    }
+  });
+});

@@ -197,6 +197,30 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         onChunk: async () => {
           // Chunks are buffered by the provider; the final message is stored once.
         },
+        discardFileChange:
+          typeof (deps.api as { discardFileChange?: unknown }).discardFileChange === "function"
+            ? async (filePath: string) => {
+                await deps.api.discardFileChange({ taskId, filePath });
+                state.fileChanges.delete(filePath);
+                const prior = stagedByNode.findIndex((staged) => staged.filePath === filePath);
+                if (prior >= 0) stagedByNode.splice(prior, 1);
+                // Withdrawing an edit is this node's change: attribute it so
+                // objective evaluation does not read the node as a no-op.
+                // Earlier writers keep their attribution (their edit ran).
+                const produced = state.appliedFilesBySubtask.get(node.id) ?? [];
+                if (!produced.includes(filePath)) produced.push(filePath);
+                state.appliedFilesBySubtask.set(node.id, produced);
+                input.taskAbort?.bump?.();
+                await deps.api.logEvent({
+                  taskId,
+                  projectId: project._id,
+                  type: "fileChanges.discarded",
+                  payload: { filePaths: [filePath] },
+                  executionId,
+                  subtaskKey: node.id,
+                });
+              }
+            : undefined,
         saveFileChange: async (change) => {
           await deps.api.saveFileChange({
             taskId,

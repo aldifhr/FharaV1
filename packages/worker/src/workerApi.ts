@@ -188,6 +188,15 @@ export class WorkerApi {
     );
   }
 
+  async discardFileChange(
+    input: ActionInput<typeof api.worker.discardFileChange>
+  ): Promise<FunctionReturnType<typeof api.worker.discardFileChange>> {
+    return await this.client.action(
+      api.worker.discardFileChange,
+      this.args({ workerId: this.workerId, ...input })
+    );
+  }
+
   async markFilesApplied(
     input: ActionInput<typeof api.worker.markFilesApplied>
   ): Promise<FunctionReturnType<typeof api.worker.markFilesApplied>> {

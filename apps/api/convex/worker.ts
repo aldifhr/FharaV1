@@ -353,6 +353,21 @@ export const saveFileChange = action({
   },
 });
 
+export const discardFileChange = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    filePath: v.string(),
+    workerId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(
+      internal.orchestration.discardFileChange,
+      withoutToken(args)
+    );
+  },
+});
+
 export const markFilesApplied = action({
   args: {
     ...tokenArg,

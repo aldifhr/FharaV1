@@ -1233,6 +1233,30 @@ export const saveFileChange = internalMutation({
   },
 });
 
+/**
+ * Drop a staged (not yet applied) file change: a later subtask of the same
+ * task reverted the file to its pre-task content (e.g. a review fix that
+ * deletes a block an earlier node added). Applied rows are never removed.
+ */
+export const discardFileChange = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    filePath: v.string(),
+    workerId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) return false;
+    const existing = await ctx.db
+      .query("fileChanges")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .collect();
+    const match = existing.find((change) => change.filePath === args.filePath);
+    if (!match || match.appliedAt) return false;
+    await ctx.db.delete(match._id);
+    return true;
+  },
+});
+
 export const markFileChangesApplied = internalMutation({
   args: {
     taskId: v.id("tasks"),

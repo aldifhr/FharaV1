@@ -45,14 +45,14 @@ lib/convex.tsx    Convex provider/client bootstrap
 
 - Reuse `components/ui/` primitives before writing new ones. Keep the existing
   visual language; do not restyle a screen as part of a functional change.
-- All UI copy in English. Fix Indonesian strings you touch (see `ROADMAP.MD`).
+- All UI copy in English. Fix Indonesian strings you touch.
 - Every interactive control needs a working handler or must not ship. Do not add
   an icon button with no `onClick`.
 - Modals render through a portal to `document.body` (containing-block fix for
   `backdrop-blur`). Keep that pattern.
 - Use `loading="lazy"` and `referrerPolicy="no-referrer"` on remote `<img>`.
 - Do not introduce a second theme/font state hook; `use-theme` and `use-font`
-  are being merged into `useAppearance` (`ROADMAP.MD`).
+  are being merged into `useAppearance`.
 
 ## Client/worker boundaries
 
@@ -77,7 +77,7 @@ A copy, style, or component-props change does not need a build locally.
 
 ## Known debt
 
-`ROADMAP.MD` lists the current UI debt (dead Aceternity components, unwired header
-buttons, `@theme inline` warning, theme/font split). Fix an item when you are
-already in that file; do not open a separate refactor for it.
+`ROADMAP.md` (repo root) lists the open UI work (focus trap, page restyles,
+lint items L3/L4/L5/L7/L9). Fix an item when you are already in that file; do
+not open a separate refactor for it.
 

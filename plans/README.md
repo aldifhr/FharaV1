@@ -3,7 +3,7 @@
 Plans for changes that touch a non-negotiable rule, a schema migration, the
 orchestrator/planner contract, or more than one surface. Small fixes (copy,
 dead code, a single-file bug) do not need a plan — fix them and report the
-evidence. `ROADMAP.MD` stays the backlog; a plan is a backlog item with an
+evidence. `ROADMAP.md` stays the backlog; a plan is a backlog item with an
 execution order and a definition of done.
 
 ## Order and state

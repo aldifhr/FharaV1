@@ -54,7 +54,7 @@ A `lib/` file imported only by a `"use node"` module may itself need
 
 `lib/authz.ts` implements *conditional* ownership: a project is enforced only when it
 carries `ownerId` **and** a viewer identity exists. Local single-user mode has no
-auth provider by design (recorded decision in `README.md` and `ROADMAP.MD`).
+auth provider by design (recorded decision in `README.md` and `ROADMAP.md`).
 
 - Do not claim the app is authenticated or rate-limited. It is not.
 - Do not "fix" this by adding a fake owner or a hardcoded viewer.

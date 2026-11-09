@@ -16,7 +16,7 @@ Read this file before changing code. Each surface has its own rules:
 
 - Write code, comments, identifiers, commit messages, and UI copy in English.
   The UI copy is not fully swept yet; fix Indonesian strings you touch instead of
-  adding more. See `ROADMAP.MD` → "EN-only sweep".
+  adding more.
 - Keep answers short. State what you changed, what you ran, and what you did not
   check. Mark unverified claims and say where you looked.
 - Keep going when a step needs no decision from the developer. Stop and ask only

@@ -268,3 +268,15 @@ describe("review node retries an unparseable answer once", () => {
     expect((result as { meta?: { verdict?: string } }).meta?.verdict).toBe("approved");
   });
 });
+
+describe("an empty model answer is retryable, not a permanent parse failure", () => {
+  it("is not classified permanent by the scheduler", async () => {
+    const { EMPTY_MODEL_ANSWER_ERROR } = await import("@/execution/agentExecutor");
+    const { isPermanentSubtaskError, shouldRetrySubtask } = await import("@/scheduler/dagScheduler");
+    for (const kind of ["review", "implementation"] as const) {
+      expect(isPermanentSubtaskError(EMPTY_MODEL_ANSWER_ERROR(kind))).toBe(false);
+      expect(shouldRetrySubtask(EMPTY_MODEL_ANSWER_ERROR(kind))).toBe(true);
+    }
+    expect(isPermanentSubtaskError("The review agent returned an unparseable review; refusing to proceed")).toBe(true);
+  });
+});

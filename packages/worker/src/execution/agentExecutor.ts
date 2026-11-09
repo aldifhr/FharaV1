@@ -436,6 +436,14 @@ export async function reconcileWithStaged(params: {
   return { ok: true, content: proposed };
 }
 
+/**
+ * Error for a model call that produced no answer at all. Worded so the
+ * scheduler classifies it as retryable (it matches none of the permanent
+ * "unparseable"/"invalid JSON" patterns).
+ */
+export const EMPTY_MODEL_ANSWER_ERROR = (agent: "review" | "implementation") =>
+  `The ${agent} agent got an empty answer from the model (no output); retrying the subtask`;
+
 /** Safety margin kept between an LLM call's own timeout and the subtask deadline. */
 const DEADLINE_MARGIN_MS = 2_000;
 /** A retry is never started with less than this left in the subtask. */
@@ -962,6 +970,9 @@ async function executeCodeChange(
     draft = parsedAnswer.draft;
   }
   if (!draft) {
+    if (stripToolCallMarkup(response.content).trim() === "" && parsedAnswer.readPaths.length === 0) {
+      return { status: "failed", error: EMPTY_MODEL_ANSWER_ERROR("implementation") };
+    }
     return {
       status: "failed",
       error: "The implementation agent did not return valid file changes JSON",
@@ -1137,6 +1148,13 @@ async function executeReview(
     }
   }
   if (!review) {
+    // An EMPTY answer (the e2e model returned 0 output tokens after ~5 min)
+    // is a transient model failure, not a bad review: report it so the
+    // scheduler retries the review node with a fresh time budget instead
+    // of the runner replanning (and re-implementing) the whole task.
+    if (stripToolCallMarkup(response.content).trim() === "") {
+      return { status: "failed", error: EMPTY_MODEL_ANSWER_ERROR("review") };
+    }
     return {
       status: "failed",
       error: "The review agent returned an unparseable review; refusing to proceed",

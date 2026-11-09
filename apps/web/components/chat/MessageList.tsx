@@ -1,20 +1,20 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Pin } from "lucide-react";
+import { Copy, MoreHorizontal, PanelRightOpen, Pin, PinOff } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useRef, type MutableRefObject, type RefObject } from "react";
+import { useEffect, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import { parseOptions } from "@/lib/options";
 import { roleLabel } from "@/lib/agentRoles";
 import ApprovalCard from "../ApprovalCard";
 import QaPanel from "../QaPanel";
-import AgentAvatar from "../AgentAvatar";
+import InitialAvatar from "../InitialAvatar";
 import { ReasoningLine } from "../ui/trace";
 import MessageText from "./MessageText";
 import OptionCards from "./OptionCards";
 import TaskCard from "./TaskCard";
-import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { SectionLoading } from "@/app/WorkspaceContext";
+import { useToast } from "../Toasts";
 
 export type MessageKind = "evaluation" | "planning" | "delegation" | "design" | null;
 
@@ -47,9 +47,6 @@ type Props = {
   loading?: boolean;
   chatSending: boolean;
   conversationTyping: boolean;
-  replyingNames: string[];
-  activeForSelectedTask: any[];
-  workingAgents: any[];
   scrollRef?: RefObject<HTMLDivElement | null>;
   /** Filled with a function that scrolls a message into view (works for
    *  virtualized rows that are not in the DOM). Returns false if absent. */
@@ -69,7 +66,7 @@ export default function MessageList(props: Props) {
   const {
     timeline, firstNewIndex, agents, tasks = [], subtasksOf, pendingItems, projectEvents = [],
     projectApprovalMode, loading = false, chatSending,
-    conversationTyping, replyingNames, activeForSelectedTask, workingAgents, scrollRef, scrollToMessageRef,
+    conversationTyping, scrollRef, scrollToMessageRef,
     onSelectTask, approve, reject, hold, togglePin, onPickProposal, formatTime, taskTitle, blockKey,
   } = props;
 
@@ -119,16 +116,20 @@ export default function MessageList(props: Props) {
     const inner = (
       <>
         {index === firstNewIndex && (
-          <div className="flex items-center gap-3 text-[11px] font-medium text-[#635bff]">
-            <span className="h-px flex-1 bg-[#e5e3eb] dark:bg-gray-700" />
-            <span className="h-1.5 w-1.5 rounded-full bg-[#635bff]" />
-            New
+          <div role="separator" aria-label="New messages" className="mb-2 mt-6 flex items-center gap-3">
+            <span className="h-px flex-1 bg-line" />
+            <span className="flex items-center gap-1.5 text-[13px] font-medium text-brand-ink">
+              <span className="h-1.5 w-1.5 rounded-full bg-brand" />
+              New
+            </span>
           </div>
         )}
         {boundary && (
-          <p className="my-5 text-center text-[11px] text-gray-400">
-            — {taskTitle(key)} —
-          </p>
+          <div className="mb-1 mt-7 flex items-center gap-3 text-[12px] text-ink-3">
+            <span className="h-px flex-1 bg-line" />
+            <span className="max-w-[60%] truncate">{taskTitle(key)}</span>
+            <span className="h-px flex-1 bg-line" />
+          </div>
         )}
         {showTaskCard && (() => {
           const cardTask = (tasks ?? []).find((t: any) => t._id === key);
@@ -167,7 +168,7 @@ export default function MessageList(props: Props) {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
-            className="group mt-3 flex gap-3"
+            className="group relative mt-5 flex gap-3.5"
           >
             {renderMessageBody(m, index, messageAgent)}
           </motion.div>
@@ -175,7 +176,7 @@ export default function MessageList(props: Props) {
           <div
             key={m._id}
             id={`message-${m._id}`}
-            className="group mt-3 flex gap-3"
+            className="group relative mt-5 flex gap-3.5"
           >
             {renderMessageBody(m, index, messageAgent)}
           </div>
@@ -187,57 +188,28 @@ export default function MessageList(props: Props) {
 
   const renderMessageBody = (m: any, index: number, messageAgent: any) => (
     <>
-      {m.authorType === "agent" ? (
-        <AgentAvatar
-          name={roleLabel(messageAgent?.role)}
-          size={32}
-          avatarParams={messageAgent?.avatarParams}
-        />
-      ) : (
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#eceaf3] text-[11px] font-bold text-[#5147b4] dark:bg-white/15 dark:text-white">
-          You
-        </div>
-      )}
+      <InitialAvatar name={m.authorType === "agent" ? roleLabel(messageAgent?.role) : "You"} size={32} />
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <p className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-[#34323d] dark:text-gray-100">
-            {m.authorType === "agent"
-              ? roleLabel(messageAgent?.role)
-              : "You"}
+        <div className="flex items-baseline gap-2 pr-9">
+          <p className="flex flex-wrap items-center gap-1.5 text-[15px] font-semibold text-ink">
+            {m.authorType === "agent" ? roleLabel(messageAgent?.role) : "You"}
             {(() => {
               const kind = messageKindOf(m.content);
-              if (kind === "evaluation") return (
-                <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
-                  <svg className="animate-[spin_2.5s_linear_infinite]" xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="m16 9-5.5 5.5L8 12" />
-                  </svg>
-                  evaluated
-                </span>
-              );
-              if (kind === "planning") return <span className=" rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900 dark:text-purple-300">planned</span>;
-              if (kind === "delegation") return <span className=" rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">delegated</span>;
-              if (kind === "design") return <span className=" rounded-full bg-pink-100 px-1.5 py-0.5 text-[10px] font-semibold text-pink-700 dark:bg-pink-950 dark:text-pink-300">design proposal</span>;
-              return null;
+              const tag = kind === "evaluation" ? "evaluated" : kind === "planning" ? "plan" : kind === "delegation" ? "handoff" : kind === "design" ? "design" : null;
+              return tag ? <span className="rounded-md border border-line px-1.5 py-px text-[11px] font-normal text-ink-2">{tag}</span> : null;
             })()}
           </p>
-          <span className="text-[11px] text-gray-500 dark:text-gray-400">{formatTime(m._creationTime)}</span>
-          <button
-            type="button"
-            title={m.pinned ? "Unpin message" : "Pin message"}
-            aria-label={m.pinned ? "Unpin message" : "Pin message"}
-            aria-pressed={Boolean(m.pinned)}
-            onClick={() => togglePin(m._id, !m.pinned)}
-            className={`-my-1 rounded-md p-1.5 outline-none transition focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 ${
-              m.pinned
-                ? "text-[#635bff]"
-                : "text-gray-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-[#635bff] [@media(hover:none)]:opacity-60 dark:text-gray-500"
-            }`}
-          >
-            <Pin size={12} aria-hidden="true" />
-          </button>
+          <span className="text-[13px] text-ink-3">{formatTime(m._creationTime)}</span>
+          {m.pinned && <Pin size={12} className="self-center text-brand-ink" aria-label="Pinned" />}
         </div>
-        <div className="mt-1.5">
+        <MessageActions
+          pinned={Boolean(m.pinned)}
+          content={m.content}
+          taskId={blockKey(m) !== "conversation" ? blockKey(m) : undefined}
+          onTogglePin={() => togglePin(m._id, !m.pinned)}
+          onOpenTask={onSelectTask}
+        />
+        <div className="mt-0.5">
           {m.authorType === "agent" && (m.reasoning || !m.content?.trim()) && (
             <ReasoningLine
               text={m.reasoning}
@@ -246,14 +218,10 @@ export default function MessageList(props: Props) {
             />
           )}
           {messageKindOf(m.content) === "delegation" ? null : (
-            <Bubble variant={m.authorType === "user" ? "tinted" : "ghost"} align={m.authorType === "user" ? "end" : "start"} className="max-w-full">
-              <BubbleContent>
-                <MessageText
-                  content={parseOptions(m.content).text}
-                  isAnimating={conversationTyping && index === timeline.length - 1}
-                />
-              </BubbleContent>
-            </Bubble>
+            <MessageText
+              content={parseOptions(m.content).text}
+              isAnimating={conversationTyping && index === timeline.length - 1}
+            />
           )}
         </div>
         {(() => {
@@ -316,12 +284,12 @@ export default function MessageList(props: Props) {
           const parts = delegationParts(m.content);
           if (!parts) return null;
           return (
-            <div className="mt-2 flex max-w-3xl flex-wrap items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs dark:border-indigo-950 dark:bg-indigo-950/20">
-              <span className="font-semibold dark:text-white">{parts.from}</span>
-              <span aria-hidden="true" className="text-indigo-400">→</span>
-              <span className="font-semibold dark:text-white">{parts.to}</span>
-              <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-indigo-600 ring-1 ring-indigo-100 dark:bg-gray-900 dark:text-indigo-300 dark:ring-gray-800">{parts.capability}</span>
-              {parts.reason && <span className="w-full text-gray-500 dark:text-gray-400">{parts.reason}</span>}
+            <div className="mt-1 flex max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-ink">
+              <span className="font-medium">{parts.from}</span>
+              <span aria-hidden="true" className="text-ink-3">→</span>
+              <span className="font-medium text-brand-ink">@{parts.to}</span>
+              <span className="rounded-md border border-line px-1.5 py-px text-[12px] text-ink-2">{parts.capability}</span>
+              {parts.reason && <span className="w-full text-ink-2">{parts.reason}</span>}
             </div>
           );
         })()}
@@ -357,85 +325,115 @@ export default function MessageList(props: Props) {
       ) : (
         <div ref={listRef}>{timeline.map((m: any, index: number) => renderItem(m, index, true))}</div>
       )}
-      {/* Generic chat-reply indicator. Per-agent status (Working now
-          / X is thinking) is more specific: when either is visible,
-          this one hides so the same state is not announced twice. */}
-      {conversationTyping && activeForSelectedTask.length === 0 && workingAgents.length === 0 && (
-        <div role="status" aria-live="polite" className="flex w-fit items-center gap-2.5 rounded-full border border-[#ebe9f4] bg-white/80 px-3 py-1.5 text-xs font-medium text-gray-500 shadow-sm dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-300">
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#eeecfb] text-[10px] text-[#635bff] dark:bg-indigo-950 dark:text-indigo-300" aria-hidden="true">✦</span>
-          <span>{replyLabel(replyingNames)}</span>
-          <span className="flex gap-1" aria-hidden="true">
-            <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8b82e8]" />
-            <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8b82e8] [animation-delay:120ms]" />
-            <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8b82e8] [animation-delay:240ms]" />
-          </span>
-        </div>
-      )}
       {!loading && !timeline.length && (
-        <div className="py-10 text-center">
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-200">No messages yet</p>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Describe what you want built. Type @ to address a teammate like @CTO or @QA.</p>
+        <div className="py-16 text-center">
+          <p className="text-[15px] font-medium text-ink">No messages yet</p>
+          <p className="mt-1 text-[14px] text-ink-3">Describe what you want built. Type @ to address a teammate, or / for a command.</p>
         </div>
-      )}
-      {activeForSelectedTask.length > 0 ? (
-        <div role="status" aria-live="polite" className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
-          <div className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative h-2 w-2 rounded-full bg-emerald-500" />
-            </span>
-            Working now
-          </div>
-          <div className="mt-1.5 space-y-1">
-            {activeForSelectedTask.map(({ agent, stage, subtaskKey }: any) => (
-              <div key={agent._id} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
-                <AgentAvatar name={roleLabel(agent.role)} size={18} status="working" avatarParams={agent.avatarParams} />
-                <span className="font-medium">{roleLabel(agent.role)}</span>
-                <span className="text-gray-500 dark:text-gray-400">
-                  {stage === "waiting_approval" ? "waiting approval" : stage === "queued" ? "queued" : "thinking"}
-                  {subtaskKey ? ` · ${subtaskKey}` : ""}
-                </span>
-                <span className="flex gap-0.5" aria-hidden="true">
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:240ms]" />
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        workingAgents.length > 0 && (
-          <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-            <div className="flex space-x-1">
-              {workingAgents.slice(0, 3).map((agent: any) => (
-                <AgentAvatar
-                  key={agent._id}
-                  name={roleLabel(agent.role)}
-                  size={20}
-                  avatarParams={agent.avatarParams}
-                />
-              ))}
-            </div>
-            <span>{workingAgents.map((agent: any) => roleLabel(agent.role)).join(", ")} {workingAgents.length === 1 ? "is" : "are"} thinking</span>
-            <span className="flex gap-0.5" aria-hidden="true">
-              <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400" />
-              <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
-              <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:240ms]" />
-            </span>
-          </div>
-        )
       )}
     </>
   );
 }
 
-/** The pill names who is drafting a reply instead of the generic
- *  "Team is thinking" — falls back to "Team" when the selection is empty. */
-function replyLabel(names: string[]): string {
-  const [a, b, c] = names;
-  if (!a) return "Team is thinking";
-  if (!b) return `${a} is drafting a reply`;
-  if (!c) return `${a} and ${b} are drafting replies`;
-  return `${a}, ${b} and ${c} are drafting replies`;
+/** Hover ⋯ (or long-press on touch) menu for one message: pin, copy, open thread. */
+function MessageActions({
+  pinned,
+  content,
+  taskId,
+  onTogglePin,
+  onOpenTask,
+}: {
+  pinned: boolean;
+  content: string;
+  taskId?: string;
+  onTogglePin: () => void;
+  onOpenTask: (taskId: string) => void;
+}) {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  // Long-press anywhere on the row opens the menu on touch screens.
+  useEffect(() => {
+    const row = ref.current?.closest<HTMLElement>(".group");
+    if (!row) return;
+    const cancel = () => {
+      if (pressTimer.current) clearTimeout(pressTimer.current);
+      pressTimer.current = null;
+    };
+    const start = (e: TouchEvent) => {
+      if ((e.target as HTMLElement).closest("button, a, input, textarea")) return;
+      cancel();
+      pressTimer.current = setTimeout(() => setOpen(true), 480);
+    };
+    row.addEventListener("touchstart", start, { passive: true });
+    row.addEventListener("touchmove", cancel, { passive: true });
+    row.addEventListener("touchend", cancel);
+    return () => {
+      cancel();
+      row.removeEventListener("touchstart", start);
+      row.removeEventListener("touchmove", cancel);
+      row.removeEventListener("touchend", cancel);
+    };
+  }, []);
+
+  const item = "flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-ink hover:bg-hover";
+  return (
+    <div ref={ref} className="absolute right-0 top-0">
+      <button
+        type="button"
+        aria-label="Message actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className={`flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-ink-3 outline-none transition hover:border-line hover:bg-panel hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand/40 ${open ? "opacity-100" : "opacity-0 group-hover:opacity-100"} [@media(hover:none)]:hidden`}
+      >
+        <MoreHorizontal size={16} />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 z-30 mt-1 w-48 overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-[0_12px_32px_-12px_rgba(20,20,40,0.3)]">
+          <button type="button" role="menuitem" className={item} onClick={() => { setOpen(false); onTogglePin(); }}>
+            {pinned ? <PinOff size={15} className="text-ink-3" /> : <Pin size={15} className="text-ink-3" />}
+            {pinned ? "Unpin message" : "Pin message"}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={item}
+            onClick={() => {
+              setOpen(false);
+              void navigator.clipboard?.writeText(content).then(
+                () => toast("success", "Copied to clipboard"),
+                () => toast("error", "Copy failed"),
+              );
+            }}
+          >
+            <Copy size={15} className="text-ink-3" /> Copy text
+          </button>
+          {taskId && (
+            <button type="button" role="menuitem" className={item} onClick={() => { setOpen(false); onOpenTask(taskId); }}>
+              <PanelRightOpen size={15} className="text-ink-3" /> Open task thread
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }

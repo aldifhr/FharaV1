@@ -136,10 +136,13 @@ export default function AgentDetailPanel({
   agent,
   onClose,
   onEdit,
+  onRemove,
 }: {
   agent: any;
   onClose: () => void;
   onEdit: (agent: any) => void;
+  /** Delete the agent (asks for confirmation upstream). */
+  onRemove?: (agent: any) => void;
 }) {
   const detail = useQuery(api.agents.getDetail, { agentId: agent._id as never });
   const history = useQuery(api.agents.getExecutionHistory, { agentId: agent._id as never, limit: 20 });
@@ -195,10 +198,19 @@ export default function AgentDetailPanel({
             <button
               type="button"
               onClick={() => onEdit(agent)}
-              className="rounded-lg bg-[#6252d8] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#5147b4]"
+              className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-hover"
             >
               Edit agent
             </button>
+            {onRemove && (
+              <button
+                type="button"
+                onClick={() => onRemove(agent)}
+                className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-950/40"
+              >
+                Remove
+              </button>
+            )}
           </span>
         </div>
 

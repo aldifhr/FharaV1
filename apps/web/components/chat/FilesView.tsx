@@ -82,10 +82,10 @@ export default function FilesView({ project }: { project: any }) {
 
   if (project && !workspacePath) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[#e5e3eb] px-6 py-12 text-center dark:border-gray-800">
-        <FolderX size={22} className="text-gray-400" aria-hidden="true" />
-        <p className="text-sm font-medium text-gray-700 dark:text-gray-200">This project has no folder set</p>
-        <p className="max-w-xs text-xs text-gray-500 dark:text-gray-400">Add a folder path under More actions → Manage project to browse its files here.</p>
+      <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-line px-6 py-12 text-center">
+        <FolderX size={22} className="text-ink-3" aria-hidden="true" />
+        <p className="text-sm font-medium text-ink">This project has no folder set</p>
+        <p className="max-w-xs text-xs text-ink-3">Add a folder path under More actions → Manage project to browse its files here.</p>
       </div>
     );
   }
@@ -98,13 +98,13 @@ export default function FilesView({ project }: { project: any }) {
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search files…"
           aria-label="Search files"
-          className="rounded-xl border border-[#e5e3eb] bg-white px-3 py-2 text-base outline-none focus:border-[#a29ae8] focus-visible:ring-2 focus-visible:ring-[#e5e1ff] sm:text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+          className="rounded-xl border border-line bg-panel px-3 py-2 text-base outline-none focus:border-brand/50 focus-visible:ring-2 focus-visible:ring-brand/15 sm:text-sm"
         />
-        <div className="max-h-[60vh] min-h-0 flex-1 overflow-y-auto rounded-xl border md:max-h-[calc(100dvh-16rem)] border-[#e5e3eb] bg-white p-1 dark:border-gray-800 dark:bg-gray-900">
+        <div className="max-h-[60vh] min-h-0 flex-1 overflow-y-auto rounded-xl border md:max-h-[calc(100dvh-16rem)] border-line bg-panel p-1">
           {error && <p className="px-2 py-2 text-xs text-rose-600">{error}</p>}
-          {!error && !files && <p role="status" className="px-2 py-2 text-xs text-gray-500 dark:text-gray-400">Loading files…</p>}
+          {!error && !files && <p role="status" className="px-2 py-2 text-xs text-ink-3">Loading files…</p>}
           {files && visible.length === 0 && (
-            <p className="px-2 py-2 text-xs text-gray-500 dark:text-gray-400">{query ? "No files match." : "No files found."}</p>
+            <p className="px-2 py-2 text-xs text-ink-3">{query ? "No files match." : "No files found."}</p>
           )}
           {visible.map((file) => (
             <button
@@ -112,42 +112,42 @@ export default function FilesView({ project }: { project: any }) {
               type="button"
               onClick={() => openFile(file)}
               aria-current={selected === file ? "true" : undefined}
-              className={`flex w-full items-center gap-2 truncate rounded-lg px-2 py-1.5 text-left text-[13px] outline-none transition hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:hover:bg-gray-800 ${
-                selected === file ? "bg-gray-100 font-semibold dark:bg-gray-800" : ""
+              className={`flex w-full items-center gap-2 truncate rounded-lg px-2 py-1.5 text-left text-[13px] outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 ${
+                selected === file ? "bg-hover font-semibold" : ""
               }`}
             >
-              <FileText size={13} className="shrink-0 text-gray-400" />
+              <FileText size={13} className="shrink-0 text-ink-3" />
               <span className="min-w-0 flex-1 truncate">{file}</span>
             </button>
           ))}
         </div>
       </div>
-      <div className={`h-[calc(100dvh-16rem)] min-h-[320px] min-w-0 flex-1 overflow-hidden rounded-xl border border-[#e5e3eb] bg-white dark:border-gray-800 dark:bg-gray-900 ${selected ? "" : "max-md:hidden"}`}>
+      <div className={`h-[calc(100dvh-16rem)] min-h-[320px] min-w-0 flex-1 overflow-hidden rounded-xl border border-line bg-panel ${selected ? "" : "max-md:hidden"}`}>
         {selected ? (
           <>
-            <div className="flex items-center gap-2 border-b border-[#e5e3eb] px-4 py-2 dark:border-gray-800">
+            <div className="flex items-center gap-2 border-b border-line px-4 py-2">
               <button
                 type="button"
                 onClick={() => setSelected(null)}
-                className="rounded-md px-1.5 py-0.5 text-xs font-medium text-[#5147b4] outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 md:hidden dark:text-indigo-300 dark:hover:bg-gray-800"
+                className="rounded-md px-1.5 py-0.5 text-xs font-medium text-brand-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 md:hidden dark:text-indigo-300"
               >
                 ← Files
               </button>
-              <p className="min-w-0 flex-1 truncate font-mono text-xs text-gray-500 dark:text-gray-400">{selected}</p>
+              <p className="min-w-0 flex-1 truncate font-mono text-xs text-ink-3">{selected}</p>
             </div>
             {imageSrc ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={imageSrc} alt={selected} className="h-[calc(100%-41px)] w-full object-contain bg-gray-50 dark:bg-gray-950" />
+              <img src={imageSrc} alt={selected} className="h-[calc(100%-41px)] w-full object-contain bg-panel-2" />
             ) : content === "" && binaryNote ? (
-              <p className="flex h-[calc(100%-41px)] items-center justify-center text-sm text-gray-400">{binaryNote}</p>
+              <p className="flex h-[calc(100%-41px)] items-center justify-center text-sm text-ink-3">{binaryNote}</p>
             ) : (
-              <pre className="h-[calc(100%-41px)] overflow-auto p-4 font-mono text-xs leading-5 dark:text-gray-200">
+              <pre className="h-[calc(100%-41px)] overflow-auto p-4 font-mono text-xs leading-5">
                 {content ?? "Loading…"}
               </pre>
             )}
           </>
         ) : (
-          <p className="flex h-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+          <p className="flex h-full items-center justify-center text-sm text-ink-3">
             Select a file to preview it.
           </p>
         )}

@@ -84,6 +84,10 @@ vi.mock("./repoTools", async (importOriginal) => {
 
 const modules = import.meta.glob("./**/*.ts");
 
+/** A specialist reply over the short-reply limit (lib/chat/wrapUp.ts). */
+const LONG_REPLY = (topic: string) =>
+  Array.from({ length: 10 }, (_, i) => `Point ${i + 1} about ${topic}: ` + Array.from({ length: 14 }, (_, j) => `detail${i}_${j}`).join(" ") + ".").join("\n");
+
 const READ = '{"tool":"read_file","arguments":{"path":"apps/api/convex/schema.ts"}}';
 const GREP = '{"tool":"grep","arguments":{"pattern":"defineTable"}}';
 
@@ -258,7 +262,7 @@ describe("tools off: no verification handoff", () => {
 });
 
 describe("CTO dispatch pre-route (no @mention)", () => {
-  test("a QA question goes to QA: CTO handoff line, QA answers with tools, CTO wraps up from QA's reply only", async () => {
+  test("a QA question goes to QA: CTO handoff line, QA answers with tools; a short single reply gets no CTO wrap-up", async () => {
     const { t, projectId, ctoId, qaId } = await setup({ worker: "new" });
     reply = (call) => {
       const who = speaker(call);
@@ -266,16 +270,54 @@ describe("CTO dispatch pre-route (no @mention)", () => {
       return "QA: cakupan tes schema masih tipis.";
     };
     const replies = await ask(t, projectId, "gimana cakupan tes untuk schema kita sekarang?");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId, qaId, ctoId]);
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId, qaId]);
     expect(replies[0].content).toBe("Saya serahkan ke @QA untuk pengecekan tes ini.");
     expect(replies[1].content).toBe("Cakupan tes schema masih tipis: belum ada tes untuk defineTable.");
     const qaFirst = callsBy("QA")[0];
     expect(qaFirst.system).toContain("## Repo tools");
     expect(qaFirst.system).toContain("handed the user's latest message to you");
-    const summary = calls[calls.length - 1];
-    expect(summary.system).toContain("at most 5 lines");
+    // No wrap-up call was even made.
+    expect(callsBy("CTO")).toHaveLength(0);
+  });
+
+  test("the user named the specialist ('can you ask frontend …'): no CTO wrap-up", async () => {
+    const { t, projectId, ctoId, frontendId } = await setup({ worker: "new" });
+    const long = LONG_REPLY("HTML");
+    reply = (call) => (speaker(call) === "Frontend" ? long : "HTML is the markup language. Want me to show an example?");
+    const replies = await ask(t, projectId, "can you ask frontend, what is html");
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId, frontendId]);
+    expect(callsBy("CTO")).toHaveLength(0);
+  });
+
+  test("a long single reply gets a wrap-up of at most 2 lines with only a next step", async () => {
+    const { t, projectId, ctoId, qaId } = await setup({ worker: "new" });
+    const long = LONG_REPLY("coverage");
+    reply = (call) => {
+      const who = speaker(call);
+      if (who === "QA") return toolResults(call) === 0 ? GREP : long;
+      return "Keputusan: tambah tes untuk defineTable dulu.\nLangkah berikut: QA menulis tesnya.\nBaris ketiga tidak boleh tampil.";
+    };
+    const replies = await ask(t, projectId, "gimana cakupan tes untuk schema kita sekarang?");
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId, qaId, ctoId]);
+    expect(replies[2].content).toBe("Keputusan: tambah tes untuk defineTable dulu.\nLangkah berikut: QA menulis tesnya.");
+    const summary = callsBy("CTO").at(-1)!;
+    expect(summary.system).toContain("at most 2 lines");
+    expect(summary.system).toContain("Do not restate, summarise or paraphrase the reply");
     expect(summary.system).not.toContain("## Repo tools");
-    expect(summary.msgs.at(-1)?.content).toContain("QA's reply:\nCakupan tes schema masih tipis");
+    expect(summary.msgs.at(-1)?.content).toContain("QA's reply:\n" + long.split("\n")[0]);
+  });
+
+  test("a wrap-up that restates the long reply is dropped, not posted", async () => {
+    const { t, projectId, ctoId, qaId } = await setup({ worker: "new" });
+    const long = LONG_REPLY("coverage");
+    reply = (call) => {
+      const who = speaker(call);
+      if (who === "QA") return toolResults(call) === 0 ? GREP : long;
+      return long.split("\n").slice(0, 2).join(" ");
+    };
+    const replies = await ask(t, projectId, "gimana cakupan tes untuk schema kita sekarang?");
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId, qaId]);
+    expect(callsBy("CTO")).toHaveLength(1);
   });
 
   test("the CTO itself answers a planning question", async () => {

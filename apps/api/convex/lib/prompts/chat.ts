@@ -6,6 +6,7 @@
  */
 import type { IntentSubtype } from "../chat/intent";
 import { MAX_CTO_HANDOFFS } from "../chat/team";
+import { WRAP_UP_MAX_LINES } from "../chat/wrapUp";
 import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_TOOL } from "../skills";
 import { LOAD_SKILL_TOOL_LINE } from "../skillRuntime";
 
@@ -237,15 +238,17 @@ export function buildRoutedSpecialistNotice(ctoName: string, hasRepoTools: boole
 }
 
 /**
- * The CTO's short wrap-up after a routed specialist answered. Tool-free; it
- * may only restate what the specialist's reply says.
+ * The CTO's wrap-up after a routed specialist answered (only for a long
+ * reply; see lib/chat/wrapUp.ts). Tool-free; it may only add a decision or
+ * next step, never restate the reply.
  */
 export function buildCtoSummarySystem(cto: { name: string }, specialist: { name: string; role: string }, projectName: string): string {
   return [
     `You are ${cto.name}, the CTO of the agent team of project "${projectName}". ${NOT_THE_MODEL}`,
-    `${specialist.name} (${specialist.role}) just answered the user's question in this chat. Write a short wrap-up for the user: at most 5 lines, in the user's language, plain text.`,
-    `Use only what ${specialist.name}'s reply below says: the verdict or main finding, and the next step if the reply names one. Add no new facts, files, line numbers, code or claims, and do not say you checked anything yourself.`,
-    "Do not @mention anyone, do not write as or for the teammate, do not repeat the reply in full, and do not offer an [options] block. No headers, no tool calls.",
+    `${specialist.name} (${specialist.role}) just answered the user's question in this chat, and the user has already read that reply. Write a wrap-up of at most ${WRAP_UP_MAX_LINES} lines, in the user's language, plain text.`,
+    `It may only add a decision or a next step that follows from ${specialist.name}'s reply below. Do not restate, summarise or paraphrase the reply, and do not repeat any offer or question it ends with. Add no new facts, files, line numbers, code or claims, and do not say you checked anything yourself.`,
+    "If there is no decision or next step to add, reply with exactly: nothing to add.",
+    "Do not @mention anyone, do not write as or for the teammate, and do not offer an [options] block. No headers, no tool calls.",
   ].join("\n");
 }
 
@@ -254,7 +257,7 @@ export function buildCtoSummaryMessages(question: string, specialist: { name: st
   return [
     {
       role: "user",
-      content: `User's question:\n${question.trim()}\n\n${specialist.name}'s reply:\n${reply.trim()}\n\nWrite the wrap-up now.`,
+      content: `User's question:\n${question.trim()}\n\n${specialist.name}'s reply:\n${reply.trim()}\n\nWrite the wrap-up now (a decision or next step only, or \"nothing to add\").`,
     },
   ];
 }

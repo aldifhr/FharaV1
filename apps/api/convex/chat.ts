@@ -61,6 +61,7 @@ import {
   type CompleteResult,
 } from "./lib/chat/llm";
 import { stripToolCallMarkup } from "./lib/chat/strip";
+import { sanitizeWrapUp, wrapUpSkipReason } from "./lib/chat/wrapUp";
 import { firstReasoningSentence, intentLineFor, stripInternalPhrasing, toolStepFor } from "./lib/chat/activity";
 import { completeWithSnapshot, type ChatSnapshotScope } from "./lib/chat/snapshot";
 import { readRepoSnapshot } from "./lib/chat/repoSnapshot";
@@ -1347,18 +1348,30 @@ export const replyToChat = internalAction({
       }
     }
 
-    // Routed question: the CTO wraps up in ≤5 tool-free lines, citing only
-    // the specialist's reply. Nothing to wrap up when the specialist said nothing.
-    if (routed && orchestrator && routedReply) {
+    // Routed question: the CTO may add a decision / next step (≤2 lines,
+    // tool-free) — never when the user named the specialist or a single
+    // short reply already says it all, and never a restatement of the reply
+    // (lib/chat/wrapUp.ts).
+    const wrapUpSpecialists = routed && routedReply ? [{ agent: routed, reply: routedReply }] : [];
+    const wrapUpSkip = wrapUpSkipReason({ userText: lastUserContent, specialists: wrapUpSpecialists });
+    if (routed && orchestrator && routedReply && wrapUpSkip === null) {
       try {
         const ctoConfig = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), orchestrator as any);
-        await streamReplyToAgent(
-          orchestrator._id as any,
-          ctoConfig,
+        const raw = await completeWithAgent(
           buildCtoSummarySystem(orchestrator, routed, projectName),
           buildCtoSummaryMessages(lastUserContent, routed, routedReply),
-          { intentLine },
+          ctoConfig,
         );
+        const wrapUp = sanitizeWrapUp(stripInternalPhrasing(stripToolCallMarkup(raw.content ?? "")), [routedReply]);
+        if (wrapUp && !hasToolCallText(wrapUp)) {
+          await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+            projectId: args.projectId,
+            agentId: orchestrator._id as any,
+            conversationId: args.conversationId,
+            content: wrapUp,
+            replyToMessageId: args.userMessageId,
+          });
+        }
       } catch (err: any) {
         console.error("CTO wrap-up failed:", err?.message ?? err);
       }

@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { roleLabel } from "@/lib/agentRoles";
 import { looksIndonesian } from "@/api/convex/lib/chat/toolCallText";
 import type { ChatToolStep } from "@/api/convex/lib/chat/activity";
+import { activityTitleKind, reasoningRowHasLabel } from "@/lib/activityHeading";
 
 /**
  * Activity timeline above an agent's chat reply (à la "Working" /
@@ -113,14 +114,15 @@ export default function ActivityTimeline({
   // A finished reply with no tool, nothing to verify and no reasoning needs no timeline.
   if (phase === "done" && steps.length === 0 && extras.length === 0 && !reasoning) return null;
 
+  const titleKind = activityTitleKind(phase, steps.length, extras.length);
   const title =
-    phase === "thinking"
+    titleKind === "thinking"
       ? copy.thinking
-      : phase === "working" || phase === "composing"
+      : titleKind === "working"
         ? copy.working
-        : steps.length > 0
+        : titleKind === "tools"
           ? copy.tools(steps.length)
-          : extras.length > 0
+          : titleKind === "worked"
             ? copy.worked
             : copy.reasoning;
   const Chevron = open ? ChevronDown : ChevronRight;
@@ -150,19 +152,23 @@ export default function ActivityTimeline({
       });
     }
     if (reasoning) {
+      const reasoningText = (
+        <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-canvas px-3 py-2 font-sans text-[12px] leading-relaxed text-ink-2">
+          {reasoning}
+        </pre>
+      );
       rows.push({
         key: "reasoning",
-        node: (
+        // Titled "Reasoning" already: the row shows the text, not a second heading.
+        node: reasoningRowHasLabel(titleKind) ? (
           <>
             <button type="button" onClick={() => setShowReasoning((v) => !v)} className="text-ink-3 hover:text-ink">
               {copy.reasoning}
             </button>
-            {showReasoning && (
-              <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-canvas px-3 py-2 font-sans text-[12px] leading-relaxed text-ink-2">
-                {reasoning}
-              </pre>
-            )}
+            {showReasoning && reasoningText}
           </>
+        ) : (
+          reasoningText
         ),
       });
     }

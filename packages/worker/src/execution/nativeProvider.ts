@@ -91,6 +91,18 @@ export interface NativeRunResult {
   timedOut?: boolean;
   /** Model the run was pinned to (`provider/model`), when any. */
   model?: string;
+  /**
+   * Plan 040 P3 breakdown, summed over `step_finish` events, each set only
+   * when OpenCode reported it. `inputTokens` includes cache read + write;
+   * `outputTokens` includes reasoning (subsets below).
+   */
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  /** Sum of OpenCode's per-step `part.cost` (USD), when any step reported one. */
+  costUsd?: number;
+  /** Wall time of the whole `opencode run`. */
+  durationMs?: number;
 }
 
 export function nativeProviderCommand(): string {
@@ -294,7 +306,16 @@ export type NativeEvent =
       target?: string;
       error?: string;
     }
-  | { kind: "step_finish"; inputTokens: number; outputTokens: number; reason?: string }
+  | {
+      kind: "step_finish";
+      inputTokens: number;
+      outputTokens: number;
+      reason?: string;
+      cachedInputTokens?: number;
+      cacheWriteTokens?: number;
+      reasoningTokens?: number;
+      cost?: number;
+    }
   | { kind: "error"; message: string }
   | { kind: "other"; type: string };
 
@@ -348,12 +369,23 @@ export function parseOpencodeEvent(line: string): NativeEvent | null {
     };
   }
   if (type === "step_finish") {
+    // OpenCode StepFinishPart (packages/schema/src/v1/session.ts):
+    // tokens { input, output, reasoning, cache { read, write } }, cost (USD).
+    // `input` is the NON-cached input and `output` the visible output
+    // (core/src/session/usage.ts), so the ledger totals add cache and
+    // reasoning back in (plan 040 P3).
     const tokens = asRecord(part?.tokens) ?? asRecord(raw.tokens) ?? {};
+    const cache = asRecord(tokens.cache);
+    const costRaw = part?.cost ?? raw.cost;
     return {
       kind: "step_finish",
-      inputTokens: num(tokens.input),
+      inputTokens: num(tokens.input) + num(cache?.read) + num(cache?.write),
       outputTokens: num(tokens.output) + num(tokens.reasoning),
       ...(typeof part?.reason === "string" ? { reason: part.reason } : {}),
+      ...(cache && cache.read !== undefined ? { cachedInputTokens: num(cache.read) } : {}),
+      ...(cache && cache.write !== undefined ? { cacheWriteTokens: num(cache.write) } : {}),
+      ...(tokens.reasoning !== undefined ? { reasoningTokens: num(tokens.reasoning) } : {}),
+      ...(typeof costRaw === "number" && Number.isFinite(costRaw) ? { cost: costRaw } : {}),
     };
   }
   if (type === "error") {
@@ -379,18 +411,37 @@ export function parseOpencodeEvent(line: string): NativeEvent | null {
   return { kind: "other", type: type || "unknown" };
 }
 
+export type NativeUsage = Pick<
+  NativeRunResult,
+  "inputTokens" | "outputTokens" | "cachedInputTokens" | "cacheWriteTokens" | "reasoningTokens" | "costUsd"
+>;
+
+/** Add one step_finish event into a running usage total (optional fields stay absent until reported). */
+export function addNativeUsage(total: NativeUsage, event: Extract<NativeEvent, { kind: "step_finish" }>): NativeUsage {
+  const plus = (a: number | undefined, b: number | undefined) => (b === undefined ? a : (a ?? 0) + b);
+  const next: NativeUsage = {
+    inputTokens: total.inputTokens + event.inputTokens,
+    outputTokens: total.outputTokens + event.outputTokens,
+  };
+  const cached = plus(total.cachedInputTokens, event.cachedInputTokens);
+  const write = plus(total.cacheWriteTokens, event.cacheWriteTokens);
+  const reasoning = plus(total.reasoningTokens, event.reasoningTokens);
+  const cost = plus(total.costUsd, event.cost);
+  if (cached !== undefined) next.cachedInputTokens = cached;
+  if (write !== undefined) next.cacheWriteTokens = write;
+  if (reasoning !== undefined) next.reasoningTokens = reasoning;
+  if (cost !== undefined) next.costUsd = cost;
+  return next;
+}
+
 /** Token usage summed over every JSON line (legacy + opencode shapes). */
-export function parseNativeUsage(stdout: string): { inputTokens: number; outputTokens: number } {
-  let inputTokens = 0;
-  let outputTokens = 0;
+export function parseNativeUsage(stdout: string): NativeUsage {
+  let usage: NativeUsage = { inputTokens: 0, outputTokens: 0 };
   for (const line of stdout.split(/\r?\n/)) {
     const event = parseOpencodeEvent(line);
-    if (event?.kind === "step_finish") {
-      inputTokens += event.inputTokens;
-      outputTokens += event.outputTokens;
-    }
+    if (event?.kind === "step_finish") usage = addNativeUsage(usage, event);
   }
-  return { inputTokens, outputTokens };
+  return usage;
 }
 
 // ── process handling ──────────────────────────────────────────────────
@@ -524,8 +575,8 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
   // Streaming JSON state.
   const texts: string[] = [];
   const errors: string[] = [];
-  let inputTokens = 0;
-  let outputTokens = 0;
+  let usage: NativeUsage = { inputTokens: 0, outputTokens: 0 };
+  const runStartedAt = Date.now();
   let sawJson = false;
   let streamed = false;
   let pending = "";
@@ -559,8 +610,7 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
         }
         break;
       case "step_finish":
-        inputTokens += event.inputTokens;
-        outputTokens += event.outputTokens;
+        usage = addNativeUsage(usage, event);
         break;
       case "error":
         errors.push(redact(event.message, secret));
@@ -631,6 +681,8 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
     pending = "";
   }
   await chain;
+  const { inputTokens, outputTokens } = usage;
+  const ledger = { ...usage, durationMs: Date.now() - runStartedAt };
 
   const stderr = redact(ran.stderr.trim(), secret);
   const textOutput = sawJson ? texts.join("\n").trim() : redact(ran.stdout.trim(), secret);
@@ -663,8 +715,7 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
     return {
       status: "failed",
       output: output || `Native provider exited with code ${ran.code ?? "unknown"}`,
-      inputTokens,
-      outputTokens,
+      ...ledger,
       rawExitCode: ran.code ?? undefined,
       ...(timedOut ? { timedOut: true } : {}),
       ...(model ? { model } : {}),
@@ -675,8 +726,7 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
   return {
     status: "completed",
     output,
-    inputTokens,
-    outputTokens,
+    ...ledger,
     ...(model ? { model } : {}),
   };
 }

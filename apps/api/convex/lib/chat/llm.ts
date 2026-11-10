@@ -10,6 +10,7 @@ import { getGlobalLLMConfig, type LlmEndpointConfig } from "../llmConfig";
 import { applySelectionMode, orderPoolPairs } from "../llmOrder";
 import { cooldownForFailure, errorStatus, isEmptyCompletion, StickyRotationCursor } from "../llmRotation";
 import { describeEndpoint, endpointCandidates, llmHttpError, wireProtocolFor } from "./llmEndpoint";
+import { mergeRawUsage, normalizeAnthropicUsage, normalizeOpenAiUsage, type UsageBreakdown } from "../usageLedger";
 
 /**
  * Endpoint + credentials for one chat completion. `fallbacks` is the rest
@@ -17,9 +18,16 @@ import { describeEndpoint, endpointCandidates, llmHttpError, wireProtocolFor } f
  * walks it when the first config fails or answers with nothing.
  * `connectionId` names the pool connection (for the in-memory cooldown).
  */
-export type ChatLlmConfig = LlmEndpointConfig & {
+/** Registry identity + pricing of the pair a config serves (plan 040 P3 usage ledger). */
+type ServedIdentity = {
   connectionId?: string;
-  fallbacks?: (LlmEndpointConfig & { connectionId?: string })[];
+  modelRowId?: string;
+  inputPricePer1k?: number;
+  outputPricePer1k?: number;
+};
+
+export type ChatLlmConfig = LlmEndpointConfig & ServedIdentity & {
+  fallbacks?: (LlmEndpointConfig & ServedIdentity)[];
 };
 export { getGlobalLLMConfig };
 
@@ -32,6 +40,17 @@ export interface CompleteResult {
   content: string;
   reasoning: string;
   reasoningDurationMs: number;
+  /** Provider-reported usage (plan 040 P3); absent when the endpoint sent none. */
+  usage?: UsageBreakdown;
+  /** Wall time of the attempt that answered. */
+  durationMs?: number;
+  /** The config (connection + model) that answered, for the usage ledger. */
+  servedBy?: LlmEndpointConfig & ServedIdentity;
+}
+
+/** The served config without its key (never carried past the call). */
+function servedIdentity(config: LlmEndpointConfig & ServedIdentity): LlmEndpointConfig & ServedIdentity {
+  return { ...config, apiKey: "" };
 }
 
 /**
@@ -98,7 +117,8 @@ export async function completeWithAgent(
 ): Promise<CompleteResult> {
   const { fallbacks, ...first } = globalConfig;
   if (!fallbacks || fallbacks.length === 0) {
-    return await completeOnce(system, history, first, onChunk, opts);
+    const only = await completeOnce(system, history, first, onChunk, opts);
+    return { ...only, servedBy: servedIdentity(first) };
   }
   const now = Date.now();
   const chain = [first, ...fallbacks];
@@ -120,7 +140,7 @@ export async function completeWithAgent(
         errors.push(`${describeEndpoint(config)} model "${config.model}" returned an empty response`);
         continue;
       }
-      return result;
+      return { ...result, servedBy: servedIdentity(config) };
     } catch (error) {
       recordChatFailure(config.connectionId, error);
       if (streamed || isRequestScopedError(error) || index === ordered.length - 1) {
@@ -201,9 +221,16 @@ async function completeOnce(
   };
 
   const startedAt = Date.now();
-  const finish = (content: string, reasoning: string): CompleteResult => {
+  const finish = (content: string, reasoning: string, usage?: UsageBreakdown): CompleteResult => {
     onChunk?.({ content, reasoning });
-    return { content, reasoning, reasoningDurationMs: reasoning ? Date.now() - startedAt : 0 };
+    const reported = usage && (usage.inputTokens !== undefined || usage.outputTokens !== undefined) ? usage : undefined;
+    return {
+      content,
+      reasoning,
+      reasoningDurationMs: reasoning ? Date.now() - startedAt : 0,
+      durationMs: Date.now() - startedAt,
+      ...(reported ? { usage: reported } : {}),
+    };
   };
   // Stream the SSE body incrementally so the UI sees tokens as they arrive.
   // The previous implementation buffered the whole body with res.text()
@@ -300,32 +327,39 @@ async function completeOnce(
       try {
         const data: any = JSON.parse(normalized);
         const c = data.choices?.[0]?.message?.content;
+        const usage = normalizeOpenAiUsage(data.usage);
         // Never use reasoning trace as user-facing answer.
-        if (typeof c === "string" && c.trim()) return finish(c, "");
-        return finish(c ?? "", "");
+        if (typeof c === "string" && c.trim()) return finish(c, "", usage);
+        return finish(c ?? "", "", usage);
       } catch {
         const parts: string[] = [];
         let reasoning = "";
+        let sseUsage: unknown;
         for (const line of normalized.split(/\r?\n/)) {
           if (!line.startsWith("data:")) continue;
           const payload = line.slice(5).trim();
           if (payload === "[DONE]") continue;
           try {
             const d: any = JSON.parse(payload);
+            if (d.usage) sseUsage = d.usage;
             const delta = d.choices?.[0]?.delta ?? {};
             if (typeof delta.content === "string") parts.push(delta.content);
             reasoning += reasoningDelta(delta);
           } catch {}
         }
-        if (parts.length) return finish(parts.join(""), reasoning);
+        if (parts.length) return finish(parts.join(""), reasoning, normalizeOpenAiUsage(sseUsage));
         throw new Error(`LLM returned non-JSON response`);
       }
     }
     let content = "";
     let reasoning = "";
+    let streamUsage: unknown;
     const raw = await consumeSse(res, (payload) => {
       try {
         const d: any = JSON.parse(payload);
+        // Usage rides on the last chunk when the server sends it
+        // (stream_options is not sent: strict servers reject it).
+        if (d.usage) streamUsage = d.usage;
         const delta = d.choices?.[0]?.delta ?? {};
         if (typeof delta.content === "string") content += delta.content;
         reasoning += reasoningDelta(delta);
@@ -336,8 +370,9 @@ async function completeOnce(
       const fallback = parseJsonFallback(raw);
       content = fallback.content;
       reasoning = fallback.reasoning;
+      if (streamUsage === undefined) streamUsage = jsonUsage(raw);
     }
-    return finish(content, reasoning);
+    return finish(content, reasoning, normalizeOpenAiUsage(streamUsage));
   }
 
   // anthropic
@@ -363,13 +398,18 @@ async function completeOnce(
     return finish(
       (data.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join(""),
       "",
+      normalizeAnthropicUsage(data.usage),
     );
   }
   let content = "";
   let reasoning = "";
+  let rawUsage: Record<string, unknown> | undefined;
   const raw = await consumeSse(res, (payload) => {
     try {
       const d: any = JSON.parse(payload);
+      // Usage: input + cache counts on message_start, cumulative output on message_delta.
+      if (d.type === "message_start") rawUsage = mergeRawUsage(rawUsage, d.message?.usage);
+      if (d.type === "message_delta") rawUsage = mergeRawUsage(rawUsage, d.usage);
       if (d.type === "content_block_delta" && d.delta?.type === "text_delta" && typeof d.delta.text === "string") {
         content += d.delta.text;
       }
@@ -384,7 +424,18 @@ async function completeOnce(
     content = fallback.content;
     reasoning = fallback.reasoning;
   }
-  return finish(content, reasoning);
+  return finish(content, reasoning, normalizeAnthropicUsage(rawUsage));
+}
+
+/** `usage` of a plain JSON body served under an event-stream header, if any. */
+function jsonUsage(raw: string): unknown {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) return undefined;
+  try {
+    return JSON.parse(trimmed)?.usage;
+  } catch {
+    return undefined;
+  }
 }
 
 type AgentLlmPrefs = {
@@ -471,7 +522,7 @@ export function orderedChatPairs(
   return out;
 }
 
-async function pairConfig(pair: PoolPair, fallback: ChatLlmConfig): Promise<LlmEndpointConfig & { connectionId: string }> {
+async function pairConfig(pair: PoolPair, fallback: ChatLlmConfig): Promise<LlmEndpointConfig & ServedIdentity & { connectionId: string }> {
   const key = await resolveConnectionKey(pair.connection);
   return {
     provider: pair.connection.provider.toLowerCase(),
@@ -479,6 +530,10 @@ async function pairConfig(pair: PoolPair, fallback: ChatLlmConfig): Promise<LlmE
     baseUrl: pair.connection.baseUrl,
     apiKey: key || fallback.apiKey,
     connectionId: String(pair.connection._id),
+    // Plan 040 P3: registry identity + pricing for the chat usage ledger.
+    ...(pair.model._id && !pair.model.legacy ? { modelRowId: String(pair.model._id) } : {}),
+    ...(typeof pair.model.inputPricePer1k === "number" ? { inputPricePer1k: pair.model.inputPricePer1k } : {}),
+    ...(typeof pair.model.outputPricePer1k === "number" ? { outputPricePer1k: pair.model.outputPricePer1k } : {}),
   };
 }
 

@@ -11,7 +11,7 @@ import { combineSignals } from "./abort";
 import type { FallbackHandle } from "@/effects/llmCall";
 import type { WorkerApi } from "@/workerApi";
 import { handleNodeOutcome } from "./decision";
-import { createInputDeliveryAck, pullTaskInputs } from "./session";
+import { createInputDeliveryAck, pullTaskInputs, usageLedgerArgs } from "./session";
 import type { RunContext } from "./types";
 import type { FileDiff } from "@/tools/gitDiff";
 import { applyQaCheck, buildChangesCard, buildQaCard, postStageCard } from "./cards";
@@ -475,6 +475,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
                 | undefined,
               estimatedCost: meta?.estimatedCost,
               ...(meta?.estimated ? { estimated: true } : {}),
+              ...usageLedgerArgs(meta),
               // Runs trace: link the call to this execution attempt.
               executionId,
               subtaskKey: node.id,

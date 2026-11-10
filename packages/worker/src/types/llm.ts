@@ -14,6 +14,17 @@ export interface LLMResult {
    */
   usageEstimated?: boolean;
   /**
+   * Usage breakdown (plan 040 P3), set only when the provider returned it.
+   * `inputTokens` counts every prompt token (cache included) and
+   * `outputTokens` every output token (reasoning included); these are
+   * subsets. See llm/usage.ts for the verified provider field names.
+   */
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  /** Wall time of the call that served this result (set by runLlmCallWithFallback). */
+  durationMs?: number;
+  /**
    * Why the model stopped, as the provider reported it (OpenAI
    * `finish_reason`; Anthropic `stop_reason` "max_tokens" is mapped to
    * "length"). "length" means the answer was cut at the output cap.
@@ -33,6 +44,15 @@ export interface TokenUsageMeta {
   estimatedCost?: number;
   /** Token counts are a chars/4 estimate (the provider reported no usage). */
   estimated?: boolean;
+  /** Plan 040 P3 ledger fields; each absent when unknown. */
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  durationMs?: number;
+  /** Wire kind that served the call: "anthropic", "openai-compatible", "opencode", … */
+  providerKind?: string;
+  /** planner / decision / executor / reviewer / qa / …, from the snapshot scope. */
+  callRole?: string;
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   runLlmCallWithFallback,
   runWithLlmGates,
   usageMetaFor,
+  nativeUsageMeta,
   withUsageEstimate,
   type FallbackHandle,
   type LlmConcurrencyGate,
@@ -312,7 +313,7 @@ async function runMcpExploration(
           llmResult.inputTokens ?? 0,
           llmResult.outputTokens ?? 0,
           servedBy.config.model,
-          usageMetaFor(servedBy, llmResult.inputTokens ?? 0, llmResult.outputTokens ?? 0, llmResult.usageEstimated)
+          usageMetaFor(servedBy, llmResult)
         );
       }
       return llmResult.content;
@@ -375,7 +376,7 @@ async function runWebReachExploration(
           llmResult.inputTokens ?? 0,
           llmResult.outputTokens ?? 0,
           servedBy.config.model,
-          usageMetaFor(servedBy, llmResult.inputTokens ?? 0, llmResult.outputTokens ?? 0, llmResult.usageEstimated)
+          usageMetaFor(servedBy, llmResult)
         );
       }
       return llmResult.content;
@@ -694,7 +695,7 @@ async function withOnDemandSkills(input: SubtaskExecutionInput): Promise<Subtask
             result.inputTokens ?? 0,
             result.outputTokens ?? 0,
             servedBy.config.model,
-            usageMetaFor(servedBy, result.inputTokens ?? 0, result.outputTokens ?? 0, result.usageEstimated)
+            usageMetaFor(servedBy, result)
           );
         }
         return result.content;
@@ -881,7 +882,7 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
   }
 
   if (input.onTokenUsage && (result.inputTokens > 0 || result.outputTokens > 0)) {
-    await input.onTokenUsage(result.inputTokens, result.outputTokens, result.model ?? "native-provider", undefined);
+    await input.onTokenUsage(result.inputTokens, result.outputTokens, result.model ?? "native-provider", nativeUsageMeta(result));
   }
 
   if (result.status !== "completed") {
@@ -1187,7 +1188,7 @@ async function executeCodeChange(
       response.inputTokens ?? 0,
       response.outputTokens ?? 0,
       servedBy.config.model,
-      usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
+      usageMetaFor(servedBy, response)
     );
   }
 
@@ -1229,7 +1230,7 @@ async function executeCodeChange(
         response.inputTokens ?? 0,
         response.outputTokens ?? 0,
         servedBy.config.model,
-        usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
+        usageMetaFor(servedBy, response)
       );
     }
     {
@@ -1317,7 +1318,7 @@ async function executeCodeChange(
               response.inputTokens ?? 0,
               response.outputTokens ?? 0,
               servedBy.config.model,
-              usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
+              usageMetaFor(servedBy, response)
             );
           }
           parsedAnswer = parseCodeChangeAnswer(response.content);
@@ -1378,7 +1379,7 @@ async function executeCodeChange(
         response.inputTokens ?? 0,
         response.outputTokens ?? 0,
         servedBy.config.model,
-        usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
+        usageMetaFor(servedBy, response)
       );
     }
     parsedAnswer = parseCodeChangeAnswer(response.content);
@@ -1561,7 +1562,7 @@ async function executeReview(
       response.inputTokens ?? 0,
       response.outputTokens ?? 0,
       servedBy.config.model,
-      usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
+      usageMetaFor(servedBy, response)
     );
   };
   await reportUsage();
@@ -1947,7 +1948,7 @@ async function executeReadOnly(
       response.inputTokens ?? 0,
       response.outputTokens ?? 0,
       servedModel,
-      usageMetaFor(servedHandle, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
+      usageMetaFor(servedHandle, response)
     );
   }
 
@@ -2009,7 +2010,7 @@ async function executeShell(
         response.inputTokens ?? 0,
         response.outputTokens ?? 0,
         servedBy.config.model,
-        usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
+        usageMetaFor(servedBy, response)
       );
     }
     return response.content;

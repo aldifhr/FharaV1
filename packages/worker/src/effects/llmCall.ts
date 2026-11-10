@@ -2,7 +2,7 @@ import { Effect, Schedule } from "effect";
 import { effectiveLlmTimeoutMs, type GlobalLLMConfig, type LLMMessage, type LLMProvider, type LLMResult } from "@/llm";
 import type { ProviderHealthRegistry } from "@/llm/health";
 import type { TokenUsageMeta } from "@/types/llm";
-import { recordLlmSnapshot } from "@/llm/snapshots";
+import { currentSnapshotScope, recordLlmSnapshot } from "@/llm/snapshots";
 import { classifyProviderError } from "@/utils/stallDetector";
 import { isEmptyCompletion } from "@/api/convex/lib/llmRotation";
 import { emitObservation, markProgress } from "./observationContext";
@@ -311,18 +311,74 @@ export function estimateUsageCost(
   );
 }
 
-/** The TokenUsageMeta for a call served by `handle` with the given usage. */
+/** Wire kind of a handle's connection for the usage ledger (plan 040 P3). */
+export function providerKindOf(provider: string | undefined): string | undefined {
+  if (!provider) return undefined;
+  return provider === "anthropic" ? "anthropic" : provider === "openai" ? "openai-compatible" : provider;
+}
+
+/**
+ * The TokenUsageMeta for a call served by `handle`. Pass the LLMResult to
+ * carry the plan 040 P3 ledger fields (cache / reasoning breakdown,
+ * duration, provider kind); the call role comes from the snapshot scope
+ * the runner set around the call. The (input, output, estimated) form is
+ * kept for callers without a result.
+ */
+export function usageMetaFor(handle: FallbackHandle, result: LLMResult): TokenUsageMeta;
 export function usageMetaFor(
   handle: FallbackHandle,
   inputTokens: number,
   outputTokens: number,
   estimated?: boolean
+): TokenUsageMeta;
+export function usageMetaFor(
+  handle: FallbackHandle,
+  resultOrInput: LLMResult | number,
+  outputTokensArg?: number,
+  estimatedArg?: boolean
 ): TokenUsageMeta {
+  const result: LLMResult | undefined = typeof resultOrInput === "number" ? undefined : resultOrInput;
+  const inputTokens = typeof resultOrInput === "number" ? resultOrInput : resultOrInput.inputTokens ?? 0;
+  const outputTokens = typeof resultOrInput === "number" ? outputTokensArg ?? 0 : resultOrInput.outputTokens ?? 0;
+  const estimated = typeof resultOrInput === "number" ? estimatedArg : resultOrInput.usageEstimated;
+  const callRole = currentSnapshotScope().callRole;
+  const providerKind = providerKindOf(handle.config?.provider);
   return {
     providerId: handle.connectionId ? handle.connectionId : undefined,
     modelRowId: handle.modelRowId,
     estimatedCost: estimateUsageCost(handle, inputTokens, outputTokens),
     ...(estimated ? { estimated: true } : {}),
+    ...(result?.cachedInputTokens !== undefined ? { cachedInputTokens: result.cachedInputTokens } : {}),
+    ...(result?.cacheWriteTokens !== undefined ? { cacheWriteTokens: result.cacheWriteTokens } : {}),
+    ...(result?.reasoningTokens !== undefined ? { reasoningTokens: result.reasoningTokens } : {}),
+    ...(result?.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
+    ...(providerKind ? { providerKind } : {}),
+    ...(callRole ? { callRole } : {}),
+  };
+}
+
+/**
+ * Ledger meta for an OpenCode (native provider) run (plan 040 P3). The
+ * cost is OpenCode's own per-step `cost` sum (USD); a zero is left out
+ * because OpenCode also reports zero when its catalog has no price for
+ * the model, so it cannot be told apart from "free".
+ */
+export function nativeUsageMeta(run: {
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  costUsd?: number;
+  durationMs?: number;
+}): TokenUsageMeta {
+  const callRole = currentSnapshotScope().callRole;
+  return {
+    providerKind: "opencode",
+    ...(run.costUsd !== undefined && run.costUsd > 0 ? { estimatedCost: run.costUsd } : {}),
+    ...(run.cachedInputTokens !== undefined ? { cachedInputTokens: run.cachedInputTokens } : {}),
+    ...(run.cacheWriteTokens !== undefined ? { cacheWriteTokens: run.cacheWriteTokens } : {}),
+    ...(run.reasoningTokens !== undefined ? { reasoningTokens: run.reasoningTokens } : {}),
+    ...(run.durationMs !== undefined ? { durationMs: run.durationMs } : {}),
+    ...(callRole ? { callRole } : {}),
   };
 }
 
@@ -392,6 +448,9 @@ export async function runLlmCallWithFallback(
       durationMs: Date.now() - startedAt,
     });
   for (const [index, handle] of handles.entries()) {
+    // Per-handle wall time for the usage ledger (plan 040 P3): the
+    // serving model's latency, not the failed handles before it.
+    const attemptStartedAt = Date.now();
     try {
       markProgress();
       const result = await runLlmCall(handle.provider, messages, handle.config.model, {
@@ -409,7 +468,7 @@ export async function runLlmCallWithFallback(
         lastError = new Error(`${handle.connectionName} returned an empty response (model "${handle.config.model}")`);
         continue;
       }
-      const estimated = withUsageEstimate(messages, result);
+      const estimated = { ...withUsageEstimate(messages, result), durationMs: Date.now() - attemptStartedAt };
       recordLlmSnapshot({
         messages,
         result: estimated,

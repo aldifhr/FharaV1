@@ -98,12 +98,64 @@ Back-compat (`syncFixedTeam`):
   strips both from existing rows; the sync unions the new ones. Docs
   concerns stay with the implementer unless a docs owner may write.
 
-## P3 — usage ledger
+## P3 — usage ledger (tracking only, no caps)
 
-(See the P3 section once it lands.)
+- **Schema (additive).** Optional `tokenUsage` columns from
+  `usageLedgerFields` (`apps/api/convex/lib/usageLedger.ts`):
+  `cachedInputTokens`, `cacheWriteTokens`, `reasoningTokens`, `durationMs`,
+  `providerKind` (`anthropic` / `openai-compatible` / `opencode` / …),
+  `callRole` (planner / decision / executor / reviewer / qa / chat /
+  chat_tool_step …), `source` (`worker` / `chat`). Same fields on
+  `worker.recordTokenUsage` and `orchestration.recordTokenUsage`. No env
+  changes. `llmModels.cachedInputPricePer1k` is NOT added (no UI to set
+  it); cost stays `input·inPrice + output·outPrice`.
+- **Ledger convention.** `inputTokens` = every prompt token (cache read +
+  write included); `outputTokens` = every output token (reasoning
+  included); the breakdown fields are subsets, set only when reported.
+  This changes Anthropic and OpenCode `inputTokens` to include cache
+  tokens (both report input excluding the cache).
+- **Verified field names (2026-11-10).**
+  - OpenAI `CompletionUsage` (openai-node `src/resources/completions.ts`):
+    `prompt_tokens_details.cached_tokens`,
+    `prompt_tokens_details.cache_write_tokens`,
+    `completion_tokens_details.reasoning_tokens`.
+  - Anthropic `Usage` / `MessageDeltaUsage` (@anthropic-ai/sdk 1.5.0):
+    `cache_read_input_tokens`, `cache_creation_input_tokens`,
+    `output_tokens_details.thinking_tokens`; `input_tokens` excludes the
+    cache. Stream: message_start + cumulative message_delta, merged with
+    null-skipping (`mergeRawUsage`).
+  - OpenCode `StepFinishPart` (anomalyco/opencode
+    `packages/schema/src/v1/session.ts`, `core/src/session/usage.ts`):
+    `tokens { input (non-cached), output (visible), reasoning, cache { read, write } }`,
+    `cost` (USD), emitted as `step_finish` with `part`.
+  - DeepSeek `prompt_cache_hit_tokens`: fallback only, not re-verified.
+- **Worker.** `llm/usage.ts` normalizers used by both providers' complete
+  and stream paths; `runLlmCallWithFallback` stamps the serving handle's
+  `durationMs`; `usageMetaFor(handle, result)` carries the breakdown,
+  `providerKind` and the snapshot scope's `callRole`; the two recorders
+  send them via `usageLedgerArgs` (`source: "worker"`). OpenCode runs sum
+  cache / reasoning / `cost` over steps; `nativeUsageMeta` records
+  `estimatedCost` from OpenCode's cost when > 0 (zero is ambiguous:
+  OpenCode also reports 0 for an unpriced model).
+- **Chat.** `lib/chat/llm.ts` parses usage from the OpenAI-compatible
+  stream / JSON body and the Anthropic stream / body, and returns
+  `usage`, `durationMs` and `servedBy` (key blanked). `completeWithSnapshot`
+  records a row through `lib/chat/usage.ts` →
+  `orchestration.recordChatTokenUsage` (`source: "chat"`, agent name
+  looked up). Real usage when returned, else chars/4 flagged `estimated`.
+  `stream_options.include_usage` is still not sent, so OpenAI proper and
+  servers that only send usage on request stay estimated. Not recorded:
+  the CTO wrap-up and the intent classifier (they call `completeWithAgent`
+  directly in `chat.ts` / `classify.ts`, left alone for the personal-chat
+  lane), and personal chats with no project (tokenUsage is per project).
+- Tests: `packages/worker/tests/usageLedger.test.ts`,
+  `apps/api/convex/usageLedger.test.ts`.
 
 ## Completion criteria
 
 - P1: no non-implementer role can stage a file change (API or OpenCode);
   every Researcher row has `web_reach` after sync; existing tests green.
+- P3: every recorded call carries the breakdown fields its provider
+  returned, duration, provider kind and call role; chat replies record
+  rows; schema additive only.
 - Browser / live checks: not done in this lane (unit + convex-test only).

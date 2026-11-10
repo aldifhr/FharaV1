@@ -138,7 +138,7 @@ async function runRealCall(input: DecisionAdvisorInput, prompt: string, orchestr
       servedBy.config.model,
       orchestrator.name,
       orchestrator._id,
-      usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
+      usageMetaFor(servedBy, response)
     );
   }
   return response.content;

@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { permissionModeValidator } from "./lib/permissionModes";
+import { usageLedgerFields } from "./lib/usageLedger";
 import {
   decisionExpectedValidator,
   decisionOutcomeValidator,
@@ -980,6 +981,10 @@ export default defineSchema({
     // What made the call (additive). Unset = a task/chat call; "playground"
     // = an Agent Playground run (never part of a task budget).
     kind: v.optional(v.string()),
+    // Plan 040 P3 per-call ledger (additive, all optional): cache and
+    // reasoning breakdown, duration, wire kind, call role, recording
+    // source. Absent when the provider did not report it (lib/usageLedger.ts).
+    ...usageLedgerFields,
     createdAt: v.number(),
   })
     .index("by_agent", ["agentId"])

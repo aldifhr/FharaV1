@@ -9,6 +9,7 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { buildContextSnapshot, contextSnapshotsEnabled, estimateTokens, type CallRole } from "../contextSnapshot";
 import { completeWithAgent, type ChatLlmConfig, type CompleteResult } from "./llm";
+import { recordChatUsage } from "./usage";
 
 export interface ChatSnapshotScope {
   /** Absent in a personal chat with no project: no snapshot is recorded. */
@@ -84,6 +85,7 @@ export async function completeWithSnapshot(
   try {
     const result = await completeWithAgent(system, msgs, config, onChunk);
     await recordChatSnapshot(ctx, scope, { system, msgs, config, response: result.content, durationMs: Date.now() - startedAt });
+    await recordChatUsage(ctx, scope, { system, msgs, result, fallbackModel: config.model });
     return result;
   } catch (error) {
     await recordChatSnapshot(ctx, scope, { system, msgs, config, error, durationMs: Date.now() - startedAt });

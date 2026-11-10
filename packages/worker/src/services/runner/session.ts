@@ -1,7 +1,7 @@
 import type { WorkerAgent, WorkerApi } from "@/workerApi";
 import type { BudgetTracker } from "@/orchestrator/budget";
 import type { SharedTaskContext } from "@/orchestrator/taskContext";
-import type { TokenUsageFn } from "@/types/llm";
+import type { TokenUsageFn, TokenUsageMeta } from "@/types/llm";
 import type { ExecutePlanInput, RunnerDeps } from "./types";
 
 /**
@@ -74,8 +74,33 @@ export function createUsageRecorder(
           | undefined,
         estimatedCost: meta?.estimatedCost,
         ...(meta?.estimated ? { estimated: true } : {}),
+        ...usageLedgerArgs(meta),
       });
     }
+  };
+}
+
+/**
+ * Plan 040 P3 ledger fields of one call, as recordTokenUsage args. Only
+ * what the call actually reported is sent (all optional on tokenUsage).
+ */
+export function usageLedgerArgs(meta: TokenUsageMeta | undefined): {
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  durationMs?: number;
+  providerKind?: string;
+  callRole?: string;
+  source: "worker";
+} {
+  return {
+    ...(meta?.cachedInputTokens !== undefined ? { cachedInputTokens: meta.cachedInputTokens } : {}),
+    ...(meta?.cacheWriteTokens !== undefined ? { cacheWriteTokens: meta.cacheWriteTokens } : {}),
+    ...(meta?.reasoningTokens !== undefined ? { reasoningTokens: meta.reasoningTokens } : {}),
+    ...(meta?.durationMs !== undefined ? { durationMs: Math.max(0, Math.round(meta.durationMs)) } : {}),
+    ...(meta?.providerKind ? { providerKind: meta.providerKind } : {}),
+    ...(meta?.callRole ? { callRole: meta.callRole } : {}),
+    source: "worker",
   };
 }
 

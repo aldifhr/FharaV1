@@ -360,7 +360,13 @@ describe("executeSubtask on the OpenCode runtime", () => {
     await executeSubtask({ ...base, onTokenUsage });
     expect(argv[argv.indexOf("-m") + 1]).toBe("anthropic/claude-sonnet-4");
     expect(env?.[OPENCODE_KEY_ENV]).toBeUndefined();
-    expect(onTokenUsage).toHaveBeenCalledWith(19431, 20, "anthropic/claude-sonnet-4", undefined);
+    // Plan 040 P3: OpenCode usage carries the ledger meta (cache, reasoning, duration, kind).
+    expect(onTokenUsage).toHaveBeenCalledWith(
+      19431,
+      20,
+      "anthropic/claude-sonnet-4",
+      expect.objectContaining({ providerKind: "opencode", cachedInputTokens: 0, reasoningTokens: 1 })
+    );
   });
 
   it("reverts every write from a read-only subtask", async () => {

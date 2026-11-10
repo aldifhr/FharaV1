@@ -6,6 +6,7 @@ import { internalMutation, internalQuery, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
+import { usageLedgerFields } from "./lib/usageLedger";
 import {
   recordDecisionForEvent,
   recordDecisionForEventId,
@@ -2353,9 +2354,12 @@ export const recordTokenUsage = internalMutation({
     subtaskKey: v.optional(v.string()),
     /** Counts are a chars/4 estimate (provider omitted usage). */
     estimated: v.optional(v.boolean()),
+    // Plan 040 P3 ledger fields (all optional).
+    ...usageLedgerFields,
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("tokenUsage", {
+      ...ledgerFieldsOf(args),
       projectId: args.projectId,
       taskId: args.taskId,
       agentId: args.agentId,
@@ -2369,6 +2373,63 @@ export const recordTokenUsage = internalMutation({
       executionId: args.executionId,
       subtaskKey: args.subtaskKey,
       ...(args.estimated ? { estimated: true } : {}),
+      createdAt: Date.now(),
+    });
+  },
+});
+
+/** The plan 040 P3 ledger fields present on `args` (undefined keys dropped). */
+function ledgerFieldsOf(args: {
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  durationMs?: number;
+  providerKind?: string;
+  callRole?: string;
+  source?: string;
+}) {
+  const out: Record<string, number | string> = {};
+  for (const key of Object.keys(usageLedgerFields) as (keyof typeof usageLedgerFields)[]) {
+    const value = args[key];
+    if (value !== undefined) out[key] = value;
+  }
+  return out as Partial<Pick<Doc<"tokenUsage">, keyof typeof usageLedgerFields>>;
+}
+
+/**
+ * Usage of one backend chat LLM call (plan 040 P3): the chat client
+ * recorded none before. The agent's name is looked up here so chat call
+ * sites only pass what they hold; a missing agent records nothing.
+ */
+export const recordChatTokenUsage = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    agentId: v.id("agents"),
+    model: v.string(),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    providerId: v.optional(v.id("llmProviders")),
+    modelId: v.optional(v.id("llmModels")),
+    estimatedCost: v.optional(v.number()),
+    estimated: v.optional(v.boolean()),
+    ...usageLedgerFields,
+  },
+  handler: async (ctx, args) => {
+    const agent = await ctx.db.get(args.agentId);
+    if (!agent) return;
+    await ctx.db.insert("tokenUsage", {
+      projectId: args.projectId,
+      agentId: args.agentId,
+      agentName: agent.name,
+      model: args.model,
+      providerId: args.providerId,
+      modelId: args.modelId,
+      estimatedCost: args.estimatedCost,
+      inputTokens: args.inputTokens,
+      outputTokens: args.outputTokens,
+      ...(args.estimated ? { estimated: true } : {}),
+      ...ledgerFieldsOf(args),
+      source: "chat",
       createdAt: Date.now(),
     });
   },

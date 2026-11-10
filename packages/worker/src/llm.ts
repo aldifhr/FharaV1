@@ -3,6 +3,7 @@ import type { LLMMessage, LLMResult } from "@/types/llm";
 import { emitObservation } from "@/effects/observationContext";
 
 export type { LLMMessage, LLMResult } from "@/types/llm";
+import { mergeRawUsage, normalizeAnthropicUsage, normalizeOpenAiUsage } from "@/llm/usage";
 
 export interface LLMCallOptions {
   /** External cancellation (task cancel/deadline). Enforcement lands in
@@ -148,8 +149,7 @@ export class AnthropicProvider implements LLMProvider {
     return noteTruncation(
       {
         content: text,
-        inputTokens: res.usage?.input_tokens,
-        outputTokens: res.usage?.output_tokens,
+        ...normalizeAnthropicUsage(res.usage),
         ...(finishReason ? { finishReason } : {}),
       },
       { model: model ?? this.model, maxTokens }
@@ -168,8 +168,7 @@ export class AnthropicProvider implements LLMProvider {
       stream: true,
     }, { signal: opts?.signal, timeout: effectiveLlmTimeoutMs(opts?.timeoutMs) });
     let full = "";
-    let inputTokens: number | undefined;
-    let outputTokens: number | undefined;
+    let rawUsage: Record<string, unknown> | undefined;
     let finishReason: string | undefined;
     for await (const event of stream) {
       if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
@@ -179,15 +178,15 @@ export class AnthropicProvider implements LLMProvider {
         // Streaming usage: input tokens arrive on message_start, output
         // tokens (cumulative) on message_delta. Without this the streamed
         // path recorded no usage at all.
-        inputTokens = event.message.usage?.input_tokens ?? inputTokens;
-        outputTokens = event.message.usage?.output_tokens ?? outputTokens;
+        // Cache read/write counts ride on the same events (plan 040 P3).
+        rawUsage = mergeRawUsage(rawUsage, event.message.usage);
       } else if (event.type === "message_delta") {
-        outputTokens = event.usage?.output_tokens ?? outputTokens;
+        rawUsage = mergeRawUsage(rawUsage, event.usage);
         finishReason = anthropicFinishReason(event.delta?.stop_reason) ?? finishReason;
       }
     }
     return noteTruncation(
-      { content: full, inputTokens, outputTokens, ...(finishReason ? { finishReason } : {}) },
+      { content: full, ...normalizeAnthropicUsage(rawUsage), ...(finishReason ? { finishReason } : {}) },
       { model: model ?? this.model, maxTokens }
     );
   }
@@ -305,7 +304,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       const decoder = new TextDecoder();
       let buffer = "";
       let content = "";
-      let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+      let usage: unknown;
       let finishReason: string | undefined;
       const handleLine = (line: string) => {
         if (!line.startsWith("data:")) return;
@@ -313,7 +312,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         if (!data || data === "[DONE]") return;
         let payload: {
           choices?: { delta?: { content?: string | null }; message?: { content?: string | null }; finish_reason?: string | null }[];
-          usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
+          usage?: unknown;
           error?: { message?: string } | string;
         };
         try {
@@ -344,7 +343,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       buffer += decoder.decode();
       if (buffer) handleLine(buffer);
       return noteTruncation(
-        { content, inputTokens: usage?.prompt_tokens, outputTokens: usage?.completion_tokens, ...(finishReason ? { finishReason } : {}) },
+        { content, ...normalizeOpenAiUsage(usage), ...(finishReason ? { finishReason } : {}) },
         { model: model ?? this.model, baseUrl: this.baseUrl, maxTokens }
       );
     } catch (error) {
@@ -371,13 +370,12 @@ function parseCompletionBody(responseBody: string): LLMResult {
   try {
     const data = JSON.parse(normalizedBody) as {
       choices?: { message?: { content?: string }; finish_reason?: string | null }[];
-      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      usage?: unknown;
     };
     const finishReason = data.choices?.[0]?.finish_reason ?? undefined;
     return {
       content: data.choices?.[0]?.message?.content ?? "",
-      inputTokens: data.usage?.prompt_tokens,
-      outputTokens: data.usage?.completion_tokens,
+      ...normalizeOpenAiUsage(data.usage),
       ...(finishReason ? { finishReason } : {}),
     };
   } catch (error) {
@@ -387,7 +385,7 @@ function parseCompletionBody(responseBody: string): LLMResult {
     // usage (when sent) rides on the last chunk(s). `stream_options` is
     // deliberately not sent — strict OpenAI rejects it on a non-stream
     // request; missing usage is estimated upstream (withUsageEstimate).
-    let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+    let usage: unknown;
     let finishReason: string | undefined;
     const content = normalizedBody
       .split(/\r?\n/)
@@ -395,7 +393,7 @@ function parseCompletionBody(responseBody: string): LLMResult {
       .map((line) => {
         const payload = JSON.parse(line.slice(5).trim()) as {
           choices?: { delta?: { content?: string }; message?: { content?: string }; finish_reason?: string | null }[];
-          usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
+          usage?: unknown;
         };
         if (payload.usage) usage = payload.usage;
         if (payload.choices?.[0]?.finish_reason) finishReason = payload.choices[0].finish_reason;
@@ -405,8 +403,7 @@ function parseCompletionBody(responseBody: string): LLMResult {
 
     return {
       content,
-      inputTokens: usage?.prompt_tokens,
-      outputTokens: usage?.completion_tokens,
+      ...normalizeOpenAiUsage(usage),
       ...(finishReason ? { finishReason } : {}),
     };
   }

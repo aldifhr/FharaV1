@@ -1,6 +1,7 @@
 import { action, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { usageLedgerFields } from "./lib/usageLedger";
 import {
   acceptanceStatusValidator,
   escalationValidator,
@@ -770,6 +771,8 @@ export const recordTokenUsage = action({
     subtaskKey: v.optional(v.string()),
     /** Counts are a chars/4 estimate (provider omitted usage). */
     estimated: v.optional(v.boolean()),
+    // Plan 040 P3 ledger fields (all optional).
+    ...usageLedgerFields,
   },
   handler: async (ctx, args): Promise<any> => {
     await ctx.runMutation(

@@ -1255,6 +1255,14 @@ export const completePushRequest = action({
     ),
     repoFullName: v.optional(v.string()),
     baseBranch: v.optional(v.string()),
+    // O8 (additive): the worker's dependency check on the pushed commit.
+    dependencyCheck: v.optional(
+      v.object({
+        status: v.union(v.literal("passed"), v.literal("failed"), v.literal("skipped")),
+        high: v.optional(v.number()),
+        summary: v.optional(v.string()),
+      })
+    ),
   },
   handler: async (ctx, args): Promise<any> => {
     return await ctx.runMutation(internal.githubPush.completePushRequest, withoutToken(args));

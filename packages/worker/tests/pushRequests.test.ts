@@ -110,9 +110,36 @@ describe("handlePushRequest", () => {
         repoFullName: "acme/app",
         baseBranch: "develop",
         pr: { number: 7, url: "https://github.com/acme/app/pull/7", title: "Add dark mode", state: "draft" },
+        // O8: the mock git has no base ref, so the dependency check is skipped (never fails the push).
+        dependencyCheck: { status: "skipped", high: 0, summary: "base branch develop is not available locally" },
       },
     ]);
     expect(h.logs.join("\n")).not.toContain(TOKEN);
+  });
+
+  it("O8: sends a failed dependencyCheck when the pushed commit adds a typosquatted dependency", async () => {
+    const h = harness();
+    const BASE = "b".repeat(40);
+    const before = JSON.stringify({ dependencies: { react: "18.2.0" } });
+    const after = JSON.stringify({ dependencies: { react: "18.2.0", lodahs: "4.17.21" } });
+    const execGit: ExecGit = vi.fn(async (args) => {
+      if (args[0] === "rev-parse") return { stdout: args[3].startsWith("refs/remotes/origin/develop") ? `${BASE}\n` : "", stderr: "" };
+      if (args[0] === "merge-base") return { stdout: `${BASE}\n`, stderr: "" };
+      if (args[0] === "diff") return { stdout: "M\0package.json\0M\0package-lock.json\0", stderr: "" };
+      if (args[0] === "show") return { stdout: args[1].startsWith(BASE) ? before : after, stderr: "" };
+      if (args[0] === "ls-tree") return { stdout: "package-lock.json\n", stderr: "" };
+      return { stdout: "", stderr: "" };
+    });
+    await handlePushRequest(claim({ openPr: false }), {
+      api: h.api as any,
+      workerId: "w1",
+      workspaceRoot: "/ws",
+      log: h.log,
+      execGit,
+      fetchImpl: h.fetchImpl as any,
+    });
+    expect(h.completed[0]).toMatchObject({ outcome: "pushed", dependencyCheck: { status: "failed", high: 1 } });
+    expect(h.completed[0].dependencyCheck.summary).toContain("lodahs");
   });
 
   it("push only: no PR call", async () => {

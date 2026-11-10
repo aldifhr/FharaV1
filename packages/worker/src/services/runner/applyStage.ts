@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import * as path from "node:path";
 import { wantsVisualQa } from "@/orchestrator/planner";
 import type { ReviewResult } from "@/utils/json";
@@ -9,6 +10,7 @@ import { mayAutoApproveEdits, tryAutoApprove } from "./autoApprove";
 import { newFilesOnlyFixWarning } from "./noTargetGuard";
 import { generateCommitMessage } from "./commitMessage";
 import { scanStagedChanges, secretFlag, secretWarning } from "@/utils/secretScan";
+import { checkDependencyChanges, dependencyWarning, type DepCheckResult } from "@/execution/depHardening";
 
 /** What the apply stage hands the approval request. */
 export interface PreparedApply {
@@ -16,6 +18,40 @@ export interface PreparedApply {
   reviewSnapshotId: string;
   approvedVerdicts: ReviewResult[];
   dryRunSummary?: { filePaths: string[]; count: number; changes: string[] };
+}
+
+/**
+ * O8: the dependency check on the staged changes (package.json, lockfiles,
+ * CI workflows). Lockfile lookups read the task's worktree when it has one,
+ * else the project workspace. Never throws: a problem is a "skipped" result.
+ */
+export async function stagedDependencyCheck(
+  ctx: Pick<RunContext, "deps" | "project" | "input">,
+  changes: ReadonlyArray<FileDiff>
+): Promise<DepCheckResult> {
+  try {
+    const root = ctx.input.worktree?.worktreePath ?? resolveWorkspacePath(ctx.deps.workspaceRoot, ctx.project.workspacePath);
+    return await checkDependencyChanges(changes, { fileExists: (rel) => existsSync(path.join(root, rel)) });
+  } catch (error) {
+    return {
+      status: "skipped",
+      high: 0,
+      findings: [],
+      summary: `dependency check could not run: ${(error instanceof Error ? error.message : String(error)).slice(0, 160)}`,
+    };
+  }
+}
+
+/** Every warning for the apply approval card: the no-target / scope / syntax guards plus the O8 dependency check. */
+export async function applyWarnings(
+  ctx: Pick<RunContext, "deps" | "project" | "input">,
+  changes: FileDiff[]
+): Promise<{ warning: string | null; dependency: DepCheckResult }> {
+  const dependency = await stagedDependencyCheck(ctx, changes);
+  const parts = [newFilesOnlyFixWarning(ctx.input.task.command, changes), dependencyWarning(dependency)].filter(
+    (part): part is string => Boolean(part)
+  );
+  return { warning: parts.length > 0 ? parts.join("\n\n") : null, dependency };
 }
 
 /**
@@ -33,7 +69,7 @@ export async function requestApplyApproval(
   const { deps, project, plan, state, input, taskId, reviewNodes, qaNodes } = ctx;
   const { preparedChanges, approvedVerdicts, reviewSnapshotId, dryRunSummary } = prepared;
   const implementer = implementerAgent(plan, input.agents);
-  const noTarget = newFilesOnlyFixWarning(input.task.command, preparedChanges);
+  const { warning: noTarget, dependency } = await applyWarnings(ctx, preparedChanges);
   // L2: staged secrets are flagged on the approval (secret_detected).
   const secrets = scanStagedChanges(preparedChanges);
   const secretNote = secretWarning(secrets);
@@ -59,6 +95,9 @@ export async function requestApplyApproval(
       policyDryRun: dryRunSummary,
       ...(noTarget ? { warning: noTarget } : {}),
       ...secretFlag(secrets),
+      ...(dependency.status !== "skipped"
+        ? { dependencyCheck: { status: dependency.status, high: dependency.high, summary: dependency.summary } }
+        : {}),
       metrics: {
         files: preparedChanges.length,
         review: approvedVerdicts.length > 0 ? "approved" : reviewNodes.length > 0 ? "not approved" : "not run",
@@ -187,6 +226,23 @@ export async function brokerCheckAndApply(
   // A fix that only adds new files is flagged for a human look: never
   // auto-approved by the permission mode (noTargetGuard).
   const noTarget = newFilesOnlyFixWarning(input.task.command, preparedChanges);
+  // O8: a high dependency finding (known-bad version, typosquat, no
+  // lockfile, …) is never auto-approved, by the permission mode or an
+  // auto-approval project: a person looks first. A user's own approval
+  // (approvalResolved) still applies.
+  if (!input.approvalResolved) {
+    const dependency = await stagedDependencyCheck(ctx, preparedChanges);
+    if (dependency.high > 0) {
+      await deps.api.logEvent({
+        taskId,
+        projectId: project._id,
+        type: "task.stage",
+        payload: { stage: "dependency_check", status: dependency.status, high: dependency.high, summary: dependency.summary },
+        level: "warn",
+      });
+      return (await requestApplyApproval(ctx, prepared, "broker")).status;
+    }
+  }
   if (broker.decision === "ask" && input.approvalMode !== "auto" && noTarget) {
     return (await requestApplyApproval(ctx, prepared, "broker")).status;
   }

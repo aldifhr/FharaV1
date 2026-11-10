@@ -1,10 +1,11 @@
 import path from "node:path";
 import type { WorkerApi } from "@/workerApi";
-import { GIT_TIMEOUT_MS, pushCommitToGithub, redactSecret, remoteBranchSha, type ExecGit } from "@/tools/gitPush";
+import { defaultExecGit, GIT_TIMEOUT_MS, gitChildEnv, pushCommitToGithub, redactSecret, remoteBranchSha, type ExecGit } from "@/tools/gitPush";
 import { findPullRequestByHead, openPullRequest, type FetchLike, type PullRequestResult } from "@/tools/githubPr";
 import { guardedEffect, type GuardedResult, type SideEffectApi } from "./sideEffects";
 import { registerSecretValues } from "@/utils/redact";
 import type { AccessLogEntry, CommandRecorder } from "@/utils/accessLog";
+import { checkCommitDependencies, type DepCheckResult } from "@/execution/depHardening";
 
 /**
  * Plan 019: the worker side of "Push & open PR".
@@ -175,6 +176,8 @@ export async function handlePushRequest(claim: PushClaim, deps: PushDeps): Promi
         pr = await doPr();
       }
     }
+    // O8: the dependency check on what this push adds (feeds auto-merge).
+    const depCheck = await pushDependencyCheck(claim, repoPath, deps);
     await deps.api.completePushRequest({
       pushId: claim.pushId,
       workerId: deps.workerId,
@@ -182,6 +185,7 @@ export async function handlePushRequest(claim: PushClaim, deps: PushDeps): Promi
       repoFullName,
       baseBranch: claim.baseBranch,
       ...(pr ? { pr } : {}),
+      dependencyCheck: { status: depCheck.status, high: depCheck.high, summary: depCheck.summary.slice(0, 500) },
     });
     deps.log(`push ${claim.pushId}: pushed${pr ? `, PR #${pr.number}` : ""}`);
   } catch (error) {
@@ -287,3 +291,10 @@ export function commandAuditRow<T, P>(entry: AccessLogEntry, ctx: { taskId?: T; 
   };
 }
 
+/** O8: dependency check of the pushed commit against the base branch (never throws). */
+export async function pushDependencyCheck(claim: PushClaim, repoPath: string, deps: Pick<PushDeps, "execGit" | "signal">): Promise<DepCheckResult> {
+  const execGit = deps.execGit ?? defaultExecGit;
+  // Read-only local git: not access-logged (only pushes, PRs and merges are).
+  const git = (args: string[]) => execGit(args, { cwd: repoPath, env: gitChildEnv(), signal: deps.signal, timeoutMs: 30_000 });
+  return await checkCommitDependencies(git, { commitSha: claim.commitSha, baseBranch: claim.baseBranch });
+}

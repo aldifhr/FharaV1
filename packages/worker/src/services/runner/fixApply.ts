@@ -6,6 +6,8 @@ import { tryAutoApprove } from "./autoApprove";
 import { scopeViolations, scopeWarning } from "@/execution/scopeGuard";
 import { stagedSyntaxErrors, syntaxWarning } from "@/execution/editGuards";
 import { scanStagedChanges, secretFlag, secretWarning } from "@/utils/secretScan";
+import { dependencyWarning } from "@/execution/depHardening";
+import { stagedDependencyCheck } from "./applyStage";
 
 export type FixApplyResult = "applied" | "waiting_approval" | "failed";
 
@@ -52,12 +54,17 @@ export async function applyOrRequestFixApproval(
     [scopeWarning(scopeViolations(input.task.command ?? "", fixChanges)), syntaxWarning(stagedSyntaxErrors(fixChanges))]
       .filter((part): part is string => Boolean(part))
       .join("\n\n") || null;
+  // O8: dependency findings are shown on the card; a high one also blocks
+  // the auto-approval (a person looks first).
+  const dependency = await stagedDependencyCheck(ctx, fixChanges);
+  const cardWarning = [warning, dependencyWarning(dependency)].filter((part): part is string => Boolean(part)).join("\n\n") || null;
+  const blockAuto = Boolean(warning) || dependency.high > 0;
   const fixSummary = `Apply ${stage} fix (${fixChanges.length} file(s)): ${fixChanges
     .map((change) => change.filePath)
-    .join(", ")}${warning ? `\n\n${warning}` : ""}${secretNote ? `\n\n${secretNote}` : ""}`;
+    .join(", ")}${cardWarning ? `\n\n${cardWarning}` : ""}${secretNote ? `\n\n${secretNote}` : ""}`;
   // Plan 020: auto-accept edits / full access approve the fix themselves
   // (recorded, decidedBy "auto"): the stage re-runs with no pause.
-  const autoApproved = !warning && !secretNote && await tryAutoApprove(ctx, {
+  const autoApproved = !blockAuto && !secretNote && await tryAutoApprove(ctx, {
     kind: "apply_changes",
     summary: fixSummary,
     payload: {
@@ -88,7 +95,7 @@ export async function applyOrRequestFixApproval(
       filePaths: Array.from(state.fileChanges.keys()),
       fixFilePaths: fixChanges.map((change) => change.filePath),
       planVersion: input.planVersion ?? plan.version,
-      ...(warning ? { warning } : {}),
+      ...(cardWarning ? { warning: cardWarning } : {}),
       ...secretFlag(secrets),
       metrics: {
         files: fixChanges.length,

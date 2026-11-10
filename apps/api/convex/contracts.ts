@@ -11,6 +11,7 @@ import {
   gateResultValidator,
   modelTiersValidator,
 } from "./lib/contractValidators";
+import { appendTaskEvent } from "./lib/taskEvents";
 
 /**
  * Plan 022: record a subtask's acceptance — separate from its execution
@@ -49,7 +50,7 @@ export const recordSubtaskAcceptance = internalMutation({
           }
         : {}),
     });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: subtask.projectId,
       type: `subtask.acceptance`,

@@ -19,6 +19,7 @@
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { appendTaskEvent } from "./lib/taskEvents";
 
 export type SignalDecision = "approved" | "rejected";
 
@@ -61,7 +62,7 @@ export async function signalApprovalDecision(
       .take(200);
     woke = !stillPending.some((row) => row.status === "pending") && !task.pausedBy;
     await ctx.db.patch(task._id, { updatedAt: now });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: task._id,
       projectId: task.projectId,
       type: "task.signalled",
@@ -99,7 +100,7 @@ export async function supersedePendingCommandApprovals(
       note: reason,
       history: [...(row.history ?? []), { at: now, status: "cancelled", reason }],
     });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: row.taskId,
       projectId: row.projectId,
       type: "approval.cancelled",

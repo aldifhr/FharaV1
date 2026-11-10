@@ -17,6 +17,7 @@ import { prState } from "./schema";
 import type { QaCardData, VerificationCardData } from "./cardTypes";
 import { ingestSignal, onPrPushed } from "./prFeedback";
 import { mergeabilityOf } from "./lib/prFeedback";
+import { appendTaskEvent } from "./lib/taskEvents";
 
 /**
  * Plan 019 — stage cards and the GitHub push / pull-request flow.
@@ -156,7 +157,7 @@ async function logPushEvent(
   payload: Record<string, unknown>,
   level: "info" | "warn" | "error" = "info"
 ) {
-  await ctx.db.insert("taskEvents", {
+  await appendTaskEvent(ctx, {
     taskId: row.taskId,
     projectId: row.projectId,
     type,

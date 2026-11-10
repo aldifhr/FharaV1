@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { AcceptanceGate } from "./subtaskContract";
 import { parseStoredRequirements } from "./requirements";
 import { recordDecisionForEventId } from "./calibration/store";
+import { appendTaskEvent } from "./taskEvents";
 
 /** Contract columns of a subtask definition (plan 022); absent fields stay absent. */
 export function contractDefinition(subtask: {
@@ -176,7 +177,7 @@ export async function writePlanVersion(ctx: MutationCtx, args: PlanVersionInput)
       // carries none (a user edit) keeps the stored list.
       ...(requirements.length > 0 ? { requirements } : {}),
     });
-    const planEventId = await ctx.db.insert("taskEvents", {
+    const planEventId = await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: args.projectId,
       type: "plan.created",

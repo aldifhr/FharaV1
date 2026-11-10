@@ -16,6 +16,7 @@ import { taskStatus } from "./schema";
 import { permissionModeValidator, projectDefaultPermissionMode } from "./lib/permissionModes";
 import { admitTaskInput } from "./lib/taskInputGuard";
 import { commandNeedsChatContext } from "./lib/chat/intent";
+import { appendAgentEvent, appendTaskEvent } from "./lib/taskEvents";
 
 /** A worker currently holds an unexpired lease on the task (e.g. resuming it). */
 function holdsLiveLease(task: Doc<"tasks">): boolean {
@@ -364,7 +365,7 @@ export const cancel = mutation({
     }
     for (const agentId of affectedAgents) await refreshAgentStatus(ctx, agentId);
 
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: task._id,
       projectId: task.projectId,
       type: "task.cancelled",
@@ -434,7 +435,7 @@ export async function requeueForRetry(
       if (s.status === "completed") continue;
       await ctx.db.patch(s._id, { status: "pending", error: undefined, attempts: 0, completedAt: undefined });
     }
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: task._id,
       projectId: task.projectId,
       type: "task.retried",
@@ -468,7 +469,7 @@ export const answerQuestion = mutation({
     // The answer is recorded undelivered; the requeued run renders it into
     // the next agent prompt and only then marks it delivered.
     await recordTaskInput(ctx, task, "answer", answer, now, task.pendingQuestion);
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: task._id,
       projectId: task.projectId,
       type: "task.input_answered",
@@ -514,7 +515,7 @@ export async function steerWith(ctx: MutationCtx, task: Doc<"tasks">, rawInstruc
   if (!admission.ok) return { applied: false as const, reason: admission.reason };
   const now = Date.now();
   await recordTaskInput(ctx, task, "steer", instruction, now);
-  await ctx.db.insert("taskEvents", {
+  await appendTaskEvent(ctx, {
     taskId: task._id,
     projectId: task.projectId,
     type: "task.steered",
@@ -535,23 +536,7 @@ async function emitCanonical(
   type: string,
   payload: any
 ): Promise<Id<"agentEvents">> {
-  let sequence = 1;
-  const existing = await ctx.db
-    .query("agentEvents")
-    .withIndex("by_task", (q: any) => q.eq("taskId", taskId))
-    .order("desc")
-    .take(1);
-  if (existing[0]?.sequence) sequence = existing[0].sequence + 1;
-  return ctx.db.insert("agentEvents", {
-    projectId,
-    taskId,
-    executionId,
-    agentId,
-    type,
-    payload,
-    sequence,
-    createdAt: Date.now(),
-  });
+  return appendAgentEvent(ctx, { projectId, taskId, executionId, agentId, type, payload });
 }
 
 /**

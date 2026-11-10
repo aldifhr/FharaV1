@@ -20,6 +20,7 @@ import { closeOpenSubtasks, refreshAgentStatus } from "./orchestration";
 import { openIncident } from "./lib/incidents";
 import { scheduleDecisionEvaluation } from "./lib/calibration/store";
 import { WATCHDOG_BATCH, isStuck, lastProgressAt, stuckReason, taskStuckMs } from "./lib/taskWatchdog";
+import { appendTaskEvent } from "./lib/taskEvents";
 
 async function progressOf(ctx: MutationCtx, task: Doc<"tasks">) {
   const [lastEvent] = await ctx.db
@@ -71,14 +72,14 @@ async function failStuckTask(ctx: MutationCtx, task: Doc<"tasks">, reason: strin
     if (execution.agentId) agents.add(execution.agentId);
   }
   for (const agentId of agents) await refreshAgentStatus(ctx, agentId);
-  await ctx.db.insert("taskEvents", {
+  await appendTaskEvent(ctx, {
     taskId: task._id,
     projectId: task.projectId,
     type: "task.watchdog",
     payload: { action: "failed", reason, workerId: task.workerId ?? null },
     level: "error",
   });
-  await ctx.db.insert("taskEvents", {
+  await appendTaskEvent(ctx, {
     taskId: task._id,
     projectId: task.projectId,
     type: "task.failed",

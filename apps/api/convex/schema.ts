@@ -846,6 +846,9 @@ export default defineSchema({
     .index("by_conversation", ["conversationId"])
     .index("by_conversation_and_sequence", ["conversationId", "sequence"])
     .index("by_task", ["taskId"])
+    // Per-task sequence order (t3code idea #3): newest-window reads and
+    // since-sequence replay for task-scoped canonical events.
+    .index("by_task_and_sequence", ["taskId", "sequence"])
     .index("by_project", ["projectId"]),
 
   evaluations: defineTable({

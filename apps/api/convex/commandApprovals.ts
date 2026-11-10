@@ -29,6 +29,7 @@ import {
   normalizeRulePrefix,
   type CommandDecision,
 } from "./lib/commandRules";
+import { appendTaskEvent } from "./lib/taskEvents";
 
 const TERMINAL = new Set(["done", "failed", "rejected", "cancelled"]);
 const LEASE_LOST = "Lease lost: this task is no longer owned by this worker";
@@ -95,7 +96,7 @@ export const request = internalMutation({
         decision: "allow",
         history: [{ at: now, status: "approved", by: "auto", mode, reason: policy.reason }],
       });
-      await ctx.db.insert("taskEvents", {
+      await appendTaskEvent(ctx, {
         taskId: args.taskId,
         projectId: args.projectId,
         type: "approval.auto_approved",
@@ -121,7 +122,7 @@ export const request = internalMutation({
     const reused = await reusableAllow(ctx, args.taskId, args.subtaskKey, line);
     if (reused) {
       await ctx.db.patch(reused._id, { consumedAt: now, consumedBy: args.workerId ?? "replay" });
-      await ctx.db.insert("taskEvents", {
+      await appendTaskEvent(ctx, {
         taskId: args.taskId,
         projectId: args.projectId,
         type: "approval.signal_reused",
@@ -160,7 +161,7 @@ export const request = internalMutation({
       status: "pending",
       history: [{ at: now, status: "pending", mode, reason: policy.reason }],
     });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: args.projectId,
       type: "approval.requested",
@@ -244,7 +245,7 @@ export const cancel = internalMutation({
       note: args.reason.slice(0, 500),
       history: [...(row.history ?? []), { at: now, status: "cancelled", reason: args.reason }],
     });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: row.taskId,
       projectId: row.projectId,
       type: "approval.cancelled",
@@ -302,7 +303,7 @@ export async function resolveCommandApproval(
       });
     }
   }
-  await ctx.db.insert("taskEvents", {
+  await appendTaskEvent(ctx, {
     taskId: approval.taskId,
     projectId: approval.projectId,
     type: decision === "deny" ? "approval.rejected" : "approval.approved",

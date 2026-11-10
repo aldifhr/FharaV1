@@ -43,6 +43,8 @@ import {
 } from "./schema";
 import { taskBranchPrefixes } from "./lib/taskBranch";
 import { consumeTaskSignals, RESUMABLE_APPROVAL_KINDS, supersedePendingCommandApprovals } from "./taskSignals";
+import { appendAgentEvent as appendAgentEventRow, appendTaskEvent } from "./lib/taskEvents";
+import { decideResume, replayEncodedBytes, RESUME_MAX_REPLAY_EVENTS } from "./lib/eventResume";
 
 const DEFAULT_LEASE_MS = 60_000;
 
@@ -324,7 +326,7 @@ export const claimNextTask = internalMutation({
       updatedAt: now,
       errorMessage: undefined,
     });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: task._id,
       projectId: task.projectId,
       type: "task.claimed",
@@ -544,7 +546,7 @@ export const recoverStale = internalMutation({
             recoveryCount: recoveryCount + 1,
             updatedAt: now,
           });
-          await ctx.db.insert("taskEvents", {
+          await appendTaskEvent(ctx, {
             taskId: task._id,
             projectId: task.projectId,
             type: "task.recovered",
@@ -588,7 +590,7 @@ export const recoverStale = internalMutation({
             });
           }
         }
-        await ctx.db.insert("taskEvents", {
+        await appendTaskEvent(ctx, {
           taskId: task._id,
           projectId: task.projectId,
           type: "task.recovered",
@@ -615,7 +617,7 @@ export const recoverStale = internalMutation({
         completedAt: now,
         updatedAt: now,
       });
-      await ctx.db.insert("taskEvents", {
+      await appendTaskEvent(ctx, {
         taskId: task._id,
         projectId: task.projectId,
         type: "task.recovered",
@@ -707,7 +709,7 @@ export const recoverStale = internalMutation({
           createdAt: now,
         });
       }
-      await ctx.db.insert("taskEvents", {
+      await appendTaskEvent(ctx, {
         taskId: task._id,
         projectId: task.projectId,
         type: "task.recovered",
@@ -870,7 +872,7 @@ export const upsertDynamicSubtasks = internalMutation({
       .take(1);
     const planRow = plans[0];
     if (planRow && planRow.version !== args.version) {
-      await ctx.db.insert("taskEvents", {
+      await appendTaskEvent(ctx, {
         taskId: args.taskId,
         projectId: args.projectId,
         type: "plan.dynamic_subtasks_stale",
@@ -945,7 +947,7 @@ export const upsertDynamicSubtasks = internalMutation({
       }
     }
 
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: args.projectId,
       type: "plan.dynamic_subtasks_persisted",
@@ -1105,7 +1107,7 @@ export const startExecution = internalMutation({
           startedAt: subtask.startedAt ?? now,
         });
       }
-      await ctx.db.insert("taskEvents", {
+      await appendTaskEvent(ctx, {
         taskId: args.taskId,
         projectId: args.projectId,
         type: "subtask.dispatch_reused",
@@ -1173,7 +1175,7 @@ export const startExecution = internalMutation({
       }
     }
 
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: args.projectId,
       type: "subtask.started",
@@ -1277,7 +1279,7 @@ export const updateExecution = internalMutation({
 
     await refreshAgentStatus(ctx, execution.agentId);
 
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: execution.taskId,
       projectId: execution.projectId,
       type: `subtask.${args.status}`,
@@ -1399,7 +1401,7 @@ export const requestApproval = internalMutation({
       }
     }
 
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: args.projectId,
       type: "approval.requested",
@@ -1507,7 +1509,7 @@ export const autoApprove = internalMutation({
         history: [historyEntry],
       });
     }
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: args.projectId,
       type: "approval.auto_approved",
@@ -1561,7 +1563,7 @@ export const claimResumableTask = internalMutation({
     await consumeTaskSignals(ctx, task._id, "approval", args.workerId);
     const leaseExpiresAt = now + (args.leaseMs ?? DEFAULT_LEASE_MS);
     await ctx.db.patch(task._id, { workerId: args.workerId, leaseExpiresAt, updatedAt: now });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: task._id,
       projectId: task.projectId,
       type: "task.claimed",
@@ -1786,7 +1788,7 @@ export const completeTask = internalMutation({
       await closeOpenSubtasks(ctx, task._id, args.status);
     }
     if (task) {
-      await ctx.db.insert("taskEvents", {
+      await appendTaskEvent(ctx, {
         taskId: task._id,
         projectId: task.projectId,
         type: `task.${args.status}`,
@@ -1886,7 +1888,7 @@ export const pauseForInput = internalMutation({
       pendingOptions: uniqueOptions.length >= 2 ? uniqueOptions : undefined,
       updatedAt: now,
     });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: task._id,
       projectId: task.projectId,
       type: "task.input_asked",
@@ -1985,7 +1987,7 @@ export const recordEvaluation = internalMutation({
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("evaluations", { ...args, createdAt: Date.now() });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: args.projectId,
       type: "evaluation.completed",
@@ -2086,29 +2088,7 @@ export const appendAgentEvent = internalMutation({
     payload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    const now = Date.now();
-    let sequence = 1;
-    if (args.conversationId) {
-      const existing = await ctx.db
-        .query("agentEvents")
-        .withIndex("by_conversation_and_sequence", (q) =>
-          q.eq("conversationId", args.conversationId!)
-        )
-        .order("desc")
-        .take(1);
-      if (existing[0]?.sequence) sequence = existing[0].sequence + 1;
-    }
-    return await ctx.db.insert("agentEvents", {
-      projectId: args.projectId,
-      conversationId: args.conversationId,
-      taskId: args.taskId,
-      executionId: args.executionId,
-      agentId: args.agentId,
-      type: args.type,
-      payload: args.payload,
-      sequence,
-      createdAt: now,
-    });
+    return await appendAgentEventRow(ctx, args);
   },
 });
 
@@ -2132,30 +2112,73 @@ export const listAgentEvents = query({
     } else if (args.projectId) {
       await assertProjectAccess(ctx, args.projectId);
     }
+    // Newest window, returned oldest-first (t3code idea #3). Reading the
+    // oldest N used to freeze the panel once a task passed N events.
+    const limit = Math.min(Math.max(args.limit ?? 200, 1), 1000);
     if (args.conversationId) {
-      return await ctx.db
+      const rows = await ctx.db
         .query("agentEvents")
         .withIndex("by_conversation_and_sequence", (q) =>
           q.eq("conversationId", args.conversationId!)
         )
-        .order("asc")
-        .take(Math.min(Math.max(args.limit ?? 200, 1), 1000));
+        .order("desc")
+        .take(limit);
+      return rows.reverse();
     }
     if (args.taskId) {
-      return await ctx.db
+      const rows = await ctx.db
         .query("agentEvents")
-        .withIndex("by_task", (q) => q.eq("taskId", args.taskId!))
-        .order("asc")
-        .take(Math.min(Math.max(args.limit ?? 200, 1), 1000));
+        .withIndex("by_task_and_sequence", (q) => q.eq("taskId", args.taskId!))
+        .order("desc")
+        .take(limit);
+      return rows.reverse();
     }
     if (args.projectId) {
-      return await ctx.db
+      const rows = await ctx.db
         .query("agentEvents")
         .withIndex("by_project", (q) => q.eq("projectId", args.projectId!))
-        .order("asc")
-        .take(Math.min(Math.max(args.limit ?? 200, 1), 1000));
+        .order("desc")
+        .take(limit);
+      return rows.reverse();
     }
     return [];
+  },
+});
+
+/**
+ * Reconnect for the task thread: canonical task events after `afterSequence`,
+ * or the newest window when the gap is too large to replay (decideResume,
+ * adapted from t3code's decideThreadResume; see lib/eventResume.ts).
+ */
+export const agentEventsSince = query({
+  args: { taskId: v.id("tasks"), afterSequence: v.number(), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const task = await getVisibleTask(ctx, args.taskId);
+    if (!task) return { mode: "snapshot" as const, events: [], highWater: 0 };
+    const newest = await ctx.db
+      .query("agentEvents")
+      .withIndex("by_task_and_sequence", (q) => q.eq("taskId", args.taskId))
+      .order("desc")
+      .first();
+    const high = newest?.sequence ?? 0;
+    const replay = await ctx.db
+      .query("agentEvents")
+      .withIndex("by_task_and_sequence", (q) => q.eq("taskId", args.taskId).gt("sequence", args.afterSequence))
+      .order("asc")
+      .take(RESUME_MAX_REPLAY_EVENTS + 1);
+    const plan = decideResume({
+      afterSequence: args.afterSequence,
+      highWater: high,
+      replayEventCount: replay.length,
+      replayEncodedBytes: replayEncodedBytes(replay),
+    });
+    if (plan.mode === "replay") return { mode: "replay" as const, events: replay, highWater: high };
+    const rows = await ctx.db
+      .query("agentEvents")
+      .withIndex("by_task_and_sequence", (q) => q.eq("taskId", args.taskId))
+      .order("desc")
+      .take(Math.min(Math.max(args.limit ?? 200, 1), 1000));
+    return { mode: "snapshot" as const, events: rows.reverse(), highWater: high };
   },
 });
 
@@ -2174,7 +2197,7 @@ export const logEvent = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const eventId = await ctx.db.insert("taskEvents", {
+    const eventId = await appendTaskEvent(ctx, {
       ...args,
       createdAt: now,
     });
@@ -2192,21 +2215,13 @@ export const logEvent = internalMutation({
     // Emit the canonical event the UI subscribes to.
     const type = canonicalEvent(args.type);
     if (type) {
-      let sequence = 1;
-      const existing = await ctx.db
-        .query("agentEvents")
-        .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
-        .order("desc")
-        .take(1);
-      if (existing[0]?.sequence) sequence = existing[0].sequence + 1;
-      await ctx.db.insert("agentEvents", {
+      await appendAgentEventRow(ctx, {
         projectId: args.projectId,
         taskId: args.taskId,
         executionId: args.executionId,
         agentId: args.agentId,
         type,
         payload: args.payload,
-        sequence,
         createdAt: now,
       });
     }
@@ -2224,24 +2239,7 @@ export const emitCanonical = internalMutation({
     payload: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    const now = Date.now();
-    let sequence = 1;
-    const existing = await ctx.db
-      .query("agentEvents")
-      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
-      .order("desc")
-      .take(1);
-    if (existing[0]?.sequence) sequence = existing[0].sequence + 1;
-    return await ctx.db.insert("agentEvents", {
-      projectId: args.projectId,
-      taskId: args.taskId,
-      executionId: args.executionId,
-      agentId: args.agentId,
-      type: args.type,
-      payload: args.payload,
-      sequence,
-      createdAt: now,
-    });
+    return await appendAgentEventRow(ctx, args);
   },
 });
 
@@ -2587,7 +2585,7 @@ export const completeBranchCreation = internalMutation({
       worktreePath: args.worktreePath,
       updatedAt: Date.now(),
     });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: args.projectId,
       type: "branch.created",
@@ -2645,7 +2643,7 @@ export const mergeBranchCompleted = internalMutation({
   },
   handler: async (ctx, args) => {
     if (args.conflict) {
-      await ctx.db.insert("taskEvents", {
+      await appendTaskEvent(ctx, {
         taskId: args.taskId,
         projectId: args.projectId,
         type: "branch.merge_conflict",
@@ -2660,7 +2658,7 @@ export const mergeBranchCompleted = internalMutation({
         worktreePath: undefined,
       });
     }
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: args.projectId,
       type: "branch.merged",
@@ -2697,7 +2695,7 @@ export const discardBranchDone = internalMutation({
       branchName: undefined,
       worktreePath: undefined,
     });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: args.projectId,
       type: "branch.discarded",
@@ -2778,7 +2776,7 @@ export const worktreeCleaned = internalMutation({
     const task = await ctx.db.get(args.taskId);
     if (!task) return;
     await ctx.db.patch(args.taskId, { worktreePath: undefined });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: task.projectId,
       type: "branch.worktree_cleaned",
@@ -2884,7 +2882,7 @@ export const recordDelegation = internalMutation({
   },
   handler: async (ctx, args) => {
     const id = await ctx.db.insert("delegations", { ...args, createdAt: Date.now() });
-    const eventId = await ctx.db.insert("taskEvents", {
+    const eventId = await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: args.projectId,
       type: "orchestrator.delegation",

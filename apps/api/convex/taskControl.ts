@@ -1,6 +1,7 @@
 import { internalMutation, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { assertTaskAccess } from "./lib/authz";
+import { appendTaskEvent } from "./lib/taskEvents";
 
 /**
  * Plan 022: user Pause / Resume. `paused` is its own non-terminal task
@@ -34,7 +35,7 @@ export const pause = mutation({
       if (task.pausedBy) return { paused: true, changed: false };
       const now = Date.now();
       await ctx.db.patch(task._id, { pausedBy: "user", pausedAt: now, updatedAt: now });
-      await ctx.db.insert("taskEvents", {
+      await appendTaskEvent(ctx, {
         taskId: task._id,
         projectId: task.projectId,
         type: "task.paused",
@@ -53,7 +54,7 @@ export const pause = mutation({
       pausedAt: now,
       updatedAt: now,
     });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: task._id,
       projectId: task.projectId,
       type: "task.paused",
@@ -80,7 +81,7 @@ export const resume = mutation({
       // approval signal makes the task resumable again by itself.
       const now = Date.now();
       await ctx.db.patch(task._id, { pausedBy: undefined, pausedAt: undefined, updatedAt: now });
-      await ctx.db.insert("taskEvents", {
+      await appendTaskEvent(ctx, {
         taskId: task._id,
         projectId: task.projectId,
         type: "task.resumed",
@@ -103,7 +104,7 @@ export const resume = mutation({
       updatedAt: now,
       ...(draining ? {} : { workerId: undefined, leaseExpiresAt: undefined }),
     });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: task._id,
       projectId: task.projectId,
       type: "task.resumed",
@@ -145,7 +146,7 @@ export const releasePausedTask = internalMutation({
         leaseExpiresAt: undefined,
         updatedAt: now,
       });
-      await ctx.db.insert("taskEvents", {
+      await appendTaskEvent(ctx, {
         taskId: task._id,
         projectId: task.projectId,
         type: "task.requeued",

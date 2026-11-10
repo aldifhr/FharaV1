@@ -6,6 +6,7 @@ import { onPlanApproved, onPlanRejected } from "./planReview";
 import { scheduleDecisionEvaluation } from "./lib/calibration/store";
 import { resolveCommandApproval } from "./commandApprovals";
 import { signalApprovalDecision } from "./taskSignals";
+import { appendTaskEvent } from "./lib/taskEvents";
 
 export const listPendingAll = query({
   args: {},
@@ -62,7 +63,7 @@ export const approve = mutation({
     await signalApprovalDecision(ctx, { ...approval, status: "approved", resolvedAt: now }, "approved");
     // Plan Inspector: an approved plan re-queues its task (planReview.ts).
     if (approval.kind === "plan") await onPlanApproved(ctx, approval);
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: approval.taskId,
       projectId: approval.projectId,
       type: "approval.approved",
@@ -103,7 +104,7 @@ export const reject = mutation({
     if (approval.kind === "plan") await onPlanRejected(ctx, approval);
     // Decision Outcome Calibration: a human rejection is an outcome signal.
     await scheduleDecisionEvaluation(ctx, approval.taskId);
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: approval.taskId,
       projectId: approval.projectId,
       type: "approval.rejected",
@@ -138,7 +139,7 @@ export const hold = mutation({
     if (approval.status !== "pending") {
       throw new Error(`Approval already ${approval.status}`);
     }
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: approval.taskId,
       projectId: approval.projectId,
       type: "approval.held",

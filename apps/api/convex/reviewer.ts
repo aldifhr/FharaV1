@@ -32,6 +32,7 @@ import {
 } from "./lib/reviewer/opinion";
 import { findPendingPlanApproval, replanPendingPlan } from "./planReview";
 import { requeueForRetry, steerWith } from "./tasks";
+import { appendTaskEvent } from "./lib/taskEvents";
 
 const FINISHED_SUBTASK = new Set(["completed", "failed", "blocked", "skipped"]);
 const TERMINAL_TASK = new Set(["done", "rejected", "failed", "cancelled"]);
@@ -230,7 +231,7 @@ export const replanWithOpinion = mutation({
       outcome = "replanned";
     } else if (TERMINAL_TASK.has(task.status)) {
       await requeueForRetry(ctx, task, { planReviewNote: note });
-      await ctx.db.insert("taskEvents", {
+      await appendTaskEvent(ctx, {
         taskId: task._id,
         projectId: task.projectId,
         type: "plan.replan_requested",

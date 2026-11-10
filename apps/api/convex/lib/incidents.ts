@@ -1,5 +1,6 @@
 import type { MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { appendTaskEvent } from "./taskEvents";
 
 /**
  * Incident Room: open one incident record when a run fails or a subtask
@@ -127,7 +128,7 @@ export async function openIncident(
     createdAt: now,
     ...fields,
   });
-  await ctx.db.insert("taskEvents", {
+  await appendTaskEvent(ctx, {
     taskId: task._id,
     projectId: task.projectId,
     type: "incident.opened",

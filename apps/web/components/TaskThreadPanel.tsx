@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useConvex, useMutation, useQuery } from "convex/react";
 import { ReviewerSection, SecondOpinionButton } from "@/components/review/Reviewer";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -19,6 +19,7 @@ import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import PauseResumeButton from "./PauseResumeButton";
 import Requirements from "./runs/Requirements";
 import { useToast } from "./Toasts";
+import { useSequencedEvents } from "@/lib/useSequencedEvents";
 import { Skeleton } from "@/app/WorkspaceContext";
 import { ArrowLeft, ArrowUpRight, AtSign, Check, ChevronLeft, Loader2 as SendLoader, Minimize2, Paperclip, Reply, RotateCcw, SendHorizontal, Square, X } from "lucide-react";
 import { QuoteBar, QuotedSnippet, quoteOf, type ChatQuote } from "./chat/QuoteBlock";
@@ -68,7 +69,12 @@ export default function TaskThreadPanel({
   const messages = useQuery(api.messages.listByTask, taskExists ? { taskId: taskId as any } : "skip");
   // Canonical event stream (plan 016): the UI reads this instead of the raw
   // worker/provider vocabulary.
-  const agentEvents = useQuery(api.orchestration.listAgentEvents, taskExists ? { taskId: taskId as any } : "skip");
+  // Newest window, merged by sequence; a reconnect gap replays or re-snapshots.
+  const convex = useConvex();
+  const agentEventsWindow = useQuery(api.orchestration.listAgentEvents, taskExists ? { taskId: taskId as any } : "skip");
+  const agentEvents = useSequencedEvents(taskExists ? taskId : null, agentEventsWindow as any[] | undefined, (afterSequence) =>
+    convex.query(api.orchestration.agentEventsSince, { taskId: taskId as any, afterSequence }) as any
+  );
   const fileChanges = useQuery(api.fileChanges.listByTask, taskExists ? { taskId: taskId as any } : "skip");
   const agents = useQuery(api.agents.list, {});
   const execution = useQuery(api.executionView.getForTask, taskExists ? { taskId: taskId as any } : "skip");

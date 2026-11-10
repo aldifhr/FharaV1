@@ -30,6 +30,7 @@ import {
   type ReactionPlan,
   type ReviewComment,
 } from "./lib/prFeedback";
+import { appendTaskEvent } from "./lib/taskEvents";
 
 /**
  * Post-push feedback loop.
@@ -139,7 +140,7 @@ async function logOwnerEvent(
   payload: Record<string, unknown>,
   level: "info" | "warn" | "error" = "info"
 ) {
-  await ctx.db.insert("taskEvents", { taskId: ownerTaskId, projectId, type, payload, level, createdAt: Date.now() });
+  await appendTaskEvent(ctx, { taskId: ownerTaskId, projectId, type, payload, level, createdAt: Date.now() });
 }
 
 // ---------------------------------------------------------------------------

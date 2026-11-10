@@ -20,6 +20,7 @@ import {
 import { normalizePlanReview } from "./lib/planReviewPolicy";
 import { parseContract, type AcceptanceGate } from "./lib/subtaskContract";
 import { ROLE_KEYS } from "./lib/roles";
+import { appendTaskEvent } from "./lib/taskEvents";
 
 /**
  * Plan Inspector (review the plan before it runs) and the Task Estimator's
@@ -258,7 +259,7 @@ export const requestReview = internalMutation({
         planVersion: args.planVersion,
         status: "pending",
       });
-      await ctx.db.insert("taskEvents", {
+      await appendTaskEvent(ctx, {
         taskId: args.taskId,
         projectId: args.projectId,
         type: "approval.requested",
@@ -275,7 +276,7 @@ export const requestReview = internalMutation({
       workerId: undefined,
       leaseExpiresAt: undefined,
     });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: args.projectId,
       type: "task.stage",
@@ -413,7 +414,7 @@ export const editPlan = mutation({
       maxSubtasks: subtaskRows(plan.payload).length,
     });
     if (!result.ok) {
-      await ctx.db.insert("taskEvents", {
+      await appendTaskEvent(ctx, {
         taskId: task._id,
         projectId: task.projectId,
         type: "plan.edit_rejected",
@@ -466,7 +467,7 @@ export const editPlan = mutation({
       status: "pending",
     });
     await ctx.db.patch(task._id, { updatedAt: now });
-    await ctx.db.insert("taskEvents", {
+    await appendTaskEvent(ctx, {
       taskId: task._id,
       projectId: task.projectId,
       type: "plan.edited",
@@ -526,7 +527,7 @@ export async function replanPendingPlan(ctx: MutationCtx, approval: Doc<"approva
     leaseExpiresAt: undefined,
     updatedAt: now,
   });
-  await ctx.db.insert("taskEvents", {
+  await appendTaskEvent(ctx, {
     taskId: task._id,
     projectId: task.projectId,
     type: "plan.replan_requested",
@@ -564,7 +565,7 @@ export async function onPlanApproved(ctx: MutationCtx, approval: Doc<"approvals"
     leaseExpiresAt: undefined,
     updatedAt: now,
   });
-  await ctx.db.insert("taskEvents", {
+  await appendTaskEvent(ctx, {
     taskId: task._id,
     projectId: task.projectId,
     type: "task.stage",
@@ -595,7 +596,7 @@ export async function onPlanRejected(ctx: MutationCtx, approval: Doc<"approvals"
       await ctx.db.patch(subtask._id, { status: "skipped", error: "Plan rejected by user" });
     }
   }
-  await ctx.db.insert("taskEvents", {
+  await appendTaskEvent(ctx, {
     taskId: task._id,
     projectId: task.projectId,
     type: "plan.rejected",

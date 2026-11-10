@@ -17,7 +17,7 @@ import NeedsYou from "./sidebar/NeedsYou";
 import ProjectList from "./sidebar/ProjectList";
 import PersonalList from "./sidebar/PersonalList";
 import TeamList, { type TeamAgent } from "./sidebar/TeamList";
-import { CreateAgentModal, EditAgentModal } from "./sidebar/AgentForms";
+import { CreateAgentModal } from "./sidebar/AgentForms";
 import { roleLabel } from "@/lib/agentRoles";
 import { onFocusTeam } from "@/lib/shellEvents";
 
@@ -52,7 +52,6 @@ export default function Sidebar({
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Sections>({ needsYou: true, projects: true, personal: true, team: true });
   const [createOpen, setCreateOpen] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
   const [detail, setDetail] = useState<any>(null);
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const [confirmPending, setConfirmPending] = useState(false);
@@ -222,15 +221,9 @@ export default function Sidebar({
           <AgentDetailPanel
             agent={(agents ?? []).find((a) => a._id === detail._id) ?? detail}
             onClose={() => setDetail(null)}
-            onEdit={(a: any) => {
-              setDetail(null);
-              setEditing(a);
-            }}
             onRemove={askRemoveAgent}
           />
         )}
-        {createOpen && <CreateAgentModal agents={agents ?? []} onClose={() => setCreateOpen(false)} />}
-        {editing && <EditAgentModal agent={editing} onClose={() => setEditing(null)} />}
       </aside>
     </>
   );

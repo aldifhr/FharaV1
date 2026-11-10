@@ -106,7 +106,7 @@ export default function SandboxStudio() {
       <div className="mx-auto grid max-w-5xl gap-8 lg:grid-cols-[1fr_380px]">
         <div className="min-w-0">
           <header>
-            <h1 className="flex items-center gap-2 text-[26px] font-semibold tracking-tight">
+            <h1 className="flex items-center gap-2 text-[26px] font-semibold tracking-tight ">
               <FlaskConical size={24} /> Agent Sandbox
             </h1>
             <p className="mt-1 max-w-2xl text-[14px] text-ink-2">

@@ -10,7 +10,7 @@ import InitialAvatar from "@/components/InitialAvatar";
 import AgentDetailPanel from "@/components/AgentDetailPanel";
 import WorkloadSection from "@/components/WorkloadSection";
 import CollaborationSection from "@/components/team/CollaborationSection";
-import { CreateAgentModal, EditAgentModal } from "@/components/sidebar/AgentForms";
+import { CreateAgentModal } from "@/components/sidebar/AgentForms";
 import { roleLabel } from "@/lib/agentRoles";
 import { projectMembers } from "@/lib/projectMembers";
 import { teamHeadline, teamLoaded } from "@/lib/teamHeadline";
@@ -63,7 +63,6 @@ function TeamPage() {
   // Plan 035: the OpenCode runtime is app-wide (Settings → LLM & Models).
   const opencode = useQuery(api.opencodeSettings.get, {});
   const [detail, setDetail] = useState<Agent | null>(null);
-  const [editing, setEditing] = useState<Agent | null>(null);
   const [creating, setCreating] = useState(false);
   // The server always renders the loading state; the client's first render
   // must match it even when the query already has data (hydration).
@@ -157,14 +156,9 @@ function TeamPage() {
         <AgentDetailPanel
           agent={(allAgents ?? []).find((a) => a._id === detail._id) ?? detail}
           onClose={() => setDetail(null)}
-          onEdit={(a: Agent) => {
-            setDetail(null);
-            setEditing(a);
-          }}
         />
       )}
       {creating && <CreateAgentModal agents={(allAgents ?? []) as any} onClose={() => setCreating(false)} />}
-      {editing && <EditAgentModal agent={editing as any} onClose={() => setEditing(null)} />}
     </div>
   );
 }

@@ -103,7 +103,7 @@ export default function GraphCanvas({
   const top = maxWeight ?? Math.max(1, ...edges.map((e) => e.weight ?? 1));
   return (
     <div className="overflow-x-auto rounded-xl border border-line bg-panel" aria-label={ariaLabel}>
-      <div className="relative" style={{ width, height }}>
+      <div className="relative mx-auto" style={{ width, height }}>
         <svg width={width} height={height} className="absolute inset-0 text-line-strong" aria-hidden="true">
           <defs>
             <marker id={markerId} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">

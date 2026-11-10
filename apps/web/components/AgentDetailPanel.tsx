@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
 import Modal from "./Modal";
+import { EditAgentModal } from "./sidebar/AgentForms";
 import { Badge } from "./ui/badge";
 import { SkeletonBox } from "skullet/react";
 import { roleLabel } from "@/lib/agentRoles";
@@ -71,12 +73,10 @@ function formatTime(epoch: number | null | undefined) {
 export default function AgentDetailPanel({
   agent,
   onClose,
-  onEdit,
   onRemove,
 }: {
   agent: any;
   onClose: () => void;
-  onEdit: (agent: any) => void;
   /** Delete the agent (asks for confirmation upstream). */
   onRemove?: (agent: any) => void;
 }) {
@@ -89,6 +89,8 @@ export default function AgentDetailPanel({
     | { taskId: string; taskTitle: string; subtaskKey?: string; status: string }
     | undefined;
   const status = statusFromActive(active);
+
+  const [editing, setEditing] = useState(false);
 
   const rawRole = (agent.role ?? "").trim().toLowerCase();
   // Retired roles (ui-ux, product-analyst) display as their successor.
@@ -122,6 +124,9 @@ export default function AgentDetailPanel({
 
   return (
     <Modal title={roleName} onClose={onClose} fullScreen>
+      {editing ? (
+        <EditAgentModal agent={agent} inline onClose={() => setEditing(false)} />
+      ) : (
       <div className="mt-4 space-y-5">
         <div className="flex items-center gap-3">
           <AgentAvatar name={roleLabel(agent.role)} size={44} status={status.avatar === "idle" ? undefined : status.avatar} avatarParams={agent.avatarParams} />
@@ -143,7 +148,7 @@ export default function AgentDetailPanel({
             )}
             <button
               type="button"
-              onClick={() => onEdit(agent)}
+              onClick={() => setEditing(true)}
               className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-hover"
             >
               Edit agent
@@ -284,6 +289,7 @@ export default function AgentDetailPanel({
           )}
         </Section>
       </div>
+      )}
     </Modal>
   );
 }

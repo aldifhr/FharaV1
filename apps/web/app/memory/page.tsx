@@ -6,7 +6,6 @@ import { useMutation, useQuery } from "convex/react";
 import { Pin, Plus } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import IconRail from "@/components/IconRail";
-import Modal from "@/components/Modal";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import Segmented from "@/components/ui/segmented";
 import { roleLabel } from "@/lib/agentRoles";
@@ -49,7 +48,13 @@ function snippet(content: string): string {
 
 export default function MemoryPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center bg-panel text-ink-3">
+          <span className="text-[13px]">Loading memory…</span>
+        </div>
+      }
+    >
       <MemoryInner />
     </Suspense>
   );
@@ -108,15 +113,19 @@ function MemoryInner() {
         },
   ) as Memory[] | undefined;
   const setPinned = useMutation(api.memories.setPinned);
-  const [editing, setEditing] = useState<Memory | "new" | null>(null);
+  const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [error, setError] = useState("");
 
   // A scope change closes an open editor (it belongs to the old list).
-  useEffect(() => setEditing(null), [scope, projectId, agentId]);
+  useEffect(() => setEditingId(null), [scope, projectId, agentId]);
 
   const pinnedCount = (memories ?? []).filter((m) => m.pinned).length;
-  const current = editing && editing !== "new" ? (memories ?? []).find((m) => m._id === editing._id) ?? editing : editing;
   const loading = !needsTarget && memories === undefined;
+  const target = {
+    scope,
+    projectId: scope === "project" ? projectId : undefined,
+    agentId: scope === "agent" ? agentId : undefined,
+  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
@@ -128,7 +137,7 @@ function MemoryInner() {
             <button
               type="button"
               disabled={needsTarget}
-              onClick={() => setEditing("new")}
+              onClick={() => setEditingId("new")}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
             >
               <Plus size={14} /> Memory
@@ -195,7 +204,7 @@ function MemoryInner() {
                 <div key={i} className="h-14 animate-pulse rounded-xl bg-hover" />
               ))}
             </div>
-          ) : (memories ?? []).length === 0 ? (
+          ) : (memories ?? []).length === 0 && editingId === null ? (
             <div className="mt-10 rounded-xl border border-dashed border-line px-4 py-5 text-[13px] text-ink-3">
               <p>
                 Nothing remembered here yet. Add conventions, decisions or context you'd otherwise repeat — or use
@@ -203,7 +212,7 @@ function MemoryInner() {
               </p>
               <button
                 type="button"
-                onClick={() => setEditing("new")}
+                onClick={() => setEditingId("new")}
                 className="mt-3 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] text-ink transition hover:bg-hover"
               >
                 Write a memory
@@ -211,79 +220,87 @@ function MemoryInner() {
             </div>
           ) : (
             <ul className="mt-10 divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
+              {editingId === "new" && (
+                <li className="border-b border-line">
+                  <MemoryEditor note={null} target={target} onClose={() => setEditingId(null)} />
+                </li>
+              )}
               {(memories ?? []).map((m) => (
-                <li key={m._id} className="flex items-start gap-1 pr-2 transition hover:bg-hover">
-                  <button
-                    type="button"
-                    onClick={() => setEditing(m)}
-                    className="flex min-w-0 flex-1 items-start gap-3 px-4 py-3 text-left outline-none focus-visible:bg-hover"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[14px] font-medium">{m.title}</p>
-                      <p className="truncate text-[12.5px] text-ink-2">{snippet(m.content)}</p>
+                <li key={m._id} className="transition hover:bg-hover">
+                  {editingId === m._id ? (
+                    <MemoryEditor note={m} target={target} onClose={() => setEditingId(null)} />
+                  ) : (
+                    <div className="flex items-start gap-1 pr-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(m._id)}
+                        className="flex min-w-0 flex-1 items-start gap-3 px-4 py-3 text-left outline-none focus-visible:bg-hover"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[14px] font-medium">{m.title}</p>
+                          <p className="truncate text-[12.5px] text-ink-2">{snippet(m.content)}</p>
+                          {m.tags && m.tags.length > 0 && (
+                            <p className="mt-1 flex flex-wrap gap-1">
+                              {m.tags.map((t) => (
+                                <span key={t} className="rounded-full border border-line px-1.5 py-0.5 text-[10.5px] text-ink-3">
+                                  {t}
+                                </span>
+                              ))}
+                            </p>
+                          )}
+                        </div>
+                        <span className="shrink-0 pt-0.5 text-right text-[12px] text-ink-3">
+                          {m.source === "agent" ? "Agent" : "You"} · {relativeTime(m.updatedAt)}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={m.pinned ? `Unpin ${m.title}` : `Pin ${m.title}`}
+                        aria-pressed={m.pinned}
+                        title={m.pinned ? "Pinned — added to prompts" : "Not pinned — reference only"}
+                        onClick={async () => {
+                          setError("");
+                          try {
+                            await setPinned({ memoryId: m._id as never, pinned: !m.pinned });
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : "Failed to update memory");
+                          }
+                        }}
+                        className={`mt-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg outline-none transition hover:bg-panel focus-visible:ring-2 focus-visible:ring-brand/40 ${
+                          m.pinned ? "text-ink" : "text-ink-3"
+                        }`}
+                      >
+                        <Pin size={15} className={m.pinned ? "fill-current" : ""} />
+                      </button>
                     </div>
-                    <span className="shrink-0 pt-0.5 text-right text-[12px] text-ink-3">
-                      {m.source === "agent" ? "Agent" : "You"} · {relativeTime(m.updatedAt)}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={m.pinned ? `Unpin ${m.title}` : `Pin ${m.title}`}
-                    aria-pressed={m.pinned}
-                    title={m.pinned ? "Pinned — added to prompts" : "Not pinned — reference only"}
-                    onClick={async () => {
-                      setError("");
-                      try {
-                        await setPinned({ memoryId: m._id as never, pinned: !m.pinned });
-                      } catch (err) {
-                        setError(err instanceof Error ? err.message : "Failed to update memory");
-                      }
-                    }}
-                    className={`mt-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg outline-none transition hover:bg-panel focus-visible:ring-2 focus-visible:ring-brand/40 ${
-                      m.pinned ? "text-ink" : "text-ink-3"
-                    }`}
-                  >
-                    <Pin size={15} className={m.pinned ? "fill-current" : ""} />
-                  </button>
+                  )}
                 </li>
               ))}
             </ul>
           )}
         </div>
       </main>
-
-      {current && (
-        <MemoryModal
-          key={current === "new" ? "new" : current._id}
-          memory={current === "new" ? null : current}
-          target={{
-            scope,
-            projectId: scope === "project" ? projectId : undefined,
-            agentId: scope === "agent" ? agentId : undefined,
-          }}
-          onClose={() => setEditing(null)}
-        />
-      )}
     </div>
   );
 }
 
-function MemoryModal({
-  memory,
+/** Inline note editor: title, tags, content, pinned. Saves in place. */
+function MemoryEditor({
+  note,
   target,
   onClose,
 }: {
-  memory: Memory | null;
+  note: Memory | null;
   target: { scope: MemoryScope; projectId?: string; agentId?: string };
   onClose: () => void;
 }) {
   const create = useMutation(api.memories.create);
   const update = useMutation(api.memories.update);
   const remove = useMutation(api.memories.remove);
-  const [title, setTitle] = useState(memory?.title ?? "");
-  const [content, setContent] = useState(memory?.content ?? "");
-  const [tags, setTags] = useState((memory?.tags ?? []).join(", "));
-  const [pinned, setPinnedState] = useState(memory?.pinned ?? true);
+  const [title, setTitle] = useState(note?.title ?? "");
+  const [content, setContent] = useState(note?.content ?? "");
+  const [tags, setTags] = useState((note?.tags ?? []).join(", "));
+  const [pinned, setPinnedState] = useState(note?.pinned ?? true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
@@ -299,8 +316,8 @@ function MemoryModal({
     setSaving(true);
     try {
       const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
-      if (memory) {
-        await update({ memoryId: memory._id as never, title, content, tags: tagList, pinned });
+      if (note) {
+        await update({ memoryId: note._id as never, title, content, tags: tagList, pinned });
       } else {
         await create({
           scope: target.scope,
@@ -322,78 +339,89 @@ function MemoryModal({
   }
 
   return (
-    <Modal title={memory ? "Edit memory" : "New memory"} onClose={onClose} maxWidth="max-w-xl">
-      <form onSubmit={handleSubmit} className="mt-5 grid gap-5">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className={label}>
-            Title
-            <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={MEMORY_TITLE_MAX} required placeholder="Package manager" className={field} />
-          </label>
-          <label className={label}>
-            Tags
-            <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="tooling, conventions" className={field} />
-          </label>
-        </div>
+    <form onSubmit={handleSubmit} className="grid gap-4 px-4 py-4">
+      <div className="grid gap-3 sm:grid-cols-2">
         <label className={label}>
-          <span className="flex justify-between">
-            Content
-            <span>{content.length.toLocaleString("en-US")} / {MEMORY_CONTENT_MAX.toLocaleString("en-US")}</span>
-          </span>
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            maxLength={MEMORY_CONTENT_MAX}
-            rows={10}
+          Title
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={MEMORY_TITLE_MAX}
             required
-            placeholder="Markdown. e.g. Use pnpm, never npm. Run `pnpm test` before handing off."
-            className={`${field} resize-y font-mono text-[13px] leading-relaxed`}
+            placeholder="Package manager"
+            className={field}
           />
         </label>
-        <label className="flex cursor-pointer items-start gap-2 text-[13px] text-ink">
-          <input type="checkbox" checked={pinned} onChange={(e) => setPinnedState(e.target.checked)} className="mt-0.5 accent-current" />
-          <span>
-            Pinned
-            <span className="block text-[12px] text-ink-3">Pinned memories are added to the agent's instructions. Unpinned ones are reference only.</span>
-          </span>
+        <label className={label}>
+          Tags
+          <input
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+            placeholder="tooling, conventions"
+            className={field}
+          />
         </label>
+      </div>
+      <label className={label}>
+        <span className="flex justify-between">
+          Content
+          <span>{content.length.toLocaleString("en-US")} / {MEMORY_CONTENT_MAX.toLocaleString("en-US")}</span>
+        </span>
+        <textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          maxLength={MEMORY_CONTENT_MAX}
+          rows={6}
+          required
+          placeholder="Markdown. e.g. Use pnpm, never npm. Run `pnpm test` before handing off."
+          className={`${field} resize-y font-mono text-[13px] leading-relaxed`}
+        />
+      </label>
+      <label className="flex cursor-pointer items-start gap-2 text-[13px] text-ink">
+        <input type="checkbox" checked={pinned} onChange={(e) => setPinnedState(e.target.checked)} className="mt-0.5 accent-current" />
+        <span>
+          Pinned
+          <span className="block text-[12px] text-ink-3">Pinned memories are added to the agent's instructions. Unpinned ones are reference only.</span>
+        </span>
+      </label>
 
-        {error && <p role="alert" className="text-[13px] text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p role="alert" className="text-[13px] text-red-600 dark:text-red-400">{error}</p>}
 
-        <div className="flex items-center justify-between gap-2">
-          {memory ? (
-            <button
-              type="button"
-              onClick={() => setConfirm({ title: "Delete memory?", message: `"${memory.title}" will be removed. Agents won't see it again.` })}
-              className="rounded-lg px-3 py-1.5 text-[13px] text-red-600 transition hover:bg-hover dark:text-red-400"
-            >
-              Delete
-            </button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-[13px] text-ink-2 transition hover:bg-hover">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-40"
-            >
-              {saving ? "Saving…" : memory ? "Save" : "Create"}
-            </button>
-          </div>
+      <div className="flex items-center justify-between gap-2">
+        {note ? (
+          <button
+            type="button"
+            onClick={() => setConfirm({ title: "Delete memory?", message: `"${note.title}" will be removed. Agents won't see it again.` })}
+            className="rounded-lg px-3 py-1.5 text-[13px] text-red-600 transition hover:bg-hover dark:text-red-400"
+          >
+            Delete
+          </button>
+        ) : (
+          <span />
+        )}
+        <div className="flex gap-2">
+          <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-[13px] text-ink-2 transition hover:bg-hover">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-40"
+          >
+            {saving ? "Saving…" : note ? "Save" : "Create"}
+          </button>
         </div>
-      </form>
+      </div>
+
       <ConfirmDialog
         request={confirm}
         pending={deleting}
         onCancel={() => setConfirm(null)}
         onConfirm={async () => {
-          if (!memory) return;
+          if (!note) return;
           setDeleting(true);
           try {
-            await remove({ memoryId: memory._id as never });
+            await remove({ memoryId: note._id as never });
             setConfirm(null);
             onClose();
           } catch (err) {
@@ -404,6 +432,6 @@ function MemoryModal({
           }
         }}
       />
-    </Modal>
+    </form>
   );
 }

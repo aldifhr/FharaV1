@@ -305,7 +305,7 @@ export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onCl
   );
 }
 
-export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: () => void }) {
+export function EditAgentModal({ agent, onClose, inline = false }: { agent: AgentDoc; onClose: () => void; inline?: boolean }) {
   const updateAgent = useMutation(api.agents.update);
   const setAgentSkills = useMutation(api.agents.setSkills);
   const setSkillPin = useMutation(api.skills.setPin);
@@ -399,9 +399,8 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
   const label = "grid gap-1.5 text-[12.5px] text-ink-3";
   const hint = "text-[12px] text-ink-3";
 
-  return (
-    <Modal title="Edit agent" onClose={onClose} maxWidth="max-w-lg">
-      <form onSubmit={handleUpdateAgent} className="mt-5 grid gap-5">
+  const form = (
+    <form onSubmit={handleUpdateAgent} className="mt-5 grid gap-5">
         <div className="flex items-start gap-4">
           <button
             type="button"
@@ -603,7 +602,13 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
             </button>
           </div>
         </div>
-      </form>
+    </form>
+  );
+
+  if (inline) return <div className="mt-4">{form}</div>;
+  return (
+    <Modal title="Edit agent" onClose={onClose} maxWidth="max-w-lg">
+      {form}
     </Modal>
   );
 }

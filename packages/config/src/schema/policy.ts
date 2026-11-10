@@ -160,7 +160,6 @@ export const POLICY_VARS = [
   pint("ORCHESTRATOR_MAX_DECISION_STEPS", 20, 1, 200, "Max decision steps per task run (1–200)."),
   pbool("ORCHESTRATOR_TOOL_LOOP", false, "Labs: dynamic tool discovery for research/audit agents.", {
     knob: { reader: "worker" },
-    quirk: "agentExecutor reads raw process.env === \"true\" (no UI override, \"1\" ignored) (D3, fixed by B1)",
   }),
   pbool("ORCHESTRATOR_MCP_TOOL_LOOP", true, "Read-only agents may use discovered MCP tools mid-task."),
   pbool("ORCHESTRATOR_MCP_WRITE_TOOLS", false, "Allow MCP write tools (otherwise filtered for every role).", {

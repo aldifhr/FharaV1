@@ -1,4 +1,3 @@
-import { wenvRaw } from "@fhara/config/worker";
 import { markProgress } from "@/effects/observationContext";
 import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig, type LLMResult } from "@/llm";
 import {
@@ -71,6 +70,7 @@ import {
 import { isCommandAllowed, runCommand } from "@/tools/runCommand";
 import { canWriteAny, permissionsForAgent, resolveRoleKey, shellDenial, writeDenial } from "@/utils/rolePolicy";
 import { buildOpencodePolicy } from "./opencodePolicy";
+import { toolLoopEnabled } from "./toolLoopFlag";
 import { dangerousCommandReason } from "@/api/convex/lib/commandRules";
 import { commandDeniedOutput, shellGuardDecisionForArgv, shellGuardOutput, type CommandApprovalOutcome } from "@/execution/commandGate";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
@@ -2068,9 +2068,7 @@ async function executeReadOnly(
   let toolLoopSection = "";
   if (
     (mode === "research" || mode === "audit") &&
-    // Raw process.env === "true" on purpose (pre-E1 semantics: no UI
-    // override, "1" ignored). D3, fixed separately by B1.
-    wenvRaw("ORCHESTRATOR_TOOL_LOOP") === "true"
+    toolLoopEnabled()
   ) {
     const { tool_search } = await import("../governance/registry");
     const tools = tool_search({

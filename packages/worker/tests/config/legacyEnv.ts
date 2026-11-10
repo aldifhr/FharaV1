@@ -310,9 +310,6 @@ export function legacyBaselineEnabled(env: Env): boolean {
   return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
 }
 
-/** execution/agentExecutor.ts:2070 */
-export const legacyToolLoopSection = (env: Env) => env.ORCHESTRATOR_TOOL_LOOP === "true";
-
 /** services/runner/commandApproval.ts */
 export function legacyCommandApprovalTimeoutMs(env: Env): number {
   const raw = Number(env.ORCHESTRATOR_COMMAND_APPROVAL_TIMEOUT_MS);

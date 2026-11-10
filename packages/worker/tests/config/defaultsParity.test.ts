@@ -153,7 +153,6 @@ const RECORD_CASES: Array<[string, (env: Env) => unknown, (env: Env) => unknown]
   ["ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", (e) => wenv("WORKER_LLM_MAX_CONCURRENCY", e), L.legacyWorkerGateLimit],
   ["LLM_ROUND_ROBIN_STICKY_LIMIT", (e) => wenv("LLM_ROUND_ROBIN_STICKY_LIMIT", e), L.legacyStickyLimit],
   ["ORCHESTRATOR_COMMAND_APPROVAL_TIMEOUT_MS", (e) => wenv("ORCHESTRATOR_COMMAND_APPROVAL_TIMEOUT_MS", e), L.legacyCommandApprovalTimeoutMs],
-  ["ORCHESTRATOR_TOOL_LOOP", (e) => wenvRaw("ORCHESTRATOR_TOOL_LOOP", e) === "true", L.legacyToolLoopSection],
   ["WORKER_SUBSCRIBE", (e) => wenv("WORKER_SUBSCRIBE", e), L.legacySubscribe],
   ["FHARA_COMMIT_MESSAGE_LLM", (e) => wenv("FHARA_COMMIT_MESSAGE_LLM", e), (e) => L.legacyNeq0(e, "FHARA_COMMIT_MESSAGE_LLM")],
   ["FHARA_MEMORY_SUGGESTIONS", (e) => wenv("FHARA_MEMORY_SUGGESTIONS", e), (e) => L.legacyNeq0(e, "FHARA_MEMORY_SUGGESTIONS")],

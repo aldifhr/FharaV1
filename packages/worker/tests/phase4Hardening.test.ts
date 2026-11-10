@@ -933,6 +933,8 @@ describe("resume outcome handling (mandatory test 7)", () => {
         policy: BASE_POLICY,
         taskStatus: "running",
         plan: REVIEW_PLAN,
+        // Plan 040: the review needs a Reviewer (no fallback owner).
+        extraAgents: [{ _id: "agent-reviewer", name: "Reviewer", role: "reviewer", capabilities: ["code-review"], isEnabled: true, priority: 0 }],
       });
 
       await processTask(

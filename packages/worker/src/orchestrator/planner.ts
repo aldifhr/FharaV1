@@ -11,7 +11,8 @@ import type { TokenUsageFn } from "@/types/llm";
 import { providerHealth } from "@/llm/health";
 import type { TaskLlmResolver } from "@/llm/resolver";
 import { CAPABILITY, type AgentDefinition, type Classification, type ExecutionPlan } from "@/types";
-import { routeCapability, capabilitiesOf, describeCapabilities, isAgentEnabled, normalizeCapability } from "./capabilities";
+import { routeCapability, capabilitiesOf, describeCapabilities, isAgentEnabled, normalizeCapability, unroutedReason } from "./capabilities";
+import { canWriteAny, permissionsForAgent } from "@/utils/rolePolicy";
 import { validatePlan } from "./planValidator";
 import { extractJson } from "@/utils/json";
 import { planningPrompt, PLAN_NODE_INSTRUCTIONS } from "@/prompts/planner";
@@ -103,6 +104,21 @@ export interface PlannerResult {
    * (plan.hint_dropped). The runner logs one event per key.
    */
   droppedHintKeys?: string[];
+  /**
+   * Plan 040: every routing change made to the plan (a helper node dropped,
+   * a work node kept but unrouted = BLOCKED at run time, a code_change on a
+   * read-only role turned into an analysis). Logged as visible events.
+   */
+  routingAdjustments?: RoutingAdjustment[];
+}
+
+export interface RoutingAdjustment {
+  key: string;
+  title: string;
+  capability: string;
+  kind: string;
+  action: "dropped" | "blocked" | "made_read_only";
+  reason: string;
 }
 
 export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
@@ -188,6 +204,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
             createdBy: "orchestrator",
             notes,
             droppedHintKeys: routed.dropped,
+            routingAdjustments: routed.adjustments,
           };
         }
         notes.push("planner output references capabilities that no enabled agent can serve");
@@ -235,6 +252,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
     createdBy: "fallback",
     notes,
     degradedReason: notes.join("; "),
+    ...(routedFallback ? { droppedHintKeys: routedFallback.dropped, routingAdjustments: routedFallback.adjustments } : {}),
   };
 }
 
@@ -563,23 +581,46 @@ function regateQa(plan: ExecutionPlan, input: Pick<PlannerInput, "command" | "po
 function ensureRoutable(
   plan: ExecutionPlan,
   agents: AgentDefinition[]
-): { plan: ExecutionPlan; dropped: string[] } | null {
+): { plan: ExecutionPlan; dropped: string[]; adjustments: RoutingAdjustment[] } | null {
   const kept: ExecutionPlan["subtasks"] = [];
   const dropped: string[] = [];
-  let relabeled = false;
+  const adjustments: RoutingAdjustment[] = [];
+  let changed = false;
+  let anyRoutable = false;
   for (const subtask of plan.subtasks) {
-    const routable = routeCapability(subtask.capability, agents, {
-      allowFallback: subtask.kind !== "qa" && subtask.capability !== CAPABILITY.BROWSER_TESTING,
-    });
+    // Plan 040 (D8): no fallback owner. Unrouted work is never handed to
+    // the highest-priority agent (the CTO).
+    const routable = routeCapability(subtask.capability, agents);
+    const base = { key: subtask.key, title: subtask.title, capability: subtask.capability, kind: subtask.kind };
     if (!routable) {
+      if (subtask.kind === "code_change" || subtask.kind === "shell") {
+        // The user's actual work: keep it, so it is BLOCKED at run time
+        // with a reason instead of silently vanishing from the plan.
+        kept.push(subtask);
+        adjustments.push({ ...base, action: "blocked", reason: unroutedReason(subtask.capability, agents) });
+        continue;
+      }
+      // A helper node (review / QA / analysis hint) nobody can serve is
+      // dropped, visibly (plan.node_unrouted), never silently.
       dropped.push(subtask.key);
+      adjustments.push({ ...base, action: "dropped", reason: unroutedReason(subtask.capability, agents) });
+      changed = true;
       continue;
     }
-    // A fallback/fuzzy route (e.g. "frontend-development" served by Backend
-    // because the task's assignees have no Frontend) must not keep a
-    // capability label its owner does not hold: the label drives the UI
-    // QA heuristic, so a backend-only helper got browser QA. Relabel the
-    // node to the owner's own capability.
+    anyRoutable = true;
+    // Plan 040: a code_change owned by a read-only role (a Designer spec,
+    // Support docs guidance) becomes an analysis: the role delivers its
+    // output as text, the executor would refuse a write anyway.
+    if (subtask.kind === "code_change" && !canWriteAny(permissionsForAgent(routable))) {
+      kept.push({ ...subtask, kind: "analysis" });
+      adjustments.push({ ...base, action: "made_read_only", reason: `${routable.name} (${routable.role}) may not write files; the subtask delivers its output as text` });
+      changed = true;
+      continue;
+    }
+    // A fuzzy route (score 70/50) must not keep a capability label its
+    // owner does not hold: the label drives the UI QA heuristic, so a
+    // backend-only helper got browser QA. Relabel the node to the owner's
+    // own capability.
     const ownCapabilities = capabilitiesOf(routable);
     if (
       subtask.kind === "code_change" &&
@@ -587,20 +628,27 @@ function ensureRoutable(
       !ownCapabilities.includes(normalizeCapability(subtask.capability))
     ) {
       kept.push({ ...subtask, capability: ownCapabilities[0] });
-      relabeled = true;
+      changed = true;
     } else {
       kept.push(subtask);
     }
   }
-  if (kept.length === 0) return null;
-  if (kept.length === plan.subtasks.length && !relabeled) return { plan, dropped: [] };
+  if (kept.length === 0 || !anyRoutable) return null;
+  if (!changed) return { plan, dropped: [], adjustments };
+  const droppedSet = new Set(dropped);
   return {
     plan: {
       ...plan,
       strategy: kept.length > 1 ? "dag" : plan.strategy,
-      subtasks: kept.map((subtask, index) => ({ ...subtask, order: index })),
+      subtasks: kept.map((subtask, index) => ({
+        ...subtask,
+        // A dependency on a dropped node would never resolve.
+        dependencies: subtask.dependencies.filter((dependency) => !droppedSet.has(dependency)),
+        order: index,
+      })),
     },
     dropped,
+    adjustments,
   };
 }
 
@@ -637,7 +685,8 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
           description:
             PLAN_NODE_INSTRUCTIONS.reply,
           kind: "analysis",
-          capability: CAPABILITY.GENERAL,
+          // Plan 040 (D2): the CTO answers conversation (no Support catch-all).
+          capability: CAPABILITY.COORDINATION,
           dependencies: [],
           order: 0,
         },

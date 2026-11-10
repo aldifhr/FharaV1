@@ -1,6 +1,7 @@
 import type { AgentDefinition } from "@/types";
 
 import { capabilitiesOf, normalizeCapability } from "@/utils/agentCapabilities";
+import { canWriteAny, permissionsForAgent, resolveRoleKey } from "@/utils/rolePolicy";
 
 // Pure capability resolution lives in `@/utils/agentCapabilities` (the
 // execution layer needs it too); re-exported for existing importers.
@@ -18,11 +19,12 @@ export function isAgentEnabled(agent: AgentDefinition): boolean {
  * writer ever sets them, must be honored instead of routing work to an
  * agent that has signalled it cannot take it.
  */
+// Plan 040: design and documentation are read-only roles' work now
+// (Designer / Support never write), so only implementation capabilities
+// count as code-writing.
 const WRITE_CAPABILITIES = new Set([
   "frontend-development",
   "backend-development",
-  "ui-ux-design",
-  "documentation-support",
 ]);
 
 const UNAVAILABLE_STATUSES = new Set(["offline", "disabled", "unavailable"]);
@@ -78,6 +80,15 @@ export function rankCapability(
     );
 }
 
+/**
+ * Best agent for a capability, or null when no enabled agent serves it.
+ *
+ * Plan 040 (D8): no silent fallback. Unmatched work is BLOCKED with a reason
+ * by the caller instead of landing on the highest-priority agent (the CTO).
+ * `allowFallback: true` (only from ORCHESTRATOR_ALLOW_FALLBACK=true) keeps
+ * the old last resort for one release, and even then never picks the CTO
+ * or, for a code-writing capability, an agent whose role may not write.
+ */
 export function routeCapability(
   capability: string,
   agents: AgentDefinition[],
@@ -88,23 +99,36 @@ export function routeCapability(
   if (enabled.length === 0) return null;
 
   const scored = rankCapability(capability, enabled);
-
-  if (scored.length > 0) return scored[0].agent;
-  if (options.allowFallback === false) return null;
-  // Code-writing capabilities fall back only to an agent that can write
-  // files: a read-only QA/Researcher/Reviewer handed "frontend-development"
-  // cannot do the work (seen when a task's pool had no Frontend).
+  // A code-writing capability goes only to an agent that may write.
+  const eligible = WRITE_CAPABILITIES.has(normalized)
+    ? scored.filter((entry) => canWriteAny(permissionsForAgent(entry.agent)))
+    : scored;
+  if (eligible.length > 0) return eligible[0].agent;
+  if (options.allowFallback !== true) return null;
+  const pool = enabled.filter((agent) => resolveRoleKey(agent.role ?? "") !== "cto");
   const writers = WRITE_CAPABILITIES.has(normalized)
-    ? enabled.filter((agent) => (agent.supportedTools ?? []).includes("write_file"))
-    : [];
+    ? pool.filter((agent) => canWriteAny(permissionsForAgent(agent)))
+    : pool;
+  if (WRITE_CAPABILITIES.has(normalized) && writers.length === 0) return null;
   return (
-    (writers.length > 0 ? writers : enabled)
+    writers
       .slice()
       .sort(
         (a, b) =>
           (b.priority ?? 0) - (a.priority ?? 0) || a.name.localeCompare(b.name)
       )[0] ?? null
   );
+}
+
+/** Why `routeCapability` found nobody, for BLOCKED reasons / events. */
+export function unroutedReason(capability: string, agents: AgentDefinition[]): string {
+  const enabled = agents.filter(isAgentAvailable);
+  if (enabled.length === 0) return `No agent available for capability "${capability}": no enabled agents`;
+  const normalized = normalizeCapability(capability);
+  if (WRITE_CAPABILITIES.has(normalized) && rankCapability(capability, enabled).length > 0) {
+    return `No agent available for capability "${capability}": the agents that declare it may not write files`;
+  }
+  return `No agent available for capability "${capability}": no enabled agent declares it (no fallback; add or enable an agent with this capability)`;
 }
 
 export function describeCapabilities(agents: AgentDefinition[]): string {

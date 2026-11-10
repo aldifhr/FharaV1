@@ -55,10 +55,16 @@ describe("roles: normalization + lookup", () => {
     expect(normalizeRole("Security Engineer")).toBe("backend");
     expect(normalizeRole("technical-writer")).toBe("support");
     expect(normalizeRole("DevOps Engineer")).toBe("devops");
-    expect(normalizeRole("")).toBe("frontend");
+    expect(normalizeRole("")).toBeNull();
   });
-  it("unknown role falls back to frontend without throwing", () => {
-    expect(normalizeRole("something-weird")).toBe("frontend");
+  it("plan 040: an unknown role is unrouted (null), never frontend", () => {
+    expect(normalizeRole("something-weird")).toBeNull();
+  });
+  it("plan 040: a custom role resolves by its declared capabilities, else null", () => {
+    const custom = { _id: "x", name: "X", role: "custom-x", capabilities: ["frontend-development"], isEnabled: true } as any;
+    expect(roleForAgent(custom)).toBe("frontend");
+    const bare = { _id: "y", name: "Y", role: "custom-y", capabilities: ["juggling"], isEnabled: true } as any;
+    expect(roleForAgent(bare)).toBeNull();
   });
 });
 

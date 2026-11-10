@@ -382,13 +382,16 @@ export async function createInitialPlan(
       level: "warn",
     });
   }
-  for (const key of created.droppedHintKeys ?? []) {
+  // Plan 040: nothing leaves or changes in the plan silently. Each routing
+  // change (dropped helper, BLOCKED work node, read-only conversion) is a
+  // visible warn event with its reason.
+  for (const adjustment of created.routingAdjustments ?? []) {
     await deps.api.logEvent({
       taskId: task._id,
       projectId: project._id,
-      type: "plan.hint_dropped",
-      payload: { key, reason: "no enabled agent serves the capability" },
-      level: "info",
+      type: adjustment.action === "dropped" ? "plan.hint_dropped" : "plan.routing_adjusted",
+      payload: { ...adjustment },
+      level: "warn",
     });
   }
   await persistPlan(deps, {

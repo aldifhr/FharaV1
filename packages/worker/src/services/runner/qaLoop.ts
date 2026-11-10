@@ -7,7 +7,7 @@ import { buildFixSubtask, formatReviewFindings } from "@/orchestrator/reviewLoop
 import { capabilitiesOf, normalizeCapability, routeCapability } from "@/orchestrator/capabilities";
 import { CAPABILITY } from "@/types";
 import { wantsVisualQa } from "@/orchestrator/planner";
-import { pickFixOwner, type FixCandidate } from "@/orchestrator/ownership";
+import { ownerForFix, pickFixOwner, type FixCandidate } from "@/orchestrator/ownership";
 import { applyOrRequestFixApproval } from "./fixApply";
 import { buildQaCard, plannedQaRows, postStageCard } from "./cards";
 
@@ -16,13 +16,14 @@ import { buildQaCard, plannedQaRows, postStageCard } from "./cards";
  * (a frontend/design code_change) is preferred; otherwise the shared
  * pickFixOwner (longest allowedPaths prefix, last code_change).
  */
+const QA_UI_CAPABILITIES = new Set<string>([CAPABILITY.FRONTEND, CAPABILITY.DESIGN]);
+
 export function pickQaFixOwner(
   subtasks: FixCandidate[],
   findings: Array<{ filePath?: string }>
 ): FixCandidate | undefined {
-  const uiCapabilities = new Set<string>([CAPABILITY.FRONTEND, CAPABILITY.DESIGN]);
   const uiOwners = subtasks.filter(
-    (s) => s.kind === "code_change" && uiCapabilities.has(normalizeCapability(s.capability))
+    (s) => s.kind === "code_change" && QA_UI_CAPABILITIES.has(normalizeCapability(s.capability))
   );
   if (uiOwners.length > 0) return pickFixOwner(uiOwners, findings);
   return pickFixOwner(subtasks, findings);
@@ -316,14 +317,30 @@ export async function runQaLoop(ctx: RunContext): Promise<boolean> {
         return false;
       }
 
-      const owner = pickQaFixOwner(plan.subtasks, findings);
-      const fixCapability = owner?.capability ?? CAPABILITY.GENERAL;
-      // Log/route the agent that will ACTUALLY serve the fix capability.
-      const implementer = routeCapability(fixCapability, agents);
-      if (!implementer) {
-        state.feedback.push("No implementer agent is available to address QA failures");
+      // Plan 040: one shared owner rule (UI implementers first for QA).
+      const fixOwner = ownerForFix({
+        subtasks: plan.subtasks,
+        findings,
+        agents,
+        writerByKey: ctx.agentByKey,
+        prefer: (candidate) => QA_UI_CAPABILITIES.has(normalizeCapability(candidate.capability)),
+      });
+      if (!fixOwner) {
+        await Promise.resolve(
+          deps.api.logEvent({
+            taskId,
+            projectId: project._id,
+            type: "qa.fix_unowned",
+            payload: { iteration, findings: findings.length, reason: "no implementer owns the tested code" },
+            level: "warn",
+          })
+        ).catch(() => undefined);
+        state.feedback.push("No implementer agent owns the code behind these QA failures, so no fix was attempted");
         return false;
       }
+      const owner = fixOwner.subtask;
+      const fixCapability = owner.capability;
+      const implementer = fixOwner.agent;
 
       const fixSubtask = {
         ...buildFixSubtask({
@@ -335,11 +352,13 @@ export async function runQaLoop(ctx: RunContext): Promise<boolean> {
           order: plan.subtasks.reduce((max, candidate) => Math.max(max, candidate.order), 0) + 1,
         }),
         // Scope the fix to the owner's files (QA findings carry no path).
-        ...(owner?.allowedPaths && owner.allowedPaths.length > 0
+        ...(owner.allowedPaths && owner.allowedPaths.length > 0
           ? { allowedPaths: [...owner.allowedPaths] }
           : {}),
       };
       plan.subtasks.push(fixSubtask);
+      // Pin the fix to the owner (assign() would re-route by capability).
+      ctx.agentByKey.set(fixSubtask.key, implementer);
       dynamicKeys.add(fixSubtask.key);
       // The QA loop owns this fix: register it as a fix-depth-1 node on its
       // own chain so an orchestrator evaluation of its outcome can never

@@ -9,6 +9,7 @@ import {
 } from "./capabilities";
 import type { AgentResult, DelegationDecision } from "./taskContext";
 import type { BudgetTracker } from "./budget";
+import { ownerForFix, type FixCandidate } from "./ownership";
 import { isReadOnlyTaskKind } from "./planValidator";
 
 /** DelegationDecision is defined once in taskContext.ts (plan 013 step 7
@@ -158,6 +159,13 @@ export function evaluateDelegation(input: {
    * node that duplicates a planned one.
    */
   plannedCapabilities?: string[];
+  /**
+   * Plan 040: the plan's subtasks and the agent that ran each one, so a
+   * critical finding goes back to the agent that wrote the code
+   * (`ownerForFix`), not the first Frontend/Backend in the roster.
+   */
+  planSubtasks?: FixCandidate[];
+  writerByKey?: ReadonlyMap<string, AgentDefinition>;
 }): DelegationEvaluation {
   const { result, agents, budget } = input;
   const enabled = agents.filter(isAgentEnabled);
@@ -230,15 +238,19 @@ export function evaluateDelegation(input: {
     (f) => f.severity === "critical" || f.severity === "high"
   );
   if (hasCriticalFindings) {
-    // Find original implementer
-    const implementer = agents.find((a) =>
-      capabilitiesOf(a).includes(CAPABILITY.FRONTEND) || capabilitiesOf(a).includes(CAPABILITY.BACKEND)
-    );
-    if (implementer) {
+    // Plan 040: the agent that wrote the code the findings point at.
+    const owner = ownerForFix({
+      subtasks: input.planSubtasks ?? [],
+      findings: result.findings ?? [],
+      agents: enabled,
+      writerByKey: input.writerByKey,
+    });
+    if (owner) {
+      const implementer = owner.agent;
       return {
         decision: "REVISE",
         targetAgent: implementer,
-        targetCapability: capabilitiesOf(implementer)[0],
+        targetCapability: owner.subtask.capability,
         reason: `${result.agentName} reported critical/high findings that require a developer fix`,
         shouldCallLLM: false,
       };

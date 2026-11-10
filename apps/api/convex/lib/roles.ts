@@ -103,9 +103,11 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     category: "Leadership",
     description: "Technical architecture, technical decisions, risk evaluation.",
     registryDescription: "Technical architecture, technical decisions, risk evaluation.",
-    workerDescription: "Technical architecture, technical decisions, security audit, risk evaluation.",
-    capabilities: ["architecture", "security-audit"],
-    registryCapabilities: ["architecture", "security-audit"],
+    workerDescription: "Technical architecture, technical decisions, risk evaluation, project coordination.",
+    // Plan 040 (D3): security-audit moved to the Reviewer. project-coordination
+    // takes over conversation replies from Support's retired "general" (D2).
+    capabilities: ["architecture", "project-coordination"],
+    registryCapabilities: ["architecture", "project-coordination"],
     defaultTools: ["read_file"],
     permissions: { read: true, write: false, shell: "none", web: false, push: false },
     priority: 9,
@@ -192,7 +194,8 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     category: "Operations",
     description: "Documentation, user support, operational assistance, troubleshooting.",
     registryDescription: "Documentation, user support, operational assistance, troubleshooting.",
-    capabilities: ["documentation-support", "general"],
+    // Plan 040 (D2): no "general" catch-all; Support is not the default owner.
+    capabilities: ["documentation-support"],
     registryCapabilities: ["documentation-support"],
     defaultTools: ["read_file"],
     permissions: { read: true, write: false, shell: "none", web: false, push: false },
@@ -224,10 +227,11 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     label: "Reviewer",
     title: "Reviewer",
     category: "Quality",
-    description: "Independent code review. Evaluates implementation quality.",
-    registryDescription: "Independent code review.",
-    capabilities: ["code-review"],
-    registryCapabilities: ["code-review"],
+    description: "Independent code review and security audit. Evaluates implementation quality.",
+    registryDescription: "Independent code review and security audit.",
+    // Plan 040 (D3): security audits run on the Reviewer (chat already did).
+    capabilities: ["code-review", "security-audit"],
+    registryCapabilities: ["code-review", "security-audit"],
     defaultTools: ["read_file"],
     permissions: { read: true, write: false, shell: "none", web: false, push: false },
     priority: 7,
@@ -289,7 +293,8 @@ export const LEGACY_ROLE_SUCCESSORS: Readonly<Record<string, RoleKey>> = {
  * Only these are removed; capabilities a user added by hand are kept.
  */
 export const REVOKED_DEFAULT_CAPABILITIES: Readonly<Record<string, readonly string[]>> = {
-  cto: ["code-review"],
+  cto: ["code-review", "security-audit"],
+  support: ["general"],
 };
 
 /**

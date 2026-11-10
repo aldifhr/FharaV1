@@ -105,24 +105,18 @@ export function createRunContext(input: ExecutePlanInput, browser: WebClient): R
     if (existing) return existing;
     const subtask = plan.subtasks.find((candidate) => candidate.key === key);
     if (!subtask) return null;
-    // QA must never fall back to an unrelated engineering agent. A fallback
-    // would misattribute the verdict and can run browser checks as Backend.
-    // Review is routed by capability (code-review → the Reviewer). The CTO
-    // oversees but does not review; it is used only as a last resort when
-    // the team has no code-review agent at all.
+    // Plan 040 (D8): capability routing only. No fallback owner (the old
+    // last resort was the highest-priority agent, i.e. the CTO, and the CTO
+    // also covered a review with no Reviewer). An unrouted node is BLOCKED
+    // with its reason by runNodes. ORCHESTRATOR_ALLOW_FALLBACK=true keeps
+    // the old last resort (never the CTO) for implementation nodes.
     let agent = routeCapability(subtask.capability, input.agents, {
       allowFallback:
+        deps.policy.allowFallback === true &&
         subtask.kind !== "qa" &&
         subtask.kind !== "review" &&
         subtask.capability !== CAPABILITY.BROWSER_TESTING,
     });
-    if (!agent && subtask.kind === "review") {
-      agent =
-        input.agents.find((candidate) => /^cto$/i.test(candidate.role)) ??
-        // Teams with neither a reviewer nor a CTO keep the historical
-        // capability fallback rather than leaving the review unassigned.
-        routeCapability(subtask.capability, input.agents, { allowFallback: true });
-    }
     // Plan 027 (opt-in): performance routing ranks exact-capability
     // agents by availability → score → budget → order. It includes the
     // capacity rule, so it supersedes load-aware when on.

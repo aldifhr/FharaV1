@@ -26,6 +26,12 @@ const architect: AgentDefinition = {
   role: "architect",
   capabilities: ["architecture"],
 };
+const researcher: AgentDefinition = {
+  _id: "res1",
+  name: "Researcher",
+  role: "researcher",
+  capabilities: ["research"],
+};
 const security: AgentDefinition = {
   _id: "sec1",
   name: "Security",
@@ -42,7 +48,7 @@ describe("routing", () => {
       projectId: "p1",
       command: cmd,
       title: "Explain concept",
-      agents: [developer, qa, architect],
+      agents: [developer, qa, architect, researcher],
       classification: cls,
     });
     expect(plan.primary).not.toBeNull();
@@ -149,8 +155,12 @@ describe("delegation", () => {
       previousAgents: ["Developer", "QA"],
       delegationDepth: 1,
       alreadyDelegatedCapabilities: [],
+      // Plan 040: the fix goes to the agent that wrote the code.
+      planSubtasks: [{ key: "impl", kind: "code_change", capability: "frontend-development", allowedPaths: ["src"] }],
+      writerByKey: new Map([["impl", developer]]),
     });
     expect(evalRes.decision).toBe("REVISE");
+    expect(evalRes.targetAgent?._id).toBe("dev1");
   });
 
   it("does not revise on low-severity findings that merely mention failure", () => {

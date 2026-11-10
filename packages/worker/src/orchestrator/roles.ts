@@ -61,13 +61,26 @@ export const ROLE_DEFINITIONS: Record<AgentRole, RoleDefinition> = Object.fromEn
 export { resolveRoleKey } from "@/utils/rolePolicy";
 import { resolveRoleKey } from "@/utils/rolePolicy";
 
-/** Free-text role → fixed role; unknown and empty fall back to frontend. */
-export function normalizeRole(role: string): AgentRole {
-  return resolveRoleKey(role) ?? "frontend";
+/**
+ * Free-text role → fixed role, or null when unknown.
+ *
+ * Plan 040: an unknown role is no longer Frontend. Callers route by the
+ * agent's capabilities (`roleForAgent`, `routeCapability`); with no match
+ * the work is BLOCKED with a reason, never handed to a guessed role.
+ */
+export function normalizeRole(role: string): AgentRole | null {
+  return resolveRoleKey(role);
 }
 
-export function roleForAgent(agent: AgentDefinition): AgentRole {
-  return normalizeRole(agent.role);
+/**
+ * The fixed role an agent acts as: its role name, else the first fixed
+ * role whose default capabilities it declares, else null (unrouted).
+ */
+export function roleForAgent(agent: AgentDefinition): AgentRole | null {
+  const byName = resolveRoleKey(agent.role ?? "");
+  if (byName) return byName;
+  const declared = new Set(capabilitiesOf(agent));
+  return ROLE_KEYS.find((key) => ROLES[key].capabilities.some((capability) => declared.has(capability))) ?? null;
 }
 
 export function defaultToolsForRole(role: AgentRole): string[] {

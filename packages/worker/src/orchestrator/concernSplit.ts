@@ -1,5 +1,6 @@
 import { concernCategory } from "./classifier";
 import { routeCapability } from "./capabilities";
+import { canWriteAny, permissionsForAgent } from "@/utils/rolePolicy";
 import { CAPABILITY, type AgentDefinition, type Classification, type Concern, type ExecutionPlan, type PlanSubtask } from "@/types";
 
 /**
@@ -41,7 +42,9 @@ function uniqueKey(base: string, used: Set<string>): string {
 
 function docsCapability(original: string, agents: AgentDefinition[] | undefined): string {
   if (!agents) return original;
-  return routeCapability(CAPABILITY.DOCUMENTATION, agents, { allowFallback: false }) ? CAPABILITY.DOCUMENTATION : original;
+  // Plan 040: a docs file is a write; only a docs owner that may write takes it.
+  const owner = routeCapability(CAPABILITY.DOCUMENTATION, agents, { allowFallback: false });
+  return owner && canWriteAny(permissionsForAgent(owner)) ? CAPABILITY.DOCUMENTATION : original;
 }
 
 /** Replace node `key` with `parts` (sequential), rewiring every dependent to the last part. */

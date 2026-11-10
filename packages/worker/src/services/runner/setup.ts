@@ -406,8 +406,8 @@ export function implementerAgent(
   const codeSubtask = plan.subtasks.find(
     (subtask) => subtask.kind === "code_change" || subtask.kind === "shell"
   );
-  if (codeSubtask) return routeCapability(codeSubtask.capability, agents);
-  return routeCapability(CAPABILITY.GENERAL, agents);
+  // Plan 040: no catch-all ("general" / Support) when the plan has no code.
+  return codeSubtask ? routeCapability(codeSubtask.capability, agents) : null;
 }
 
 function normalizeFileChangePath(filePath: string): string {

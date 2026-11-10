@@ -3,12 +3,11 @@ import { VERIFY_FIX_INTRO } from "@/prompts/fix";
 import type { RunContext } from "./types";
 import type { PlanSubtask } from "@/types";
 import { implementerAgent } from "./setup";
-import { pickFixOwner } from "@/orchestrator/ownership";
+import { ownerForFix } from "@/orchestrator/ownership";
 import { applyOrRequestFixApproval } from "./fixApply";
 import { buildFixSubtask } from "@/orchestrator/reviewLoop";
 import { runVerification } from "@/execution/verification";
 import type { ReviewFinding } from "@/utils/json";
-import { CAPABILITY } from "@/types";
 import { buildVerificationCard, postStageCard } from "./cards";
 
 /**
@@ -127,21 +126,26 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
       description: `${c.name}: ${c.details ?? "check failed"}`,
       suggestion: "Fix the failing check and retry verification.",
     }));
-    const implementer = implementerAgent(plan, agents);
-    if (!implementer) return "cancelled";
-    const owner = pickFixOwner(plan.subtasks, findings);
+    // Plan 040: one shared owner rule; nobody owns it → stop with a reason.
+    const fixOwner = ownerForFix({ subtasks: plan.subtasks, findings, agents, writerByKey: ctx.agentByKey });
+    if (!fixOwner) {
+      state.feedback.push("No implementer agent owns the code behind these verification failures, so no fix was attempted");
+      return "cancelled";
+    }
+    const owner = fixOwner.subtask;
     const fixSubtask = {
       ...buildFixSubtask({
         key: ctx.uniqueSubtaskKey(verifyFixKey(phase, verifyIteration + 1)),
         title: `Address verification failures (${phase > 0 ? `after QA fix ${phase}, ` : ""}iteration ${verifyIteration + 1})`,
         intro: VERIFY_FIX_INTRO,
         findings,
-        capability: owner?.capability ?? CAPABILITY.GENERAL,
+        capability: owner.capability,
         order: plan.subtasks.reduce((max, c) => Math.max(max, c.order), 0) + 1,
       }),
     };
     plan.subtasks.push(fixSubtask);
     dynamicKeys.add(fixSubtask.key);
+    ctx.agentByKey.set(fixSubtask.key, fixOwner.agent);
     chainByKey.set(fixSubtask.key, [fixSubtask.capability]);
     fixDepthByKey.set(fixSubtask.key, 1);
     await persistDynamic([fixSubtask], "fix");

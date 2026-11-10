@@ -15,6 +15,8 @@ import {
   type AgentResult,
   type ExecutionHistoryEntry,
 } from "./taskContext";
+import type { FixCandidate } from "./ownership";
+import type { RoutingAdjustment } from "./planner";
 import { routePrimaryAgent, evaluateDelegation, type DelegationDecision } from "./delegation";
 
 export interface OrchestratorInput {
@@ -118,6 +120,9 @@ export function evaluateAfterExecution(input: {
    * duplicate verdict for the same work.
    */
   plannedCapabilities?: string[];
+  /** Plan 040: for the fix-owner rule (see evaluateDelegation). */
+  planSubtasks?: FixCandidate[];
+  writerByKey?: ReadonlyMap<string, AgentDefinition>;
 }): { decision: DelegationDecision; nextAgent?: AgentDefinition; nextCapability?: string; reason: string; updatedContext: SharedTaskContext } {
   const { result, classification, agents, budget, previousAgents, delegationDepth, alreadyDelegated, taskContext } = input;
 
@@ -173,6 +178,8 @@ export function evaluateAfterExecution(input: {
     activeByAgent: input.activeByAgent,
     plannedCapabilities: input.plannedCapabilities,
     proposer: input.proposer,
+    planSubtasks: input.planSubtasks,
+    writerByKey: input.writerByKey,
   });
 
   updated = addDecision(updated, {
@@ -255,6 +262,8 @@ export interface AuthoritativePlanResult {
    * forwarded from the planner subroutine (plan.hint_dropped bookkeeping).
    */
   droppedHintKeys?: string[];
+  /** Plan 040: routing changes made to the plan (see PlannerResult). */
+  routingAdjustments?: RoutingAdjustment[];
   /**
    * The primary agent, unified with per-subtask routing: the agent that
    * serves the first subtask of the executed plan. There is no separate
@@ -301,6 +310,7 @@ export async function createAuthoritativePlan(
   let createdBy: "orchestrator" | "fallback";
   let degradedReason: string | undefined;
   let droppedHintKeys: string[] | undefined;
+  let routingAdjustments: RoutingAdjustment[] | undefined;
 
   if (input.storedPlan) {
     // Plan 025: a stored version that lost its requirement list (an older
@@ -335,6 +345,7 @@ export async function createAuthoritativePlan(
     createdBy = created.createdBy;
     degradedReason = created.degradedReason;
     droppedHintKeys = created.droppedHintKeys;
+    routingAdjustments = created.routingAdjustments;
   }
 
   const firstSubtask = plan.subtasks[0];
@@ -350,6 +361,7 @@ export async function createAuthoritativePlan(
     createdBy,
     degradedReason,
     droppedHintKeys,
+    routingAdjustments,
     primaryAgent,
     primaryCapability: firstSubtask?.capability ?? orchestratorPlan.primaryCapability,
   };

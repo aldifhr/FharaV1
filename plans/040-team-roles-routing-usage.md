@@ -63,7 +63,40 @@ Back-compat (`syncFixedTeam`):
 
 ## P2 — routing correctness
 
-(See the P2 section once it lands.)
+- **No fallback owner (D8).** `routeCapability` returns null when no
+  enabled agent declares (or fuzzily matches) the capability. The old
+  last resort (highest priority = the CTO) is opt-in only
+  (`ORCHESTRATOR_ALLOW_FALLBACK=true`, default now `false`) and even then
+  never picks the CTO. A code-writing capability (frontend/backend
+  development) routes only to a role that may write. `unroutedReason`
+  names why.
+- **Unknown role.** `normalizeRole` returns null instead of `frontend`;
+  `roleForAgent` uses the role name, else the declared capabilities.
+- **Runtime.** An unrouted node fails as `Blocked: No agent available for
+  capability "…": …` (non-retryable) with a `subtask.routed` warn event
+  (`blocked: true`, reason). A review with no Reviewer is BLOCKED (no CTO
+  review fallback).
+- **Planner never drops silently.** `ensureRoutable` keeps an unroutable
+  code_change/shell node (it is BLOCKED at run time), drops only an
+  unroutable helper node (and the dependencies on it), and turns a
+  code_change owned by a read-only role (Designer spec, Support docs) into
+  an `analysis`. Every change is a `routingAdjustment` logged as a warn
+  event (`plan.hint_dropped` / `plan.routing_adjusted`) with title,
+  capability and reason.
+- **One fix-owner rule.** `ownerForFix` (`orchestrator/ownership.ts`): the
+  code_change subtask that owns the findings' files (`pickFixOwner`) and
+  the agent that actually ran it (the run's `agentByKey`), else its
+  capability owner; never a role that may not write, never a catch-all.
+  Used by the review, QA (UI owners first) and verification loops and by
+  the orchestrator's critical-findings REVISE (was the first FE/BE in the
+  roster). The fix subtask is pinned to that agent. No owner → the loop
+  stops with a feedback line and a `review.fix_unowned` / `qa.fix_unowned`
+  event.
+- **D2 / D3.** Support loses `general`; the CTO gets `project-coordination`
+  (conversation replies, the classifier's greeting capability) and loses
+  `security-audit`, which moves to the Reviewer. `REVOKED_DEFAULT_CAPABILITIES`
+  strips both from existing rows; the sync unions the new ones. Docs
+  concerns stay with the implementer unless a docs owner may write.
 
 ## P3 — usage ledger
 

@@ -181,6 +181,8 @@ export async function handleNodeOutcome(
           plannedCapabilities,
           taskContext: input.sharedContext,
           proposer: agent,
+          planSubtasks: plan.subtasks,
+          writerByKey: agentByKey,
         });
         input.sharedContext.decisions = live.updatedContext.decisions;
         input.sharedContext.artifacts = live.updatedContext.artifacts;

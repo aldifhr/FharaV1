@@ -1,10 +1,8 @@
 import { repeatedOutputStop } from "./repeatGuard";
 import type { RunContext } from "./types";
 import type { PlanSubtask } from "@/types";
-import { implementerAgent } from "./setup";
 import { buildReviewFixSubtask, collectRequestedChanges, formatReviewFindings } from "@/orchestrator/reviewLoop";
-import { pickFixOwner } from "@/orchestrator/ownership";
-import { CAPABILITY } from "@/types";
+import { ownerForFix } from "@/orchestrator/ownership";
 
 /**
  * The review correction loop (plan 012 step 2): corrections for a failing
@@ -129,21 +127,33 @@ export async function runReviewLoop(ctx: RunContext): Promise<boolean> {
         return false;
       }
 
-      const implementer = implementerAgent(plan, agents);
-      if (!implementer) {
-        state.feedback.push("No implementer agent is available to address review findings");
+      // Plan 040: the fix goes to the agent that wrote the code the
+      // findings point at (one shared rule), never a catch-all owner.
+      const owner = ownerForFix({ subtasks: plan.subtasks, findings, agents, writerByKey: ctx.agentByKey });
+      if (!owner) {
+        await Promise.resolve(
+          deps.api.logEvent({
+            taskId,
+            projectId: project._id,
+            type: "review.fix_unowned",
+            payload: { iteration, findings: findings.length, reason: "no implementer owns the reviewed code" },
+            level: "warn",
+          })
+        ).catch(() => undefined);
+        state.feedback.push("No implementer agent owns the code these review findings point at, so no fix was attempted");
         return false;
       }
-
-      const codeSubtask = pickFixOwner(plan.subtasks, findings);
+      const implementer = owner.agent;
       const fixSubtask = buildReviewFixSubtask({
         iteration: iteration + 1,
         findings,
-        capability: codeSubtask?.capability ?? CAPABILITY.GENERAL,
+        capability: owner.subtask.capability,
         order: plan.subtasks.reduce((max, candidate) => Math.max(max, candidate.order), 0) + 1,
       });
       plan.subtasks.push(fixSubtask);
       dynamicKeys.add(fixSubtask.key);
+      // Pin the fix to the owner (assign() would re-route by capability).
+      ctx.agentByKey.set(fixSubtask.key, implementer);
       // The review loop owns this fix: register it as a fix-depth-1 node
       // on its own chain so an orchestrator evaluation of its outcome can
       // never spawn a second, duplicate fix subtask (Phase 3).

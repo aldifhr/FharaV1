@@ -62,8 +62,10 @@ describe("capability routing", () => {
     ]);
   });
 
-  it("falls back to the highest priority agent when nothing matches", () => {
-    expect(routeCapability("database-tuning", agents)?._id).toBe("a3");
+  it("plan 040: no fallback by default; the opt-in fallback skips the CTO", () => {
+    expect(routeCapability("database-tuning", agents)).toBeNull();
+    // a3 is the CTO (highest priority): the opt-in fallback never picks it.
+    expect(routeCapability("database-tuning", agents, { allowFallback: true })?._id).not.toBe("a3");
   });
 
   it("returns null when fallback is disabled", () => {

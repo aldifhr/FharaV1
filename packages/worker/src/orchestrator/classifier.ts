@@ -298,7 +298,7 @@ function classifyCommandBase(command: string): Classification {
       kind: "conversation",
       strategy: "direct",
       reasons: ["greeting"],
-      suggestedCapabilities: [CAPABILITY.GENERAL],
+      suggestedCapabilities: [CAPABILITY.COORDINATION],
     };
   }
 

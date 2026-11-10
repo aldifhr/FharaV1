@@ -55,7 +55,7 @@ describe("pickLoadAware", () => {
   });
 
   it("leaves fallback (no exact match) picks alone", () => {
-    const fallback = routeCapability("data-science", team);
+    const fallback = routeCapability("data-science", team, { allowFallback: true });
     expect(fallback).not.toBeNull();
     const pick = pickLoadAware(fallback, "data-science", team, () => 99);
     expect(pick.agent?._id).toBe(fallback!._id);

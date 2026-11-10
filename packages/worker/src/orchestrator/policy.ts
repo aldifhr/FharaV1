@@ -325,7 +325,8 @@ export function loadPolicy(): ExecutionPolicy {
     // the LLM gate (1 unless worktree isolation is on).
     maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", parallelism, 1, 8),
     maxTokenBudgetPerTask: intFromEnv("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK", 2_000_000, 1_000, 100_000_000),
-    allowFallback: boolFromEnv("ORCHESTRATOR_ALLOW_FALLBACK", true),
+    // Plan 040 (D8): off by default; unmatched work is BLOCKED, never the CTO.
+    allowFallback: boolFromEnv("ORCHESTRATOR_ALLOW_FALLBACK", false),
     orchestratorAuthoritative: boolFromEnv("ORCHESTRATOR_AUTHORITATIVE", true),
     // Plan 006 Phase 1: the router is deterministic by default; the advisor
     // turns on only when the flag is set (Phase 4 wires the real call).

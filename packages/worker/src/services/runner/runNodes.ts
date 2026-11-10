@@ -6,7 +6,7 @@ import { runScheduler, type NodeOutcome, type SchedulerResult } from "@/schedule
 import { executeSubtask } from "@/execution/agentExecutor";
 import type { SiblingSubtask } from "@/execution/agentContext";
 import { resolveOpencodeSelection } from "@/execution/nativeProvider";
-import { capabilitiesOf } from "@/orchestrator/capabilities";
+import { capabilitiesOf, unroutedReason } from "@/orchestrator/capabilities";
 import { combineSignals } from "./abort";
 import type { FallbackHandle } from "@/effects/llmCall";
 import type { WorkerApi } from "@/workerApi";
@@ -140,10 +140,18 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       const subtask = plan.subtasks.find((candidate) => candidate.key === node.id)!;
       const agent = assign(node.id);
       if (!agent) {
-        return {
-          status: "failed",
-          error: `No enabled agent can serve capability "${subtask.capability}"`,
-        };
+        // Plan 040 (D8): no fallback owner; BLOCKED with the reason.
+        const reason = unroutedReason(subtask.capability, input.agents);
+        await deps.api
+          .logEvent({
+            taskId,
+            projectId: project._id,
+            type: "subtask.routed",
+            payload: { subtaskKey: node.id, capability: subtask.capability, agent: null, blocked: true, reason },
+            level: "warn",
+          })
+          .catch(() => undefined);
+        return { status: "failed", error: `Blocked: ${reason}` };
       }
       if (runCompleted.has(node.id)) {
         return { status: "completed", output: "Previously completed" };

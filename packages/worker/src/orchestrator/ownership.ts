@@ -1,3 +1,6 @@
+import type { AgentDefinition } from "@/types";
+import { canWriteAny, permissionsForAgent } from "@/utils/rolePolicy";
+import { isAgentAvailable, routeCapability } from "./capabilities";
 // Pure path-scope helpers live in `@/utils/ownershipPaths` (shared with the
 // execution layer and the scheduler); re-exported for existing importers.
 export {
@@ -70,4 +73,42 @@ export function pickFixOwner(
     }
   }
   return best ?? codeChanges.at(-1) ?? codeChanges[0];
+}
+
+export interface FixOwner {
+  /** The code_change subtask that owns the findings' files. */
+  subtask: FixCandidate;
+  /** The agent that wrote that subtask's code (else its capability owner). */
+  agent: AgentDefinition;
+}
+
+/**
+ * Plan 040: the ONE rule for who gets a fix (review, QA, verification and
+ * orchestrator critical findings): the code_change subtask that owns the
+ * findings' files (`pickFixOwner`, or the caller's narrower candidate
+ * list), and the agent that actually wrote it (`writerByKey`, the run's
+ * assignment) — else the agent its capability routes to. Never the first
+ * Frontend/Backend in the roster, never a catch-all ("general" / Support),
+ * never a role that may not write. Null = nobody owns it: the caller
+ * stops with a reason instead of guessing.
+ */
+export function ownerForFix(input: {
+  subtasks: FixCandidate[];
+  findings: Array<{ filePath?: string }>;
+  agents: AgentDefinition[];
+  writerByKey?: ReadonlyMap<string, AgentDefinition>;
+  /** Restrict owners first (e.g. QA prefers UI implementers); falls back to all. */
+  prefer?: (candidate: FixCandidate) => boolean;
+}): FixOwner | null {
+  const preferred = input.prefer ? input.subtasks.filter((candidate) => candidate.kind === "code_change" && input.prefer!(candidate)) : [];
+  const subtask = pickFixOwner(preferred.length > 0 ? preferred : input.subtasks, input.findings);
+  if (!subtask) return null;
+  const writer = input.writerByKey?.get(subtask.key);
+  const enabled = input.agents.filter(isAgentAvailable);
+  const agent =
+    writer && enabled.some((candidate) => candidate._id === writer._id)
+      ? writer
+      : routeCapability(subtask.capability, enabled);
+  if (!agent || !canWriteAny(permissionsForAgent(agent))) return null;
+  return { subtask, agent };
 }

@@ -127,8 +127,16 @@ describe("evaluateDelegation branch chains (Phase 3)", () => {
     });
     expect(blocked.decision).toBe("BLOCKED");
 
+    // Plan 040 (D8): the default policy has the fallback off too.
+    const byDefault = evaluate({
+      result: recommending("frontend-development", "github"),
+      chainCapabilities: ["frontend-development"],
+    });
+    expect(byDefault.decision).toBe("BLOCKED");
+
     const withFallback = evaluate({
       result: recommending("frontend-development", "github"),
+      budget: new BudgetTracker({ ...loadPolicy(), allowFallback: true }),
       chainCapabilities: ["frontend-development"],
     });
     expect(withFallback.decision).toBe("APPROVE");

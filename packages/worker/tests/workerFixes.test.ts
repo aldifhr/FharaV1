@@ -385,7 +385,7 @@ describe("core H3: review routing", () => {
     expect(review?.agentId).toBe("agent-rev");
   });
 
-  it("falls back to the CTO only when no reviewer exists", async () => {
+  it("plan 040: with no reviewer the review is BLOCKED, never the CTO", async () => {
     const { deps, task } = createDeps({
       plan: planOf([
         node("implement", "code_change", "frontend-development"),
@@ -394,7 +394,7 @@ describe("core H3: review routing", () => {
       agents: [CTO, FRONTEND],
     });
     await processTask(task, deps);
-    expect(mock.executed.find((e) => e.kind === "review")?.agentId).toBe("agent-cto");
+    expect(mock.executed.find((e) => e.kind === "review")).toBeUndefined();
   });
 });
 

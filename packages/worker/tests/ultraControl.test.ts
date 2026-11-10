@@ -351,7 +351,8 @@ describe("(d) multi-concern changes become one node per concern", () => {
     expect(code.length).toBe(4);
     expect(code.map((s) => s.title.split(" — ").pop())).toEqual(["theme", "refactor", "tests", "docs"]);
     for (let i = 1; i < code.length; i += 1) expect(code[i].dependencies).toEqual([code[i - 1].key]);
-    expect(code[3].capability).toBe("documentation-support");
+    // Plan 040: Support is read-only, so the docs concern stays with the implementer.
+    expect(code[3].capability).toBe("frontend-development");
     const review = result.plan.subtasks.find((s) => s.kind === "review");
     expect(review?.dependencies.sort()).toEqual(code.map((s) => s.key).sort());
   });

@@ -2079,6 +2079,7 @@ const CANONICAL_MAP: Record<string, string> = {
   "plan.planner_fallback": "task.updated",
   "plan.replanned": "task.updated",
   "plan.hint_dropped": "task.updated",
+  "plan.routing_adjusted": "task.updated",
   "plan.dynamic_persist_failed": "agent.failed",
   "plan.dynamic_subtasks_persisted": "task.updated",
   "fileChanges.applied": "tool.completed",

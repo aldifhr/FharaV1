@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { roleLabel } from "@/lib/agentRoles";
 import { looksIndonesian } from "@/api/convex/lib/chat/toolCallText";
 import type { ChatToolStep } from "@/api/convex/lib/chat/activity";
-import { activityTitleKind, reasoningRowHasLabel } from "@/lib/activityHeading";
+import { activityTitleKind, isHandoffStep, reasoningRowHasLabel } from "@/lib/activityHeading";
 
 /**
  * Activity timeline above an agent's chat reply (à la "Working" /
@@ -97,6 +97,9 @@ export default function ActivityTimeline({
   const [userOpen, setUserOpen] = useState<boolean | undefined>(undefined);
   const [showReasoning, setShowReasoning] = useState(false);
   const steps: ChatToolStep[] = Array.isArray(message.toolSteps) ? message.toolSteps : [];
+  // Handoffs are steps, not tool calls: they never count toward "N tools used".
+  const toolSteps = steps.filter((s) => !isHandoffStep(s));
+  const handoffSteps = steps.filter(isHandoffStep);
   const content: string = message.content ?? "";
   const copy = looksIndonesian(content || message.intentLine || "") ? COPY.id : COPY.en;
   const hasContent = Boolean(content.trim());
@@ -114,21 +117,25 @@ export default function ActivityTimeline({
   // A finished reply with no tool, nothing to verify and no reasoning needs no timeline.
   if (phase === "done" && steps.length === 0 && extras.length === 0 && !reasoning) return null;
 
-  const titleKind = activityTitleKind(phase, steps.length, extras.length);
+  const titleKind = activityTitleKind(phase, toolSteps.length, extras.length, handoffSteps.length);
   const title =
     titleKind === "thinking"
       ? copy.thinking
       : titleKind === "working"
         ? copy.working
         : titleKind === "tools"
-          ? copy.tools(steps.length)
-          : titleKind === "worked"
+          ? copy.tools(toolSteps.length)
+          : titleKind === "handoff"
+            ? copy.handoff(handoffSteps.map((s) => roleLabel(s.target ?? "")).filter(Boolean).join(", "))
+            : titleKind === "worked"
             ? copy.worked
             : copy.reasoning;
   const Chevron = open ? ChevronDown : ChevronRight;
 
   // Rows in order; the last one has no connector line below its dot.
-  const rows: Array<{ key: string; active?: boolean; node: React.ReactNode }> = steps.map((step, i) => ({
+  // A pure handoff is its own title: no step rows repeating it.
+  const rowSteps = titleKind === "handoff" ? [] : steps;
+  const rows: Array<{ key: string; active?: boolean; node: React.ReactNode }> = rowSteps.map((step, i) => ({
     key: `s${i}-${step.at}`,
     node: (
       <>
@@ -137,7 +144,7 @@ export default function ActivityTimeline({
       </>
     ),
   }));
-  if (phase === "composing" || (phase === "done" && steps.length > 0)) {
+  if (phase === "composing" || (phase === "done" && toolSteps.length > 0)) {
     rows.push({ key: "compose", active: phase === "composing", node: <span>{copy.composing}</span> });
   }
   if (phase === "done") {
@@ -172,6 +179,15 @@ export default function ActivityTimeline({
         ),
       });
     }
+  }
+
+  // Nothing to expand (a pure handoff): a plain line, no toggle.
+  if (!live && rows.length === 0) {
+    return (
+      <div className="mt-1 flex max-w-3xl items-center py-0.5 text-[13px] text-ink-2">
+        <span className="min-w-0 truncate font-medium text-ink">{title}</span>
+      </div>
+    );
   }
 
   return (

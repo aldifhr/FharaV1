@@ -37,6 +37,7 @@ import {
   type IntentResult,
 } from "./lib/chat/intent";
 import { chooseAskResponder, classifyIntent } from "./lib/chat/classify";
+import { type EchoContext, streamEchoSafe, stripLeadingEcho } from "./lib/chat/echo";
 import { dispatchHandoffLine, looksIndonesian as looksIndonesianDispatch, routeCtoQuestion } from "./lib/chat/dispatch";
 import { detectChatRunCommands } from "./lib/chat/runRequest";
 import {
@@ -698,6 +699,28 @@ export const replyToChat = internalAction({
     const turnReplies: Array<{ name: string; content: string }> = [];
     const turnContext = () =>
       buildTurnContextSection({ summary: data.contextSummary, quoteLine, turnReplies });
+    // CTO handoff lines posted this turn (kept out of the specialist's context).
+    const handoffLines: string[] = [];
+    // Leading speaker-echo cleanup (lib/chat/echo.ts): what a reply by this
+    // agent may have copied, and the speaker labels it would copy it under.
+    const echoContextFor = (agentId: string): EchoContext => {
+      const everyone = [...agents, ...(teamAgents ?? [])];
+      const self = everyone.find((a) => String(a._id) === String(agentId));
+      return {
+        selfNames: self ? [self.name, self.role] : [],
+        speakerNames: [
+          ...everyone.filter((a) => String(a._id) !== String(agentId)).flatMap((a) => [a.name, a.role]),
+          "CTO",
+          "User",
+          "You",
+        ].filter((n) => !self || (n.toLowerCase() !== self.name.toLowerCase() && n.toLowerCase() !== self.role.toLowerCase())),
+        priorMessages: [
+          ...handoffLines,
+          ...turnReplies.map((r) => r.content),
+          ...history.slice(-6).map((row) => row.content ?? ""),
+        ],
+      };
+    };
 
     // Only an agent whose ROLE is exactly "cto" may act as the orchestrator
     // (legacy "architect" accepted for backward compat). Anchored: an
@@ -761,6 +784,7 @@ export const replyToChat = internalAction({
         ...(opts?.intentLine ? { intentLine: opts.intentLine } : {}),
       });
       const upgradeIntent = intentUpgrader();
+      const echoCtx = echoContextFor(String(agentId));
       const note = opts?.traceNote ?? "";
       let lastPatchAt = 0;
       // Partial patches run one at a time; the final patch waits for the
@@ -769,7 +793,7 @@ export const replyToChat = internalAction({
       let patchChain: Promise<unknown> = Promise.resolve();
       let traceBase = note;
       const onChunk = ({ content: rawContent, reasoning }: { content: string; reasoning: string }) => {
-        const content = stripInternalPhrasing(streamVisibleText(rawContent));
+        const content = streamEchoSafe(stripInternalPhrasing(streamVisibleText(rawContent)), echoCtx);
         const liveTrace = joinTrace(traceBase, reasoning);
         const now = Date.now();
         if (now - lastPatchAt < 250 || (!content.trim() && !liveTrace.trim())) return;
@@ -806,11 +830,11 @@ export const replyToChat = internalAction({
             )
             .catch(() => {});
           const retry = await completeWithSnapshot(ctx, snapScope(agentId, messageId, "chat"), `${system}\n${NO_TOOLS_RETRY_LINE}`, msgs, config, onChunk);
-          content = stripInternalPhrasing(resolveNoToolsReply(retry.content, userText));
+          content = stripLeadingEcho(stripInternalPhrasing(resolveNoToolsReply(retry.content, userText)), echoCtx);
           reasoning = joinTrace(traceBase, retry.reasoning);
           raw = { ...retry, reasoningDurationMs: raw.reasoningDurationMs + retry.reasoningDurationMs };
         } else {
-          content = stripInternalPhrasing(stripToolCallMarkup(raw.content));
+          content = stripLeadingEcho(stripInternalPhrasing(stripToolCallMarkup(raw.content)), echoCtx);
         }
       } catch (error) {
         // Never leave the bubble animating after a failed call.
@@ -860,6 +884,7 @@ export const replyToChat = internalAction({
         ...(opts?.intentLine ? { intentLine: opts.intentLine } : {}),
       });
       const upgradeIntent = intentUpgrader();
+      const echoCtx = echoContextFor(String(agentId));
       const startedAt = Date.now();
       let trace = opts?.traceNote ?? "";
       let lastPatchAt = 0;
@@ -893,7 +918,7 @@ export const replyToChat = internalAction({
             const raw = await completeWithSnapshot(ctx, snapScope(agentId, messageId, "chat_tool_step"), system, stepMsgs, config, ({ content: rawContent, reasoning }) => {
               const now = Date.now();
               if (now - lastPatchAt < 250) return;
-              const content = stripInternalPhrasing(streamVisibleText(rawContent));
+              const content = streamEchoSafe(stripInternalPhrasing(streamVisibleText(rawContent)), echoCtx);
               const liveTrace = joinTrace(trace, reasoning);
               if (!content.trim() && !liveTrace.trim()) return;
               lastPatchAt = now;
@@ -934,7 +959,7 @@ export const replyToChat = internalAction({
       await patchChain;
       // The loop's answer is already free of tool-call text; a reply that
       // never got past tool calls gets the fallback instead of vanishing.
-      let content = stripInternalPhrasing(stripToolCallMarkup(loop.answer));
+      let content = stripLeadingEcho(stripInternalPhrasing(stripToolCallMarkup(loop.answer)), echoCtx);
       if (!content.trim() && loop.calls.length > 0) {
         content = workerGone ? noToolsFallback(userText) : toolBudgetFallback(userText);
       }
@@ -1128,7 +1153,10 @@ export const replyToChat = internalAction({
             })
             .catch(() => undefined);
         }
-        turnReplies.push({ name: orchestrator.name, content: line });
+        // Not a turn reply: the routed notice tells the specialist the CTO
+        // handed it over. As a "- CTO: …" line it got copied verbatim into
+        // the specialist's answer. Still a prior message for echo cleanup.
+        handoffLines.push(line);
       }
     }
 

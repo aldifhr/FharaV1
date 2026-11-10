@@ -25,3 +25,14 @@ test("live phases", () => {
   assert.equal(activityTitleKind("working", 1, 0), "working");
   assert.equal(activityTitleKind("composing", 0, 0), "working");
 });
+
+test("a pure handoff is titled by the handoff, not 'N tools used'", async () => {
+  const { isHandoffStep } = await import("../../lib/activityHeading.ts");
+  const steps = [{ tool: "handoff", target: "frontend", ok: true, at: 1 }];
+  const tools = steps.filter((s) => !isHandoffStep(s)).length;
+  const handoffs = steps.filter(isHandoffStep).length;
+  assert.equal(activityTitleKind("done", tools, 0, handoffs), "handoff");
+  // With real tool calls the count is of tool calls only.
+  assert.equal(activityTitleKind("done", 1, 0, 1), "tools");
+  assert.equal(isHandoffStep({ tool: "read_file" }), false);
+});

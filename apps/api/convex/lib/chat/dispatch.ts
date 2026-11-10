@@ -316,3 +316,13 @@ export function dispatchHandoffLine(
     ? `Saya serahkan ke @${agent.name} untuk ${ACTION_ID[domain]}${topic ? topic : " ini"}.`
     : `Handing this to @${agent.name} for ${ACTION_EN[domain]}${topic ? ` of${topic}` : ""}.`;
 }
+
+/**
+ * A message that is only the CTO's fixed handoff line (dispatchHandoffLine).
+ * It carries no content for the next speaker, and kept in a specialist's
+ * transcript it gets echoed ("CTO: Handing this to @Frontend …").
+ */
+const HANDOFF_LINE = /^(?:Handing this to @[\w.-]+ for [^\n]{1,160}\.|Saya serahkan ke @[\w.-]+ untuk [^\n]{1,160}\.)$/;
+export function isHandoffLine(text: string): boolean {
+  return HANDOFF_LINE.test((text ?? "").trim());
+}

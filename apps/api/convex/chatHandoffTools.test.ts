@@ -289,6 +289,30 @@ describe("CTO dispatch pre-route (no @mention)", () => {
     expect(callsBy("CTO")).toHaveLength(0);
   });
 
+  test("the specialist never sees the handoff line as a transcript line, and a copied one is stripped", async () => {
+    const { t, projectId, ctoId, frontendId } = await setup({ worker: "new" });
+    const line = "Handing this to @Frontend for the frontend side.";
+    // Live bug: Frontend opened with the CTO's handoff line.
+    reply = (call) => (speaker(call) === "Frontend" ? `CTO: ${line}\n\nHTML is the markup language of the web.` : "nothing to add");
+    const replies = await ask(t, projectId, "can you ask frontend, what is html");
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId, frontendId]);
+    expect(replies[0].content).toBe(line);
+    expect(replies[1].content).toBe("HTML is the markup language of the web.");
+    const first = callsBy("Frontend")[0];
+    expect(first.system).not.toContain("Handing this to");
+    expect(first.system).toContain("handed the user's latest message to you");
+    expect(first.msgs.map((m) => m.content).join("\n")).not.toContain("Handing this to");
+
+    // Next turn: the earlier handoff line stays out of the history too.
+    calls.length = 0;
+    reply = (call) => (speaker(call) === "Frontend" ? "CSS styles the HTML." : "nothing to add");
+    await ask(t, projectId, "can you ask frontend, what is css");
+    const second = callsBy("Frontend")[0];
+    const transcript = second.msgs.map((m) => m.content).join("\n");
+    expect(transcript).not.toContain("Handing this to");
+    expect(transcript).toContain("HTML is the markup language of the web.");
+  });
+
   test("a long single reply gets a wrap-up of at most 2 lines with only a next step", async () => {
     const { t, projectId, ctoId, qaId } = await setup({ worker: "new" });
     const long = LONG_REPLY("coverage");

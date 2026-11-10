@@ -7,6 +7,7 @@
 import type { IntentSubtype } from "../chat/intent";
 import { MAX_CTO_HANDOFFS } from "../chat/team";
 import { WRAP_UP_MAX_LINES } from "../chat/wrapUp";
+import { isHandoffLine } from "../chat/dispatch";
 import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_TOOL } from "../skills";
 import { LOAD_SKILL_TOOL_LINE } from "../skillRuntime";
 
@@ -298,6 +299,9 @@ export function buildChatMessages(
   for (const row of history.slice(0, Math.max(0, last))) {
     const text = row.content?.trim();
     if (!text) continue;
+    // The CTO's fixed handoff line is routing, not content: as a transcript
+    // line it got copied into the specialist's reply.
+    if (row.authorType === "agent" && isHandoffLine(text)) continue;
     let msg: ChatPromptMessage;
     if (row.authorType === "agent") {
       const self = opts.selfAgentId !== undefined && String(row.agentId ?? "") === String(opts.selfAgentId);

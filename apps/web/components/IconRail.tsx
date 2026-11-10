@@ -290,7 +290,7 @@ export default function IconRail({
         active={pathname === "/audit" || pathname === "/improve"}
         onClick={() => setPanel((p) => (p === "insights" ? null : "insights"))}
       />
-      <div className="mt-[8px] flex flex-col items-center gap-1 max-[979px]:ml-auto max-[979px]:flex-row max-[979px]:pt-0">
+      <div className="mt-auto flex flex-col items-center gap-1 max-[979px]:ml-auto max-[979px]:flex-row max-[979px]:pt-0">
         <button
           type="button"
           onClick={() => openSettings(projectId)}

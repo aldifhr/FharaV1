@@ -417,11 +417,11 @@ export function SettingsModal({
                 <div className="space-y-6">
                   <LlmSettingsSection projectId={projectId} onProjectChange={onProjectChange} />
                 </div>
-              ) : active === "general" ? (
+              ) : active === "appearance" ? (
                 <>
                   <section className="rounded-xl border border-line bg-canvas p-3">
-                    <h2 className="text-[13px] font-semibold">Appearance</h2>
-                    <p className="mt-0.5 text-[11px] text-ink-3">Choose how the workspace looks on this device.</p>
+                    <h2 className="text-[13px] font-semibold">Theme mode</h2>
+                    <p className="mt-0.5 text-[11px] text-ink-3">Choose dark, light, or follow device appearance.</p>
                     <div className="mt-2 grid grid-cols-2 gap-1.5">
                       {(
                         [
@@ -450,8 +450,8 @@ export function SettingsModal({
                   </section>
 
                   <section className="rounded-xl border border-line bg-canvas p-3">
-                    <h2 className="text-[13px] font-semibold">Font</h2>
-                    <p className="mt-0.5 text-[11px] text-ink-3">Interface typeface, saved on this device.</p>
+                    <h2 className="text-[13px] font-semibold">Interface font</h2>
+                    <p className="mt-0.5 text-[11px] text-ink-3">Workspace typography saved on this device.</p>
                     <div className="mt-2 grid grid-cols-2 gap-1.5">
                       {FONT_OPTIONS.map((option) => {
                         const active = font === option.value;
@@ -478,7 +478,9 @@ export function SettingsModal({
                       })}
                     </div>
                   </section>
-
+                </>
+              ) : active === "general" ? (
+                <>
                   <BudgetField />
                 </>
               ) : active === "chat" ? (

@@ -108,6 +108,21 @@ export const heartbeat = action({
   },
 });
 
+/**
+ * Settings modal: the knob overrides and child env the worker applies
+ * (polled on every heartbeat; lib/appSettings.ts).
+ */
+export const getAppSettings = action({
+  args: { ...tokenArg },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ values: Record<string, string>; childEnv: Record<string, string>; updatedAt: number }> => {
+    withoutToken(args);
+    return await ctx.runQuery(internal.appSettings.forWorker, {});
+  },
+});
+
 export const markOffline = action({
   args: { ...tokenArg, workerId: v.string() },
   handler: async (ctx, args): Promise<any> => {

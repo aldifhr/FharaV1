@@ -14,6 +14,7 @@ import { processNextPushRequest } from "./services/pushRequests";
 import { processNextMcpTest } from "./services/mcpTests";
 import { processNextRepoToolCall } from "./services/repoTools";
 import { pollOpencodeCatalog } from "./services/opencodeCatalog";
+import { effectiveWorkspaceRoot, syncAppSettings } from "./services/appSettings";
 import { REPO_TOOLS_CAPABILITY } from "@/api/convex/lib/chat/repoTools";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
@@ -98,7 +99,9 @@ async function main() {
   } catch (error) {
     log("fixed team sync failed:", error instanceof Error ? error.message : String(error));
   }
-  const workspaceRoot = process.env.WORKSPACE_ROOT ?? "./workspaces";
+  // Settings → Workspace can override WORKSPACE_ROOT; deps.workspaceRoot
+  // follows it (applied on each heartbeat by syncAppSettings).
+  const workspaceRoot = effectiveWorkspaceRoot();
   const inFlight = new Map<string, Promise<void>>();
   // Per-task lease guard: aborted when a heartbeat reports the task lost.
   const leaseGuards = new Map<string, AbortController>();
@@ -172,10 +175,14 @@ async function main() {
         }
       })
       .catch((error) => log("heartbeat failed", error));
+  // Settings modal overrides (knobs, child env, workspace root) before the
+  // first claim, then on every heartbeat.
+  await syncAppSettings(api, deps, log);
   // Register the worker row before claiming anything (core H7).
   await sendHeartbeat();
   const heartbeat = setInterval(() => {
     void sendHeartbeat();
+    void syncAppSettings(api, deps, log);
     const now = Date.now();
     if (now - lastRecovery >= 30_000) {
       lastRecovery = now;
@@ -292,7 +299,7 @@ async function main() {
     pushInFlight = processNextPushRequest({
       api,
       workerId,
-      workspaceRoot,
+      workspaceRoot: deps.workspaceRoot,
       log,
       signal: shutdownController.signal,
     })
@@ -313,7 +320,7 @@ async function main() {
     const now = Date.now();
     if (mcpTestInFlight || stopping || now - lastMcpTestPoll < MCP_TEST_POLL_MS) return;
     lastMcpTestPoll = now;
-    mcpTestInFlight = processNextMcpTest({ api, workerId, workspaceRoot, log })
+    mcpTestInFlight = processNextMcpTest({ api, workerId, workspaceRoot: deps.workspaceRoot, log })
       .then((ran) => {
         if (ran) lastMcpTestPoll = 0;
       })
@@ -329,7 +336,7 @@ async function main() {
   const pollRepoTools = async (): Promise<void> => {
     if (stopping) return;
     try {
-      while (!stopping && (await processNextRepoToolCall({ api, workerId, workspaceRoot, log }))) {
+      while (!stopping && (await processNextRepoToolCall({ api, workerId, workspaceRoot: deps.workspaceRoot, log }))) {
         lastRepoToolAt = Date.now();
       }
     } catch (error) {

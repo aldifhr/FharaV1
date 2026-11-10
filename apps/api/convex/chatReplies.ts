@@ -12,6 +12,8 @@ import {
   chatReplyStaleMs,
   type ReplyStatus,
 } from "./lib/chat/replyLifecycle";
+import { loadSettingValues } from "./appSettings";
+import { settingFrom } from "./lib/appSettings";
 
 /**
  * Chat reply lifecycle (t3code idea #1: durable effect with lease, settle and
@@ -47,7 +49,7 @@ export const claimReply = internalMutation({
     await ctx.db.patch(message._id, {
       replyStatus: "replying",
       replyRunId: runId,
-      replyLeaseExpiresAt: Date.now() + chatReplyStaleMs(),
+      replyLeaseExpiresAt: Date.now() + chatReplyStaleMs(settingFrom(await loadSettingValues(ctx), "CHAT_REPLY_STALE_MS")),
       error: undefined,
     });
     return { claimed: true as const, runId };
@@ -111,7 +113,7 @@ export const sweepStale = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
-    const staleMs = chatReplyStaleMs();
+    const staleMs = chatReplyStaleMs(settingFrom(await loadSettingValues(ctx), "CHAT_REPLY_STALE_MS"));
     let interrupted = 0;
     let failed = 0;
     let dequeued = 0;

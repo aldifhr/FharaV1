@@ -13,11 +13,13 @@
  *      TERM, temp dirs, NODE_ENV, CI, proxy + CA vars, OS essentials),
  *   2. names the operator opts into with FHARA_CHILD_ENV_PASSTHROUGH
  *      (comma separated, e.g. `FHARA_CHILD_ENV_PASSTHROUGH=FOO,BAR`),
- *   3. per-run `extra` vars the caller adds explicitly (e.g. the LLM key
+ *   3. user-defined vars from Settings → Environments (lib/appSettings.ts),
+ *   4. per-run `extra` vars the caller adds explicitly (e.g. the LLM key
  *      the agent itself needs).
  * Worker-only secrets (WORKER_SECRET_ENV_KEYS) are dropped from all three,
  * including passthrough and extras. Pure: no Node imports, safe to bundle.
  */
+import { getChildEnvOverrides } from "./appSettings";
 
 /** Exact names forwarded from the parent env when set. */
 export const CHILD_ENV_ALLOWLIST: readonly string[] = [
@@ -192,6 +194,11 @@ export function buildChildEnv(
   for (const key of childEnvPassthroughKeys(source)) {
     const value = source[key];
     if (value !== undefined) env[key] = value;
+  }
+  // Settings → Environments: user-defined vars for every spawned process
+  // (set by the worker from the appSettings row; empty elsewhere).
+  for (const [key, value] of Object.entries(getChildEnvOverrides())) {
+    if (!isWorkerSecretEnvKey(key)) env[key] = value;
   }
   for (const [key, value] of Object.entries(extra ?? {})) {
     if (isWorkerSecretEnvKey(key)) continue;

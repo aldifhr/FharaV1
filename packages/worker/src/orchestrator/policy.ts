@@ -1,8 +1,12 @@
 import { executionRuntimeFromEnv } from "@/execution/nativeProvider";
 import { observedLlmLatencyMs } from "@/llm/latency";
+import { settingEnv } from "@/api/convex/lib/appSettings";
+
+// Every knob is read through settingEnv: a value set in Settings (stored in
+// Convex, applied on each heartbeat) wins over the process env.
 
 function intFromEnv(name: string, fallback: number, min: number, max: number): number {
-  const raw = process.env[name];
+  const raw = settingEnv(name);
   if (!raw) return fallback;
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return fallback;
@@ -210,14 +214,14 @@ export interface ExecutionPolicy {
 }
 
 function boolFromEnv(name: string, fallback: boolean): boolean {
-  const raw = process.env[name];
+  const raw = settingEnv(name);
   if (raw === undefined) return fallback;
   return !["0", "false", "off", "no"].includes(raw.trim().toLowerCase());
 }
 
 /** "always" | "auto" | "never" from env, defaulting to fallback ("auto"). */
 function planningModeFromEnv(name: string, fallback: "auto" | "never" = "auto"): "always" | "auto" | "never" {
-  const raw = (process.env[name] ?? "").trim().toLowerCase();
+  const raw = (settingEnv(name) ?? "").trim().toLowerCase();
   return raw === "always" || raw === "auto" || raw === "never" ? raw : fallback;
 }
 
@@ -347,7 +351,7 @@ export function loadPolicy(): ExecutionPolicy {
     // real workloads before hard-stop enforcement becomes the default.
     // Set ORCHESTRATOR_BUDGET_MODE=enforce to opt into the hard stop now.
     budgetMode:
-      (process.env.ORCHESTRATOR_BUDGET_MODE ?? "").trim().toLowerCase() === "enforce"
+      (settingEnv("ORCHESTRATOR_BUDGET_MODE") ?? "").trim().toLowerCase() === "enforce"
         ? "enforce"
         : "warn",
     // Phase 4: this field is LIVE. Phase 4 hardening: it sizes the
@@ -371,10 +375,10 @@ export function loadPolicy(): ExecutionPolicy {
     // Plan 006 Phase 1: the router is deterministic by default; the advisor
     // turns on only when the flag is set (Phase 4 wires the real call).
     routerLlmMode:
-      (process.env.ORCHESTRATOR_ROUTER_LLM ?? "").trim().toLowerCase() ===
+      (settingEnv("ORCHESTRATOR_ROUTER_LLM") ?? "").trim().toLowerCase() ===
       "always"
         ? "always"
-        : (process.env.ORCHESTRATOR_ROUTER_LLM ?? "").trim().toLowerCase() ===
+        : (settingEnv("ORCHESTRATOR_ROUTER_LLM") ?? "").trim().toLowerCase() ===
             "ambiguous"
           ? "ambiguous"
           : "off",
@@ -390,9 +394,9 @@ export function loadPolicy(): ExecutionPolicy {
     // the advisor is consulted only on ambiguous observations; the
     // deterministic policy decisions still win via validateDecision.
     decisionLlmMode:
-      (process.env.ORCHESTRATOR_DECISION_LLM ?? "").trim().toLowerCase() === "always"
+      (settingEnv("ORCHESTRATOR_DECISION_LLM") ?? "").trim().toLowerCase() === "always"
         ? "always"
-        : (process.env.ORCHESTRATOR_DECISION_LLM ?? "").trim().toLowerCase() === "off"
+        : (settingEnv("ORCHESTRATOR_DECISION_LLM") ?? "").trim().toLowerCase() === "off"
           ? "off"
           : "ambiguous",
     maxDecisionSteps: intFromEnv("ORCHESTRATOR_MAX_DECISION_STEPS", 20, 1, 200),
@@ -405,7 +409,7 @@ export function loadPolicy(): ExecutionPolicy {
     // Plan 036: the Agent Reach web tool. Enabled by default; an agent must
     // still declare `web_reach` in its `supportedTools` to get it.
     agentReachEnabled: boolFromEnv("ORCHESTRATOR_AGENT_REACH_ENABLED", true),
-    agentReachCommand: (process.env.ORCHESTRATOR_AGENT_REACH_COMMAND ?? "agent-reach").trim() || "agent-reach",
+    agentReachCommand: (settingEnv("ORCHESTRATOR_AGENT_REACH_COMMAND") ?? "agent-reach").trim() || "agent-reach",
     agentReachTimeoutMs: intFromEnv("ORCHESTRATOR_AGENT_REACH_TIMEOUT_MS", 60_000, 1_000, 300_000),
     agentReachMaxItems: intFromEnv("ORCHESTRATOR_AGENT_REACH_MAX_ITEMS", 10, 1, 20),
     agentReachMaxToolIterations: intFromEnv("ORCHESTRATOR_AGENT_REACH_MAX_TOOL_ITERATIONS", 4, 1, 20),

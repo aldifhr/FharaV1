@@ -6,7 +6,8 @@ import { execFileSync } from "node:child_process";
 import * as path from "node:path";
 import { internal } from "./_generated/api";
 import { buildChildEnv } from "./lib/childEnv";
-import { gitIdentityArgs } from "./lib/gitIdentity";
+import { gitIdentity, gitIdentityArgs } from "./lib/gitIdentity";
+import { settingFrom } from "./lib/appSettings";
 import { makeTaskBranchName, resolveMainBranch, taskWorktreesFromPorcelain } from "./lib/taskBranch";
 import { worktreeRetentionMs } from "./lib/worktreeRetention";
 import { assertRepoPathExists, resolveRepoPath } from "./lib/workspacePath";
@@ -28,8 +29,13 @@ function gitExec(cwd: string, args: string[]): string {
  * clone has no user.name/user.email, so git would refuse with "Committer
  * identity unknown".
  */
-function gitCommitExec(cwd: string, args: string[]): string {
-  return gitExec(cwd, [...gitIdentityArgs(), ...args]);
+function gitCommitExec(cwd: string, args: string[], settings?: Record<string, string>): string {
+  // Settings → Source control: the UI author overrides the env one.
+  const identity = gitIdentity({
+    FHARA_GIT_AUTHOR_NAME: settingFrom(settings, "FHARA_GIT_AUTHOR_NAME"),
+    FHARA_GIT_AUTHOR_EMAIL: settingFrom(settings, "FHARA_GIT_AUTHOR_EMAIL"),
+  });
+  return gitExec(cwd, [...gitIdentityArgs(identity), ...args]);
 }
 
 export const createBranch = internalAction({
@@ -140,9 +146,10 @@ export const mergeBranch = internalAction({
     const repo = resolveRepoPath(data.workspacePath, { worktreePath: data.worktreePath });
     const mainBranch = resolveMainBranch(data.mainBranch, (gitArgs) => gitExec(repo, gitArgs));
 
+    const settings = (await ctx.runQuery(internal.appSettings.forWorker, {})).values;
     try {
       gitExec(repo, ["checkout", mainBranch]);
-      gitCommitExec(repo, ["merge", "--no-ff", "--no-edit", data.branchName]);
+      gitCommitExec(repo, ["merge", "--no-ff", "--no-edit", data.branchName], settings);
     } catch (err: any) {
       await ctx.runMutation(internal.orchestration.mergeBranchCompleted, {
         taskId: args.taskId,
@@ -251,9 +258,11 @@ export const cleanupStaleWorktrees = internalAction({
 export const sweepStaleWorktrees = internalAction({
   args: {},
   handler: async (ctx) => {
+    // Settings → Worktrees: the UI retention overrides the env one.
+    const settings = (await ctx.runQuery(internal.appSettings.forWorker, {})).values;
     const tasks = (await ctx.runQuery(internal.orchestration.listStaleWorktreeTasks, {
       now: Date.now(),
-      retentionMs: worktreeRetentionMs(),
+      retentionMs: worktreeRetentionMs(settingFrom(settings, "FHARA_WORKTREE_RETENTION_HOURS")),
     })) as Array<{ taskId: Id<"tasks"> }>;
     let cleaned = 0;
     for (const { taskId } of tasks) {

@@ -28,6 +28,15 @@ import {
   type SectionKey,
 } from "./lib/contextSnapshot";
 import { buildReplaySteps, type RunSide } from "./lib/replay";
+import { loadSettingValues } from "./appSettings";
+import { settingFrom } from "./lib/appSettings";
+
+/** Settings → SnapShots: retention for projects without their own value. */
+async function defaultRetentionDays(ctx: Parameters<typeof loadSettingValues>[0]): Promise<number | undefined> {
+  const raw = settingFrom(await loadSettingValues(ctx), "FHARA_SNAPSHOT_RETENTION_DAYS");
+  const n = raw ? Number(raw) : Number.NaN;
+  return Number.isFinite(n) ? n : undefined;
+}
 
 const sectionStat = v.object({
   key: v.string(),
@@ -87,7 +96,9 @@ const KNOWN_SECTIONS = new Set<string>(SECTION_KEYS);
 export const record = internalMutation({
   args: snapshotRecordArgs,
   handler: async (ctx, args): Promise<Id<"contextSnapshots"> | null> => {
-    if (!contextSnapshotsEnabled()) return null;
+    // Settings → SnapShots: the UI switch overrides CONTEXT_SNAPSHOTS.
+    const settings = await loadSettingValues(ctx);
+    if (!contextSnapshotsEnabled({ CONTEXT_SNAPSHOTS: settingFrom(settings, "CONTEXT_SNAPSHOTS") })) return null;
     const task = args.taskId ? await ctx.db.get(args.taskId) : null;
     const projectId = args.projectId ?? task?.projectId;
     if (!projectId) return null;
@@ -414,8 +425,8 @@ export const getRetention = query({
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
     return {
-      days: retentionDays(project.contextSnapshotRetentionDays),
-      enabled: contextSnapshotsEnabled(),
+      days: retentionDays(project.contextSnapshotRetentionDays ?? (await defaultRetentionDays(ctx))),
+      enabled: contextSnapshotsEnabled({ CONTEXT_SNAPSHOTS: settingFrom(await loadSettingValues(ctx), "CONTEXT_SNAPSHOTS") }),
     };
   },
 });
@@ -447,6 +458,7 @@ export const prune = internalMutation({
   handler: async (ctx, args): Promise<{ deleted: number; more: boolean }> => {
     const now = args.now ?? Date.now();
     const projects = await ctx.db.query("projects").take(500);
+    const fallbackDays = await defaultRetentionDays(ctx);
     let deleted = 0;
     let more = false;
     for (const project of projects) {
@@ -454,7 +466,7 @@ export const prune = internalMutation({
         more = true;
         break;
       }
-      const cutoff = retentionCutoff(now, project.contextSnapshotRetentionDays);
+      const cutoff = retentionCutoff(now, project.contextSnapshotRetentionDays ?? fallbackDays);
       const old = await ctx.db
         .query("contextSnapshots")
         .withIndex("by_project_created", (q) => q.eq("projectId", project._id).lt("createdAt", cutoff))

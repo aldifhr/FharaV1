@@ -1837,4 +1837,36 @@ export default defineSchema({
   })
     .index("by_worker_id", ["workerId"])
     .index("by_updated_at", ["updatedAt"]),
+
+  // App-wide settings (Settings modal, additive). One row for the whole
+  // app (single-user, localhost). `values` overrides a fixed set of env
+  // knobs (lib/appSettings.ts SETTING_KNOBS) — the worker fetches the row
+  // on every heartbeat, Convex readers load it directly. `childEnv` is
+  // passed to every process the worker spawns. The new-project defaults
+  // apply when projects.create is not given the field.
+  appSettings: defineTable({
+    values: v.optional(v.array(v.object({ key: v.string(), value: v.string() }))),
+    childEnv: v.optional(v.array(v.object({ name: v.string(), value: v.string() }))),
+    defaultBaseBranch: v.optional(v.string()),
+    newProjectApprovalMode: v.optional(v.union(v.literal("ask"), v.literal("auto"))),
+    newProjectPermissionMode: v.optional(permissionModeValidator),
+    newProjectPlanReview: v.optional(planReviewSetting),
+    newProjectPrFeedback: v.optional(v.boolean()),
+    newProjectShadowAgent: v.optional(v.boolean()),
+    updatedAt: v.number(),
+  }),
+
+  // Last run of each cron job (Settings → Scheduled tasks, additive).
+  // Written by the cron wrappers in cronJobs.ts, one row per job name.
+  cronRuns: defineTable({
+    name: v.string(),
+    lastStartedAt: v.number(),
+    lastFinishedAt: v.optional(v.number()),
+    lastStatus: v.union(v.literal("running"), v.literal("ok"), v.literal("failed")),
+    lastError: v.optional(v.string()),
+    lastResult: v.optional(v.string()),
+    // "cron" or "manual" (Run now / Maintenance).
+    trigger: v.optional(v.string()),
+    runCount: v.optional(v.number()),
+  }).index("by_name", ["name"]),
 });

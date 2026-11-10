@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import { UNTRUSTED_GIT_CONFIG, untrustedGitEnv } from "@/vendor/threadbear/safeGit";
+import { settingEnv } from "@/api/convex/lib/appSettings";
 
 /**
  * Plan 019: push a committed sha to a GitHub branch with a short-lived
@@ -206,7 +207,8 @@ export interface PushInput {
 const ALWAYS_PROTECTED = new Set(["main", "master"]);
 
 function envFlag(name: string): boolean {
-  return /^(1|true|yes|on)$/i.test((process.env[name] ?? "").trim());
+  // Settings → Source control overrides the env value (lib/appSettings.ts).
+  return /^(1|true|yes|on)$/i.test((settingEnv(name) ?? "").trim());
 }
 
 /**

@@ -1,5 +1,6 @@
 import { redactSecret } from "./gitPush";
 import { proxyAwareFetch, type FetchLike } from "./proxyFetch";
+import { settingEnv } from "@/api/convex/lib/appSettings";
 
 /**
  * Plan 019: open (or find) the pull request for a pushed task branch via
@@ -89,14 +90,17 @@ export async function openPullRequest(input: {
       }),
     });
 
-  let response = await create(true);
+  // Settings → Diffs & PR: "Open pull requests as drafts" (FHARA_PR_DRAFT,
+  // default on). A repository without draft support falls back to ready.
+  const draft = !/^(0|false|off|no)$/i.test((settingEnv("FHARA_PR_DRAFT") ?? "").trim());
+  let response = await create(draft);
   if (response.status === 422) {
     const text = await response.clone().text();
     if (/already exists/i.test(text)) {
       const existing = await findExisting();
       if (existing) return existing;
     }
-    if (/draft/i.test(text)) {
+    if (draft && /draft/i.test(text)) {
       response = await create(false);
     }
   }

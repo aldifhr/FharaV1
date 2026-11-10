@@ -10,6 +10,7 @@ import { killTree } from "./verification";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import type { QaCheck, QaReport } from "@/types/qa";
+import { settingEnv } from "@/api/convex/lib/appSettings";
 
 export type { QaCheck, QaReport } from "@/types/qa";
 
@@ -161,7 +162,7 @@ const SERVER_LOG_LIMIT = 4_000;
 
 function startupTimeoutMs(options: QaOptions): number {
   if (options.startupTimeoutMs && options.startupTimeoutMs > 0) return options.startupTimeoutMs;
-  const fromEnv = Number(process.env.QA_STARTUP_TIMEOUT_MS ?? process.env.QA_SERVER_START_TIMEOUT_MS);
+  const fromEnv = Number(settingEnv("QA_STARTUP_TIMEOUT_MS") ?? settingEnv("QA_SERVER_START_TIMEOUT_MS"));
   return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : DEFAULT_STARTUP_TIMEOUT_MS;
 }
 
@@ -297,8 +298,8 @@ async function startStaticServer(root: string, port: number): Promise<import("no
  */
 export function chromiumLaunchOptions(): { headless: true; executablePath?: string; args?: string[] } {
   const executablePath =
-    process.env.QA_CHROMIUM_PATH?.trim() || process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() || undefined;
-  const flag = (process.env.QA_CHROMIUM_NO_SANDBOX ?? "").trim().toLowerCase();
+    settingEnv("QA_CHROMIUM_PATH")?.trim() || process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() || undefined;
+  const flag = (settingEnv("QA_CHROMIUM_NO_SANDBOX") ?? "").trim().toLowerCase();
   const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
   let inContainer = false;
   try {

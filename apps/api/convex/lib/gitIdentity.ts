@@ -8,6 +8,8 @@
  * FHARA_GIT_AUTHOR_EMAIL, read from the PARENT env. Pure: safe to bundle.
  */
 
+import { settingEnvSource } from "./appSettings";
+
 export const DEFAULT_GIT_AUTHOR_NAME = "Fhara";
 export const DEFAULT_GIT_AUTHOR_EMAIL = "fhara@users.noreply.github.com";
 
@@ -23,7 +25,8 @@ function clean(value: string | undefined): string | undefined {
 }
 
 export function gitIdentity(
-  source: Record<string, string | undefined> = typeof process !== "undefined" && process.env ? process.env : {}
+  // Settings → Source control overrides apply in the worker (lib/appSettings.ts).
+  source: Record<string, string | undefined> = settingEnvSource()
 ): GitIdentity {
   return {
     name: clean(source.FHARA_GIT_AUTHOR_NAME) ?? DEFAULT_GIT_AUTHOR_NAME,

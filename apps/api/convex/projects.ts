@@ -6,6 +6,7 @@ import { assertProjectAccess, canViewProject, getViewerId } from "./lib/authz";
 import { changedFields, recordAudit } from "./lib/recordAudit";
 import { permissionModeValidator, type PermissionMode } from "./lib/permissionModes";
 import { normalizeMainBranch } from "./lib/taskBranch";
+import { loadNewProjectDefaults } from "./appSettings";
 
 function validateWorkspacePath(raw: string): string {
   const workspacePath = raw.trim();
@@ -51,6 +52,12 @@ export const create = mutation({
     }
 
     const viewerId = await getViewerId(ctx);
+    // Settings → Projects / Source control: app-wide defaults for fields
+    // the caller did not give.
+    const defaults = await loadNewProjectDefaults(ctx);
+    const approvalMode = args.approvalMode ?? defaults.approvalMode;
+    const defaultPermissionMode = args.defaultPermissionMode ?? defaults.defaultPermissionMode;
+    const baseBranch = mainBranch ?? defaults.mainBranch;
     const projectId = await ctx.db.insert("projects", {
       name,
       workspacePath,
@@ -58,9 +65,12 @@ export const create = mutation({
       ...(args.qaUrl ? { qaUrl: args.qaUrl.trim() } : {}),
       ...(args.devUrl ? { devUrl: args.devUrl.trim() } : {}),
       ...(viewerId ? { ownerId: viewerId } : {}),
-      ...(args.approvalMode ? { approvalMode: args.approvalMode } : {}),
-      ...(args.defaultPermissionMode ? { defaultPermissionMode: args.defaultPermissionMode } : {}),
-      ...(mainBranch ? { mainBranch } : {}),
+      ...(approvalMode ? { approvalMode } : {}),
+      ...(defaultPermissionMode ? { defaultPermissionMode } : {}),
+      ...(baseBranch ? { mainBranch: baseBranch } : {}),
+      ...(defaults.planReview ? { planReview: defaults.planReview } : {}),
+      ...(defaults.prFeedbackReactions ? { prFeedbackReactions: true } : {}),
+      ...(defaults.shadowAgentDefault ? { shadowAgentDefault: true } : {}),
       createdAt: Date.now(),
     });
     await recordAudit(ctx, { action: "project.create", target: name, projectId });

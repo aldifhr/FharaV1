@@ -16,6 +16,7 @@
  *  - buildContextSnapshot: everything above in one call → the light meta row
  *    plus the heavy body (stored in a separate table).
  */
+import { settingEnvSource } from "./appSettings";
 
 export const SECTION_KEYS = [
   "system",
@@ -102,7 +103,10 @@ export function contextSnapshotsEnabled(env: Record<string, string | undefined> 
 }
 
 function readEnv(): Record<string, string | undefined> {
-  return typeof process !== "undefined" && process.env ? process.env : {};
+  // The worker applies Settings overrides (lib/appSettings.ts); a Convex
+  // isolate has none and reads its own env (the record mutation checks the
+  // stored setting itself).
+  return settingEnvSource();
 }
 
 /** Rough token estimate (chars/4), the same rule the worker uses for missing usage. */

@@ -68,6 +68,11 @@ export class WorkerApi {
     return await this.client.action(api.worker.heartbeat, this.args(input));
   }
 
+  /** Settings modal: knob overrides + child env (lib/appSettings.ts). */
+  async getAppSettings(): Promise<FunctionReturnType<typeof api.worker.getAppSettings>> {
+    return await this.client.action(api.worker.getAppSettings, this.args({}));
+  }
+
   /** Plan 033: publish the model list the local OpenCode CLI reported. */
   async reportOpencodeModels(
     input: ActionInput<typeof api.worker.reportOpencodeModels>

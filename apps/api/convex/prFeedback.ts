@@ -32,6 +32,13 @@ import {
   type ReviewComment,
 } from "./lib/prFeedback";
 import { appendTaskEvent } from "./lib/taskEvents";
+import { loadSettingValues } from "./appSettings";
+import { settingFrom } from "./lib/appSettings";
+
+/** Settings → Diffs & PR: the UI cap overrides FHARA_PR_FIX_MAX_ATTEMPTS. */
+async function fixMaxAttemptsFor(ctx: Parameters<typeof loadSettingValues>[0]): Promise<number> {
+  return fixMaxAttempts(settingFrom(await loadSettingValues(ctx), "FHARA_PR_FIX_MAX_ATTEMPTS"));
+}
 
 /**
  * Post-push feedback loop.
@@ -274,7 +281,7 @@ async function queueReaction(ctx: MutationCtx, row: PushRow, ownerTaskId: Id<"ta
     createdAt: now,
     updatedAt: now,
   };
-  if ((await createdCount(ctx, repoFullName, prNumber)) >= fixMaxAttempts()) {
+  if ((await createdCount(ctx, repoFullName, prNumber)) >= (await fixMaxAttemptsFor(ctx))) {
     await ctx.db.insert("prReactions", { ...base, status: "skipped", skipReason: "cap_reached" });
     await logOwnerEvent(ctx, ownerTaskId, row.projectId, "pr.fix_cap_reached", { prNumber, kind: plan.kind }, "warn");
     return "cap_reached";
@@ -307,7 +314,7 @@ async function activateDeferred(ctx: MutationCtx, ownerTaskId: Id<"tasks">) {
       await ctx.db.patch(reaction._id, { status: "skipped", skipReason: stale ? "stale_head" : "pr_not_open", updatedAt: now });
       continue;
     }
-    if ((await createdCount(ctx, reaction.repoFullName, reaction.prNumber)) >= fixMaxAttempts()) {
+    if ((await createdCount(ctx, reaction.repoFullName, reaction.prNumber)) >= (await fixMaxAttemptsFor(ctx))) {
       await ctx.db.patch(reaction._id, { status: "skipped", skipReason: "cap_reached", updatedAt: now });
       continue;
     }
@@ -459,7 +466,7 @@ export const createFixTask = internalMutation({
       return await skip("stale_head");
     }
     const used = await createdCount(ctx, reaction.repoFullName, reaction.prNumber);
-    const max = fixMaxAttempts();
+    const max = (await fixMaxAttemptsFor(ctx));
     if (used >= max) return await skip("cap_reached");
     if (await fixInFlight(ctx, owner._id)) {
       await ctx.db.patch(reaction._id, { status: "deferred", updatedAt: now });
@@ -614,7 +621,7 @@ export async function syncPrNotifications(ctx: MutationCtx, ownerTaskId: Id<"tas
       prNumber: latest.prNumber,
       facts: latest,
       reactionsEnabled: Boolean(project?.prFeedbackReactions),
-      capReached: (await createdCount(ctx, latest.repoFullName, latest.prNumber)) >= fixMaxAttempts(),
+      capReached: (await createdCount(ctx, latest.repoFullName, latest.prNumber)) >= (await fixMaxAttemptsFor(ctx)),
       worktreeAvailable: Boolean(owner.worktreePath && owner.branchName),
       fixActive: await fixInFlight(ctx, ownerTaskId),
       latestFixFailed: lastFix?.status === "failed",
@@ -673,7 +680,7 @@ export const lanesByProject = query({
       const best = byOwner.get(key);
       if (!best || row.createdAt > best.createdAt) byOwner.set(key, row);
     }
-    const max = fixMaxAttempts();
+    const max = (await fixMaxAttemptsFor(ctx));
     const out = [];
     for (const [taskId, row] of byOwner) {
       const lane = derivePrLane(row);
@@ -701,7 +708,7 @@ export const getProjectSetting = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
-    return { enabled: Boolean(project.prFeedbackReactions), maxAttempts: fixMaxAttempts() };
+    return { enabled: Boolean(project.prFeedbackReactions), maxAttempts: (await fixMaxAttemptsFor(ctx)) };
   },
 });
 

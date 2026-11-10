@@ -7,6 +7,7 @@
 - Risk: MEDIUM (additive schema widening; project chat must not regress)
 - Dependencies: 007 (conversations + participants), the durable chat reply lifecycle (`chatReplies.ts`)
 - Planned at: commit `fc449a2`, 2026-11-10 (audit: personal-chat audit of that commit)
+- Status: IMPLEMENTED 2026-11-10 (PC1–PC6). Live browser checks still pending, listed in the README row.
 
 ## Why this is needed
 
@@ -91,7 +92,7 @@ untouched · D11 next free plan number.
 ## Tests
 
 `apps/api/convex/personalChatSchema.test.ts`, `personalChat.test.ts`,
-`personalReply.test.ts`, `personalAttach.test.ts`; web unit
+`personalReply.test.ts`, `personalAttach.test.ts`, `personalQa.test.ts` (PC6 lifecycle); web unit
 `apps/web/tests/unit/personalChat.test.mjs`. QA scenario map in the
 personal-chat audit §12.1; scenarios needing a live browser are listed in
 the status line of the plan README.

@@ -1,3 +1,4 @@
+import { isOpencodeConnection } from "./lib/opencodeProvider";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { holdsTaskLease } from "./orchestration";
@@ -97,7 +98,13 @@ export const getProjectModelTiers = query({
     return {
       tiers: normalizeModelTiers(project.modelTiers),
       options: models
-        .filter((model) => model.isAvailable && providers.get(model.providerId as string)?.isEnabled !== false)
+        .filter(
+          (model) =>
+            model.isAvailable &&
+            providers.get(model.providerId as string)?.isEnabled !== false &&
+            // Plan 038: a tier is an API model; OpenCode entries run whole subtasks.
+            !isOpencodeConnection(providers.get(model.providerId as string))
+        )
         .map((model) => ({
           _id: model._id,
           modelId: model.modelId,

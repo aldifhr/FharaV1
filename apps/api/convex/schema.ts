@@ -1777,6 +1777,27 @@ export default defineSchema({
     // Set by the UI ("Refresh"); the worker picks it up on its next poll and
     // clears it by reporting again.
     refreshRequestedAt: v.optional(v.number()),
+    // OpenCode provider (plan 038, additive): what the worker's detection
+    // found. `installed` = the binary was found (on PATH or at the
+    // configured command path); `version` = `opencode --version`; `path` =
+    // where it was found. Rows written before plan 038 have none of these
+    // and read as "not checked yet".
+    installed: v.optional(v.boolean()),
+    version: v.optional(v.string()),
+    path: v.optional(v.string()),
+    // "Test" in Settings: the UI asks, the worker runs a tiny
+    // `opencode run` probe on its next poll and stores the result.
+    testRequestedAt: v.optional(v.number()),
+    testModel: v.optional(v.string()),
+    testResult: v.optional(
+      v.object({
+        ok: v.boolean(),
+        latencyMs: v.number(),
+        model: v.optional(v.string()),
+        error: v.optional(v.string()),
+        at: v.number(),
+      })
+    ),
   })
     .index("by_worker_id", ["workerId"])
     .index("by_updated_at", ["updatedAt"]),

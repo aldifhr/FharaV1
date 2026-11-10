@@ -36,9 +36,11 @@ type Agent = {
   executionRuntime?: string;
 };
 
-function runtimeLabel(opencodeRuntime: string | undefined): string {
-  // Plan 035: the runtime is app-wide (Settings → LLM & Models).
-  return opencodeRuntime === "opencode" ? "OpenCode" : "Built-in";
+function runtimeLabel(opencode: { runtime?: string; viaModelList?: boolean } | undefined): string {
+  // Plan 035: the runtime is app-wide (Settings → LLM & Models). Plan 038:
+  // with the OpenCode provider, the model list picks it per subtask.
+  if (opencode?.viaModelList) return "Model list";
+  return opencode?.runtime === "opencode" ? "OpenCode" : "Built-in";
 }
 
 function modelLabel(a: Agent): string {
@@ -136,7 +138,7 @@ function TeamPage() {
                           </span>
                         </p>
                         <p className="truncate text-[12.5px] text-ink-3">
-                          {entry?.taskTitle ?? `${modelLabel(a)} · ${runtimeLabel(opencode?.runtime)}`}
+                          {entry?.taskTitle ?? `${modelLabel(a)} · ${runtimeLabel(opencode)}`}
                         </p>
                       </div>
                       {active && <span className="shell-dots flex shrink-0 items-center gap-[3px] text-ink-3" aria-hidden="true"><i /><i /><i /></span>}

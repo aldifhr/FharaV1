@@ -8,7 +8,10 @@
  *      fallback order; in round robin it is the rotation set and the order
  *      sets which model starts first (lib/llmOrder.ts, shared by chat and
  *      the worker).
- *   4. OpenCode runtime (plan 035).
+ *   OpenCode (plan 038) is a special row in Providers: detected on the
+ *   worker, enabled here, and its models take positions in the same list.
+ *   An OpenCode entry runs a task's subtask on the OpenCode CLI; chat skips
+ *   it. It replaces the plan 035 "OpenCode runtime" section.
  *
  * Provider/model writes, discovery and tests go through the server-side
  * route (/api/llm-providers): the Convex mutations require the service
@@ -17,18 +20,21 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { findPreset, guessPreset, LLM_PROVIDER_PRESETS } from "@/api/convex/lib/llmPresets";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import Segmented from "./ui/segmented";
 import { useToast } from "./Toasts";
-import { OpencodeModelField } from "./OpencodeModelField";
+import { OPENCODE_INSTALL_COMMAND, isOpencodeConnection } from "@/api/convex/lib/opencodeProvider";
+import { relativeTime } from "@/lib/runFormat";
 import {
   effectiveOrder,
   formForPreset,
   hostOf,
   moveItem,
+  opencodeStatusLine,
+  opencodeUnavailableReason,
   providerFormError,
   providerPayload,
   sameOrder,
@@ -123,13 +129,16 @@ export default function LlmSettingsSection({
   const healthStats = useQuery(api.orchestration.providerHealthStats, {});
   const selection = useQuery(api.llmSelection.get, {});
   const setSelectionMode = useMutation(api.llmSelection.set);
-  const opencode = useQuery(api.opencodeSettings.get, {});
-  const setOpencodeSettings = useMutation(api.opencodeSettings.set);
+  // Plan 038: the OpenCode provider row (detection, enable, test).
+  const opencode = useQuery(api.opencodeProvider.status, {});
+  const opencodeCatalog = useQuery(api.opencodeModels.list, {});
+  const requestOpencodeCheck = useMutation(api.opencodeModels.requestRefresh);
+  const requestOpencodeTest = useMutation(api.opencodeModels.requestTest);
   const toast = useToast();
 
-  const [opencodeRuntime, setOpencodeRuntime] = useState<"api" | "opencode">("api");
-  const [opencodeModel, setOpencodeModel] = useState("");
-  const [opencodeLoaded, setOpencodeLoaded] = useState(false);
+  const [opencodeBusy, setOpencodeBusy] = useState(false);
+  // The list row whose Test asked the worker (the probe result is global).
+  const [opencodeTestKey, setOpencodeTestKey] = useState<string | null>(null);
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
 
   // Provider form (add or edit).
@@ -154,13 +163,6 @@ export default function LlmSettingsSection({
   useEffect(() => {
     if (projects && projects.length > 0 && !projectId) onProjectChange(projects[0]._id);
   }, [projects, projectId, onProjectChange]);
-
-  useEffect(() => {
-    if (!opencode || opencodeLoaded) return;
-    setOpencodeRuntime(opencode.runtime);
-    setOpencodeModel(opencode.model);
-    setOpencodeLoaded(true);
-  }, [opencode, opencodeLoaded]);
 
   const providerById = useMemo(() => new Map((providers ?? []).map((p) => [p._id, p])), [providers]);
   const serverOrder = useMemo(() => (models ?? []).map((m) => m._id), [models]);
@@ -294,6 +296,10 @@ export default function LlmSettingsSection({
   }
 
   async function runTest(key: string, providerId: string, modelRowId?: string) {
+    if (isOpencodeConnection(providerById.get(providerId))) {
+      await testOpencode(key, modelRowId ? modelById.get(modelRowId)?.modelId : undefined);
+      return;
+    }
     setTests((current) => ({ ...current, [key]: "running" }));
     try {
       const result: TestResult = await providerAdmin("testModel", {
@@ -309,12 +315,58 @@ export default function LlmSettingsSection({
     }
   }
 
+  // ---- OpenCode (plan 038) ----
+
+  async function setOpencodeEnabled(enabled: boolean) {
+    setOpencodeBusy(true);
+    try {
+      const data = await providerAdmin("setOpencodeEnabled", { enabled });
+      toast(
+        "success",
+        enabled ? "OpenCode enabled" : "OpenCode disabled",
+        data.carriedOver
+          ? `Your OpenCode runtime model ${data.carriedOver} is now the first entry of the list.`
+          : enabled
+            ? "Add OpenCode models to the list; tasks run them on the OpenCode CLI."
+            : "Tasks skip its models and use the next one in the list."
+      );
+    } catch (err) {
+      toast("error", "Failed to update OpenCode", err instanceof Error ? err.message : "");
+    } finally {
+      setOpencodeBusy(false);
+    }
+  }
+
+  async function checkOpencodeAgain() {
+    try {
+      const { requested } = await requestOpencodeCheck({});
+      if (requested === 0) toast("error", "No worker has reported yet", "Start the worker; it checks for OpenCode at startup.");
+    } catch (err) {
+      toast("error", "Failed to ask the worker", err instanceof Error ? err.message : "");
+    }
+  }
+
+  async function testOpencode(key: string, model?: string) {
+    try {
+      const { requested } = await requestOpencodeTest({ ...(model ? { model } : {}) });
+      if (!requested) {
+        toast("error", "No worker has reported yet", "Start the worker, then test again.");
+        return;
+      }
+      setOpencodeTestKey(key);
+    } catch (err) {
+      toast("error", "Failed to ask the worker", err instanceof Error ? err.message : "");
+    }
+  }
+
   // ---- Models ----
 
   async function loadModelOptions(providerId: string) {
     if (!providerId) return;
     const connection = providerById.get(providerId);
     if (!connection) return;
+    // OpenCode lists its models through the worker catalog, not over HTTP.
+    if (isOpencodeConnection(connection)) return;
     setModelOptionsLoading(true);
     setModelOptionsError("");
     try {
@@ -331,7 +383,7 @@ export default function LlmSettingsSection({
   }
 
   function openAddModel() {
-    const first = (providers ?? [])[0]?._id ?? "";
+    const first = (sortedProviders ?? [])[0]?._id ?? opencode?.providerId ?? "";
     setModelForm({ ...emptyModelForm, providerId: first });
     setModelOptionsError("");
     setModelFormOpen(true);
@@ -411,18 +463,19 @@ export default function LlmSettingsSection({
     });
   }
 
-  async function saveOpencodeSettings() {
-    try {
-      await setOpencodeSettings({ runtime: opencodeRuntime, model: opencodeModel });
-      toast("success", "OpenCode runtime updated", opencodeRuntime === "opencode" ? "OpenCode CLI" : "Built-in (Fhara tools)");
-    } catch (err) {
-      toast("error", "Failed to update the OpenCode runtime", err instanceof Error ? err.message : "");
-    }
-  }
-
-  const sortedProviders = providers ? [...providers].sort((a, b) => a.priority - b.priority) : undefined;
-  const options = modelOptions[modelForm.providerId] ?? [];
+  // HTTP connections; the OpenCode row is shown on its own (plan 038).
+  const sortedProviders = providers
+    ? [...providers].filter((p) => !isOpencodeConnection(p)).sort((a, b) => a.priority - b.priority)
+    : undefined;
+  const opencodeRowId = opencode?.providerId ?? null;
+  const addingOpencode = opencodeRowId !== null && modelForm.providerId === opencodeRowId;
+  const options = addingOpencode ? opencodeCatalog?.models ?? [] : modelOptions[modelForm.providerId] ?? [];
   const modelPreset = findPreset(providerById.get(modelForm.providerId)?.presetId);
+  const opencodeLine = opencodeStatusLine(opencode);
+  const opencodeOff = opencodeUnavailableReason(opencode);
+  const hasOpencodeEntries = (models ?? []).some((m) => m.providerId === opencodeRowId);
+  const canAddModel = (sortedProviders?.length ?? 0) > 0 || opencodeRowId !== null;
+  const opencodeTest = opencode?.test ?? null;
 
   return (
     <>
@@ -564,6 +617,76 @@ export default function LlmSettingsSection({
             </form>
           )}
 
+          {/* Plan 038: OpenCode, a special row (the CLI on the worker, no URL, no key). */}
+          <div className="grid gap-1 border-y border-line py-3" aria-label="OpenCode provider">
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[14px] font-medium text-ink">
+                  OpenCode
+                  {opencode && !opencode.enabled && (
+                    <span className="ml-2 text-[12.5px] font-normal text-ink-3">
+                      {opencode.configured ? "disabled" : "not added"}
+                    </span>
+                  )}
+                </p>
+                <p className={`truncate text-[12.5px] ${opencodeLine.kind === "missing" ? "text-warn" : "text-ink-3"}`} title={opencodeLine.text}>
+                  CLI on the worker · {opencodeLine.text}
+                  {opencode && opencode.checkedAt > 0 && ` · checked ${relativeTime(opencode.checkedAt)}`}
+                  {opencode?.pendingCheck && " · checking…"}
+                </p>
+              </div>
+              <label className="flex items-center gap-1.5 text-[12.5px] text-ink-2">
+                <input
+                  type="checkbox"
+                  checked={opencode?.enabled ?? false}
+                  disabled={!opencode || opencodeBusy}
+                  onChange={(e) => void setOpencodeEnabled(e.target.checked)}
+                  aria-label="Enable OpenCode"
+                />
+                Enabled
+              </label>
+              <button
+                type="button"
+                onClick={() => void testOpencode("p:opencode")}
+                disabled={!opencode || opencode.pendingTest || opencode.installed !== true || !opencode.workerOnline}
+                className={GHOST}
+              >
+                {opencode?.pendingTest && opencodeTestKey === "p:opencode" ? "Testing…" : "Test"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void checkOpencodeAgain()}
+                disabled={!opencode || opencode.pendingCheck}
+                className={GHOST}
+                aria-label="Check again for OpenCode"
+              >
+                <RefreshCw size={13} /> Check again
+              </button>
+            </div>
+            {opencodeLine.kind === "missing" && (
+              <p className={HINT}>
+                Install it on the worker machine with <code>{OPENCODE_INSTALL_COMMAND}</code>, then press Check again.
+              </p>
+            )}
+            {opencode && !opencode.configured && opencode.legacy?.runtime === "opencode" && (
+              <p className={HINT}>
+                Enabling it replaces the old OpenCode runtime setting
+                {opencode.legacy.model ? `; ${opencode.legacy.model} becomes the first model in the list` : ""}.
+              </p>
+            )}
+            {opencodeTestKey === "p:opencode" && !opencode?.pendingTest && opencodeTest && (
+              <p className={opencodeTest.ok ? HINT : ERROR_TEXT}>
+                {opencodeTest.ok
+                  ? `OK · ${opencodeTest.model ?? "OpenCode default model"} · ${opencodeTest.latencyMs} ms`
+                  : `Failed · ${opencodeTest.model ?? "OpenCode"} · ${opencodeTest.error ?? "error"}`}
+              </p>
+            )}
+            <p className={HINT}>
+              Tasks run an OpenCode entry of the list on the OpenCode CLI, only with worktree isolation on. Chat uses the
+              API models.
+            </p>
+          </div>
+
           {sortedProviders === undefined && <p className={HINT}>Loading…</p>}
           {sortedProviders && sortedProviders.length === 0 && !providerFormOpen && (
             <p className={HINT}>
@@ -619,7 +742,7 @@ export default function LlmSettingsSection({
         <section className={SECTION} aria-labelledby="llm-models">
           <div className="flex items-center justify-between gap-3">
             <h3 id="llm-models" className={SECTION_TITLE}>Models</h3>
-            {!modelFormOpen && (sortedProviders?.length ?? 0) > 0 && (
+            {!modelFormOpen && canAddModel && (
               <button type="button" onClick={openAddModel} className={PRIMARY}>
                 <Plus size={14} /> Add model
               </button>
@@ -630,6 +753,7 @@ export default function LlmSettingsSection({
               ? "Top to bottom is the fallback order: the first model answers, the next one takes over when it fails."
               : "Every enabled model takes turns. The order sets which one starts first and who takes over on a failure."}
           </p>
+          {hasOpencodeEntries && <p className={HINT}>Chat uses the API models; OpenCode entries run tasks only.</p>}
 
           {modelFormOpen && (
             <form onSubmit={saveModel} className="grid gap-3 border-y border-line py-4">
@@ -648,6 +772,7 @@ export default function LlmSettingsSection({
                     {(sortedProviders ?? []).map((p) => (
                       <option key={p._id} value={p._id}>{p.name}</option>
                     ))}
+                    {opencodeRowId && <option value={opencodeRowId}>OpenCode (tasks only)</option>}
                   </select>
                 </label>
                 <label className={LABEL}>
@@ -656,7 +781,15 @@ export default function LlmSettingsSection({
                     list="llm-model-options"
                     value={modelForm.modelId}
                     onChange={(e) => setModelForm({ ...modelForm, modelId: e.target.value })}
-                    placeholder={modelOptionsLoading ? "Loading models…" : options.length > 0 ? "Pick or type a model id" : modelPreset?.modelHint ?? "Model id"}
+                    placeholder={
+                      addingOpencode
+                        ? "provider/model"
+                        : modelOptionsLoading
+                          ? "Loading models…"
+                          : options.length > 0
+                            ? "Pick or type a model id"
+                            : modelPreset?.modelHint ?? "Model id"
+                    }
                     className={FIELD}
                   />
                   <datalist id="llm-model-options">
@@ -666,7 +799,15 @@ export default function LlmSettingsSection({
                   </datalist>
                 </label>
               </div>
-              {options.length > 0 && <p className={HINT}>{options.length} models available from this provider.</p>}
+              {addingOpencode ? (
+                <p className={HINT}>
+                  {options.length > 0
+                    ? `${options.length} models the worker's OpenCode CLI can run, or type a provider/model id.`
+                    : "The worker has not listed OpenCode models yet. Type a provider/model id, or press Check again."}
+                </p>
+              ) : (
+                options.length > 0 && <p className={HINT}>{options.length} models available from this provider.</p>
+              )}
               <details>
                 <summary className="cursor-pointer text-[12.5px] text-ink-3 hover:text-ink">Advanced</summary>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -713,8 +854,25 @@ export default function LlmSettingsSection({
             <ol className="divide-y divide-line border-y border-line">
               {orderedModels.map((m, index) => {
                 const owner = providerById.get(m.providerId);
-                const off = !m.isAvailable || owner?.isEnabled === false;
-                const test = tests[`m:${m._id}`];
+                const isOpencode = isOpencodeConnection(owner);
+                // Plan 038: an OpenCode entry the worker would skip right now.
+                const unavailable = isOpencode && m.isAvailable ? opencodeOff : null;
+                const off = !m.isAvailable || owner?.isEnabled === false || unavailable !== null;
+                const test = isOpencode
+                  ? opencodeTestKey === `m:${m._id}`
+                    ? opencode?.pendingTest
+                      ? "running"
+                      : opencodeTest
+                        ? {
+                            ok: opencodeTest.ok,
+                            connection: "OpenCode",
+                            model: opencodeTest.model ?? m.modelId,
+                            latencyMs: opencodeTest.latencyMs,
+                            detail: opencodeTest.error ?? "OK",
+                          }
+                        : undefined
+                    : undefined
+                  : tests[`m:${m._id}`];
                 return (
                   <li key={m._id} className="grid gap-1 py-2.5">
                     <div className="flex items-center gap-2">
@@ -724,9 +882,15 @@ export default function LlmSettingsSection({
                           {m.displayName || m.modelId}
                         </p>
                         <p className="truncate text-[12.5px] text-ink-3">
-                          {owner?.name ?? "Unknown provider"}
+                          {isOpencode ? "OpenCode · tasks only" : owner?.name ?? "Unknown provider"}
                           {m.displayName ? ` · ${m.modelId}` : ""}
-                          {!m.isAvailable ? " · disabled" : owner?.isEnabled === false ? " · provider disabled" : ""}
+                          {!m.isAvailable
+                            ? " · disabled"
+                            : unavailable
+                              ? ` · unavailable (${unavailable})`
+                              : owner?.isEnabled === false
+                                ? " · provider disabled"
+                                : ""}
                         </p>
                       </div>
                       <button type="button" onClick={() => void move(index, -1)} disabled={index === 0} className={ICON} aria-label={`Move ${m.modelId} up`}>
@@ -755,35 +919,6 @@ export default function LlmSettingsSection({
           )}
         </section>
 
-        {/* 4. OpenCode runtime (plan 035) */}
-        <section className={SECTION} aria-labelledby="llm-opencode">
-          <h3 id="llm-opencode" className={SECTION_TITLE}>OpenCode runtime</h3>
-          <p className={HINT}>
-            One setting for the whole app: the OpenCode CLI, its credentials and its model list live on the worker, so
-            every agent runs on the same runtime. Each agent still uses the model list above unless its own form sets a
-            provider. Changes apply to the next task.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className={LABEL}>
-              Runtime
-              <select
-                value={opencodeRuntime}
-                onChange={(e) => setOpencodeRuntime(e.target.value as "api" | "opencode")}
-                className={FIELD}
-                aria-label="OpenCode runtime"
-              >
-                <option value="api">Built-in (Fhara tools)</option>
-                <option value="opencode">OpenCode CLI</option>
-              </select>
-            </label>
-            <OpencodeModelField value={opencodeModel} onChange={setOpencodeModel} disabled={opencodeRuntime !== "opencode"} />
-          </div>
-          <div>
-            <button type="button" onClick={() => void saveOpencodeSettings()} className={PRIMARY}>
-              Save runtime
-            </button>
-          </div>
-        </section>
       </div>
     </>
   );

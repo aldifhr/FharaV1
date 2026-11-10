@@ -5,6 +5,7 @@ import { changedFields, recordAudit, setFields } from "./lib/recordAudit";
 import { nextPosition, positionsFromOrder, sortModelRows } from "./lib/llmOrder";
 import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { isOpencodeConnection, isOpencodeModelId } from "./lib/opencodeProvider";
 
 /**
  * Give every model row a position, in the current list order, when some
@@ -101,6 +102,10 @@ export const create = mutation({
     if (!provider) throw new Error(`Provider connection not found: ${args.providerId}`);
     const modelId = args.modelId.trim();
     if (!modelId) throw new Error("Model identifier is required");
+    // Plan 038: the CLI takes `-m provider/model`.
+    if (isOpencodeConnection(provider) && !isOpencodeModelId(modelId)) {
+      throw new Error(`OpenCode models are "provider/model" ids (got "${modelId.slice(0, 80)}")`);
+    }
     const existing = await ctx.db
       .query("llmModels")
       .withIndex("by_provider_and_model", (q) =>
@@ -159,6 +164,9 @@ export const update = mutation({
     if (updates.modelId !== undefined) {
       const modelId = updates.modelId.trim();
       if (!modelId) throw new Error("Model identifier is required");
+      if (isOpencodeConnection(await ctx.db.get(doc.providerId)) && !isOpencodeModelId(modelId)) {
+        throw new Error(`OpenCode models are "provider/model" ids (got "${modelId.slice(0, 80)}")`);
+      }
       updates.modelId = modelId;
     }
     if (updates.displayName !== undefined) {

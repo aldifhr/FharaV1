@@ -153,12 +153,13 @@ deployment env. All are listed in `.env.example`.
 | `ORCHESTRATOR_EXECUTION_RUNTIME` | `.env` | `api` | `api` or `opencode` (legacy `ORCHESTRATOR_RUNTIME`) |
 | `ORCHESTRATOR_NATIVE_PROVIDER_COMMAND` | `.env` | `opencode` | OpenCode CLI binary |
 | `ORCHESTRATOR_NATIVE_TIMEOUT_MS` | `.env` | `600000` | Wall-clock limit per OpenCode run |
-| `WORKER_OPENCODE_CATALOG_POLL_MS` | `.env` | `30000` | How often the worker refreshes the OpenCode model catalog |
 | `ORCHESTRATOR_REVIEW_MODE` / `ORCHESTRATOR_QA_MODE` | `.env` | `auto` | `always` / `auto` / `never` |
 | `ORCHESTRATOR_QA_REQUIRED` | `.env` | `0` | `1` = environment-blocked QA fails the task |
 | `QA_CHROMIUM_PATH` | `.env` | Playwright's Chromium | System Chromium (fallback `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`) |
 | `QA_CHROMIUM_NO_SANDBOX` | `.env` | auto | `1` = `--no-sandbox` (auto as root / in containers) |
-| `ORCHESTRATOR_WORKTREE_ISOLATION` | `.env` | `0` | Run each task on its own branch (needed for push / PR) |
+| `ORCHESTRATOR_WORKTREE_ISOLATION` | `.env` | `0` | Run each task on its own branch (needed for push / PR, and for OpenCode entries) |
+| `ORCHESTRATOR_OPENCODE_ALLOW_UNISOLATED` | `.env` | unset | `1` lets OpenCode run without worktree isolation (in the real checkout) |
+| `WORKER_OPENCODE_CATALOG_POLL_MS` | `.env` | `15000` | How often the worker checks for an OpenCode Check again / Test request |
 | `ORCHESTRATOR_PARALLEL_DEFAULT` | `.env` | `2` | Parallel subtasks (1–3) when worktree isolation is on; `1` without it |
 | `FHARA_ALLOW_BASE_BRANCH_PUSH` | `.env` | `0` | Allow pushes to the base branch / main / master |
 | `FHARA_ALLOW_FORCE_PUSH` | `.env` | `0` | Allow force pushes |
@@ -202,12 +203,27 @@ Agents can run on two runtimes:
   (`npm i -g opencode-ai`) runs its own tools in the task worktree. Its
   changes still pass the staging and approval gate.
 
-Set the runtime in Settings → LLM & Models (OpenCode runtime: Built-in or
-OpenCode CLI, plus the model the CLI runs). It is one setting for the whole
-app: the CLI, its credentials and its model list live on the worker.
-`ORCHESTRATOR_EXECUTION_RUNTIME` is only the fallback for a deployment that
-never wrote the setting. Each agent still picks its own Fhara model
-(Provider / Model / Fallback) in the agent form.
+OpenCode is a provider in Settings → LLM & Models (plan 038). The worker
+detects the CLI at startup and every ~5 min (PATH lookup, `opencode.cmd` on
+Windows, then `opencode --version`); the OpenCode row shows "Detected v<x> at
+<path>", "Not installed" (with the install command) or "Worker offline", with
+an Enable switch, Test (a one-word `opencode run` on the worker) and Check
+again. Its models take positions in the same ordered list as the API models:
+when the order (fallback or round robin, or an agent's own provider) picks an
+OpenCode entry, that subtask runs on the OpenCode CLI with that model; an API
+entry runs on the built-in runtime. Chat always skips OpenCode entries. A
+disabled or undetected OpenCode is skipped, and the next entry runs.
+
+OpenCode only runs with worktree isolation on
+(`ORCHESTRATOR_WORKTREE_ISOLATION=1`): without it the worker skips OpenCode
+entries (event `opencode.skipped`) so the CLI never edits the real checkout.
+`ORCHESTRATOR_OPENCODE_ALLOW_UNISOLATED=1` is the explicit opt-out.
+
+Before the OpenCode provider is enabled, the older app-wide switch (plan 035,
+`opencodeSettings`) and `ORCHESTRATOR_EXECUTION_RUNTIME` still apply; enabling
+the provider moves a configured OpenCode model to the top of the list and
+retires the switch. Each agent still picks its own model (Provider / Model /
+Fallback) in the agent form.
 
 Without an OpenCode model the CLI is pointed at the agent's resolved Fhara
 LLM through a temporary config; the key travels only in the child process env

@@ -3,6 +3,7 @@
  * OpenAI-compatible or Anthropic endpoint, plus config resolution from the
  * shared provider pool (llmResolver) with the env-var global fallback.
  */
+import { withoutOpencode } from "../opencodeProvider";
 import { resolveConnectionKey, type PoolConnectionPayload, type PoolModelPayload } from "../llmResolver";
 
 import { getGlobalLLMConfig, type LlmEndpointConfig } from "../llmConfig";
@@ -426,7 +427,9 @@ export function orderedChatPairs(
   cursor: { next(size: number): number } = chatRotation
 ): PoolPair[] {
   if (!providers || providers.length === 0) return [];
-  const enabled = providers.filter((p) => p.isEnabled !== false);
+  // Plan 038: OpenCode entries run only on the worker (tasks); the backend
+  // cannot run the CLI, so chat walks the API models of the same list.
+  const enabled = withoutOpencode(providers).filter((p) => p.isEnabled !== false);
   const out: PoolPair[] = [];
   const seen = new Set<string>();
   const push = (pair: PoolPair | null) => {
@@ -512,7 +515,7 @@ export async function resolveFallbackConfigFromProviders(
 ): Promise<ChatLlmConfig | null> {
   if (!providers) return null;
   const pair = assignedPair(
-    providers.filter((p) => p.isEnabled !== false),
+    withoutOpencode(providers).filter((p) => p.isEnabled !== false),
     agent?.llmFallbackProviderId,
     agent?.llmFallbackModelId
   );

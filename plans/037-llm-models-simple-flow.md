@@ -37,7 +37,7 @@ Model, ngatur urutan yang mau Fallback atau Round Robinnya".
    Up/down reorder (`llmModels.reorder`, atomic; connection priority follows
    the first model), enable/disable, remove, Test. The order is the
    fallback order; in round robin it is the rotation set.
-4. OpenCode runtime section unchanged.
+4. OpenCode runtime section unchanged (replaced by the OpenCode provider row in plan 038).
 
 ## One resolver for chat and tasks
 

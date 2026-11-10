@@ -1,4 +1,5 @@
 import { loadSelectionMode } from "./llmSelection";
+import { effectiveLegacyOpencode } from "./opencodeProvider";
 import { loadOpencodeSettings } from "./opencodeSettings";
 import type { LlmSelectionMode } from "./lib/llmSelection";
 import { internalMutation, internalQuery, query } from "./_generated/server";
@@ -243,8 +244,11 @@ export const getRunContext = internalQuery({
     // Provider pool (connections + model registry) assembled by the shared
     // backend helper. Only the ENCRYPTED key crosses to the worker — the
     // worker decrypts on its side (spec §5); plaintext is never returned.
+    // Plan 038: the run context is the one reader that carries the OpenCode
+    // provider row: the worker turns an OpenCode entry of the order into the
+    // native runtime for that subtask.
     const llmProviders: PoolConnectionPayload[] = project
-      ? await loadProviderPool(ctx)
+      ? await loadProviderPool(ctx, { includeOpencode: true })
       : [];
     // MCP config crosses to the worker: global + this project's servers,
     // enabled only (mcpServers.resolveRunMcpServers). Env values cross only
@@ -254,7 +258,9 @@ export const getRunContext = internalQuery({
     // Plan 032: the app-wide selection mode for the worker's resolver.
     const llmSelectionMode = await loadSelectionMode(ctx);
     // Plan 035: the app-wide OpenCode runtime (null = never configured).
-    const opencode = await loadOpencodeSettings(ctx);
+    // Plan 038: once the OpenCode provider row exists, the ordered model
+    // list decides and the legacy switch is neutralized ("api" baseline).
+    const opencode = await effectiveLegacyOpencode(ctx, await loadOpencodeSettings(ctx));
 
     return {
       task,

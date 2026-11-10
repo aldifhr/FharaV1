@@ -214,7 +214,9 @@ export default function AgentDetailPanel({
         <Section title="Runtime">
           <p className="text-sm text-gray-600 dark:text-gray-300">
             {/* Plan 035: the runtime is app-wide (Settings → LLM & Models). */}
-            {opencode?.runtime === "opencode"
+            {opencode?.viaModelList
+              ? "From the model list: an OpenCode entry runs on the OpenCode CLI, an API entry on the built-in tools"
+              : opencode?.runtime === "opencode"
               ? `OpenCode${opencode.model ? ` · ${opencode.model}` : " · Fhara LLM"}`
               : "Built-in (Fhara host tools)"}
           </p>

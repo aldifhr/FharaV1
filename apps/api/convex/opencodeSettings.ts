@@ -15,6 +15,7 @@ import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import type { DataModel } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { normalizeOpencodeModel } from "./agents";
+import { isOpencodeConnection } from "./lib/opencodeProvider";
 
 /** The runtime the app-wide setting selects. */
 export type OpencodeRuntime = "api" | "opencode";
@@ -25,12 +26,22 @@ export interface OpencodeSettings {
   model: string;
   /** False when no row was ever written (the worker falls back). */
   configured: boolean;
+  /**
+   * Plan 038: the OpenCode provider row exists, so the ordered model list
+   * decides per subtask (OpenCode entry = OpenCode, API entry = built-in)
+   * and this switch no longer applies.
+   */
+  viaModelList?: boolean;
 }
 
 /** Read the app-wide setting. */
 export const get = query({
   args: {},
   handler: async (ctx): Promise<OpencodeSettings> => {
+    const providerRows = await ctx.db.query("llmProviders").collect();
+    if (providerRows.some((p) => isOpencodeConnection(p))) {
+      return { runtime: "api", model: "", configured: true, viaModelList: true };
+    }
     const row = await ctx.db.query("opencodeSettings").first();
     if (!row) return { runtime: "api", model: "", configured: false };
     return {

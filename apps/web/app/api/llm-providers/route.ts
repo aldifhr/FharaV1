@@ -56,6 +56,8 @@ const OP_FIELDS: Record<string, readonly string[]> = {
   createModel: ["providerId", ...MODEL_FIELDS],
   updateModel: ["id", ...MODEL_FIELDS],
   removeModel: ["id"],
+  // Plan 038: the OpenCode provider row (no URL, no key).
+  setOpencodeEnabled: ["enabled"],
 };
 
 export async function POST(request: NextRequest) {
@@ -158,6 +160,13 @@ export async function POST(request: NextRequest) {
       case "removeModel": {
         await client.mutation(api.llmModels.remove, callArgs);
         return NextResponse.json({ ok: true });
+      }
+      case "setOpencodeEnabled": {
+        const result = await client.mutation(api.opencodeProvider.setEnabled, {
+          token,
+          enabled: payload.enabled === true,
+        });
+        return NextResponse.json(result);
       }
       default:
         return NextResponse.json({ error: `Unknown op: ${op}` }, { status: 400 });

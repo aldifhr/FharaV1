@@ -105,3 +105,55 @@ export function hostOf(baseUrl: string): string {
     return baseUrl;
   }
 }
+
+/** Plan 038: what the Settings row knows about the OpenCode CLI. */
+export interface OpencodeStatusLike {
+  configured: boolean;
+  enabled: boolean;
+  workerOnline: boolean;
+  installed: boolean | null;
+  version: string | null;
+  path: string | null;
+  error: string | null;
+}
+
+/**
+ * The OpenCode row's status line: "Detected v<x> at <path>", "Not
+ * installed", "Worker offline" or "Not checked yet". A worker that is
+ * offline wins: its last report may be stale.
+ */
+export function opencodeStatusLine(status: OpencodeStatusLike | undefined): {
+  kind: "detected" | "missing" | "offline" | "unknown";
+  text: string;
+} {
+  if (!status) return { kind: "unknown", text: "Checking…" };
+  if (!status.workerOnline) {
+    const last =
+      status.installed === true
+        ? ` (last seen: v${status.version ?? "?"}${status.path ? ` at ${status.path}` : ""})`
+        : "";
+    return { kind: "offline", text: `Worker offline${last}` };
+  }
+  if (status.installed === null) return { kind: "unknown", text: "Not checked yet" };
+  if (!status.installed) return { kind: "missing", text: `Not installed${status.error ? ` · ${status.error}` : ""}` };
+  const where = status.path ? ` at ${status.path}` : "";
+  const version = status.version ? ` v${status.version}` : "";
+  return {
+    kind: "detected",
+    text: `Detected${version}${where}${status.error && !status.version ? ` · ${status.error}` : ""}`,
+  };
+}
+
+/**
+ * Why an OpenCode entry of the list cannot run now, or null when it can
+ * (as far as Settings can tell; the worker also refuses without worktree
+ * isolation and says so in the event log).
+ */
+export function opencodeUnavailableReason(status: OpencodeStatusLike | undefined): string | null {
+  if (!status) return null;
+  if (!status.configured || !status.enabled) return "OpenCode disabled";
+  if (!status.workerOnline) return "worker offline";
+  if (status.installed === false) return "OpenCode not installed";
+  if (status.installed === null) return "OpenCode not checked yet";
+  return null;
+}

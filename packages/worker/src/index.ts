@@ -39,7 +39,7 @@ const REPO_TOOL_HOT_WINDOW_MS = 30_000;
 // needs a refresh (the UI can request one at any time).
 const OPENCODE_CATALOG_POLL_MS = Math.max(
   5_000,
-  Number(process.env.WORKER_OPENCODE_CATALOG_POLL_MS ?? 30_000)
+  Number(process.env.WORKER_OPENCODE_CATALOG_POLL_MS ?? 15_000)
 );
 
 const workerId =

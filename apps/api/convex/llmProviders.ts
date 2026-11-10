@@ -9,6 +9,7 @@ import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver"
 import { listProviderModels } from "./lib/llmModelList";
 import { nextPosition } from "./lib/llmOrder";
 import { materializePositions } from "./llmModels";
+import { isOpencodeConnection } from "./lib/opencodeProvider";
 
 /**
  * Whether this deployment can store a provider key: the Convex env has a
@@ -81,6 +82,11 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     assertServiceToken(args.token);
+    // Plan 038: the OpenCode row is not an HTTP connection; it has its own
+    // write path (opencodeProvider.setEnabled), so there is only ever one.
+    if (isOpencodeConnection(args)) {
+      throw new Error("OpenCode is added from its own row in Settings, not as an HTTP provider");
+    }
     assertSafeApiKeyEnv(args.apiKeyEnv);
     const { token: _token, apiKey, ...fields } = args;
     const now = Date.now();
@@ -143,6 +149,10 @@ export const updateProvider = mutation({
     if (args.apiKeyEnv !== undefined) assertSafeApiKeyEnv(args.apiKeyEnv);
     const { id, token: _token, apiKey, ...updates } = args;
     const before = await ctx.db.get(id);
+    // Plan 038: a row never switches between OpenCode and HTTP.
+    if (updates.provider !== undefined && isOpencodeConnection(before) !== isOpencodeConnection(updates)) {
+      throw new Error("A provider cannot switch between OpenCode and an HTTP connection");
+    }
     await ctx.db.patch(id, {
       ...updates,
       // Write-only credential update: a provided key replaces the stored

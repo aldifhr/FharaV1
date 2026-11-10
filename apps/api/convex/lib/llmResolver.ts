@@ -3,6 +3,7 @@ import type { QueryCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { decryptApiKey } from "./llmCrypto";
 import { normalizeSelectionMode, type LlmSelectionMode } from "./llmSelection";
+import { isOpencodeConnection } from "./opencodeProvider";
 
 /**
  * Backend provider-pool assembly (spec §4) — the single place where
@@ -70,10 +71,15 @@ export interface PoolConnectionPayload {
  * its registered models. A connection whose models have not been migrated
  * yet (no llmModels rows) exposes its legacy `model` column as a single
  * synthesized model so resolution keeps working during the transition.
+ *
+ * Plan 038: the OpenCode row (lib/opencodeProvider.ts) is NOT an HTTP
+ * connection, so it is left out unless the caller runs tasks on the worker
+ * (`includeOpencode`, the run context only). Chat, review and every other
+ * backend LLM call never see it.
  */
 export async function loadProviderPool(
   ctx: QueryCtx,
-  options: { includeDisabled?: boolean } = {}
+  options: { includeDisabled?: boolean; includeOpencode?: boolean } = {}
 ): Promise<PoolConnectionPayload[]> {
   const providers = await ctx.db.query("llmProviders").collect();
   const modelDocs = await ctx.db.query("llmModels").collect();
@@ -100,6 +106,7 @@ export async function loadProviderPool(
   const pool: PoolConnectionPayload[] = [];
   for (const p of providers) {
     if (p.isEnabled === false && !options.includeDisabled) continue;
+    if (isOpencodeConnection(p) && !options.includeOpencode) continue;
     let models = modelsByProvider.get(p._id) ?? [];
     if (models.length === 0 && p.model) {
       models = [{ modelId: p.model, isAvailable: true, legacy: true }];

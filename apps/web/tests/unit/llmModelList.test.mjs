@@ -5,6 +5,8 @@ import {
   formForPreset,
   hostOf,
   moveItem,
+  opencodeStatusLine,
+  opencodeUnavailableReason,
   providerFormError,
   providerPayload,
   sameOrder,
@@ -73,4 +75,23 @@ test("payload: key only when typed, patterns split, preset id kept", () => {
 test("hostOf", () => {
   assert.equal(hostOf("https://api.anthropic.com/v1"), "api.anthropic.com");
   assert.equal(hostOf("not a url"), "not a url");
+});
+
+// Plan 038: the OpenCode row.
+const ocBase = { configured: true, enabled: true, workerOnline: true, installed: true, version: "1.19.5", path: "/usr/bin/opencode", error: null };
+
+test("opencodeStatusLine: detected, missing, offline, unchecked", () => {
+  assert.deepEqual(opencodeStatusLine(ocBase), { kind: "detected", text: "Detected v1.19.5 at /usr/bin/opencode" });
+  assert.equal(opencodeStatusLine({ ...ocBase, installed: false, version: null, path: null, error: "not on PATH" }).kind, "missing");
+  const offline = opencodeStatusLine({ ...ocBase, workerOnline: false });
+  assert.equal(offline.kind, "offline");
+  assert.match(offline.text, /^Worker offline \(last seen: v1\.19\.5/);
+  assert.equal(opencodeStatusLine({ ...ocBase, installed: null }).kind, "unknown");
+});
+
+test("opencodeUnavailableReason: why an OpenCode entry is skipped", () => {
+  assert.equal(opencodeUnavailableReason(ocBase), null);
+  assert.equal(opencodeUnavailableReason({ ...ocBase, enabled: false }), "OpenCode disabled");
+  assert.equal(opencodeUnavailableReason({ ...ocBase, workerOnline: false }), "worker offline");
+  assert.equal(opencodeUnavailableReason({ ...ocBase, installed: false }), "OpenCode not installed");
 });

@@ -395,7 +395,7 @@ export function parseNativeUsage(stdout: string): { inputTokens: number; outputT
 
 // ── process handling ──────────────────────────────────────────────────
 
-async function defaultSpawn(
+export async function defaultSpawn(
   command: string,
   args: string[],
   options: SpawnOptions

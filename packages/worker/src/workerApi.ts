@@ -82,6 +82,13 @@ export class WorkerApi {
     return await this.client.action(api.worker.getOpencodeModelState, this.args(input));
   }
 
+  /** Plan 038: store the result of the Settings "Test" probe for OpenCode. */
+  async reportOpencodeTest(
+    input: ActionInput<typeof api.worker.reportOpencodeTest>
+  ): Promise<FunctionReturnType<typeof api.worker.reportOpencodeTest>> {
+    return await this.client.action(api.worker.reportOpencodeTest, this.args(input));
+  }
+
   async markOffline(
     input: ActionInput<typeof api.worker.markOffline>
   ): Promise<FunctionReturnType<typeof api.worker.markOffline>> {

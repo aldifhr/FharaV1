@@ -130,9 +130,31 @@ export const reportOpencodeModels = action({
     available: v.boolean(),
     error: v.optional(v.string()),
     command: v.optional(v.string()),
+    // Plan 038: detection (binary found, `--version`, where it was found).
+    installed: v.optional(v.boolean()),
+    version: v.optional(v.string()),
+    path: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ models: number }> => {
     return await ctx.runMutation(internal.opencodeModels.report, withoutToken(args));
+  },
+});
+
+/**
+ * Plan 038: the worker stores the result of the Settings "Test" probe for
+ * the OpenCode provider. Latency and an error string only.
+ */
+export const reportOpencodeTest = action({
+  args: {
+    ...tokenArg,
+    workerId: v.string(),
+    ok: v.boolean(),
+    latencyMs: v.number(),
+    model: v.optional(v.string()),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ ok: boolean }> => {
+    return await ctx.runMutation(internal.opencodeModels.reportTest, withoutToken(args));
   },
 });
 
@@ -150,6 +172,8 @@ export const getOpencodeModelState = action({
     available: boolean;
     updatedAt: number;
     refreshRequestedAt: number;
+    testRequestedAt: number;
+    testModel: string;
   }> => {
     const { workerId } = withoutToken(args);
     return await ctx.runQuery(internal.opencodeModels.state, { workerId });

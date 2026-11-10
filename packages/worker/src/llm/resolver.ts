@@ -17,6 +17,7 @@ import {
   matchesModelPattern,
   orderPoolPairs,
 } from "@/api/convex/lib/llmOrder";
+import { isOpencodeConnection, withoutOpencode } from "@/api/convex/lib/opencodeProvider";
 
 export { matchesModelPattern };
 
@@ -267,10 +268,17 @@ export function resolveForAgent(
     rotation?: RotationCursor;
     /** Plan 032: the app-wide selection mode from the run context. */
     globalMode?: LlmSelectionMode;
+    /**
+     * Plan 038: keep the OpenCode row's entries in the chain. Only the
+     * subtask route (executionRouteFor) sets it; every API call resolves
+     * over the HTTP connections alone.
+     */
+    includeOpencode?: boolean;
   } = {}
 ): AgentResolution {
   const random = options.random ?? Math.random;
   const rotation = options.rotation ?? rotationCursor;
+  if (!options.includeOpencode) pool = withoutOpencode(pool);
 
   // Empty pool: preserve the historical env-based behavior (Settings has
   // no providers configured; the worker env is the configuration).
@@ -571,10 +579,144 @@ export class TaskLlmResolver {
     }
   }
 
+  /** Plan 038: the pool has the OpenCode provider (enabled). */
+  hasOpencode(): boolean {
+    return this.pool.some((connection) => isOpencodeConnection(connection));
+  }
+
+  /**
+   * Plan 038: the route for one subtask (native OpenCode or the API), from
+   * the same ordered chain as every other call. With every OpenCode entry
+   * skipped and no HTTP entry after it, the API resolution over the HTTP
+   * connections alone applies (the worker env when there are none).
+   */
+  executionRouteFor(
+    agent: AgentLlmAssignment | undefined,
+    gate: OpencodeGate,
+    need: ResolveNeed = { callRole: "executor" }
+  ): ExecutionRoute {
+    const assignment = this.assignmentFor(agent);
+    const resolveOptions = {
+      random: this.options.random,
+      rotation: this.options.rotation,
+      globalMode: this.options.globalMode,
+    };
+    const withOpencode = resolveForAgent(assignment, need, this.pool, this.health, {
+      ...resolveOptions,
+      includeOpencode: true,
+    });
+    const picked = routeFromResolution(withOpencode, gate, need);
+    const apiOnly = () =>
+      resolveForAgent(assignment, need, this.pool, this.health, {
+        ...resolveOptions,
+        // The HTTP-only fallback must not consume a second rotation.
+        rotation: fixedRotationCursor,
+      });
+    if (picked.route === "native") {
+      let apiResolution: AgentResolution | undefined;
+      try {
+        apiResolution = apiOnly();
+      } catch {
+        apiResolution = undefined;
+      }
+      return {
+        runtime: "native-provider",
+        model: picked.entry.model,
+        skipped: picked.skipped,
+        ...(apiResolution ? { apiResolution } : {}),
+        routing: {
+          model: picked.entry.model,
+          connection: picked.entry.connectionName,
+          callRole: need.callRole,
+          reason: `${picked.entry.model} on ${picked.entry.connectionName}: model list order (native OpenCode runtime)`,
+        },
+      };
+    }
+    if (picked.route === "api") return { runtime: "api", resolution: picked.resolution, skipped: picked.skipped };
+    try {
+      return { runtime: "api", resolution: apiOnly(), skipped: picked.skipped };
+    } catch (error) {
+      const why = picked.skipped.map((entry) => `${entry.model}: ${entry.reason}`).join("; ");
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}${why ? ` OpenCode entries skipped: ${why}.` : ""}`
+      );
+    }
+  }
+
   /** Task-level default (agent-less callers: planner fallback, Stagehand). */
   defaultConfig(): GlobalLLMConfig {
     return this.configFor(undefined);
   }
+}
+
+/**
+ * Plan 038: can this worker run an OpenCode entry for this subtask? The
+ * caller decides (CLI detected, worktree isolation); a reason is shown in
+ * the event log when an entry is skipped.
+ */
+export interface OpencodeGate {
+  available: boolean;
+  reason?: string;
+}
+
+/** An OpenCode entry the route passed over, and why. */
+export interface SkippedOpencodeEntry {
+  model: string;
+  reason: string;
+}
+
+/**
+ * Plan 038: how one subtask runs. The first entry of the agent's ordered
+ * chain (assignment → fallback → the list, rotated in round robin) decides:
+ * an OpenCode entry = the native runtime with that model; an HTTP entry =
+ * the API runtime with the rest of the HTTP chain as its failover. OpenCode
+ * entries the gate refuses are skipped, which is the fallback.
+ */
+export type ExecutionRoute =
+  | {
+      runtime: "native-provider";
+      model: string;
+      routing: ModelRoutingInfo;
+      /** HTTP-only resolution for the subtask's auxiliary API calls. */
+      apiResolution?: AgentResolution;
+      skipped: SkippedOpencodeEntry[];
+    }
+  | { runtime: "api"; resolution: AgentResolution; skipped: SkippedOpencodeEntry[] };
+
+/** Pure: pick the route from a resolution that kept OpenCode entries. */
+export function routeFromResolution(
+  resolution: AgentResolution,
+  gate: OpencodeGate,
+  need: ResolveNeed = {}
+): { route: "native"; entry: ResolvedLlm; skipped: SkippedOpencodeEntry[] } | { route: "api"; resolution: AgentResolution; skipped: SkippedOpencodeEntry[] } | { route: "none"; skipped: SkippedOpencodeEntry[] } {
+  const chain = [resolution.primary, ...resolution.fallbackChain];
+  const skipped: SkippedOpencodeEntry[] = [];
+  for (const [index, entry] of chain.entries()) {
+    if (isOpencodeConnection(entry)) {
+      if (gate.available) return { route: "native", entry, skipped };
+      skipped.push({ model: entry.model, reason: gate.reason ?? "OpenCode is unavailable" });
+      continue;
+    }
+    const rest = chain.slice(index + 1).filter((candidate) => !isOpencodeConnection(candidate));
+    return {
+      route: "api",
+      skipped,
+      resolution: {
+        primary: entry,
+        fallbackChain: rest,
+        routing:
+          index === 0
+            ? resolution.routing
+            : {
+                model: entry.model,
+                connection: entry.connectionName,
+                callRole: need.callRole,
+                reason: `${entry.model} on ${entry.connectionName}: next in the model list (OpenCode skipped)`,
+              },
+      },
+    };
+  }
+  return { route: "none", skipped };
 }
 
 /** Handles (primary first, then the fallback chain) for a resolution. */

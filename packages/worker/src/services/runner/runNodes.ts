@@ -21,7 +21,8 @@ import { waitForCommandApproval } from "./commandApproval";
 import { runWithObservationScope } from "@/effects/observationContext";
 import { stallEventType, stallThresholdsFromEnv, type StallObservation } from "@/utils/stallDetector";
 import { llmTimeoutMs } from "@/llm";
-import { handlesFromResolution, type AgentResolution, type ModelRoutingInfo } from "@/llm/resolver";
+import { handlesFromResolution, type AgentResolution, type ExecutionRoute, type ModelRoutingInfo } from "@/llm/resolver";
+import { ensureOpencodeDetection, opencodeGateFor } from "@/execution/opencodeDetect";
 import type { PerformanceScore } from "@/api/convex/lib/agentPerformance";
 
 /**
@@ -42,6 +43,26 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
   const subsetKeys = new Set(nodes.map((node) => node.key));
   // Plan 027: the executor resolution made at onStart, consumed by the node.
   const resolutionByKey = new Map<string, AgentResolution>();
+  // Plan 038: the subtask route (native OpenCode or API) picked at onStart.
+  const routeByKey = new Map<string, ExecutionRoute>();
+  const opencodeGate = async () =>
+    opencodeGateFor({
+      detection: await ensureOpencodeDetection(),
+      worktreeIsolation: deps.policy.worktreeIsolation,
+    });
+  // Skipped OpenCode entries go to the event log, once per node start.
+  const logSkipped = async (nodeKey: string, skipped: ExecutionRoute["skipped"]) => {
+    for (const entry of skipped) {
+      await deps.api.logEvent({
+        taskId,
+        projectId: project._id,
+        type: "opencode.skipped",
+        payload: { subtaskKey: nodeKey, model: entry.model, reason: entry.reason },
+        subtaskKey: nodeKey,
+        level: "warn",
+      });
+    }
+  };
   // Load-aware routing (opt-in): read running executions per agent across
   // every task once per invocation. A failed read routes as usual.
   if (ctx.loadAwareRouting || ctx.performanceRouting) await refreshLoadSnapshot(ctx);
@@ -138,12 +159,29 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       // A resolution failure (e.g. no provider can serve the agent, or a
       // provider cannot be constructed) fails the subtask explicitly.
       let llmHandles: FallbackHandle[] | undefined;
+      // Plan 038: with the OpenCode provider in the pool, the ordered chain
+      // decides the runtime of this subtask (prepared at onStart).
+      let route = routeByKey.get(node.id);
+      routeByKey.delete(node.id);
       try {
+        if (!route && input.llmResolver?.hasOpencode()) {
+          route = input.llmResolver.executionRouteFor(agent, await opencodeGate(), { callRole: "executor" });
+          await logSkipped(node.id, route.skipped);
+        }
         const prepared = resolutionByKey.get(node.id);
         resolutionByKey.delete(node.id);
-        llmHandles = prepared
-          ? handlesFromResolution(prepared)
-          : input.llmResolver?.handlesFor(agent, { callRole: "executor" });
+        const routed = route
+          ? route.runtime === "api"
+            ? route.resolution
+            : route.apiResolution
+          : undefined;
+        llmHandles = routed
+          ? handlesFromResolution(routed)
+          : route
+            ? undefined
+            : prepared
+              ? handlesFromResolution(prepared)
+              : input.llmResolver?.handlesFor(agent, { callRole: "executor" });
       } catch (error) {
         return {
           status: "failed",
@@ -166,13 +204,30 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       // guard): fold undelivered inputs now; the prompt acks what it renders.
       if (input.sharedContext) await pullTaskInputs(deps, taskId, input.sharedContext);
       // Plan 035: the effective OpenCode runtime and model for this node.
-      const opencodeSelection = resolveOpencodeSelection({
-        globalRuntime: input.opencodeRuntime,
-        globalModel: input.opencodeModel,
-        agentRuntime: agent.executionRuntime,
-        agentModel: agent.opencodeModel,
-        envDefault: deps.policy.executionRuntime,
-      });
+      // Plan 038: a route from the ordered list wins; without the OpenCode
+      // provider the plan 035 selection applies, behind the same guard.
+      let opencodeSelection: { runtime: "api" | "native-provider"; model?: string } = route
+        ? route.runtime === "native-provider"
+          ? { runtime: "native-provider", model: route.model }
+          : { runtime: "api" }
+        : resolveOpencodeSelection({
+            globalRuntime: input.opencodeRuntime,
+            globalModel: input.opencodeModel,
+            agentRuntime: agent.executionRuntime,
+            agentModel: agent.opencodeModel,
+            envDefault: deps.policy.executionRuntime,
+          });
+      if (!route && opencodeSelection.runtime === "native-provider") {
+        const gate = await opencodeGate();
+        if (!gate.available) {
+          // Never run OpenCode in the user's real checkout (or without a
+          // CLI): this subtask runs on the built-in API runtime instead.
+          await logSkipped(node.id, [
+            { model: opencodeSelection.model ?? "(OpenCode default)", reason: gate.reason ?? "OpenCode is unavailable" },
+          ]);
+          opencodeSelection = { runtime: "api" };
+        }
+      }
       // Context Snapshot scope: every LLM call this node makes is attributed
       // to this task, execution attempt, subtask and agent. Inside it, the
       // observation scope feeds the stall watchdog and typed observations.
@@ -519,12 +574,22 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         let modelRouting: ModelRoutingInfo | undefined;
         if (input.llmResolver) {
           try {
-            const resolution = input.llmResolver.resolutionFor(agent, {
-              callRole: "executor",
-            });
-            resolutionByKey.set(node.id, resolution);
-            modelRouting = resolution.routing;
-            ctx.modelRoutingByKey.set(node.id, resolution.routing);
+            if (input.llmResolver.hasOpencode()) {
+              // Plan 038: the route (native OpenCode or API) is picked here
+              // so subtask.routed names the runtime and model it runs on.
+              const route = input.llmResolver.executionRouteFor(agent, await opencodeGate(), { callRole: "executor" });
+              routeByKey.set(node.id, route);
+              await logSkipped(node.id, route.skipped);
+              modelRouting = route.runtime === "api" ? route.resolution.routing : route.routing;
+              ctx.modelRoutingByKey.set(node.id, modelRouting);
+            } else {
+              const resolution = input.llmResolver.resolutionFor(agent, {
+                callRole: "executor",
+              });
+              resolutionByKey.set(node.id, resolution);
+              modelRouting = resolution.routing;
+              ctx.modelRoutingByKey.set(node.id, resolution.routing);
+            }
           } catch {
             // Resolution failures surface in the node itself (explicit error).
           }

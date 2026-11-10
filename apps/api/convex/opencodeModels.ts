@@ -47,6 +47,11 @@ export const report = internalMutation({
     available: v.boolean(),
     error: v.optional(v.string()),
     command: v.optional(v.string()),
+    // Plan 038: what detection found. Optional so an older worker build
+    // keeps reporting the catalog alone.
+    installed: v.optional(v.boolean()),
+    version: v.optional(v.string()),
+    path: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ models: number }> => {
     const models = normalizeCatalogModels(args.models);
@@ -60,6 +65,9 @@ export const report = internalMutation({
       available: args.available,
       error: args.error ? args.error.slice(0, 300) : undefined,
       command: args.command?.slice(0, 120),
+      ...(args.installed !== undefined ? { installed: args.installed } : {}),
+      version: args.version?.slice(0, 60),
+      path: args.path?.slice(0, 300),
       updatedAt: Date.now(),
     };
     if (existing) {
@@ -82,16 +90,23 @@ export const state = internalQuery({
     available: boolean;
     updatedAt: number;
     refreshRequestedAt: number;
+    /** Plan 038: a pending "Test" (0 = none) and the model it asked for. */
+    testRequestedAt: number;
+    testModel: string;
   }> => {
     const row = await ctx.db
       .query("opencodeModelCatalog")
       .withIndex("by_worker_id", (q) => q.eq("workerId", args.workerId))
       .unique();
+    const testRequestedAt = row?.testRequestedAt ?? 0;
+    const served = row?.testResult?.at ?? 0;
     return {
       hasCatalog: row !== null,
       available: row?.available ?? false,
       updatedAt: row?.updatedAt ?? 0,
       refreshRequestedAt: row?.refreshRequestedAt ?? 0,
+      testRequestedAt: testRequestedAt > 0 && testRequestedAt >= served ? testRequestedAt : 0,
+      testModel: row?.testModel ?? "",
     };
   },
 });
@@ -112,6 +127,9 @@ export const list = query({
     hostname: string | null;
     pendingRefresh: boolean;
     reportedWorkers: number;
+    installed: boolean | null;
+    version: string | null;
+    path: string | null;
   }> => {
     const rows = await ctx.db
       .query("opencodeModelCatalog")
@@ -130,6 +148,9 @@ export const list = query({
         (row) => (row.refreshRequestedAt ?? 0) > 0 && (row.refreshRequestedAt ?? 0) >= (row.updatedAt ?? 0)
       ),
       reportedWorkers: rows.length,
+      installed: fresh?.installed ?? (fresh ? fresh.available : null),
+      version: fresh?.version ?? null,
+      path: fresh?.path ?? null,
     };
   },
 });
@@ -151,5 +172,56 @@ export const requestRefresh = mutation({
       await ctx.db.patch(row._id, { refreshRequestedAt: now });
     }
     return { requested: rows.length };
+  },
+});
+
+/** Hard cap on a test probe error the UI shows. */
+const MAX_TEST_ERROR = 300;
+
+/**
+ * Plan 038, worker: store the result of the "Test" probe (`opencode run`
+ * with a one-word prompt). Clears the request by stamping `testResult.at`.
+ */
+export const reportTest = internalMutation({
+  args: {
+    workerId: v.string(),
+    ok: v.boolean(),
+    latencyMs: v.number(),
+    model: v.optional(v.string()),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ ok: boolean }> => {
+    const row = await ctx.db
+      .query("opencodeModelCatalog")
+      .withIndex("by_worker_id", (q) => q.eq("workerId", args.workerId))
+      .unique();
+    if (!row) return { ok: false };
+    await ctx.db.patch(row._id, {
+      testResult: {
+        ok: args.ok,
+        latencyMs: Math.max(0, Math.round(args.latencyMs)),
+        ...(args.model ? { model: args.model.slice(0, 120) } : {}),
+        ...(args.error ? { error: args.error.slice(0, MAX_TEST_ERROR) } : {}),
+        at: Date.now(),
+      },
+    });
+    return { ok: true };
+  },
+});
+
+/**
+ * Plan 038, UI: ask the freshest worker to run the OpenCode probe. Only the
+ * freshest row is asked: one worker answers, and its CLI is the one the UI
+ * shows. `model` empty = OpenCode's own default model.
+ */
+export const requestTest = mutation({
+  args: { model: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ requested: boolean }> => {
+    const fresh = await ctx.db.query("opencodeModelCatalog").withIndex("by_updated_at").order("desc").first();
+    if (!fresh) return { requested: false };
+    const model = (args.model ?? "").trim();
+    if (model && !/^[A-Za-z0-9._-]+\/[^\s]+$/.test(model)) throw new Error("OpenCode model must be provider/model");
+    await ctx.db.patch(fresh._id, { testRequestedAt: Date.now(), testModel: model.slice(0, MAX_MODEL_LEN) });
+    return { requested: true };
   },
 });

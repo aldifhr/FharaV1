@@ -11,6 +11,7 @@ import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toasts";
 import { api } from "@/api/convex/_generated/api";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
+import { useSidebarCollapsed } from "@/components/shell/useSidebarCollapsed";
 import { SectionLoading, WorkspaceProvider, type Agent, type Task, type WorkspaceContextValue } from "./WorkspaceContext";
 
 function WorkspaceShell({
@@ -24,23 +25,7 @@ function WorkspaceShell({
   const searchParams = useSearchParams();
   const taskParam = searchParams.get("task");
   const isDesktop = useMediaQuery(DESKTOP_QUERY, true);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  useEffect(() => {
-    try {
-      setSidebarCollapsed(localStorage.getItem("fhara-sidebar-collapsed") === "1");
-    } catch {
-      /* storage denied */
-    }
-  }, []);
-  const toggleSidebarCollapsed = () =>
-    setSidebarCollapsed((collapsed) => {
-      try {
-        localStorage.setItem("fhara-sidebar-collapsed", collapsed ? "0" : "1");
-      } catch {
-        /* storage denied */
-      }
-      return !collapsed;
-    });
+  const [sidebarCollapsed, toggleSidebarCollapsed] = useSidebarCollapsed();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [threadCollapsed, setThreadCollapsed] = useState(false);
   const [panelWidth, setPanelWidth] = useState(390);

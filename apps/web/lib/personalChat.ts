@@ -49,3 +49,40 @@ export function attachCandidates<P extends { _id: string; name: string; agentIds
     .map((project) => ({ project, blocked: attachBlockReason(project, agent) }))
     .sort((a, b) => Number(a.blocked !== null) - Number(b.blocked !== null) || a.project.name.localeCompare(b.project.name));
 }
+
+/** One row of `conversations.listPersonal`, the fields the sidebar reads. */
+export type PersonalListRow = {
+  agent: { _id: string; name: string; role: string };
+  conversationId: string | null;
+  lastMessageAt: number | null;
+  preview: string | null;
+};
+
+/**
+ * Sidebar "Personal messages" rows: only agents that already have a personal
+ * conversation, most recent first (no messages yet sorts last, then by name),
+ * narrowed by the sidebar search on the agent name or role label.
+ */
+export function sidebarPersonalRows<R extends PersonalListRow>(
+  rows: readonly R[] | null | undefined,
+  filter = "",
+  label: (role: string) => string = (role) => role
+): R[] {
+  const q = filter.trim().toLowerCase();
+  return (rows ?? [])
+    .filter((row) => row.conversationId !== null)
+    .filter((row) => !q || row.agent.name.toLowerCase().includes(q) || label(row.agent.role).toLowerCase().includes(q))
+    .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0) || a.agent.name.localeCompare(b.agent.name));
+}
+
+/** Agent id of the personal chat a path shows (`/chats/personal/<id>`), or null. */
+export function personalAgentIdFromPath(pathname: string | null | undefined): string | null {
+  const match = /^\/chats\/personal\/([^/?#]+)/.exec(pathname ?? "");
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+/** Where `/chats/personal` lands: the most recent personal chat, else the chats home. */
+export function personalIndexTarget(rows: readonly PersonalListRow[] | null | undefined): string {
+  const [latest] = sidebarPersonalRows(rows);
+  return latest ? `/chats/personal/${latest.agent._id}` : "/chats";
+}

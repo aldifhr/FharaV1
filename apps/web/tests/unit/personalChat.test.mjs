@@ -5,8 +5,11 @@ import {
   attachCandidates,
   conversationKindLabel,
   personalDraftKey,
+  personalAgentIdFromPath,
   personalEmptyText,
+  personalIndexTarget,
   personalSlashNames,
+  sidebarPersonalRows,
 } from "../../lib/personalChat.ts";
 
 test("kind label is plain text: Personal, Project: <name>, Team", () => {
@@ -51,4 +54,40 @@ test("attach candidates: members first, others carry the reason, nothing presele
   assert.deepEqual(rows.map((r) => r.project._id), ["p3", "p1", "p2"]);
   assert.equal(rows[2].blocked, "Quinn is not on this project's team");
   assert.ok(rows.every((r) => !("selected" in r)));
+});
+
+const row = (id, name, conversationId, lastMessageAt, role = "frontend") => ({
+  agent: { _id: id, name, role },
+  conversationId,
+  lastMessageAt,
+  preview: null,
+});
+
+test("sidebar personal rows: only agents with a chat, most recent first, empty chats last by name", () => {
+  const rows = [
+    row("a", "Ada", "c1", 100),
+    row("b", "Bo", null, null),
+    row("c", "Cy", "c3", 300),
+    row("d", "Di", "c4", null),
+    row("e", "Ed", "c5", null),
+  ];
+  assert.deepEqual(sidebarPersonalRows(rows).map((r) => r.agent._id), ["c", "a", "d", "e"]);
+  // input is not mutated
+  assert.equal(rows[0].agent._id, "a");
+});
+
+test("sidebar personal rows: search matches name or role label", () => {
+  const rows = [row("a", "Ada", "c1", 1, "qa"), row("c", "Cy", "c3", 2, "devops")];
+  const label = (role) => role.toUpperCase();
+  assert.deepEqual(sidebarPersonalRows(rows, "ad").map((r) => r.agent._id), ["a"]);
+  assert.deepEqual(sidebarPersonalRows(rows, " DEV ", label).map((r) => r.agent._id), ["c"]);
+  assert.deepEqual(sidebarPersonalRows(undefined), []);
+});
+
+test("personal path parsing and index redirect target", () => {
+  assert.equal(personalAgentIdFromPath("/chats/personal/ag1"), "ag1");
+  assert.equal(personalAgentIdFromPath("/chats/personal"), null);
+  assert.equal(personalAgentIdFromPath("/chats/p1"), null);
+  assert.equal(personalIndexTarget([row("a", "Ada", "c1", 1), row("c", "Cy", "c3", 9)]), "/chats/personal/c");
+  assert.equal(personalIndexTarget([row("b", "Bo", null, null)]), "/chats");
 });

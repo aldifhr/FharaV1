@@ -15,12 +15,13 @@ import { useTheme } from "./ui/use-theme";
 import QueryBoundary from "./shell/QueryBoundary";
 import NeedsYou from "./sidebar/NeedsYou";
 import ProjectList from "./sidebar/ProjectList";
+import PersonalList from "./sidebar/PersonalList";
 import TeamList, { type TeamAgent } from "./sidebar/TeamList";
 import { CreateAgentModal, EditAgentModal } from "./sidebar/AgentForms";
 import { roleLabel } from "@/lib/agentRoles";
 import { onFocusTeam } from "@/lib/shellEvents";
 
-type Sections = { needsYou: boolean; projects: boolean; team: boolean };
+type Sections = { needsYou: boolean; projects: boolean; personal: boolean; team: boolean };
 
 export default function Sidebar({
   projectId,
@@ -49,7 +50,7 @@ export default function Sidebar({
   const removeAgent = useMutation(api.agents.remove);
 
   const [q, setQ] = useState("");
-  const [open, setOpen] = useState<Sections>({ needsYou: true, projects: true, team: true });
+  const [open, setOpen] = useState<Sections>({ needsYou: true, projects: true, personal: true, team: true });
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [detail, setDetail] = useState<any>(null);
@@ -177,7 +178,7 @@ export default function Sidebar({
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search"
-              aria-label="Filter projects and team"
+              aria-label="Filter projects, messages and team"
               className="h-full w-full min-w-0 bg-transparent pl-8 pr-12 text-base text-ink outline-none placeholder:text-ink-3 sm:text-[14px]"
             />
             <kbd className="pointer-events-none absolute right-2 rounded border border-line px-1.5 py-px font-sans text-[10.5px] text-ink-3">⌘K</kbd>
@@ -203,6 +204,9 @@ export default function Sidebar({
             onSelect={(id) => onSelectProject?.(id)}
             onRemove={askRemoveProject}
           />
+          <QueryBoundary>
+            <PersonalList filter={q} open={open.personal} onToggle={() => toggleSection("personal")} onNavigate={onCloseDrawer} />
+          </QueryBoundary>
           <TeamList
             ref={teamRef}
             projectId={projectId}

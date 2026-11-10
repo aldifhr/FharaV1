@@ -402,3 +402,73 @@ describe("githubPush.holdPush and the card view", () => {
     expect(await t.mutation(api.githubPush.holdPush, { pushId })).toEqual({ held: false, status: "requested" });
   });
 });
+
+describe("githubPush PR check status (T1)", () => {
+  async function prRow(t: Awaited<ReturnType<typeof setup>>["t"], taskId: any, projectId: any, prNumber: number) {
+    const now = Date.now();
+    return await t.run(async (ctx) =>
+      ctx.db.insert("taskPushes", {
+        taskId,
+        projectId,
+        branchName: "fhara/t/x",
+        commitSha: SHA,
+        commitMessage: "m",
+        filesChanged: 1,
+        status: "pushed" as const,
+        attempts: 1,
+        repoFullName: "acme/app",
+        prNumber,
+        prUrl: `https://github.com/acme/app/pull/${prNumber}`,
+        prState: "draft" as const,
+        prCheckedAt: now - 3_600_000,
+        createdAt: now,
+        updatedAt: now,
+      })
+    );
+  }
+
+  test("recordPrState stores polled checks and the card view shows the rollup with a link", async () => {
+    const { t, taskId, projectId } = await setup();
+    const pushId = await prRow(t, taskId, projectId, 11);
+    let view = await t.query(api.githubPush.get, { pushId });
+    expect(view?.checks).toBeNull();
+    await t.mutation(internal.githubPush.recordPrState, {
+      pushId,
+      state: "draft",
+      headSha: SHA,
+      checks: [
+        { name: "ci / test", status: "failed", conclusion: "failure", url: "https://github.com/acme/app/runs/1" },
+        { name: "ci / lint", status: "passed", conclusion: "success" },
+        { name: "vercel", status: "pending" },
+      ],
+    });
+    const row = await t.run(async (ctx) => ctx.db.get(pushId));
+    expect(row?.ciState).toBe("failed");
+    expect(row?.ciChecks).toHaveLength(3);
+    expect(row?.headSha).toBe(SHA);
+    view = await t.query(api.githubPush.get, { pushId });
+    expect(view?.checks).toMatchObject({ state: "failure", total: 3, failed: 1, pending: 1 });
+    expect(view?.checks?.url).toBe(`https://github.com/acme/app/commit/${SHA}/checks`);
+    expect(view?.checks?.items[0]).toMatchObject({ name: "ci / test", status: "failed", url: "https://github.com/acme/app/runs/1" });
+  });
+
+  test("polled checks are bounded and never land on a row whose head moved on", async () => {
+    const { t, taskId, projectId } = await setup();
+    const pushId = await prRow(t, taskId, projectId, 12);
+    const many = Array.from({ length: 50 }, (_, i) => ({ name: `job ${i}`, status: "passed" as const }));
+    await t.mutation(internal.githubPush.recordPrState, { pushId, headSha: SHA, checks: many });
+    let row = await t.run(async (ctx) => ctx.db.get(pushId));
+    expect(row?.ciChecks).toHaveLength(30);
+    expect(row?.ciState).toBe("passed");
+    const newer = "f".repeat(40);
+    await t.run(async (ctx) => ctx.db.patch(pushId, { headSha: newer, ciChecks: [], ciState: undefined }));
+    await t.mutation(internal.githubPush.recordPrState, {
+      pushId,
+      headSha: SHA,
+      checks: [{ name: "old", status: "failed" }],
+    });
+    row = await t.run(async (ctx) => ctx.db.get(pushId));
+    expect(row?.headSha).toBe(newer);
+    expect(row?.ciChecks).toEqual([]);
+  });
+});

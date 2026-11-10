@@ -66,6 +66,17 @@ function qaPhones(view: View): { status: StepStatus; label?: string; settled: bo
   };
 }
 
+/** T1: the PR's CI on its head commit as one status word. */
+function prChecksStatus(checks: { state: string; total: number; failed: number; pending: number } | null | undefined): {
+  status: StepStatus;
+  label: string;
+} {
+  if (!checks || checks.state === "none" || checks.total === 0) return { status: "not_run", label: "No checks" };
+  if (checks.state === "failure") return { status: "failed", label: `${checks.failed} of ${checks.total} failing` };
+  if (checks.state === "pending") return { status: "running", label: `${checks.pending} of ${checks.total} pending` };
+  return { status: "passed", label: `${checks.total} of ${checks.total} passing` };
+}
+
 function headerPill(view: View): { tone: PillTone; label: string } {
   switch (view.status) {
     case "ready":
@@ -292,6 +303,43 @@ export default function PushCard({ data }: { data: PushCardData }) {
         {cell("Tests", <StatusWord status={tests.status} label={tests.label} />)}
         {cell("QA on phones", <StatusWord status={phones.status} label={phones.label} />)}
       </div>
+      {view.prNumber !== undefined && view.checks && (
+        <div className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 border-t px-4 py-2 text-[12px] ${CARD_DIVIDER}`}>
+          <span className={MUTED}>PR checks</span>
+          <StatusWord size={13} {...prChecksStatus(view.checks)} />
+          {view.checks.items
+            .filter((item) => item.status !== "passed")
+            .slice(0, 3)
+            .map((item) =>
+              item.url ? (
+                <a
+                  key={item.name}
+                  href={item.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={`max-w-[180px] truncate underline-offset-2 hover:underline ${MUTED}`}
+                  title={`${item.name}: ${item.status}`}
+                >
+                  {item.name}
+                </a>
+              ) : (
+                <span key={item.name} className={`max-w-[180px] truncate ${MUTED}`} title={`${item.name}: ${item.status}`}>
+                  {item.name}
+                </span>
+              )
+            )}
+          {view.checks.url && (
+            <a
+              href={view.checks.url}
+              target="_blank"
+              rel="noreferrer"
+              className={`ml-auto inline-flex items-center gap-1 ${MUTED} hover:text-ink`}
+            >
+              View checks <ExternalLink size={11} />
+            </a>
+          )}
+        </div>
+      )}
       <p className={`truncate border-t px-4 py-2 font-mono text-[11px] ${CARD_DIVIDER} ${MUTED}`} title={view.commitMessage}>
         {sha} · {view.commitMessage}
         {aheadBehind ? ` · ${aheadBehind}` : ""}

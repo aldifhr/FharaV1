@@ -32,6 +32,8 @@ const LAYERS: Record<string, number> = {
   workerApi: 1,
   convexClient: 1,
   "@api": 1,
+  // Vendored third-party code (threadbear safe-git): infra, imports only @api.
+  vendor: 1,
   tools: 2,
   mcp: 2,
   execution: 3,

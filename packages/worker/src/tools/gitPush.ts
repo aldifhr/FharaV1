@@ -1,5 +1,9 @@
 import { execFile } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { UNTRUSTED_GIT_CONFIG, untrustedGitEnv } from "@/vendor/threadbear/safeGit";
 
 /**
  * Plan 019: push a committed sha to a GitHub branch with a short-lived
@@ -10,30 +14,100 @@ import { buildChildEnv } from "@/api/convex/lib/childEnv";
  * GIT_CONFIG_COUNT/KEY/VALUE environment (git ≥ 2.31), which applies to
  * this one process only. Any error text is passed through `redactSecret`
  * before it leaves this module.
+ *
+ * T1 hardening (threadbear safe-git, see vendor/threadbear/safeGit.ts):
+ * every git call runs with an absolute, existing cwd, no inherited GIT_*
+ * variable (a GIT_DIR from the worker's own env can not redirect the push),
+ * the repo's fsmonitor/untracked-cache/hooks switched off (a pre-push hook
+ * would otherwise run with the credential in its env), and a kill timeout
+ * (SIGKILL) so a hung remote never holds the push lease forever.
  */
+
+/** Per git call kill timeout (5 minutes). */
+export const GIT_TIMEOUT_MS = 5 * 60_000;
+
+/** `-c` settings put before every push-path git subcommand. */
+export const PUSH_GIT_CONFIG: readonly string[] = [
+  ...UNTRUSTED_GIT_CONFIG,
+  "-c",
+  `core.hooksPath=${os.devNull}`,
+  "-c",
+  "commit.gpgSign=false",
+  "-c",
+  "submodule.recurse=false",
+  "-c",
+  "push.recurseSubmodules=no",
+];
 
 export type ExecGit = (
   args: string[],
   options: { cwd: string; env: NodeJS.ProcessEnv; signal?: AbortSignal; timeoutMs: number }
 ) => Promise<{ stdout: string; stderr: string }>;
 
+/**
+ * The cwd for a git call: absolute, normalized, and an existing directory.
+ * A relative path would resolve against whatever the worker's cwd happens
+ * to be; refuse it instead of pushing from the wrong checkout.
+ */
+export function assertGitCwd(cwd: string): string {
+  if (!cwd || !path.isAbsolute(cwd)) throw new Error(`git cwd must be an absolute path (got ${JSON.stringify(cwd)})`);
+  const resolved = path.resolve(cwd);
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(resolved);
+  } catch {
+    throw new Error(`git cwd does not exist: ${resolved}`);
+  }
+  if (!stat.isDirectory()) throw new Error(`git cwd is not a directory: ${resolved}`);
+  return resolved;
+}
+
+/** Plain-words reason for a failed git call (timeout, abort, or git's own text). */
+export function describeGitFailure(
+  args: readonly string[],
+  error: { killed?: boolean; signal?: string | null; code?: unknown; name?: string; message?: string },
+  stderr: string,
+  timeoutMs: number
+): string {
+  const sub = args.find((a, i) => !a.startsWith("-") && args[i - 1] !== "-c" && args[i - 1] !== "-C") ?? "git";
+  if (error.name === "AbortError") return `git ${sub} was cancelled`;
+  if (error.killed || error.signal === "SIGKILL" || error.signal === "SIGTERM") {
+    return `git ${sub} timed out after ${Math.round(timeoutMs / 1000)}s and was killed`;
+  }
+  if (error.code === "ENOENT") return "git is not installed or not on PATH";
+  const text = (stderr || error.message || "").trim();
+  return text || `git ${sub} failed (exit ${String(error.code ?? "?")})`;
+}
+
 export const defaultExecGit: ExecGit = (args, options) =>
   new Promise((resolve, reject) => {
+    let cwd: string;
+    try {
+      cwd = assertGitCwd(options.cwd);
+    } catch (error) {
+      reject(error);
+      return;
+    }
     execFile(
       "git",
-      args,
+      [...PUSH_GIT_CONFIG, ...args],
       {
-        cwd: options.cwd,
+        cwd,
+        // Never inherit GIT_DIR / GIT_WORK_TREE / GIT_CONFIG_PARAMETERS from
+        // the worker; the caller's own GIT_CONFIG_* (auth) is kept.
         env: options.env,
         signal: options.signal,
         timeout: options.timeoutMs,
+        killSignal: "SIGKILL",
         shell: false,
         windowsHide: true,
         maxBuffer: 4 * 1024 * 1024,
       },
       (error, stdout, stderr) => {
         if (error) {
-          const failure = new Error(String(stderr || error.message)) as Error & { stdout?: string };
+          const failure = new Error(
+            describeGitFailure(args, error as Parameters<typeof describeGitFailure>[1], String(stderr ?? ""), options.timeoutMs)
+          ) as Error & { stdout?: string };
           failure.stdout = String(stdout ?? "");
           reject(failure);
           return;
@@ -42,6 +116,31 @@ export const defaultExecGit: ExecGit = (args, options) =>
       }
     );
   });
+
+/** A child env for git with every inherited GIT_* variable removed. */
+export function gitChildEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+  return { ...untrustedGitEnv(buildChildEnv()), GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", ...extra };
+}
+
+/** Plain-words hint for common push rejections. */
+export function pushFailureHint(message: string): string | undefined {
+  if (/timed out after/i.test(message)) return "GitHub did not answer in time; try again";
+  if (/non-fast-forward|fetch first|\[rejected\]|stale info/i.test(message)) {
+    return "the remote branch has commits this push does not; force push is disabled";
+  }
+  if (/protected branch|GH006/i.test(message)) return "the branch is protected on GitHub";
+  if (/\b403\b|permission .*denied|not allowed to push|write access/i.test(message)) {
+    return "the GitHub connection has no push access to this repository";
+  }
+  if (/\b401\b|authentication failed|could not read Username|invalid credentials/i.test(message)) {
+    return "GitHub refused the credential; reconnect GitHub";
+  }
+  if (/repository not found|\b404\b/i.test(message)) return "the repository was not found or the connection cannot see it";
+  if (/could not resolve host|unable to access|connection (refused|reset|timed out)/i.test(message)) {
+    return "github.com could not be reached";
+  }
+  return undefined;
+}
 
 const NAME = /^[A-Za-z0-9_.-]{1,100}$/;
 const SHA = /^[0-9a-f]{7,64}$/i;
@@ -62,13 +161,13 @@ export function redactSecret(text: string, token: string): string {
 /** Environment for one authenticated git call against github.com. */
 export function githubAuthEnv(token: string, base: NodeJS.ProcessEnv = buildChildEnv()): NodeJS.ProcessEnv {
   const basic = Buffer.from(`x-access-token:${token}`).toString("base64");
-  // Drop any inherited GIT_CONFIG_* so indices cannot collide.
-  const env: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(base)) {
-    if (!/^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(key)) env[key] = value;
-  }
+  // Drop every inherited GIT_* (GIT_DIR, GIT_WORK_TREE, GIT_CONFIG_*,
+  // GIT_CONFIG_PARAMETERS, GIT_SSH_COMMAND...) so nothing can redirect the
+  // push or add config after ours.
+  const env = untrustedGitEnv(base);
   return {
     ...env,
+    GIT_OPTIONAL_LOCKS: "0",
     GIT_TERMINAL_PROMPT: "0",
     GIT_ASKPASS: "",
     GCM_INTERACTIVE: "never",
@@ -140,29 +239,41 @@ export async function pushCommitToGithub(input: PushInput): Promise<{ remoteUrl:
   if (!SHA.test(input.commitSha)) throw new Error("Invalid commit sha");
   if (!BRANCH.test(input.branchName)) throw new Error(`Invalid branch name: ${input.branchName}`);
   assertPushAllowed(input);
+  // Absolute cwd only (checked again by defaultExecGit for direct callers).
+  if (!input.repoPath || !path.isAbsolute(input.repoPath)) {
+    throw new Error(`Push refused: repository path must be absolute (got ${JSON.stringify(input.repoPath)})`);
+  }
+  const repoPath = path.resolve(input.repoPath);
   const execGit = input.execGit ?? defaultExecGit;
   const remoteUrl = `https://github.com/${input.owner}/${input.repo}.git`;
-  const timeoutMs = input.timeoutMs ?? 120_000;
+  const timeoutMs = Math.min(Math.max(input.timeoutMs ?? GIT_TIMEOUT_MS, 1_000), GIT_TIMEOUT_MS);
   try {
     // The commit must exist locally (the task branch may already be merged
     // and deleted; the sha stays reachable from the merge commit).
     await execGit(["cat-file", "-e", `${input.commitSha}^{commit}`], {
-      cwd: input.repoPath,
-      env: buildChildEnv({ GIT_TERMINAL_PROMPT: "0" }),
+      cwd: repoPath,
+      env: gitChildEnv(),
       signal: input.signal,
       timeoutMs: 15_000,
     });
-  } catch {
-    throw new Error(`Commit ${input.commitSha.slice(0, 12)} is not in the local repository`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/absolute path|does not exist|not a directory|not installed|timed out|cancelled/.test(message)) {
+      throw new Error(`Push failed before contacting GitHub: ${message}`);
+    }
+    throw new Error(`Commit ${input.commitSha.slice(0, 12)} is not in the local repository at ${repoPath}`);
   }
   try {
     await execGit(
       ["push", "--porcelain", remoteUrl, `${input.force ? "+" : ""}${input.commitSha}:refs/heads/${input.branchName}`],
-      { cwd: input.repoPath, env: githubAuthEnv(input.token), signal: input.signal, timeoutMs }
+      { cwd: repoPath, env: githubAuthEnv(input.token), signal: input.signal, timeoutMs }
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`git push failed: ${redactSecret(message, input.token).trim().slice(0, 800)}`);
+    const message = redactSecret(error instanceof Error ? error.message : String(error), input.token).trim();
+    const hint = pushFailureHint(message);
+    throw new Error(
+      `git push failed for ${input.branchName} → ${input.owner}/${input.repo}${hint ? ` (${hint})` : ""}: ${message.slice(0, 800)}`
+    );
   }
   return { remoteUrl };
 }

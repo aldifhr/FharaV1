@@ -14,10 +14,11 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { assertProjectAccess } from "./lib/authz";
 import { githubConnectionState, projectGithubBinding, resolveGithubToken } from "./lib/githubAuth";
 import { holdsTaskLease } from "./orchestration";
-import { prState } from "./schema";
+import { prCheckFact, prState } from "./schema";
 import type { QaCardData, VerificationCardData } from "./cardTypes";
-import { ingestSignal, onPrPushed } from "./prFeedback";
-import { mergeabilityOf } from "./lib/prFeedback";
+import { ingestSignal, onPrPushed, syncPrNotifications } from "./prFeedback";
+import { ciRollup, mergeabilityOf, type CheckFact } from "./lib/prFeedback";
+import { fetchCommitChecks, MAX_POLLED_CHECKS, summarizeChecks } from "./lib/prChecks";
 import { appendTaskEvent } from "./lib/taskEvents";
 
 /**
@@ -37,6 +38,9 @@ import { appendTaskEvent } from "./lib/taskEvents";
  *     back with `completePushRequest` → `pushed` / `failed`.
  *  4. `refreshOpenPrs` (cron) and `refreshPrStatus` (button) keep the PR
  *     state (draft/open/merged/closed) current, bounded per run.
+ *  5. T1: the same refresh reads the head commit's check runs and commit
+ *     statuses (lib/prChecks.ts) into `ciChecks` / `ciState`, which the
+ *     push card shows as passing / failing / pending with a link.
  */
 
 const DEFAULT_PUSH_LEASE_MS = 120_000;
@@ -550,6 +554,26 @@ export const get = query({
       prTitle: row.prTitle,
       prState: row.prState,
       prCheckedAt: row.prCheckedAt,
+      // T1: CI on the PR head commit (webhooks + refresh). null = never read.
+      checks:
+        row.prNumber !== undefined && (row.ciChecks !== undefined || row.ciState !== undefined)
+          ? {
+              ...summarizeChecks(
+                row.ciChecks ?? [],
+                row.repoFullName && row.headSha
+                  ? `https://github.com/${row.repoFullName}/commit/${row.headSha}/checks`
+                  : row.prUrl
+                    ? `${row.prUrl}/checks`
+                    : undefined
+              ),
+              items: (row.ciChecks ?? []).slice(0, 10).map((c) => ({
+                name: c.name,
+                status: c.status,
+                ...(c.url ? { url: c.url } : {}),
+              })),
+              checkedAt: row.prFactsAt ?? row.prCheckedAt ?? null,
+            }
+          : null,
       github: {
         connected: connection.connected,
         repoFullName:
@@ -690,6 +714,8 @@ export const recordPrState = internalMutation({
     title: v.optional(v.string()),
     headSha: v.optional(v.string()),
     mergeable: v.optional(v.union(v.literal("unknown"), v.literal("mergeable"), v.literal("conflict"))),
+    // T1: polled checks on `headSha` (replaces that commit's list).
+    checks: v.optional(v.array(prCheckFact)),
   },
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.pushId);
@@ -715,8 +741,35 @@ export const recordPrState = internalMutation({
         mergeable: args.mergeable,
       });
     }
+    if (args.checks && args.headSha) await storePolledChecks(ctx, row, args.headSha, args.checks);
   },
 });
+
+/**
+ * Store polled checks on every row of the PR whose head is still `headSha`
+ * (a newer head from a webhook in between wins). Bounded to
+ * MAX_POLLED_CHECKS; notifications are re-derived for the owner task.
+ */
+async function storePolledChecks(ctx: MutationCtx, row: PushRow, headSha: string, checks: CheckFact[]) {
+  const repoFullName = row.repoFullName;
+  const prNumber = row.prNumber;
+  if (prNumber === undefined || !repoFullName) return;
+  const ciChecks = checks.slice(0, MAX_POLLED_CHECKS);
+  const ciState = ciRollup(ciChecks);
+  const rows = await ctx.db
+    .query("taskPushes")
+    .withIndex("by_repo_pr", (q) => q.eq("repoFullName", repoFullName).eq("prNumber", prNumber))
+    .take(50);
+  const now = Date.now();
+  let changed = false;
+  for (const same of rows) {
+    if (same.projectId !== row.projectId) continue;
+    if (same.headSha !== undefined && same.headSha !== headSha) continue;
+    await ctx.db.patch(same._id, { headSha, ciChecks, ciState, prFactsAt: now, updatedAt: now });
+    changed = true;
+  }
+  if (changed) await syncPrNotifications(ctx, row.ownerTaskId ?? row.taskId);
+}
 
 async function fetchPull(target: { owner: string; repo: string; prNumber: number; token: string }) {
   const response = await fetch(
@@ -752,6 +805,21 @@ function pullFacts(pull: Awaited<ReturnType<typeof fetchPull>>) {
   };
 }
 
+/**
+ * The PR facts plus the head commit's checks. A checks failure never fails
+ * the refresh: the PR state is still recorded, the checks are left as is.
+ */
+async function pullFactsWithChecks(target: { owner: string; repo: string; prNumber: number; token: string }) {
+  const facts = pullFacts(await fetchPull(target));
+  if (!facts.headSha) return facts;
+  try {
+    const { checks } = await fetchCommitChecks({ ...target, sha: facts.headSha });
+    return { ...facts, checks };
+  } catch {
+    return facts;
+  }
+}
+
 /** "Refresh" on a push card. */
 export const refreshPrStatus = action({
   args: { pushId: v.id("taskPushes") },
@@ -761,8 +829,7 @@ export const refreshPrStatus = action({
       checkAccess: true,
     });
     if (!target) return { state: null };
-    const pull = await fetchPull(target);
-    const facts = pullFacts(pull);
+    const facts = await pullFactsWithChecks(target);
     await ctx.runMutation(internal.githubPush.recordPrState, { pushId: args.pushId, ...facts });
     return { state: facts.state };
   },
@@ -779,8 +846,7 @@ export const refreshOpenPrs = internalAction({
       const target = await ctx.runQuery(internal.githubPush.getPrRefreshTarget, { pushId, checkAccess: false });
       if (!target) continue;
       try {
-        const pull = await fetchPull(target);
-        await ctx.runMutation(internal.githubPush.recordPrState, { pushId, ...pullFacts(pull) });
+        await ctx.runMutation(internal.githubPush.recordPrState, { pushId, ...(await pullFactsWithChecks(target)) });
         checked += 1;
       } catch {
         // Stamp the check so one broken PR does not starve the batch.

@@ -1,0 +1,85 @@
+{
+  "repo": "aldifhr/experiment",
+  "branch": "fhara-e2e-smoke-20261110-183917-jdp8",
+  "startedAt": "2026-11-10T18:39:17.100Z",
+  "steps": [
+    {
+      "name": "guard refuses base-branch push",
+      "ok": true,
+      "reason": "Push blocked: \"main\" is the base branch; task pushes go to their own branch (set FHARA_ALLOW_BASE_BRANCH_PUSH=true to allow)"
+    },
+    {
+      "name": "guard refuses force push",
+      "ok": true,
+      "reason": "Push blocked: force push is not allowed (set FHARA_ALLOW_FORCE_PUSH=true to allow)"
+    },
+    {
+      "name": "local commit on base",
+      "ok": true,
+      "base": "main",
+      "sha": "6f21496dfb74"
+    },
+    {
+      "name": "push via pushCommitToGithub",
+      "ok": true,
+      "ms": 1805,
+      "remoteSha": "6f21496dfb74"
+    },
+    {
+      "name": "open draft PR",
+      "ok": true,
+      "number": 2,
+      "url": "https://github.com/aldifhr/experiment/pull/2",
+      "state": "draft"
+    },
+    {
+      "name": "read PR",
+      "ok": true,
+      "state": "open",
+      "draft": true,
+      "headSha": "6f21496dfb74"
+    },
+    {
+      "name": "read PR check status",
+      "ok": true,
+      "state": "none",
+      "total": 0,
+      "failed": 0,
+      "pending": 0,
+      "url": "https://github.com/aldifhr/experiment/commit/6f21496dfb74fb4c22734aa26365659a952ef78a/checks",
+      "names": []
+    },
+    {
+      "name": "cleanup: close PR",
+      "ok": true,
+      "number": 2,
+      "state": "closed"
+    },
+    {
+      "name": "cleanup: delete branch",
+      "ok": true,
+      "deleteStatus": 204,
+      "verifyStatus": 404
+    }
+  ],
+  "ok": true,
+  "base": "main",
+  "commitSha": "6f21496dfb74fb4c22734aa26365659a952ef78a",
+  "pr": {
+    "number": 2,
+    "url": "https://github.com/aldifhr/experiment/pull/2",
+    "state": "draft"
+  },
+  "checks": {
+    "state": "none",
+    "total": 0,
+    "failed": 0,
+    "pending": 0,
+    "url": "https://github.com/aldifhr/experiment/commit/6f21496dfb74fb4c22734aa26365659a952ef78a/checks"
+  },
+  "cleanup": {
+    "prClosed": true,
+    "branchDeleted": true
+  },
+  "finishedAt": "2026-11-10T18:39:23.994Z"
+}

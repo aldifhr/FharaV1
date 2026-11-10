@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { WorkerApi } from "@/workerApi";
-import { pushCommitToGithub, redactSecret, type ExecGit } from "@/tools/gitPush";
+import { GIT_TIMEOUT_MS, pushCommitToGithub, redactSecret, type ExecGit } from "@/tools/gitPush";
 import { openPullRequest, type FetchLike, type PullRequestResult } from "@/tools/githubPr";
 
 /**
@@ -26,9 +26,16 @@ export interface PushDeps {
   signal?: AbortSignal;
 }
 
+/**
+ * Push lease: longer than the slowest push can take (the git kill timeout
+ * plus the commit check and the PR call), so a slow push is never requeued
+ * and pushed a second time by another worker while it is still running.
+ */
+export const PUSH_LEASE_MS = GIT_TIMEOUT_MS + 2 * 60_000;
+
 /** Claim and run at most one push request. Returns whether one ran. */
 export async function processNextPushRequest(deps: PushDeps): Promise<boolean> {
-  const claim = await deps.api.claimPushRequest({ workerId: deps.workerId, leaseMs: deps.leaseMs });
+  const claim = await deps.api.claimPushRequest({ workerId: deps.workerId, leaseMs: deps.leaseMs ?? PUSH_LEASE_MS });
   if (!claim) return false;
   await handlePushRequest(claim, deps);
   return true;
@@ -36,9 +43,11 @@ export async function processNextPushRequest(deps: PushDeps): Promise<boolean> {
 
 export async function handlePushRequest(claim: PushClaim, deps: PushDeps): Promise<void> {
   const token = claim.token;
+  // Always an absolute cwd for git (a relative workspace path is resolved
+  // against the worker's workspace root, never the process cwd).
   const repoPath = path.isAbsolute(claim.workspacePath)
-    ? claim.workspacePath
-    : path.resolve(deps.workspaceRoot, claim.workspacePath);
+    ? path.resolve(claim.workspacePath)
+    : path.resolve(path.resolve(deps.workspaceRoot), claim.workspacePath);
   const repoFullName = `${claim.owner}/${claim.repo}`;
   // Never log the claim object itself: it carries the token.
   deps.log(`push ${claim.pushId}: ${claim.branchName}@${claim.commitSha.slice(0, 12)} → ${repoFullName}`);

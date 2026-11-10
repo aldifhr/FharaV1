@@ -23,6 +23,7 @@
     "typecheck": "npm run --workspace=@fhara/web typecheck && npm run --workspace=@fhara/api typecheck && npm run --workspace=@fhara/worker typecheck",
     "test": "npm run --workspace=@fhara/worker test",
     "test:scripts": "node --test scripts/*.test.mjs",
+    "smoke:push": "node scripts/push-smoke.mjs",
     "knip": "knip --include files,dependencies,devDependencies,unlisted,unresolved,binaries,duplicates",
     "knip:all": "knip"
   },

@@ -36,11 +36,15 @@ const LAYERS: Record<string, number> = {
   vendor: 1,
   tools: 2,
   mcp: 2,
+  // Vendored third-party code (threadbear ACP client): node + its own files only.
+  vendor: 2,
   execution: 3,
   orchestrator: 4,
   scheduler: 4,
   router: 4,
   services: 5,
+  // Direct threads (threadbear T2): a task lifecycle beside services/.
+  direct: 5,
   index: 6,
 };
 

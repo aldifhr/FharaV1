@@ -16,6 +16,7 @@ import { processNextRepoToolCall } from "./services/repoTools";
 import { pollOpencodeCatalog } from "./services/opencodeCatalog";
 import { effectiveWorkspaceRoot, reportKnobEnv, syncAppSettings } from "./services/appSettings";
 import { REPO_TOOLS_CAPABILITY } from "@/api/convex/lib/chat/repoTools";
+import { DirectThreads } from "./direct";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
 
@@ -121,6 +122,18 @@ async function main() {
     shutdownSignal: shutdownController.signal,
   };
 
+  // Direct threads (threadbear T2): their own claim loop and live sessions,
+  // beside the orchestrated task loop; their leases ride the heartbeat.
+  const direct = new DirectThreads({
+    api,
+    workerId,
+    workspaceRoot,
+    policy,
+    leaseMs: LEASE_MS,
+    log,
+    shutdownSignal: shutdownController.signal,
+  });
+
   log(
     `listening: convex=${process.env.NEXT_PUBLIC_CONVEX_URL} root=${workspaceRoot} concurrency=${CONCURRENCY}`
   );
@@ -153,12 +166,13 @@ async function main() {
         workerId,
         hostname: os.hostname(),
         capacity: CONCURRENCY,
-        activeTasks: inFlight.size,
+        activeTasks: inFlight.size + direct.size,
         leaseMs: LEASE_MS,
         // Renew ONLY the leases of tasks this process is actually running,
         // so an abandoned task (no approval row, crashed run) expires and
         // is recovered instead of staying "running" forever (core H2).
-        activeTaskIds: Array.from(inFlight.keys()),
+        // Live direct threads keep theirs while a turn runs or a card waits.
+        activeTaskIds: [...Array.from(inFlight.keys()), ...direct.activeTaskIds()],
         // Grounded chat only queues repo tool calls when an online worker
         // advertises that it polls for them (an older build does not).
         capabilities: [REPO_TOOLS_CAPABILITY],
@@ -168,6 +182,7 @@ async function main() {
         // another worker claimed them): every write would be refused
         // anyway, and side effects (commands, pushes) must not continue.
         for (const taskId of result?.lostTaskIds ?? []) {
+          direct.lost(taskId);
           const guard = leaseGuards.get(taskId);
           if (!guard || guard.signal.aborted) continue;
           log("lease lost, stopping task", taskId);
@@ -249,6 +264,8 @@ async function main() {
       await sleep(200);
     }
     if (inFlight.size > 0) log(`${inFlight.size} task(s) still draining at exit; leases will expire`);
+    // Live direct threads: end their sessions and hand them back.
+    await withTimeout(direct.shutdown(), 3_000);
     clearInterval(heartbeat);
     await withTimeout(subscriber?.close() ?? Promise.resolve(), 1_000);
     // Plan 009: kill every MCP child process before the worker exits.
@@ -372,8 +389,20 @@ async function main() {
       wake = done;
     });
 
+  let directInFlight: Promise<unknown> | null = null;
+  const pollDirect = () => {
+    if (directInFlight || stopping) return;
+    directInFlight = direct
+      .tick()
+      .catch((error) => log("direct claim error", error instanceof Error ? error.message : String(error)))
+      .finally(() => {
+        directInFlight = null;
+      });
+  };
+
   while (!stopping) {
     pollPushes();
+    pollDirect();
     pollMcpTests();
     pollOpencodeCatalogs();
     try {

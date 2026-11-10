@@ -74,6 +74,22 @@ SOFTWARE.
     `buildChildEnv()`; see the file header). Used by `packages/worker/src/tools/gitPush.ts`.
   - `apps/api/convex/lib/prChecks.ts`: the check rollup follows `ciVerdict` / `githubRuns` in `runner/src/upstream.ts`
     (idea and pass/fail rules only, no code copied).
+  - Direct threads (plan T2; each file carries a header naming its source):
+    - `runner/src/diff.ts` → `packages/worker/src/vendor/threadbear/diff.ts` (copied; `Hunk` inlined)
+    - `runner/src/adapters/acp/connection.ts` → `packages/worker/src/vendor/threadbear/acp/connection.ts`
+      (copied; Fhara logger, spawn and line reader)
+    - `runner/src/adapters/acp/normalize.ts` + `runner/src/adapters/context.ts` →
+      `packages/worker/src/vendor/threadbear/acp/normalize.ts` (copied; local event types, no images)
+    - `runner/src/adapters/acp/agents.ts` (`opencodeEnv`, the OpenCode row) →
+      `packages/worker/src/vendor/threadbear/acp/agents.ts` (OpenCode only; Fhara's provider config and rules)
+    - `runner/src/adapters/acp/adapter.ts` → `packages/worker/src/direct/acpSession.ts` (copied and trimmed)
+    - `runner/src/adapters/tool-gate.ts` + the request shaping of `adapter.ts` `permission()` →
+      `packages/worker/src/direct/toolGate.ts`
+    - `runner/src/handoff-history.ts` → `packages/worker/src/direct/handoff.ts`
+    - `runner/src/code-writes.ts` → `packages/worker/src/direct/codeWrites.ts` (Fhara's file list)
+    - `runner/src/runner.ts` turn, steer, interrupt and recovery logic → ported (not copied) in
+      `packages/worker/src/direct/threadRunner.ts` and `apps/api/convex/lib/directThreads.ts`
+      (`recoverDirectThread`)
 
 ```
 MIT License

@@ -20,7 +20,7 @@ export default function PauseResumeButton({
   task,
   size = 13,
 }: {
-  task: { _id: string; title?: string; status: string };
+  task: { _id: string; title?: string; status: string; pausedBy?: string };
   size?: number;
 }) {
   const pause = useMutation(api.taskControl.pause);
@@ -51,7 +51,13 @@ export default function PauseResumeButton({
       type="button"
       disabled={pending}
       onClick={() => void run()}
-      title={paused ? "Resume: continue from where it paused" : "Pause: running subtasks finish, nothing new starts"}
+      title={
+        paused
+          ? task.pausedBy === "held"
+            ? "Resume now: retry the LLM provider instead of waiting for the automatic retry"
+            : "Resume: continue from where it paused"
+          : "Pause: running subtasks finish, nothing new starts"
+      }
       aria-label={task.title ? `${label} ${task.title}` : label}
       className="rounded-md p-1.5 text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
     >

@@ -2,6 +2,7 @@ import type { BudgetTracker } from "@/orchestrator/budget";
 import type { WorkerProject, WorkerTask } from "@/workerApi";
 import type { RunnerDeps } from "./types";
 import { isLeaseLostOrShutdown } from "./abort";
+import { classifyProviderHold } from "@/api/convex/lib/providerHold";
 
 /** Terminal task statuses: a task in one of these is finished for good. */
 export function isTerminalTaskStatus(status: string | undefined): boolean {
@@ -145,6 +146,21 @@ export async function failTaskWithError(input: {
   lifecycle?: boolean;
 }): Promise<void> {
   const { deps, taskId, projectId, message } = input;
+  // O3 + L7: a provider failure (offline, 429, quota, auth) is a hold, not
+  // a failure: the backend's completeTask parks the task (paused, pausedBy
+  // "held") and resumes it with backoff. No task.error, no FAILED.
+  const hold = classifyProviderHold(message);
+  if (hold) {
+    await deps.api.logEvent({
+      taskId,
+      projectId,
+      type: "llm.provider_hold",
+      payload: { kind: hold.kind, reason: hold.reason, message: message.slice(0, 500) },
+      level: "warn",
+    });
+    await deps.api.completeTask({ taskId, status: "failed", errorMessage: message });
+    return;
+  }
   await deps.api.logEvent({
     taskId,
     projectId,

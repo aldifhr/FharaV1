@@ -473,8 +473,20 @@ export default defineSchema({
     planReviewNote: v.optional(v.string()),
     // Plan 022 (additive): explicit user pause. Set with status "paused";
     // cleared on resume.
-    pausedBy: v.optional(v.literal("user")),
+    // O3 + L7: "held" = paused by a provider hold (offline, 429, quota,
+    // auth); resumes on its own with backoff or on the user's Resume.
+    pausedBy: v.optional(v.union(v.literal("user"), v.literal("held"))),
     pausedAt: v.optional(v.number()),
+    hold: v.optional(
+      v.object({
+        kind: v.union(v.literal("offline"), v.literal("rate_limit"), v.literal("quota"), v.literal("auth")),
+        reason: v.string(),
+        detail: v.optional(v.string()),
+        attempts: v.number(),
+        heldAt: v.number(),
+        resumeAt: v.number(),
+      })
+    ),
     // Shadow Agent (additive): the Reviewer observes this task and leaves
     // notes after each completed subtask. Never executes or blocks.
     shadowAgent: v.optional(v.boolean()),

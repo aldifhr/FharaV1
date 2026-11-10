@@ -17,6 +17,7 @@ import ChatCard from "./chat/cards/ChatCard";
 import ReviewSnippet from "./chat/cards/ReviewSnippet";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import PauseResumeButton from "./PauseResumeButton";
+import TaskHoldNotice from "./TaskHoldNotice";
 import Requirements from "./runs/Requirements";
 import { useToast } from "./Toasts";
 import { useSequencedEvents } from "@/lib/useSequencedEvents";
@@ -527,6 +528,7 @@ export default function TaskThreadPanel({
               </button>
             </div>
           )}
+          <TaskHoldNotice task={task as any} />
           {pendingApprovals.map((a: any) => (
             <ApprovalCard
               key={a._id}

@@ -18,6 +18,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { closeOpenSubtasks, refreshAgentStatus } from "./orchestration";
 import { openIncident } from "./lib/incidents";
+import { watchdogMayFail } from "./lib/providerHold";
 import { scheduleDecisionEvaluation } from "./lib/calibration/store";
 import { WATCHDOG_BATCH, isStuck, lastProgressAt, stuckReason, taskStuckMs } from "./lib/taskWatchdog";
 import { appendTaskEvent } from "./lib/taskEvents";
@@ -113,6 +114,9 @@ export const run = internalMutation({
         // (threadbear T2): the worker releases it after DIRECT_IDLE_MIN, and
         // a dead worker is handled by recoverDirect. Never "stuck" here.
         if (task.mode === "direct") continue;
+        // O3 + L7: a task on a provider hold waits for its backoff resume;
+        // never "stuck" (defensive: a held task is `paused`, not running).
+        if (!watchdogMayFail(task)) continue;
         const progress = await progressOf(ctx, task);
         if (!isStuck(progress.at, now, stuckMs)) continue;
         await failStuckTask(ctx, task, stuckReason(progress.at, now, progress.lastEventType), now);

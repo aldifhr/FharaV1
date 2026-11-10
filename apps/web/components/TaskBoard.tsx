@@ -13,6 +13,7 @@ import { NEUTRAL_PILL, TASK_STATUSES, TASK_STATUS_PILL, isClosedStatus, subtaskS
 import { SectionLoading, useWorkspace } from "@/app/WorkspaceContext";
 import ConfirmDialog from "./ConfirmDialog";
 import PauseResumeButton from "./PauseResumeButton";
+import TaskHoldNotice from "./TaskHoldNotice";
 import { PR_LANES, type PrLane } from "@/api/convex/lib/prFeedback";
 
 type TaskRow = any;
@@ -416,6 +417,7 @@ export default function TaskBoard({
                     </div>
                   );
                 })}
+                <TaskHoldNotice task={t as any} compact />
                 {t.errorMessage && (
                   <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] text-red-600 dark:bg-red-950/40 dark:text-red-300">{t.errorMessage}</p>
                 )}

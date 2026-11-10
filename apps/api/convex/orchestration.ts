@@ -49,6 +49,8 @@ import {
 import { taskBranchPrefixes } from "./lib/taskBranch";
 import { consumeTaskSignals, RESUMABLE_APPROVAL_KINDS, supersedePendingCommandApprovals } from "./taskSignals";
 import { appendAgentEvent as appendAgentEventRow, appendTaskEvent } from "./lib/taskEvents";
+import { classifyProviderHold } from "./lib/providerHold";
+import { holdTaskForProvider } from "./taskControl";
 import { recoverDirectThread } from "./lib/directThreads";
 import { decideResume, replayEncodedBytes, RESUME_MAX_REPLAY_EVENTS } from "./lib/eventResume";
 
@@ -1824,6 +1826,17 @@ export const completeTask = internalMutation({
     // another worker now owns. Refused as a VALUE so the old worker stops.
     if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
       return { applied: false, reason: "lease_lost" as const };
+    }
+    // O3 + L7: a run that failed because the LLM provider is offline,
+    // rate-limited (429), out of quota or refusing its credentials is put
+    // on hold (paused, pausedBy "held") and resumes with backoff instead
+    // of failing. No incident, no FAILED transition.
+    if (args.status === "failed" && before) {
+      const hold = classifyProviderHold(args.errorMessage);
+      if (hold) {
+        const held = await holdTaskForProvider(ctx, before, hold, args.errorMessage);
+        return { applied: true, status: "paused" as const, held: true, resumeAt: held.resumeAt };
+      }
     }
     await ctx.db.patch(args.taskId, {
       status: args.status,

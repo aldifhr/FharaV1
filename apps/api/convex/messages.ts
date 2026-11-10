@@ -3,7 +3,14 @@ import { v } from "convex/values";
 import { declineWaitingCommands } from "./commandApprovals";
 import { ensureChatConversation } from "./conversations";
 import { insertChatUserMessage } from "./chatContext";
-import { assertProjectAccess, getVisibleTask, assertMessageAccess } from "./lib/authz";
+import {
+  assertConversationAccess,
+  assertMessageAccess,
+  assertProjectAccess,
+  getAccessibleConversation,
+  getVisibleTask,
+} from "./lib/authz";
+import { isPersonalConversation } from "./lib/conversationShape";
 import { internal } from "./_generated/api";
 import { permissionModeValidator } from "./lib/permissionModes";
 
@@ -429,5 +436,79 @@ export const insertThreadMessage = mutation({
     // A reply in the thread while this task's command waits declines it.
     await declineWaitingCommands(ctx, { projectId: args.projectId, taskId: args.taskId, text: content });
     return messageId;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Personal chat (plan 039, PC2).
+// ---------------------------------------------------------------------------
+
+/**
+ * One conversation's messages, newest N returned oldest-first (same shape
+ * as listByProject). Reads `by_conversation`, so personal messages (no
+ * projectId, D1) are found without a project scan.
+ */
+export const listByConversation = query({
+  args: { conversationId: v.id("conversations"), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const conversation = await ctx.db.get(args.conversationId);
+    if (!conversation) return [];
+    await assertConversationAccess(ctx, conversation);
+    const newest = await ctx.db
+      .query("messages")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))
+      .order("desc")
+      .take(Math.min(Math.max(args.limit ?? 500, 1), 1000));
+    return newest.reverse();
+  },
+});
+
+/**
+ * Send in a personal conversation. The scope comes from the conversation
+ * row only: the message is written WITHOUT projectId (D1), dedupe runs on
+ * (conversationId, clientId), and the reply is scheduled with the
+ * conversation id alone. Project chat keeps `send`.
+ */
+export const sendInConversation = mutation({
+  args: {
+    conversationId: v.id("conversations"),
+    content: v.string(),
+    quotedMessageId: v.optional(v.id("messages")),
+    clientId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ messageId: string; conversationId: string; deduped: boolean }> => {
+    const { conversation } = await getAccessibleConversation(ctx, args.conversationId);
+    if (!isPersonalConversation(conversation)) {
+      throw new Error("Use the project chat for this conversation");
+    }
+    if (conversation.status !== "active") {
+      throw new Error("This chat is closed. Start a new chat.");
+    }
+    if (!args.content.trim()) throw new Error("Message is required");
+    const clientId = normalizeClientId(args.clientId);
+    if (clientId) {
+      const existing = await ctx.db
+        .query("messages")
+        .withIndex("by_conversation_and_client_id", (q) =>
+          q.eq("conversationId", conversation._id).eq("clientId", clientId)
+        )
+        .first();
+      if (existing) {
+        return { messageId: existing._id as string, conversationId: conversation._id as string, deduped: true };
+      }
+    }
+    const messageId = await insertChatUserMessage(ctx, {
+      content: args.content,
+      conversationId: conversation._id,
+      ...(args.quotedMessageId ? { quotedMessageId: args.quotedMessageId } : {}),
+      ...(clientId ? { clientId } : {}),
+    });
+    const now = Date.now();
+    await ctx.db.patch(conversation._id, { lastMessageAt: now, updatedAt: now });
+    await ctx.scheduler.runAfter(0, internal.chat.replyToChat, {
+      conversationId: conversation._id,
+      userMessageId: messageId,
+    });
+    return { messageId: messageId as string, conversationId: conversation._id as string, deduped: false };
   },
 });

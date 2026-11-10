@@ -47,7 +47,8 @@ export const insertUserMessage = internalMutation({
 export async function insertChatUserMessage(
   ctx: MutationCtx,
   args: {
-    projectId: Id<"projects">;
+    /** Absent for a personal chat message (plan 039 D1). */
+    projectId?: Id<"projects">;
     content: string;
     conversationId?: Id<"conversations">;
     quotedMessageId?: Id<"messages">;
@@ -71,8 +72,9 @@ export async function insertChatUserMessage(
     ...(args.preferredAgentIds?.length ? { preferredAgentIds: args.preferredAgentIds } : {}),
     ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
   };
+  if (!args.projectId && !args.conversationId) throw new Error("Message needs a project or a conversation");
   return await ctx.db.insert("messages", {
-    projectId: args.projectId,
+    ...(args.projectId ? { projectId: args.projectId } : {}),
     authorType: "user",
     content,
     conversationId: args.conversationId,

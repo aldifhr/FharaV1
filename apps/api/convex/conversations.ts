@@ -2,8 +2,13 @@ import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { assertConversationAccess, assertProjectAccess } from "./lib/authz";
-import { isPersonalConversation } from "./lib/conversationShape";
+import {
+  assertConversationAccess,
+  assertProjectAccess,
+  assertRegistryWriteAccess,
+  getViewerId,
+} from "./lib/authz";
+import { conversationKind, conversationShapeError, isPersonalConversation } from "./lib/conversationShape";
 
 /**
  * Plan 007 (addendum §2): conversation participation as a persisted concept,
@@ -466,5 +471,175 @@ export const clearChat = mutation({
     }
 
     return { deletedMessages: deleted };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Personal chat (plan 039, PC2): one conversation per agent, no project.
+// ---------------------------------------------------------------------------
+
+/** An agent that can hold a personal chat: exists, enabled, not retired. */
+async function loadPersonalAgent(ctx: Ctx, agentId: Id<"agents">): Promise<AgentDoc> {
+  const agent = await ctx.db.get(agentId);
+  if (!agent) throw new Error("Agent not found");
+  if (agent.isEnabled === false) throw new Error(`Agent ${agent.name} is disabled`);
+  if (agent.retiredAt !== undefined) throw new Error(`Agent ${agent.name} is retired`);
+  return agent;
+}
+
+/** The caller may use personal chat at all (local mode or signed in). */
+async function assertPersonalChatAccess(ctx: Ctx): Promise<string | null> {
+  const viewerId = await getViewerId(ctx);
+  if (!viewerId) await assertRegistryWriteAccess(ctx);
+  return viewerId;
+}
+
+/** The active personal conversation of (agent, owner), newest first. */
+async function findActivePersonal(
+  ctx: Ctx,
+  agentId: Id<"agents">,
+  ownerId: string | null
+): Promise<Doc<"conversations"> | null> {
+  const rows = await ctx.db
+    .query("conversations")
+    .withIndex("by_agent_kind_status", (q) =>
+      q.eq("agentId", agentId).eq("kind", "personal").eq("status", "active")
+    )
+    .collect();
+  const mine = rows.filter((row) => (row.ownerId ?? null) === ownerId);
+  if (mine.length === 0) return null;
+  return mine.reduce((latest, row) => (row.createdAt >= latest.createdAt ? row : latest));
+}
+
+async function insertPersonal(
+  ctx: WriteCtx,
+  agent: AgentDoc,
+  ownerId: string | null
+): Promise<Id<"conversations">> {
+  const now = Date.now();
+  const row = {
+    kind: "personal" as const,
+    agentId: agent._id,
+    ...(ownerId ? { ownerId } : {}),
+    status: "active" as const,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const shapeError = conversationShapeError(row);
+  if (shapeError) throw new Error(shapeError);
+  const id = await ctx.db.insert("conversations", row);
+  // Exactly one participant: the agent (getParticipants keeps working).
+  await ctx.db.insert("conversationParticipants", {
+    conversationId: id,
+    agentId: agent._id,
+    joinedAt: now,
+  });
+  return id;
+}
+
+/**
+ * Get or create the active personal conversation with one agent.
+ * Idempotent: a refresh or a double call returns the same row (Convex
+ * mutations are serializable, so two racing creates resolve to one).
+ */
+export const getOrCreatePersonal = mutation({
+  args: { agentId: v.id("agents") },
+  handler: async (ctx, args): Promise<Id<"conversations">> => {
+    const ownerId = await assertPersonalChatAccess(ctx);
+    const agent = await loadPersonalAgent(ctx, args.agentId);
+    const existing = await findActivePersonal(ctx, agent._id, ownerId);
+    if (existing) return existing._id;
+    return await insertPersonal(ctx, agent, ownerId);
+  },
+});
+
+/** "New chat": close the active personal conversation and open a fresh one. */
+export const startNewPersonal = mutation({
+  args: { agentId: v.id("agents") },
+  handler: async (ctx, args): Promise<Id<"conversations">> => {
+    const ownerId = await assertPersonalChatAccess(ctx);
+    const agent = await loadPersonalAgent(ctx, args.agentId);
+    const existing = await findActivePersonal(ctx, agent._id, ownerId);
+    if (existing) {
+      await ctx.db.patch(existing._id, { status: "closed", updatedAt: Date.now() });
+    }
+    return await insertPersonal(ctx, agent, ownerId);
+  },
+});
+
+/**
+ * Personal chat list: every enabled, non-retired agent with its active
+ * personal conversation (if any), last activity and a short preview.
+ */
+export const listPersonal = query({
+  args: {},
+  handler: async (ctx) => {
+    const ownerId = await assertPersonalChatAccess(ctx);
+    const agents = (await ctx.db.query("agents").collect()).filter(
+      (a) => a.isEnabled !== false && a.retiredAt === undefined
+    );
+    const rows = await Promise.all(
+      agents.map(async (agent) => {
+        const conversation = await findActivePersonal(ctx, agent._id, ownerId);
+        let preview: string | null = null;
+        if (conversation) {
+          const last = await ctx.db
+            .query("messages")
+            .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
+            .order("desc")
+            .first();
+          preview = last ? last.content.replace(/\s+/g, " ").trim().slice(0, 120) || null : null;
+        }
+        const project = conversation?.projectId ? await ctx.db.get(conversation.projectId) : null;
+        return {
+          agent: {
+            _id: agent._id,
+            name: agent.name,
+            role: agent.role,
+            status: agent.status,
+            avatarParams: agent.avatarParams,
+          },
+          conversationId: conversation?._id ?? null,
+          lastMessageAt: conversation ? (conversation.lastMessageAt ?? null) : null,
+          preview,
+          projectName: project?.name ?? null,
+        };
+      })
+    );
+    // Recent conversations first, then agents with no chat yet by name.
+    return rows.sort((a, b) => {
+      const at = a.lastMessageAt ?? 0;
+      const bt = b.lastMessageAt ?? 0;
+      if (at !== bt) return bt - at;
+      return a.agent.name.localeCompare(b.agent.name);
+    });
+  },
+});
+
+/** One conversation's header data, after the access check. */
+export const get = query({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args) => {
+    const conversation = await ctx.db.get(args.conversationId);
+    if (!conversation) return null;
+    const { project } = await assertConversationAccess(ctx, conversation);
+    const agent = conversation.agentId ? await ctx.db.get(conversation.agentId) : null;
+    const rows = await activeParticipantRows(ctx, conversation._id);
+    const agents = await Promise.all(rows.map((row) => ctx.db.get(row.agentId)));
+    const participants = rows.flatMap((row, index) => {
+      const a = agents[index];
+      return a ? [participantView(a, row.joinedAt)] : [];
+    });
+    return {
+      _id: conversation._id,
+      kind: conversationKind(conversation),
+      status: conversation.status,
+      agent: agent ? participantView(agent, conversation.createdAt) : null,
+      project: project ? { _id: project._id, name: project.name } : null,
+      projectAttachedAt: conversation.projectAttachedAt ?? null,
+      createdAt: conversation.createdAt,
+      lastMessageAt: conversation.lastMessageAt ?? null,
+      participants,
+    };
   },
 });

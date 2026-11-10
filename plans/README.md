@@ -42,7 +42,7 @@ execution order and a definition of done.
 | 036 | [Agent Reach web tool for read-only agents](036-agent-reach-web-tool.md) | P2 | M | — | IN PROGRESS (implemented with unit + executor tests; live CLI smoke done, full task smoke pending) |
 | 037 | [LLM & Models simple flow, one model order](037-llm-models-simple-flow.md) | P2 | M | 032, 035 | IN PROGRESS (implemented with unit + convex-test; browser check pending) |
 | 038 | [OpenCode as a provider, with detection](038-opencode-provider.md) | P2 | M | 034, 035, 037 | IN PROGRESS (implemented with unit + convex-test + live CLI test; browser check pending) |
-| 039 | [Personal chat for every agent](039-personal-chat.md) | P2 | L | 007 | IN PROGRESS (PC1 schema + guards + migration landed) |
+| 039 | [Personal chat for every agent](039-personal-chat.md) | P2 | L | 007 | IN PROGRESS (PC1 schema + guards + migration, PC2 personal API landed) |
 | 040 | [Team roles: enforced permissions, routing, usage ledger](040-team-roles-routing-usage.md) | P1 | M | 022, 036, 038 | IN PROGRESS (P1 implemented with unit + convex-test; no live run) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,

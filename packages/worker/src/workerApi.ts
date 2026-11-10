@@ -585,6 +585,31 @@ export class WorkerApi {
     return await this.client.action(api.worker.completePushRequest, this.args(this.masked(input)));
   }
 
+  // L6: no-replay side-effect ledger (apps/api/convex/sideEffects.ts).
+  async armSideEffect(
+    input: ActionInput<typeof api.worker.armSideEffect>
+  ): Promise<FunctionReturnType<typeof api.worker.armSideEffect>> {
+    return await this.client.action(api.worker.armSideEffect, this.args(input));
+  }
+
+  async acceptSideEffect(
+    input: ActionInput<typeof api.worker.acceptSideEffect>
+  ): Promise<FunctionReturnType<typeof api.worker.acceptSideEffect>> {
+    return await this.client.action(api.worker.acceptSideEffect, this.args(input));
+  }
+
+  async settleSideEffect(
+    input: ActionInput<typeof api.worker.settleSideEffect>
+  ): Promise<FunctionReturnType<typeof api.worker.settleSideEffect>> {
+    return await this.client.action(api.worker.settleSideEffect, this.args(this.masked(input)));
+  }
+
+  async markSideEffectAmbiguous(
+    input: ActionInput<typeof api.worker.markSideEffectAmbiguous>
+  ): Promise<FunctionReturnType<typeof api.worker.markSideEffectAmbiguous>> {
+    return await this.client.action(api.worker.markSideEffectAmbiguous, this.args(this.masked(input)));
+  }
+
   // Workload Manager: running executions per agent (load-aware routing).
   async getAgentLoad(
     input: ActionInput<typeof api.worker.getAgentLoad>

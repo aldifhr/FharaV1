@@ -8,6 +8,7 @@ import type { PerformanceScore } from "@/api/convex/lib/agentPerformance";
 import type { ModelRoutingInfo } from "@/llm/resolver";
 import type { WebClient } from "@/tools/webClient";
 import { applyFileChange, hashContent, type FileDiff } from "@/tools/gitDiff";
+import { applyUnderLedger, ledgerOf } from "./applyLedger";
 import type { WorkerExecutionId } from "@/workerApi";
 import type { DynamicSubtaskOrigin } from "@/types/subtask";
 import type { ApplyStagedResult, ExecutePlanInput, RunContext } from "./types";
@@ -161,6 +162,40 @@ export function createRunContext(input: ExecutePlanInput, browser: WebClient): R
     if (changes.length === 0) return { applied: [] };
     const wp = input.workspacePath;
     const appliedPaths: string[] = [];
+    // L6: the writes run under the no-replay ledger when the API has it.
+    const ledger = ledgerOf(deps.api);
+    if (ledger) {
+      const outcome = await applyUnderLedger<ApplyStagedResult>({
+        api: ledger,
+        workerId: deps.workerId,
+        taskId,
+        projectId: project._id,
+        workspaceRoot: wp,
+        changes,
+        writeAll: () => writeAll(changes, appliedPaths),
+        isStop: (result) => "stop" in result,
+      });
+      if (outcome.kind === "ambiguous") {
+        state.feedback.push(`Apply not confirmed: ${outcome.reason}`);
+        await deps.api
+          .logEvent({ taskId, projectId: project._id, type: "fileChanges.apply_ambiguous", payload: { reason: outcome.reason }, level: "error" })
+          .catch(() => undefined);
+        return { stop: "failed" };
+      }
+      if (outcome.kind === "result" && "stop" in outcome.result) return outcome.result;
+      if (outcome.kind === "already_applied") {
+        appliedPaths.splice(0, appliedPaths.length, ...changes.map((change) => change.filePath));
+      }
+    } else {
+      const result = await writeAll(changes, appliedPaths);
+      if ("stop" in result) return result;
+    }
+    return await recordApplied(appliedPaths, actor);
+  };
+
+  /** The file writes of one apply (hash-guarded, verified after each write). */
+  const writeAll = async (changes: FileDiff[], appliedPaths: string[]): Promise<ApplyStagedResult> => {
+    const wp = input.workspacePath;
     for (const change of changes) {
       // A cancel/deadline that landed while the scheduler was running
       // stops the apply phase too: no further files are written.
@@ -188,6 +223,10 @@ export function createRunContext(input: ExecutePlanInput, browser: WebClient): R
         return { stop: "failed" };
       }
     }
+    return { applied: appliedPaths };
+  };
+
+  const recordApplied = async (appliedPaths: string[], actor: "user" | "orchestrator"): Promise<ApplyStagedResult> => {
     if (appliedPaths.length > 0) {
       await deps.api.markFilesApplied({
         taskId,

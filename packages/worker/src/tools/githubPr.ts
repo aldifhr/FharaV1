@@ -36,6 +36,35 @@ function toResult(pull: PullJson): PullRequestResult {
   };
 }
 
+/**
+ * The pull request (any state) whose head is `owner:head`, or null when
+ * GitHub lists none. Throws when GitHub cannot be asked (L6: an unknown is
+ * never read as "no PR").
+ */
+export async function findPullRequestByHead(input: {
+  owner: string;
+  repo: string;
+  token: string;
+  head: string;
+  fetchImpl?: FetchLike;
+  signal?: AbortSignal;
+}): Promise<PullRequestResult | null> {
+  const fetchImpl = input.fetchImpl ?? (await proxyAwareFetch());
+  const api = `https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}`;
+  const query = new URLSearchParams({ head: `${input.owner}:${input.head}`, state: "all", per_page: "1" });
+  const response = await fetchImpl(`${api}/pulls?${query}`, {
+    headers: {
+      Authorization: `Bearer ${input.token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    signal: input.signal,
+  });
+  if (!response.ok) throw new Error(redactSecret(`Listing pull requests failed (${response.status})`, input.token));
+  const pulls = (await response.json()) as PullJson[];
+  return pulls[0] ? toResult(pulls[0]) : null;
+}
+
 export async function openPullRequest(input: {
   owner: string;
   repo: string;
@@ -68,11 +97,11 @@ export async function openPullRequest(input: {
   };
 
   const findExisting = async (): Promise<PullRequestResult | null> => {
-    const query = new URLSearchParams({ head: `${input.owner}:${input.head}`, state: "all", per_page: "1" });
-    const response = await fetchImpl(`${api}/pulls?${query}`, { headers, signal: input.signal });
-    if (!response.ok) return null;
-    const pulls = (await response.json()) as PullJson[];
-    return pulls[0] ? toResult(pulls[0]) : null;
+    try {
+      return await findPullRequestByHead({ ...input, fetchImpl });
+    } catch {
+      return null;
+    }
   };
 
   const create = async (draft: boolean) =>

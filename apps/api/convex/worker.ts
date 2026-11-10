@@ -16,6 +16,7 @@ import {
   subtaskKind,
   subtaskStatus,
   executionStatus,
+  sideEffectKind,
 } from "./schema";
 
 const tokenArg = { workerToken: v.string() };
@@ -1257,6 +1258,63 @@ export const completePushRequest = action({
   },
   handler: async (ctx, args): Promise<any> => {
     return await ctx.runMutation(internal.githubPush.completePushRequest, withoutToken(args));
+  },
+});
+
+// ─── L6: no-replay side-effect ledger (sideEffects.ts) ────────────────────
+
+/** Arm an external write before doing it; the decision says whether to write, reconcile or skip. */
+export const armSideEffect = action({
+  args: {
+    ...tokenArg,
+    key: v.string(),
+    kind: sideEffectKind,
+    workerId: v.string(),
+    taskId: v.optional(v.id("tasks")),
+    projectId: v.optional(v.id("projects")),
+    pushId: v.optional(v.id("taskPushes")),
+    evidence: v.optional(v.any()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.sideEffects.arm, withoutToken(args));
+  },
+});
+
+/** The provider accepted the write. */
+export const acceptSideEffect = action({
+  args: { ...tokenArg, effectId: v.id("sideEffects"), workerId: v.string(), evidence: v.optional(v.any()) },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.sideEffects.accept, withoutToken(args));
+  },
+});
+
+/** Terminal outcome (first wins). */
+export const settleSideEffect = action({
+  args: {
+    ...tokenArg,
+    effectId: v.id("sideEffects"),
+    workerId: v.string(),
+    outcome: v.union(v.literal("done"), v.literal("failed")),
+    evidence: v.optional(v.any()),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.sideEffects.settle, withoutToken(args));
+  },
+});
+
+/** Reality could not settle it: park it and ask the user (card). */
+export const markSideEffectAmbiguous = action({
+  args: {
+    ...tokenArg,
+    effectId: v.id("sideEffects"),
+    workerId: v.string(),
+    reason: v.string(),
+    label: v.optional(v.string()),
+    evidence: v.optional(v.any()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation(internal.sideEffects.markAmbiguous, withoutToken(args));
   },
 });
 

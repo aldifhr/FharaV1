@@ -693,3 +693,34 @@ This repository does not claim affiliation with the upstream projects listed bel
 - Used in: `packages/worker/src/utils/redact.ts`, `utils/redactStream.ts`: the ideas only (mask configured secret
   values before pattern rules; walk objects instead of cutting JSON; hold a record until whole across chunks with a
   64 KiB cap; strip ANSI before redaction). No code copied: openbot is PolyForm Noncommercial.
+
+## embassy
+
+- Source: https://github.com/YuanpingSong/embassy (commit `331d004`, `docs/DELIVERY.md`)
+- Used in: `apps/api/convex/sideEffects.ts`, `packages/worker/src/services/sideEffects.ts`,
+  `packages/worker/src/services/runner/applyLedger.ts`: the delivery phase model only (queued → armed → accepted →
+  terminal, `ambiguous` never replayed, only positive proof of no write returns work to the queue). No code copied.
+
+```
+MIT License
+
+Copyright (c) 2026 YuanpingSong
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

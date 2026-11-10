@@ -158,6 +158,23 @@ export const approvalStatus = v.union(
 );
 
 /** Lifecycle of a task-branch push (plan 019). */
+/** L6 side-effect ledger: what kind of external write. */
+export const sideEffectKind = v.union(
+  v.literal("push"),
+  v.literal("pr_create"),
+  v.literal("apply"),
+  v.literal("restore")
+);
+
+/** L6 phases: queued → armed → accepted → terminal | ambiguous. */
+export const sideEffectPhase = v.union(
+  v.literal("queued"),
+  v.literal("armed"),
+  v.literal("accepted"),
+  v.literal("terminal"),
+  v.literal("ambiguous")
+);
+
 export const pushStatus = v.union(
   // Commit recorded; nothing leaves the machine until the user clicks.
   v.literal("ready"),
@@ -803,7 +820,9 @@ export default defineSchema({
           // Plan 019: "Changed N files" diff card after a code change.
           v.literal("changes"),
           // Plan Inspector: the plan waiting for review (reads live state).
-          v.literal("plan")
+          v.literal("plan"),
+          // L6: a side effect Fhara could not confirm (Check / Mark done / Retry).
+          v.literal("side_effect")
         ),
         data: v.any(),
       })
@@ -1436,6 +1455,43 @@ export default defineSchema({
     .index("by_pr_state_and_checked", ["prState", "prCheckedAt"])
     // Project delete cascade (projects.cascadeDelete).
     .index("by_project", ["projectId"]),
+
+  // L6: no-replay side-effect ledger (embassy DELIVERY.md phases, MIT).
+  // One row per external write Fhara performs (push, PR create, apply,
+  // restore), keyed by what the write is. `armed` is written before the
+  // write and `accepted` after it; a later attempt that finds a row armed
+  // or accepted never repeats the write: it reconciles from reality
+  // (remote branch SHA, PR by head, file hashes) to `terminal`, or marks
+  // it `ambiguous` and asks the user. Only `queued` (and a terminal
+  // `failed`, positive proof nothing was written) may run again.
+  sideEffects: defineTable({
+    key: v.string(),
+    kind: sideEffectKind,
+    phase: sideEffectPhase,
+    // Set with phase terminal.
+    outcome: v.optional(v.union(v.literal("done"), v.literal("failed"))),
+    taskId: v.optional(v.id("tasks")),
+    projectId: v.optional(v.id("projects")),
+    pushId: v.optional(v.id("taskPushes")),
+    workerId: v.optional(v.string()),
+    attempts: v.number(),
+    // What reality said (remote sha, PR number, file states); no secrets.
+    evidence: v.optional(v.any()),
+    reason: v.optional(v.string()),
+    // The ambiguous card's message, when one was posted.
+    messageId: v.optional(v.id("messages")),
+    armedAt: v.optional(v.number()),
+    acceptedAt: v.optional(v.number()),
+    settledAt: v.optional(v.number()),
+    // The user's last click on the ambiguous card.
+    resolvedBy: v.optional(v.union(v.literal("check"), v.literal("mark_done"), v.literal("retry"))),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_key", ["key"])
+    .index("by_task", ["taskId"])
+    .index("by_push", ["pushId"])
+    .index("by_phase_and_updated", ["phase", "updatedAt"]),
 
   // Post-push feedback loop: one row per PR signal that Fhara reacts to,
   // deduped on (PR, signature). `created` rows count toward the per-PR

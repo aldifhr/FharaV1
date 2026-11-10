@@ -7,6 +7,7 @@ import type {
   PlanCardData,
   PushCardData,
   QaCardData,
+  SideEffectCardData,
   VerificationCardData,
 } from "@/api/convex/cardTypes";
 import { ROLE_COLORS, roleKeyForMention, roleLabel, NEUTRAL_MENTION_COLOR } from "@/lib/agentRoles";
@@ -16,6 +17,7 @@ import ChangesCard from "./ChangesCard";
 import PlanCard from "./PlanCard";
 import PushCard from "./PushCard";
 import QaCard from "./QaCard";
+import SideEffectCard from "./SideEffectCard";
 import VerificationCard from "./VerificationCard";
 import { CARD_SURFACE, MUTED, RoleAvatar } from "./primitives";
 
@@ -40,6 +42,8 @@ export default function ChatCard({ card }: { card: MessageCard | undefined | nul
       return <ChangesCard data={card.data as ChangesCardData} />;
     case "plan":
       return <PlanCard data={card.data as PlanCardData} />;
+    case "side_effect":
+      return <SideEffectCard data={card.data as SideEffectCardData} />;
     default:
       return null;
   }

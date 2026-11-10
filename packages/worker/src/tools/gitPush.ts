@@ -288,6 +288,42 @@ export async function scanOutgoingCommit(input: {
   return scanUnifiedDiff(diff);
 }
 
+/**
+ * L6: the commit a GitHub branch points at right now (`git ls-remote`), or
+ * null when the branch does not exist. Read-only; used to settle a push
+ * whose earlier attempt was interrupted, instead of pushing again.
+ */
+export async function remoteBranchSha(input: {
+  owner: string;
+  repo: string;
+  branchName: string;
+  token: string;
+  repoPath: string;
+  execGit?: ExecGit;
+  signal?: AbortSignal;
+}): Promise<string | null> {
+  if (!NAME.test(input.owner) || !NAME.test(input.repo)) throw new Error("Invalid GitHub repository");
+  if (!BRANCH.test(input.branchName)) throw new Error(`Invalid branch name: ${input.branchName}`);
+  const execGit = input.execGit ?? defaultExecGit;
+  const remoteUrl = `https://github.com/${input.owner}/${input.repo}.git`;
+  const ref = `refs/heads/${input.branchName}`;
+  try {
+    const { stdout } = await execGit(["ls-remote", remoteUrl, ref], {
+      cwd: path.resolve(input.repoPath),
+      env: githubAuthEnv(input.token),
+      signal: input.signal,
+      timeoutMs: 60_000,
+    });
+    for (const line of stdout.split("\n")) {
+      const [sha, name] = line.trim().split(/\s+/);
+      if (name === ref && sha && SHA.test(sha)) return sha.toLowerCase();
+    }
+    return null;
+  } catch (error) {
+    throw new Error(`git ls-remote failed: ${redactSecret(error instanceof Error ? error.message : String(error), input.token).slice(0, 300)}`);
+  }
+}
+
 export async function pushCommitToGithub(input: PushInput): Promise<{ remoteUrl: string }> {
   if (!NAME.test(input.owner) || !NAME.test(input.repo)) throw new Error("Invalid GitHub repository");
   if (!SHA.test(input.commitSha)) throw new Error("Invalid commit sha");

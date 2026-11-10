@@ -7,7 +7,7 @@
  * every field optional-safe on the reader side (old rows predate fields).
  */
 
-export type CardKind = "assignment" | "push" | "qa" | "verification" | "changes" | "plan";
+export type CardKind = "assignment" | "push" | "qa" | "verification" | "changes" | "plan" | "side_effect";
 
 export interface AssignmentCardData {
   taskId: string;
@@ -114,4 +114,16 @@ export interface ChangesCardData {
  */
 export interface PlanCardData {
   taskId: string;
+}
+
+/**
+ * L6: a side effect Fhara could not confirm after a crash. Only the effect
+ * id is stored; the card reads the live ledger row (`sideEffects.get`) so a
+ * click (Check / Mark done / Retry) shows on the same card.
+ */
+export interface SideEffectCardData {
+  effectId: string;
+  kind: "push" | "pr_create" | "apply" | "restore";
+  /** Plain words, e.g. "push of fhara/t/x@abc1234 to acme/app". */
+  label: string;
 }

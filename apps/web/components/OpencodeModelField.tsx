@@ -5,9 +5,11 @@
  *
  * The models the local OpenCode CLI can run live on the worker machine
  * (`opencode models`). The worker publishes the list; this reads it and
- * offers the ids as a dropdown. "Fhara LLM (default)" leaves the agent's
- * `opencodeModel` empty, which points OpenCode at Fhara's own LLM.
+ * offers the ids as a dropdown. "Fhara LLM (default)" leaves the model
+ * empty, which points OpenCode at Fhara's own LLM.
  * "Custom…" keeps the free-text field for a model the CLI does not list.
+ *
+ * Plan 035: the model is app-wide (Settings → LLM & Models), not per agent.
  */
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";

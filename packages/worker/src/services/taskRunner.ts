@@ -84,6 +84,12 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
     return;
   }
   const { project, agents, approvalMode, llmProviders } = context;
+  // Plan 035: the app-wide OpenCode runtime + model. Absent when the setting
+  // was never written, so the worker keeps the legacy per-agent behaviour.
+  const opencodeCtx = context as { opencodeRuntime?: "api" | "opencode"; opencodeModel?: string };
+  const opencodeSettings = opencodeCtx.opencodeRuntime
+    ? { runtime: opencodeCtx.opencodeRuntime, model: opencodeCtx.opencodeModel ?? "" }
+    : null;
   if (agents.length === 0) {
     await deps.api.completeTask({
       taskId: task._id,
@@ -385,6 +391,13 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
         llmConfig,
         llmResolver,
         llmTaskGate,
+        // Plan 035: the app-wide OpenCode runtime + model (plan 035).
+        ...(opencodeSettings
+          ? {
+              opencodeRuntime: opencodeSettings.runtime,
+              opencodeModel: opencodeSettings.model,
+            }
+          : {}),
         onTokenUsage: recordUsage,
         qaBaseUrl,
         mcp,

@@ -348,8 +348,9 @@ export const createAgentFromTemplate = mutation({
       ...(template.skillIds.length ? { skillIds: template.skillIds } : {}),
       ...(llmProviderId ? { llmProviderId } : {}),
       ...(llmModelId ? { llmModelId } : {}),
-      ...(template.runtime ? { executionRuntime: template.runtime } : {}),
-      ...(template.opencodeModel ? { opencodeModel: template.opencodeModel } : {}),
+      // Plan 035: the OpenCode runtime and model are app-wide (Settings),
+      // so a template no longer carries them into a new agent. The template's
+      // own runtime/model fields stay as legacy data.
     });
     if (project) {
       await ctx.db.patch(project._id, { agentIds: [...(project.agentIds ?? []), agentId] });

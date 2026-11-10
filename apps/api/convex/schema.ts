@@ -1039,6 +1039,17 @@ export default defineSchema({
     updatedAt: v.number(),
   }),
 
+  // App-wide OpenCode runtime (plan 035): one row for the whole app — the
+  // runtime ("api" = Fhara's own tools, "opencode" = the CLI) and the model
+  // the CLI runs ("provider/model"; empty = Fhara's own LLM). The CLI and its
+  // credentials belong to the worker, so the choice is global, not per agent.
+  // Read by the worker through the run context; no credential material.
+  opencodeSettings: defineTable({
+    runtime: v.union(v.literal("api"), v.literal("opencode")),
+    model: v.optional(v.string()),
+    updatedAt: v.number(),
+  }),
+
   // Context summaries (plan 006 Phase 3): deterministic LLM summaries of a
   // conversation's tail so prompts carry a bounded summary + last 12 instead
   // of the full history. Scoped retrieval is served by `by_conversation` with

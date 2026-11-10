@@ -13,7 +13,6 @@ import type { AvatarParams } from "@/api/convex/lib/avatar";
 import { nextAgentName } from "@/api/convex/lib/agentTemplates";
 import { AGENT_ROLES, ROLE_DEFAULT_PROMPTS, roleLabel } from "@/lib/agentRoles";
 import { useToast } from "../Toasts";
-import { OpencodeModelField } from "./OpencodeModelField";
 
 type AgentDoc = {
   _id: string;
@@ -177,11 +176,9 @@ export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onCl
         ...(agentPrompt.trim() ? { systemPrompt: agentPrompt } : {}),
         ...avatarArgs(avatarSeed),
         ...(skillIds.length ? { skillIds: skillIds as never } : {}),
-        // The template's model/runtime preference rides along (edit later).
+        // The template's model preference rides along (edit later).
         ...(template?.llmProviderId ? { llmProviderId: template.llmProviderId as never } : {}),
         ...(template?.llmModelId ? { llmModelId: template.llmModelId as never } : {}),
-        ...(template?.runtime ? { executionRuntime: template.runtime } : {}),
-        ...(template?.opencodeModel ? { opencodeModel: template.opencodeModel } : {}),
       });
       onClose();
     } catch (err) {
@@ -328,9 +325,6 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
   const [agentLlmModelId, setAgentLlmModelId] = useState(agent.llmModelId ?? "");
   const [agentLlmFallbackProviderId, setAgentLlmFallbackProviderId] = useState(agent.llmFallbackProviderId ?? "");
   const [agentLlmFallbackModelId, setAgentLlmFallbackModelId] = useState(agent.llmFallbackModelId ?? "");
-  // Execution runtime: "" = worker default, "api" | "opencode" override.
-  const [agentRuntime, setAgentRuntime] = useState(agent.executionRuntime ?? "");
-  const [agentOpencodeModel, setAgentOpencodeModel] = useState(agent.opencodeModel ?? "");
   const [agentError, setAgentError] = useState("");
   const [savingAgent, setSavingAgent] = useState(false);
   const [avatarSeed, setAvatarSeed] = useState<AvatartionAvatar | null>(null);
@@ -366,9 +360,6 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
         llmFallbackModelId: (agentLlmFallbackModelId || null) as never,
         // The selection mode is global (Settings → LLM & Models); an agent
         // keeps its own policy only when it was set explicitly before.
-        // Runtime: a value sets it, null clears it (worker default).
-        executionRuntime: (agentRuntime || null) as never,
-        opencodeModel: agentOpencodeModel.trim() || null,
         ...(skillLoading !== (agent.skillLoading ?? "inline") ? { skillLoading } : {}),
         ...avatarArgs(avatarSeed),
       });
@@ -488,7 +479,7 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
         <details className="group rounded-lg border border-line">
           <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[13px] text-ink-2 [&::-webkit-details-marker]:hidden">
             Advanced
-            <span className="text-[12.5px] text-ink-3">Model and runtime</span>
+            <span className="text-[12.5px] text-ink-3">Fhara model</span>
           </summary>
           <div className="grid gap-5 border-t border-line p-3">
             <div className="grid gap-3">
@@ -527,25 +518,7 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
                   </select>
                 </label>
               </div>
-              <p className={hint}>Tried first, then the fallback, then the pool. A failed provider always fails over to the next candidate. The selection mode is global — Settings → LLM &amp; Models.</p>
-            </div>
-            <div className="grid gap-3">
-              <p className="text-[13px] text-ink-2">Runtime</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className={label}>Execution runtime
-                  <select value={agentRuntime} onChange={(event) => setAgentRuntime(event.target.value)} className={select}>
-                    <option value="">Worker default</option>
-                    <option value="api">API</option>
-                    <option value="opencode">OpenCode</option>
-                  </select>
-                </label>
-                <OpencodeModelField
-                  value={agentOpencodeModel}
-                  onChange={setAgentOpencodeModel}
-                  disabled={agentRuntime !== "opencode"}
-                />
-              </div>
-              <p className={hint}>OpenCode runs native tools in the task worktree.</p>
+              <p className={hint}>The Fhara model this agent uses. Tried first, then the fallback, then the pool. A failed provider always fails over to the next candidate. The selection mode and the OpenCode runtime are global — Settings → LLM &amp; Models.</p>
             </div>
           </div>
         </details>

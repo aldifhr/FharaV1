@@ -81,6 +81,8 @@ export default function AgentDetailPanel({
   onRemove?: (agent: any) => void;
 }) {
   const detail = useQuery(api.agents.getDetail, { agentId: agent._id as never });
+  // Plan 035: the OpenCode runtime is app-wide (Settings → LLM & Models).
+  const opencode = useQuery(api.opencodeSettings.get, {});
   const history = useQuery(api.agents.getExecutionHistory, { agentId: agent._id as never, limit: 20 });
   const activeByAgent = useQuery(api.executionView.activeByAgent, {});
   const active = (activeByAgent as any)?.[agent._id as string] as
@@ -211,11 +213,10 @@ export default function AgentDetailPanel({
 
         <Section title="Runtime">
           <p className="text-sm text-gray-600 dark:text-gray-300">
-            {agent.executionRuntime === "opencode"
-              ? `OpenCode${agent.opencodeModel ? ` · ${agent.opencodeModel}` : " · Fhara LLM"}`
-              : agent.executionRuntime === "api"
-                ? "API (Fhara host tools)"
-                : "Worker default"}
+            {/* Plan 035: the runtime is app-wide (Settings → LLM & Models). */}
+            {opencode?.runtime === "opencode"
+              ? `OpenCode${opencode.model ? ` · ${opencode.model}` : " · Fhara LLM"}`
+              : "Built-in (Fhara host tools)"}
           </p>
         </Section>
 

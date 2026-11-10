@@ -38,6 +38,7 @@ execution order and a definition of done.
 | 032 | [Global LLM selection mode (fallback vs round robin)](032-global-llm-selection-mode.md) | P2 | M | 031 | IN PROGRESS (implemented with unit tests; browser check pending) |
 | 033 | [Remove the model capability registry and capability routing](033-remove-model-capabilities.md) | P2 | L | 027 | IN PROGRESS (implemented with unit tests; browser check pending) |
 | 034 | [OpenCode model catalog in the agent editor](034-opencode-model-catalog.md) | P2 | M | 014 | DONE (implemented with unit tests; live check in the running app) |
+| 035 | [Global OpenCode runtime, per-agent Fhara LLM](035-global-opencode-runtime.md) | P2 | M | 014, 032, 034 | IN PROGRESS (implemented with unit tests; live check done; worker restart pending) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

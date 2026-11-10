@@ -1,4 +1,5 @@
 import { loadSelectionMode } from "./llmSelection";
+import { loadOpencodeSettings } from "./opencodeSettings";
 import type { LlmSelectionMode } from "./lib/llmSelection";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
@@ -176,6 +177,14 @@ export const getRunContext = internalQuery({
      * The worker resolver maps it onto its primary pick. No secrets.
      */
     llmSelectionMode: LlmSelectionMode;
+    /**
+     * Plan 035: the app-wide OpenCode runtime and the model the CLI runs.
+     * Present only when the setting was written; otherwise the worker keeps
+     * its legacy behaviour (the per-agent value, then the env default).
+     * No secrets.
+     */
+    opencodeRuntime?: "api" | "opencode";
+    opencodeModel?: string;
     /** Enabled MCP server configs for this project (Plan 009). Config-only. */
     mcpServers: Doc<"mcpServers">[];
     /**
@@ -229,6 +238,8 @@ export const getRunContext = internalQuery({
     const mcpServers = project ? await resolveRunMcpServers(ctx, project._id) : [];
     // Plan 032: the app-wide selection mode for the worker's resolver.
     const llmSelectionMode = await loadSelectionMode(ctx);
+    // Plan 035: the app-wide OpenCode runtime (null = never configured).
+    const opencode = await loadOpencodeSettings(ctx);
 
     return {
       task,
@@ -252,6 +263,7 @@ export const getRunContext = internalQuery({
       llmProviders,
       mcpServers,
       llmSelectionMode,
+      ...(opencode ? { opencodeRuntime: opencode.runtime, opencodeModel: opencode.model } : {}),
       plannerAgent: fallback.agent
         ? {
             ...projectAgentForWorker(fallback.agent),

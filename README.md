@@ -202,10 +202,15 @@ Agents can run on two runtimes:
   (`npm i -g opencode-ai`) runs its own tools in the task worktree. Its
   changes still pass the staging and approval gate.
 
-Set the global default with `ORCHESTRATOR_EXECUTION_RUNTIME`, or per agent in
-the agent form (Runtime, optional OpenCode `provider/model`). Without an
-OpenCode model the CLI is pointed at the agent's resolved Fhara LLM through
-a temporary config; the key travels only in the child process env
+Set the runtime in Settings → LLM & Models (OpenCode runtime: Built-in or
+OpenCode CLI, plus the model the CLI runs). It is one setting for the whole
+app: the CLI, its credentials and its model list live on the worker.
+`ORCHESTRATOR_EXECUTION_RUNTIME` is only the fallback for a deployment that
+never wrote the setting. Each agent still picks its own Fhara model
+(Provider / Model / Fallback) in the agent form.
+
+Without an OpenCode model the CLI is pointed at the agent's resolved Fhara
+LLM through a temporary config; the key travels only in the child process env
 (`MOAGENT_OPENCODE_API_KEY`). Each run is killed after
 `ORCHESTRATOR_NATIVE_TIMEOUT_MS`.
 

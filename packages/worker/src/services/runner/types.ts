@@ -123,6 +123,14 @@ export interface ExecutePlanInput {
   sharedContext?: SharedTaskContext;
   classification?: Classification;
   llmConfig?: GlobalLLMConfig;
+  /**
+   * Plan 035: the app-wide OpenCode runtime ("api" | "opencode") and the
+   * model the CLI runs. Undefined = the setting was never written, so the
+   * worker keeps its legacy behaviour (the per-agent value, then the env
+   * default). The app-wide setting wins over both.
+   */
+  opencodeRuntime?: "api" | "opencode";
+  opencodeModel?: string;
   /** Per-agent LLM resolver (Phase 2); executors resolve their own agent's chain from it. */
   llmResolver?: TaskLlmResolver;
   /** Per-task QA base URL (project qaUrl > devUrl > env fallback), threaded to the QA executor. */

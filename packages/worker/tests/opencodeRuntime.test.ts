@@ -11,6 +11,7 @@ import {
   nativeTimeoutMs,
   parseOpencodeEvent,
   resolveExecutionRuntime,
+  resolveOpencodeSelection,
   runNativeProvider,
   type SpawnImpl,
 } from "@/execution/nativeProvider";
@@ -180,6 +181,50 @@ describe("runtime selection", () => {
     expect(nativeTimeoutMs({})).toBe(600_000);
     expect(nativeTimeoutMs({ ORCHESTRATOR_NATIVE_TIMEOUT_MS: "1500" })).toBe(1500);
     expect(nativeTimeoutMs({ ORCHESTRATOR_NATIVE_TIMEOUT_MS: "nope" })).toBe(600_000);
+  });
+});
+
+describe("app-wide OpenCode runtime (plan 035)", () => {
+  it("the app-wide setting wins over the legacy per-agent value", () => {
+    expect(
+      resolveOpencodeSelection({
+        globalRuntime: "opencode",
+        globalModel: "opencode/beam-free",
+        agentRuntime: "api",
+        agentModel: "anthropic/claude",
+      })
+    ).toEqual({ runtime: "native-provider", model: "opencode/beam-free" });
+    expect(
+      resolveOpencodeSelection({
+        globalRuntime: "api",
+        agentRuntime: "opencode",
+        agentModel: "anthropic/claude",
+      })
+    ).toEqual({ runtime: "api" });
+  });
+
+  it("without a setting the legacy per-agent value applies, then the env default", () => {
+    expect(
+      resolveOpencodeSelection({
+        agentRuntime: "opencode",
+        agentModel: "anthropic/claude",
+        envDefault: "api",
+      })
+    ).toEqual({ runtime: "native-provider", model: "anthropic/claude" });
+    expect(resolveOpencodeSelection({ envDefault: "native-provider" })).toEqual({
+      runtime: "native-provider",
+    });
+    expect(resolveOpencodeSelection({})).toEqual({ runtime: "api" });
+  });
+
+  it("an app-wide model replaces the legacy one (empty means Fhara's LLM)", () => {
+    expect(
+      resolveOpencodeSelection({
+        globalRuntime: "opencode",
+        globalModel: "",
+        agentModel: "anthropic/claude",
+      })
+    ).toEqual({ runtime: "native-provider" });
   });
 });
 

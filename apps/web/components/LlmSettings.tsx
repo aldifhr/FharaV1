@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
+import { OpencodeModelField } from "./OpencodeModelField";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 
 type Provider = {
@@ -97,6 +98,12 @@ export default function LlmSettingsSection({
   // Plan 032: the app-wide selection mode (fallback | round robin).
   const selection = useQuery(api.llmSelection.get, {});
   const setSelectionMode = useMutation(api.llmSelection.set);
+  // Plan 035: the app-wide OpenCode runtime and the model the CLI runs.
+  const opencode = useQuery(api.opencodeSettings.get, {});
+  const setOpencodeSettings = useMutation(api.opencodeSettings.set);
+  const [opencodeRuntime, setOpencodeRuntime] = useState<"api" | "opencode">("api");
+  const [opencodeModel, setOpencodeModel] = useState("");
+  const [opencodeLoaded, setOpencodeLoaded] = useState(false);
   const toast = useToast();
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -122,6 +129,15 @@ export default function LlmSettingsSection({
       onProjectChange(projects[0]._id);
     }
   }, [projects, projectId, onProjectChange]);
+
+  // Plan 035: seed the OpenCode fields once, so an incoming value does not
+  // overwrite what the user is typing.
+  useEffect(() => {
+    if (!opencode || opencodeLoaded) return;
+    setOpencodeRuntime(opencode.runtime);
+    setOpencodeModel(opencode.model);
+    setOpencodeLoaded(true);
+  }, [opencode, opencodeLoaded]);
 
   const sorted = providers ? [...providers].sort((a, b) => a.priority - b.priority) : undefined;
 
@@ -377,6 +393,19 @@ export default function LlmSettingsSection({
     }
   }
 
+  async function saveOpencodeSettings() {
+    try {
+      await setOpencodeSettings({ runtime: opencodeRuntime, model: opencodeModel });
+      toast(
+        "success",
+        "OpenCode runtime updated",
+        opencodeRuntime === "opencode" ? "OpenCode CLI" : "Built-in (Fhara tools)"
+      );
+    } catch (err) {
+      toast("error", "Failed to update the OpenCode runtime", err instanceof Error ? err.message : "");
+    }
+  }
+
   return (
     <>
       <ConfirmDialog request={confirmReq} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
@@ -421,6 +450,40 @@ export default function LlmSettingsSection({
                   );
                 })}
               </div>
+          </section>
+          <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
+              <h2 className="text-sm font-semibold">OpenCode runtime</h2>
+              <p className="mt-0.5 text-[12px] text-ink-3">
+                One setting for the whole app: the OpenCode CLI, its credentials and its model list live on the
+                worker, so every agent runs on the same runtime. Each agent still picks its own Fhara model
+                (Provider / Model) in the agent form. Changes apply to the next task.
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-[12.5px] text-ink-3">
+                  Runtime
+                  <select
+                    value={opencodeRuntime}
+                    onChange={(e) => setOpencodeRuntime(e.target.value as "api" | "opencode")}
+                    className={inputCls}
+                    aria-label="OpenCode runtime"
+                  >
+                    <option value="api">Built-in (Fhara tools)</option>
+                    <option value="opencode">OpenCode CLI</option>
+                  </select>
+                </label>
+                <OpencodeModelField
+                  value={opencodeModel}
+                  onChange={setOpencodeModel}
+                  disabled={opencodeRuntime !== "opencode"}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => void saveOpencodeSettings()}
+                className="mt-3 rounded-lg bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90"
+              >
+                Save runtime
+              </button>
           </section>
           <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
               <h2 className="text-sm font-semibold">{editingId ? "Edit connection" : "Add connection"}</h2>

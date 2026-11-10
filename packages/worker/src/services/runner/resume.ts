@@ -126,6 +126,11 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
   // Resumed tasks resolve LLMs exactly like fresh ones (Phase 2 resolver).
   let llmResolver: TaskLlmResolver;
   let llmConfig: GlobalLLMConfig;
+  // Plan 035: the app-wide OpenCode runtime + model (absent = not configured).
+  const opencodeCtx = context as { opencodeRuntime?: "api" | "opencode"; opencodeModel?: string };
+  const opencodeSettings = opencodeCtx.opencodeRuntime
+    ? { runtime: opencodeCtx.opencodeRuntime, model: opencodeCtx.opencodeModel ?? "" }
+    : null;
   try {
     llmResolver = await buildTaskLlmResolver(
       context.llmProviders,
@@ -217,6 +222,10 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
       llmConfig,
       llmResolver,
       llmTaskGate,
+      // Plan 035: the app-wide OpenCode runtime + model.
+      ...(opencodeSettings
+        ? { opencodeRuntime: opencodeSettings.runtime, opencodeModel: opencodeSettings.model }
+        : {}),
       onTokenUsage: recordUsage,
       qaBaseUrl: resolveQaBaseUrl(context.project),
       mcp,

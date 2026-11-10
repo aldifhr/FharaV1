@@ -36,12 +36,13 @@ type Agent = {
   executionRuntime?: string;
 };
 
-function runtimeLabel(a: Agent): string {
-  return a.executionRuntime === "opencode" ? "OpenCode" : "Built-in";
+function runtimeLabel(opencodeRuntime: string | undefined): string {
+  // Plan 035: the runtime is app-wide (Settings → LLM & Models).
+  return opencodeRuntime === "opencode" ? "OpenCode" : "Built-in";
 }
 
 function modelLabel(a: Agent): string {
-  if (a.executionRuntime === "opencode" && a.opencodeModel) return a.opencodeModel;
+  // The agent's own Fhara model; the OpenCode model is app-wide.
   return a.llmModel || "Default model";
 }
 
@@ -58,6 +59,8 @@ function TeamPage() {
   const allAgents = useQuery(api.agents.list, {}) as Agent[] | undefined;
   const project = useQuery(api.projects.get, projectId ? { projectId: projectId as never } : "skip");
   const active = useQuery(api.executionView.activeByAgent, {}) as Record<string, LeaseEntry> | undefined;
+  // Plan 035: the OpenCode runtime is app-wide (Settings → LLM & Models).
+  const opencode = useQuery(api.opencodeSettings.get, {});
   const [detail, setDetail] = useState<Agent | null>(null);
   const [editing, setEditing] = useState<Agent | null>(null);
   const [creating, setCreating] = useState(false);
@@ -133,7 +136,7 @@ function TeamPage() {
                           </span>
                         </p>
                         <p className="truncate text-[12.5px] text-ink-3">
-                          {entry?.taskTitle ?? `${modelLabel(a)} · ${runtimeLabel(a)}`}
+                          {entry?.taskTitle ?? `${modelLabel(a)} · ${runtimeLabel(opencode?.runtime)}`}
                         </p>
                       </div>
                       {active && <span className="shell-dots flex shrink-0 items-center gap-[3px] text-ink-3" aria-hidden="true"><i /><i /><i /></span>}

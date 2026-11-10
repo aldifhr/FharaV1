@@ -5,7 +5,7 @@ import type {
 import { runScheduler, type NodeOutcome, type SchedulerResult } from "@/scheduler/dagScheduler";
 import { executeSubtask } from "@/execution/agentExecutor";
 import type { SiblingSubtask } from "@/execution/agentContext";
-import { resolveExecutionRuntime } from "@/execution/nativeProvider";
+import { resolveOpencodeSelection } from "@/execution/nativeProvider";
 import { capabilitiesOf } from "@/orchestrator/capabilities";
 import { combineSignals } from "./abort";
 import type { FallbackHandle } from "@/effects/llmCall";
@@ -165,6 +165,14 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       // A steer sent mid-run reaches this subtask's prompt (single input
       // guard): fold undelivered inputs now; the prompt acks what it renders.
       if (input.sharedContext) await pullTaskInputs(deps, taskId, input.sharedContext);
+      // Plan 035: the effective OpenCode runtime and model for this node.
+      const opencodeSelection = resolveOpencodeSelection({
+        globalRuntime: input.opencodeRuntime,
+        globalModel: input.opencodeModel,
+        agentRuntime: agent.executionRuntime,
+        agentModel: agent.opencodeModel,
+        envDefault: deps.policy.executionRuntime,
+      });
       // Context Snapshot scope: every LLM call this node makes is attributed
       // to this task, execution attempt, subtask and agent. Inside it, the
       // observation scope feeds the stall watchdog and typed observations.
@@ -190,9 +198,11 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         llmTaskGate: input.llmTaskGate,
         qaBaseUrl: input.qaBaseUrl,
         mcp: input.mcp,
-        // Per-agent runtime overrides the global policy default.
-        runtime: resolveExecutionRuntime(agent, deps.policy.executionRuntime),
-        nativeModel: agent.opencodeModel,
+        // Plan 035: the app-wide OpenCode runtime and model win; the
+        // per-agent values are legacy and only apply when the setting was
+        // never written; the env default is the last resort.
+        runtime: opencodeSelection.runtime,
+        nativeModel: opencodeSelection.model,
         qaMode: deps.policy.qaMode,
         // Agent-initiated commands wait for approval in-process: the lease
         // and heartbeat stay, the node shows "waiting for approval", stop or

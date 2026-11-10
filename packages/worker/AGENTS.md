@@ -178,13 +178,17 @@ Subtasks run on one of two runtimes (`execution/nativeProvider.ts`,
 - OpenCode (`native-provider`): `opencode run --format json --auto [-m model]
   <message> -f prompt.md` runs in the task worktree with OpenCode's own tools.
 
-Selection: the agent row's `executionRuntime` (`api` | `opencode`, edited in the
-web agent form) overrides the global `ORCHESTRATOR_EXECUTION_RUNTIME`
-(`resolveExecutionRuntime`). QA and review nodes always use the API path. When
-the CLI is missing (availability is probed once per process), the subtask falls
-back to the API path with a `native.runtime.unavailable` warning.
+Selection (plan 035): the app-wide setting (Settings → LLM & Models) wins.
+It reaches the worker through the run context (`opencodeRuntime`,
+`opencodeModel`); `resolveOpencodeSelection` is the one place that decides.
+The per-agent `executionRuntime` / `opencodeModel` are legacy: they apply only
+when the setting was never written, and `ORCHESTRATOR_EXECUTION_RUNTIME` is
+the last fallback (`resolveExecutionRuntime`). QA and review nodes always use
+the API path. When the CLI is missing (availability is probed once per
+process), the subtask falls back to the API path with a
+`native.runtime.unavailable` warning.
 
-Model: the agent's `opencodeModel` (`provider/model`) is passed as `-m` and uses
+Model: the selected model (`provider/model`) is passed as `-m` and uses
 OpenCode's own credentials. Without it, a temporary `OPENCODE_CONFIG` (0600,
 deleted after the run) defines a `fhara` provider (`@ai-sdk/openai-compatible`
 or `@ai-sdk/anthropic`) on the agent's resolved Fhara LLM, and the run is

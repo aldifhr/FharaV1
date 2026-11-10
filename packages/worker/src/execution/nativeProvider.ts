@@ -53,6 +53,34 @@ export function executionRuntimeFromEnv(env: Record<string, string | undefined> 
   return raw === "native-provider" || raw === "opencode" ? "native-provider" : "api";
 }
 
+/**
+ * Plan 035: the effective runtime and the model the CLI runs.
+ *
+ * The app-wide setting (Settings → LLM & Models) wins. The per-agent value
+ * is legacy: it only applies when the setting was never written, so a
+ * deployment that never opened the setting keeps its current behaviour.
+ * The env default is the last resort for the runtime.
+ */
+export function resolveOpencodeSelection(input: {
+  /** The app-wide setting; undefined = never configured. */
+  globalRuntime?: "api" | "opencode";
+  globalModel?: string;
+  /** Legacy per-agent values. */
+  agentRuntime?: AgentRuntimeChoice | string | null;
+  agentModel?: string;
+  /** The worker's env default (ORCHESTRATOR_EXECUTION_RUNTIME). */
+  envDefault?: ExecutionRuntime;
+}): { runtime: ExecutionRuntime; model?: string } {
+  const hasGlobal = input.globalRuntime !== undefined;
+  const runtime: ExecutionRuntime = hasGlobal
+    ? input.globalRuntime === "opencode"
+      ? "native-provider"
+      : "api"
+    : resolveExecutionRuntime({ executionRuntime: input.agentRuntime }, input.envDefault);
+  const model = hasGlobal ? input.globalModel : input.agentModel;
+  return { runtime, ...(model ? { model } : {}) };
+}
+
 export interface NativeRunResult {
   status: "completed" | "failed";
   output: string;

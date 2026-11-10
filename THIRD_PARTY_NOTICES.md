@@ -547,6 +547,11 @@ SOFTWARE.
   `internal/app/app.go` `automergeWaitReason`, lines 5211-5249). Changed by Fhara: TypeScript port, typed
   wait/blocked verdicts, errored checks block, no-check PRs wait, head must equal the approved commit.
   Also `apps/api/convex/lib/issueIntake.ts`: the status-label lifecycle on the issue (`internal/app/app.go:78-90`).
+  Also `packages/worker/src/utils/accessLog.ts` (O5): `sanitizeAccessLogArgs`, `sanitizeAccessLogText`, the
+  sensitive flag/value tests and the failure-kind classification, ported from
+  `internal/environment/accesslog.go`. Changed by Fhara: TypeScript; also redacts `x-access-token:` URLs,
+  git `http.extraheader` values, sensitive `NAME=` assignments, caller-known secrets and token-shaped strings;
+  rows go to the Convex audit table instead of a JSONL file.
   Licensed under the Apache License, Version 2.0 (full text in the Aider entry above). vigilante ships no
   NOTICE file and names no copyright holder in its LICENSE.
 

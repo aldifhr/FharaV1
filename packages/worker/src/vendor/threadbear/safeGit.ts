@@ -7,9 +7,13 @@
  *  - `untrustedGitEnv`'s default base is `buildChildEnv()` instead of
  *    `process.env`, so no git started from here inherits worker secrets
  *    (Fhara's child-env rule, tests/childEnv.test.ts).
+ *  - O5: `untrustedGit` emits one sanitized access-log entry
+ *    (utils/accessLog) for network commands, or for any command when the
+ *    caller passes `onCommand`.
  */
 /* eslint-disable */
 import { execFile, execFileSync } from 'node:child_process';
+import { withAccessLog, type CommandRecorder } from '@/utils/accessLog';
 import { buildChildEnv } from '@/api/convex/lib/childEnv';
 
 // git in a folder Threadbear hasn't trusted, or whose .git it didn't make.
@@ -107,6 +111,8 @@ export type UntrustedGitOptions = {
   // 'remote': a fetch or clone from a remote, see above.
   network?: 'bundle' | 'remote';
   timeoutMs?: number;
+  // Fhara O5: access-log recorder (network commands use the process sink without it).
+  onCommand?: CommandRecorder;
 };
 
 const TRUSTED_SCOPES = new Set(['system', 'global', 'unknown']); // 'unknown': Apple's own git config
@@ -205,5 +211,7 @@ export async function untrustedGit(dir: string, args: readonly string[], opts: U
   }
   const [sub, ...rest] = args;
   const pack = opts.network === 'remote' && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote') ? ['--upload-pack=git-upload-pack'] : [];
-  return execGit(dir, [...config, '-C', dir, ...(sub ? [sub, ...pack, ...rest] : [])], env, timeout);
+  const run = () => execGit(dir, [...config, '-C', dir, ...(sub ? [sub, ...pack, ...rest] : [])], env, timeout);
+  if (!opts.onCommand && opts.network !== 'remote') return run();
+  return withAccessLog({ tool: 'git', args, cwd: dir, recorder: opts.onCommand, exitCode: (r: UntrustedGitResult) => r.code }, run);
 }

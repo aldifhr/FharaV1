@@ -18,6 +18,7 @@
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
+import { insertAudit } from "./lib/auditChain";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { assertProjectAccess, assertTaskAccess, getVisibleTask } from "./lib/authz";
@@ -523,7 +524,7 @@ export const finishReview = internalMutation({
         createdAt: now,
       });
     }
-    await ctx.db.insert("audit", {
+    await insertAudit(ctx, {
       actor: "reviewer",
       tool: "reviewer",
       action: opinion.mode === "shadow" ? "review.shadow" : "review.second_opinion",

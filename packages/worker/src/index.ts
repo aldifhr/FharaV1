@@ -10,7 +10,8 @@ import { providerHealth } from "./llm/health";
 import { getMcpRegistry } from "./mcp/registry";
 import { processTask, resumeTask, type RunnerDeps } from "./services/taskRunner";
 import { combineSignals, isLeaseLostOrShutdown, LEASE_LOST_PREFIX } from "./services/runner/abort";
-import { processNextPushRequest } from "./services/pushRequests";
+import { commandAuditRow, processNextPushRequest } from "./services/pushRequests";
+import { setCommandSink } from "./utils/accessLog";
 import { processNextMcpTest } from "./services/mcpTests";
 import { processNextRepoToolCall } from "./services/repoTools";
 import { pollOpencodeCatalog } from "./services/opencodeCatalog";
@@ -63,6 +64,11 @@ function log(...args: unknown[]) {
 async function main() {
   const client = createConvexClient();
   const api = new WorkerApi(client, process.env.CONVEX_SERVICE_TOKEN!, workerId);
+  // O5: git/gh commands without their own recorder (network git from
+  // safeGit) still leave one sanitized `cmd` audit row.
+  setCommandSink(async (entry) => {
+    await api.recordAudit(commandAuditRow(entry, { workerId }));
+  });
   const policy = loadPolicy();
   // Worker-wide LLM bound: configured ONCE here, from the worker's own
   // policy (WORKER_LLM_MAX_CONCURRENCY can override via env). Per-task

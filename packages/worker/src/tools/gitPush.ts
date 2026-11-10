@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { withAccessLog, type CommandRecorder } from "@/utils/accessLog";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -202,6 +203,8 @@ export interface PushInput {
   /** Force-push (`+sha:ref`). Refused unless `allowForce` (or FHARA_ALLOW_FORCE_PUSH=true). */
   force?: boolean;
   allowForce?: boolean;
+  /** O5: receives one sanitized access-log entry per git command (else the process sink). */
+  onCommand?: CommandRecorder;
 }
 
 /** Branch names a task push may never target without an explicit override. */
@@ -340,12 +343,15 @@ export async function pushCommitToGithub(input: PushInput): Promise<{ remoteUrl:
   try {
     // The commit must exist locally (the task branch may already be merged
     // and deleted; the sha stays reachable from the merge commit).
-    await execGit(["cat-file", "-e", `${input.commitSha}^{commit}`], {
-      cwd: repoPath,
-      env: gitChildEnv(),
-      signal: input.signal,
-      timeoutMs: 15_000,
-    });
+    const catArgs = ["cat-file", "-e", `${input.commitSha}^{commit}`];
+    await withAccessLog({ tool: "git", args: catArgs, cwd: repoPath, recorder: input.onCommand }, () =>
+      execGit(catArgs, {
+        cwd: repoPath,
+        env: gitChildEnv(),
+        signal: input.signal,
+        timeoutMs: 15_000,
+      })
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/absolute path|does not exist|not a directory|not installed|timed out|cancelled/.test(message)) {
@@ -365,9 +371,9 @@ export async function pushCommitToGithub(input: PushInput): Promise<{ remoteUrl:
     throw new Error(`Push blocked: possible secret in the outgoing changes: ${secretFindingsSummary(secrets)}`);
   }
   try {
-    await execGit(
-      ["push", "--porcelain", remoteUrl, `${input.force ? "+" : ""}${input.commitSha}:refs/heads/${input.branchName}`],
-      { cwd: repoPath, env: githubAuthEnv(input.token), signal: input.signal, timeoutMs }
+    const pushArgs = ["push", "--porcelain", remoteUrl, `${input.force ? "+" : ""}${input.commitSha}:refs/heads/${input.branchName}`];
+    await withAccessLog({ tool: "git", args: pushArgs, cwd: repoPath, knownSecrets: [input.token], recorder: input.onCommand }, () =>
+      execGit(pushArgs, { cwd: repoPath, env: githubAuthEnv(input.token), signal: input.signal, timeoutMs })
     );
   } catch (error) {
     const message = redactSecret(error instanceof Error ? error.message : String(error), input.token).trim();

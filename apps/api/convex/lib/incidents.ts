@@ -1,6 +1,7 @@
 import type { MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { appendTaskEvent } from "./taskEvents";
+import { insertAudit } from "./auditChain";
 
 /**
  * Incident Room: open one incident record when a run fails or a subtask
@@ -136,7 +137,7 @@ export async function openIncident(
     ...(args.subtaskKey ? { subtaskKey: args.subtaskKey } : {}),
     level: "warn",
   });
-  await ctx.db.insert("audit", {
+  await insertAudit(ctx, {
     actor: "system",
     tool: "incident",
     action: "incident.open",

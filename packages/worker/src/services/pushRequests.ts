@@ -4,6 +4,7 @@ import { GIT_TIMEOUT_MS, pushCommitToGithub, redactSecret, remoteBranchSha, type
 import { findPullRequestByHead, openPullRequest, type FetchLike, type PullRequestResult } from "@/tools/githubPr";
 import { guardedEffect, type GuardedResult, type SideEffectApi } from "./sideEffects";
 import { registerSecretValues } from "@/utils/redact";
+import type { AccessLogEntry, CommandRecorder } from "@/utils/accessLog";
 
 /**
  * Plan 019: the worker side of "Push & open PR".
@@ -23,7 +24,7 @@ export interface PushDeps {
    * the PR call run under the no-replay ledger; a bare double without them
    * (unit tests) runs the writes directly.
    */
-  api: Pick<WorkerApi, "claimPushRequest" | "completePushRequest"> & Partial<SideEffectApi>;
+  api: Pick<WorkerApi, "claimPushRequest" | "completePushRequest"> & Partial<SideEffectApi> & Partial<Pick<WorkerApi, "recordAudit">>;
   workerId: string;
   workspaceRoot: string;
   log: (...args: unknown[]) => void;
@@ -58,6 +59,7 @@ export async function handlePushRequest(claim: PushClaim, deps: PushDeps): Promi
     ? path.resolve(claim.workspacePath)
     : path.resolve(path.resolve(deps.workspaceRoot), claim.workspacePath);
   const repoFullName = `${claim.owner}/${claim.repo}`;
+  const onCommand = pushCommandRecorder(claim, deps);
   // Never log the claim object itself: it carries the token.
   deps.log(`push ${claim.pushId}: ${claim.branchName}@${claim.commitSha.slice(0, 12)} → ${repoFullName}`);
   try {
@@ -75,6 +77,7 @@ export async function handlePushRequest(claim: PushClaim, deps: PushDeps): Promi
         token,
         signal: deps.signal,
         execGit: deps.execGit,
+        onCommand,
       });
     if (ledger) {
       // L6: armed before `git push`; an earlier attempt that was cut off
@@ -131,6 +134,7 @@ export async function handlePushRequest(claim: PushClaim, deps: PushDeps): Promi
           body: claim.prBody,
           fetchImpl: deps.fetchImpl,
           signal: deps.signal,
+          onCommand,
         });
       if (ledger) {
         // L6: an interrupted PR create is found by its head branch; only
@@ -246,3 +250,40 @@ function unwrap<T>(result: GuardedResult<T>, what: string): T | undefined {
       throw result.error instanceof Error ? result.error : new Error(String(result.error));
   }
 }
+
+/**
+ * O5: one `cmd` audit row per git / GitHub API command of a push: the
+ * sanitized argv, exit code and duration, never output or the token.
+ */
+export function pushCommandRecorder(claim: PushClaim, deps: Pick<PushDeps, "api" | "workerId" | "log">): CommandRecorder | undefined {
+  const record = deps.api.recordAudit;
+  if (!record) return undefined;
+  return async (entry: AccessLogEntry) => {
+    await record
+      .call(deps.api, commandAuditRow(entry, { taskId: claim.taskId, projectId: claim.projectId, workerId: deps.workerId }))
+      .catch((error: unknown) => deps.log(`push ${claim.pushId}: audit row not recorded: ${redactSecret(error instanceof Error ? error.message : String(error), claim.token)}`));
+  };
+}
+
+/** The `audit` row for one command (tool "cmd", action "cmd.<tool>"). */
+export function commandAuditRow<T, P>(entry: AccessLogEntry, ctx: { taskId?: T; projectId?: P; workerId?: string }) {
+  return {
+    ...(ctx.taskId ? { taskId: ctx.taskId } : {}),
+    ...(ctx.projectId ? { projectId: ctx.projectId } : {}),
+    ...(ctx.workerId ? { workerId: ctx.workerId } : {}),
+    actor: "worker",
+    tool: "cmd",
+    action: `cmd.${entry.tool}`,
+    decision: "recorded" as const,
+    target: [entry.tool, ...entry.argv].join(" ").slice(0, 200),
+    details: {
+      argv: entry.argv,
+      exitCode: entry.exitCode,
+      durationMs: entry.durationMs,
+      success: entry.success,
+      ...(entry.failureKind ? { failureKind: entry.failureKind } : {}),
+      ...(entry.error ? { error: entry.error } : {}),
+    },
+  };
+}
+

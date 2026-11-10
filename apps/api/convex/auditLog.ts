@@ -1,7 +1,10 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import { assertProjectAccess, assertRegistryWriteAccess, visibleProjectIds } from "./lib/authz";
+import { assertProjectAccess, assertRegistryWriteAccess, getViewerId, visibleProjectIds } from "./lib/authz";
+import type { MutationCtx } from "./_generated/server";
+import { insertAudit } from "./lib/auditChain";
+import { AUDIT_DELETE_ACTION, verifyAuditChain, type ChainVerdict } from "./lib/auditHash";
 
 /**
  * Audit log page (read-only), newest first.
@@ -117,6 +120,10 @@ export const list = query({
         projectName: row.projectId ? projectNames.get(row.projectId) || null : null,
         taskId: row.taskId ?? null,
         executionId: row.executionId ?? null,
+        // O5: chain fields ride along so the JSON export can be verified offline.
+        seq: row.seq ?? null,
+        prevHash: row.prevHash ?? null,
+        hash: row.hash ?? null,
       })),
       nextCursor,
     };
@@ -136,6 +143,7 @@ export const remove = mutation({
     if (row.projectId) await assertProjectAccess(ctx, row.projectId);
     else await assertRegistryWriteAccess(ctx);
     await ctx.db.delete(args.id);
+    await recordDeletion(ctx, [row]);
     return true;
   },
 });
@@ -146,14 +154,61 @@ export const removeMany = mutation({
   handler: async (ctx, args) => {
     if (args.ids.length > 200) throw new Error("Too many rows in one delete (max 200)");
     let deleted = 0;
+    const rows: Doc<"audit">[] = [];
     for (const id of args.ids) {
       const row = await ctx.db.get(id);
       if (!row) continue;
       if (row.projectId) await assertProjectAccess(ctx, row.projectId);
       else await assertRegistryWriteAccess(ctx);
       await ctx.db.delete(id);
+      rows.push(row);
       deleted++;
     }
+    await recordDeletion(ctx, rows);
     return deleted;
+  },
+});
+
+/**
+ * O5: a delete from this page is itself recorded (chained), with the seq and
+ * hash of each chained row it removed, so the chain still verifies and the
+ * gap shows who made it. A row removed any other way breaks the chain.
+ */
+async function recordDeletion(ctx: MutationCtx, rows: Doc<"audit">[]): Promise<void> {
+  const chained = rows.filter((r) => typeof r.seq === "number" && typeof r.hash === "string");
+  if (chained.length === 0) return;
+  await insertAudit(ctx, {
+    actor: (await getViewerId(ctx)) ?? "user",
+    tool: "audit",
+    action: AUDIT_DELETE_ACTION,
+    decision: "recorded",
+    target: `${chained.length} row(s)`,
+    details: { deleted: chained.map((r) => ({ seq: r.seq!, hash: r.hash! })) },
+    createdAt: Date.now(),
+  });
+}
+
+/** Newest chained rows verified per call (Convex read limits). */
+const VERIFY_CAP = 4000;
+
+/**
+ * O5: verify the audit hash chain (the newest VERIFY_CAP chained rows).
+ * `brokenAt` is the seq of the first row that does not verify; rows from
+ * before the chain are counted as `preChain`, never as broken.
+ */
+export const verifyChain = query({
+  args: {},
+  handler: async (ctx): Promise<ChainVerdict & { truncated: boolean; lastSeq: number | null }> => {
+    await visibleProjectIds(ctx);
+    const newest = await ctx.db
+      .query("audit")
+      .withIndex("by_seq", (q) => q.gte("seq", 1))
+      .order("desc")
+      .take(VERIFY_CAP);
+    const rows = newest.reverse();
+    const preChain = (await ctx.db.query("audit").withIndex("by_seq", (q) => q.eq("seq", undefined)).take(VERIFY_CAP)).length;
+    const first = rows[0]?.seq ?? null;
+    const verdict = await verifyAuditChain(rows, { fromStart: first === 1 || newest.length < VERIFY_CAP });
+    return { ...verdict, preChain, truncated: newest.length >= VERIFY_CAP, lastSeq: rows.length ? rows[rows.length - 1].seq ?? null : null };
   },
 });

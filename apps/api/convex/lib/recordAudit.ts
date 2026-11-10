@@ -1,6 +1,7 @@
 import type { MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { getViewerId } from "./authz";
+import { insertAudit } from "./auditChain";
 
 /**
  * Config audit trail. Every user-facing configuration write (agents,
@@ -29,7 +30,7 @@ export async function recordAudit(
   }
 ): Promise<void> {
   const actor = entry.actor ?? (await getViewerId(ctx)) ?? "user";
-  await ctx.db.insert("audit", {
+  await insertAudit(ctx, {
     actor,
     tool: entry.tool ?? "config",
     action: entry.action,

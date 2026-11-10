@@ -133,10 +133,11 @@ class FakeQuery {
   ) {}
   withIndex(
     _name: string,
-    build: (q: PredicateBuilder) => unknown
+    // Optional, as in Convex: withIndex("by_seq") with no range (O5 audit chain).
+    build?: (q: PredicateBuilder) => unknown
   ): this {
     const builder = new PredicateBuilder();
-    build(builder);
+    build?.(builder);
     this.predicates = builder.predicates;
     return this;
   }

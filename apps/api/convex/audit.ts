@@ -1,6 +1,7 @@
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { getVisibleTask, assertProjectAccess } from "./lib/authz";
+import { insertAudit } from "./lib/auditChain";
 
 const auditDecision = v.union(
   v.literal("allowed"),
@@ -23,7 +24,7 @@ export const record = internalMutation({
     details: v.optional(v.any()),
   },
   handler: async (ctx, args): Promise<void> => {
-    await ctx.db.insert("audit", {
+    await insertAudit(ctx, {
       ...args,
       createdAt: Date.now(),
     });

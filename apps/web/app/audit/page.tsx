@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useConvex, useMutation, useQuery } from "convex/react";
-import { ChevronRight, Download, ScrollText, Trash2 } from "lucide-react";
+import { ChevronRight, Download, ScrollText, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import IconRail from "@/components/IconRail";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
@@ -30,6 +30,9 @@ type Row = {
   target: string | null;
   details: unknown;
   projectName: string | null;
+  /** O5 hash chain (null on rows written before it). */
+  seq?: number | null;
+  hash?: string | null;
 };
 
 const PAGE = 50;
@@ -131,6 +134,8 @@ function AuditPage() {
   // The first page is live; older pages are fetched once on "Load more".
   const first = useQuery(api.auditLog.list, { ...base, limit: PAGE });
   const project = useQuery(api.projects.get, projectId ? { projectId } : "skip");
+  // O5: hash-chain check of the audit log (global, newest rows).
+  const chain = useQuery(api.auditLog.verifyChain, {});
 
   useEffect(() => {
     setOlder([]);
@@ -253,6 +258,22 @@ function AuditPage() {
               {projectName && <p className="truncate text-[13px] text-ink-3">{projectName}</p>}
               <h1 className="mt-1 text-[26px] font-semibold tracking-tight">Audit log</h1>
               <p className="mt-1 text-[15px] text-ink-2">Tool calls, approvals and configuration changes, newest first.</p>
+              {chain && (
+                <p
+                  data-testid="audit-chain"
+                  title={
+                    chain.ok
+                      ? `${chain.checked} chained ${chain.checked === 1 ? "entry" : "entries"} verified${chain.preChain ? `, ${chain.preChain} pre-chain` : ""}${chain.truncated ? " (newest only)" : ""}`
+                      : chain.reason
+                  }
+                  className={`mt-2 inline-flex items-center gap-1.5 text-[12.5px] ${chain.ok ? "text-ink-3" : "text-destructive"}`}
+                >
+                  {chain.ok ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
+                  {chain.ok
+                    ? `Chain intact · ${chain.checked} verified${chain.preChain ? ` · ${chain.preChain} pre-chain` : ""}`
+                    : `Chain broken at entry ${chain.brokenAt}: ${chain.reason}`}
+                </p>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
               <button

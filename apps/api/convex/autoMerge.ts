@@ -296,6 +296,9 @@ export const attempt = internalAction({
     if (!begun) return { merged: false, reason: "superseded" };
     let ok = false;
     let message = "";
+    // O5: one `cmd` row for the merge call (status and duration, no token).
+    const mergeStartedAt = Date.now();
+    let mergeStatus = 0;
     try {
       const response = await fetch(
         `https://api.github.com/repos/${encodeURIComponent(work.owner)}/${encodeURIComponent(work.repo)}/pulls/${work.prNumber}/merge`,
@@ -306,12 +309,28 @@ export const attempt = internalAction({
           body: JSON.stringify({ sha: headSha, merge_method: work.policy.method }),
         }
       );
+      mergeStatus = response.status;
       const body = (await response.json().catch(() => ({}))) as { merged?: boolean; message?: string };
       ok = response.ok && body.merged !== false;
       message = ok ? "" : `GitHub refused the merge (${response.status}${body.message ? `: ${String(body.message).slice(0, 160)}` : ""})`;
     } catch {
       message = "GitHub could not be reached for the merge";
     }
+    const mergeArgv = ["PUT", `/repos/${work.owner}/${work.repo}/pulls/${work.prNumber}/merge`, `merge_method=${work.policy.method}`];
+    await ctx.runMutation(internal.audit.record, {
+      actor: "system",
+      tool: "cmd",
+      action: "cmd.github-api",
+      decision: "recorded",
+      target: ["github-api", ...mergeArgv].join(" ").slice(0, 200),
+      details: {
+        argv: mergeArgv,
+        exitCode: ok ? 0 : mergeStatus || 1,
+        durationMs: Date.now() - mergeStartedAt,
+        success: ok,
+        ...(ok ? {} : { failureKind: mergeStatus ? "http_error" : "runtime_error", error: message.slice(0, 240) }),
+      },
+    });
     await ctx.runMutation(internal.autoMerge.finishMerge, { pushId: args.pushId, approvalId: begun.approvalId, ok, message, headSha: headSha! });
     return { merged: ok, reason: ok ? "merged" : "merge_failed" };
   },

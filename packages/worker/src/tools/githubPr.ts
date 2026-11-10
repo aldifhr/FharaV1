@@ -1,6 +1,7 @@
 import { redactSecret } from "./gitPush";
 import { proxyAwareFetch, type FetchLike } from "./proxyFetch";
 import { settingEnv } from "@/api/convex/lib/appSettings";
+import { withAccessLog, type CommandRecorder } from "@/utils/accessLog";
 
 /**
  * Plan 019: open (or find) the pull request for a pushed task branch via
@@ -75,6 +76,8 @@ export async function openPullRequest(input: {
   body: string;
   fetchImpl?: FetchLike;
   signal?: AbortSignal;
+  /** O5: one sanitized access-log entry per write call (else the process sink). */
+  onCommand?: CommandRecorder;
 }): Promise<PullRequestResult> {
   // Default honors HTTPS_PROXY/NO_PROXY (Node's global fetch does not).
   const fetchImpl = input.fetchImpl ?? (await proxyAwareFetch());
@@ -105,6 +108,17 @@ export async function openPullRequest(input: {
   };
 
   const create = async (draft: boolean) =>
+    await withAccessLog(
+      {
+        tool: "github-api",
+        args: ["POST", `/repos/${input.owner}/${input.repo}/pulls`, `draft=${draft}`],
+        knownSecrets: [input.token],
+        recorder: input.onCommand,
+        exitCode: (response: Response) => (response.ok ? 0 : response.status),
+      },
+      () => createCall(draft)
+    );
+  const createCall = async (draft: boolean) =>
     await fetchImpl(`${api}/pulls`, {
       method: "POST",
       headers,

@@ -1090,10 +1090,15 @@ export default defineSchema({
     target: v.optional(v.string()),
     details: v.optional(v.any()),
     createdAt: v.number(),
+    // O5 (additive): hash chain. Rows before the chain have none of these.
+    seq: v.optional(v.number()),
+    prevHash: v.optional(v.string()),
+    hash: v.optional(v.string()),
   })
     .index("by_task", ["taskId"])
     .index("by_project", ["projectId"])
-    .index("by_created_at", ["createdAt"]),
+    .index("by_created_at", ["createdAt"])
+    .index("by_seq", ["seq"]),
 
   tokenUsage: defineTable({
     projectId: v.id("projects"),

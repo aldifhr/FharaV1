@@ -47,6 +47,7 @@ import {
 import { taskBranchPrefixes } from "./lib/taskBranch";
 import { consumeTaskSignals, RESUMABLE_APPROVAL_KINDS, supersedePendingCommandApprovals } from "./taskSignals";
 import { appendAgentEvent as appendAgentEventRow, appendTaskEvent } from "./lib/taskEvents";
+import { recoverDirectThread } from "./lib/directThreads";
 import { decideResume, replayEncodedBytes, RESUME_MAX_REPLAY_EVENTS } from "./lib/eventResume";
 
 const DEFAULT_LEASE_MS = 60_000;
@@ -337,7 +338,9 @@ export const claimNextTask = internalMutation({
       .withIndex("by_status", (q) => q.eq("status", "queued"))
       .order("asc")
       .take(25);
-    const task = candidates.find((candidate) => candidate.status === "queued");
+    // Direct threads (threadbear T2) are claimed by directThreads.claim
+    // only: they never enter the planner / DAG path.
+    const task = candidates.find((candidate) => candidate.status === "queued" && candidate.mode !== "direct");
     if (!task) return null;
     await ctx.db.patch(task._id, {
       status: "running",
@@ -516,6 +519,15 @@ export const recoverStale = internalMutation({
     for (const task of running) {
       const leaseExpired = !task.leaseExpiresAt || task.leaseExpiresAt < now;
       if (!leaseExpired) continue;
+
+      // Direct threads (threadbear T2): no plan to resume from. The live
+      // turn is closed as interrupted, its cards expire, and the thread
+      // waits for the user's next message instead of being re-run.
+      if (task.mode === "direct") {
+        await recoverDirectThread(ctx, task, now);
+        recovered.push(task._id);
+        continue;
+      }
 
       // Phase 4 recovery semantics: a stale task is only a loss when
       // there is nothing valid to resume from. When the latest stored

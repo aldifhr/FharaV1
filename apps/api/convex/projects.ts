@@ -231,6 +231,8 @@ export const get = query({
  */
 export const PROJECT_CASCADE = [
   { table: "subtaskLive", index: "by_project" },
+  { table: "threadStreams", index: "by_project" },
+  { table: "eventBodies", index: "by_project" },
   { table: "executionObservations", index: "by_project" },
   { table: "executions", index: "by_project" },
   { table: "evaluations", index: "by_project" },

@@ -109,6 +109,10 @@ export const run = internalMutation({
         .withIndex("by_status", (q) => q.eq("status", "running"))
         .take(WATCHDOG_BATCH);
       for (const task of candidates) {
+        // A direct thread holds its lease while idle or waiting on a card
+        // (threadbear T2): the worker releases it after DIRECT_IDLE_MIN, and
+        // a dead worker is handled by recoverDirect. Never "stuck" here.
+        if (task.mode === "direct") continue;
         const progress = await progressOf(ctx, task);
         if (!isStuck(progress.at, now, stuckMs)) continue;
         await failStuckTask(ctx, task, stuckReason(progress.at, now, progress.lastEventType), now);

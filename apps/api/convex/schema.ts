@@ -98,8 +98,47 @@ export const approvalKind = v.union(
   v.literal("run_command"),
   v.literal("merge_pr"),
   // Plan Inspector: the plan waits for the user's review before execution.
-  v.literal("plan")
+  v.literal("plan"),
+  // Direct threads (threadbear T2, additive): one tool call an ACP agent
+  // asked to run that is not a shell command (an edit, a fetch, an MCP
+  // tool). Answered in-process; the task keeps its lease.
+  v.literal("tool_call")
 );
+
+/** Direct thread engine state (threadbear T2). */
+export const directThreadStatus = v.union(
+  v.literal("idle"),
+  v.literal("starting"),
+  v.literal("running"),
+  v.literal("waiting"),
+  v.literal("stopped"),
+  v.literal("error")
+);
+
+export const directThreadValidator = v.object({
+  // One of the nine fixed roles (lib/roles.ts ROLE_KEYS), chosen by the user.
+  role: v.string(),
+  agentId: v.id("agents"),
+  // The engine's own session id (OpenCode ACP), for session/load|resume.
+  sessionId: v.optional(v.string()),
+  engine: v.union(v.literal("opencode-acp"), v.literal("api-loop")),
+  status: directThreadStatus,
+  turnId: v.optional(v.string()),
+  // Highest taskEvents sequence the worker has persisted for this thread.
+  lastSeq: v.number(),
+  // Highest user.message sequence handed to the engine (sent, steered or
+  // dropped by Stop). Messages above it are still queued.
+  deliveredSeq: v.optional(v.number()),
+  // "Always allow" rules for THIS thread only (never the project's).
+  allowRules: v.optional(v.array(v.string())),
+  idleSince: v.optional(v.number()),
+  // Stop pressed: the worker interrupts the live turn when it sees a value
+  // newer than the one it last handled.
+  interruptRequestedAt: v.optional(v.number()),
+  // The worker died mid-turn (recoverDirect); cleared by the next turn.
+  stoppedMidTurn: v.optional(v.boolean()),
+  error: v.optional(v.string()),
+});
 
 /** Plan Inspector project setting (lib/planReviewPolicy.ts). Unset = off. */
 export const planReviewSetting = v.union(
@@ -426,8 +465,14 @@ export default defineSchema({
         v.literal("done")
       )
     ),
+    // Direct threads (threadbear T2, additive). Unset = "orchestrated":
+    // classifier -> planner -> DAG. "direct": one agent loop, started only
+    // by an explicit user action (directThreads.create).
+    mode: v.optional(v.union(v.literal("orchestrated"), v.literal("direct"))),
+    direct: v.optional(directThreadValidator),
   })
     .index("by_project", ["projectId"])
+    .index("by_mode_and_status", ["mode", "status"])
     .index("by_status", ["status"])
     .index("by_status_and_updated", ["status", "updatedAt"])
     .index("by_status_and_lease", ["status", "leaseExpiresAt"])
@@ -503,6 +548,36 @@ export default defineSchema({
   // Kept off the subtasks row: it is rewritten every ~400ms while a model
   // streams, and subtask rows (with their outputs) feed project-wide
   // reactive queries that should not refire on every flush.
+  // Direct threads (threadbear T2): one hot row per streaming item (the
+  // assistant's text, its reasoning, a tool's output). Rewritten at most
+  // every ~300 ms by the worker and deleted once the item is persisted as
+  // a taskEvent. Never patched onto tasks or other list documents.
+  threadStreams: defineTable({
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    itemId: v.string(),
+    kind: v.union(v.literal("text"), v.literal("reasoning"), v.literal("output")),
+    text: v.string(),
+    // The last persisted taskEvents sequence when this was written.
+    seq: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_task", ["taskId"])
+    .index("by_task_and_item", ["taskId", "itemId"])
+    .index("by_project", ["projectId"]),
+
+  // Direct threads (threadbear T2): the whole of a tool output over 2 KB.
+  // The taskEvents row keeps a 300-character preview plus bodyId; the UI
+  // reads the body only when a tool row is opened.
+  eventBodies: defineTable({
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    seq: v.number(),
+    body: v.string(),
+  })
+    .index("by_task_and_seq", ["taskId", "seq"])
+    .index("by_project", ["projectId"]),
+
   subtaskLive: defineTable({
     taskId: v.id("tasks"),
     projectId: v.id("projects"),

@@ -323,6 +323,13 @@ export const remove = mutation({
     ] as const) {
       await deleteByTask(table);
     }
+    // Direct threads: hot stream rows and lazily loaded tool output bodies.
+    for (const row of await ctx.db.query("threadStreams").withIndex("by_task", (q) => q.eq("taskId", args.taskId)).collect()) {
+      await ctx.db.delete(row._id);
+    }
+    for (const row of await ctx.db.query("eventBodies").withIndex("by_task_and_seq", (q) => q.eq("taskId", args.taskId)).collect()) {
+      await ctx.db.delete(row._id);
+    }
     // Post-push feedback loop: the task's PR reactions and notifications.
     for (const status of ["open", "resolved"] as const) {
       const notes = await ctx.db

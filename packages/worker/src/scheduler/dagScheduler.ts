@@ -60,6 +60,12 @@ export interface NodeRunInfo {
 export interface SchedulerHooks {
   maxConcurrency: number;
   timeoutMs: number;
+  /**
+   * Per-node timeout, read when the node starts (each attempt). Defaults
+   * to `timeoutMs`. Lets the runner give a native (OpenCode) node or a
+   * slow model more room without raising every node's bound.
+   */
+  nodeTimeoutMs?: (node: SchedulerNode) => number;
   retries: number;
   retryDelayMs?: number;
   shouldCancel?: () => Promise<boolean>;
@@ -362,7 +368,8 @@ export async function runScheduler(
     controllers.set(node.id, controller);
     let timer: NodeJS.Timeout | undefined;
     let timedOut = false;
-    const deadlineAt = Date.now() + hooks.timeoutMs;
+    const nodeTimeout = Math.max(1, hooks.nodeTimeoutMs?.(node) ?? hooks.timeoutMs);
+    const deadlineAt = Date.now() + nodeTimeout;
     // Clock holds (human waits): while held, neither the timeout nor the
     // stall watchdog may fire; on release the timeout deadline is pushed
     // out by the held duration and the stall clock restarts.
@@ -376,15 +383,15 @@ export async function runScheduler(
     const timeout = new Promise<NodeOutcome>((resolve) => {
       const arm = (ms: number) => {
         timer = setTimeout(() => {
-          if (holds > 0) return arm(Math.max(50, Math.min(hooks.timeoutMs, 1_000)));
+          if (holds > 0) return arm(Math.max(50, Math.min(nodeTimeout, 1_000)));
           const remaining = deadlineAt + heldTotal - Date.now();
           if (remaining > 0) return arm(remaining);
           timedOut = true;
           controller.abort();
-          resolve({ status: "failed", error: `Subtask timed out after ${hooks.timeoutMs}ms` });
+          resolve({ status: "failed", error: `Subtask timed out after ${nodeTimeout}ms` });
         }, ms);
       };
-      arm(hooks.timeoutMs);
+      arm(nodeTimeout);
     });
     const holdClock = () => {
       if (holds === 0) heldSince = Date.now();
@@ -428,7 +435,7 @@ export async function runScheduler(
         if (timedOut) {
           return {
             node,
-            outcome: { status: "failed" as const, error: `Subtask timed out after ${hooks.timeoutMs}ms` },
+            outcome: { status: "failed" as const, error: `Subtask timed out after ${nodeTimeout}ms` },
             attempt,
           };
         }

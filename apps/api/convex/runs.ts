@@ -256,6 +256,8 @@ type Step = {
   detail?: string;
   /** Approval steps: the duration is time spent waiting on the user, not agent work. */
   waiting?: boolean;
+  /** Approval steps: who decided ("auto" = approved by the task's permission mode, never "You"). */
+  decidedBy?: "user" | "auto";
   plans?: { version: number; strategy: string; createdBy: string; goal: string; createdAt: number; subtaskCount: number | null }[];
 };
 
@@ -473,9 +475,12 @@ export const get = query({
         type: "approval",
         title: `Approval · ${a.kind.replace(/_/g, " ")}`,
         status: a.status,
-        role: "you",
+        // An auto approval (permission mode) was decided by no one: it
+        // must not read as "You", and it never waited on the user.
+        role: a.decidedBy === "auto" ? "auto" : "you",
         agentName: requestedBy ? `requested by ${requestedBy}` : undefined,
-        waiting: true,
+        waiting: a.decidedBy !== "auto",
+        ...(a.decidedBy ? { decidedBy: a.decidedBy } : {}),
         subtaskKey: a.subtaskKey,
         startedAt: a._creationTime,
         completedAt: a.resolvedAt,

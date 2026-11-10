@@ -36,6 +36,7 @@ import {
   statusDot,
 } from "@/lib/runFormat";
 import { PERMISSION_MODE_LABELS, normalizePermissionMode } from "@/api/convex/lib/permissionModes";
+import { approvalDeciderLabel } from "@/lib/sandbox";
 
 type Run = NonNullable<FunctionReturnType<typeof api.runs.get>>;
 type Step = Run["steps"][number];
@@ -52,8 +53,9 @@ const STEP_KIND_LABEL: Record<string, string> = {
 
 /** Display by role only; non-agent steps get their kind. */
 function stepLabel(step: Step): string {
-  // Approvals wait on the user, not on the agent that asked.
-  if (step.type === "approval") return "You";
+  // Approvals wait on the user, not on the agent that asked; an approval
+  // the permission mode granted (decidedBy "auto") was nobody's click.
+  if (step.type === "approval") return approvalDeciderLabel(step.decidedBy);
   if (step.role) return roleLabel(step.role);
   return STEP_KIND_LABEL[step.type] ?? "Step";
 }

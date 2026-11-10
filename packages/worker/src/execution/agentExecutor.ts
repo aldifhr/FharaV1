@@ -1,3 +1,4 @@
+import { markProgress } from "@/effects/observationContext";
 import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig, type LLMResult } from "@/llm";
 import {
   isTransientLlmError,
@@ -886,10 +887,6 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
     await input.onTokenUsage(result.inputTokens, result.outputTokens, result.model ?? "native-provider", nativeUsageMeta(result));
   }
 
-  if (result.status !== "completed") {
-    return { status: "failed", error: result.output || "Native provider run failed" };
-  }
-
   // Staging gate: stage what the provider changed in scope so the
   // verification and approval flows still review it; revert everything
   // out of scope (forbidden paths, invalid paths, outside allowedPaths, or
@@ -899,65 +896,91 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
   const nativeRoleLabel = (agent.role ?? "").trim() || "agent";
   const prepared: { filePath: string }[] = [];
   const rejected: { filePath: string; reason: string }[] = [];
-  let changedPaths: string[] = [];
-  try {
-    changedPaths = await listWorkspaceChanges(workspacePath, signal);
-  } catch {
-    // Workspace may not be a git repo; the provider's own output stands.
-  }
-  for (const filePath of changedPaths) {
-    if (signal.aborted) return { status: "failed", error: "Execution cancelled" };
-    let resolved: string;
+  // Live test 3: files OpenCode wrote before its run failed or timed out
+  // had no fileChanges rows (left in the worktree, invisible in the UI).
+  // The worktree is diffed against its base after EVERY run, completed or
+  // not; a failed run diffs without the (possibly aborted) node signal.
+  const stageWorkspaceChanges = async (stageSignal?: AbortSignal): Promise<"cancelled" | void> => {
+    let changedPaths: string[] = [];
     try {
-      resolved = await resolveSandboxPathAsync(workspacePath, filePath);
+      changedPaths = await listWorkspaceChanges(workspacePath, stageSignal);
     } catch {
-      continue;
+      // Workspace may not be a git repo; the provider's own output stands.
     }
-    const newContent = await readIfExistsUtf8(resolved);
-    const baseline = preRunDirty.has(filePath)
-      ? preRunDirty.get(filePath) ?? undefined
-      : await readHeadContent(workspacePath, filePath);
-    // Dirty before the run and untouched by the provider: not its change.
-    if ((baseline ?? null) === newContent) continue;
-    const roleDenied = mutating ? writeDenial(nativeRoleLabel, nativePermissions, filePath) : null;
-    const reason = !mutating
-      ? `read-only ${subtask.kind} subtask`
-      : roleDenied
-        ? roleDenied
-        : isForbiddenPath(filePath)
-        ? "forbidden path"
-        : !validateFilePath(filePath).ok
-          ? "invalid path"
-          : !isPathWithinOwnership(filePath, subtask.allowedPaths)
-            ? "outside allowedPaths"
-            : "";
-    if (reason) {
+    for (const filePath of changedPaths) {
+      if (stageSignal?.aborted) return "cancelled";
+      let resolved: string;
       try {
-        if (baseline === undefined) await fs.rm(resolved, { force: true });
-        else await fs.writeFile(resolved, baseline, "utf-8");
-        rejected.push({ filePath, reason });
+        resolved = await resolveSandboxPathAsync(workspacePath, filePath);
       } catch {
-        rejected.push({ filePath, reason: `${reason} (revert failed)` });
+        continue;
       }
-      continue;
+      const newContent = await readIfExistsUtf8(resolved);
+      // A file an earlier attempt already staged keeps that change's base
+      // (its pre-task content), so a retry never re-bases the diff on the
+      // partial output of the failed attempt.
+      const staged = input.getStagedChange?.(filePath) ?? input.fileChanges.find((change) => change.filePath === filePath);
+      const baseline = staged
+        ? staged.changeType === "new"
+          ? undefined
+          : staged.oldContent
+        : preRunDirty.has(filePath)
+          ? preRunDirty.get(filePath) ?? undefined
+          : await readHeadContent(workspacePath, filePath);
+      // Dirty before the run and untouched by the provider: not its change.
+      if ((baseline ?? null) === newContent) continue;
+      const roleDenied = mutating ? writeDenial(nativeRoleLabel, nativePermissions, filePath) : null;
+      const reason = !mutating
+        ? `read-only ${subtask.kind} subtask`
+        : roleDenied
+          ? roleDenied
+          : isForbiddenPath(filePath)
+          ? "forbidden path"
+          : !validateFilePath(filePath).ok
+            ? "invalid path"
+            : !isPathWithinOwnership(filePath, subtask.allowedPaths)
+              ? "outside allowedPaths"
+              : "";
+      if (reason) {
+        try {
+          if (baseline === undefined) await fs.rm(resolved, { force: true });
+          else await fs.writeFile(resolved, baseline, "utf-8");
+          rejected.push({ filePath, reason });
+        } catch {
+          rejected.push({ filePath, reason: `${reason} (revert failed)` });
+        }
+        continue;
+      }
+      if (newContent === null && baseline === undefined) continue;
+      try {
+        const diff: FileDiff =
+          newContent === null
+            ? {
+                ...diffFromContents(filePath, baseline, ""),
+                changeType: "deleted",
+                newContent: undefined,
+                newContentHash: undefined,
+              }
+            : diffFromContents(filePath, baseline, newContent);
+        await input.saveFileChange(diff);
+        prepared.push({ filePath });
+      } catch {
+        // Per-file staging failures are best-effort; the summary stands.
+      }
     }
-    if (newContent === null && baseline === undefined) continue;
-    try {
-      const diff: FileDiff =
-        newContent === null
-          ? {
-              ...diffFromContents(filePath, baseline, ""),
-              changeType: "deleted",
-              newContent: undefined,
-              newContentHash: undefined,
-            }
-          : diffFromContents(filePath, baseline, newContent);
-      await input.saveFileChange(diff);
-      prepared.push({ filePath });
-    } catch {
-      // Per-file staging failures are best-effort; the summary stands.
+  };
+
+  if (result.status !== "completed") {
+    // Record what the failed run left in the worktree, then fail.
+    await stageWorkspaceChanges().catch(() => undefined);
+    if (prepared.length > 0) {
+      await onEvent("native.partial_changes", { files: prepared.map((c) => c.filePath).slice(0, 50) }, "warn");
     }
+    const staged = prepared.length > 0 ? `\nStaged ${prepared.length} file change(s) the run left: ${prepared.map((c) => c.filePath).join(", ")}` : "";
+    return { status: "failed", error: `${result.output || "Native provider run failed"}${staged}` };
   }
+  if ((await stageWorkspaceChanges(signal)) === "cancelled") return { status: "failed", error: "Execution cancelled" };
+
   if (rejected.length > 0) {
     await onEvent(
       "native.change.rejected",
@@ -1954,6 +1977,9 @@ async function executeReadOnly(
             messages,
             async (delta) => {
               chunkEmitted = true;
+              // Streamed output is progress: keeps the stall and task idle
+              // watchdogs alive during a long streamed reply.
+              markProgress();
               await input.onChunk(delta);
             },
             primary.config.model,

@@ -70,8 +70,23 @@ export function sandboxCommand(config: SandboxConfig): string {
     `Instruction: ${config.instruction.trim()}\n` +
     `Guardrails: ${guards.length ? guards.join("; ") + "." : "none."} ` +
     `Advisory time box: ${config.timeboxMinutes} minutes.\n` +
-    `Everything you change stays in this worktree until a human approves it.`
+    sandboxAcceptanceLine(config.permissionMode)
   );
+}
+
+/**
+ * When the experiment's changes leave the worktree. The worker merges only
+ * after acceptance: the user's approval, or, in a mode that auto-accepts
+ * edits, once the run's acceptance checks pass. Push / PR always ask.
+ * (The old line, "until a human approves it", was false in Auto-accept
+ * edits mode.) Keep "Instruction:" / "Guardrails:" above: the worker reads
+ * only the instruction (classifier.unwrapSandboxBrief).
+ */
+export function sandboxAcceptanceLine(mode: PermissionMode): string {
+  if (mode === "auto_edits" || mode === "full_access") {
+    return "Changes stay in this worktree until the run passes its acceptance checks; then they are merged automatically. Push / PR still need a human.";
+  }
+  return "Everything you change stays in this worktree until a human approves it.";
 }
 
 export function validateSandbox(config: SandboxConfig): string[] {
@@ -83,4 +98,9 @@ export function validateSandbox(config: SandboxConfig): string[] {
     issues.push("Instruction is too long — the dispatched command would exceed 4000 characters.");
   }
   return issues;
+}
+
+/** Who an approval row names: "Auto" for a permission-mode approval, else "You". */
+export function approvalDeciderLabel(decidedBy?: "user" | "auto" | null): "Auto" | "You" {
+  return decidedBy === "auto" ? "Auto" : "You";
 }

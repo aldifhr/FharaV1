@@ -1,3 +1,4 @@
+import { runWithObservationScope } from "@/effects/observationContext";
 import { normalizeModelTiers } from "@/api/convex/lib/modelTiers";
 import type { LlmSelectionMode } from "@/api/convex/lib/llmSelection";
 import { withSnapshotScope } from "@/llm/snapshots";
@@ -7,7 +8,7 @@ import * as path from "node:path";
 import type { WorkerRunAgent, WorkerTask } from "@/workerApi";
 import type { SubtaskKind } from "@/types";
 import { classifyCommand } from "@/orchestrator/classifier";
-import { policyForComplexity } from "@/orchestrator/policy";
+import { policyForComplexity, subtaskTimeoutFor } from "@/orchestrator/policy";
 import { validateStoredPlan } from "@/orchestrator/planValidator";
 import { BudgetTracker } from "@/orchestrator/budget";
 import { createSharedTaskContext } from "@/orchestrator/taskContext";
@@ -196,7 +197,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
       reasons: classification.reasons,
       ...(classification.complexity ? { complexity: classification.complexity } : {}),
       ...(classification.concerns ? { concerns: classification.concerns.map((c) => c.category) } : {}),
-      subtaskTimeoutMs: deps.policy.subtaskTimeoutMs,
+      subtaskTimeoutMs: subtaskTimeoutFor(deps.policy),
     },
   });
 
@@ -258,6 +259,12 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
     failTaskWithError({ deps, taskId: task._id, projectId: project._id, message });
 
   try {
+    // Every LLM call in this run (planning, replanning, decisions, stage
+    // checks) marks progress on start and finish (effects/llmCall), which
+    // bumps the task idle watchdog. Subtask scopes nest their own
+    // progress, which bumps it too (live test 3: a 5-8 min replan was
+    // killed as "Task idle exceeded" because only subtasks bumped it).
+    await runWithObservationScope({ progress: taskAbort.bump }, async () => {
     const pctx: PlanningContext = {
       deps,
       task,
@@ -277,6 +284,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
       assertBudgetForCall,
       signal,
       llmTaskGate,
+      bump: taskAbort.bump,
       // Plan 025: requirements a previous run stored keep their ids.
       requirements: parseStoredRequirements((context.task as { requirements?: unknown }).requirements),
     };
@@ -566,6 +574,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
       await fail(failureSummary);
       return;
     }
+    });
   } finally {
     taskAbort.dispose();
   }

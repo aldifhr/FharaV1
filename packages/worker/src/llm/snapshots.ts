@@ -11,6 +11,7 @@
  * maskStringSecrets, then the shared unanchored redactSecrets — before
  * anything leaves the process. CONTEXT_SNAPSHOTS=0 turns it off.
  */
+import { recordLlmLatency } from "@/llm/latency";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
   buildContextSnapshot,
@@ -81,6 +82,9 @@ export function recordLlmSnapshot(call: {
   provider?: string;
   durationMs: number;
 }): void {
+  // Latency-aware subtask timeouts (policy.subtaskTimeoutFor) learn from
+  // every successful call, whether or not snapshots are recorded.
+  if (call.result && call.error === undefined) recordLlmLatency(call.durationMs);
   if (!sink || !contextSnapshotsEnabled()) return;
   const scope = currentSnapshotScope();
   // Only task-scoped calls are recorded (a stray call has nowhere to live).

@@ -136,7 +136,11 @@ export function extractRequirementsFallback(request: string): Requirement[] {
       if (piece) pieces.push(piece);
     }
   } else {
-    const sentence = /[^.!?;\n]+[.!?;]?/g;
+    // A sentence ends at "." / "!" / "?" only when whitespace or the end
+    // follows: a dot inside a file name or version ("simple.html",
+    // "style.css", "v1.2") is not a sentence break (live test 3 split
+    // "simple.html + style.css" into "simple", "html + style", "css").
+    const sentence = /(?:[^.!?;\n]|[.!?](?=[^\s.!?;]))+[.!?;]*/g;
     let match: RegExpExecArray | null;
     while ((match = sentence.exec(source)) !== null) {
       pieces.push(...splitSentence(match[0], match.index));

@@ -163,3 +163,20 @@ describe("runs: approval wait and estimated tokens", () => {
     expect(runs.find((r) => r.taskId === taskId)!.tokensEstimated).toBe(true);
   });
 });
+
+describe("runs: auto approvals are not the user's", () => {
+  test("an approval granted by the permission mode (decidedBy auto) is labelled auto, not you, and never waited", async () => {
+    const { t, taskId, projectId, t0 } = await seed();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("approvals", {
+        taskId, projectId, kind: "apply_changes", summary: "Apply changes to 1 file(s)",
+        status: "approved", decidedBy: "auto", resolvedAt: t0 + 1_000,
+      } as never);
+    });
+    const run = await t.query(api.runs.get, { taskId });
+    const approval = run!.steps.find((s) => s.type === "approval")!;
+    expect(approval.role).toBe("auto");
+    expect(approval.decidedBy).toBe("auto");
+    expect(approval.waiting).toBe(false);
+  });
+});

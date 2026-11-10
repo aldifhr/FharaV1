@@ -12,6 +12,7 @@ import { recordCoverage, runCoverageCheck } from "./coverage";
 import {
   brokerCheckAndApply,
   commitAndMergeWorktree,
+  mergeAcceptance,
   requestApplyApproval,
   type PreparedApply,
 } from "./applyStage";
@@ -257,10 +258,6 @@ export async function executePlan(input: ExecutePlanInput): Promise<ExecutePlanR
       }
     }
 
-    if (input.worktree && preparedChanges.length > 0) {
-      const merged = await commitAndMergeWorktree(ctx, input.worktree);
-      if (!merged) return failedOrCancelled(ctx);
-    }
     // Final boundary before completing (plan 013 step 3): a replan
     // requested anywhere earlier in this invocation still wins over
     // "completed".
@@ -300,6 +297,16 @@ export async function executePlan(input: ExecutePlanInput): Promise<ExecutePlanR
       return { status: "failed" };
     }
     if (coverage.status === "covered") await recordCoverage(ctx, coverage.report, "covered");
+
+    // Worktree commit/merge runs LAST, after the acceptance gates and the
+    // coverage check passed (live test 3: the merge to master ran before
+    // acceptance and landed out-of-scope edits). It merges only accepted
+    // work: the user's approval, or a mode the user picked that accepts
+    // edits automatically; otherwise the branch is committed and kept.
+    if (input.worktree && preparedChanges.length > 0) {
+      const merged = await commitAndMergeWorktree(ctx, input.worktree, { accepted: mergeAcceptance(ctx) });
+      if (!merged) return failedOrCancelled(ctx);
+    }
   } finally {
     await browser.close().catch(() => undefined);
   }

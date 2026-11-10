@@ -8,6 +8,7 @@ import {
   parseStoredRequirements,
   type CoverageSubtask,
 } from "./lib/requirements";
+import { unwrapSandboxBrief } from "./lib/sandboxBrief";
 
 /**
  * Plan 025: intent-to-execution traceability and execution observations.
@@ -68,9 +69,12 @@ export const requirements = query({
     const list = parseStoredRequirements(task.requirements);
     if (list.length === 0) return { requirements: [], quotes: {} as Record<string, string>, coverage: task.requirementCoverage ?? null, report: null };
     // The words of the request each requirement came from (its span).
+    // Spans index the request the worker extracted from: for a Sandbox
+    // brief that is the user's instruction, not the whole wrapper.
     const quotes: Record<string, string> = {};
+    const request = unwrapSandboxBrief(task.command);
     for (const requirement of list) {
-      if (requirement.span) quotes[requirement.id] = task.command.slice(requirement.span.start, requirement.span.end).slice(0, 300);
+      if (requirement.span) quotes[requirement.id] = request.slice(requirement.span.start, requirement.span.end).slice(0, 300);
     }
     const [subtasks, files, qaEvents] = await Promise.all([
       ctx.db.query("subtasks").withIndex("by_task", (q) => q.eq("taskId", task._id)).take(SUBTASK_CAP),

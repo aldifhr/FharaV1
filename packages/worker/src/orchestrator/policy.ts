@@ -1,4 +1,5 @@
 import { executionRuntimeFromEnv } from "@/execution/nativeProvider";
+import { observedLlmLatencyMs } from "@/llm/latency";
 
 function intFromEnv(name: string, fallback: number, min: number, max: number): number {
   const raw = process.env[name];
@@ -20,6 +21,11 @@ export interface ExecutionPolicy {
   maxPlanningIterations?: number;
   maxReviewIterations: number;
   subtaskTimeoutMs: number;
+  /**
+   * True when ORCHESTRATOR_SUBTASK_TIMEOUT_MS was set explicitly: the
+   * operator's value is used as-is (no latency-aware growth).
+   */
+  subtaskTimeoutFromEnv?: boolean;
   /**
    * Subtask timeout for high/ultra complexity tasks
    * (ORCHESTRATOR_SUBTASK_TIMEOUT_HIGH_MS). Applied by policyForComplexity;
@@ -215,6 +221,36 @@ function planningModeFromEnv(name: string, fallback: "auto" | "never" = "auto"):
   return raw === "always" || raw === "auto" || raw === "never" ? raw : fallback;
 }
 
+/** Default subtask timeout when ORCHESTRATOR_SUBTASK_TIMEOUT_MS is unset. */
+export const DEFAULT_SUBTASK_TIMEOUT_MS = 900_000;
+/** Latency-aware timeout: fixed headroom plus this many observed LLM calls. */
+export const SUBTASK_LATENCY_BASE_MS = 120_000;
+export const SUBTASK_LATENCY_CALLS = 4;
+const SUBTASK_TIMEOUT_CAP_MS = 3_600_000;
+
+/**
+ * The timeout one subtask runs under: the policy value, grown to
+ * `base + k × observed per-call LLM latency` when the model is slow (a
+ * subtask makes several calls; a 6-min-per-call model needs ~26 min).
+ * An explicit ORCHESTRATOR_SUBTASK_TIMEOUT_MS is used as-is. A native
+ * (OpenCode) subtask always gets at least the native CLI timeout plus a
+ * minute, so the scheduler never cuts the CLI off before its own limit.
+ */
+export function subtaskTimeoutFor(
+  policy: Pick<ExecutionPolicy, "subtaskTimeoutMs" | "subtaskTimeoutFromEnv">,
+  options: { latencyMs?: number; nativeTimeoutMs?: number } = {}
+): number {
+  let timeout = policy.subtaskTimeoutMs;
+  if (!policy.subtaskTimeoutFromEnv) {
+    const latency = options.latencyMs ?? observedLlmLatencyMs();
+    if (latency > 0) timeout = Math.max(timeout, SUBTASK_LATENCY_BASE_MS + SUBTASK_LATENCY_CALLS * latency);
+  }
+  if (options.nativeTimeoutMs && options.nativeTimeoutMs > 0) {
+    timeout = Math.max(timeout, options.nativeTimeoutMs + 60_000);
+  }
+  return Math.min(SUBTASK_TIMEOUT_CAP_MS, Math.floor(timeout));
+}
+
 export type TaskComplexity = "low" | "medium" | "high" | "ultra";
 
 /**
@@ -267,11 +303,15 @@ export function loadPolicy(): ExecutionPolicy {
     maxReviewIterations: intFromEnv("ORCHESTRATOR_MAX_REVIEW_ITERATIONS", 2, 0, 5),
     // Configurable up to 1h (was clamped to 300s, which a slow model
     // cannot meet on a multi-file change — e2e ULTRA).
-    subtaskTimeoutMs: intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", 300_000, 30_000, 3_600_000),
+    // Default 900s (was 300s): live tests 3/4 timed out medium native
+    // (OpenCode) subtasks at 300s while one nous call takes 5-8 min. The
+    // runner grows it further from observed latency (subtaskTimeoutFor).
+    subtaskTimeoutMs: intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", DEFAULT_SUBTASK_TIMEOUT_MS, 30_000, 3_600_000),
+    subtaskTimeoutFromEnv: Boolean(process.env.ORCHESTRATOR_SUBTASK_TIMEOUT_MS),
     subtaskTimeoutMsHigh: intFromEnv(
       "ORCHESTRATOR_SUBTASK_TIMEOUT_HIGH_MS",
       // 900s: one slow call (~280s on longcat) plus a full retry must fit.
-      Math.max(900_000, intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", 300_000, 30_000, 3_600_000)),
+      Math.max(900_000, intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", DEFAULT_SUBTASK_TIMEOUT_MS, 30_000, 3_600_000)),
       30_000,
       3_600_000
     ),

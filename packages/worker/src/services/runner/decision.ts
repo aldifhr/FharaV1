@@ -250,7 +250,36 @@ export async function handleNodeOutcome(
             !runCompleted.has(candidate.key)
         );
         let objectiveState: DecisionObservation["objective"];
-        if (!executionId || ctx.inStageLoop || reviewQaInFlight) {
+        // Live test 3: a planned code_change that executed THIS run and
+        // staged nothing was deferred as "met" (review/QA still pending),
+        // so the run completed it as objective:met and only failed later
+        // in executePlan ("no file changes"). It is never met: the
+        // missing work goes to the recovery rule now.
+        const executedSubtask = plan.subtasks.find((candidate) => candidate.key === node.id);
+        const emptyCodeChange =
+          Boolean(executionId) &&
+          !ctx.inStageLoop &&
+          outcome.status === "completed" &&
+          executedSubtask?.kind === "code_change" &&
+          (state.appliedFilesBySubtask.get(node.id)?.length ?? 0) === 0;
+        if (emptyCodeChange) {
+          objectiveState = {
+            met: false,
+            missing: [`${node.id}: code_change completed with no applied file change`],
+            evidence: [],
+          };
+          await deps.api
+            .logEvent({
+              taskId: task._id,
+              projectId: project._id,
+              type: "orchestrator.objective_unmet",
+              payload: { missing: objectiveState.missing, evidence: [] },
+              executionId,
+              subtaskKey: node.id,
+              level: "warn",
+            })
+            .catch(() => undefined);
+        } else if (!executionId || ctx.inStageLoop || reviewQaInFlight) {
           objectiveState = {
             met: true,
             missing: [],

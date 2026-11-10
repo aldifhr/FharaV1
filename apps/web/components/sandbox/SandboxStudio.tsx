@@ -3,8 +3,8 @@
 /**
  * Agent Sandbox (frontend only): run experiments isolated from production.
  * An experiment is a real task created through `tasks.createFromCommand`,
- * prefixed `[Sandbox]`, forced to supervised permission mode, with the
- * isolation instruction first. The toolbar shows exactly what will be
+ * prefixed `[Sandbox]`, in the permission mode picked in the form
+ * (supervised by default), with the isolation instruction first. The toolbar shows exactly what will be
  * dispatched before it runs.
  */
 import { useMemo, useState } from "react";
@@ -111,8 +111,8 @@ export default function SandboxStudio() {
             </h1>
             <p className="mt-1 max-w-2xl text-[14px] text-ink-2">
               Run agent experiments isolated from production: a task in the project worktree, prefixed with `[Sandbox]`,
-              with explicit guardrails. You pick how much it may do on its own; nothing is pushed or merged without your
-              approval.
+              with explicit guardrails. You pick how much it may do on its own: nothing is pushed without your approval, and
+              nothing is merged until the run is accepted, by you or, in Auto-accept edits, automatically once its checks pass.
             </p>
           </header>
 
@@ -262,7 +262,12 @@ export default function SandboxStudio() {
           </p>
           <ul className="mt-2 grid gap-1.5 text-[12.5px] text-ink-2">
             <li>• {sandboxModeSummary(config.permissionMode)}</li>
-            <li>• Worktree-scoped — nothing lands on the main branch silently.</li>
+            <li>
+              • Worktree-scoped —{" "}
+              {config.permissionMode === "supervised"
+                ? "changes merge to the main branch only after you approve them."
+                : "changes merge to the main branch only after the run passes its acceptance checks."}
+            </li>
             <li>• Push / PR always ask.</li>
             <li>• The task is visible under Runs — this page opens it after queuing.</li>
           </ul>

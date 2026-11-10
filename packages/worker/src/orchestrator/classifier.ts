@@ -1,5 +1,6 @@
 import { CAPABILITY, type Classification, type Concern } from "@/types";
 import { ALLOWED_ARGV, allowedCommandLines } from "@/utils/commandAllowlist";
+import { unwrapSandboxBrief } from "@/api/convex/lib/sandboxBrief";
 
 const GREETING = /^(hi|hello|hey|halo|hai|yo|good (morning|afternoon|evening))[!.,?\s]*$/i;
 // Expanded verb coverage (Stage A fast path only — semantic stage below
@@ -76,9 +77,16 @@ const RESEARCH_ONLY =
 // negated phrases are removed ("riset library X lalu perbaiki Y" is a change).
 const RESEARCH_WORD = /\b(?:riset|research|investigasi|investigate|analisa|analisis|telusuri|kaji)\b/i;
 
-/** The user's own words: attached file contexts and conversation context are not instructions. */
+const ATTACHED_CONTEXT = /\n\s*(?:---\s*Conversation context\s*---|Attached file context:|---\s*File:)/i;
+// Live tests 3/4: "jalankan tes" wrapped in the Sandbox brief was
+// classified code_change from the wrapper's own words ("change",
+// "production", "push"). Classification reads only the instruction.
+export { unwrapSandboxBrief };
+
+/** The user's own words: attached file contexts, conversation context and a Sandbox wrapper are not instructions. */
 export function requestText(command: string): string {
-  return command.split(/\n\s*(?:---\s*Conversation context\s*---|Attached file context:|---\s*File:)/i)[0] ?? command;
+  const unwrapped = unwrapSandboxBrief(command);
+  return unwrapped.split(ATTACHED_CONTEXT)[0] ?? unwrapped;
 }
 
 /** True when the request explicitly asks for no code changes (research/question only). */
@@ -284,6 +292,8 @@ function withComplexity(classification: Classification, command: string, domains
 }
 
 export function classifyCommand(command: string): Classification {
+  // Classify the user's own request, never the Sandbox wrapper around it.
+  command = unwrapSandboxBrief(command);
   const base = classifyCommandBase(command);
   const text = command.trim();
   const domains = [FRONTEND.test(text), BACKEND.test(text), DESIGN.test(text)].filter(Boolean).length;

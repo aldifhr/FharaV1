@@ -318,9 +318,11 @@ describe("(c) subtask timeout is configurable and larger for high/ultra", () => 
 
   it("high/ultra get the high timeout and deadline, low/medium keep the base", () => {
     const policy = loadPolicy();
-    expect(policy.subtaskTimeoutMs).toBe(300_000);
-    expect(policyForComplexity(policy, "low").subtaskTimeoutMs).toBe(300_000);
-    expect(policyForComplexity(policy, "medium").subtaskTimeoutMs).toBe(300_000);
+    // Default raised 300s -> 900s (live tests 3/4: medium native subtasks
+    // timed out at 300s on a slow model).
+    expect(policy.subtaskTimeoutMs).toBe(900_000);
+    expect(policyForComplexity(policy, "low").subtaskTimeoutMs).toBe(900_000);
+    expect(policyForComplexity(policy, "medium").subtaskTimeoutMs).toBe(900_000);
     expect(policyForComplexity(policy, "high").subtaskTimeoutMs).toBe(900_000);
     expect(policyForComplexity(policy, "ultra").subtaskTimeoutMs).toBe(900_000);
     expect(policyForComplexity(policy, "ultra").taskTimeoutMs).toBe(40 * 60_000);

@@ -5,7 +5,8 @@ import type {
 import { runScheduler, type NodeOutcome, type SchedulerResult } from "@/scheduler/dagScheduler";
 import { executeSubtask } from "@/execution/agentExecutor";
 import type { SiblingSubtask } from "@/execution/agentContext";
-import { resolveOpencodeSelection } from "@/execution/nativeProvider";
+import { nativeTimeoutMs, resolveOpencodeSelection } from "@/execution/nativeProvider";
+import { subtaskTimeoutFor } from "@/orchestrator/policy";
 import { capabilitiesOf, unroutedReason } from "@/orchestrator/capabilities";
 import { combineSignals } from "./abort";
 import type { FallbackHandle } from "@/effects/llmCall";
@@ -505,6 +506,25 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       // independent nodes overlap; the per-agent gate below still applies.
       maxConcurrency: Math.max(1, Math.floor(deps.policy.maxConcurrency ?? 1)),
       timeoutMs: deps.policy.subtaskTimeoutMs,
+      // Latency-aware per-node timeout (live tests 3/4: medium native
+      // subtasks died at the fixed 300s while one slow call takes minutes):
+      // base + k × observed LLM latency, and never below the native CLI's
+      // own limit for a node that may run on OpenCode.
+      nodeTimeoutMs: (node) => {
+        const agent = assign(node.id);
+        const mayRunNative =
+          Boolean(input.llmResolver?.hasOpencode()) ||
+          (agent
+            ? resolveOpencodeSelection({
+                globalRuntime: input.opencodeRuntime,
+                globalModel: input.opencodeModel,
+                agentRuntime: agent.executionRuntime,
+                agentModel: agent.opencodeModel,
+                envDefault: deps.policy.executionRuntime,
+              }).runtime === "native-provider"
+            : false);
+        return subtaskTimeoutFor(deps.policy, mayRunNative ? { nativeTimeoutMs: nativeTimeoutMs() } : {});
+      },
       retries: deps.policy.subtaskRetries,
       // Phase 3 dynamic work: onOutcome may add delegation/fix subtasks
       // to this same invocation, capped per invocation; a budget BLOCKED

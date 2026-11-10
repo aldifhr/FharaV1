@@ -1,3 +1,5 @@
+import { runWithObservationScope } from "@/effects/observationContext";
+import { unwrapSandboxBrief } from "@/orchestrator/classifier";
 import { listWorkspaceLayout } from "@/utils/workspaceLayout";
 import type { WorkerProject, WorkerTask } from "@/workerApi";
 import type {
@@ -57,7 +59,16 @@ export interface PlanningContext {
    * extracted by the first plan). Replans keep them, so ids stay stable.
    */
   requirements?: Requirement[];
+  /**
+   * Bumps the task idle watchdog (armTaskAbort). Planning and replanning
+   * calls take minutes on a slow model; while one is in flight the task is
+   * busy, not idle (it is bounded by the planning watchdog instead).
+   */
+  bump?: () => void;
 }
+
+/** How often an in-flight planner call keeps the task idle watchdog alive. */
+export const PLANNING_KEEPALIVE_MS = 30_000;
 
 /**
  * Planning watchdog (e2e 2026-11-09, task B2): a planner call that has not
@@ -94,22 +105,35 @@ export async function withPlanningWatchdog<T>(
   taskSignal: AbortSignal,
   stage: "planning" | "replanning",
   stallMs: number | undefined,
-  call: (signal: AbortSignal) => Promise<T>
+  call: (signal: AbortSignal, progress: () => void) => Promise<T>
 ): Promise<T> {
-  if (!stallMs || stallMs <= 0) return call(taskSignal);
+  if (!stallMs || stallMs <= 0) return call(taskSignal, () => undefined);
   const watchdog = new AbortController();
   const signal = AbortSignal.any([taskSignal, watchdog.signal]);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // Progress-based: every LLM call start/finish inside the planner resets
+  // the clock, so a planner that retries a slow call (e.g. a replan
+  // rejected for missing_reasoning) is not a stall; one call that hangs
+  // longer than stallMs still is.
+  let lastProgress = Date.now();
+  const progress = () => {
+    lastProgress = Date.now();
+  };
   const stalled = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      const error = new PlanningStalledError(stage, stallMs);
-      // Settle the race first, then abort the in-flight call.
-      reject(error);
-      watchdog.abort(error);
-    }, stallMs);
-    timer.unref?.();
+    const arm = (ms: number) => {
+      timer = setTimeout(() => {
+        const remaining = lastProgress + stallMs - Date.now();
+        if (remaining > 0) return arm(remaining);
+        const error = new PlanningStalledError(stage, stallMs);
+        // Settle the race first, then abort the in-flight call.
+        reject(error);
+        watchdog.abort(error);
+      }, ms);
+      timer.unref?.();
+    };
+    arm(stallMs);
   });
-  const running = call(signal);
+  const running = call(signal, progress);
   // The losing branch must never surface as an unhandled rejection.
   running.catch(() => undefined);
   try {
@@ -136,9 +160,29 @@ export async function requestPlan(
   } = {}
 ): Promise<AuthoritativePlanResult> {
   const { stage = "planning", ...planExtra } = extra;
-  return withPlanningWatchdog(pctx.signal, stage, pctx.deps.policy.planningStallMs, (signal) =>
-    callPlanner(pctx, planExtra, signal)
-  );
+  const bump = pctx.bump;
+  // The planner is busy, not idle: keep the task idle watchdog alive while
+  // the call is in flight (the planning watchdog bounds it), and bump it
+  // on every LLM call start/finish inside the planner.
+  bump?.();
+  const keepAlive = bump ? setInterval(bump, PLANNING_KEEPALIVE_MS) : undefined;
+  keepAlive?.unref?.();
+  try {
+    return await withPlanningWatchdog(pctx.signal, stage, pctx.deps.policy.planningStallMs, (signal, progress) =>
+      runWithObservationScope(
+        {
+          progress: () => {
+            progress();
+            bump?.();
+          },
+        },
+        () => callPlanner(pctx, planExtra, signal)
+      )
+    );
+  } finally {
+    if (keepAlive) clearInterval(keepAlive);
+    bump?.();
+  }
 }
 
 async function callPlanner(
@@ -172,7 +216,9 @@ async function callPlanner(
     llmTaskGate: pctx.llmTaskGate,
     hasQaUrl: Boolean(resolveQaBaseUrl(project)),
     workspaceLayout: await listWorkspaceLayout(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath)),
-    request: task.command,
+    // Requirements come from the user's own request: a Sandbox brief's
+    // wrapper (header, guardrails, time box) is not a requirement.
+    request: unwrapSandboxBrief(task.command),
     requirements: pctx.requirements,
   });
 }

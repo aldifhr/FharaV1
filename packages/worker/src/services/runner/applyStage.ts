@@ -5,7 +5,7 @@ import type { FileDiff } from "@/tools/gitDiff";
 import { commitWorktree, describeCommit } from "@/tools/gitWorktree";
 import type { RunContext } from "./types";
 import { implementerAgent, resolveWorkspacePath } from "./setup";
-import { tryAutoApprove } from "./autoApprove";
+import { mayAutoApproveEdits, tryAutoApprove } from "./autoApprove";
 import { newFilesOnlyFixWarning } from "./noTargetGuard";
 
 /** What the apply stage hands the approval request. */
@@ -201,13 +201,30 @@ export async function brokerCheckAndApply(
 }
 
 /**
+ * Who accepted this run's changes for the merge, or null when nobody did.
+ * "user": the user approved the apply (this invocation resumed from that
+ * approval). "auto": the user picked a mode that accepts edits on its own
+ * (Auto-accept edits / Full access, or a project set to auto approval).
+ * Acceptance gates and coverage have already passed when this is asked.
+ */
+export function mergeAcceptance(ctx: Pick<RunContext, "input">): "user" | "auto" | null {
+  if (ctx.input.approvalResolved) return "user";
+  if (ctx.input.approvalMode === "auto" || mayAutoApproveEdits(ctx)) return "auto";
+  return null;
+}
+
+/**
  * Worktree isolation: commit the task branch, record the push card
- * (plan 019, best-effort), then merge. Returns false when the commit or
- * merge failed (the failure is recorded in state.feedback).
+ * (plan 019, best-effort), then merge. Runs after the acceptance stage and
+ * merges only accepted work (`accepted`); unaccepted work stays committed
+ * on its branch (push card recorded) with a `branch.merge_deferred` event.
+ * Returns false when the commit or merge failed (the failure is recorded
+ * in state.feedback).
  */
 export async function commitAndMergeWorktree(
   ctx: RunContext,
-  worktree: { branchName: string; worktreePath: string }
+  worktree: { branchName: string; worktreePath: string },
+  options: { accepted?: "user" | "auto" | null } = { accepted: "user" }
 ): Promise<boolean> {
   const { deps, project, plan, state, input, taskId, task } = ctx;
   try {
@@ -249,12 +266,30 @@ export async function commitAndMergeWorktree(
           .catch(() => undefined);
       }
     }
+    if (!options.accepted) {
+      await deps.api.logEvent({
+        taskId,
+        projectId: project._id,
+        type: "branch.merge_deferred",
+        payload: { branchName: worktree.branchName, reason: "changes were not accepted (no approval, supervised mode)" },
+        level: "warn",
+      });
+      await deps.api
+        .appendAgentMessage({
+          projectId: project._id,
+          taskId,
+          agentId: implementerAgent(plan, input.agents)?._id as any,
+          content: `Changes are committed on branch ${worktree.branchName} and were not merged: nobody accepted them yet.`,
+        })
+        .catch(() => undefined);
+      return true;
+    }
     await deps.api.mergeBranch({ taskId });
     await deps.api.logEvent({
       taskId,
       projectId: project._id,
       type: "branch.merged",
-      payload: { branchName: worktree.branchName },
+      payload: { branchName: worktree.branchName, acceptedBy: options.accepted },
     });
     return true;
   } catch (error) {

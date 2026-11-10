@@ -1,0 +1,121 @@
+import type { EnvVar } from "./types";
+
+export const QA_VARS = [
+  {
+    name: "QA_BASE_URL",
+    type: "url",
+    parse: "nullish",
+    runtimes: ["worker"],
+    group: "qa",
+    doc: "Fallback QA target URL for projects without a QA/dev URL.",
+  },
+  {
+    name: "QA_CHROMIUM_PATH",
+    type: "path",
+    parse: "trimOr",
+    runtimes: ["worker", "scripts"],
+    group: "qa",
+    doc: "Chromium binary for browser QA (falls back to PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH, then Playwright's own).",
+    maxLength: 500,
+    knob: { reader: "worker", defaultValue: "" },
+  },
+  {
+    name: "QA_CHROMIUM_NO_SANDBOX",
+    type: "tristate",
+    runtimes: ["worker"],
+    group: "qa",
+    doc: "Chromium --no-sandbox: unset = auto (root or container), 0/false = off, anything else = on.",
+    knob: { reader: "worker", defaultValue: "false" },
+    quirk: "the knob shows false but the code default is auto (D11)",
+  },
+  {
+    name: "QA_STARTUP_TIMEOUT_MS",
+    type: "int",
+    parse: "atLeast",
+    positive: true,
+    default: 90_000,
+    aliases: ["QA_SERVER_START_TIMEOUT_MS"],
+    runtimes: ["worker"],
+    group: "qa",
+    doc: "How long QA waits for the dev server (ms).",
+    knob: { reader: "worker", min: 5_000, max: 600_000 },
+  },
+  {
+    name: "QA_SERVER_START_TIMEOUT_MS",
+    type: "int",
+    parse: "atLeast",
+    positive: true,
+    default: 90_000,
+    runtimes: ["worker"],
+    group: "qa",
+    doc: "Legacy name of QA_STARTUP_TIMEOUT_MS.",
+    deprecated: "use QA_STARTUP_TIMEOUT_MS",
+  },
+] as const satisfies readonly EnvVar[];
+
+export const SNAPSHOT_VARS = [
+  {
+    name: "CONTEXT_SNAPSHOTS",
+    type: "bool",
+    parse: "falsyList",
+    default: true,
+    runtimes: ["worker", "convex"],
+    group: "snapshots",
+    doc: "0 turns off context snapshots.",
+    knob: { reader: "both" },
+  },
+  {
+    name: "FHARA_SNAPSHOT_RETENTION_DAYS",
+    type: "int",
+    parse: "clamp",
+    default: 14,
+    min: 1,
+    max: 365,
+    runtimes: ["convex"],
+    group: "snapshots",
+    doc: "Days a context snapshot is kept.",
+    knob: { reader: "api" },
+  },
+] as const satisfies readonly EnvVar[];
+
+export const THREAD_VARS = [
+  {
+    name: "CHAT_REPLY_STALE_MS",
+    type: "int",
+    parse: "clamp",
+    default: 15 * 60_000,
+    min: 11 * 60_000,
+    max: 24 * 60 * 60_000,
+    runtimes: ["convex"],
+    group: "threads",
+    doc: "When an unfinished chat reply counts as stale (ms).",
+    knob: { reader: "api" },
+  },
+  {
+    name: "TASK_WATCHDOG_STUCK_MS",
+    type: "int",
+    parse: "clampBlank",
+    zeroMeansOff: true,
+    default: 30 * 60_000,
+    min: 5 * 60_000,
+    max: Number.MAX_SAFE_INTEGER,
+    runtimes: ["convex"],
+    group: "threads",
+    doc: "When a running task without progress counts as stuck (ms, 0 = off).",
+  },
+] as const satisfies readonly EnvVar[];
+
+export const WORKSPACE_VARS = [
+  {
+    name: "WORKSPACE_ROOT",
+    type: "path",
+    parse: "trimOr",
+    default: "./workspaces",
+    maxLength: 500,
+    runtimes: ["worker", "webServer", "convexNode"],
+    group: "workspace",
+    doc: "Where project workspaces live (relative to the worker's cwd).",
+    knob: { reader: "worker" },
+    quirk: "resolved against three different bases in worker, web and Convex node (D8, fixed by B8)",
+  },
+] as const satisfies readonly EnvVar[];

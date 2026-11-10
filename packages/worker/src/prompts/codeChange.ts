@@ -4,6 +4,15 @@ import type { PlanSubtask } from "@/types";
 export const REPAIR_MAX_ANSWER_CHARS = 120_000;
 
 /**
+ * No-target rule: a fix or investigation for a feature/bug the repository
+ * does not have must report "not found", never build the feature (live
+ * sandbox run: "search bug" in an app with no search created
+ * src/app/search/page.tsx and src/components/search-form.tsx).
+ */
+export const NO_TARGET_RULE =
+  '- Fix / bug / investigation tasks: first find the code the task refers to. If that feature, bug or code does not exist in the repository, do NOT create it: return {"files":[],"findings":["Not found: <what the task refers to>. Checked: <files and paths you looked at>"]}. Never add new feature files to "fix" something that is not there.';
+
+/**
  * Implementation quality rules shared by every implement/fix prompt
  * (code_change, native runtime). Each one closes a failure seen in a real
  * run: an unwired component, guessed library props, a hydration warning
@@ -14,6 +23,7 @@ export const IMPLEMENTATION_RULES: readonly string[] = [
   "- When a typecheck error involves a library API, read the library's installed type definitions (node_modules/<pkg>/package.json \"types\" entry, node_modules/<pkg>/dist/*.d.ts) before retrying. Do not guess props or signatures.",
   "- Never fix a hydration warning by gating render on a mounted flag, calling setState in an effect to defer rendering, or putting suppressHydrationWarning on wrappers. Find the real server/client mismatch (time, randomness, locale, window/localStorage reads during render, invalid HTML nesting) and fix it; if it is not caused by this change, report it as pre-existing in findings instead.",
   "- Do not leave placeholder comments (\"TODO: implement\", \"... existing code ...\", \"rest unchanged\") in the files you return.",
+  NO_TARGET_RULE,
 ];
 
 /** System message of the cheap repair retry. */
@@ -161,3 +171,23 @@ export function codeChangeExplorationInstruction(subtask: Pick<PlanSubtask, "tit
 export function mcpFindingsBlock(answer: string): string {
   return `\n\nWorkspace tool findings:\n${answer.slice(0, 4000)}`;
 }
+
+/**
+ * The one follow-up after the model answered with only file paths (asking
+ * to read them): the original payload plus those files, asking for the edit.
+ */
+export function codeChangeFileRequestPrompt(input: { basePayload: string; requested: string; asked: string[] }): string {
+  const { basePayload, requested, asked } = input;
+  const found = requested
+    ? requested
+    : `None of the files you listed exist in the workspace: ${asked.join(", ")}.`;
+  return [
+    basePayload,
+    "",
+    found,
+    "",
+    "You listed files to read before editing; their current content is above. Do NOT list files again.",
+    "Return ONLY the file changes now (Format A JSON or Format B file blocks). If the code the task refers to is not there, follow the no-target rule: {\"files\":[],\"findings\":[\"Not found: … Checked: …\"]}.",
+  ].join("\n");
+}
+

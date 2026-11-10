@@ -13,6 +13,7 @@ import {
   buildRepairPrompt,
   codeChangeExplorationInstruction,
   codeChangePrompt,
+  codeChangeFileRequestPrompt,
   codeChangeRetryPrompt,
   mcpFindingsBlock,
   REPAIR_SYSTEM_PROMPT,
@@ -617,10 +618,34 @@ export function llmCallTimeoutMs(input: Pick<SubtaskExecutionInput, "deadlineAt"
   return Math.max(1_000, input.deadlineAt - now - DEADLINE_MARGIN_MS);
 }
 
+/** Time a full code_change retry needs, as a multiple of the first call. */
+export const FULL_RETRY_TIME_FACTOR = 1.5;
+
+/**
+ * The paths of an answer that is ONLY a list of files ("src/proxy.ts\n
+ * src/app/layout.tsx", bullets/backticks allowed): the model asking to
+ * read them (the prompt allows replying with paths). Null for anything else.
+ */
+export function bareFileListPaths(answer: string): string[] | null {
+  const lines = answer
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/^(?:[-*•]|\d+[.)])\s+/, "").replace(/^`+|`+$/g, "").trim())
+    .filter(Boolean);
+  if (lines.length === 0 || lines.length > 20) return null;
+  const paths: string[] = [];
+  for (const line of lines) {
+    if (!/^(?:\.\/)?(?:[\w.@-]+\/)*[\w.@-]+\.[A-Za-z0-9]{1,6}$/.test(line)) return null;
+    const rel = line.replace(/^\.\//, "");
+    if (rel.split("/").includes("..")) return null;
+    if (!paths.includes(rel)) paths.push(rel);
+  }
+  return paths;
+}
+
 /**
  * Whether a second LLM call fits before the subtask deadline: it needs at
- * least as long as the first call took (+25%) and never less than
- * MIN_RETRY_WINDOW_MS. Without a deadline a retry is always allowed.
+ * least FULL_RETRY_TIME_FACTOR × the first call's duration and never less
+ * than MIN_RETRY_WINDOW_MS. Without a deadline a retry is always allowed.
  */
 export function canAffordRetry(
   deadlineAt: number | undefined,
@@ -629,7 +654,10 @@ export function canAffordRetry(
 ): { ok: boolean; remainingMs: number } {
   if (deadlineAt === undefined) return { ok: true, remainingMs: Number.POSITIVE_INFINITY };
   const remainingMs = Math.max(0, deadlineAt - now - DEADLINE_MARGIN_MS);
-  const needed = Math.max(MIN_RETRY_WINDOW_MS, Math.ceil(previousCallMs * 1.25));
+  // A full retry resends the whole payload: it needs about as long as the
+  // first call, so start one only with ~1.5× that left (a 1.25× margin ran
+  // past the 300 s subtask timeout on a slow model and forced a replan).
+  const needed = Math.max(MIN_RETRY_WINDOW_MS, Math.ceil(previousCallMs * FULL_RETRY_TIME_FACTOR));
   return { ok: remainingMs >= needed, remainingMs };
 }
 
@@ -1135,6 +1163,55 @@ async function executeCodeChange(
   }
   let parsedAnswer = parseCodeChangeAnswer(response.content);
   let draft = parsedAnswer.draft;
+  // A bare list of file paths is a request to read them, not an invalid
+  // answer (live sandbox run: "src/proxy.ts\nsrc/app/layout.tsx" failed as
+  // invalid-file-changes-json, then a full retry ran past the timeout).
+  // Load those files and ask once for the edit; no repair round after it.
+  const fileRequest = !draft && !parsedAnswer.hadMarkup ? bareFileListPaths(stripToolCallMarkup(response.content)) : null;
+  if (fileRequest) {
+    await onEvent("agent.context", { capability: subtask.capability, reason: "file-request", files: fileRequest.slice(0, 12) });
+    const followUpCheck = canAffordRetry(input.deadlineAt, firstCallMs);
+    if (!followUpCheck.ok) {
+      return {
+        status: "failed",
+        error: `The implementation agent asked to read ${fileRequest.slice(0, 6).join(", ")} before editing, but only ${Math.round(
+          followUpCheck.remainingMs / 1000
+        )}s are left in the subtask (the first call took ${Math.round(firstCallMs / 1000)}s)`,
+      };
+    }
+    input.assertBudgetForCall?.();
+    const requested = await requestedFilesContext(workspacePath, "", input.fileChanges, fileRequest);
+    ({ result: response, servedBy } = await runLlmCallWithFallback(
+      [servedBy],
+      baseMessages(input, codeChangeFileRequestPrompt({ basePayload, requested, asked: fileRequest })),
+      { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
+    ));
+    if (input.onTokenUsage) {
+      await input.onTokenUsage(
+        response.inputTokens ?? 0,
+        response.outputTokens ?? 0,
+        servedBy.config.model,
+        usageMetaFor(servedBy, response.inputTokens ?? 0, response.outputTokens ?? 0, response.usageEstimated)
+      );
+    }
+    {
+      const asked = escalationFromAnswer(stripToolCallMarkup(response.content));
+      if (asked) return await escalateOutcome(input, asked);
+    }
+    parsedAnswer = parseCodeChangeAnswer(response.content);
+    draft = parsedAnswer.draft;
+    if (!draft) {
+      await onEvent(
+        "agent.context",
+        { capability: subtask.capability, reason: "invalid-file-changes-json", attempt: "file-request", ...invalidAnswerEvent(response.content) },
+        "warn"
+      );
+      return {
+        status: "failed",
+        error: `The implementation agent did not return file changes after reading the files it asked for (${fileRequest.slice(0, 6).join(", ")})`,
+      };
+    }
+  }
   if (parsedAnswer.hadMarkup) {
     await onEvent("agent.context", {
       capability: subtask.capability,
@@ -1307,7 +1384,9 @@ async function executeCodeChange(
 
   const prepared: FileDiff[] = [];
   if (draft.files.length === 0) {
-    const output = "No file changes needed for this task.";
+    // No-target rule: "Not found: … Checked: …" is the answer, said plainly.
+    const notFound = (delegation?.findings ?? []).filter((finding) => /^not found\b/i.test(finding.trim()));
+    const output = notFound.length > 0 ? `${notFound.join("\n")}\nNo files were changed.` : "No file changes needed for this task.";
     await onMessage(output);
     return { status: "completed", output, meta: { filePaths: [], ...delegationMeta } };
   }

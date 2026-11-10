@@ -93,6 +93,11 @@ export function planningPrompt(input: PlanningPromptInput): string {
           "- Requirements are what the user asked to learn or decide, not changes to make.",
           "- If changes would help, the final research subtask ends its answer with a short plain-text \"Suggested follow-up tasks\" list. Do NOT plan those tasks here; the user starts them.",
           "- requiresApproval is false.",
+          ...(classification.investigation
+            ? [
+                "- This is a vague bug hunt with no symptom: plan exactly ONE research subtask with capability code-review (the Reviewer) that reads the code and reports concrete bugs as findings with file:line evidence, or says none were found and what was checked. No browser QA.",
+              ]
+            : []),
         ]
       : []),
     ...(classification.kind === "command"
@@ -183,4 +188,6 @@ export const PLAN_NODE_INSTRUCTIONS = {
     "Consolidate frontend/backend/security findings into prioritized report with severity, impact, recommendation. No code changes.",
   audit:
     "Read-only audit. Report concrete findings with file references. Do not modify files.",
+  investigation:
+    "Read-only bug investigation. Read the code the user pointed at (or the main entry points) and report concrete bugs as findings: file:line, what goes wrong, and how to reproduce it. Only report what the code you read shows. If you find no real bug, say so and list what you checked. Do not modify files and do not invent features; end with a short \"Suggested follow-up tasks\" list only when a fix is worth doing.",
 } as const;

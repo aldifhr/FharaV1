@@ -11,6 +11,14 @@ export interface VerificationOptions {
   timeoutMs?: number;
   onCheck?: (check: EvaluationCheck) => Promise<void> | void;
   /**
+   * Only failures in these files count for typecheck / lint (the files the
+   * task changed, workspace-relative). A failure whose output names only
+   * other files already existed before the change: it is reported as
+   * pre-existing and ignored, and verification moves on to the next step.
+   * Defaults to `changedFiles`; [] disables the scoping.
+   */
+  scopeFiles?: string[];
+  /**
    * Task cancellation signal (Phase 4): checked between steps, and a
    * firing signal kills the running step's process tree via the same
    * killTree the timeout uses.
@@ -115,8 +123,24 @@ export async function runVerification(options: VerificationOptions): Promise<Ver
         return finish(checks, ran, skipped);
       }
 
+      const scope = options.scopeFiles ?? options.changedFiles ?? [];
+      const named = result.code !== 0 ? filesInOutput(result.output, workspacePath, target.directory) : [];
+      if (result.code !== 0 && SCOPED_STEPS.has(step.name) && isPreExistingFailure(named, scope)) {
+        // Every file the failure names is outside this change: it existed
+        // before (e.g. a react-hooks lint error in an untouched component).
+        await record({
+          name: `${target.name}:${step.name}`,
+          status: "passed",
+          durationMs: result.durationMs,
+          files: named.slice(0, 20),
+          details: `\`${command}\` failed only in files this change did not touch (pre-existing, ignored): ${named.slice(0, 8).join(", ")}${named.length > 8 ? ", …" : ""}`,
+        });
+        continue;
+      }
+
       if (result.code !== 0) {
         await record({
+          ...(named.length > 0 ? { files: named.slice(0, 20) } : {}),
           name: `${target.name}:${step.name}`,
           status: "failed",
           durationMs: result.durationMs,
@@ -145,6 +169,45 @@ export async function runVerification(options: VerificationOptions): Promise<Ver
   }
 
   return finish(checks, ran, skipped);
+}
+
+/** Steps whose failures name files and can be scoped to the change. */
+const SCOPED_STEPS = new Set(["typecheck", "lint"]);
+
+const OUTPUT_PATH =
+  /(?:^|[\s"'`(])((?:[A-Za-z]:)?(?:\.{0,2}[\\/])?(?:[\w.@-]+[\\/])*[\w.@-]+\.(?:tsx?|jsx?|mjs|cjs|mts|cts|vue|svelte|css|scss))(?=$|[\s"'`):,]|\(\d)/gm;
+
+/**
+ * Workspace-relative source files a check's output names (tsc
+ * "src/a.ts(3,1): error", ESLint's absolute path headers), in order.
+ * Paths outside the workspace and node_modules are dropped.
+ */
+export function filesInOutput(output: string, workspacePath: string, cwd: string = workspacePath): string[] {
+  const root = path.resolve(workspacePath);
+  const files: string[] = [];
+  // npm/pnpm/yarn echo the script ("> app@1.0.0 lint", "> node scripts/lint.mjs"):
+  // the runner's own file is not a failing file (it made a script-only
+  // failure look pre-existing).
+  const body = output
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*>\s/.test(line) && !/^\s*\$\s/.test(line))
+    .join("\n");
+  for (const match of body.matchAll(OUTPUT_PATH)) {
+    const raw = match[1];
+    const absolute = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(cwd, raw);
+    if (absolute !== root && !absolute.startsWith(root + path.sep)) continue;
+    const rel = path.relative(root, absolute).replace(/\\/g, "/");
+    if (!rel || rel.split("/").includes("node_modules")) continue;
+    if (!files.includes(rel)) files.push(rel);
+  }
+  return files;
+}
+
+/** The failure names files, and none of them is in scope (an empty scope disables this). */
+export function isPreExistingFailure(named: string[], scope: string[]): boolean {
+  if (named.length === 0 || scope.length === 0) return false;
+  const inScope = new Set(scope.map((file) => file.replace(/\\/g, "/").replace(/^\.\//, "")));
+  return named.every((file) => !inScope.has(file));
 }
 
 async function finish(

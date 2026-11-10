@@ -10,6 +10,11 @@ export interface EvaluationCheck {
   durationMs?: number;
   /** Test counts parsed from the runner output, when it printed them. */
   counts?: { passed: number; total: number };
+  /**
+   * Workspace-relative files a failed typecheck/lint output names, so a
+   * finding is attributed to the right file (never just the first changed one).
+   */
+  files?: string[];
 }
 
 /** Review verdicts as parsed from the reviewer agent. */

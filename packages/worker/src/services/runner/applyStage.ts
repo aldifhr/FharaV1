@@ -6,6 +6,7 @@ import { commitWorktree, describeCommit } from "@/tools/gitWorktree";
 import type { RunContext } from "./types";
 import { implementerAgent, resolveWorkspacePath } from "./setup";
 import { tryAutoApprove } from "./autoApprove";
+import { newFilesOnlyFixWarning } from "./noTargetGuard";
 
 /** What the apply stage hands the approval request. */
 export interface PreparedApply {
@@ -30,9 +31,10 @@ export async function requestApplyApproval(
   const { deps, project, plan, state, input, taskId, reviewNodes, qaNodes } = ctx;
   const { preparedChanges, approvedVerdicts, reviewSnapshotId, dryRunSummary } = prepared;
   const implementer = implementerAgent(plan, input.agents);
+  const noTarget = newFilesOnlyFixWarning(input.task.command, preparedChanges);
   const summary = `Apply changes to ${preparedChanges.length} file(s): ${preparedChanges
     .map((change) => change.filePath)
-    .join(", ")}`;
+    .join(", ")}${noTarget ? `\n\n${noTarget}` : ""}`;
   // Metrics reflect what actually ran: verification and QA run AFTER the
   // apply, so before approval they are "not run" unless a previous
   // invocation recorded a real result.
@@ -50,6 +52,7 @@ export async function requestApplyApproval(
       planVersion: plan.version,
       reviewSnapshotId: approvedVerdicts.length > 0 ? reviewSnapshotId : undefined,
       policyDryRun: dryRunSummary,
+      ...(noTarget ? { warning: noTarget } : {}),
       metrics: {
         files: preparedChanges.length,
         review: approvedVerdicts.length > 0 ? "approved" : reviewNodes.length > 0 ? "not approved" : "not run",
@@ -74,7 +77,7 @@ export async function requestApplyApproval(
       approvedVerdicts.length > 0 ? " and review-approved" : ""
     } (${preparedChanges.length} file(s)). Verification${
       qaNodes.length > 0 ? " and QA run" : " runs"
-    } after they are applied. Please approve the diff.`,
+    } after they are applied. Please approve the diff.${noTarget ? `\n\n${noTarget}` : ""}`,
   });
   await deps.api.logEvent({
     taskId,
@@ -147,6 +150,12 @@ export async function brokerCheckAndApply(
     return "failed";
   }
   let autoApproved = false;
+  // A fix that only adds new files is flagged for a human look: never
+  // auto-approved by the permission mode (noTargetGuard).
+  const noTarget = newFilesOnlyFixWarning(input.task.command, preparedChanges);
+  if (broker.decision === "ask" && input.approvalMode !== "auto" && noTarget) {
+    return (await requestApplyApproval(ctx, prepared, "broker")).status;
+  }
   if (broker.decision === "ask" && input.approvalMode !== "auto") {
     // Plan 020: the task's permission mode may approve this batch itself.
     // The row is recorded (decidedBy "auto") and the run continues with no

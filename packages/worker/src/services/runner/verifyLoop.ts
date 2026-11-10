@@ -123,7 +123,7 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
     const changedPaths = Array.from(state.fileChanges.keys());
     const findings: ReviewFinding[] = failedChecks.map((c) => ({
       severity: "high" as const,
-      filePath: changedPaths.find((p) => (c.details ?? "").includes(p)) ?? changedPaths[0] ?? "",
+      filePath: attributeFinding(c, changedPaths),
       description: `${c.name}: ${c.details ?? "check failed"}`,
       suggestion: "Fix the failing check and retry verification.",
     }));
@@ -182,3 +182,22 @@ export function verifyFixesInPhase(subtasks: Pick<PlanSubtask, "key">[], phase: 
     : /^fix_verify_\d+(_\d+)?$/;
   return subtasks.filter((s) => pattern.test(s.key)).length;
 }
+
+/**
+ * The file a failed check is about: a changed file its output names, else
+ * the first file it names, else a changed file the details mention. Only
+ * when nothing names a file does it fall back to the first changed file
+ * (the old rule, which pinned a ThreeColumnLayout.tsx lint error on
+ * src/app/search/page.tsx). Exported for tests.
+ */
+export function attributeFinding(check: { details?: string; files?: string[] }, changedPaths: string[]): string {
+  const named = check.files ?? [];
+  return (
+    named.find((file) => changedPaths.includes(file)) ??
+    named[0] ??
+    changedPaths.find((p) => (check.details ?? "").includes(p)) ??
+    changedPaths[0] ??
+    ""
+  );
+}
+

@@ -703,6 +703,27 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
     if (shellPlan) return shellPlan;
   }
 
+  if (classification.kind === "research" && classification.investigation) {
+    return {
+      version: 1,
+      goal,
+      strategy: "single",
+      requiresApproval: false,
+      maxConcurrency: 1,
+      subtasks: [
+        {
+          key: "investigate",
+          title: "Investigate the code for bugs",
+          description: PLAN_NODE_INSTRUCTIONS.investigation,
+          kind: "research",
+          capability: hasCapability(CAPABILITY.CODE_REVIEW) ? CAPABILITY.CODE_REVIEW : CAPABILITY.RESEARCH,
+          dependencies: [],
+          order: 0,
+        },
+      ],
+    };
+  }
+
   if (classification.kind === "research") {
     return {
       version: 1,

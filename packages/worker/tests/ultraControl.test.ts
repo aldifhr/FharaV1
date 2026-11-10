@@ -13,7 +13,15 @@ import {
 } from "@/llm";
 import { llmCallEffect, type FallbackHandle } from "@/effects/llmCall";
 import { Effect } from "effect";
-import { canAffordRetry, executeSubtask, llmCallTimeoutMs, type SubtaskExecutionInput } from "@/execution/agentExecutor";
+import {
+  FULL_RETRY_TIME_FACTOR,
+  bareFileListPaths,
+  canAffordRetry,
+  executeSubtask,
+  llmCallTimeoutMs,
+  type SubtaskExecutionInput,
+} from "@/execution/agentExecutor";
+import { codeChangeFileRequestPrompt } from "@/prompts/codeChange";
 import { loadPolicy, policyForComplexity } from "@/orchestrator/policy";
 import { classifyCommand, extractConcerns } from "@/orchestrator/classifier";
 import { createPlan } from "@/orchestrator/planner";
@@ -154,12 +162,85 @@ describe("(b) invalid-JSON retry checks the remaining subtask time", () => {
     };
   }
 
-  it("canAffordRetry needs at least the first call's duration (+25%)", () => {
+  it("canAffordRetry needs FULL_RETRY_TIME_FACTOR (1.5) × the first call's duration", () => {
     const now = 0;
+    expect(FULL_RETRY_TIME_FACTOR).toBe(1.5);
     expect(canAffordRetry(undefined, 99_999, now).ok).toBe(true);
     expect(canAffordRetry(now + 200_000, 100_000, now).ok).toBe(true);
+    // 152 s left (2 s margin) covers exactly 1.5 × 100 s.
+    expect(canAffordRetry(now + 152_000, 100_000, now).ok).toBe(true);
+    // 138 s left fit the old 1.25× rule (125 s) but not 1.5× (150 s).
+    expect(canAffordRetry(now + 140_000, 100_000, now)).toEqual({ ok: false, remainingMs: 138_000 });
     expect(canAffordRetry(now + 110_000, 100_000, now).ok).toBe(false);
     expect(canAffordRetry(now + 10_000, 1_000, now).ok).toBe(false);
+  });
+
+  it("bareFileListPaths reads a bare list of paths as a request to read them", () => {
+    expect(bareFileListPaths("src/proxy.ts\nsrc/app/layout.tsx")).toEqual(["src/proxy.ts", "src/app/layout.tsx"]);
+    expect(bareFileListPaths("- `src/a.ts`\n* ./src/b.tsx\n1. package.json\n- src/a.ts")).toEqual(["src/a.ts", "src/b.tsx", "package.json"]);
+    expect(bareFileListPaths("I need to read src/a.ts first")).toBeNull();
+    expect(bareFileListPaths('{"files":[]}')).toBeNull();
+    expect(bareFileListPaths("../etc/passwd.txt")).toBeNull();
+    expect(bareFileListPaths("src/../secret.ts")).toBeNull();
+    expect(bareFileListPaths("")).toBeNull();
+    expect(bareFileListPaths(Array.from({ length: 21 }, (_, i) => `src/f${i}.ts`).join("\n"))).toBeNull();
+  });
+
+  it("a bare file-list answer loads those files and asks once for the edit (no invalid-JSON retry)", async () => {
+    const prompts: string[] = [];
+    const provider: LLMProvider = {
+      complete: async (messages) => {
+        prompts.push(messages.filter((m) => m.role === "user").map((m) => m.content).join("\n"));
+        return prompts.length === 1
+          ? { content: "src/hello.ts\nsrc/missing.ts" }
+          : { content: JSON.stringify({ files: [{ filePath: "src/hello.ts", newContent: "export const hello = 2;\n" }] }) };
+      },
+    };
+    const events: Array<Record<string, unknown>> = [];
+    const result = await executeSubtask(input(provider, Date.now() + 10 * 60_000, events));
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("export const hello = 1;");
+    expect(prompts[1]).toContain("Do NOT list files again");
+    expect(events.some((e) => e.reason === "file-request" && JSON.stringify(e.files) === JSON.stringify(["src/hello.ts", "src/missing.ts"]))).toBe(true);
+    expect(events.some((e) => e.reason === "invalid-file-changes-json")).toBe(false);
+    expect(result.status).toBe("completed");
+  });
+
+  it("a file-list answer followed by another non-edit fails plainly (no repair round)", async () => {
+    let n = 0;
+    const provider: LLMProvider = {
+      complete: async () => {
+        n += 1;
+        return { content: n === 1 ? "src/hello.ts" : "Still thinking about it." };
+      },
+    };
+    const events: Array<Record<string, unknown>> = [];
+    const result = await executeSubtask(input(provider, Date.now() + 10 * 60_000, events));
+    expect(n).toBe(2);
+    expect(result.status).toBe("failed");
+    expect((result as { error: string }).error).toMatch(/did not return file changes after reading the files it asked for \(src\/hello\.ts\)/);
+    expect(events.some((e) => e.reason === "invalid-file-changes-json" && e.attempt === "file-request")).toBe(true);
+  });
+
+  it("no-target rule: an empty edit with a 'Not found' finding says so plainly", async () => {
+    const messages: string[] = [];
+    const provider: LLMProvider = {
+      complete: async () => ({
+        content: JSON.stringify({ files: [], findings: ["Not found: a search feature. Checked: src/hello.ts, src/"] }),
+      }),
+    };
+    const base = input(provider, Date.now() + 10 * 60_000, []);
+    const result = await executeSubtask({ ...base, onMessage: async (m: string) => void messages.push(m) });
+    expect(result.status).toBe("completed");
+    expect((result as { output: string }).output).toBe("Not found: a search feature. Checked: src/hello.ts, src/\nNo files were changed.");
+    expect(messages).toContain((result as { output: string }).output);
+  });
+
+  it("codeChangeFileRequestPrompt says when none of the listed files exist", () => {
+    const prompt = codeChangeFileRequestPrompt({ basePayload: "BASE", requested: "", asked: ["src/nope.ts"] });
+    expect(prompt.startsWith("BASE")).toBe(true);
+    expect(prompt).toContain("None of the files you listed exist in the workspace: src/nope.ts.");
+    expect(prompt).toContain("Not found: … Checked: …");
   });
 
   it("skips the retry when the subtask cannot fit a second call", async () => {

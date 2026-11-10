@@ -69,6 +69,12 @@ export interface Classification {
    * ("npm run test"), in request order. Each becomes one shell subtask.
    */
   commands?: string[];
+  /**
+   * kind "research" only: a vague bug hunt ("cari bug", "find bugs") with no
+   * symptom. Planned as a read-only Reviewer investigation (code-review)
+   * that reports findings: no code_change, no browser QA.
+   */
+  investigation?: boolean;
 }
 
 /** One concern of a multi-part change request ("tambah test", "update README"). */

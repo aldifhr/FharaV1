@@ -35,6 +35,24 @@ const PLAIN_DATA_FILE =
   /\.(txt|md|markdown|json|json5|csv|ya?ml|toml|ini|cfg|conf|env|log|xml|sql|lock)\b/i;
 const CODE_FILE =
   /\.(html?|css|scss|sass|less|jsx?|tsx?|vue|svelte|py|go|rs|java|rb|php|cs|swift|kt|sh|bash|zsh)\b/i;
+// "search bug", "find bugs", "cari bug", "temukan bug di src/": a hunt for
+// unknown bugs. Without a described symptom it is an investigation, not a
+// change request (live sandbox run "search bug" planned a frontend
+// code_change + browser QA and invented files for a bug that did not exist).
+const BUG_HUNT =
+  /\b(?:search|find|look|hunt|scan|check|cari|carikan|cariin|temukan|temuin|nyari|mencari|menemukan|cek|periksa)\s+(?:for\s+)?(?:the\s+|some\s+|any\s+|possible\s+|potential\s+)?(?:bugs?|errors?|issues?|masalah|kesalahan|celah)\b/i;
+const BUG_SYMPTOM =
+  /\b(?:when|whenever|after|saat|ketika|pas|waktu|setelah|habis|kalau|if|error:|exception|stack ?trace|crash\w*|gagal|fails?|failing|failed|broken|rusak|error \d{3}|\d{3} error|tidak (?:bisa|muncul|jalan|berfungsi|tampil|ke ?simpan|terkirim)|gak bisa|nggak bisa|ga bisa|ngga bisa|can'?t|cannot|doesn'?t|does not|won'?t|isn'?t|not (?:working|showing|loading|saving|rendering|updating)|blank|kosong|hilang|missing|stuck|freez\w*|hang\w*|lambat|slow|typeerror|referenceerror|undefined|nan)\b|["“'`][^"”'`]{6,}["”'`]/i;
+// Change verbs that still fit a hunt ("cari bug lalu perbaiki"): the
+// Reviewer reports findings first; a fix is a follow-up task.
+const FIX_ONLY_VERB = /\b(?:fix|fixes|perbaiki|perbaikin|benerin|betulin)\b/gi;
+
+/** A vague bug hunt with no symptom described (see BUG_HUNT). */
+export function isVagueBugHunt(command: string): boolean {
+  const request = requestText(command).trim();
+  if (!BUG_HUNT.test(request) || BUG_SYMPTOM.test(request)) return false;
+  return !CHANGE_VERB.test(request.replace(FIX_ONLY_VERB, " "));
+}
 const TESTING = /\b(test|tests|testing|qa|e2e|playwright|vitest|jest|coverage|uji|pengujian)\b/i;
 const SECURITY = /\b(security|vulnerab|authz|xss|csrf|injection|secret)\b/i;
 
@@ -296,6 +314,18 @@ function classifyCommandBase(command: string): Classification {
       reasons: [`run request for allowlisted command(s): ${runCommands.join(", ")}`],
       suggestedCapabilities: [CAPABILITY.SHELL_EXECUTION],
       commands: runCommands,
+    };
+  }
+
+  // A vague bug hunt is a read-only Reviewer investigation (findings),
+  // before any change-verb or domain rule can turn it into a code_change.
+  if (isVagueBugHunt(text)) {
+    return {
+      kind: "research",
+      strategy: "single",
+      reasons: ["vague bug hunt without a symptom: read-only investigation (findings, no changes)"],
+      suggestedCapabilities: [CAPABILITY.CODE_REVIEW, CAPABILITY.RESEARCH],
+      investigation: true,
     };
   }
 

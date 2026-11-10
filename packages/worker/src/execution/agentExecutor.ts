@@ -68,7 +68,7 @@ import {
   type FileDiff,
 } from "@/tools/gitDiff";
 import { isCommandAllowed, runCommand } from "@/tools/runCommand";
-import { canWriteAny, permissionsForAgent, shellDenial, writeDenial } from "@/utils/rolePolicy";
+import { canWriteAny, permissionsForAgent, resolveRoleKey, shellDenial, writeDenial } from "@/utils/rolePolicy";
 import { buildOpencodePolicy } from "./opencodePolicy";
 import { dangerousCommandReason } from "@/api/convex/lib/commandRules";
 import { commandDeniedOutput, type CommandApprovalOutcome } from "@/execution/commandGate";
@@ -893,6 +893,7 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
     permissions: permissionsForAgent(agent),
     allowedPaths: subtask.allowedPaths,
     mutating: subtask.kind === "code_change" || subtask.kind === "shell",
+    roleKey: resolveRoleKey(agent.role ?? ""),
   });
   const result = await runNativeProvider({
     policy,

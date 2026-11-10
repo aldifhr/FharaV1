@@ -42,9 +42,9 @@ const EVENTS = [
 ].map((e) => JSON.stringify(e));
 
 describe("opencode argv + config", () => {
-  it("builds argv with --format json, --auto and -m, message before -f", () => {
+  it("builds argv with --format json and -m (no --auto, L1), message before -f", () => {
     const { args } = nativeArgv("opencode", [NATIVE_PROMPT_MESSAGE, "-f", "/tmp/p.md"], { model: "openrouter/anthropic/claude" });
-    expect(args).toEqual(["run", "--format", "json", "--auto", "-m", "openrouter/anthropic/claude", NATIVE_PROMPT_MESSAGE, "-f", "/tmp/p.md"]);
+    expect(args).toEqual(["run", "--format", "json", "-m", "openrouter/anthropic/claude", NATIVE_PROMPT_MESSAGE, "-f", "/tmp/p.md"]);
     expect(nativeArgv("opencode", ["m"], { json: false, auto: false }).args).toEqual(["run", "m"]);
   });
 

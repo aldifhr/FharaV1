@@ -653,3 +653,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## opencode-agent-orchestration-kit (OAK)
+
+- Source: https://github.com/jcarlosrodicio/opencode-agent-orchestration-kit (commit f431b3c)
+- License: Apache License 2.0 (full text: https://www.apache.org/licenses/LICENSE-2.0). OAK's NOTICE.md
+  lists no notices for this file beyond its upstream credits (OpenCode, MIT).
+- Used in: `packages/worker/src/execution/opencodePermissions.ts`: the role × operation table shape
+  (`POLICY_OPERATIONS`, frozen per-agent decision rows over a shared `common` row) and the default-deny
+  `decideToolAccess` from `opencode/scripts/runtime-permission-policy.mjs`. Modified by Fhara: the agents are
+  Fhara's nine fixed roles, the values mirror `ROLES[k].permissions`, there is no "ask" (OpenCode runs
+  unattended), and `delegate` is a plain decision (no sub-agents). Also the idea (re-written, no code) of
+  refusing `--auto` for unattended runs, from `opencode/scripts/run-routing-live-replay.mjs`.

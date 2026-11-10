@@ -24,6 +24,7 @@
  * well-known credential locations; it is not copied from any source.
  */
 import type { RolePermissions } from "@/api/convex/lib/roles";
+import { decideToolAccess } from "./opencodePermissions";
 
 export type OpencodeAction = "allow" | "deny" | "ask";
 export type OpencodeRuleMap = Record<string, OpencodeAction>;
@@ -149,6 +150,12 @@ export interface BuildOpencodePolicyInput {
   allowedPaths?: readonly string[];
   /** Whether the subtask kind may change files at all (code_change/shell). */
   mutating: boolean;
+  /**
+   * L1: the fixed role key (rolePolicy.resolveRoleKey), when the agent is
+   * one of the nine. The role × operation table (opencodePermissions.ts)
+   * can only take access away from `permissions`, never add it.
+   */
+  roleKey?: string | null;
 }
 
 /** `src/app` → `["src/app", "src/app/*"]` (OpenCode `*` spans `/`). */
@@ -207,14 +214,24 @@ function bashRules(permissions: RolePermissions): OpencodeRuleMap {
  * gives the same rules (key order is part of the contract: last match wins).
  */
 export function buildOpencodePolicy(input: BuildOpencodePolicyInput): OpencodePolicy {
-  const web: OpencodeAction = input.permissions.web ? "allow" : "deny";
+  let permissions = input.permissions;
+  if (input.roleKey) {
+    const allowed = (operation: string) => decideToolAccess({ roleKey: input.roleKey, operation }) === "allow";
+    permissions = {
+      ...permissions,
+      write: allowed("write") ? permissions.write : false,
+      shell: allowed("shell") ? permissions.shell : "none",
+      web: allowed("network") ? permissions.web : false,
+    };
+  }
+  const web: OpencodeAction = permissions.web ? "allow" : "deny";
   return {
     external_directory: "deny",
     question: "deny",
     doom_loop: "deny",
     read: readRules(),
-    edit: editRules(input),
-    bash: bashRules(input.permissions),
+    edit: editRules({ ...input, permissions }),
+    bash: bashRules(permissions),
     webfetch: web,
     websearch: web,
     // Sub-agents would inherit nothing of this scoping guarantee.
@@ -241,4 +258,152 @@ export function evaluateOpencodeRule(rules: OpencodeRuleMap, value: string): Ope
     if (opencodeWildcardMatch(value, pattern)) result = action;
   }
   return result;
+}
+
+// ── L1: layering and post-load check ──────────────────────────────────
+
+/**
+ * How OpenCode 1.19.5 (/workspace/work/bin/opencode) resolves permissions,
+ * read from the shipped bundle and measured with `opencode debug config` /
+ * `opencode debug agent` on 2026-11-11:
+ *
+ *  - Config layers load in this order: well-known remote, global
+ *    (~/.config/opencode), OPENCODE_CONFIG, the worktree's opencode.json(c)
+ *    (skipped with OPENCODE_DISABLE_PROJECT_CONFIG), `.opencode/` dirs (the
+ *    worktree's skipped too) and OPENCODE_CONFIG_DIR, OPENCODE_CONFIG_CONTENT,
+ *    org/account config, the managed dir (/etc/opencode), and finally the
+ *    OPENCODE_PERMISSION env merged into `permission`.
+ *  - The merge is a deep merge that KEEPS THE EARLIER LAYER'S KEY ORDER. A
+ *    repo opencode.json with {"bash":{"git push*":"allow"}} turned Fhara's
+ *    `{"*":"allow","git push*":"deny"}` into `{"git push*":"deny","*":"allow"}`
+ *    and git push ran (last match wins), even though OPENCODE_CONFIG_CONTENT
+ *    loads after the repo file. Loading "later" is not winning.
+ *  - Agent rules are appended after every config-level rule (`debug agent`
+ *    shows the flattened ruleset), so an agent's own `permission` is the last
+ *    word. A repo may define `agent.build.permission` and loosen the built-in
+ *    agent, so Fhara runs a per-run agent with an unguessable name
+ *    (idea from agent-orchestrator's opencode adapter, Apache-2.0: it
+ *    injects a session-scoped agent because "agent rules outrank every
+ *    config layer"; re-written, no code copied).
+ *  - `opencode run --auto` replies "once" to every `ask`; without it `run`
+ *    auto-rejects every `ask`. Fhara no longer passes --auto.
+ *
+ * Fhara's stack, strongest first: per-run agent carrying the rules, the
+ * project layer off, the same rules in OPENCODE_CONFIG_CONTENT and
+ * OPENCODE_PERMISSION, external plugins off (a plugin can answer permission
+ * prompts), no --auto, and `opencode debug agent <name>` checked against
+ * the probes below before every run (fail closed).
+ */
+
+/** Tools OpenCode needs that carry no risk of their own (read-side, local). */
+export const OPENCODE_SAFE_TOOLS: readonly string[] = ["glob", "grep", "list", "lsp", "todowrite", "todoread", "skill"];
+
+export type OpencodePermissionBlock = Record<string, OpencodeAction | OpencodeRuleMap>;
+
+/**
+ * The `permission` block actually sent: deny every permission first (pattern
+ * from codex-opencode-orchestrator's worker policy, re-written), then the
+ * safe local tools, then the policy. A new OpenCode tool is denied until
+ * Fhara lists it. `codesearch` is network (Exa) and follows webfetch.
+ */
+export function opencodePermissionBlock(policy: OpencodePolicy): OpencodePermissionBlock {
+  const block: OpencodePermissionBlock = { "*": "deny" };
+  for (const tool of OPENCODE_SAFE_TOOLS) block[tool] = "allow";
+  block.codesearch = policy.webfetch;
+  for (const [key, value] of Object.entries(policy)) block[key] = value as OpencodeAction | OpencodeRuleMap;
+  return block;
+}
+
+/** One row of OpenCode's flattened ruleset (`opencode debug agent <name>`). */
+export interface OpencodeRuleRow {
+  permission: string;
+  pattern: string;
+  action: OpencodeAction;
+}
+
+/** A permission block → OpenCode's flattened rows, in order. */
+export function flattenPermissionBlock(block: unknown): OpencodeRuleRow[] {
+  if (block === "allow" || block === "deny" || block === "ask") return [{ permission: "*", pattern: "*", action: block }];
+  if (!block || typeof block !== "object" || Array.isArray(block)) return [];
+  const rows: OpencodeRuleRow[] = [];
+  for (const [permission, value] of Object.entries(block as Record<string, unknown>)) {
+    if (value === "allow" || value === "deny" || value === "ask") rows.push({ permission, pattern: "*", action: value });
+    else if (value && typeof value === "object" && !Array.isArray(value))
+      for (const [pattern, action] of Object.entries(value as Record<string, unknown>))
+        if (action === "allow" || action === "deny" || action === "ask") rows.push({ permission, pattern, action });
+  }
+  return rows;
+}
+
+/** Evaluate rows as OpenCode does: last row whose permission and pattern match wins; none → ask. */
+export function evaluateOpencodeRuleset(rows: readonly OpencodeRuleRow[], permission: string, value: string): OpencodeAction {
+  let result: OpencodeAction = "ask";
+  for (const row of rows) {
+    if (opencodeWildcardMatch(permission, row.permission) && opencodeWildcardMatch(value, row.pattern)) result = row.action;
+  }
+  return result;
+}
+
+/** Parse the `permission` rows out of `opencode debug agent` output; null when absent. */
+export function parseRuleRows(value: unknown): OpencodeRuleRow[] | null {
+  if (!Array.isArray(value)) return null;
+  const rows: OpencodeRuleRow[] = [];
+  for (const row of value) {
+    if (!row || typeof row !== "object") return null;
+    const r = row as Record<string, unknown>;
+    if (typeof r.permission !== "string" || typeof r.pattern !== "string") return null;
+    if (r.action !== "allow" && r.action !== "deny" && r.action !== "ask") return null;
+    rows.push({ permission: r.permission, pattern: r.pattern, action: r.action });
+  }
+  return rows;
+}
+
+/** Probes the loaded rules must answer at least as strictly as Fhara's block. */
+export const POLICY_PROBES: ReadonlyArray<{ key: string; value: string }> = [
+  { key: "bash", value: "git push origin main" },
+  { key: "bash", value: "git push --force" },
+  { key: "bash", value: "git remote add x https://example.com/x.git" },
+  { key: "bash", value: "gh auth token" },
+  { key: "bash", value: "gh pr merge 1" },
+  { key: "bash", value: "printenv" },
+  { key: "bash", value: "cat ~/.ssh/id_rsa" },
+  { key: "bash", value: "ls" },
+  { key: "bash", value: "npm run test" },
+  { key: "edit", value: ".env" },
+  { key: "edit", value: ".git/config" },
+  { key: "edit", value: "opencode.json" },
+  { key: "edit", value: ".opencode/agent/build.md" },
+  { key: "edit", value: "src/index.ts" },
+  { key: "read", value: ".env" },
+  { key: "read", value: ".git/config" },
+  { key: "read", value: "src/index.ts" },
+  { key: "external_directory", value: "/etc/passwd" },
+  { key: "external_directory", value: "../other-repo/x" },
+  { key: "webfetch", value: "https://example.com" },
+  { key: "websearch", value: "query" },
+  { key: "codesearch", value: "query" },
+  { key: "task", value: "general" },
+  { key: "question", value: "*" },
+  { key: "doom_loop", value: "*" },
+  { key: "some_future_tool", value: "*" },
+];
+
+/**
+ * Null when `loaded` answers every probe at least as strictly as Fhara's
+ * block, else the first difference. "ask" counts as looser than "deny"
+ * (with --auto it would run). Stricter answers are fine.
+ */
+export function rulesetPolicyViolation(policy: OpencodePolicy, loaded: readonly OpencodeRuleRow[]): string | null {
+  const ours = flattenPermissionBlock(opencodePermissionBlock(policy));
+  for (const probe of POLICY_PROBES) {
+    const want = evaluateOpencodeRuleset(ours, probe.key, probe.value);
+    const got = evaluateOpencodeRuleset(loaded, probe.key, probe.value);
+    if (want === "deny" && got !== "deny") return `${probe.key} "${probe.value}" is "${got}" in the loaded rules, Fhara requires "deny"`;
+  }
+  return null;
+}
+
+/** Same check against a config-shaped `permission` block (`opencode debug config`). */
+export function mergedPolicyViolation(policy: OpencodePolicy, merged: unknown): string | null {
+  return rulesetPolicyViolation(policy, flattenPermissionBlock(merged));
 }

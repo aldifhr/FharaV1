@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { EventSink } from "@/types/events";
 import { NATIVE_PROMPT_MESSAGE, workspaceHeader } from "@/prompts/native";
-import { READ_ONLY_OPENCODE_POLICY, type OpencodePolicy } from "./opencodePolicy";
+import { opencodePermissionBlock, parseRuleRows, READ_ONLY_OPENCODE_POLICY, rulesetPolicyViolation, type OpencodePolicy } from "./opencodePolicy";
 import { OpencodeCredentialError, prepareOpencodeHome } from "./opencodeHome";
 
 // Prompt text lives in `@/prompts/native`; re-exported for existing importers.
@@ -148,9 +149,12 @@ export interface NativeArgvOptions {
   model?: string;
   /** Request `--format json` (default true). */
   json?: boolean;
-  /** Pass `--auto` so residual "ask" permissions never block (explicit
-   *  deny rules from the generated config still apply). Default true. */
+  /** Pass `--auto`: OpenCode then answers every "ask" with "once". Default
+   *  false (L1): without it `opencode run` auto-rejects every "ask", so a
+   *  permission Fhara did not list fails closed instead of running. */
   auto?: boolean;
+  /** `--agent`: the per-run agent that carries Fhara's rules (L1). */
+  agent?: string;
   /** `--dir`: pin OpenCode's project directory explicitly. */
   dir?: string;
 }
@@ -163,7 +167,8 @@ export function nativeArgv(
 ): { command: string; args: string[] } {
   const args = ["run"];
   if (options.json ?? true) args.push("--format", "json");
-  if (options.auto ?? true) args.push("--auto");
+  if (options.auto ?? false) args.push("--auto");
+  if (options.agent) args.push("--agent", options.agent);
   if (options.dir) args.push("--dir", options.dir);
   if (options.model) args.push("-m", options.model);
   return { command, args: [...args, ...promptFileArgs] };
@@ -218,7 +223,7 @@ export function buildOpencodeConfig(input: {
     $schema: "https://opencode.ai/config.json",
     autoupdate: false,
     share: "disabled",
-    permission: input.policy ?? OPENCODE_PERMISSIONS,
+    permission: opencodePermissionBlock(input.policy ?? OPENCODE_PERMISSIONS),
   };
   const explicit = input.model?.trim();
   if (explicit) {
@@ -486,9 +491,23 @@ export async function defaultSpawn(
     });
     child.on("close", (code) => {
       options.signal?.removeEventListener("abort", onAbort);
+      // L1: end the process group after a normal exit too, so a server or
+      // watcher the agent started in the background does not outlive the
+      // run (POSIX; the child leads its own group because it is detached).
+      endProcessGroup(child);
       resolve({ stdout, stderr, code });
     });
   });
+}
+
+/** SIGKILL whatever is left in a finished child's process group (POSIX only; no-op when empty). */
+export function endProcessGroup(child: import("node:child_process").ChildProcess): void {
+  if (process.platform === "win32" || !child.pid) return;
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    // ESRCH: the group is already empty.
+  }
 }
 
 /**
@@ -546,6 +565,106 @@ export interface NativeRunInput {
   sourceEnv?: Record<string, string | undefined>;
   /** Persistent OpenCode cache dir (tests); default defaultOpencodeCacheDir(). */
   opencodeCacheDir?: string;
+  /**
+   * L1: before the run, ask the CLI for the rules it will evaluate
+   * (`opencode debug agent <run agent>`, same env and cwd) and refuse to run when it
+   * is looser than Fhara's policy. Default: on for a real `opencode`
+   * binary (basename starts with "opencode") without an injected spawn;
+   * FHARA_OPENCODE_VERIFY_POLICY=0 turns it off.
+   */
+  verifyPolicy?: boolean;
+}
+
+/** A fresh, unguessable agent name per run, so no repo file can pre-define or loosen it (L1). */
+export function opencodeRunAgentName(): string {
+  return `fhara-${randomBytes(6).toString("hex")}`;
+}
+
+/**
+ * Env that makes Fhara's permission block the last word (L1; layering
+ * notes in opencodePolicy.ts). The per-run agent's own rules are appended
+ * after every config-level rule; the same block also rides in
+ * OPENCODE_CONFIG_CONTENT and OPENCODE_PERMISSION (the last config layer);
+ * the worktree's opencode.json and .opencode/ are not loaded; external
+ * plugins (which can answer permission prompts) are off.
+ */
+export function opencodeSafetyEnv(policy: OpencodePolicy, agentName: string): Record<string, string> {
+  const block = opencodePermissionBlock(policy);
+  return {
+    OPENCODE_CONFIG_CONTENT: JSON.stringify({
+      permission: block,
+      agent: { [agentName]: { mode: "primary", description: "Fhara task run", permission: block } },
+    }),
+    OPENCODE_PERMISSION: JSON.stringify(block),
+    OPENCODE_DISABLE_PROJECT_CONFIG: "1",
+    OPENCODE_PURE: "1",
+  };
+}
+
+function shouldVerifyPolicy(input: NativeRunInput, command: string): boolean {
+  if (input.verifyPolicy !== undefined) return input.verifyPolicy;
+  if (input.spawnImpl) return false;
+  if ((process.env.FHARA_OPENCODE_VERIFY_POLICY ?? "").trim() === "0") return false;
+  return path.basename(command).toLowerCase().startsWith("opencode");
+}
+
+/** Parse `opencode debug config` stdout (JSON, possibly after a banner). */
+export function parseDebugConfig(stdout: string): Record<string, unknown> | null {
+  const start = stdout.indexOf("{");
+  if (start < 0) return null;
+  try {
+    const parsed = JSON.parse(stdout.slice(start));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Null when the rules OpenCode will actually evaluate for `agent`
+ * (`opencode debug agent <agent>`, same env and cwd) keep Fhara's rules,
+ * else why not (fail closed).
+ */
+export async function verifyLoadedPolicy(input: {
+  command: string;
+  agent: string;
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  policy: OpencodePolicy;
+  signal?: AbortSignal;
+  spawnImpl?: SpawnImpl;
+}): Promise<string | null> {
+  let ran: { stdout: string; stderr: string; code: number | null };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  const onAbort = () => controller.abort();
+  input.signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    ran = await (input.spawnImpl ?? defaultSpawn)(input.command, ["debug", "agent", input.agent], {
+      cwd: input.cwd,
+      env: input.env,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    return `could not read OpenCode's loaded config: ${error instanceof Error ? error.message : String(error)}`;
+  } finally {
+    clearTimeout(timer);
+    input.signal?.removeEventListener("abort", onAbort);
+  }
+  if (ran.code !== 0) return `could not read OpenCode's loaded agent rules (exit ${ran.code ?? "signal"})`;
+  const agent = parseDebugConfig(ran.stdout);
+  if (!agent) return "could not parse OpenCode's loaded agent rules";
+  if (agent.name !== input.agent) return `OpenCode resolved agent "${String(agent.name)}", expected "${input.agent}"`;
+  const rows = parseRuleRows(agent.permission);
+  if (!rows) return "OpenCode's loaded agent has no permission rules";
+  return rulesetPolicyViolation(input.policy, rows);
+}
+
+export class OpencodePolicyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OpencodePolicyError";
+  }
 }
 
 /** OpenCode tool errors that mean a permission rule refused the call. */
@@ -696,28 +815,41 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
     const configFile = path.join(tmpDir, "opencode.json");
     await fs.writeFile(promptFile, workspaceHeader(input.workspacePath) + input.prompt, { encoding: "utf-8", mode: 0o600 });
     await fs.writeFile(configFile, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });
+    const agentName = opencodeRunAgentName();
     const { args } = nativeArgv(command, [NATIVE_PROMPT_MESSAGE, "-f", promptFile], {
       model,
       json,
       dir: input.workspacePath,
+      agent: agentName,
     });
+    const policy = input.policy ?? OPENCODE_PERMISSIONS;
+    // Allowlisted env only (buildChildEnv): the worker's service token,
+    // encryption key and provider keys never reach the agent. The one
+    // LLM key the agent needs arrives explicitly via secretEnv.
+    const runEnv = buildChildEnv({
+      // O1: throwaway HOME/XDG, no gh/git/ssh credentials.
+      ...homeEnv,
+      // OpenCode resolves its project dir from $PWD before cwd: an
+      // inherited PWD (the worker's own dir) silently redirected every
+      // write out of the task worktree in the live smoke run.
+      PWD: input.workspacePath,
+      OPENCODE_CONFIG: configFile,
+      OPENCODE_DISABLE_AUTOUPDATE: "1",
+      // L1: the permission block wins over any repo config.
+      ...opencodeSafetyEnv(policy, agentName),
+      ...secretEnv,
+    });
+    if (shouldVerifyPolicy(input, command)) {
+      const violation = await verifyLoadedPolicy({ command, agent: agentName, cwd: input.workspacePath, env: runEnv, policy, signal: controller.signal });
+      if (violation) {
+        await input.onEvent?.("agent.permission_denied", { provider: command, action: "opencode.config", reason: `refused to run: ${violation}` }, "error");
+        throw new OpencodePolicyError(`OpenCode safety rules could not be guaranteed, run refused: ${violation}`);
+      }
+    }
     ran = await (input.spawnImpl ?? defaultSpawn)(command, args, {
       cwd: input.workspacePath,
       signal: controller.signal,
-      // Allowlisted env only (buildChildEnv): the worker's service token,
-      // encryption key and provider keys never reach the agent. The one
-      // LLM key the agent needs arrives explicitly via secretEnv.
-      env: buildChildEnv({
-        // O1: throwaway HOME/XDG, no gh/git/ssh credentials.
-        ...homeEnv,
-        // OpenCode resolves its project dir from $PWD before cwd: an
-        // inherited PWD (the worker's own dir) silently redirected every
-        // write out of the task worktree in the live smoke run.
-        PWD: input.workspacePath,
-        OPENCODE_CONFIG: configFile,
-        OPENCODE_DISABLE_AUTOUPDATE: "1",
-        ...secretEnv,
-      }),
+      env: runEnv,
       onStdout: (chunk) => {
         streamed = true;
         feed(chunk);
@@ -727,6 +859,9 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
     clearTimeout(timer);
     input.signal?.removeEventListener("abort", onOuterAbort);
     await cleanup(tmpDir);
+    if (error instanceof OpencodePolicyError) {
+      return { status: "failed", output: error.message, inputTokens: 0, outputTokens: 0, ...(model ? { model } : {}) };
+    }
     if (error instanceof OpencodeCredentialError) {
       await input.onEvent?.("native.credential.missing", { provider: command, reason: error.message }, "error");
       return { status: "failed", output: error.message, inputTokens: 0, outputTokens: 0, ...(model ? { model } : {}) };

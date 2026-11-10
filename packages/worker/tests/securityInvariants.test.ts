@@ -58,6 +58,8 @@ describe.skipIf(process.platform === "win32")("securityInvariants: OpenCode run 
       script,
       [
         "#!/bin/sh",
+        // L1 post-load check: answer `debug agent <name>` from the safety layer.
+        `if [ "$1" = debug ]; then exec node "${path.join(__dirname, "fixtures", "fakeOpencodeDebugAgent.cjs")}" "$3"; fi`,
         'OUT=$( { cat ~/.ssh/id_rsa; cat "$HOME/.config/gh/hosts.yml"; cat ~/.git-credentials;',
         '  cat "$XDG_CONFIG_HOME/gh/hosts.yml"; cat "$XDG_DATA_HOME/opencode/auth.json"; cat "$GH_CONFIG_DIR/hosts.yml";',
         '  echo "SOCK=$SSH_AUTH_SOCK GH=$GH_TOKEN GITCFG=$GIT_CONFIG_GLOBAL"; } 2>/dev/null | tr "\\n\\"" "  ")',

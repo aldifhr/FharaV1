@@ -7,7 +7,7 @@ import * as path from "node:path";
 import { internal } from "./_generated/api";
 import { buildChildEnv } from "./lib/childEnv";
 import { gitIdentityArgs } from "./lib/gitIdentity";
-import { makeTaskBranchName, taskWorktreesFromPorcelain } from "./lib/taskBranch";
+import { makeTaskBranchName, resolveMainBranch, taskWorktreesFromPorcelain } from "./lib/taskBranch";
 import { worktreeRetentionMs } from "./lib/worktreeRetention";
 import type { Id } from "./_generated/dataModel";
 
@@ -44,7 +44,9 @@ export const createBranch = internalAction({
     const worktreesBase = data.worktreesPath ?? path.join(data.workspacePath, ".moagent-worktrees");
     const worktreePath =
       data.existingWorktreePath ?? `${worktreesBase}/${data.projectName}/${branchName}`;
-    const mainBranch = data.mainBranch ?? "main";
+    // Configured base branch, else detected (origin/HEAD → main → master):
+    // a hard-coded "main" failed every task on a master repo.
+    const mainBranch = resolveMainBranch(data.mainBranch, (gitArgs) => gitExec(data.workspacePath, gitArgs));
 
     try {
       // Create worktree directly on new branch from main (avoid checkout main in new wt)
@@ -82,15 +84,16 @@ export const getDiff = internalAction({
     const data = (await ctx.runQuery(internal.orchestration.getDiffContext, args)) as {
       worktreePath: string;
       branchName: string;
-      mainBranch: string;
+      mainBranch?: string;
     };
+    const mainBranch = resolveMainBranch(data.mainBranch, (gitArgs) => gitExec(data.worktreePath, gitArgs));
 
     try {
-      const diff = gitExec(data.worktreePath, ["diff", `${data.mainBranch}..${data.branchName}`]);
+      const diff = gitExec(data.worktreePath, ["diff", `${mainBranch}..${data.branchName}`]);
       const rawFiles = gitExec(data.worktreePath, [
         "diff",
         "--name-status",
-        `${data.mainBranch}..${data.branchName}`,
+        `${mainBranch}..${data.branchName}`,
       ])
         .trim()
         .split("\n")
@@ -115,13 +118,14 @@ export const mergeBranch = internalAction({
       branchName: string;
       worktreePath: string;
       workspacePath: string;
-      mainBranch: string;
+      mainBranch?: string;
       projectId: string;
       keepWorktree?: boolean;
     };
+    const mainBranch = resolveMainBranch(data.mainBranch, (gitArgs) => gitExec(data.workspacePath, gitArgs));
 
     try {
-      gitExec(data.workspacePath, ["checkout", data.mainBranch]);
+      gitExec(data.workspacePath, ["checkout", mainBranch]);
       gitCommitExec(data.workspacePath, ["merge", "--no-ff", "--no-edit", data.branchName]);
     } catch (err: any) {
       await ctx.runMutation(internal.orchestration.mergeBranchCompleted, {

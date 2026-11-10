@@ -2634,7 +2634,8 @@ export const getDiffContext = internalQuery({
     return {
       worktreePath: task.worktreePath,
       branchName: task.branchName ?? "",
-      mainBranch: project?.mainBranch ?? "main",
+      // Undefined = auto-detect in worktreeNode (resolveMainBranch).
+      mainBranch: project?.mainBranch,
     };
   },
 });
@@ -2652,7 +2653,8 @@ export const getMergeContext = internalQuery({
       branchName: task.branchName,
       worktreePath: task.worktreePath,
       workspacePath: project?.workspacePath ?? "",
-      mainBranch: project?.mainBranch ?? "main",
+      // Undefined = auto-detect in worktreeNode (resolveMainBranch).
+      mainBranch: project?.mainBranch,
       projectId: task.projectId,
       // Post-push feedback loop: the branch and worktree outlive the local
       // merge so a fix task can land on the same PR. Released when the PR

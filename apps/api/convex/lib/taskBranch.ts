@@ -59,3 +59,56 @@ export function taskWorktreesFromPorcelain(porcelain: string, taskId: string): s
   }
   return paths;
 }
+
+/**
+ * A project's base branch as typed by the user ("main", "master",
+ * "release/2.x"): trimmed, or null for "auto-detect". Throws on a name git
+ * would refuse (spaces, "..", a leading "-", control characters, …).
+ */
+export function normalizeMainBranch(raw: string | undefined): string | null {
+  const name = (raw ?? "").trim();
+  if (!name) return null;
+  const invalid =
+    name.length > 200 ||
+    name.startsWith("-") ||
+    name.startsWith("/") ||
+    name.endsWith("/") ||
+    name.endsWith(".") ||
+    name.endsWith(".lock") ||
+    name.includes("..") ||
+    name.includes("//") ||
+    name.includes("@{") ||
+    /[\s~^:?*\[\\\x00-\x1f\x7f]/.test(name);
+  if (invalid) throw new Error(`Invalid base branch name: ${name}`);
+  return name;
+}
+
+/**
+ * The branch task worktrees start from and merge back into. The project's
+ * configured `mainBranch` wins; otherwise detect it from the repository:
+ * origin/HEAD, then a local `main`, then `master`, then the checked-out
+ * branch. `git` runs one git command in the repository and throws on a
+ * non-zero exit. Falls back to "main" when nothing answers.
+ */
+export function resolveMainBranch(configured: string | undefined, git: (args: string[]) => string): string {
+  const own = normalizeMainBranch(configured);
+  if (own) return own;
+  const attempt = (args: string[]): string | null => {
+    try {
+      return git(args).trim() || null;
+    } catch {
+      return null;
+    }
+  };
+  const originHead = attempt(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
+  if (originHead) {
+    const name = originHead.replace(/^origin\//, "");
+    if (name && name !== "HEAD" && attempt(["rev-parse", "--verify", "--quiet", `refs/heads/${name}`])) return name;
+  }
+  for (const candidate of ["main", "master"]) {
+    if (attempt(["rev-parse", "--verify", "--quiet", `refs/heads/${candidate}`])) return candidate;
+  }
+  const current = attempt(["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  return current ?? "main";
+}
+

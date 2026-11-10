@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { assertProjectAccess, canViewProject, getViewerId } from "./lib/authz";
 import { changedFields, recordAudit } from "./lib/recordAudit";
 import { permissionModeValidator, type PermissionMode } from "./lib/permissionModes";
+import { normalizeMainBranch } from "./lib/taskBranch";
 
 function validateWorkspacePath(raw: string): string {
   const workspacePath = raw.trim();
@@ -30,9 +31,12 @@ export const create = mutation({
     devUrl: v.optional(v.string()),
     approvalMode: v.optional(v.union(v.literal("ask"), v.literal("auto"))),
     defaultPermissionMode: v.optional(permissionModeValidator),
+    /** Base branch for task worktrees; omitted/empty = auto-detect. */
+    mainBranch: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const name = args.name.trim();
+    const mainBranch = normalizeMainBranch(args.mainBranch);
     if (!name) throw new Error("Project name is required");
     const workspacePath = validateWorkspacePath(args.workspacePath);
 
@@ -51,6 +55,7 @@ export const create = mutation({
       ...(viewerId ? { ownerId: viewerId } : {}),
       ...(args.approvalMode ? { approvalMode: args.approvalMode } : {}),
       ...(args.defaultPermissionMode ? { defaultPermissionMode: args.defaultPermissionMode } : {}),
+      ...(mainBranch ? { mainBranch } : {}),
       createdAt: Date.now(),
     });
     await recordAudit(ctx, { action: "project.create", target: name, projectId });
@@ -95,10 +100,13 @@ export const update = mutation({
     approvalMode: v.optional(v.union(v.literal("ask"), v.literal("auto"))),
     instructions: v.optional(v.string()),
     defaultPermissionMode: v.optional(permissionModeValidator),
+    /** Base branch for task worktrees; "" clears it (auto-detect). */
+    mainBranch: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
     const patch: {
+      mainBranch?: string | undefined;
       defaultPermissionMode?: PermissionMode;
       name?: string;
       workspacePath?: string;
@@ -129,6 +137,9 @@ export const update = mutation({
     }
     if (args.defaultPermissionMode !== undefined) {
       patch.defaultPermissionMode = args.defaultPermissionMode;
+    }
+    if (args.mainBranch !== undefined) {
+      patch.mainBranch = normalizeMainBranch(args.mainBranch) ?? undefined;
     }
     await ctx.db.patch(args.projectId, patch);
     const changed = changedFields(project as Record<string, unknown>, patch);

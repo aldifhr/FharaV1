@@ -1179,6 +1179,24 @@ export default defineSchema({
     // Project delete cascade (projects.cascadeDelete).
     .index("by_project", ["projectId"]),
 
+  // Plan L3 (additive): the task brief — objective, owner, latest result,
+  // open questions, next step (lib/brief.ts). One row per task. The worker
+  // updates it after each node; the user edits it on the task page.
+  taskBriefs: defineTable({
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    objective: v.optional(v.string()),
+    owner: v.optional(v.string()),
+    latestResult: v.optional(v.string()),
+    openQuestions: v.array(v.string()),
+    nextStep: v.optional(v.string()),
+    updatedAt: v.number(),
+    updatedBy: v.union(v.literal("user"), v.literal("worker")),
+  })
+    .index("by_task", ["taskId"])
+    // Project delete cascade (projects.cascadeDelete).
+    .index("by_project", ["projectId"]),
+
   // Conditional delegation decisions
   delegations: defineTable({
     taskId: v.id("tasks"),

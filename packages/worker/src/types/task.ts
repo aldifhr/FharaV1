@@ -1,3 +1,4 @@
+import type { TaskBrief } from "@/api/convex/lib/brief";
 import type { ReviewFinding } from "@/utils/json";
 import type { Classification } from "./plan";
 
@@ -111,5 +112,7 @@ export interface SharedTaskContext {
   artifacts: TaskArtifact[];
   outstandingIssues: OutstandingIssue[];
   fileChanges?: string[];
+  /** Plan L3: the task brief (objective, owner, latest result, questions, next step). */
+  brief?: TaskBrief;
   updatedAt: number;
 }

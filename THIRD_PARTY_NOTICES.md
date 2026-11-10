@@ -729,3 +729,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+
+## openagents
+
+- Source: https://github.com/openagents-org/openagents (commit `96d18e8`)
+- Used in: `apps/api/convex/lib/brief.ts` and `apps/api/convex/briefs.ts` (task brief, plan L3): the brief fields
+  (objective, owner, latest result, open questions, next step), the caps (4000 characters, 20 questions of 500
+  characters) and the partial-upsert rule (an absent key is untouched, an explicit null clears it), adapted from
+  `workspace/backend/app/routers/briefs.py`. Ported from Python to TypeScript; changes are marked in the file
+  headers. Copyright OpenAgents contributors. Licensed under the Apache License, Version 2.0 (full text in the
+  Aider entry above). openagents ships no NOTICE file.

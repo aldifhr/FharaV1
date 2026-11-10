@@ -1,6 +1,7 @@
 import type { SharedTaskContext, ExecutionHistoryEntry, TaskArtifact, OutstandingIssue } from "@/types";
 import type { AgentDefinition } from "@/types";
 import { capabilitiesOf } from "@/utils/agentCapabilities";
+import { formatBriefSection } from "@/api/convex/lib/brief";
 
 export interface AgentExecutionContext {
   taskId: string;
@@ -21,6 +22,8 @@ export interface AgentExecutionContext {
   userInputIds?: string[];
   /** Other subtasks of this task that are running or queued right now. */
   siblings?: SiblingSubtask[];
+  /** Plan L3: the rendered "Task brief" section (empty = none). */
+  brief?: string;
 }
 
 /** A subtask of the same task that runs or waits alongside this one. */
@@ -158,11 +161,14 @@ export function buildAgentExecutionContext(input: {
     userInstructions,
     userInputIds,
     ...(input.siblings && input.siblings.length > 0 ? { siblings: input.siblings } : {}),
+    ...(taskContext.brief ? { brief: formatBriefSection(taskContext.brief) || undefined } : {}),
   };
 }
 
 export function formatAgentContextForPrompt(ctx: AgentExecutionContext): string {
   const parts: string[] = [
+    // Plan L3: the brief goes first, so a user edit is the first thing read.
+    ...(ctx.brief ? [ctx.brief] : []),
     `Task: ${ctx.assignment}`,
     `Your role: ${ctx.agentName} focus`,
   ];

@@ -21,6 +21,7 @@ import type { PromptSkill } from "./lib/skills";
 import { loadPromptSkills } from "./skills";
 import { resolveRunMcpServers } from "./mcpServers";
 import { loadMemorySection } from "./memories";
+import { touchBriefQuestion } from "./briefs";
 import { contractDefinition, writePlanVersion } from "./lib/planStore";
 import { decidePermissionCore, permissionArgs } from "./permissionBroker";
 import { clearSubtaskLive } from "./subtaskLive";
@@ -1929,6 +1930,8 @@ export const pauseForInput = internalMutation({
       pendingOptions: uniqueOptions.length >= 2 ? uniqueOptions : undefined,
       updatedAt: now,
     });
+    // Plan L3: the question is an open question on the task brief until answered.
+    await touchBriefQuestion(ctx, task, { add: args.question });
     await appendTaskEvent(ctx, {
       taskId: task._id,
       projectId: task.projectId,

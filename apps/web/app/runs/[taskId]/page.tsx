@@ -25,6 +25,7 @@ import ReplanDiff from "@/components/runs/ReplanDiff";
 import Requirements from "@/components/runs/Requirements";
 import Observations from "@/components/runs/Observations";
 import Decisions from "@/components/runs/Decisions";
+import TaskBrief from "@/components/runs/TaskBrief";
 import { MODEL_TIER_LABELS, type ModelTierKey } from "@/api/convex/lib/modelTiers";
 import { formatEstimateLine } from "@/api/convex/lib/estimate";
 import {
@@ -613,6 +614,8 @@ export default function RunTracePage() {
                   <p className="mt-3 rounded-lg border border-line px-3 py-2 text-[13px] text-red-600 dark:text-red-400">{run.task.errorMessage}</p>
                 )}
               </header>
+
+              <TaskBrief taskId={String(run.task._id)} />
 
               <section className="mt-10">
                 <div className="mb-3 flex items-baseline justify-between gap-2">

@@ -13,6 +13,7 @@ import type { FallbackHandle } from "@/effects/llmCall";
 import type { WorkerApi } from "@/workerApi";
 import { handleNodeOutcome } from "./decision";
 import { createInputDeliveryAck, pullTaskInputs, usageLedgerArgs } from "./session";
+import { nextPendingSubtask, pullTaskBrief, recordBriefAfterNode } from "./brief";
 import type { RunContext } from "./types";
 import type { FileDiff } from "@/tools/gitDiff";
 import { applyQaCheck, buildChangesCard, buildQaCard, postStageCard } from "./cards";
@@ -215,6 +216,8 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       // A steer sent mid-run reaches this subtask's prompt (single input
       // guard): fold undelivered inputs now; the prompt acks what it renders.
       if (input.sharedContext) await pullTaskInputs(deps, taskId, input.sharedContext);
+      // Plan L3: the latest brief (a user edit since the last node shows now).
+      if (input.sharedContext) await pullTaskBrief(deps, taskId, input.sharedContext);
       // Plan 035: the effective OpenCode runtime and model for this node.
       // Plan 038: a route from the ordered list wins; without the OpenCode
       // provider the plan 035 selection applies, behind the same guard.
@@ -673,6 +676,21 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       onOutcome: async (node, outcome, attempt) => {
         siblingTracker.settled(node.id);
         const added = await handleNodeOutcome(ctx, node, outcome, attempt);
+        // Plan L3: deterministic brief update (no LLM), best-effort.
+        {
+          const next = nextPendingSubtask(plan.subtasks, runCompleted, node.id);
+          await recordBriefAfterNode({
+            deps,
+            taskId,
+            subtask: plan.subtasks.find((candidate) => candidate.key === node.id),
+            nodeKey: node.id,
+            role: assign(node.id)?.role,
+            outcome,
+            next,
+            nextRole: next ? assign(next.key)?.role : undefined,
+            sharedContext: input.sharedContext,
+          });
+        }
         if (Array.isArray(added)) siblingTracker.admitted(added.map((candidate) => candidate.id));
         return added;
       },

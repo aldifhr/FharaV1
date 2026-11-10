@@ -11,6 +11,8 @@ import {
 import { assertServiceToken } from "./lib/authz";
 import { snapshotRecordArgs } from "./contextSnapshots";
 import { permissionArgs } from "./permissionBroker";
+import { briefPatchArgs } from "./briefs";
+import type { TaskBrief } from "./lib/brief";
 import {
   taskStatus,
   subtaskKind,
@@ -931,6 +933,23 @@ export const upsertTaskContext = action({
       internal.orchestration.upsertTaskContext,
       withoutToken(args)
     );
+  },
+});
+
+/** Plan L3: the task brief (null when none was written yet). */
+export const getTaskBrief = action({
+  args: { ...tokenArg, taskId: v.id("tasks") },
+  handler: async (ctx, args): Promise<TaskBrief | null> => {
+    const { taskId } = withoutToken(args);
+    return await ctx.runQuery(internal.briefs.getForWorker, { taskId });
+  },
+});
+
+/** Plan L3: partial brief update (absent = keep, null = clear). */
+export const updateTaskBrief = action({
+  args: { ...tokenArg, taskId: v.id("tasks"), ...briefPatchArgs },
+  handler: async (ctx, args): Promise<TaskBrief | null> => {
+    return await ctx.runMutation(internal.briefs.updateFromWorker, withoutToken(args));
   },
 });
 

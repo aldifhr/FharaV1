@@ -497,6 +497,20 @@ export class WorkerApi {
     return await this.client.action(api.worker.upsertTaskContext, this.args(this.masked(input)));
   }
 
+  /** Plan L3: the task brief (null when none was written yet). */
+  async getTaskBrief(
+    input: ActionInput<typeof api.worker.getTaskBrief>
+  ): Promise<FunctionReturnType<typeof api.worker.getTaskBrief>> {
+    return await this.client.action(api.worker.getTaskBrief, this.args(input));
+  }
+
+  /** Plan L3: partial brief update (absent = keep, null = clear). */
+  async updateTaskBrief(
+    input: ActionInput<typeof api.worker.updateTaskBrief>
+  ): Promise<FunctionReturnType<typeof api.worker.updateTaskBrief>> {
+    return await this.client.action(api.worker.updateTaskBrief, this.args(input));
+  }
+
   async recordDelegation(
     input: ActionInput<typeof api.worker.recordDelegation>
   ): Promise<FunctionReturnType<typeof api.worker.recordDelegation>> {

@@ -17,6 +17,7 @@ import { onIssueTaskChanged } from "./issueIntake";
 import { taskStatus } from "./schema";
 import { permissionModeValidator, projectDefaultPermissionMode } from "./lib/permissionModes";
 import { admitTaskInput } from "./lib/taskInputGuard";
+import { touchBriefQuestion } from "./briefs";
 import { commandNeedsChatContext } from "./lib/chat/intent";
 import { appendAgentEvent, appendTaskEvent } from "./lib/taskEvents";
 
@@ -293,6 +294,7 @@ export const remove = mutation({
         | "evaluations"
         | "plans"
         | "taskContexts"
+        | "taskBriefs"
         | "agentEvents"
         | "delegations"
         | "lifecycleHistory"
@@ -316,6 +318,7 @@ export const remove = mutation({
       "evaluations",
       "plans",
       "taskContexts",
+      "taskBriefs",
       "agentEvents",
       "delegations",
       "lifecycleHistory",
@@ -521,6 +524,8 @@ export const answerQuestion = mutation({
     // The answer is recorded undelivered; the requeued run renders it into
     // the next agent prompt and only then marks it delivered.
     await recordTaskInput(ctx, task, "answer", answer, now, task.pendingQuestion);
+    // Plan L3: an answered question leaves the brief's open questions.
+    await touchBriefQuestion(ctx, task, { resolve: task.pendingQuestion });
     await appendTaskEvent(ctx, {
       taskId: task._id,
       projectId: task.projectId,

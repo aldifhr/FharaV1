@@ -16,6 +16,7 @@ import { canWriteAny, permissionsForAgent } from "@/utils/rolePolicy";
 import { validatePlan } from "./planValidator";
 import { extractJson } from "@/utils/json";
 import { planningPrompt, PLAN_NODE_INSTRUCTIONS } from "@/prompts/planner";
+import { researchFanoutPlan, researchFanoutRequest } from "@/prompts/research";
 import { wantsVisualQa } from "@/utils/qaIntent";
 import { defaultGatesForKind } from "@/api/convex/lib/subtaskContract";
 import {
@@ -132,6 +133,9 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   if (input.signal?.aborted) {
     throw new Error("Planning aborted: the task was cancelled or timed out");
   }
+  // O7: an explicit `/research` task gets the fan-out plan (no planner call).
+  const fanout = researchFanout(input, notes);
+  if (fanout) return fanout;
   const orchestrator = pickPlanner(input.agents, input.plannerAgent);
   if (orchestrator) {
     // Pre-call budget gate (Phase 5) — OUTSIDE the try below on purpose:
@@ -255,6 +259,33 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
     notes,
     degradedReason: notes.join("; "),
     ...(routedFallback ? { droppedHintKeys: routedFallback.dropped, routingAdjustments: routedFallback.adjustments } : {}),
+  };
+}
+
+/**
+ * O7 research fan-out (plan 043): only for a command that starts with
+ * `/research`. N read-only Researcher angles run in parallel, then one
+ * synthesis node that depends on all of them. Validated with the read-only
+ * lock; null (normal planning) when no enabled agent serves research.
+ */
+export function researchFanout(input: PlannerInput, notes: string[]): PlannerResult | null {
+  const request = researchFanoutRequest(input.command);
+  if (!request) return null;
+  const validation = validatePlan(researchFanoutPlan(request, input.policy.maxSubtasks), input.policy.maxSubtasks, { taskKind: "research" });
+  if (!validation.ok || !validation.plan) {
+    notes.push(`research fan-out plan rejected: ${validation.errors.join("; ")}`);
+    return null;
+  }
+  const routed = ensureRoutable(validation.plan, input.agents);
+  if (!routed || routed.plan.subtasks.length !== validation.plan.subtasks.length) {
+    notes.push("research fan-out needs an enabled Researcher; planning normally");
+    return null;
+  }
+  return {
+    plan: withRequirements(withDefaultContracts(routed.plan), { ...input, command: request.question, request: request.question }, null),
+    createdBy: "orchestrator",
+    notes: [...notes, `research fan-out: ${routed.plan.subtasks.length - 1} angles + synthesis`],
+    routingAdjustments: routed.adjustments,
   };
 }
 

@@ -213,3 +213,11 @@ describe("pickGreetingResponders", () => {
     expect(pickGreetingResponders([], null, [researcher, frontend])).toEqual([researcher]);
   });
 });
+
+describe("O7 /research is an explicit command", () => {
+  test("keeps the marker so the worker plans the fan-out", () => {
+    expect(explicitTaskCommand("/research compare A vs B")).toBe("/research compare A vs B");
+    expect(explicitTaskCommand("/research")).toBeNull();
+    expect(explicitTaskCommand("research compare A vs B")).toBeNull();
+  });
+});

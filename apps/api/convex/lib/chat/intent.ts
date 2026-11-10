@@ -223,6 +223,9 @@ export function isOptionPick(text: string): boolean {
 export const EXPLICIT_GO_WORDS = ["kerjakan", "jalankan", "eksekusi", "do it", "run this"] as const;
 
 const SLASH_TASK = /^\/task\s+([\s\S]+)$/i;
+// O7: "/research <question>" is an explicit order too; the marker stays on
+// the task command so the planner builds the research fan-out.
+const SLASH_RESEARCH = /^\/research\s+\S[\s\S]*$/i;
 const GO_PREFIX = /^(kerjakan|jalankan|eksekusi|do it|run this)(?=$|[\s:,.!\-–—])[\s:,.!\-–—]*([\s\S]*)$/i;
 // "kata AI Agent saya …", "dia bilang …", "katanya …": the user is relaying
 // someone else's words, not giving an order.
@@ -242,6 +245,7 @@ export function isPastedContent(text: string): boolean {
 /**
  * The task text when the message is an explicit command, else null:
  *   "/task <text>"                          → <text> (always honored)
+ *   "/research <question>"                  → the whole line (research fan-out, O7)
  *   "kerjakan|jalankan|eksekusi|do it|run this <text>" → <text>
  * A go-word message is not a command when it is pasted/relayed content, a
  * question (ends with "?"), or carries an explicit "no task" instruction.
@@ -251,6 +255,7 @@ export function explicitTaskCommand(text: string): string | null {
   const t = text.trim();
   const slash = SLASH_TASK.exec(t);
   if (slash) return slash[1].trim() || null;
+  if (SLASH_RESEARCH.test(t)) return t;
   if (isPastedContent(t) || /\?\s*$/.test(t) || EXPLICIT_NEGATION.test(t)) return null;
   // A run order ("jalankan tes", "run npm test", "run the tests") keeps its
   // run verb: the worker classifier (detectRunCommands) plans a shell task

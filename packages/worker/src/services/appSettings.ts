@@ -1,7 +1,7 @@
 import type { WorkerApi } from "@/workerApi";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
 import { loadPolicy } from "@/orchestrator/policy";
-import { setChildEnvOverrides, setSettingOverrides, settingEnv } from "@/api/convex/lib/appSettings";
+import { SETTING_KNOBS, setChildEnvOverrides, setSettingOverrides, settingEnv } from "@/api/convex/lib/appSettings";
 
 /**
  * Settings modal → worker. The worker fetches the appSettings row on every
@@ -62,6 +62,29 @@ export async function syncAppSettings(
     }
   } catch (error) {
     log("settings fetch failed:", error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * The worker's own env (process.env, never the overrides) for each
+ * worker-read knob, so Settings shows the real default. Secrets are never
+ * knobs, so nothing sensitive is reported.
+ */
+export function knobEnvSnapshot(env: Record<string, string | undefined> = process.env): Array<{ key: string; value: string }> {
+  return Object.entries(SETTING_KNOBS)
+    .filter(([key, knob]) => knob.reader !== "api" && env[key] !== undefined && env[key] !== "")
+    .map(([key]) => ({ key, value: String(env[key]) }));
+}
+
+export async function reportKnobEnv(
+  api: Pick<WorkerApi, "reportKnobEnv">,
+  workerId: string,
+  log: (...args: unknown[]) => void
+): Promise<void> {
+  try {
+    await api.reportKnobEnv({ workerId, values: knobEnvSnapshot() });
+  } catch (error) {
+    log("settings env report failed:", error instanceof Error ? error.message : String(error));
   }
 }
 

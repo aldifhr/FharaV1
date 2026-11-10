@@ -14,7 +14,7 @@ import { processNextPushRequest } from "./services/pushRequests";
 import { processNextMcpTest } from "./services/mcpTests";
 import { processNextRepoToolCall } from "./services/repoTools";
 import { pollOpencodeCatalog } from "./services/opencodeCatalog";
-import { effectiveWorkspaceRoot, syncAppSettings } from "./services/appSettings";
+import { effectiveWorkspaceRoot, reportKnobEnv, syncAppSettings } from "./services/appSettings";
 import { REPO_TOOLS_CAPABILITY } from "@/api/convex/lib/chat/repoTools";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
@@ -180,6 +180,8 @@ async function main() {
   await syncAppSettings(api, deps, log);
   // Register the worker row before claiming anything (core H7).
   await sendHeartbeat();
+  // Settings shows this worker's env as the default for worker knobs.
+  void reportKnobEnv(api, workerId, log);
   const heartbeat = setInterval(() => {
     void sendHeartbeat();
     void syncAppSettings(api, deps, log);

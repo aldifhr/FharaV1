@@ -5,7 +5,7 @@
  * override. Writes are config changes: each records an audit row with the
  * field names only (values can be paths or env values).
  */
-import { internalQuery, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import type { DataModel, Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
@@ -65,12 +65,17 @@ export const get = query({
     await assertRegistryWriteAccess(ctx);
     const row = await loadRow(ctx);
     const values = await loadSettingValues(ctx);
+    // Worker knobs: the freshest worker's reported env (its .env), since
+    // Convex can only see its own env.
+    const workers = await ctx.db.query("workers").take(50);
+    const freshest = workers
+      .filter((w) => w.knobEnv !== undefined)
+      .sort((a, b) => b.lastHeartbeatAt - a.lastHeartbeatAt)[0];
+    const workerEnv = new Map((freshest?.knobEnv ?? []).map((e) => [e.key, e.value]));
     const knobs = Object.fromEntries(
       (Object.keys(SETTING_KNOBS) as SettingKey[]).map((key) => {
         const knob = SETTING_KNOBS[key];
-        // Convex can only see its own env; worker knobs report the
-        // worker-side default instead (the worker's .env may differ).
-        const env = knob.reader === "worker" ? undefined : process.env[key];
+        const env = knob.reader === "worker" ? workerEnv.get(key) : process.env[key];
         return [key, { override: values[key] ?? null, env: env ?? null, defaultValue: knob.defaultValue }];
       })
     ) as Record<SettingKey, { override: string | null; env: string | null; defaultValue: string }>;
@@ -173,6 +178,22 @@ export const forWorker = internalQuery({
     const childEnv: Record<string, string> = {};
     for (const entry of row?.childEnv ?? []) childEnv[entry.name] = entry.value;
     return { values, childEnv, updatedAt: row?.updatedAt ?? 0 };
+  },
+});
+
+/** The worker reports its own env for worker-read knobs (at start). */
+export const reportKnobEnv = internalMutation({
+  args: { workerId: v.string(), values: v.array(v.object({ key: v.string(), value: v.string() })) },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("workers")
+      .withIndex("by_worker_id", (q) => q.eq("workerId", args.workerId))
+      .unique();
+    if (!row) return;
+    const values = args.values
+      .filter((e) => isSettingKey(e.key) && SETTING_KNOBS[e.key as SettingKey].reader !== "api")
+      .map((e) => ({ key: e.key, value: e.value.slice(0, 500) }));
+    await ctx.db.patch(row._id, { knobEnv: values });
   },
 });
 

@@ -123,6 +123,15 @@ export const getAppSettings = action({
   },
 });
 
+/** Settings modal: the worker's own env for worker-read knobs. */
+export const reportKnobEnv = action({
+  args: { ...tokenArg, workerId: v.string(), values: v.array(v.object({ key: v.string(), value: v.string() })) },
+  handler: async (ctx, args): Promise<void> => {
+    const { workerId, values } = withoutToken(args);
+    await ctx.runMutation(internal.appSettings.reportKnobEnv, { workerId, values });
+  },
+});
+
 export const markOffline = action({
   args: { ...tokenArg, workerId: v.string() },
   handler: async (ctx, args): Promise<any> => {

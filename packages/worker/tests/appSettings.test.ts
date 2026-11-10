@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { loadPolicy } from "@/orchestrator/policy";
-import { applyAppSettings, resetAppSettingsForTest, syncAppSettings } from "@/services/appSettings";
+import { applyAppSettings, knobEnvSnapshot, resetAppSettingsForTest, syncAppSettings } from "@/services/appSettings";
 import { assertPushAllowed } from "@/tools/gitPush";
 import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import { gitIdentity } from "@/api/convex/lib/gitIdentity";
@@ -54,6 +54,12 @@ describe("Settings modal → worker", () => {
     const env = buildChildEnv();
     expect(env.DATABASE_URL).toBe("postgres://local");
     expect(env.CONVEX_SERVICE_TOKEN).toBeUndefined();
+  });
+
+  test("the env report carries worker knobs only", () => {
+    expect(
+      knobEnvSnapshot({ QA_CHROMIUM_PATH: "/usr/bin/chromium", FHARA_PR_FIX_MAX_ATTEMPTS: "5", CONVEX_SERVICE_TOKEN: "x", ORCHESTRATOR_TOOL_LOOP: "" })
+    ).toEqual([{ key: "QA_CHROMIUM_PATH", value: "/usr/bin/chromium" }]);
   });
 
   test("a failed fetch keeps the last values and does not throw", async () => {

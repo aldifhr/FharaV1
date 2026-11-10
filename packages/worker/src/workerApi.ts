@@ -73,6 +73,13 @@ export class WorkerApi {
     return await this.client.action(api.worker.getAppSettings, this.args({}));
   }
 
+  /** Settings modal: this worker's env value for each worker-read knob. */
+  async reportKnobEnv(
+    input: ActionInput<typeof api.worker.reportKnobEnv>
+  ): Promise<FunctionReturnType<typeof api.worker.reportKnobEnv>> {
+    return await this.client.action(api.worker.reportKnobEnv, this.args(input));
+  }
+
   /** Plan 033: publish the model list the local OpenCode CLI reported. */
   async reportOpencodeModels(
     input: ActionInput<typeof api.worker.reportOpencodeModels>

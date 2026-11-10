@@ -136,6 +136,26 @@ describe("appSettings (Convex)", () => {
     expect(await t.mutation(internal.contextSnapshots.record, args)).toBeNull();
   });
 
+  test("worker knobs show the worker's reported env, API knobs never take it", async () => {
+    const t = convexTest(schema, modules);
+    await t.run((ctx) =>
+      ctx.db.insert("workers", { workerId: "w1", capacity: 1, activeTasks: 0, status: "online", lastHeartbeatAt: Date.now() })
+    );
+    await t.mutation(internal.appSettings.reportKnobEnv, {
+      workerId: "w1",
+      values: [
+        { key: "ORCHESTRATOR_WORKTREE_ISOLATION", value: "true" },
+        { key: "FHARA_WORKTREE_RETENTION_HOURS", value: "1" },
+        { key: "CONVEX_SERVICE_TOKEN", value: "secret" },
+      ],
+    });
+    const settings = await t.query(api.appSettings.get, {});
+    expect(settings.knobs.ORCHESTRATOR_WORKTREE_ISOLATION.env).toBe("true");
+    expect(settings.knobs.FHARA_WORKTREE_RETENTION_HOURS.env).toBe(process.env.FHARA_WORKTREE_RETENTION_HOURS ?? null);
+    const row = await t.run((ctx) => ctx.db.query("workers").first());
+    expect(row?.knobEnv?.map((e) => e.key)).toEqual(["ORCHESTRATOR_WORKTREE_ISOLATION"]);
+  });
+
   test("offline workers can be forgotten; online ones stay", async () => {
     const t = convexTest(schema, modules);
     await t.run(async (ctx) => {

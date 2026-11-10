@@ -553,6 +553,10 @@ export default defineSchema({
     // "repoTools" for grounded chat). An older worker sends none, so chat
     // never queues work it would not pick up.
     capabilities: v.optional(v.array(v.string())),
+    // Settings modal (additive): the worker's own env value for each
+    // worker-read settings knob (lib/appSettings.ts), reported at start,
+    // so Settings shows the real default instead of the built-in one.
+    knobEnv: v.optional(v.array(v.object({ key: v.string(), value: v.string() }))),
   })
     .index("by_worker_id", ["workerId"])
     .index("by_status_and_heartbeat", ["status", "lastHeartbeatAt"]),

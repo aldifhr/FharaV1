@@ -31,7 +31,7 @@ type Approval = {
   offerAlways?: boolean;
 };
 
-export type CommandDecision = "allow" | "always" | "deny";
+export type CommandDecision = "allow" | "always" | "always_exact" | "deny";
 
 const KIND_LABEL: Record<string, string> = {
   apply_changes: "Apply changes",

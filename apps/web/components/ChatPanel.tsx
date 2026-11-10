@@ -588,7 +588,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     const busyKey = `${item.key}:${action.id}`;
     setTrayBusy(busyKey);
     try {
-      if (action.id === "allow" || action.id === "always" || action.id === "deny") {
+      if (action.id === "allow" || action.id === "always" || action.id === "always_exact" || action.id === "deny") {
         await respondCommand({ approvalId: item.approvalId as any, decision: action.id, ...(note ? { note } : {}) });
       } else if (action.id === "approve") {
         await approve({ approvalId: item.approvalId as any });

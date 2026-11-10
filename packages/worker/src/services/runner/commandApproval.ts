@@ -138,8 +138,11 @@ async function pollDecision(
     if (row) {
       if (row.status === "approved") {
         ack();
-        const via = row.decision === "always" ? "always" : "allow";
-        return { allowed: true, via, reason: via === "always" ? "Always allowed by the user" : "Allowed by the user", ...(row.note ? { note: row.note } : {}) };
+        // Plan 041: "always_exact" is an always-allow scoped to this exact argv.
+        const via = row.decision === "always" || row.decision === "always_exact" ? "always" : "allow";
+        const reason =
+          row.decision === "always_exact" ? "Always allowed (exact command) by the user" : via === "always" ? "Always allowed by the user" : "Allowed by the user";
+        return { allowed: true, via, reason, ...(row.note ? { note: row.note } : {}) };
       }
       if (row.status === "rejected") {
         ack();

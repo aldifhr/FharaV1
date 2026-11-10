@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
+  addCommandAllowExact,
   addCommandAllowRule,
+  matchCommandAllowExact,
+  removeCommandAllowExact,
   commandApprovalPolicy,
   commandHead,
   dangerousCommandReason,
@@ -105,5 +108,48 @@ describe("commandApprovalPolicy", () => {
   test("addCommandAllowRule dedupes by head", () => {
     const rules = addCommandAllowRule([rule("npm test")], "npm run test", "me", 5);
     expect(rules).toEqual([{ prefix: "npm run test", createdAt: 5, createdBy: "me" }]);
+  });
+});
+
+describe("plan 041: exact argv entries", () => {
+  const exact = (command: string, args: string[]) => ({ command, args, createdAt: 1, createdBy: "u" });
+
+  test("matches only the literal argv", () => {
+    const entries = [exact("npx", ["vitest", "run", "a.test.ts"])];
+    expect(matchCommandAllowExact(entries, "npx", ["vitest", "run", "a.test.ts"])).toEqual(entries[0]);
+    expect(matchCommandAllowExact(entries, "npx", ["vitest", "run", "a.test.ts", "-u"])).toBeNull();
+    expect(matchCommandAllowExact(entries, "npx", ["vitest", "run"])).toBeNull();
+    expect(matchCommandAllowExact(entries, "npx", ["vitest", "run", "b.test.ts"])).toBeNull();
+    expect(matchCommandAllowExact(entries, "/usr/bin/npx", ["vitest", "run", "a.test.ts"])).toBeNull();
+    expect(matchCommandAllowExact(entries, "npx", ["vitest", "run", " a.test.ts"])).toBeNull();
+  });
+
+  test("dangerous / push-like commands never match", () => {
+    const entries = [exact("git", ["push"]), exact("rm", ["-rf", "dist"]), exact("gh", ["pr", "merge", "1"])];
+    expect(matchCommandAllowExact(entries, "git", ["push"])).toBeNull();
+    expect(matchCommandAllowExact(entries, "rm", ["-rf", "dist"])).toBeNull();
+    expect(matchCommandAllowExact(entries, "gh", ["pr", "merge", "1"])).toBeNull();
+    const policy = commandApprovalPolicy({ mode: "full_access", command: "git", args: ["push"], exact: entries });
+    expect(policy).toMatchObject({ action: "ask", offerAlways: false });
+  });
+
+  test("the policy auto-approves an exact match in supervised mode", () => {
+    const policy = commandApprovalPolicy({ mode: "supervised", command: "npm", args: ["run", "lint"], exact: [exact("npm", ["run", "lint"])] });
+    expect(policy.action).toBe("auto");
+    expect(policy.exact).toBeDefined();
+    expect(policy.reason).toBe("Always allowed (exact): npm run lint");
+    expect(commandApprovalPolicy({ mode: "supervised", command: "npm", args: ["run", "lint", "--fix"], exact: [exact("npm", ["run", "lint"])] }).action).toBe("ask");
+  });
+
+  test("always_exact is downgraded without an offer; add dedupes, remove drops", () => {
+    expect(effectiveCommandDecision("always_exact", false)).toBe("allow");
+    expect(effectiveCommandDecision("always_exact", undefined)).toBe("allow");
+    expect(effectiveCommandDecision("always_exact", true)).toBe("always_exact");
+    const once = addCommandAllowExact([], "npm", ["test"], "u", 1);
+    const twice = addCommandAllowExact(once, "npm", ["test"], "u", 2);
+    expect(twice).toHaveLength(1);
+    expect(twice[0].createdAt).toBe(2);
+    expect(removeCommandAllowExact(twice, "npm", ["test"])).toEqual([]);
+    expect(removeCommandAllowExact(twice, "npm", ["test", "-w"])).toHaveLength(1);
   });
 });

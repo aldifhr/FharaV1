@@ -42,6 +42,7 @@ type ProjectDoc = {
   shadowAgentDefault?: boolean;
   prFeedbackReactions?: boolean;
   commandAllowRules?: { prefix: string; createdAt: number; createdBy: string }[];
+  commandAllowExact?: { command: string; args: string[]; createdAt: number; createdBy: string }[];
 };
 
 const field = "rounded-lg border border-line bg-panel px-3 py-2 text-ink outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/15";
@@ -66,6 +67,7 @@ export default function ManageProjectModal({
   const setShadowDefault = useMutation(api.reviewer.setProjectShadowDefault);
   const removeCommandRule = useMutation(api.commandApprovals.removeRule);
   const [removingRule, setRemovingRule] = useState<string | null>(null);
+  const removeExactRule = useMutation(api.commandApprovals.removeExactRule);
   const [shadowDefault, setShadowDefaultState] = useState(Boolean(project.shadowAgentDefault));
   // Post-push feedback loop: CI / review / conflict on a task's PR queue a fix.
   const setPrReactions = useMutation(api.prFeedback.setProjectSetting);
@@ -206,6 +208,41 @@ export default function ManageProjectModal({
                 </li>
               ))}
             </ul>
+          )}
+          {(project.commandAllowExact ?? []).length > 0 && (
+            <>
+              <span className="mt-1 text-[12.5px] text-ink-3">Exact commands (only this program with exactly these arguments):</span>
+              <ul className="divide-y divide-line rounded-lg border border-line">
+                {(project.commandAllowExact ?? []).map((entry) => {
+                  const line = [entry.command, ...entry.args].map((part) => (/[\s"'`$]/.test(part) ? JSON.stringify(part) : part)).join(" ");
+                  const key = `exact:${JSON.stringify([entry.command, ...entry.args])}`;
+                  return (
+                    <li key={key} className="flex items-center gap-3 px-3 py-2">
+                      <code className="min-w-0 flex-1 truncate font-mono text-[13px] text-ink">{line}</code>
+                      <span className="shrink-0 text-[12px] text-ink-3">{new Date(entry.createdAt).toLocaleDateString()}</span>
+                      <button
+                        type="button"
+                        disabled={removingRule !== null}
+                        onClick={async () => {
+                          setRemovingRule(key);
+                          try {
+                            await removeExactRule({ projectId: projectId as never, command: entry.command, args: entry.args });
+                            toast("success", "Rule removed", line);
+                          } catch (err) {
+                            toast("error", "Couldn't remove the rule", errorText(err));
+                          } finally {
+                            setRemovingRule(null);
+                          }
+                        }}
+                        className="shrink-0 rounded-md px-2 py-1 text-[13px] text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-50"
+                      >
+                        {removingRule === key ? "Removing…" : "Remove"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )}
         </fieldset>
         <label className="grid gap-1">

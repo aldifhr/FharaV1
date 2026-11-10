@@ -10,8 +10,8 @@
  * or timeout. The task status never changes.
  *
  * Policy (lib/commandRules.ts): dangerous / push-like commands always ask
- * and never offer "Always allow"; a project rule or Full access approves
- * (recorded as decidedBy "auto"); everything else asks.
+ * and never offer "Always allow"; a project rule, an exact entry (plan 041)
+ * or Full access approves (recorded as decidedBy "auto"); everything else asks.
  */
 import { internalMutation, internalQuery, mutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
@@ -22,11 +22,13 @@ import { holdsTaskLease } from "./orchestration";
 import { signalApprovalDecision, supersedePendingCommandApprovals } from "./taskSignals";
 import { normalizePermissionMode } from "./lib/permissionModes";
 import {
+  addCommandAllowExact,
   addCommandAllowRule,
   commandApprovalPolicy,
   effectiveCommandDecision,
   formatCommand,
   normalizeRulePrefix,
+  removeCommandAllowExact,
   type CommandDecision,
 } from "./lib/commandRules";
 import { appendTaskEvent } from "./lib/taskEvents";
@@ -36,7 +38,7 @@ const LEASE_LOST = "Lease lost: this task is no longer owned by this worker";
 /** Note recorded when a chat message declines a waiting command (threadbear behaviour). */
 export const USER_REPLIED_NOTE = "user replied instead";
 
-export const decisionValidator = v.union(v.literal("allow"), v.literal("always"), v.literal("deny"));
+export const decisionValidator = v.union(v.literal("allow"), v.literal("always"), v.literal("always_exact"), v.literal("deny"));
 
 /**
  * Worker → backend: ask for one command. Returns `auto` (approved row
@@ -69,6 +71,7 @@ export const request = internalMutation({
       command: args.command,
       args: args.args,
       rules: project?.commandAllowRules,
+      exact: project?.commandAllowExact,
       workspaceRoot: args.workspaceRoot,
     });
     const line = formatCommand(args.command, args.args);
@@ -105,14 +108,20 @@ export const request = internalMutation({
         level: "info",
       });
       await recordAudit(ctx, {
-        actor: policy.rule ? "command-rule" : "permission-mode",
+        actor: policy.exact ? "command-exact" : policy.rule ? "command-rule" : "permission-mode",
         tool: "run_command",
         action: "approval.auto_approve",
         decision: "allowed",
         target: line,
         projectId: args.projectId,
         taskId: args.taskId,
-        details: { mode, reason: policy.reason, approvalId, ...(policy.rule ? { rule: policy.rule.prefix } : {}) },
+        details: {
+          mode,
+          reason: policy.reason,
+          approvalId,
+          ...(policy.rule ? { rule: policy.rule.prefix } : {}),
+          ...(policy.exact ? { exact: true } : {}),
+        },
       });
       return { status: "auto", approvalId, reason: policy.reason, offerAlways: policy.offerAlways };
     }
@@ -303,6 +312,28 @@ export async function resolveCommandApproval(
       });
     }
   }
+  if (decision === "always_exact") {
+    // Plan 041: the literal argv the worker asked for (approval.arguments).
+    const argv = approval.arguments as { command?: unknown; args?: unknown } | undefined;
+    const exactCommand = typeof argv?.command === "string" ? argv.command : "";
+    const exactArgs = Array.isArray(argv?.args) && argv!.args.every((a) => typeof a === "string") ? (argv!.args as string[]) : null;
+    if (exactCommand && exactArgs) {
+      const project = await ctx.db.get(approval.projectId);
+      const createdBy = options.actor ?? (await getViewerId(ctx)) ?? "user";
+      await ctx.db.patch(approval.projectId, {
+        commandAllowExact: addCommandAllowExact(project?.commandAllowExact, exactCommand, exactArgs, createdBy, now),
+      });
+      await recordAudit(ctx, {
+        tool: "run_command",
+        action: "command_exact.add",
+        decision: "allowed",
+        target: command,
+        projectId: approval.projectId,
+        taskId: approval.taskId,
+        details: { approvalId: approval._id },
+      });
+    }
+  }
   await appendTaskEvent(ctx, {
     taskId: approval.taskId,
     projectId: approval.projectId,
@@ -341,6 +372,8 @@ export const respond = mutation({
     if (!approval) throw new Error("Approval not found");
     await assertProjectAccess(ctx, approval.projectId);
     if (approval.kind !== "run_command") throw new Error("Only command approvals take Allow / Always allow / Deny");
+    // git_push / merge_pr never reach this point (other kinds); a push-like
+    // run_command was never offered "always", so always_exact is downgraded.
     const decision = await resolveCommandApproval(ctx, approval, args.decision, { note: args.note });
     return { decision };
   },
@@ -404,6 +437,28 @@ export const removeRule = mutation({
       action: "command_rule.remove",
       decision: "recorded",
       target: head,
+      projectId: args.projectId,
+    });
+    return { removed: true };
+  },
+});
+
+/** Manage project: remove one "always allow this exact command" entry (audited). Plan 041. */
+export const removeExactRule = mutation({
+  args: { projectId: v.id("projects"), command: v.string(), args: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Project not found");
+    const entries = project.commandAllowExact ?? [];
+    const next = removeCommandAllowExact(entries, args.command, args.args);
+    if (next.length === entries.length) return { removed: false };
+    await ctx.db.patch(args.projectId, { commandAllowExact: next });
+    await recordAudit(ctx, {
+      tool: "run_command",
+      action: "command_exact.remove",
+      decision: "recorded",
+      target: formatCommand(args.command, args.args),
       projectId: args.projectId,
     });
     return { removed: true };

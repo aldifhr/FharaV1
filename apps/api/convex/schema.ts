@@ -273,6 +273,17 @@ export default defineSchema({
         })
       )
     ),
+    // Plan 041: "always allow this exact command" (literal argv). Unset = none.
+    commandAllowExact: v.optional(
+      v.array(
+        v.object({
+          command: v.string(),
+          args: v.array(v.string()),
+          createdAt: v.number(),
+          createdBy: v.string(),
+        })
+      )
+    ),
   }).index("by_owner", ["ownerId"]),
 
   agents: defineTable({
@@ -807,7 +818,8 @@ export default defineSchema({
     // in-process (it keeps its lease). offerAlways is decided server-side:
     // "always" from a card that did not offer it is downgraded to "allow".
     offerAlways: v.optional(v.boolean()),
-    decision: v.optional(v.union(v.literal("allow"), v.literal("always"), v.literal("deny"))),
+    // Plan 041 (additive): "always_exact" = always allow this exact argv.
+    decision: v.optional(v.union(v.literal("allow"), v.literal("always"), v.literal("always_exact"), v.literal("deny"))),
     // The user's note with the decision (typed in the composer), or the
     // reason a wait was declined ("user replied instead", "timed out").
     note: v.optional(v.string()),

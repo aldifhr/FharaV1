@@ -14,7 +14,7 @@
 
 export type TrayItemKind = "command" | "approval" | "plan" | "question" | "options";
 
-export type TrayActionId = "allow" | "always" | "deny" | "approve" | "reject" | "open" | `answer:${number}` | `pick:${string}`;
+export type TrayActionId = "allow" | "always" | "always_exact" | "deny" | "approve" | "reject" | "open" | `answer:${number}` | `pick:${string}`;
 
 export interface TrayAction {
   id: TrayActionId;
@@ -109,6 +109,8 @@ export function approvalTrayItem(a: TrayApprovalInput): TrayItem {
     if (a.offerAlways === true && !danger) {
       const head = typeof a.payload?.head === "string" && a.payload.head ? a.payload.head : null;
       actions.push({ id: "always", label: head ? `Selalu izinkan ${head}` : "Selalu izinkan" });
+      // Plan 041: narrower than the head rule — only this literal argv.
+      actions.push({ id: "always_exact", label: "Always allow this exact command" });
     }
     actions.push({ id: "deny", label: "Tolak" });
     return {

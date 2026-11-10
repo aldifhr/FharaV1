@@ -55,11 +55,20 @@ export default function InboxPage() {
     }
   };
 
-  const decide = async (id: string, decision: "allow" | "always" | "deny") => {
+  const decide = async (id: string, decision: "allow" | "always" | "always_exact" | "deny") => {
     setBusy(id);
     try {
       const res = await respond({ approvalId: id as never, decision });
-      toast("success", res.decision === "deny" ? "Denied" : res.decision === "always" ? "Always allowed for this project" : "Allowed");
+      toast(
+        "success",
+        res.decision === "deny"
+          ? "Denied"
+          : res.decision === "always"
+            ? "Always allowed for this project"
+            : res.decision === "always_exact"
+              ? "This exact command is always allowed for this project"
+              : "Allowed"
+      );
     } catch (err) {
       toast("error", "Couldn't update the approval", err instanceof Error ? err.message : undefined);
     } finally {
@@ -141,6 +150,16 @@ export default function InboxPage() {
                               className="rounded-lg border border-line px-2.5 py-1 text-[13px] text-ink transition hover:bg-hover disabled:opacity-50"
                             >
                               Always allow
+                            </button>
+                          )}
+                          {a.offerAlways === true && !(a.payload as any)?.danger && (
+                            <button
+                              type="button"
+                              disabled={busy === a._id}
+                              onClick={() => void decide(a._id, "always_exact")}
+                              className="rounded-lg border border-line px-2.5 py-1 text-[13px] text-ink transition hover:bg-hover disabled:opacity-50"
+                            >
+                              Always allow this exact command
                             </button>
                           )}
                           <button

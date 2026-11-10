@@ -20,7 +20,7 @@ describe("buildDecisionTray", () => {
     expect(items.map((i) => i.key)).toEqual(["approval:a2", "approval:a1", "question:t9", "options:m1"]);
     const cmd = items[0];
     expect(cmd.code).toBe("npm run test");
-    expect(cmd.actions.map((a) => a.id)).toEqual(["allow", "always", "deny"]);
+    expect(cmd.actions.map((a) => a.id)).toEqual(["allow", "always", "always_exact", "deny"]);
     expect(cmd.composerMode).toBe("deny_with_note");
     expect(items[2].actions[0]).toMatchObject({ id: "answer:0", label: "Ya", primary: true });
   });

@@ -91,6 +91,66 @@ describe("commandApprovals.respond", () => {
   });
 });
 
+describe("plan 041: always allow this exact command", () => {
+  test("only the identical argv auto-approves, recorded as decidedBy auto with an audit row", async () => {
+    const { t, projectId, request } = await setup();
+    const first = await request("npx", ["vitest", "run", "tests/a.test.ts"]);
+    expect(first.offerAlways).toBe(true);
+    const res = await t.mutation(api.commandApprovals.respond, { approvalId: first.approvalId as any, decision: "always_exact" });
+    expect(res.decision).toBe("always_exact");
+    // The waiter consumed the one-time signal, so later requests go through the policy.
+    await t.mutation(internal.commandApprovals.ack, { approvalId: first.approvalId as any, workerId: "w1" });
+    const project = await t.run((ctx) => ctx.db.get(projectId));
+    expect(project?.commandAllowExact?.map((e) => [e.command, ...e.args])).toEqual([["npx", "vitest", "run", "tests/a.test.ts"]]);
+    expect(project?.commandAllowRules ?? []).toEqual([]);
+
+    const same = await request("npx", ["vitest", "run", "tests/a.test.ts"]);
+    expect(same.status).toBe("auto");
+    expect(same.approvalId).not.toBe(first.approvalId);
+    const row = await t.run((ctx) => ctx.db.get(same.approvalId));
+    expect(row).toMatchObject({ status: "approved", decidedBy: "auto", kind: "run_command" });
+    const audits = await t.run((ctx) => ctx.db.query("audit").collect());
+    expect(audits.some((a: any) => a.action === "approval.auto_approve" && a.details?.exact === true && a.actor === "command-exact")).toBe(true);
+    expect(audits.some((a: any) => a.action === "command_exact.add")).toBe(true);
+
+    // One extra or one changed argument asks again.
+    expect((await request("npx", ["vitest", "run", "tests/a.test.ts", "--update"])).status).toBe("pending");
+    expect((await request("npx", ["vitest", "run", "tests/b.test.ts"])).status).toBe("pending");
+    expect((await request("npx", ["vitest", "run"])).status).toBe("pending");
+  });
+
+  test("a removed entry asks again", async () => {
+    const { t, projectId, request } = await setup();
+    const first = await request("node", ["scripts/check.mjs"]);
+    await t.mutation(api.commandApprovals.respond, { approvalId: first.approvalId as any, decision: "always_exact" });
+    await t.mutation(internal.commandApprovals.ack, { approvalId: first.approvalId as any, workerId: "w1" });
+    expect((await request("node", ["scripts/check.mjs"])).status).toBe("auto");
+    expect(await t.mutation(api.commandApprovals.removeExactRule, { projectId, command: "node", args: ["scripts/check.mjs"] })).toEqual({ removed: true });
+    expect((await request("node", ["scripts/check.mjs"])).status).toBe("pending");
+  });
+
+  test("push-like commands never offer it, are downgraded, and never match a stored entry", async () => {
+    const { t, projectId, request } = await setup();
+    const push = await request("git", ["push", "origin", "main"]);
+    expect(push.offerAlways).toBe(false);
+    const res = await t.mutation(api.commandApprovals.respond, { approvalId: push.approvalId as any, decision: "always_exact" });
+    expect(res.decision).toBe("allow");
+    expect((await t.run((ctx) => ctx.db.get(projectId)))?.commandAllowExact ?? []).toEqual([]);
+    // Even an entry written straight into the project does not auto-approve push / merge.
+    await t.run((ctx) =>
+      ctx.db.patch(projectId, {
+        commandAllowExact: [
+          { command: "git", args: ["push", "origin", "main"], createdAt: 1, createdBy: "x" },
+          { command: "gh", args: ["pr", "merge", "7"], createdAt: 1, createdBy: "x" },
+        ],
+      })
+    );
+    await t.mutation(internal.commandApprovals.ack, { approvalId: push.approvalId as any, workerId: "w1" });
+    expect((await request("git", ["push", "origin", "main"])).status).toBe("pending");
+    expect((await request("gh", ["pr", "merge", "7"])).status).toBe("pending");
+  });
+});
+
 describe("decline on chat reply + cancel", () => {
   test("a chat message declines the waiting command with 'user replied instead'", async () => {
     const { t, projectId, conversationId, request } = await setup();

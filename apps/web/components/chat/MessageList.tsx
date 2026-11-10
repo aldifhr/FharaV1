@@ -106,7 +106,7 @@ type Props = {
   reject: (approvalId: string) => unknown;
   hold: (approvalId: string) => unknown;
   /** Command approvals: Allow / Always allow / Deny (same rows as the composer tray). */
-  respond?: (approvalId: string, decision: "allow" | "always" | "deny") => unknown;
+  respond?: (approvalId: string, decision: "allow" | "always" | "always_exact" | "deny") => unknown;
   togglePin: (messageId: string, pinned: boolean) => void;
   onPickProposal: (choice: string) => void;
   /** Turns an agent's recommendation into a task (button under it). */

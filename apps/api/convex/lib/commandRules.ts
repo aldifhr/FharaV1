@@ -16,6 +16,11 @@
  * never the full argument list and never a user-written pattern. Matching
  * compares head tokens for equality, not string prefixes, so the rule
  * "npm run test" does not match "npm run test-e2e".
+ *
+ * Plan 041: an "exact" entry is narrower than a head rule: the literal
+ * program string plus the literal argument array. Only the identical argv
+ * matches; dangerous / push-like commands never match one (step 2 above
+ * runs first), and the worker allowlist (step 1) is untouched.
  */
 import type { PermissionMode } from "./permissionModes";
 
@@ -25,7 +30,15 @@ export interface CommandAllowRule {
   createdBy: string;
 }
 
-export type CommandDecision = "allow" | "always" | "deny";
+export type CommandDecision = "allow" | "always" | "always_exact" | "deny";
+
+/** Plan 041: one "always allow this exact command" entry (literal argv). */
+export interface CommandAllowExact {
+  command: string;
+  args: string[];
+  createdAt: number;
+  createdBy: string;
+}
 
 /** Most rules a project keeps; the oldest drop off past this. */
 export const MAX_COMMAND_ALLOW_RULES = 50;
@@ -147,6 +160,23 @@ export function matchCommandAllowRule(
   return rules.find((rule) => normalizeRulePrefix(rule.prefix) === head) ?? null;
 }
 
+/** Same literal argv (no trimming, no normalisation, same order and count). */
+function sameArgv(entry: { command: string; args: readonly string[] }, command: string, args: readonly string[]): boolean {
+  return entry.command === command && entry.args.length === args.length && entry.args.every((arg, i) => arg === args[i]);
+}
+
+/** Plan 041: the exact entry for this argv, if any. Dangerous commands never match. */
+export function matchCommandAllowExact(
+  entries: readonly CommandAllowExact[] | undefined,
+  command: string,
+  args: readonly string[] = [],
+  workspaceRoot?: string
+): CommandAllowExact | null {
+  if (!entries?.length) return null;
+  if (dangerousCommandReason(command, args, workspaceRoot)) return null;
+  return entries.find((entry) => sameArgv(entry, command, args)) ?? null;
+}
+
 export interface CommandApprovalPolicy {
   /** "auto": approve without a pause (still recorded); "ask": wait for the user. */
   action: "auto" | "ask";
@@ -156,6 +186,8 @@ export interface CommandApprovalPolicy {
   head: string;
   danger: string | null;
   rule?: CommandAllowRule;
+  /** Plan 041: the exact entry that approved it. */
+  exact?: CommandAllowExact;
 }
 
 /** Policy for one agent-initiated command under the task's permission mode. */
@@ -164,12 +196,18 @@ export function commandApprovalPolicy(input: {
   command: string;
   args?: readonly string[];
   rules?: readonly CommandAllowRule[];
+  /** Plan 041: the project's exact entries. */
+  exact?: readonly CommandAllowExact[];
   workspaceRoot?: string;
 }): CommandApprovalPolicy {
   const args = input.args ?? [];
   const head = commandHead(input.command, args);
   const danger = dangerousCommandReason(input.command, args, input.workspaceRoot);
   if (danger) return { action: "ask", reason: danger, offerAlways: false, head, danger };
+  const exact = matchCommandAllowExact(input.exact, input.command, args, input.workspaceRoot);
+  if (exact) {
+    return { action: "auto", reason: `Always allowed (exact): ${formatCommand(exact.command, exact.args)}`, offerAlways: true, head, danger, exact };
+  }
   const rule = matchCommandAllowRule(input.rules, input.command, args, input.workspaceRoot);
   if (rule) return { action: "auto", reason: `Always allowed: ${normalizeRulePrefix(rule.prefix)}`, offerAlways: true, head, danger, rule };
   if (input.mode === "full_access") return { action: "auto", reason: "Full access", offerAlways: true, head, danger };
@@ -188,7 +226,7 @@ export function commandApprovalPolicy(input: {
  * one-time allow.
  */
 export function effectiveCommandDecision(decision: CommandDecision, offerAlways: boolean | undefined): CommandDecision {
-  return decision === "always" && offerAlways !== true ? "allow" : decision;
+  return (decision === "always" || decision === "always_exact") && offerAlways !== true ? "allow" : decision;
 }
 
 /** Add a rule (deduped by normalized head, newest kept, capped). */
@@ -202,4 +240,25 @@ export function addCommandAllowRule(
   const kept = (rules ?? []).filter((rule) => normalizeRulePrefix(rule.prefix) !== head);
   const next = [...kept, { prefix: head, createdAt: now, createdBy }];
   return next.slice(-MAX_COMMAND_ALLOW_RULES);
+}
+
+/** Plan 041: add an exact entry (deduped by argv, newest kept, capped). */
+export function addCommandAllowExact(
+  entries: readonly CommandAllowExact[] | undefined,
+  command: string,
+  args: readonly string[],
+  createdBy: string,
+  now: number
+): CommandAllowExact[] {
+  const kept = (entries ?? []).filter((entry) => !sameArgv(entry, command, args));
+  return [...kept, { command, args: [...args], createdAt: now, createdBy }].slice(-MAX_COMMAND_ALLOW_RULES);
+}
+
+/** Plan 041: drop the entry for this argv (unchanged list when absent). */
+export function removeCommandAllowExact(
+  entries: readonly CommandAllowExact[] | undefined,
+  command: string,
+  args: readonly string[]
+): CommandAllowExact[] {
+  return (entries ?? []).filter((entry) => !sameArgv(entry, command, args));
 }

@@ -464,7 +464,7 @@ export const getCommandApproval = action({
   handler: async (
     ctx,
     args
-  ): Promise<{ status: string; decision: "allow" | "always" | "deny" | null; note: string | null; taskStatus: string | null } | null> => {
+  ): Promise<{ status: string; decision: "allow" | "always" | "always_exact" | "deny" | null; note: string | null; taskStatus: string | null } | null> => {
     return await ctx.runQuery(internal.commandApprovals.get, withoutToken(args));
   },
 });

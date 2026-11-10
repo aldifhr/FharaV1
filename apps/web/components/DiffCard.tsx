@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { useUiPref } from "@/lib/uiPrefs";
 
 // react-diff-viewer-continued is a CommonJS class component; load it
 // client-only so its prop-types graph never runs during SSR. (The
@@ -106,7 +107,7 @@ export default function DiffCard({
   onReject,
   expanded = true,
   onExpandedChange,
-  splitView = false,
+  splitView,
   variant = "card",
   forceUnified = false,
 }: Props) {
@@ -116,8 +117,13 @@ export default function DiffCard({
   // Uncontrolled when the parent does not own the expanded state (most
   // callers don't): Without this the collapse button is dead because
   // onExpandedChange is undefined.
-  const [internalExpanded, setInternalExpanded] = useState(true);
-  const isExpanded = onExpandedChange ? expanded : internalExpanded;
+  // Settings → Diffs & pull requests (this device).
+  const [diffView] = useUiPref("diffView");
+  const [diffContext] = useUiPref("diffContext");
+  const [diffExpanded] = useUiPref("diffExpanded");
+  const split = splitView ?? diffView === "split";
+  const [internalExpanded, setInternalExpanded] = useState<boolean | null>(null);
+  const isExpanded = onExpandedChange ? expanded : (internalExpanded ?? diffExpanded);
 
   // Follow theme toggles while the diff is open (the class lives on <html>).
   useEffect(() => {
@@ -147,7 +153,7 @@ export default function DiffCard({
           type="button"
           onClick={() => {
             if (onExpandedChange) onExpandedChange(!expanded);
-            else setInternalExpanded((value) => !value);
+            else setInternalExpanded(!isExpanded);
           }}
           aria-expanded={isExpanded}
           aria-label={isExpanded ? `Collapse ${filePath}` : `Expand ${filePath}`}
@@ -192,8 +198,8 @@ export default function DiffCard({
             <DiffViewer
               oldValue={oldContent ?? ""}
               newValue={newContent ?? ""}
-              splitView={splitView}
-              showDiffOnly={false}
+              splitView={split}
+              showDiffOnly={diffContext === "changes"}
               hideLineNumbers={false}
               disableWordDiff={false}
               useDarkTheme={dark}

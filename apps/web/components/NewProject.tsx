@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/api/convex/_generated/api";
 import Modal from "./Modal";
 import { agentName, agentRoleText } from "@/lib/agentRoles";
+import { suggestProjectPath, useUiPref } from "@/lib/uiPrefs";
 
 interface NewProjectContextValue {
   open: boolean;
@@ -43,6 +44,10 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
   const [step, setStep] = useState<Step>("project");
   const [name, setName] = useState("");
   const [workspacePath, setWorkspacePath] = useState("");
+  // Settings → Workspace: the folder path follows the name under the
+  // projects folder until the user edits the path by hand.
+  const [projectsFolder] = useUiPref("projectsFolder");
+  const [pathEdited, setPathEdited] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [selectingFolder, setSelectingFolder] = useState(false);
@@ -58,6 +63,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
       setStep("project");
       setName("");
       setWorkspacePath("");
+      setPathEdited(false);
       setError("");
       setSelectedAgentIds([]);
     }
@@ -119,6 +125,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
       const selectedPath = await window.fharaDesktop.selectFolder();
       if (selectedPath) {
         setWorkspacePath(selectedPath);
+        setPathEdited(true);
         if (!name) {
           const folderName = selectedPath.split(/[\\/]/).filter(Boolean).pop();
           if (folderName) setName(folderName);
@@ -142,7 +149,10 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
               Project name
               <input
                 value={name}
-                onChange={(event) => setName(event.target.value)}
+                onChange={(event) => {
+                  setName(event.target.value);
+                  if (!pathEdited && projectsFolder) setWorkspacePath(suggestProjectPath(projectsFolder, event.target.value));
+                }}
                 placeholder="E.g. Fhara"
                 required
                 autoFocus
@@ -154,8 +164,11 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
               <div className="flex gap-2">
                 <input
                   value={workspacePath}
-                  onChange={(event) => setWorkspacePath(event.target.value)}
-                  placeholder="C:\projects\Fhara"
+                  onChange={(event) => {
+                    setWorkspacePath(event.target.value);
+                    setPathEdited(true);
+                  }}
+                  placeholder={projectsFolder ? suggestProjectPath(projectsFolder, "my-project") : "C:\\projects\\Fhara"}
                   required
                   className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
                 />

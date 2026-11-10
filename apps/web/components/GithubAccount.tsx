@@ -38,7 +38,15 @@ export function useGithubOAuthMessages() {
  * (the window is opened synchronously so popup blockers allow it, then
  * pointed at the signed URL from `integrations.getOAuthUrl`).
  */
-export default function GithubAccountRow() {
+export default function GithubAccountRow({
+  returnTo = "/integrations",
+  alwaysShowReconnect = false,
+}: {
+  /** Where the OAuth callback page sends the user back to. */
+  returnTo?: string;
+  /** Settings → Sign in: offer Reconnect even for a healthy connection. */
+  alwaysShowReconnect?: boolean;
+} = {}) {
   const toast = useToast();
   const account = useQuery(api.integrations.githubAccount, {});
   const getOAuthUrl = useAction(api.integrations.getOAuthUrl);
@@ -52,7 +60,7 @@ export default function GithubAccountRow() {
     const popup = window.open("", "github-oauth", "width=720,height=780");
     setStarting(true);
     try {
-      const url = await getOAuthUrl({ returnTo: "/integrations" });
+      const url = await getOAuthUrl({ returnTo });
       if (!url) {
         popup?.close();
         toast("error", "GitHub OAuth is not configured", "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET on the Convex deployment.");
@@ -130,7 +138,7 @@ export default function GithubAccountRow() {
                   Disconnect
                 </button>
               )}
-              {account.configured && (account.source !== "global" || account.status === "error" || !account.connected) && (
+              {account.configured && (alwaysShowReconnect || account.source !== "global" || account.status === "error" || !account.connected) && (
                 <button type="button" disabled={starting} onClick={() => void connect()} className={PRIMARY_BTN}>
                   {account.connected ? "Reconnect" : "Connect"}
                 </button>

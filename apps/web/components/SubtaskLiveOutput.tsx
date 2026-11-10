@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
+import { useUiPref } from "@/lib/uiPrefs";
 
 /** Lines kept in the DOM; the box shows about six and scrolls the rest. */
 const KEEP_LINES = 40;
@@ -27,7 +28,9 @@ export default function SubtaskLiveOutput({
   subtaskKey: string;
   className?: string;
 }) {
-  const live = useQuery(api.subtaskLive.get, { taskId: taskId as never, key: subtaskKey });
+  // Settings → Threads: hide streamed output (the query is skipped too).
+  const [showLive] = useUiPref("liveOutput");
+  const live = useQuery(api.subtaskLive.get, showLive ? { taskId: taskId as never, key: subtaskKey } : "skip");
   const ref = useRef<HTMLPreElement>(null);
   const pinned = useRef(true);
   const text = live?.text ? liveTail(live.text) : "";

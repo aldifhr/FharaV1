@@ -28,6 +28,8 @@ import {
 import { api } from "@/api/convex/_generated/api";
 import { useNewProject } from "./NewProject";
 import { useSettings } from "./Settings";
+import { formatChord, matchesChord, useKeybindings } from "@/lib/keybindings";
+import { readUiPref } from "@/lib/uiPrefs";
 import CommandMenu from "./CommandMenu";
 import QueryBoundary from "./shell/QueryBoundary";
 import { clockTime } from "@/lib/format";
@@ -103,9 +105,40 @@ function RailButton({
   );
 }
 
+/**
+ * Settings → Devices: a desktop notification when the "needs you" count
+ * goes up while this window is in the background. Off unless the user
+ * turned it on (and the browser granted permission).
+ */
+function useAttentionNotification(total: number | undefined) {
+  const previous = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (total === undefined) return;
+    const before = previous.current;
+    previous.current = total;
+    if (before === undefined || total <= before) return;
+    if (!readUiPref("notifyAttention")) return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    if (document.visibilityState === "visible" && document.hasFocus()) return;
+    try {
+      const note = new Notification("Fhara", {
+        body: total === 1 ? "1 thing needs you" : `${total} things need you`,
+        tag: "fhara-needs-you",
+      });
+      note.onclick = () => {
+        window.focus();
+        window.location.assign("/inbox");
+      };
+    } catch {
+      /* notifications unavailable */
+    }
+  }, [total]);
+}
+
 /** Inbox dot: anything needing the user across projects. */
 function InboxButton({ active }: { active: boolean }) {
   const needs = useQuery(api.shell.needsYou, {});
+  useAttentionNotification(needs?.total);
   return <RailButton icon={Inbox} label="Inbox" href="/inbox" active={active} dot={(needs?.total ?? 0) > 0} />;
 }
 
@@ -210,25 +243,31 @@ export default function IconRail({
   const { openSettings } = useSettings();
   const [commandOpen, setCommandOpen] = useState(false);
   // "⌘K" on Mac, "Ctrl K" elsewhere; resolved after mount so SSR markup matches.
-  const [searchShortcut, setSearchShortcut] = useState("⌘K");
+  const [isMac, setIsMac] = useState(true);
   useEffect(() => {
     const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? "";
-    if (!/mac|iphone|ipad|ipod/i.test(platform)) setSearchShortcut("Ctrl K");
+    setIsMac(/mac|iphone|ipad|ipod/i.test(platform));
   }, []);
   const [panel, setPanel] = useState<"activity" | "insights" | null>(null);
   const activityRef = useRef<HTMLButtonElement>(null);
   const insightsRef = useRef<HTMLButtonElement>(null);
 
+  // Settings → Keybindings: both chords are rebindable.
+  const bindings = useKeybindings();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      if (event.defaultPrevented) return;
+      if (matchesChord(event, bindings.commandMenu)) {
         event.preventDefault();
         setCommandOpen(true);
+      } else if (matchesChord(event, bindings.openSettings)) {
+        event.preventDefault();
+        openSettings(projectId);
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, []);
+  }, [bindings, openSettings, projectId]);
 
   // Personal chats live under /chats too; the sidebar lists them, so "Chats" covers both.
   const inChat = pathname.startsWith("/chats");
@@ -265,7 +304,7 @@ export default function IconRail({
       <QueryBoundary fallback={<RailButton icon={Inbox} label="Inbox" href="/inbox" active={pathname === "/inbox"} />}>
         <InboxButton active={pathname === "/inbox"} />
       </QueryBoundary>
-      <RailButton icon={Search} label={`Search (${searchShortcut})`} onClick={() => setCommandOpen(true)} />
+      <RailButton icon={Search} label={`Search (${formatChord(bindings.commandMenu, isMac)})`} onClick={() => setCommandOpen(true)} />
       <span aria-hidden="true" className="my-2 h-px w-6 bg-line max-[979px]:hidden" />
       <RailButton icon={MessagesSquare} label="Chats" href={chatHref} active={inChat} />
       <RailButton icon={Users} label="Team" href={projectId ? `/team?project=${projectId}` : "/team"} active={pathname === "/team"} />

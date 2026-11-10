@@ -7,6 +7,7 @@ import { api } from "@/api/convex/_generated/api";
 import type { ChangesCardData } from "@/api/convex/cardTypes";
 import DiffCard from "../../DiffCard";
 import { CARD_SURFACE, MUTED } from "./primitives";
+import { useUiPref } from "@/lib/uiPrefs";
 
 /** Files beyond this start collapsed so a big change set stays scannable. */
 const EXPANDED_FILES = 3;
@@ -29,6 +30,8 @@ export default function ChangesCard({ data }: { data: ChangesCardData }) {
     return map;
   }, [changes, data.subtaskKey]);
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  // Settings → Diffs & pull requests: collapsed by default when turned off.
+  const [diffExpanded] = useUiPref("diffExpanded");
 
   return (
     <div className={CARD_SURFACE}>
@@ -44,7 +47,7 @@ export default function ChangesCard({ data }: { data: ChangesCardData }) {
       </div>
       {files.map((file, index) => {
         const change = byPath.get(file.path);
-        const expanded = open[file.path] ?? index < EXPANDED_FILES;
+        const expanded = open[file.path] ?? (diffExpanded && index < EXPANDED_FILES);
         if (!change) {
           return (
             <div key={file.path} className="flex items-center gap-2 border-t border-line px-4 py-2">

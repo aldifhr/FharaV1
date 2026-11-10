@@ -4,7 +4,6 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import Link from "next/link";
 import {
   SlidersHorizontal,
   Palette,
@@ -31,13 +30,37 @@ import {
   Search,
   RotateCcw,
   X,
-  ChevronDown,
   Check,
   Moon,
   Sun,
   Monitor,
+  Sparkles,
 } from "lucide-react";
 import LlmSettingsSection from "./LlmSettings";
+import {
+  AboutTab,
+  ArchiveTab,
+  BrowserTab,
+  DevicesTab,
+  DiffsTab,
+  EnvironmentsTab,
+  KeybindingsTab,
+  LabsTab,
+  MaintenanceTab,
+  ProjectsTab,
+  ProvidersTab,
+  ScheduledTab,
+  SharingTab,
+  SignInTab,
+  SnapshotsTab,
+  SourceControlTab,
+  ThreadsTab,
+  VoiceTab,
+  WorkspaceTab,
+  WorktreesTab,
+} from "./settings/tabs";
+import { resetUiPrefs } from "@/lib/uiPrefs";
+import { defaultKeybindings, writeKeybindings } from "@/lib/keybindings";
 import { useFont, type FontChoice } from "@/components/ui/use-font";
 import { useTheme } from "@/components/ui/use-theme";
 import { BUDGET_STORAGE_KEY, readLocalBudget } from "@/lib/usageWeek";
@@ -137,6 +160,7 @@ const NAV_ITEMS: { id: string; label: string; icon: typeof SlidersHorizontal; gr
   { id: "snapshots", label: "SnapShots", icon: Camera },
   // Agents group
   { id: "providers", label: "Providers", icon: Cpu, group: "Agents" },
+  { id: "models", label: "LLM & Models", icon: Sparkles, group: "Agents" },
   { id: "threads", label: "Threads", icon: ListFilter, group: "Agents" },
   { id: "chat", label: "Chat", icon: MessageSquare, group: "Agents" },
   { id: "browser", label: "Browser", icon: Globe, group: "Agents" },
@@ -155,18 +179,92 @@ const NAV_ITEMS: { id: string; label: string; icon: typeof SlidersHorizontal; gr
   { id: "labs", label: "Labs", icon: FlaskConical },
   { id: "about", label: "About", icon: Info },
   { id: "archive", label: "Archive", icon: Archive },
-  { id: "signin", label: "Sign in to Fhara", icon: LogIn },
+  { id: "signin", label: "Sign in", icon: LogIn },
 ];
 
-/** Real surfaces that already exist as pages; the modal links to them. */
-const WORKSPACE_LINKS = [
-  { id: "integrations", label: "Integrations", description: "GitHub connection, MCP servers.", href: "/integrations" },
-  { id: "library", label: "Library", description: "Agent skills and templates.", href: "/library" },
-  { id: "memory", label: "Memory", description: "Saved facts and context.", href: "/memory" },
-  { id: "team", label: "Team", description: "Agents, roles and performance.", href: "/team" },
-  { id: "sandbox", label: "Agent sandbox", description: "Try tools without a task.", href: "/sandbox" },
-  { id: "audit", label: "Audit log", description: "Every action the app took.", href: "/audit" },
-];
+/** The tabs that live in settings/tabs.tsx. */
+function ActiveTab({ id, projectId }: { id: string; projectId?: string }) {
+  switch (id) {
+    case "diffs":
+      return <DiffsTab />;
+    case "keybindings":
+      return <KeybindingsTab />;
+    case "voice":
+      return <VoiceTab />;
+    case "snapshots":
+      return <SnapshotsTab />;
+    case "threads":
+      return <ThreadsTab />;
+    case "browser":
+      return <BrowserTab />;
+    case "devices":
+      return <DevicesTab />;
+    case "scheduled":
+      return <ScheduledTab />;
+    case "projects":
+      return <ProjectsTab />;
+    case "source-control":
+      return <SourceControlTab />;
+    case "worktrees":
+      return <WorktreesTab />;
+    case "environments":
+      return <EnvironmentsTab />;
+    case "sharing":
+      return <SharingTab />;
+    case "workspace":
+      return <WorkspaceTab projectId={projectId} />;
+    case "maintenance":
+      return <MaintenanceTab />;
+    case "labs":
+      return <LabsTab />;
+    case "about":
+      return <AboutTab />;
+    case "archive":
+      return <ArchiveTab />;
+    case "signin":
+      return <SignInTab />;
+    default:
+      return null;
+  }
+}
+
+type NavItem = (typeof NAV_ITEMS)[number];
+
+/** Nav sections: the ungrouped items before the first group, each group, then the rest. */
+const NAV_SECTIONS: { key: string; title?: string; items: NavItem[] }[] = (() => {
+  const firstGrouped = NAV_ITEMS.findIndex((i) => i.group);
+  const sections: { key: string; title?: string; items: NavItem[] }[] = [
+    { key: "top", items: NAV_ITEMS.filter((i, index) => !i.group && index < firstGrouped) },
+  ];
+  for (const item of NAV_ITEMS) {
+    if (!item.group) continue;
+    let section = sections.find((s) => s.key === item.group);
+    if (!section) {
+      section = { key: item.group, title: item.group, items: [] };
+      sections.push(section);
+    }
+    section.items.push(item);
+  }
+  sections.push({ key: "bottom", items: NAV_ITEMS.filter((i, index) => !i.group && index > firstGrouped) });
+  return sections;
+})();
+
+function NavButton({ item, selected, onSelect }: { item: NavItem; selected: boolean; onSelect: (id: string) => void }) {
+  const Icon = item.icon;
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(item.id)}
+      aria-current={selected ? "page" : undefined}
+      className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-normal transition-colors ${
+        selected ? "bg-hover font-medium text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
+      }`}
+    >
+      <Icon size={15} className={selected ? "text-ink" : "text-ink-3"} />
+      <span>{item.label}</span>
+    </button>
+  );
+}
 
 export function SettingsModal({
   open,
@@ -255,147 +353,22 @@ export function SettingsModal({
             <nav className="flex-1 overflow-y-auto px-2 py-1 shell-scroll">
               {search.trim() ? (
                 <div className="space-y-0.5">
-                  {filteredItems.map((item) => {
-                    const Icon = item.icon;
-                    const isSelected = active === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setActive(item.id)}
-                        className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-normal transition-colors text-left ${
-                          isSelected
-                            ? "bg-[#27272a] text-white font-medium"
-                            : "text-neutral-400 hover:text-neutral-200 hover:bg-[#1c1c20]"
-                        }`}
-                      >
-                        <Icon size={15} className={isSelected ? "text-ink" : "text-ink-3"} />
-                        <span>{item.label}</span>
-                      </button>
-                    );
-                  })}
+                  {filteredItems.map((item) => (
+                    <NavButton key={item.id} item={item} selected={active === item.id} onSelect={setActive} />
+                  ))}
+                  {filteredItems.length === 0 && <p className="px-2.5 py-1.5 text-[12.5px] text-ink-3">No matching settings</p>}
                 </div>
               ) : (
-                <>
-                  <div className="space-y-0.5 pb-2">
-                    {NAV_ITEMS.filter((i) => !i.group && NAV_ITEMS.indexOf(i) < 7).map((item) => {
-                      const Icon = item.icon;
-                      const isSelected = active === item.id;
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => setActive(item.id)}
-                          className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-normal transition-colors text-left ${
-                            isSelected
-                              ? "bg-hover text-ink font-medium"
-                              : "text-ink-2 hover:text-ink hover:bg-hover"
-                          }`}
-                        >
-                          <Icon size={15} className={isSelected ? "text-ink" : "text-ink-3"} />
-                          <span>{item.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="pt-2 pb-2">
-                    <p className="px-2.5 pb-1.5 text-[11px] font-medium text-ink-3">Agents</p>
+                NAV_SECTIONS.map((section) => (
+                  <div key={section.key} className={section.key === "top" ? "space-y-0.5 pb-2" : "pt-2 pb-2"}>
+                    {section.title && <p className="px-2.5 pb-1.5 text-[11px] font-medium text-ink-3">{section.title}</p>}
                     <div className="space-y-0.5">
-                      {NAV_ITEMS.filter((i) => i.group === "Agents").map((item) => {
-                        const Icon = item.icon;
-                        const isSelected = active === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => setActive(item.id)}
-                            className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-normal transition-colors text-left ${
-                              isSelected
-                                ? "bg-hover text-ink font-medium"
-                                : "text-ink-2 hover:text-ink hover:bg-hover"
-                            }`}
-                          >
-                            <Icon size={15} className={isSelected ? "text-ink" : "text-ink-3"} />
-                            <span>{item.label}</span>
-                          </button>
-                        );
-                      })}
+                      {section.items.map((item) => (
+                        <NavButton key={item.id} item={item} selected={active === item.id} onSelect={setActive} />
+                      ))}
                     </div>
                   </div>
-
-                  <div className="pt-2 pb-2">
-                    <p className="px-2.5 pb-1.5 text-[11px] font-medium text-ink-3">Code</p>
-                    <div className="space-y-0.5">
-                      {NAV_ITEMS.filter((i) => i.group === "Code").map((item) => {
-                        const Icon = item.icon;
-                        const isSelected = active === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => setActive(item.id)}
-                            className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-normal transition-colors text-left ${
-                              isSelected
-                                ? "bg-hover text-ink font-medium"
-                                : "text-ink-2 hover:text-ink hover:bg-hover"
-                            }`}
-                          >
-                            <Icon size={15} className={isSelected ? "text-ink" : "text-ink-3"} />
-                            <span>{item.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="pt-2 pb-2">
-                    <p className="px-2.5 pb-1.5 text-[11px] font-medium text-ink-3">Connections</p>
-                    <div className="space-y-0.5">
-                      {NAV_ITEMS.filter((i) => i.group === "Connections").map((item) => {
-                        const Icon = item.icon;
-                        const isSelected = active === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => setActive(item.id)}
-                            className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-normal transition-colors text-left ${
-                              isSelected
-                                ? "bg-hover text-ink font-medium"
-                                : "text-ink-2 hover:text-ink hover:bg-hover"
-                            }`}
-                          >
-                            <Icon size={15} className={isSelected ? "text-ink" : "text-ink-3"} />
-                            <span>{item.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="pt-2 pb-4 space-y-0.5">
-                    {NAV_ITEMS.filter((i) => !i.group && NAV_ITEMS.indexOf(i) >= 18).map((item) => {
-                      const Icon = item.icon;
-                      const isSelected = active === item.id;
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => setActive(item.id)}
-                          className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-normal transition-colors text-left ${
-                            isSelected
-                              ? "bg-hover text-ink font-medium"
-                              : "text-ink-2 hover:text-ink hover:bg-hover"
-                          }`}
-                        >
-                          <Icon size={15} className={isSelected ? "text-ink" : "text-ink-3"} />
-                          <span>{item.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
+                ))
               )}
             </nav>
           </aside>
@@ -415,6 +388,8 @@ export function SettingsModal({
                   onClick={() => {
                     setTheme("system");
                     setFont("geist");
+                    resetUiPrefs();
+                    writeKeybindings(defaultKeybindings());
                   }}
                   className="flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink transition-colors py-1 px-2 rounded-md hover:bg-hover"
                 >
@@ -434,10 +409,12 @@ export function SettingsModal({
 
             {/* Scrollable Settings Panel */}
             <div className="flex-1 overflow-y-auto px-8 py-6 space-y-7 shell-scroll">
-              {active === "providers" ? (
+              {active === "models" ? (
                 <div className="space-y-6">
                   <LlmSettingsSection projectId={projectId} onProjectChange={onProjectChange} />
                 </div>
+              ) : active === "providers" ? (
+                <ProvidersTab onOpenModels={() => setActive("models")} />
               ) : active === "appearance" ? (
                 <>
                   <section className="rounded-xl border border-line bg-canvas p-3">
@@ -538,35 +515,8 @@ export function SettingsModal({
                     </div>
                   </div>
                 </section>
-              ) : active === "workspace" ? (
-                <section>
-                  <h3 className="text-[14px] font-semibold text-ink mb-2.5">Workspace</h3>
-                  <div className="rounded-xl border border-line bg-canvas divide-y divide-line overflow-hidden">
-                    {WORKSPACE_LINKS.map((link) => (
-                      <Link
-                        key={link.id}
-                        href={projectId ? `${link.href}?project=${projectId}` : link.href}
-                        className="flex items-center justify-between gap-6 px-4 py-3.5 transition-colors hover:bg-hover"
-                      >
-                        <span className="min-w-0">
-                          <span className="block text-[13px] font-medium text-ink">{link.label}</span>
-                          <span className="block text-[11.5px] leading-relaxed text-ink-3 mt-0.5">
-                            {link.description}
-                          </span>
-                        </span>
-                        <ChevronDown size={13} className="shrink-0 -rotate-90 text-ink-3" />
-                      </Link>
-                    ))}
-                  </div>
-                </section>
               ) : (
-                <div className="flex flex-col items-center justify-center py-16 text-center text-ink-3">
-                  <activeItem.icon size={36} className="text-neutral-600 mb-3" />
-                  <h4 className="text-sm font-medium text-ink">{activeItem.label}</h4>
-                  <p className="text-xs text-ink-3 mt-1 max-w-sm">
-                    Configure your {activeItem.label.toLowerCase()} preferences and workspace integrations here.
-                  </p>
-                </div>
+                <ActiveTab id={active} projectId={projectId} />
               )}
             </div>
           </main>

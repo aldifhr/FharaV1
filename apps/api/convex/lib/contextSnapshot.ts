@@ -2,8 +2,8 @@
  * Context Snapshot: what one LLM call actually saw.
  *
  * Pure helpers shared by the worker (task LLM calls), the Convex chat reply
- * loop, the Context Inspector and the Agent Playground (web). Nothing here
- * touches the database or the network.
+ * loop and the Context Inspector (web). Nothing here touches the database or
+ * the network.
  *
  *  - splitPromptSections: the call's messages → labelled sections (system
  *    persona, shared instructions, skills, memory, conversation history, tool
@@ -358,28 +358,6 @@ export function splitPromptSections(messages: PromptMessage[], extra?: { tools?:
     label: SECTION_LABELS[key],
     content: (out.get(key) ?? []).join("\n\n"),
   }));
-}
-
-/** Rebuild messages from (edited) sections — used by the playground. */
-export function sectionsToMessages(
-  sections: Array<Pick<SnapshotSection, "key" | "content">>,
-  options: { toolsEnabled?: boolean } = {}
-): { system: string; messages: PromptMessage[] } {
-  const by = (key: SectionKey) =>
-    sections
-      .filter((s) => s.key === key)
-      .map((s) => s.content.trim())
-      .filter(Boolean)
-      .join("\n\n");
-  const systemParts = [by("system"), by("shared"), by("skills"), by("memory")];
-  if (options.toolsEnabled) systemParts.push(by("tools"));
-  const system = systemParts.filter(Boolean).join("\n\n");
-  const messages: PromptMessage[] = [];
-  const history = by("history");
-  if (history) messages.push({ role: "user", content: `Earlier conversation (for context):\n${history}` });
-  const user = [by("task"), by("user")].filter(Boolean).join("\n\n");
-  messages.push({ role: "user", content: user || "(empty)" });
-  return { system, messages };
 }
 
 // ── Facts the inspector lists ───────────────────────────────────────────

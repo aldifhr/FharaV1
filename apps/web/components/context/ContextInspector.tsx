@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useQuery } from "convex/react";
-import { ChevronDown, ChevronRight, Copy, FlaskConical } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { useToast } from "@/components/Toasts";
 import { CALL_ROLE_LABELS, sectionShares, type CallRole } from "@/api/convex/lib/contextSnapshot";
@@ -132,12 +131,6 @@ export default function ContextInspector({ snapshotId }: { snapshotId: string })
         <div className="flex items-center gap-3">
           <CopyButton text={fullText} what="Prompt" label="Copy prompt" />
           <CopyButton text={snap.response} what="Response" label="Copy response" />
-          <Link
-            href={`/playground?snapshot=${snap._id}`}
-            className="inline-flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink"
-          >
-            <FlaskConical size={12} /> Open in Playground
-          </Link>
         </div>
       </div>
 

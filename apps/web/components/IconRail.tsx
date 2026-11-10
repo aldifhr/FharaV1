@@ -24,9 +24,6 @@ import {
   Share2,
   Sparkles,
   Users,
-  FlaskConical,
-  Globe,
-  Workflow,
 } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { useNewProject } from "./NewProject";
@@ -269,10 +266,7 @@ export default function IconRail({
       <RailButton icon={BookOpen} label="Library" href="/library" active={pathname === "/library"} />
       <RailButton icon={Brain} label="Memory" href={projectId ? `/memory?scope=project&project=${projectId}` : "/memory"} active={pathname === "/memory"} />
       <RailButton icon={GitBranch} label="Runs" href={projectId ? `/runs?project=${projectId}` : "/runs"} active={pathname.startsWith("/runs")} />
-      <RailButton icon={FlaskConical} label="Playground" href="/playground" active={pathname === "/playground"} />
-      <RailButton icon={Workflow} label="Workflow Studio" href="/workflows" active={pathname.startsWith("/workflows")} />
       <RailButton icon={TestTubes} label="Agent Sandbox" href="/sandbox" active={pathname === "/sandbox"} />
-      <RailButton icon={Globe} label="Browser Lab" href="/browser-lab" active={pathname === "/browser-lab"} />
       {projectId && (
         <>
           <RailButton icon={KanbanSquare} label="Board" href={`/chats/${projectId}?tab=tasks`} />
@@ -285,13 +279,13 @@ export default function IconRail({
           />
         </>
       )}
-      {/* Evaluations + Audit log share one rail slot to keep the rail short. */}
+      {/* Insights: audit log and self-improvement lab share one rail slot to keep the rail short. */}
       <RailButton
         icon={BarChart3}
         label="Insights"
         buttonRef={insightsRef}
         expanded={panel === "insights"}
-        active={pathname === "/evals" || pathname === "/audit" || pathname === "/improve"}
+        active={pathname === "/audit" || pathname === "/improve"}
         onClick={() => setPanel((p) => (p === "insights" ? null : "insights"))}
       />
       <div className="mt-auto flex flex-col items-center gap-1 pt-3 max-[979px]:ml-auto max-[979px]:mt-0 max-[979px]:flex-row max-[979px]:pt-0">
@@ -316,7 +310,6 @@ export default function IconRail({
         <RailPanel anchor={insightsRef.current} onClose={() => setPanel(null)} width={220}>
           <div role="menu" aria-label="Insights" className="p-1.5">
             {[
-              { icon: BarChart3, label: "Evaluations", href: projectId ? `/evals?project=${projectId}` : "/evals", path: "/evals" },
               { icon: ScrollText, label: "Audit log", href: projectId ? `/audit?project=${projectId}` : "/audit", path: "/audit" },
               { icon: Sparkles, label: "Improve", href: projectId ? `/improve?project=${projectId}` : "/improve", path: "/improve" },
             ].map(({ icon: Icon, label, href, path }) => (

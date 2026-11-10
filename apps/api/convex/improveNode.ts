@@ -5,7 +5,7 @@
  * request / read / store functions stay in improve.ts; this module only
  * holds the action that calls the user's LLM endpoint.
  *
- * Why Node (same as reviewerNode.ts / playgroundNode.ts): a user's
+ * Why Node (same as reviewerNode.ts): a user's
  * OpenAI-compatible gateway is often a plain `http://<ip>:<port>` endpoint.
  * From the default Convex runtime that fetch failed with "LLM request
  * failed: 404" while the "use node" chat reached the same gateway with the

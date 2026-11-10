@@ -5,7 +5,7 @@
  * the pool query stay in llmProviders.ts; this module only holds the action
  * that calls the user's LLM endpoint.
  *
- * Why Node (same as reviewerNode.ts / playgroundNode.ts): from the default
+ * Why Node (same as reviewerNode.ts): from the default
  * Convex runtime a plain `http://<ip>:<port>` OpenAI-compatible gateway
  * answered "LLM request failed: 404" while the "use node" chat reached it
  * with the same config. The call now goes through lib/chat/llm, which tries

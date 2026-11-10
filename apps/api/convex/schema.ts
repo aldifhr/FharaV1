@@ -170,7 +170,8 @@ export const notificationKind = v.union(
 // Workflow Studio (plan 030): a visual agent-workflow DAG definition. Node
 // and edge shapes stay string-keyed (frontend ids such as `node_abc12345`),
 // not Convex ids: they are a frontend DAG contract and the backend
-// ExecutionPlan mapping is future work. Mirrors `@/lib/workflow` in the web.
+// ExecutionPlan mapping is future work. The studio UI was removed; the
+// validators below only describe the retained `workflows` table.
 export const workflowNodeType = v.union(
   v.literal("start"),
   v.literal("agent"),
@@ -207,13 +208,10 @@ export const workflowEdgeValidator = v.object({
 });
 
 /**
- * Partial patch of a workflow; `undefined` fields are left untouched.
+ * The Workflow Studio UI was removed. The `workflows` table and its
+ * node/edge validators stay so stored definitions are not destroyed, but
+ * nothing reads or writes them any more.
  */
-export const workflowPatchValidator = v.object({
-  name: v.optional(v.string()),
-  nodes: v.optional(v.array(workflowNodeValidator)),
-  edges: v.optional(v.array(workflowEdgeValidator)),
-});
 
 export default defineSchema({
   projects: defineTable({
@@ -1449,8 +1447,10 @@ export default defineSchema({
 
   // Workflow Studio (plan 030): user-defined agent-workflow DAGs, persisted
   // backend-side like every other Fhara store. Additive: a fresh table, no
-  // legacy rows, no migration. The execution mapping into ExecutionPlan
-  // subtasks is future work.
+  // legacy rows, no migration. The studio UI was removed by user request, so
+  // nothing reads or writes this table any more; it is kept (not dropped) so
+  // stored definitions are not destroyed. The execution mapping into
+  // ExecutionPlan subtasks was never implemented.
   workflows: defineTable({
     name: v.string(),
     createdAt: v.number(),

@@ -14,7 +14,6 @@ import {
   retentionCutoff,
   retentionDays,
   sectionShares,
-  sectionsToMessages,
   splitPromptSections,
 } from "./lib/contextSnapshot";
 import { buildReplaySteps, diffRuns, lineDiff, type RunSide } from "./lib/replay";
@@ -196,17 +195,6 @@ describe("section split", () => {
     const sum = shares.reduce((n, s) => n + s.share, 0);
     expect(sum).toBeGreaterThan(99);
     expect(sum).toBeLessThan(101);
-  });
-
-  test("sectionsToMessages leaves tool definitions out unless enabled", () => {
-    const sections = [
-      { key: "system" as const, content: "P" },
-      { key: "tools" as const, content: "TOOLS" },
-      { key: "user" as const, content: "Q" },
-    ];
-    expect(sectionsToMessages(sections).system).not.toContain("TOOLS");
-    expect(sectionsToMessages(sections, { toolsEnabled: true }).system).toContain("TOOLS");
-    expect(sectionsToMessages(sections).messages.at(-1)).toEqual({ role: "user", content: "Q" });
   });
 });
 

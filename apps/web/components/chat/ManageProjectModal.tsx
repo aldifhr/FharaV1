@@ -270,7 +270,7 @@ export default function ManageProjectModal({
           <span className="text-[12.5px] text-ink-3">
             {retention && !retention.enabled
               ? "Recording is off for this deployment (CONTEXT_SNAPSHOTS=0)."
-              : "What each LLM call saw, for Inspect context, Replay and the Playground. Older snapshots are deleted daily."}
+              : "What each LLM call saw, for Inspect context and Replay. Older snapshots are deleted daily."}
           </span>
         </label>
         <fieldset className="grid gap-2">

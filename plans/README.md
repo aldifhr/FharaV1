@@ -33,7 +33,7 @@ execution order and a definition of done.
 | 026 | [Decision Outcome Calibration](026-decision-outcome-calibration.md) | P1 | L | 021, 022, 025 | IN PROGRESS (implemented with unit tests; live smoke and browser check pending) |
 | 027 | [Model Capability Registry and performance routing](027-model-capabilities-and-performance-routing.md) | P2 | L | 022, 024, 025 | IN PROGRESS (implemented with unit tests; live smoke and browser check pending) |
 | 028 | [Chat activity timeline, decisions tray, in-process command approvals](028-chat-activity-and-decisions-tray.md) | P1 | L | 015, 020 | IN PROGRESS (implemented with unit tests; browser check and live worker smoke pending) |
-| 030 | [Workflow Studio persistence on the backend](030-workflow-studio-backend.md) | P2 | M | 028 | IN PROGRESS (implemented; backend + web tests pass; browser check pending) |
+| 030 | [Workflow Studio persistence on the backend](030-workflow-studio-backend.md) | P2 | M | 028 | REJECTED: feature removed by user request (studio UI, backend module and tests deleted; `workflows` table kept, unwritten) |
 | 031 | [User-selectable LLM selection mode (fallback vs round robin)](031-llm-selection-mode-fallback-or-round-robin.md) | P2 | M | 027, 022 | IN PROGRESS (implemented with unit tests; browser check pending) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,

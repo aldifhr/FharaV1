@@ -254,7 +254,7 @@ export const get = query({
   },
 });
 
-/** Recent snapshots across visible projects (the playground's picker). */
+/** Recent snapshots across visible projects (the Context Inspector's picker). */
 export const recent = query({
   args: { projectId: v.optional(v.id("projects")), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {

@@ -43,7 +43,7 @@ export async function completeWithAgent(
   history: { role: string; content: string }[],
   globalConfig: ChatLlmConfig,
   onChunk?: (partial: StreamChunk) => void,
-  /** Optional sampling temperature (the playground); unset = provider default. */
+  /** Optional sampling temperature; unset = provider default. */
   opts?: { temperature?: number },
 ): Promise<CompleteResult> {
   const temperature =

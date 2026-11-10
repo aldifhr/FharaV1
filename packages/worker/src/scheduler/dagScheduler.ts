@@ -160,6 +160,8 @@ const PERMANENT_SUBTASK_ERROR_PATTERNS: readonly RegExp[] = [
   // replaying the same subtask would only escalate again.
   /^Escalated \(/,
   /role is read-only/i,
+  // Plan 040: a role permission refusal is final for that agent.
+  /^Refused: the .* role /,
   // Plan validation failures (planValidator messages)
   /^plan\.(goal|subtasks) /i,
   /plan has \d+ subtasks; limit is/i,

@@ -7,6 +7,8 @@
  * every call, secret-shaped args are redacted, and the sandbox / argv
  * allowlist rules from `tools.ts` are reused unchanged.
  */
+import { ROLES } from "@/api/convex/lib/roles";
+import { resolveRoleKey } from "@/utils/rolePolicy";
 import {
   audit,
   maskSecrets,
@@ -30,18 +32,20 @@ export interface ToolDefinition {
 }
 
 /**
- * Permission matrix per role family (least privilege):
- *  - write-capable tools require a matching capability — read-only roles
- *    (researcher/support) are refused at the broker even if an
- *    agent declares the tool, and every denial is audited.
+ * Permission matrix per role (least privilege), derived from the shared
+ * role policy (plan 040, apps/api/convex/lib/roles.ts `permissions`): a
+ * role that may not write is refused `write_file`, one that may not run
+ * commands `run_command`, at the broker even if the agent declares the
+ * tool. Every denial is audited. Custom roles keep their declared tools.
  */
-const ROLE_DENIED_TOOLS: Array<{ pattern: RegExp; denied: string[] }> = [
-  { pattern: /^researcher$/i, denied: ["write_file", "run_command"] },
-  // Plan 022: the reviewer is strictly read-only (it judges diffs; the
-  // runtime verification loop runs the commands). Before this rule a
-  // reviewer that declared write_file/run_command reached them.
-  { pattern: /^reviewer$/i, denied: ["write_file", "run_command"] },
-];
+function roleDeniesTool(roleName: string, tool: string): boolean {
+  const key = resolveRoleKey(roleName);
+  if (!key) return false;
+  const permissions = ROLES[key].permissions;
+  if (tool === "write_file") return permissions.write === false;
+  if (tool === "run_command") return permissions.shell === "none";
+  return false;
+}
 
 const TOOL_REGISTRY: ToolDefinition[] = [
   {
@@ -139,10 +143,7 @@ export async function tool_call(input: {
   if (!def) return denied(REASON_TOOL_UNKNOWN);
   // Role matrix denial (least privilege), enforced at the broker layer.
   const roleName = input.ctx.agentRole ?? "";
-  const matrixDenial = ROLE_DENIED_TOOLS.find(
-    (rule) => rule.pattern.test(roleName) && rule.denied.includes(def.name)
-  );
-  if (matrixDenial) {
+  if (roleDeniesTool(roleName, def.name)) {
     return denied(`denied:${roleName ? `${roleName}:` : ""}${def.name}:read-only-role`);
   }
   // Search scope enforced.

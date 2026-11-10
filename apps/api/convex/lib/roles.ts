@@ -26,6 +26,40 @@ export const ROLE_KEYS = [
 
 export type RoleKey = (typeof ROLE_KEYS)[number];
 
+/**
+ * What a role may do, enforced by the worker executor (plan 040), not only
+ * by its prompt.
+ *
+ * - `write`: `true` = stage file changes anywhere in its subtask scope;
+ *   an array = only paths matching one of these globs (`*` within a path
+ *   segment, a trailing `/**` for a whole directory); `false` = never.
+ * - `shell`: `"allowlist"` = any command on the worker's exact-argv
+ *   allowlist; `"verify"` = only the verification commands on it (tests,
+ *   typecheck, build, read-only git); `"none"` = no commands.
+ * - `web`: the read-only Agent Reach web tool (`web_reach`).
+ * - `push`: always false. Push / PR stay user-approved runtime steps.
+ *
+ * Destructive or push-like commands always ask for approval for every role
+ * (lib/commandRules.ts); nothing here relaxes that.
+ */
+export interface RolePermissions {
+  read: true;
+  write: boolean | readonly string[];
+  shell: "none" | "verify" | "allowlist";
+  web: boolean;
+  push: false;
+}
+
+/** D7: the only paths DevOps may write (CI, containers, infra). */
+export const DEVOPS_WRITE_PATHS: readonly string[] = [
+  ".github/**",
+  "Dockerfile*",
+  "**/Dockerfile*",
+  "docker-compose*",
+  "**/docker-compose*",
+  "infra/**",
+];
+
 export interface RoleDefinition {
   key: RoleKey;
   /** Short label shown in the UI and used as the seeded agent's name. */
@@ -48,6 +82,8 @@ export interface RoleDefinition {
   registryCapabilities: readonly string[];
   /** Default tools (agent `supportedTools` and registry `defaultTools`). */
   defaultTools: readonly string[];
+  /** Enforced permissions (plan 040). `defaultTools` mirrors them. */
+  permissions: RolePermissions;
   /** Fixed-team scheduling defaults. */
   priority: number;
   maxConcurrency: number;
@@ -71,6 +107,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     capabilities: ["architecture", "security-audit"],
     registryCapabilities: ["architecture", "security-audit"],
     defaultTools: ["read_file"],
+    permissions: { read: true, write: false, shell: "none", web: false, push: false },
     priority: 9,
     maxConcurrency: 2,
     hint: "Decide technical approach, architecture, and risk with brief rationale. Read-only planning and review — no code writing, no over-engineering. Report to the owner in 2-3 plain-language sentences, no bullets, headers, or terminal output.",
@@ -86,7 +123,8 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     registryDescription: "UI/UX, wireframes, design system, component specifications.",
     capabilities: ["ui-ux-design"],
     registryCapabilities: ["ui-ux-design"],
-    defaultTools: ["read_file", "write_file"],
+    defaultTools: ["read_file"],
+    permissions: { read: true, write: false, shell: "none", web: false, push: false },
     priority: 8,
     maxConcurrency: 1,
     hint: "Produce implementable design specs (layout, components, tokens, states, responsive) with accessibility considered. Design only — no code edits.",
@@ -104,6 +142,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     capabilities: ["frontend-development"],
     registryCapabilities: ["frontend-development"],
     defaultTools: ["read_file", "write_file", "run_command"],
+    permissions: { read: true, write: true, shell: "allowlist", web: false, push: false },
     priority: 8,
     maxConcurrency: 2,
     hint: "Implement exactly the assigned frontend subtask, reusing UI primitives; strict TypeScript, accessible markup, English copy. Report changed files and limits. Never mark the global task complete.",
@@ -121,6 +160,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     capabilities: ["backend-development"],
     registryCapabilities: ["backend-development"],
     defaultTools: ["read_file", "write_file", "run_command"],
+    permissions: { read: true, write: true, shell: "allowlist", web: false, push: false },
     priority: 8,
     maxConcurrency: 2,
     hint: "Implement exactly the assigned backend subtask (Convex functions, schema, validation), keeping security invariants and additive schema changes. Report changed files and limits. Never mark the global task complete.",
@@ -138,6 +178,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     capabilities: ["browser-testing"],
     registryCapabilities: ["browser-testing"],
     defaultTools: ["read_file", "run_command"],
+    permissions: { read: true, write: false, shell: "verify", web: false, push: false },
     priority: 7,
     maxConcurrency: 2,
     hint: "Verify with the narrowest relevant checks and report evidence. Distinguish executed tests from proposed ones — never fabricate results. Defects go back to the implementer with a concrete repro.",
@@ -153,7 +194,8 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     registryDescription: "Documentation, user support, operational assistance, troubleshooting.",
     capabilities: ["documentation-support", "general"],
     registryCapabilities: ["documentation-support"],
-    defaultTools: ["read_file", "write_file"],
+    defaultTools: ["read_file"],
+    permissions: { read: true, write: false, shell: "none", web: false, push: false },
     priority: 6,
     maxConcurrency: 1,
     hint: "Answer the actual question first, then the how. Never invent features or behavior — check the code or say it is unknown. Docs and guidance only, no code changes.",
@@ -169,7 +211,8 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     registryDescription: "Docker, CI/CD, deployment, infrastructure.",
     capabilities: ["github", "shell-execution"],
     registryCapabilities: ["github", "shell-execution"],
-    defaultTools: ["read_file", "run_command"],
+    defaultTools: ["read_file", "write_file", "run_command"],
+    permissions: { read: true, write: DEVOPS_WRITE_PATHS, shell: "allowlist", web: false, push: false },
     priority: 7,
     maxConcurrency: 2,
     hint: "Changes are policy-gated. Prefer minimal, reversible infra changes; report exact commands run and their output.",
@@ -186,6 +229,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     capabilities: ["code-review"],
     registryCapabilities: ["code-review"],
     defaultTools: ["read_file"],
+    permissions: { read: true, write: false, shell: "none", web: false, push: false },
     priority: 7,
     maxConcurrency: 2,
     hint: "Review diffs independently with file references. Never silently modify code or approve your own work.",
@@ -204,6 +248,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     // Plan 036: `web_reach` is the read-only Agent Reach web tool (public
     // channels only). The researcher is the role that needs it.
     defaultTools: ["read_file", "web_reach"],
+    permissions: { read: true, write: false, shell: "none", web: true, push: false },
     priority: 6,
     maxConcurrency: 2,
     hint: "Prefer official docs; distinguish facts from assumptions with sources. Read-only research — no file modifications.",
@@ -246,6 +291,82 @@ export const LEGACY_ROLE_SUCCESSORS: Readonly<Record<string, RoleKey>> = {
 export const REVOKED_DEFAULT_CAPABILITIES: Readonly<Record<string, readonly string[]>> = {
   cto: ["code-review"],
 };
+
+/**
+ * Default tools added to EXISTING fixed-team rows by the sync (plan 040).
+ * Only these are unioned in, never the whole default list, so a tool a
+ * user removed from a row by hand stays removed.
+ */
+export const ADDED_DEFAULT_TOOLS: Readonly<Record<string, readonly string[]>> = {
+  researcher: ["web_reach"],
+  devops: ["write_file"],
+};
+
+/**
+ * Default tools a fixed role used to ship with and must no longer carry
+ * (plan 040: Designer and Support are read-only). The executor enforces the
+ * role's `permissions` either way; this keeps the stored rows honest.
+ */
+export const REVOKED_DEFAULT_TOOLS: Readonly<Record<string, readonly string[]>> = {
+  designer: ["write_file"],
+  support: ["write_file"],
+};
+
+/** Permissions for a fixed role key (null for an unknown/custom role). */
+export function rolePermissionsFor(role: string | undefined): RolePermissions | null {
+  const raw = normalizeRoleKey(role);
+  const key: string = LEGACY_ROLE_SUCCESSORS[raw] ?? raw;
+  return isRoleKey(key) ? ROLES[key].permissions : null;
+}
+
+/**
+ * Permissions for a custom role (not one of the nine): derived from the
+ * row's declared tools, which is what such an agent could do before
+ * plan 040. Never grants push.
+ */
+export function permissionsFromTools(supportedTools: readonly string[] | undefined): RolePermissions {
+  const tools = new Set(supportedTools ?? []);
+  return {
+    read: true,
+    write: tools.has("write_file"),
+    shell: tools.has("run_command") ? "allowlist" : "none",
+    web: tools.has("web_reach"),
+    push: false,
+  };
+}
+
+function globToRegExp(glob: string): RegExp {
+  let out = "";
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i];
+    if (ch === "*" && glob[i + 1] === "*") {
+      // "**/" matches zero or more directories; a trailing "**" anything.
+      if (glob[i + 2] === "/") {
+        out += "(?:.*/)?";
+        i += 2;
+      } else {
+        out += ".*";
+        i += 1;
+      }
+    } else if (ch === "*") {
+      out += "[^/]*";
+    } else if (ch === "?") {
+      out += "[^/]";
+    } else {
+      out += ch.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    }
+  }
+  return new RegExp(`^${out}$`);
+}
+
+/** Whether `permissions` let the role write `filePath` (repo-relative). */
+export function canWritePath(permissions: RolePermissions, filePath: string): boolean {
+  if (permissions.write === true) return true;
+  if (permissions.write === false) return false;
+  const normalized = filePath.replace(/\\/g, "/").replace(/^\.\//, "");
+  if (!normalized || normalized.split("/").includes("..")) return false;
+  return permissions.write.some((glob) => globToRegExp(glob).test(normalized));
+}
 
 /** "Product Analyst", "product_analyst", "UI/UX" → "product-analyst", "ui-ux". */
 export function normalizeRoleKey(role: string | undefined): string {

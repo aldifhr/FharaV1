@@ -9,6 +9,8 @@ import { WRAP_UP_MAX_LINES } from "../chat/wrapUp";
 import { isHandoffLine } from "../chat/dispatch";
 import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_TOOL } from "../skills";
 import { LOAD_SKILL_TOOL_LINE } from "../skillRuntime";
+import { LEGACY_ROLE_SUCCESSORS, isRoleKey, normalizeRoleKey, roleChatSummary } from "../roles";
+import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT, PREVIOUS_SEED_PROMPTS } from "./agents";
 
 type Persona = { name: string; role: string; systemPrompt?: string; skillsSection?: string; memorySection?: string };
 
@@ -451,22 +453,62 @@ export const OPTIONS_GUIDANCE =
   "Only use an options block when the user explicitly asks you to propose alternatives for them to pick from for something you will build (e.g. layout or design directions). Never use it for questions, comparisons, recommendations (\"X vs Y, which fits?\" gets your pick in prose), explanations, greetings, status reports, or task updates — answer those plainly. Format when used, exactly:\n[options]\nA|Short title|One-line summary|layout|Toolbar / Templates + Editor*2 + Preview A4\nB|Short title|One-line summary|layout|Toolbar / Editor\n[/options]\nFor a visual layout, the 4th field is 'layout' and the 5th draws the real wireframe: rows split by ' / ', regions in a row split by ' + ', an optional width weight like 'Editor*2', each region named with the words from your summary (max 4 rows, 4 regions per row, 2-3 words each). Each option's wireframe must match its own summary. Use plain as the 4th field (and no 5th) for anything that is not a visual layout (libraries, approaches, wording). Keep it to ONE block per reply, then stop.\nBase the options on the user's CURRENT request only — do not carry over past tasks, files, or topics from earlier in this conversation unless the user asks for them personally. Keep your reply before the block to one short sentence: no plan summary, no delegation talk, no 'Create task' instructions. A pick is an opinion, not an order — do not start execution yourself.\nWhen the user picks one of your options, reply starting with 'I agree' if you endorse the choice, or explain your objection and why.";
 
 /**
+ * Whether `prompt` is still a built-in seed persona (never edited by the
+ * user). Seeds are written for task execution in this product's own stack
+ * (e.g. "Convex queries/mutations", "Boundaries: no UI work"), so a personal
+ * chat with no project swaps an unedited seed for the stack-neutral area.
+ */
+export function isSeedPersonaPrompt(role: string, prompt: string | undefined): boolean {
+  const text = (prompt ?? "").trim();
+  if (!text) return false;
+  if (text === GENERIC_AGENT_PROMPT || text === LEGACY_UI_UX_PROMPT) return true;
+  const raw = normalizeRoleKey(role);
+  const key: string = LEGACY_ROLE_SUCCESSORS[raw] ?? raw;
+  if (!isRoleKey(key)) return false;
+  return text === AGENT_SEED_PROMPTS[key].trim() || (PREVIOUS_SEED_PROMPTS[key] ?? []).some((p) => p.trim() === text);
+}
+
+/**
+ * Personal mode (no project attached): a private 1:1 chat for
+ * brainstorming, technical discussion, learning, questions and general
+ * help. Role boundaries govern task work, not conversation; no repo or
+ * Attach-project talk unless the user asks about their own code.
+ */
+export function buildPersonalModeSection(agent: { role: string }, opts: { skillTool?: boolean } = {}): string {
+  const area = roleChatSummary(agent.role);
+  return [
+    "## Personal chat",
+    "This is a private one-to-one chat with the user: brainstorming, technical discussion, learning, questions and general help.",
+    area ? `Your area as ${agent.role}: ${area}` : "",
+    "Help broadly with your area and with general technical questions in any language, framework or stack the user brings up, not only the stack named in your task instructions. Answer directly and naturally, in the user's language.",
+    "Your role boundaries limit what you DO in tasks (writing code, running commands), not what you can talk about. Never recite your scope, boundaries or what you are not, unless the user asks what you can't do.",
+    "No project, repository or workspace is attached to this chat. Do not mention the repo, attaching a project, or that you have not checked anything, unless the user asks about their own code or files or wants work done on them; then say once, briefly, that attaching a project (Attach project) lets you read it.",
+    "If a question is clearly another teammate's specialty, you may name that role (without @) in one short line, and still help as far as you can.",
+    opts.skillTool ? "" : "You have no tools in this reply: never output a tool call or JSON.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
  * Personal chat (plan 039): the opening of a one-to-one reply. No project:
- * the agent says plainly it cannot read files, run commands or start tasks,
- * and points at Attach project. Attached: the project's repo snapshot and
- * read-only tools (when available), tasks only through Create task.
+ * personal mode (buildPersonalModeSection), with an unedited seed persona
+ * swapped for the role's stack-neutral area. Attached: the project's repo
+ * snapshot and read-only tools (when available), tasks only through Create
+ * task; the caller adds the grounding rule.
  */
 export function buildPersonalChatSystem(
   agent: Persona,
-  opts: { projectName: string | null; repoSnapshot: string | null; repoTools: boolean }
+  opts: { projectName: string | null; repoSnapshot: string | null; repoTools: boolean; skillTool?: boolean }
 ): string[] {
   const attached = opts.projectName !== null;
+  const persona = !attached && isSeedPersonaPrompt(agent.role, agent.systemPrompt) ? "" : (agent.systemPrompt ?? "");
   return [
     attached
       ? `You are ${agent.name}, a ${agent.role}, in a personal one-to-one chat with the user. This chat is attached to project "${opts.projectName}".`
       : `You are ${agent.name}, a ${agent.role}, in a personal one-to-one chat with the user.`,
     NOT_THE_MODEL,
-    agent.systemPrompt ?? "",
+    persona,
     agent.skillsSection ?? "",
     agent.memorySection ?? "",
     attached
@@ -480,8 +522,10 @@ export function buildPersonalChatSystem(
         ]
           .filter(Boolean)
           .join("\n")
-      : "No project, repository or workspace is attached to this chat: you cannot read files, run commands or start tasks here. If the user asks for work on code, say they can attach a project to this chat (Attach project) and you will continue there.",
-    "You are the only agent in this chat. Never hand the question to a teammate, @mention teammates to pull them in, or speak for other agents.",
+      : buildPersonalModeSection(agent, { skillTool: opts.skillTool }),
+    attached
+      ? "You are the only agent in this chat. Never hand the question to a teammate, @mention teammates to pull them in, or speak for other agents."
+      : "You are the only agent in this chat. Never @mention teammates to pull them in or speak for other agents.",
     "Reply in the user's language.",
   ].filter(Boolean);
 }

@@ -161,6 +161,8 @@ describe("attachProject", () => {
     await say(s, conv, "hello");
     expect(calls[0].system).not.toContain("PROJECT-MEMORY");
     expect(calls[0].system).not.toContain("## Repo tools");
+    expect(calls[0].system).toContain("## Personal chat");
+    expect(calls[0].system).not.toContain("Grounding rule");
 
     await s.t.mutation(api.conversations.attachProject, { conversationId: conv, projectId: s.projectId });
     calls.length = 0;
@@ -169,6 +171,9 @@ describe("attachProject", () => {
     expect(calls[0].system).toContain('attached to project "Fhara"');
     expect(calls[0].system).toContain("PROJECT-MEMORY");
     expect(calls[0].system).toContain("## Repo tools");
+    // Attached: the repo grounding rule is back, personal mode is off.
+    expect(calls[0].system).toContain("Grounding rule");
+    expect(calls[0].system).not.toContain("## Personal chat");
     expect(calls[0].system).toContain("apps/");
     // The call went to the worker queue (rows are deleted after each call;
     // no worker answers here, so it is recorded as an unclaimed read).

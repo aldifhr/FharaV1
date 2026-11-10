@@ -1169,8 +1169,11 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           projectName: scopeProjectId ? projectName : null,
           repoSnapshot,
           repoTools: useRepoTools,
+          skillTool: skillLoader !== undefined,
         }),
-        ...buildGroundingGuidance(useRepoTools, skillLoader !== undefined),
+        // Repo grounding only with a project attached (snapshot/tools);
+        // without one it made every answer open with "belum saya cek repo".
+        ...(scopeProjectId ? buildGroundingGuidance(useRepoTools, skillLoader !== undefined) : []),
         wantsOptions(lastText) ? OPTIONS_GUIDANCE : "Answer in prose. Do not output an [options] block.",
         useRepoTools
           ? buildRepoToolProtocol(MAX_REPO_TOOL_CALLS, { loadSkill: skillLoader !== undefined })

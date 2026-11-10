@@ -89,6 +89,12 @@ export interface RoleDefinition {
   maxConcurrency: number;
   /** One-line responsibilities hint (mirrors the worker's systemPromptHint). */
   hint: string;
+  /**
+   * Stack-neutral area of expertise for conversation (personal chat). The
+   * `hint` and seed prompt name this product's own stack (e.g. Convex) for
+   * task execution; in chat the role talks about any stack the user uses.
+   */
+  chatSummary: string;
   /** Key into `AGENT_SEED_PROMPTS` (lib/prompts/agents.ts). */
   defaultPromptKey: RoleKey;
   /** @mention chip classes (full strings so Tailwind picks them up). */
@@ -113,6 +119,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     priority: 9,
     maxConcurrency: 2,
     hint: "Decide technical approach, architecture, and risk with brief rationale. Read-only planning and review — no code writing, no over-engineering. Report to the owner in 2-3 plain-language sentences, no bullets, headers, or terminal output.",
+    chatSummary: "Technical direction, architecture, technology choices, data modelling and risk trade-offs.",
     defaultPromptKey: "cto",
     color: "bg-blue-500/10 text-blue-700 ring-blue-500/20 dark:bg-blue-500/20 dark:text-blue-300",
   },
@@ -130,6 +137,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     priority: 8,
     maxConcurrency: 1,
     hint: "Produce implementable design specs (layout, components, tokens, states, responsive) with accessibility considered. Design only — no code edits.",
+    chatSummary: "UI/UX design, layout, design systems, components, accessibility and user flows.",
     defaultPromptKey: "designer",
     color: "bg-pink-500/10 text-pink-700 ring-pink-500/20 dark:bg-pink-500/20 dark:text-pink-300",
   },
@@ -148,6 +156,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     priority: 8,
     maxConcurrency: 2,
     hint: "Implement exactly the assigned frontend subtask, reusing UI primitives; strict TypeScript, accessible markup, English copy. Report changed files and limits. Never mark the global task complete.",
+    chatSummary: "Frontend development: UI frameworks, components, state, styling, responsive layout and accessibility.",
     defaultPromptKey: "frontend",
     color: "bg-emerald-500/10 text-emerald-700 ring-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-300",
   },
@@ -166,6 +175,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     priority: 8,
     maxConcurrency: 2,
     hint: "Implement exactly the assigned backend subtask (Convex functions, schema, validation), keeping security invariants and additive schema changes. Report changed files and limits. Never mark the global task complete.",
+    chatSummary: "Backend development: APIs, business logic, databases, auth, data validation and integrations.",
     defaultPromptKey: "backend",
     color: "bg-amber-500/10 text-amber-800 ring-amber-500/20 dark:bg-amber-500/20 dark:text-amber-300",
   },
@@ -184,6 +194,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     priority: 7,
     maxConcurrency: 2,
     hint: "Verify with the narrowest relevant checks and report evidence. Distinguish executed tests from proposed ones — never fabricate results. Defects go back to the implementer with a concrete repro.",
+    chatSummary: "Testing and quality: test strategy, unit/integration/end-to-end tests, bug hunting and verification.",
     defaultPromptKey: "qa",
     color: "bg-orange-500/10 text-orange-700 ring-orange-500/20 dark:bg-orange-500/20 dark:text-orange-300",
   },
@@ -202,6 +213,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     priority: 6,
     maxConcurrency: 1,
     hint: "Answer the actual question first, then the how. Never invent features or behavior — check the code or say it is unknown. Docs and guidance only, no code changes.",
+    chatSummary: "Documentation, troubleshooting, how-to guidance and explaining how things work.",
     defaultPromptKey: "support",
     color: "bg-indigo-500/10 text-indigo-700 ring-indigo-500/20 dark:bg-indigo-500/20 dark:text-indigo-300",
   },
@@ -219,6 +231,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     priority: 7,
     maxConcurrency: 2,
     hint: "Changes are policy-gated. Prefer minimal, reversible infra changes; report exact commands run and their output.",
+    chatSummary: "DevOps: CI/CD, containers, deployment, infrastructure, monitoring and reliability.",
     defaultPromptKey: "devops",
     color: "bg-cyan-500/10 text-cyan-700 ring-cyan-500/20 dark:bg-cyan-500/20 dark:text-cyan-300",
   },
@@ -237,6 +250,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     priority: 7,
     maxConcurrency: 2,
     hint: "Review diffs independently with file references. Never silently modify code or approve your own work.",
+    chatSummary: "Code review and security: code quality, defects, risks and secure practices.",
     defaultPromptKey: "reviewer",
     color: "bg-violet-500/10 text-violet-700 ring-violet-500/20 dark:bg-violet-500/20 dark:text-violet-300",
   },
@@ -256,6 +270,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     priority: 6,
     maxConcurrency: 2,
     hint: "Prefer official docs; distinguish facts from assumptions with sources. Read-only research — no file modifications.",
+    chatSummary: "Technical research: comparing tools and approaches, reading docs, separating facts from assumptions.",
     defaultPromptKey: "researcher",
     color: "bg-teal-500/10 text-teal-700 ring-teal-500/20 dark:bg-teal-500/20 dark:text-teal-300",
   },
@@ -394,6 +409,15 @@ export function roleKeyForMention(mention: string): RoleKey | null {
   if (LEGACY_ROLE_SUCCESSORS[raw]) return LEGACY_ROLE_SUCCESSORS[raw];
   const byLabel = ROLE_KEYS.find((key) => ROLES[key].label.toLowerCase() === raw);
   return byLabel ?? null;
+}
+
+/** Stack-neutral chat area for a role (null for an unknown/custom role). */
+export function roleChatSummary(role: string | undefined): string | null {
+  const raw = normalizeRoleKey(role);
+  const key: string = LEGACY_ROLE_SUCCESSORS[raw] ?? raw;
+  if (isRoleKey(key)) return ROLES[key].chatSummary;
+  const byLabel = ROLE_KEYS.find((k) => ROLES[k].label.toLowerCase() === raw);
+  return byLabel ? ROLES[byLabel].chatSummary : null;
 }
 
 /** Role label for a role key, e.g. "frontend" -> "Frontend". */

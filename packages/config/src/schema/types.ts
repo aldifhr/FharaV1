@@ -69,9 +69,10 @@ export type BoolParse = "falsyList" | "truthyList" | "neq0" | "neq0Trim" | "eq1"
  * String dialects.
  * - nullish: raw ?? d ("" stays "").
  * - trimOr:  raw?.trim() || d.
+ * - or:      raw || d ("" reads as d, no trim).                (electron DEV_SERVER_URL)
  * - lower:   (raw ?? d).toLowerCase().
  */
-export type StringParse = "nullish" | "trimOr" | "lower";
+export type StringParse = "nullish" | "trimOr" | "or" | "lower";
 
 /** Settings-modal knob metadata (apps/api/convex/lib/appSettings.ts SETTING_KNOBS). */
 export interface KnobMeta {

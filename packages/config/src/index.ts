@@ -6,3 +6,5 @@ export type { EnvSource, ReadOptions } from "./read";
 export * from "./secrets";
 export * from "./knobs";
 export * from "./convexSync";
+export { buildManifest, renderManifest } from "./manifest";
+export type { EnvManifest, ManifestVar } from "./manifest";

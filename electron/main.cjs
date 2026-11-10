@@ -2,7 +2,11 @@ const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 
-const DEV_SERVER_URL = process.env.DEV_SERVER_URL || "http://localhost:3000";
+// Plain node cannot import @fhara/config (TypeScript), so the default comes
+// from its generated manifest (npm run env:example). Same `||` dialect.
+const ENV_MANIFEST = require("../packages/config/env-manifest.json");
+const envDefault = (name) => ENV_MANIFEST.vars.find((v) => v.name === name)?.default ?? undefined;
+const DEV_SERVER_URL = process.env.DEV_SERVER_URL || envDefault("DEV_SERVER_URL");
 
 // Zoom: Ctrl/Cmd + "=" / "+" / numpad add zooms in, "-" / numpad subtract
 // zooms out, "0" resets, plus Ctrl/Cmd + mouse wheel. The level is clamped

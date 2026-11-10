@@ -1,10 +1,11 @@
 "use client";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { useState } from "react";
+import { publicConvexUrl } from "./env.client";
 
 export default function ConvexClientProvider({ children }: { children: React.ReactNode }) {
   const [client] = useState(() => {
-    const url = process.env.NEXT_PUBLIC_CONVEX_URL;
+    const url = publicConvexUrl();
     if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL missing — copy .env.example to .env");
     return new ConvexReactClient(url);
   });

@@ -10,6 +10,7 @@ import {
   resolveContainedFile,
   resolveWorkspaceBase,
 } from "@/lib/projectFilesPolicy";
+import { publicConvexUrl } from "@/lib/env.client";
 
 /**
  * Read-only file listing / preview for a registered project (release audit
@@ -71,7 +72,7 @@ class NotFound extends Error {}
 
 /** The project's workspace directory, from Convex, realpath'd. */
 async function projectBase(projectId: string): Promise<string> {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  const convexUrl = publicConvexUrl();
   if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL is not configured on the web server.");
   const client = new ConvexHttpClient(convexUrl);
   let project: { workspacePath?: string } | null;

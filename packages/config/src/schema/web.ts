@@ -4,7 +4,7 @@ export const WEB_VARS = [
   {
     name: "FHARA_HOST",
     type: "string",
-    parse: "nullish",
+    parse: "trimOr",
     default: "127.0.0.1",
     runtimes: ["scripts"],
     group: "web",
@@ -43,7 +43,7 @@ export const ELECTRON_VARS = [
   {
     name: "DEV_SERVER_URL",
     type: "url",
-    parse: "nullish",
+    parse: "or",
     default: "http://localhost:3000",
     runtimes: ["electron"],
     group: "electron",

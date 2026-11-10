@@ -10,9 +10,11 @@
     "./worker": "./src/runtime/worker.ts",
     "./convex": "./src/runtime/convex.ts",
     "./web-server": "./src/runtime/webServer.ts",
-    "./web-client": "./src/runtime/webClient.ts"
+    "./web-client": "./src/runtime/webClient.ts",
+    "./env-manifest.json": "./env-manifest.json"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "env:example": "tsx scripts/gen-env.ts"
   }
 }

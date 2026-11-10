@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicConvexUrl } from "@/lib/env.client";
+import { serverEnv } from "@/lib/env.server";
 
 /**
  * Plan 019: GitHub OAuth callback. The OAuth app points at the web origin
@@ -7,8 +9,9 @@ import { NextRequest, NextResponse } from "next/server";
  * string there. No token passes through the web server.
  */
 function convexSiteUrl(): string | null {
-  if (process.env.CONVEX_SITE_URL) return process.env.CONVEX_SITE_URL.replace(/\/$/, "");
-  const cloud = process.env.NEXT_PUBLIC_CONVEX_URL;
+  const site = serverEnv("CONVEX_SITE_URL");
+  if (site) return site.replace(/\/$/, "");
+  const cloud = publicConvexUrl();
   if (!cloud) return null;
   // Hosted: https://<name>.convex.cloud → https://<name>.convex.site.
   if (/\.convex\.cloud\/?$/.test(cloud)) return cloud.replace(/\.convex\.cloud\/?$/, ".convex.site");

@@ -1,0 +1,1965 @@
+{
+  "$comment": "Generated from packages/config/src/schema by `npm run env:example`. Do not edit.",
+  "vars": [
+    {
+      "name": "NEXT_PUBLIC_CONVEX_URL",
+      "type": "url",
+      "group": "core",
+      "runtimes": [
+        "worker",
+        "webServer",
+        "webClient",
+        "scripts"
+      ],
+      "doc": "Convex deployment URL (worker, web, scripts).",
+      "default": null,
+      "parse": "nullish",
+      "aliases": [
+        "CONVEX_URL"
+      ],
+      "required": [
+        "worker",
+        "webClient"
+      ]
+    },
+    {
+      "name": "CONVEX_URL",
+      "type": "url",
+      "group": "core",
+      "runtimes": [
+        "worker",
+        "scripts"
+      ],
+      "doc": "Legacy alias of NEXT_PUBLIC_CONVEX_URL.",
+      "default": null,
+      "parse": "nullish",
+      "deprecated": "use NEXT_PUBLIC_CONVEX_URL"
+    },
+    {
+      "name": "CONVEX_SERVICE_TOKEN",
+      "type": "string",
+      "group": "core",
+      "runtimes": [
+        "worker",
+        "convex",
+        "webServer",
+        "scripts"
+      ],
+      "doc": "Shared service token; must be equal in the worker, Convex and the web server.",
+      "default": null,
+      "parse": "nullish",
+      "secret": true,
+      "required": [
+        "worker",
+        "convex"
+      ]
+    },
+    {
+      "name": "CONVEX_SITE_URL",
+      "type": "url",
+      "group": "core",
+      "runtimes": [
+        "webServer",
+        "convex"
+      ],
+      "doc": "Convex HTTP actions URL; a Convex system var, derived from NEXT_PUBLIC_CONVEX_URL on the web side.",
+      "default": null,
+      "parse": "nullish",
+      "convexSystem": true
+    },
+    {
+      "name": "PROVIDER_ENCRYPTION_KEY",
+      "type": "base64key32",
+      "group": "core",
+      "runtimes": [
+        "worker",
+        "convex"
+      ],
+      "doc": "AES-256-GCM key (base64, 32 bytes) for stored provider credentials; worker and Convex must match.",
+      "default": null,
+      "parse": "nullish",
+      "secret": true
+    },
+    {
+      "name": "PROVIDER_ENCRYPTION_KEY_OLD",
+      "type": "base64key32",
+      "group": "core",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "Previous encryption key, tried during a key rotation (Convex only today).",
+      "default": null,
+      "parse": "nullish",
+      "secret": true
+    },
+    {
+      "name": "LLM_PROVIDER",
+      "type": "string",
+      "group": "llm",
+      "runtimes": [
+        "worker",
+        "convex",
+        "scripts"
+      ],
+      "doc": "Global LLM provider fallback: anthropic | openai | openai-compatible.",
+      "default": "anthropic",
+      "parse": "lower"
+    },
+    {
+      "name": "LLM_MODEL",
+      "type": "string",
+      "group": "llm",
+      "runtimes": [
+        "worker",
+        "convex",
+        "scripts"
+      ],
+      "doc": "Global fallback model; the default depends on LLM_PROVIDER.",
+      "default": null,
+      "derivedDefault": true,
+      "parse": "nullish"
+    },
+    {
+      "name": "LLM_BASE_URL",
+      "type": "url",
+      "group": "llm",
+      "runtimes": [
+        "worker",
+        "convex",
+        "scripts"
+      ],
+      "doc": "Global fallback base URL; the default depends on LLM_PROVIDER.",
+      "default": null,
+      "derivedDefault": true,
+      "parse": "nullish"
+    },
+    {
+      "name": "LLM_OPENAI_BASE_URL",
+      "type": "url",
+      "group": "llm",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "OpenAI-flavour base URL (Convex only).",
+      "default": null,
+      "parse": "nullish"
+    },
+    {
+      "name": "LLM_ANTHROPIC_BASE_URL",
+      "type": "url",
+      "group": "llm",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "Anthropic-flavour base URL (Convex only).",
+      "default": null,
+      "parse": "nullish"
+    },
+    {
+      "name": "LLM_API_KEY",
+      "type": "string",
+      "group": "llm",
+      "runtimes": [
+        "worker",
+        "convex",
+        "scripts"
+      ],
+      "doc": "Global fallback API key; also the default apiKeyEnv name.",
+      "default": "",
+      "parse": "nullish",
+      "aliases": [
+        "OPENAI_API_KEY"
+      ],
+      "secret": true
+    },
+    {
+      "name": "OPENAI_API_KEY",
+      "type": "string",
+      "group": "llm",
+      "runtimes": [
+        "worker",
+        "convex",
+        "scripts"
+      ],
+      "doc": "Legacy fallback for LLM_API_KEY.",
+      "default": null,
+      "parse": "nullish",
+      "secret": true,
+      "deprecated": "use LLM_API_KEY"
+    },
+    {
+      "name": "LLM_ROUND_ROBIN_STICKY_LIMIT",
+      "type": "int",
+      "group": "llm",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "How many calls in a row one provider serves before the round robin moves on.",
+      "default": "1",
+      "parse": "truthyNumber"
+    },
+    {
+      "name": "ORCHESTRATOR_LLM_MAX_TOKENS",
+      "type": "int",
+      "group": "llm",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Max output tokens per LLM call.",
+      "default": "8192",
+      "parse": "clampParseInt",
+      "min": 256,
+      "max": 200000
+    },
+    {
+      "name": "ORCHESTRATOR_LLM_TIMEOUT_MS",
+      "type": "int",
+      "group": "llm",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Ceiling for one LLM request (ms).",
+      "default": "300000",
+      "parse": "clampParseInt",
+      "min": 1000,
+      "max": 3600000
+    },
+    {
+      "name": "STAGEHAND_API_KEY",
+      "type": "string",
+      "group": "llm",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Operator override for the Stagehand browser tool's model key.",
+      "default": "",
+      "parse": "nullish",
+      "secret": true
+    },
+    {
+      "name": "STAGEHAND_MODEL",
+      "type": "string",
+      "group": "llm",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Operator override for the Stagehand browser tool's model.",
+      "default": "anthropic/claude-sonnet-4-20250514",
+      "parse": "nullish"
+    },
+    {
+      "name": "GITHUB_CLIENT_ID",
+      "type": "string",
+      "group": "github",
+      "runtimes": [
+        "convex",
+        "scripts"
+      ],
+      "doc": "GitHub OAuth app client id.",
+      "default": "",
+      "parse": "nullish"
+    },
+    {
+      "name": "GITHUB_CLIENT_SECRET",
+      "type": "string",
+      "group": "github",
+      "runtimes": [
+        "convex",
+        "scripts"
+      ],
+      "doc": "GitHub OAuth app client secret.",
+      "default": "",
+      "parse": "nullish",
+      "secret": true
+    },
+    {
+      "name": "GITHUB_OAUTH_CALLBACK_URL",
+      "type": "url",
+      "group": "github",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "OAuth callback URL (default http://localhost:3000/api/integrations/github/callback).",
+      "default": null,
+      "parse": "nullish"
+    },
+    {
+      "name": "GITHUB_WEBHOOK_SECRET",
+      "type": "string",
+      "group": "github",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "Fallback webhook secret; without one webhooks answer 401.",
+      "default": null,
+      "parse": "trimOr",
+      "secret": true
+    },
+    {
+      "name": "OAUTH_STATE_SECRET",
+      "type": "string",
+      "group": "github",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "HMAC secret for OAuth state; falls back to PROVIDER_ENCRYPTION_KEY.",
+      "default": null,
+      "parse": "trimOr",
+      "secret": true
+    },
+    {
+      "name": "APP_ORIGIN",
+      "type": "url",
+      "group": "github",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "Web app origin; defaults to the origin of GITHUB_OAUTH_CALLBACK_URL.",
+      "default": null,
+      "parse": "nullish"
+    },
+    {
+      "name": "MOAGENT_WEEKLY_TOKEN_BUDGET",
+      "type": "int",
+      "group": "usage",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "Weekly token budget for the usage meter; unset = meter off.",
+      "default": "0",
+      "parse": "atLeast"
+    },
+    {
+      "name": "FHARA_HOST",
+      "type": "string",
+      "group": "web",
+      "runtimes": [
+        "scripts"
+      ],
+      "doc": "Host the Next launcher binds (scripts/next.mjs).",
+      "default": "127.0.0.1",
+      "parse": "trimOr"
+    },
+    {
+      "name": "FHARA_ALLOWED_HOSTS",
+      "type": "csv",
+      "group": "web",
+      "runtimes": [
+        "webServer"
+      ],
+      "doc": "Extra Host headers the API guard accepts (comma-separated).",
+      "default": "",
+      "parse": "nullish"
+    },
+    {
+      "name": "FHARA_ALLOW_LOCAL_MCP",
+      "type": "bool",
+      "group": "web",
+      "runtimes": [
+        "webServer"
+      ],
+      "doc": "1 lets the web API register local (stdio) MCP servers.",
+      "default": "false",
+      "parse": "eq1"
+    },
+    {
+      "name": "FHARA_BIND_TAILSCALE",
+      "type": "bool",
+      "group": "web",
+      "runtimes": [
+        "scripts"
+      ],
+      "doc": "1 also binds the dev server to this machine's Tailscale address.",
+      "default": "false",
+      "parse": "truthyList"
+    },
+    {
+      "name": "WORKER_POLL_INTERVAL_MS",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Worker poll interval (ms).",
+      "default": "1500",
+      "parse": "legacyNumber"
+    },
+    {
+      "name": "WORKER_FALLBACK_POLL_MS",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Fallback poll while the pendingWork subscription is live (ms; never below the poll interval).",
+      "default": "10000",
+      "parse": "legacyNumber"
+    },
+    {
+      "name": "WORKER_HEARTBEAT_MS",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Worker heartbeat interval (ms).",
+      "default": "10000",
+      "parse": "legacyNumber"
+    },
+    {
+      "name": "WORKER_LEASE_MS",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Task lease length (ms).",
+      "default": "60000",
+      "parse": "legacyNumber"
+    },
+    {
+      "name": "WORKER_CONCURRENCY",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Tasks one worker runs at once.",
+      "default": "1",
+      "parse": "legacyNumber",
+      "min": 1
+    },
+    {
+      "name": "WORKER_STALE_GRACE_MS",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Grace before a lease-less running task counts as stale (ms).",
+      "default": "30000",
+      "parse": "legacyNumber"
+    },
+    {
+      "name": "WORKER_PUSH_POLL_MS",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "How often an idle worker checks for approved push requests (ms).",
+      "default": "5000",
+      "parse": "legacyNumber",
+      "min": 1000
+    },
+    {
+      "name": "WORKER_MCP_TEST_POLL_MS",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "How often an idle worker checks for MCP Test connection requests (ms).",
+      "default": "3000",
+      "parse": "legacyNumber",
+      "min": 1000
+    },
+    {
+      "name": "WORKER_REPO_TOOL_POLL_MS",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Idle poll for grounded chat repo-tool requests (ms).",
+      "default": "1000",
+      "parse": "legacyNumber",
+      "min": 250
+    },
+    {
+      "name": "WORKER_OPENCODE_CATALOG_POLL_MS",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "How often the worker checks whether the OpenCode model catalog needs a refresh (ms).",
+      "default": "15000",
+      "parse": "legacyNumber",
+      "min": 5000
+    },
+    {
+      "name": "WORKER_ID",
+      "type": "string",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Worker id; defaults to <hostname>-<pid> (supplied by the worker).",
+      "default": null,
+      "parse": "nullish"
+    },
+    {
+      "name": "WORKER_SUBSCRIBE",
+      "type": "bool",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "0 turns off the websocket wake-up subscription (poll only).",
+      "default": "true",
+      "parse": "neq0"
+    },
+    {
+      "name": "WORKER_LLM_MAX_CONCURRENCY",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Worker-wide LLM gate; falls back to ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS, then 1.",
+      "default": "1",
+      "parse": "truthyRawNumber",
+      "aliases": [
+        "ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS"
+      ]
+    },
+    {
+      "name": "FHARA_MEMORY_SUGGESTIONS",
+      "type": "bool",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "0 turns off memory suggestions after a task.",
+      "default": "true",
+      "parse": "neq0"
+    },
+    {
+      "name": "FHARA_ROLE_MEMORY",
+      "type": "bool",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "0 turns off role memory (per-role learnings) for every project.",
+      "default": "true",
+      "parse": "neq0"
+    },
+    {
+      "name": "DIRECT_POLL_MS",
+      "type": "int",
+      "group": "direct",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Direct-thread poll interval (ms).",
+      "default": "750",
+      "parse": "legacyNumber",
+      "min": 250
+    },
+    {
+      "name": "DIRECT_IDLE_MIN",
+      "type": "int",
+      "group": "direct",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Minutes before an idle direct thread is closed.",
+      "default": "10",
+      "parse": "nullishNumber",
+      "min": 1
+    },
+    {
+      "name": "DIRECT_MAX_LIVE",
+      "type": "int",
+      "group": "direct",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Max live direct threads per worker (1–8).",
+      "default": "4",
+      "parse": "nullishNumber",
+      "min": 1,
+      "max": 8
+    },
+    {
+      "name": "DIRECT_ENGINE",
+      "type": "enum",
+      "group": "direct",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "api-loop forces the API loop engine; auto prefers OpenCode ACP.",
+      "default": "auto",
+      "options": [
+        "api-loop",
+        "auto"
+      ]
+    },
+    {
+      "name": "ORCHESTRATOR_MAX_REPLANS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Max replans per task (0–3).",
+      "default": "1",
+      "parse": "clamp",
+      "min": 0,
+      "max": 3
+    },
+    {
+      "name": "ORCHESTRATOR_WORKTREE_ISOLATION",
+      "type": "bool",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Run each task in its own git worktree.",
+      "default": "false",
+      "parse": "falsyList",
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "ORCHESTRATOR_PARALLEL_DEFAULT",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Default parallel DAG nodes when worktree isolation is on (1–3).",
+      "default": "2",
+      "parse": "clamp",
+      "min": 1,
+      "max": 3
+    },
+    {
+      "name": "ORCHESTRATOR_MAX_SUBTASKS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Max subtasks per plan (1–20).",
+      "default": "8",
+      "parse": "clamp",
+      "min": 1,
+      "max": 20
+    },
+    {
+      "name": "ORCHESTRATOR_MAX_CONCURRENCY",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Max subtasks running at once (1–8); defaults to the parallel default.",
+      "default": null,
+      "derivedDefault": true,
+      "parse": "clamp",
+      "min": 1,
+      "max": 8
+    },
+    {
+      "name": "ORCHESTRATOR_MAX_PLANNING_ITERATIONS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Planning iteration bound (0–3); defaults to ORCHESTRATOR_MAX_REPLANS.",
+      "default": null,
+      "derivedDefault": true,
+      "parse": "clamp",
+      "min": 0,
+      "max": 3
+    },
+    {
+      "name": "ORCHESTRATOR_MAX_REVIEW_ITERATIONS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Max review fix rounds (0–5).",
+      "default": "2",
+      "parse": "clamp",
+      "min": 0,
+      "max": 5
+    },
+    {
+      "name": "ORCHESTRATOR_SUBTASK_TIMEOUT_MS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Subtask timeout (ms); when set explicitly the runner does not grow it from observed latency.",
+      "default": "900000",
+      "parse": "clamp",
+      "min": 30000,
+      "max": 3600000
+    },
+    {
+      "name": "ORCHESTRATOR_SUBTASK_TIMEOUT_HIGH_MS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Subtask timeout for high/ultra complexity tasks (ms); default max(900000, ORCHESTRATOR_SUBTASK_TIMEOUT_MS).",
+      "default": null,
+      "derivedDefault": true,
+      "parse": "clamp",
+      "min": 30000,
+      "max": 3600000
+    },
+    {
+      "name": "ORCHESTRATOR_SUBTASK_RETRIES",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Retries per failed subtask (0–3).",
+      "default": "1",
+      "parse": "clamp",
+      "min": 0,
+      "max": 3
+    },
+    {
+      "name": "ORCHESTRATOR_APPROVAL_TIMEOUT_MS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "How long a pending approval waits (ms).",
+      "default": "1800000",
+      "parse": "clamp",
+      "min": 60000,
+      "max": 86400000,
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "ORCHESTRATOR_TASK_TIMEOUT_MS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Live task deadline (ms).",
+      "default": "1200000",
+      "parse": "clamp",
+      "min": 60000,
+      "max": 10800000,
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "ORCHESTRATOR_TASK_TIMEOUT_HIGH_MS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Task deadline for high/ultra complexity tasks (ms); default max(2400000, ORCHESTRATOR_TASK_TIMEOUT_MS).",
+      "default": null,
+      "derivedDefault": true,
+      "parse": "clamp",
+      "min": 60000,
+      "max": 10800000
+    },
+    {
+      "name": "ORCHESTRATOR_IDLE_TIMEOUT_MS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Abort a task after this long without observable progress (ms).",
+      "default": "600000",
+      "parse": "clamp",
+      "min": 60000,
+      "max": 86400000,
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "ORCHESTRATOR_PLANNING_STALL_MS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Planner-call stall watchdog (ms, 0 = off).",
+      "default": "720000",
+      "parse": "clamp",
+      "min": 0,
+      "max": 10800000
+    },
+    {
+      "name": "ORCHESTRATOR_VERIFICATION_ENABLED",
+      "type": "bool",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Run verification after code changes.",
+      "default": "true",
+      "parse": "falsyList"
+    },
+    {
+      "name": "ORCHESTRATOR_VERIFICATION_BUILD",
+      "type": "bool",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Include the build in verification.",
+      "default": "true",
+      "parse": "falsyList"
+    },
+    {
+      "name": "ORCHESTRATOR_VERIFICATION_TIMEOUT_MS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Verification timeout (ms; can only be lowered).",
+      "default": "300000",
+      "parse": "clamp",
+      "min": 30000,
+      "max": 300000
+    },
+    {
+      "name": "ORCHESTRATOR_MAX_AGENTS_PER_TASK",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Max agents per task (1–10).",
+      "default": "3",
+      "parse": "clamp",
+      "min": 1,
+      "max": 10
+    },
+    {
+      "name": "ORCHESTRATOR_MAX_LLM_CALLS_PER_TASK",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "LLM call budget per task (1–1000).",
+      "default": "400",
+      "parse": "clamp",
+      "min": 1,
+      "max": 1000
+    },
+    {
+      "name": "ORCHESTRATOR_MAX_DELEGATION_DEPTH",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Max delegation chain depth (0–10).",
+      "default": "2",
+      "parse": "clamp",
+      "min": 0,
+      "max": 10
+    },
+    {
+      "name": "ORCHESTRATOR_MAX_DELEGATIONS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Max approved delegations per task (0–100).",
+      "default": "10",
+      "parse": "clamp",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "name": "ORCHESTRATOR_BUDGET_MODE",
+      "type": "enum",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Budget exhaustion: warn (default) or enforce.",
+      "default": "warn",
+      "options": [
+        "warn",
+        "enforce"
+      ]
+    },
+    {
+      "name": "ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Per-task LLM gate (1–8); defaults to the parallel default.",
+      "default": null,
+      "derivedDefault": true,
+      "parse": "clamp",
+      "min": 1,
+      "max": 8
+    },
+    {
+      "name": "ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Token budget per task.",
+      "default": "2000000",
+      "parse": "clamp",
+      "min": 1000,
+      "max": 100000000
+    },
+    {
+      "name": "ORCHESTRATOR_ALLOW_FALLBACK",
+      "type": "bool",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Let routing fall back to the top agent when no agent serves a capability.",
+      "default": "false",
+      "parse": "falsyList"
+    },
+    {
+      "name": "ORCHESTRATOR_AUTHORITATIVE",
+      "type": "bool",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "The orchestrator's plan and decisions are the ones executed.",
+      "default": "true",
+      "parse": "falsyList"
+    },
+    {
+      "name": "ORCHESTRATOR_ROUTER_LLM",
+      "type": "enum",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "When the intent router consults the LLM advisor.",
+      "default": "off",
+      "options": [
+        "off",
+        "ambiguous",
+        "always"
+      ],
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "ORCHESTRATOR_CHAT_MAX_AGENTS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Max agents answering one chat message (1–5).",
+      "default": "1",
+      "parse": "clamp",
+      "min": 1,
+      "max": 5
+    },
+    {
+      "name": "ORCHESTRATOR_DECISION_LLM",
+      "type": "enum",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "When the decision engine consults the LLM advisor.",
+      "default": "ambiguous",
+      "options": [
+        "off",
+        "ambiguous",
+        "always"
+      ],
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "ORCHESTRATOR_MAX_DECISION_STEPS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Max decision steps per task run (1–200).",
+      "default": "20",
+      "parse": "clamp",
+      "min": 1,
+      "max": 200
+    },
+    {
+      "name": "ORCHESTRATOR_TOOL_LOOP",
+      "type": "bool",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Labs: dynamic tool discovery for research/audit agents.",
+      "default": "false",
+      "parse": "falsyList",
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "ORCHESTRATOR_MCP_TOOL_LOOP",
+      "type": "bool",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Read-only agents may use discovered MCP tools mid-task.",
+      "default": "true",
+      "parse": "falsyList"
+    },
+    {
+      "name": "ORCHESTRATOR_MCP_WRITE_TOOLS",
+      "type": "bool",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Allow MCP write tools (otherwise filtered for every role).",
+      "default": "false",
+      "parse": "falsyList",
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "ORCHESTRATOR_MCP_MAX_TOOL_ITERATIONS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "MCP tool-loop rounds per subtask (1–20).",
+      "default": "6",
+      "parse": "clamp",
+      "min": 1,
+      "max": 20
+    },
+    {
+      "name": "ORCHESTRATOR_MCP_TIMEOUT_MS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Per-MCP-request timeout (ms).",
+      "default": "30000",
+      "parse": "clamp",
+      "min": 1000,
+      "max": 300000
+    },
+    {
+      "name": "ORCHESTRATOR_MCP_MAX_RESULT_CHARS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Cap on one MCP tool result (chars).",
+      "default": "8000",
+      "parse": "clamp",
+      "min": 500,
+      "max": 200000
+    },
+    {
+      "name": "ORCHESTRATOR_AGENT_REACH_ENABLED",
+      "type": "bool",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Agent Reach web tool for agents that declare web_reach.",
+      "default": "true",
+      "parse": "falsyList",
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "ORCHESTRATOR_AGENT_REACH_COMMAND",
+      "type": "string",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Agent Reach binary.",
+      "default": "agent-reach",
+      "parse": "trimOr"
+    },
+    {
+      "name": "ORCHESTRATOR_AGENT_REACH_TIMEOUT_MS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Wall-clock limit per Agent Reach call (ms).",
+      "default": "60000",
+      "parse": "clamp",
+      "min": 1000,
+      "max": 300000
+    },
+    {
+      "name": "ORCHESTRATOR_AGENT_REACH_MAX_ITEMS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Items one Agent Reach call returns (1–20).",
+      "default": "10",
+      "parse": "clamp",
+      "min": 1,
+      "max": 20
+    },
+    {
+      "name": "ORCHESTRATOR_AGENT_REACH_MAX_TOOL_ITERATIONS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Agent Reach tool-loop rounds (1–20).",
+      "default": "4",
+      "parse": "clamp",
+      "min": 1,
+      "max": 20
+    },
+    {
+      "name": "ORCHESTRATOR_REVIEW_MODE",
+      "type": "enum",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "When a review node is added for a code change.",
+      "default": "auto",
+      "options": [
+        "always",
+        "auto",
+        "never"
+      ]
+    },
+    {
+      "name": "ORCHESTRATOR_QA_MODE",
+      "type": "enum",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "When a browser QA node is added for a code change.",
+      "default": "auto",
+      "options": [
+        "always",
+        "auto",
+        "never"
+      ],
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "ORCHESTRATOR_QA_MAX_FIX_ITERATIONS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Max automatic QA fix rounds (0–5); falls back to the legacy QA_MAX_FIX_ITERATIONS.",
+      "default": null,
+      "derivedDefault": true,
+      "parse": "clamp",
+      "min": 0,
+      "max": 5
+    },
+    {
+      "name": "QA_MAX_FIX_ITERATIONS",
+      "type": "int",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Legacy name of ORCHESTRATOR_QA_MAX_FIX_ITERATIONS.",
+      "default": "1",
+      "parse": "clamp",
+      "min": 0,
+      "max": 5,
+      "deprecated": "use ORCHESTRATOR_QA_MAX_FIX_ITERATIONS"
+    },
+    {
+      "name": "ORCHESTRATOR_QA_REQUIRED",
+      "type": "bool",
+      "group": "policy",
+      "runtimes": [
+        "worker",
+        "scripts"
+      ],
+      "doc": "An environment-blocked QA run fails the task; falls back to the legacy QA_REQUIRED.",
+      "default": null,
+      "derivedDefault": true,
+      "parse": "falsyList",
+      "knob": {
+        "reader": "worker",
+        "defaultValue": "false"
+      }
+    },
+    {
+      "name": "QA_REQUIRED",
+      "type": "bool",
+      "group": "policy",
+      "runtimes": [
+        "worker",
+        "scripts"
+      ],
+      "doc": "Legacy name of ORCHESTRATOR_QA_REQUIRED.",
+      "default": "false",
+      "parse": "falsyList",
+      "deprecated": "use ORCHESTRATOR_QA_REQUIRED"
+    },
+    {
+      "name": "ORCHESTRATOR_LOAD_AWARE_ROUTING",
+      "type": "bool",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Load-aware routing default when the project has none.",
+      "default": "false",
+      "parse": "falsyList",
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "ORCHESTRATOR_PERFORMANCE_ROUTING",
+      "type": "bool",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Performance routing default when the project has none.",
+      "default": "false",
+      "parse": "falsyList",
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "ORCHESTRATOR_EXECUTION_RUNTIME",
+      "type": "enum",
+      "group": "exec",
+      "runtimes": [
+        "worker",
+        "scripts"
+      ],
+      "doc": "Global execution runtime: api (default) or native-provider (alias opencode).",
+      "default": "api",
+      "options": [
+        "api",
+        "native-provider"
+      ],
+      "aliases": [
+        "ORCHESTRATOR_RUNTIME"
+      ]
+    },
+    {
+      "name": "ORCHESTRATOR_RUNTIME",
+      "type": "enum",
+      "group": "exec",
+      "runtimes": [
+        "worker",
+        "scripts"
+      ],
+      "doc": "Legacy name of ORCHESTRATOR_EXECUTION_RUNTIME.",
+      "default": "api",
+      "options": [
+        "api",
+        "native-provider"
+      ],
+      "deprecated": "use ORCHESTRATOR_EXECUTION_RUNTIME"
+    },
+    {
+      "name": "ORCHESTRATOR_NATIVE_PROVIDER_COMMAND",
+      "type": "string",
+      "group": "exec",
+      "runtimes": [
+        "worker",
+        "scripts"
+      ],
+      "doc": "OpenCode (native provider) binary.",
+      "default": "opencode",
+      "parse": "nullish"
+    },
+    {
+      "name": "ORCHESTRATOR_NATIVE_TIMEOUT_MS",
+      "type": "int",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Wall-clock limit for one OpenCode run (ms).",
+      "default": "600000",
+      "parse": "atLeast"
+    },
+    {
+      "name": "ORCHESTRATOR_OPENCODE_ALLOW_UNISOLATED",
+      "type": "bool",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "1 lets OpenCode run in the project checkout without worktree isolation.",
+      "default": "false",
+      "parse": "truthyList"
+    },
+    {
+      "name": "ORCHESTRATOR_COMMAND_APPROVAL_TIMEOUT_MS",
+      "type": "int",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "How long a pending command approval waits before it counts as declined (ms, ≥ 10000).",
+      "default": "600000",
+      "parse": "atLeast",
+      "min": 10000
+    },
+    {
+      "name": "ORCHESTRATOR_STALL_TIMEOUT_MS",
+      "type": "int",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Agent stall window (ms, 0 = off); default is the LLM timeout plus a minute.",
+      "default": null,
+      "derivedDefault": true,
+      "parse": "clampBlank",
+      "min": 10000,
+      "max": 3600000
+    },
+    {
+      "name": "ORCHESTRATOR_STALL_RETRIES",
+      "type": "int",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Retries after a stall (0–3).",
+      "default": "1",
+      "parse": "clampBlank",
+      "min": 0,
+      "max": 3
+    },
+    {
+      "name": "ORCHESTRATOR_REPEAT_OUTPUT_LIMIT",
+      "type": "int",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Identical consecutive outputs that stop a fix loop (2–10).",
+      "default": "2",
+      "parse": "clampBlank",
+      "min": 2,
+      "max": 10
+    },
+    {
+      "name": "ORCHESTRATOR_VERIFY_BASELINE",
+      "type": "bool",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "0 turns off the verification baseline run (heuristic only).",
+      "default": "true",
+      "parse": "falsyList"
+    },
+    {
+      "name": "REPO_MAP",
+      "type": "bool",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "0 turns off the repo map in agent prompts.",
+      "default": "true",
+      "parse": "falsyList"
+    },
+    {
+      "name": "REPO_MAP_MAX_CHARS",
+      "type": "int",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Repo map budget (chars, ≥ 200).",
+      "default": "4000",
+      "parse": "atLeast",
+      "min": 200
+    },
+    {
+      "name": "FHARA_CACHE_DIR",
+      "type": "path",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Repo map cache directory (default ~/.fhara/cache).",
+      "default": null,
+      "parse": "nullish"
+    },
+    {
+      "name": "FHARA_OPENCODE_CACHE_DIR",
+      "type": "path",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Persistent OpenCode cache (default <tmp>/fhara-opencode-cache).",
+      "default": null,
+      "parse": "trimOr"
+    },
+    {
+      "name": "FHARA_COMMIT_MESSAGE_LLM",
+      "type": "bool",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "0 turns off LLM-written commit messages.",
+      "default": "true",
+      "parse": "neq0"
+    },
+    {
+      "name": "FHARA_OPENCODE_VERIFY_POLICY",
+      "type": "bool",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "0 turns off the OpenCode permission-policy check before a run.",
+      "default": "true",
+      "parse": "neq0Trim"
+    },
+    {
+      "name": "FHARA_CHILD_ENV_PASSTHROUGH",
+      "type": "csv",
+      "group": "exec",
+      "runtimes": [
+        "worker",
+        "convexNode"
+      ],
+      "doc": "Extra parent env names forwarded to spawned processes (comma-separated).",
+      "default": "",
+      "parse": "nullish"
+    },
+    {
+      "name": "FHARA_GIT_AUTHOR_NAME",
+      "type": "string",
+      "group": "git",
+      "runtimes": [
+        "worker",
+        "convexNode"
+      ],
+      "doc": "Commit author name.",
+      "default": "Fhara",
+      "parse": "trimOr",
+      "knob": {
+        "reader": "both"
+      }
+    },
+    {
+      "name": "FHARA_GIT_AUTHOR_EMAIL",
+      "type": "string",
+      "group": "git",
+      "runtimes": [
+        "worker",
+        "convexNode"
+      ],
+      "doc": "Commit author email.",
+      "default": "fhara@users.noreply.github.com",
+      "parse": "trimOr",
+      "knob": {
+        "reader": "both"
+      }
+    },
+    {
+      "name": "FHARA_ALLOW_FORCE_PUSH",
+      "type": "bool",
+      "group": "git",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Allow force pushes from agent tools.",
+      "default": "false",
+      "parse": "truthyList",
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "FHARA_ALLOW_BASE_BRANCH_PUSH",
+      "type": "bool",
+      "group": "git",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Allow pushes to the base branch from agent tools.",
+      "default": "false",
+      "parse": "truthyList",
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "FHARA_PR_DRAFT",
+      "type": "bool",
+      "group": "git",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Open pull requests as drafts.",
+      "default": "true",
+      "parse": "falsyList",
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "FHARA_PR_FIX_MAX_ATTEMPTS",
+      "type": "int",
+      "group": "git",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "Automatic PR-feedback fix attempts (0–20).",
+      "default": "3",
+      "parse": "clampBlank",
+      "min": 0,
+      "max": 20,
+      "knob": {
+        "reader": "api"
+      }
+    },
+    {
+      "name": "FHARA_AUTO_MERGE_MAX_LINES",
+      "type": "int",
+      "group": "git",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "Supervised auto-merge: max diff lines.",
+      "default": "400",
+      "parse": "clamp",
+      "min": 0,
+      "max": 100000,
+      "knob": {
+        "reader": "api"
+      }
+    },
+    {
+      "name": "FHARA_AUTO_MERGE_SENSITIVE",
+      "type": "string",
+      "group": "git",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "Supervised auto-merge: globs that always need a human (comma-separated).",
+      "default": ".github/**, **/.env*, **/*.env, **/*.pem, **/*.key, infra/**, apps/api/convex/schema.ts",
+      "parse": "trimOr",
+      "knob": {
+        "reader": "api"
+      }
+    },
+    {
+      "name": "FHARA_AUTO_MERGE_METHOD",
+      "type": "enum",
+      "group": "git",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "Supervised auto-merge method.",
+      "default": "squash",
+      "options": [
+        "squash",
+        "merge",
+        "rebase"
+      ],
+      "knob": {
+        "reader": "api"
+      }
+    },
+    {
+      "name": "FHARA_WORKTREE_RETENTION_HOURS",
+      "type": "int",
+      "group": "git",
+      "runtimes": [
+        "convex",
+        "convexNode"
+      ],
+      "doc": "Hours a finished task's worktree is kept.",
+      "default": "72",
+      "parse": "clamp",
+      "min": 1,
+      "max": 720,
+      "knob": {
+        "reader": "api"
+      }
+    },
+    {
+      "name": "QA_BASE_URL",
+      "type": "url",
+      "group": "qa",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Fallback QA target URL for projects without a QA/dev URL.",
+      "default": null,
+      "parse": "nullish"
+    },
+    {
+      "name": "QA_CHROMIUM_PATH",
+      "type": "path",
+      "group": "qa",
+      "runtimes": [
+        "worker",
+        "scripts"
+      ],
+      "doc": "Chromium binary for browser QA (falls back to PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH, then Playwright's own).",
+      "default": null,
+      "parse": "trimOr",
+      "knob": {
+        "reader": "worker",
+        "defaultValue": ""
+      }
+    },
+    {
+      "name": "QA_CHROMIUM_NO_SANDBOX",
+      "type": "tristate",
+      "group": "qa",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Chromium --no-sandbox: unset = auto (root or container), 0/false = off, anything else = on.",
+      "default": null,
+      "knob": {
+        "reader": "worker",
+        "defaultValue": "false"
+      }
+    },
+    {
+      "name": "QA_STARTUP_TIMEOUT_MS",
+      "type": "int",
+      "group": "qa",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "How long QA waits for the dev server (ms).",
+      "default": "90000",
+      "parse": "atLeast",
+      "aliases": [
+        "QA_SERVER_START_TIMEOUT_MS"
+      ],
+      "knob": {
+        "reader": "worker",
+        "min": 5000,
+        "max": 600000
+      }
+    },
+    {
+      "name": "QA_SERVER_START_TIMEOUT_MS",
+      "type": "int",
+      "group": "qa",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Legacy name of QA_STARTUP_TIMEOUT_MS.",
+      "default": "90000",
+      "parse": "atLeast",
+      "deprecated": "use QA_STARTUP_TIMEOUT_MS"
+    },
+    {
+      "name": "CONTEXT_SNAPSHOTS",
+      "type": "bool",
+      "group": "snapshots",
+      "runtimes": [
+        "worker",
+        "convex"
+      ],
+      "doc": "0 turns off context snapshots.",
+      "default": "true",
+      "parse": "falsyList",
+      "knob": {
+        "reader": "both"
+      }
+    },
+    {
+      "name": "FHARA_SNAPSHOT_RETENTION_DAYS",
+      "type": "int",
+      "group": "snapshots",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "Days a context snapshot is kept.",
+      "default": "14",
+      "parse": "clamp",
+      "min": 1,
+      "max": 365,
+      "knob": {
+        "reader": "api"
+      }
+    },
+    {
+      "name": "CHAT_REPLY_STALE_MS",
+      "type": "int",
+      "group": "threads",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "When an unfinished chat reply counts as stale (ms, at least 11 min).",
+      "default": "900000",
+      "parse": "clampBlank",
+      "min": 660000,
+      "knob": {
+        "reader": "api",
+        "max": 86400000
+      }
+    },
+    {
+      "name": "TASK_WATCHDOG_STUCK_MS",
+      "type": "int",
+      "group": "threads",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "When a running task without progress counts as stuck (ms, 0 = off).",
+      "default": "1800000",
+      "parse": "clampBlank",
+      "min": 300000
+    },
+    {
+      "name": "WORKSPACE_ROOT",
+      "type": "path",
+      "group": "workspace",
+      "runtimes": [
+        "worker",
+        "webServer",
+        "convexNode"
+      ],
+      "doc": "Where project workspaces live (relative to the worker's cwd).",
+      "default": "./workspaces",
+      "parse": "trimOr",
+      "knob": {
+        "reader": "worker"
+      }
+    },
+    {
+      "name": "DEV_SERVER_URL",
+      "type": "url",
+      "group": "electron",
+      "runtimes": [
+        "electron"
+      ],
+      "doc": "URL the Electron shell loads.",
+      "default": "http://localhost:3000",
+      "parse": "or"
+    },
+    {
+      "name": "SUPERVISE_MAX_RESTARTS",
+      "type": "int",
+      "group": "scripts",
+      "runtimes": [
+        "scripts"
+      ],
+      "doc": "Restart cap for scripts/supervise.mjs (default unlimited).",
+      "default": "Infinity",
+      "parse": "atLeast",
+      "min": 0
+    },
+    {
+      "name": "SUPERVISE_GRACE_MS",
+      "type": "int",
+      "group": "scripts",
+      "runtimes": [
+        "scripts"
+      ],
+      "doc": "Grace period before supervise.mjs kills a child (ms).",
+      "default": "10000",
+      "parse": "atLeast",
+      "min": 0
+    },
+    {
+      "name": "FHARA_SMOKE_REPO",
+      "type": "string",
+      "group": "scripts",
+      "runtimes": [
+        "scripts"
+      ],
+      "doc": "owner/repo for npm run smoke:push.",
+      "default": null,
+      "parse": "nullish"
+    },
+    {
+      "name": "FHARA_SMOKE_PROXY_AUTH",
+      "type": "bool",
+      "group": "scripts",
+      "runtimes": [
+        "scripts"
+      ],
+      "doc": "1 tests the push through an authenticating proxy (smoke:push).",
+      "default": "false",
+      "parse": "eq1"
+    },
+    {
+      "name": "FHARA_SMOKE_GITHUB_TOKEN",
+      "type": "string",
+      "group": "scripts",
+      "runtimes": [
+        "scripts"
+      ],
+      "doc": "Token for smoke:push; falls back to GITHUB_TOKEN, then GH_TOKEN.",
+      "default": null,
+      "parse": "nullish",
+      "aliases": [
+        "GITHUB_TOKEN",
+        "GH_TOKEN"
+      ],
+      "secret": true
+    },
+    {
+      "name": "GITHUB_TOKEN",
+      "type": "string",
+      "group": "scripts",
+      "runtimes": [
+        "scripts"
+      ],
+      "doc": "GitHub token for build-skill-catalog and smoke:push (never forwarded to children by default).",
+      "default": null,
+      "parse": "nullish",
+      "secret": true
+    },
+    {
+      "name": "GH_TOKEN",
+      "type": "string",
+      "group": "scripts",
+      "runtimes": [
+        "scripts"
+      ],
+      "doc": "gh CLI token; smoke:push fallback.",
+      "default": null,
+      "parse": "nullish",
+      "secret": true
+    }
+  ],
+  "convexSync": [
+    "CONVEX_SERVICE_TOKEN",
+    "PROVIDER_ENCRYPTION_KEY",
+    "PROVIDER_ENCRYPTION_KEY_OLD",
+    "LLM_PROVIDER",
+    "LLM_MODEL",
+    "LLM_BASE_URL",
+    "LLM_OPENAI_BASE_URL",
+    "LLM_ANTHROPIC_BASE_URL",
+    "LLM_API_KEY",
+    "OPENAI_API_KEY",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET",
+    "GITHUB_OAUTH_CALLBACK_URL",
+    "GITHUB_WEBHOOK_SECRET",
+    "OAUTH_STATE_SECRET",
+    "APP_ORIGIN",
+    "MOAGENT_WEEKLY_TOKEN_BUDGET",
+    "FHARA_PR_FIX_MAX_ATTEMPTS"
+  ],
+  "secrets": {
+    "schema": [
+      "CONVEX_SERVICE_TOKEN",
+      "PROVIDER_ENCRYPTION_KEY",
+      "PROVIDER_ENCRYPTION_KEY_OLD",
+      "LLM_API_KEY",
+      "OPENAI_API_KEY",
+      "STAGEHAND_API_KEY",
+      "GITHUB_CLIENT_SECRET",
+      "GITHUB_WEBHOOK_SECRET",
+      "OAUTH_STATE_SECRET",
+      "FHARA_SMOKE_GITHUB_TOKEN",
+      "GITHUB_TOKEN",
+      "GH_TOKEN"
+    ],
+    "extraPlatform": [
+      "CONVEX_SELF_HOSTED_ADMIN_KEY",
+      "CONVEX_ADMIN_KEY",
+      "CONVEX_DEPLOY_KEY",
+      "AUTH_GITHUB_SECRET",
+      "JWT_PRIVATE_KEY"
+    ],
+    "knownProviderKeys": [
+      "ANTHROPIC_API_KEY",
+      "OPENROUTER_API_KEY",
+      "GEMINI_API_KEY",
+      "GOOGLE_API_KEY",
+      "GROQ_API_KEY",
+      "MISTRAL_API_KEY",
+      "DEEPSEEK_API_KEY",
+      "XAI_API_KEY",
+      "GITHUB_PERSONAL_ACCESS_TOKEN",
+      "NPM_TOKEN",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_SESSION_TOKEN"
+    ],
+    "childEnvEscape": [
+      "NODE_OPTIONS",
+      "LD_PRELOAD",
+      "DYLD_INSERT_LIBRARIES"
+    ]
+  },
+  "required": {
+    "worker": [
+      "NEXT_PUBLIC_CONVEX_URL",
+      "CONVEX_SERVICE_TOKEN"
+    ],
+    "webClient": [
+      "NEXT_PUBLIC_CONVEX_URL"
+    ],
+    "convex": [
+      "CONVEX_SERVICE_TOKEN"
+    ]
+  }
+}

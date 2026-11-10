@@ -4,6 +4,8 @@ import { api } from "@/api/convex/_generated/api";
 import { isStrictSameOrigin, rejectUnsafeRequest } from "@/lib/apiGuard";
 import { pickFields, readJsonObject } from "@/lib/proxyArgs";
 import { setsLocalCommand } from "@/lib/mcpPolicy";
+import { publicConvexUrl } from "@/lib/env.client";
+import { serverEnv } from "@/lib/env.server";
 
 /**
  * Server-side route for MCP server config writes (Plan 007 Phase 1, and the
@@ -51,15 +53,15 @@ const ACTION_FIELDS: Record<string, readonly string[]> = {
 };
 
 function localMcpAllowed(): boolean {
-  return process.env.FHARA_ALLOW_LOCAL_MCP === "1";
+  return serverEnv("FHARA_ALLOW_LOCAL_MCP");
 }
 
 export async function POST(request: NextRequest) {
   const rejected = rejectUnsafeRequest(request);
   if (rejected) return rejected;
 
-  const token = process.env.CONVEX_SERVICE_TOKEN;
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  const token = serverEnv("CONVEX_SERVICE_TOKEN");
+  const convexUrl = publicConvexUrl();
   if (!token) {
     return NextResponse.json(
       {

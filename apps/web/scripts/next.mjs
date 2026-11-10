@@ -28,7 +28,12 @@ const repoRoot = path.resolve(webDir, "../..");
 nextEnv.loadEnvConfig(repoRoot, mode === "dev");
 
 const hasHostFlag = rest.some((arg) => arg === "-H" || arg === "--hostname" || arg.startsWith("--hostname="));
-const host = (process.env.FHARA_HOST ?? "").trim() || "127.0.0.1";
+const require = createRequire(import.meta.url);
+// The default comes from @fhara/config's generated manifest (plain node
+// cannot import the TypeScript package).
+const ENV_MANIFEST = require("../../../packages/config/env-manifest.json");
+const envDefault = (name) => ENV_MANIFEST.vars.find((v) => v.name === name)?.default ?? undefined;
+const host = (process.env.FHARA_HOST ?? "").trim() || envDefault("FHARA_HOST");
 const args = [mode, ...(hasHostFlag ? [] : ["-H", host]), ...rest];
 
 // O6: Next listens on 127.0.0.1 as before; a plain TCP relay listens on the
@@ -51,7 +56,6 @@ if (wantsTailscale(process.env)) {
   tailnet = { ip, port, dns };
 }
 
-const require = createRequire(import.meta.url);
 const nextBin = require.resolve("next/dist/bin/next");
 const child = spawn(process.execPath, [nextBin, ...args], { cwd: webDir, stdio: "inherit", env: process.env });
 

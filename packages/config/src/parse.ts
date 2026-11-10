@@ -146,6 +146,8 @@ export function parseString(raw: string | undefined, mode: StringParse, fallback
       return raw ?? fallback();
     case "trimOr":
       return raw?.trim() || fallback();
+    case "or":
+      return raw || fallback();
     case "lower":
       return (raw ?? fallback() ?? "").toLowerCase();
   }

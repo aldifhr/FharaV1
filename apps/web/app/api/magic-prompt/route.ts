@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/api/convex/_generated/api";
 import { rejectUnsafeRequest } from "@/lib/apiGuard";
 import { readJsonObject } from "@/lib/proxyArgs";
+import { publicConvexUrl } from "@/lib/env.client";
+import { serverEnv } from "@/lib/env.server";
 
 /**
  * Prompt enhancement through the backend's provider pool. Release audit
@@ -15,8 +17,8 @@ export async function POST(request: NextRequest) {
   const rejected = rejectUnsafeRequest(request);
   if (rejected) return rejected;
 
-  const token = process.env.CONVEX_SERVICE_TOKEN;
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  const token = serverEnv("CONVEX_SERVICE_TOKEN");
+  const convexUrl = publicConvexUrl();
   if (!token) {
     return NextResponse.json(
       { error: "CONVEX_SERVICE_TOKEN is not configured on the web server." },

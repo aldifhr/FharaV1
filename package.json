@@ -11,6 +11,7 @@
     "dev:web": "npm run --workspace=@fhara/web dev",
     "dev:api": "node scripts/env.mjs run -- npm run --workspace=@fhara/api dev",
     "env:sync": "node scripts/env.mjs sync",
+    "env:example": "tsx packages/config/scripts/gen-env.ts",
     "build": "npm run --workspace=@fhara/web build",
     "worker": "npm run --workspace=@fhara/worker start",
     "worker:supervised": "node scripts/supervise.mjs --name worker --cwd packages/worker -- npx tsx src/index.ts",

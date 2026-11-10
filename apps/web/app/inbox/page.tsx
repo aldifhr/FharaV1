@@ -40,6 +40,10 @@ export default function InboxPage() {
   const approve = useMutation(api.approvals.approve);
   const reject = useMutation(api.approvals.reject);
   const respond = useMutation(api.commandApprovals.respond);
+  // O4: issues the user opened with the intake label, waiting as drafts.
+  const issueDrafts = useQuery(api.issueIntake.listDrafts, {});
+  const startDraft = useMutation(api.issueIntake.start);
+  const dismissDraft = useMutation(api.issueIntake.dismiss);
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -76,10 +80,33 @@ export default function InboxPage() {
     }
   };
 
+  const startIssue = async (id: string, confirmDone: boolean) => {
+    setBusy(id);
+    try {
+      await startDraft({ draftId: id as never, confirmDone });
+      toast("success", "Task started");
+    } catch (err) {
+      toast("error", "Couldn't start the task", err instanceof Error ? err.message : undefined);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const dismissIssue = async (id: string) => {
+    setBusy(id);
+    try {
+      await dismissDraft({ draftId: id as never });
+    } catch (err) {
+      toast("error", "Couldn't dismiss the draft", err instanceof Error ? err.message : undefined);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const total = inbox?.waitingCount ?? 0;
+  const drafts = issueDrafts ?? [];
   const anything =
     inbox !== undefined &&
-    (total > 0 || inbox.approvals.length + inbox.notifications.length + inbox.tasks.length + inbox.failed.length + inbox.questions.length + inbox.pushes.length > 0);
+    (total > 0 || inbox.approvals.length + inbox.notifications.length + inbox.tasks.length + inbox.failed.length + inbox.questions.length + inbox.pushes.length + drafts.length > 0);
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
@@ -248,6 +275,52 @@ export default function InboxPage() {
                         </div>
                         <ArrowUpRight size={14} className="shrink-0 text-ink-3" />
                       </Link>
+                    </li>
+                  ))}
+                </Section>
+              )}
+
+              {drafts.length > 0 && (
+                <Section title="From GitHub issues" count={drafts.length}>
+                  {drafts.map((d) => (
+                    <li key={d._id} className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:gap-4">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[14px] leading-snug">
+                          #{d.issueNumber} {d.title}
+                        </p>
+                        <p className="mt-0.5 truncate text-[12.5px] text-ink-3">
+                          Draft task · {d.projectName} ·{" "}
+                          {d.url ? (
+                            <a href={d.url} target="_blank" rel="noreferrer" className="hover:text-ink">
+                              {d.repoFullName}#{d.issueNumber}
+                            </a>
+                          ) : (
+                            `${d.repoFullName}#${d.issueNumber}`
+                          )}
+                        </p>
+                        {d.preflight?.looksDone && (
+                          <p className="mt-1 text-[12.5px] text-ink-2">Looks done already: {d.preflight.evidence.join("; ")}</p>
+                        )}
+                        {d.preflight === null && <p className="mt-1 text-[12.5px] text-ink-3">Checking whether it is already done…</p>}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={busy === d._id}
+                          onClick={() => void dismissIssue(d._id)}
+                          className="rounded-lg px-2.5 py-1 text-[13px] text-ink-2 transition hover:bg-hover disabled:opacity-50"
+                        >
+                          Dismiss
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy === d._id}
+                          onClick={() => void startIssue(d._id, Boolean(d.preflight?.looksDone))}
+                          className="inline-flex items-center gap-1 rounded-lg bg-ink px-2.5 py-1 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-50"
+                        >
+                          {d.preflight?.looksDone ? "Start anyway" : "Start"}
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </Section>

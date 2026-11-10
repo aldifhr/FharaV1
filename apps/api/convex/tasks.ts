@@ -13,6 +13,7 @@ import {
 import { isPersonalConversation } from "./lib/conversationShape";
 import { refreshAgentStatus } from "./orchestration";
 import { onTaskSettled } from "./prFeedback";
+import { onIssueTaskChanged } from "./issueIntake";
 import { taskStatus } from "./schema";
 import { permissionModeValidator, projectDefaultPermissionMode } from "./lib/permissionModes";
 import { admitTaskInput } from "./lib/taskInputGuard";
@@ -369,6 +370,7 @@ export const cancel = mutation({
     if (task.prFix) {
       const cancelled = await ctx.db.get(task._id);
       if (cancelled) await onTaskSettled(ctx, cancelled);
+      if (cancelled) await onIssueTaskChanged(ctx, cancelled);
     }
 
     // Clean up what the cancelled run left open (core M8): pending

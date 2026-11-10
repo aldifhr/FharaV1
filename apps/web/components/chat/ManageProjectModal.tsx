@@ -79,6 +79,13 @@ export default function ManageProjectModal({
   const autoMergeSetting = useQuery(api.autoMerge.getProjectSetting, { projectId: projectId as never });
   const [autoMergeChoice, setAutoMergeState] = useState<boolean | null>(null);
   const autoMerge = autoMergeChoice ?? autoMergeSetting?.enabled ?? false;
+  // O4 issue intake.
+  const setIssueIntake = useMutation(api.issueIntake.setProjectSetting);
+  const intakeSetting = useQuery(api.issueIntake.getProjectSetting, { projectId: projectId as never });
+  const [intakeChoice, setIntakeChoice] = useState<boolean | null>(null);
+  const [intakeLabelText, setIntakeLabelText] = useState<string | null>(null);
+  const intakeOn = intakeChoice ?? intakeSetting?.enabled ?? false;
+  const intakeLabelValue = intakeLabelText ?? intakeSetting?.label ?? "fhara";
   // Plan 022: model tier per role, picked from the models already configured.
   const tierState = useQuery(api.contracts.getProjectModelTiers, { projectId: projectId as never });
   const setModelTiers = useMutation(api.contracts.setProjectModelTiers);
@@ -139,6 +146,9 @@ export default function ManageProjectModal({
       }
       if (autoMergeChoice !== null) {
         await setAutoMerge({ projectId: projectId as never, enabled: autoMergeChoice });
+      }
+      if (intakeChoice !== null || intakeLabelText !== null) {
+        await setIssueIntake({ projectId: projectId as never, enabled: intakeOn, label: intakeLabelValue });
       }
       const days = Number(retentionDays);
       if (retention && retentionDays !== "" && Number.isFinite(days) && days !== retention.days) {
@@ -316,6 +326,28 @@ export default function ManageProjectModal({
             </span>
           </span>
         </label>
+        <div className="flex items-start gap-2.5">
+          <input
+            id="issue-intake"
+            type="checkbox"
+            checked={intakeOn}
+            onChange={(e) => setIntakeChoice(e.target.checked)}
+            className="mt-1 h-4 w-4 accent-[var(--shell-brand)]"
+          />
+          <span className="grid min-w-0 flex-1 gap-1">
+            <label htmlFor="issue-intake">Draft tasks from GitHub issues</label>
+            <span className="text-[12.5px] text-ink-3">
+              An issue you open with this label becomes a draft task in the Inbox. Nothing starts until you press Start. Issues from anyone else are ignored. The issue gets status labels (fhara:draft, fhara:running, …). Off by default.
+            </span>
+            <input
+              aria-label="Issue label"
+              value={intakeLabelValue}
+              onChange={(e) => setIntakeLabelText(e.target.value)}
+              disabled={!intakeOn}
+              className={`${field} w-40 font-mono text-[13px] disabled:opacity-50`}
+            />
+          </span>
+        </div>
         <label className="grid gap-1">
           Context snapshots kept for (days)
           <input

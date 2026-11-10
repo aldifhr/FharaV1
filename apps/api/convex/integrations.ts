@@ -36,6 +36,7 @@ import {
   generateWebhookSecretValue,
   verifyGithubSignature,
 } from "./lib/githubWebhook";
+import { parseIssueSignal } from "./lib/issueIntake";
 import { parsePrSignal } from "./lib/prFeedback";
 
 // GitHub OAuth configuration
@@ -602,6 +603,11 @@ export const handleWebhook = httpAction(async (ctx, request) => {
   if (signal) {
     const result = await ctx.runMutation(internal.prFeedback.ingest, { projectId: resolved.projectId, signal });
     return json({ ok: true, linked: result.matched, reaction: result.reaction });
+  }
+  // O4 issue intake: an issue may become a DRAFT task (never started here).
+  const issue = parseIssueSignal(event, body);
+  if (issue) {
+    await ctx.scheduler.runAfter(0, internal.issueIntake.receive, { projectId: resolved.projectId, signal: issue });
   }
 
   return json({ ok: true });

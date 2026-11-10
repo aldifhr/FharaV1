@@ -1468,6 +1468,40 @@ export default defineSchema({
     .index("by_owner_task", ["ownerTaskId"])
     .index("by_project", ["projectId"]),
 
+  // O4 issue intake (additive): a GitHub issue the connected user opened
+  // with the project's intake label, waiting as a DRAFT task. Nothing runs
+  // until the user presses Start (which creates an ordinary queued task).
+  issueDrafts: defineTable({
+    projectId: v.id("projects"),
+    repoFullName: v.string(),
+    issueNumber: v.number(),
+    title: v.string(),
+    body: v.string(),
+    author: v.string(),
+    url: v.optional(v.string()),
+    status: v.union(v.literal("draft"), v.literal("started"), v.literal("dismissed")),
+    // "Already done?" evidence (merged PRs, closing commits, comments).
+    preflight: v.optional(
+      v.object({
+        looksDone: v.boolean(),
+        evidence: v.array(v.string()),
+        checkedAt: v.number(),
+        // The GitHub reads failed: nothing could be checked.
+        unverified: v.optional(v.boolean()),
+      })
+    ),
+    taskId: v.optional(v.id("tasks")),
+    // The status label last written to the issue, and the last label error.
+    statusLabel: v.optional(v.string()),
+    labelError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_repo_issue", ["repoFullName", "issueNumber"])
+    .index("by_status_and_updated", ["status", "updatedAt"])
+    .index("by_task", ["taskId"])
+    .index("by_project", ["projectId"]),
+
   // Stored "needs you" notifications. Recomputed from PR facts and task
   // state, so a notification resolves itself when what raised it changes.
   notifications: defineTable({

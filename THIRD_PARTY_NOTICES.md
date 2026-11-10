@@ -543,6 +543,7 @@ SOFTWARE.
 - Used in: `apps/api/convex/lib/autoMerge.ts` (`mergeVerdict`: the wait-reason table, ported from
   `internal/app/app.go` `automergeWaitReason`, lines 5211-5249). Changed by Fhara: TypeScript port, typed
   wait/blocked verdicts, errored checks block, no-check PRs wait, head must equal the approved commit.
+  Also `apps/api/convex/lib/issueIntake.ts`: the status-label lifecycle on the issue (`internal/app/app.go:78-90`).
   Licensed under the Apache License, Version 2.0 (full text in the Aider entry above). vigilante ships no
   NOTICE file and names no copyright holder in its LICENSE.
 
@@ -551,6 +552,39 @@ SOFTWARE.
 - Source: https://github.com/zvenoai/coder (commit `1e1cc92`)
 - Used in: `apps/api/convex/lib/autoMerge.ts` (`humanGate`: the diff-size and sensitive-path gate, ported from
   `orchestrator/pr_monitor.py` `_check_human_gate`, lines 860-902). Changed by Fhara: TypeScript port, fails
-  closed when the file list cannot be read or may be truncated, renamed-from paths are matched too. Licensed
+  closed when the file list cannot be read or may be truncated, renamed-from paths are matched too. Also
+  `apps/api/convex/lib/issueIntake.ts` (`preflightEvidence`: the "already done?" evidence collection from
+  `orchestrator/preflight_checker.py:87-130`; changed: GitHub timeline/comments as sources, evidence only asks the
+  user to confirm). Licensed
   under the Apache License, Version 2.0 (full text in the Aider entry above). coder ships no NOTICE file and
   names no copyright holder in its LICENSE.
+
+## Harness
+
+- Source: https://github.com/VocanicZ/Harness (commit `edcf03d`)
+- Used in: `apps/api/convex/lib/issueIntake.ts` (`intakeDecision`: only issues written by the authenticated
+  user are taken, following `scripts/issuelib.py:492-517`).
+
+```
+MIT License
+
+Copyright (c) 2026 VocanicZ
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

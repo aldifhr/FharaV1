@@ -27,6 +27,7 @@ import { clearSubtaskLive } from "./subtaskLive";
 import { recordAudit } from "./lib/recordAudit";
 import { FINISHED_TASK_STATUSES, worktreeCleanupBlocker } from "./lib/worktreeRetention";
 import { onTaskSettled } from "./prFeedback";
+import { onIssueTaskChanged } from "./issueIntake";
 import {
   autoApprovalDecision,
   normalizePermissionMode,
@@ -1852,6 +1853,8 @@ export const completeTask = internalMutation({
       // Post-push feedback loop: a settled PR fix re-arms deferred
       // reactions and refreshes the owner's notifications.
       if (TERMINAL_TASK_STATUSES.has(args.status) && task.prFix) await onTaskSettled(ctx, task);
+      // O4: a task started from an issue moves the issue's status label.
+      if (TERMINAL_TASK_STATUSES.has(args.status)) await onIssueTaskChanged(ctx, { ...task, status: args.status });
     }
     return { applied: true, status: args.status };
   },

@@ -17,6 +17,7 @@ import { holdsTaskLease } from "./orchestration";
 import { prCheckFact, prState } from "./schema";
 import type { QaCardData, VerificationCardData } from "./cardTypes";
 import { ingestSignal, onPrPushed, syncPrNotifications } from "./prFeedback";
+import { closesIssueFor } from "./issueIntake";
 import { ciRollup, mergeabilityOf, type CheckFact } from "./lib/prFeedback";
 import { fetchCommitChecks, MAX_POLLED_CHECKS, summarizeChecks } from "./lib/prChecks";
 import { appendTaskEvent } from "./lib/taskEvents";
@@ -86,9 +87,12 @@ export function buildPrBody(input: {
   filesChanged: number;
   verification?: VerificationCardData | null;
   qa?: QaCardData | null;
+  /** O4: the issue this task came from (same repo); GitHub closes it on merge. */
+  closesIssue?: number;
 }): string {
   const lines: string[] = [];
   lines.push(`## Summary`, "", input.title, "");
+  if (input.closesIssue !== undefined) lines.push(`Closes #${input.closesIssue}`, "");
   const request = input.command.split("\n--- Conversation context ---")[0].trim();
   if (request && request !== input.title) {
     lines.push("<details><summary>Original request</summary>", "", request.slice(0, 1500), "", "</details>", "");
@@ -438,6 +442,7 @@ export const claimPushRequest = internalMutation({
           filesChanged: row.filesChanged,
           verification,
           qa,
+          closesIssue: await closesIssueFor(ctx, row.ownerTaskId ?? row.taskId, `${integration.githubOwner}/${integration.githubRepo}`),
         }),
       };
     }

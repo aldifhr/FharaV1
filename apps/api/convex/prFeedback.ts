@@ -34,6 +34,7 @@ import {
 import { appendTaskEvent } from "./lib/taskEvents";
 import { loadSettingValues } from "./appSettings";
 import { settingFrom } from "./lib/appSettings";
+import { onIssueTaskChanged } from "./issueIntake";
 
 /** Settings → Diffs & PR: the UI cap overrides FHARA_PR_FIX_MAX_ATTEMPTS. */
 async function fixMaxAttemptsFor(ctx: Parameters<typeof loadSettingValues>[0]): Promise<number> {
@@ -577,6 +578,8 @@ async function onPrClosed(ctx: MutationCtx, row: PushRow, ownerTaskId: Id<"tasks
   );
   for (const r of pending) await ctx.db.patch(r._id, { status: "skipped", skipReason: "pr_closed", updatedAt: now });
   const owner = await ctx.db.get(ownerTaskId);
+  // O4: a merged PR finishes the issue it came from (`fhara:done`).
+  if (owner && row.prState === "merged") await onIssueTaskChanged(ctx, owner, { prMerged: true });
   if (!owner?.worktreePath) return;
   // A fix still running keeps the worktree until it settles.
   const fixes = await ctx.db.query("tasks").withIndex("by_parent", (q) => q.eq("parentTaskId", ownerTaskId)).take(50);

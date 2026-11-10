@@ -700,6 +700,7 @@ export function ProjectsTab() {
         <NewProjectToggle field="shadowAgentDefault" label="Shadow reviewer" description="New tasks start with the Reviewer observing." />
         <NewProjectToggle field="prFeedbackReactions" label="Fix pull request feedback" description="Queue a fix task when a task's PR gets failed checks or requested changes." />
         <NewProjectToggle field="autoMerge" label="Merge pull requests automatically" description="Merge a task's PR once every check passed and the diff is within the auto-merge limits." />
+        <NewProjectToggle field="issueIntake" label="Draft tasks from GitHub issues" description="Issues you open with the fhara label become draft tasks in the Inbox. They start only when you press Start." />
       </Section>
       <Section title="Projects" description="Deleting a project removes its tasks, chat and history. Files on disk are not touched.">
         {projects === undefined && <Row label="Loading…" />}

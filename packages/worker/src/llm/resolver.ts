@@ -7,6 +7,7 @@ import {
 import type { AgentDefinition } from "@/types";
 import { decryptApiKey } from "./crypto";
 import { providerHealth, type ProviderHealthRegistry } from "./health";
+import { fixedRotationCursor, rotationCursor, type RotationCursor } from "./roundRobin";
 import { applyModelTier, type ModelTiers } from "@/api/convex/lib/modelTiers";
 import {
   describeNeeds,
@@ -29,7 +30,8 @@ import {
  *      (patterns are finally CONSUMED here), lowest priority first;
  *      among equal priorities the choice is weighted by `weight`
  *      (also finally consumed) unless the agent's selection policy is
- *      "priority" (deterministic) — policy "fixed" never leaves steps 1–2.
+ *      "priority" (deterministic) or "round_robin" (rotates the starting
+ *      connection) — policy "fixed" never leaves steps 1–2.
  * Connections whose circuit is open (health registry) are excluded; if
  * that exhausts every candidate the resolver throws an explicit error
  * naming the providers instead of silently returning something wrong.
@@ -322,9 +324,10 @@ export function resolveForAgent(
   need: ResolveNeed,
   pool: PoolConnection[],
   health: ProviderHealthRegistry,
-  options: { random?: () => number; capabilityOf?: CapabilityLookup; capabilityRouting?: boolean } = {}
+  options: { random?: () => number; capabilityOf?: CapabilityLookup; capabilityRouting?: boolean; rotation?: RotationCursor } = {}
 ): AgentResolution {
   const random = options.random ?? Math.random;
+  const rotation = options.rotation ?? rotationCursor;
   const needs = need.capabilities ?? {};
   const routeByNeeds = options.capabilityRouting !== false && hasNeeds(needs) && Boolean(options.capabilityOf);
   const missingFor = (pair: { connection: PoolConnection; model: PoolModel }): string[] =>
@@ -458,7 +461,12 @@ export function resolveForAgent(
       }
     }
     let chosen = connections[0];
-    if (connections.length > 1 && policy !== "priority") {
+    if (connections.length > 1 && policy === "round_robin") {
+      // Round robin: rotate the starting connection. The failover chain
+      // stays armed, so a rotated-to connection that fails still lands on
+      // the next candidate.
+      chosen = connections[rotation.next(connections.length)];
+    } else if (connections.length > 1 && policy !== "priority") {
       const index = pickWeightedIndex(
         connections.map((c) => c.weight),
         random()
@@ -574,6 +582,8 @@ function lazyProvider(config: GlobalLLMConfig): LLMProvider {
  */
 export interface TaskLlmResolverOptions {
   random?: () => number;
+  /** Rotation cursor for policy "round_robin" (default: process-wide). */
+  rotation?: RotationCursor;
   tiers?: ModelTiers;
   /** Plan 027: stored capability overrides (global + this project's). */
   capabilityOverrides?: CapabilityOverrideRow[];
@@ -618,6 +628,7 @@ export class TaskLlmResolver {
   ): AgentResolution {
     const resolution = resolveForAgent(this.assignmentFor(agent), need, this.pool, this.health, {
       random: this.options.random,
+      rotation: this.options.rotation,
       capabilityOf: this.capabilityOf,
       capabilityRouting: this.options.capabilityRouting ?? capabilityRoutingEnabled(),
     });
@@ -651,9 +662,9 @@ export class TaskLlmResolver {
 
   /**
    * The model an agent's first call would use, picked WITHOUT the weighted
-   * random draw (first candidate of the winning tier), for the Task
-   * Estimator. Deterministic for a given pool + health state. Null when
-   * nothing can serve the agent.
+   * random draw (first candidate of the winning tier) and without consuming
+   * a round-robin rotation, for the Task Estimator. Deterministic for a
+   * given pool + health state. Null when nothing can serve the agent.
    */
   expectedModelFor(
     agent?: AgentLlmAssignment,
@@ -662,6 +673,8 @@ export class TaskLlmResolver {
     try {
       const { primary, routing } = resolveForAgent(this.assignmentFor(agent), need, this.pool, this.health, {
         random: () => 0,
+        // The estimator must not consume a rotation.
+        rotation: fixedRotationCursor,
         capabilityOf: this.capabilityOf,
         capabilityRouting: this.options.capabilityRouting ?? capabilityRoutingEnabled(),
       });

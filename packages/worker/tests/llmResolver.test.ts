@@ -9,6 +9,7 @@ import {
   type PoolModel,
 } from "@/llm/resolver";
 import { ProviderHealthRegistry } from "@/llm/health";
+import { InMemoryRotationCursor } from "@/llm/roundRobin";
 import { runLlmCallWithFallback, type FallbackHandle } from "@/effects/llmCall";
 import type { LLMProvider } from "@/llm";
 // Cross-workspace import of the backend's public projection, purely to pin
@@ -151,6 +152,50 @@ describe("resolveForAgent — pool ordering", () => {
     );
     const unmarked = [conn({ _id: "conn-u", name: "Unmarked", models: [model("legacy")] })];
     expect(resolveForAgent(undefined, { requireTools: true }, unmarked, freshHealth()).primary.model).toBe("legacy");
+  });
+});
+
+describe("resolveForAgent — round robin", () => {
+  const pool = [
+    conn({ _id: "conn-a", name: "Alpha", priority: 10 }),
+    conn({ _id: "conn-b", name: "Beta", priority: 10 }),
+    conn({ _id: "conn-c", name: "Gamma", priority: 10 }),
+  ];
+
+  it('policy "round_robin" rotates the starting connection', () => {
+    const rotation = new InMemoryRotationCursor();
+    const pick = () =>
+      resolveForAgent(agent({ llmSelectionPolicy: "round_robin" }), {}, pool, freshHealth(), {
+        rotation,
+      }).primary.connectionId;
+    expect([pick(), pick(), pick(), pick()]).toEqual(["conn-a", "conn-b", "conn-c", "conn-a"]);
+  });
+
+  it('policy "round_robin" keeps the failover chain armed', () => {
+    const rotation = new InMemoryRotationCursor();
+    const res = resolveForAgent(agent({ llmSelectionPolicy: "round_robin" }), {}, pool, freshHealth(), {
+      rotation,
+    });
+    expect(res.primary.connectionId).toBe("conn-a");
+    expect(res.fallbackChain.map((f) => f.connectionId)).toEqual(["conn-b", "conn-c"]);
+  });
+
+  it('policy "round_robin" with one candidate behaves like any other mode', () => {
+    const single = [conn({ _id: "conn-a", name: "Alpha" })];
+    const rotation = new InMemoryRotationCursor();
+    const res = resolveForAgent(agent({ llmSelectionPolicy: "round_robin" }), {}, single, freshHealth(), {
+      rotation,
+    });
+    expect(res.primary.connectionId).toBe("conn-a");
+    expect(res.fallbackChain).toEqual([]);
+  });
+
+  it("the Task Estimator does not consume a rotation", () => {
+    const rotation = new InMemoryRotationCursor();
+    const resolver = new TaskLlmResolver(pool, freshHealth(), { rotation });
+    resolver.expectedModelFor(agent({ llmSelectionPolicy: "round_robin" }));
+    const res = resolver.resolutionFor(agent({ llmSelectionPolicy: "round_robin" }));
+    expect(res.primary.connectionId).toBe("conn-a");
   });
 });
 

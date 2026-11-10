@@ -527,14 +527,15 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
                 </label>
                 <label className={`${label} sm:col-span-2`}>Selection policy
                   <select value={agentLlmPolicy} onChange={(event) => setAgentLlmPolicy(event.target.value)} className={select}>
-                    <option value="">Default</option>
-                    <option value="weighted">Weighted</option>
-                    <option value="priority">Priority</option>
-                    <option value="fixed">Fixed (no pool fallback)</option>
+                    <option value="">Default (weighted by weight)</option>
+                    <option value="weighted">Weighted (by weight)</option>
+                    <option value="priority">Fallback (top priority, then failover)</option>
+                    <option value="round_robin">Round robin (rotate providers)</option>
+                    <option value="fixed">Fixed (assigned connections only)</option>
                   </select>
                 </label>
               </div>
-              <p className={hint}>Tried first, then the fallback, then the pool.</p>
+              <p className={hint}>Tried first, then the fallback, then the pool. A failed provider always fails over to the next candidate.</p>
             </div>
             <div className="grid gap-3">
               <p className="text-[13px] text-ink-2">Runtime</p>

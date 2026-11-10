@@ -20,7 +20,7 @@ execution/          agentExecutor, agentContext, qa, verification, repositoryCon
 tools/              sandbox, runCommand, readFile, gitDiff, gitWorktree, gitPush, githubPr, webClient
 mcp/                MCP client/registry/permissions/tool loop
 effects/llmCall     worker-wide + per-task LLM gates, one AbortController per task
-llm/                resolver (priority → weighted → modelPatterns), health (circuit breaker), crypto
+llm/                resolver (priority → weighted/round robin → modelPatterns), health (circuit breaker), roundRobin (rotation cursor), crypto
 governance/         tools (policy + audit + redaction) + registry (tool_search/describe/call, supportedTools scope)
 context/            compaction (deterministic trigger >40 msgs / >24k chars, budget-gated summarize)
 prompts/            ALL LLM prompt text, as named builders (planner, decision, codeChange, review, ...)
@@ -158,8 +158,12 @@ import backend internals.
 - Credentials arrive as ciphertext and are decrypted locally (`llm/crypto.ts`).
   A mismatch with the backend key fails with an explicit error — do not fall
   back to a plaintext or env key silently.
-- Selection order: priority → weighted among equals → `modelPatterns` filter →
+- Selection order: priority → weighted among equals (or round robin when the
+  agent's policy is `round_robin`) → `modelPatterns` filter →
   provider health (circuit breaker) → fallback chain. Do not hardcode a model.
+  The failover chain is armed in every mode; the policy only changes which
+  connection a call starts on. The round-robin cursor is process-local
+  (`llm/roundRobin.ts`): it spreads load, it is never correctness state.
 - Provider-health reports are best-effort: a failed report must never fail the
   provider call.
 

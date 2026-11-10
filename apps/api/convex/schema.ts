@@ -298,7 +298,12 @@ export default defineSchema({
     llmFallbackProviderId: v.optional(v.id("llmProviders")),
     llmFallbackModelId: v.optional(v.id("llmModels")),
     llmSelectionPolicy: v.optional(
-      v.union(v.literal("fixed"), v.literal("priority"), v.literal("weighted"))
+      v.union(
+        v.literal("fixed"),
+        v.literal("priority"),
+        v.literal("weighted"),
+        v.literal("round_robin")
+      )
     ),
     // Execution runtime override: "api" (Fhara host tools + gated LLM) or
     // "opencode" (OpenCode CLI with native tools in the task worktree).

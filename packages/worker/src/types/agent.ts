@@ -20,7 +20,7 @@ export interface AgentDefinition {
   llmModelId?: string;
   llmFallbackProviderId?: string;
   llmFallbackModelId?: string;
-  llmSelectionPolicy?: "fixed" | "priority" | "weighted";
+  llmSelectionPolicy?: "fixed" | "priority" | "weighted" | "round_robin";
   // Execution runtime override: "api" (host tools + gated LLM) or
   // "opencode" (OpenCode CLI with native tools in the task worktree).
   // Unset = global ORCHESTRATOR_EXECUTION_RUNTIME default.

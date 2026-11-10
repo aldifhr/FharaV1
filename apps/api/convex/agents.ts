@@ -199,7 +199,12 @@ export const create = mutation({
     llmFallbackProviderId: v.optional(v.id("llmProviders")),
     llmFallbackModelId: v.optional(v.id("llmModels")),
     llmSelectionPolicy: v.optional(
-      v.union(v.literal("fixed"), v.literal("priority"), v.literal("weighted"))
+      v.union(
+        v.literal("fixed"),
+        v.literal("priority"),
+        v.literal("weighted"),
+        v.literal("round_robin")
+      )
     ),
     // Avatar picked in the New agent modal (shuffle / template); unset =
     // derived from the name.
@@ -291,7 +296,13 @@ export const update = mutation({
     llmFallbackProviderId: v.optional(v.union(v.id("llmProviders"), v.null())),
     llmFallbackModelId: v.optional(v.union(v.id("llmModels"), v.null())),
     llmSelectionPolicy: v.optional(
-      v.union(v.literal("fixed"), v.literal("priority"), v.literal("weighted"), v.null())
+      v.union(
+        v.literal("fixed"),
+        v.literal("priority"),
+        v.literal("weighted"),
+        v.literal("round_robin"),
+        v.null()
+      )
     ),
     // Execution runtime: a value sets it, null clears it (global default),
     // omit leaves it as-is. Same contract for the OpenCode model.

@@ -439,6 +439,9 @@ SOFTWARE.
   credential profile a run is bound to whose secret cannot be read is an error, never a silent fallback to
   another account. Ported from Rust to TypeScript; modified by Fhara to apply to OpenCode's auth store and
   Fhara's provider connections.
+- Also: `apps/web/scripts/tailnet.mjs` (Tailscale address detection, following
+  `src-tauri/src/web_gateway/mod.rs:169-227` `detect_network_ips`). Changed by Fhara: Node interfaces instead of
+  ifconfig, exact 100.64.0.0/10 check, no URL token.
 
 ```
 MIT License
@@ -600,6 +603,37 @@ SOFTWARE.
 MIT License
 
 Copyright (c) 2025 Alper Karayaman
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## discoclaw
+
+- Source: https://github.com/DiscoClaw/discoclaw (commit `24c8ae6`)
+- Used in: `apps/api/convex/lib/approvalFingerprint.ts` (`stableStringify`, the action fingerprint and the
+  10-minute confirmation TTL from `src/discord/destructive-confirmation.ts`). Changed by Fhara: Web Crypto, the
+  fingerprint covers an approval's shown fields, the TTL runs from when the client showed it.
+
+```
+MIT License
+
+Copyright (c) 2025 David Marsh
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

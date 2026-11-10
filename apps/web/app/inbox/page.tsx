@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import Link from "next/link";
@@ -47,10 +47,20 @@ export default function InboxPage() {
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
 
-  const act = async (id: string, fn: typeof approve, done: string) => {
+  // O6: each decision is bound to what this screen showed (fingerprint) and
+  // when it first showed it; the backend refuses a stale or changed one.
+  const shownAt = useRef(new Map<string, number>());
+  const shown = (a: { _id: string; fingerprint?: string }) => {
+    const key = `${a._id}:${a.fingerprint ?? ""}`;
+    if (!shownAt.current.has(key)) shownAt.current.set(key, Date.now());
+    return a.fingerprint ? { fingerprint: a.fingerprint, shownAt: shownAt.current.get(key)! } : {};
+  };
+
+  const act = async (a: { _id: string; fingerprint?: string }, fn: typeof approve, done: string) => {
+    const id = a._id;
     setBusy(id);
     try {
-      await fn({ approvalId: id as never });
+      await fn({ approvalId: id as never, ...shown(a) });
       toast("success", done);
     } catch (err) {
       toast("error", "Couldn't update the approval", err instanceof Error ? err.message : undefined);
@@ -59,10 +69,11 @@ export default function InboxPage() {
     }
   };
 
-  const decide = async (id: string, decision: "allow" | "always" | "always_exact" | "deny") => {
+  const decide = async (a: { _id: string; fingerprint?: string }, decision: "allow" | "always" | "always_exact" | "deny") => {
+    const id = a._id;
     setBusy(id);
     try {
-      const res = await respond({ approvalId: id as never, decision });
+      const res = await respond({ approvalId: id as never, decision, ...shown(a) });
       toast(
         "success",
         res.decision === "deny"
@@ -127,7 +138,7 @@ export default function InboxPage() {
           {inbox === undefined ? (
             <div className="mt-10 space-y-3" aria-label="Loading inbox">
               {[0, 1, 2].map((i) => (
-                <div key={i} className="h-16 animate-pulse rounded-xl bg-hover" />
+                <div key={i} className="h-16 rounded-xl bg-hover" />
               ))}
             </div>
           ) : !anything ? (
@@ -142,7 +153,7 @@ export default function InboxPage() {
             <>
               {inbox.approvals.length > 0 && (
                 <Section title="Approvals" count={inbox.approvals.length}>
-                  {inbox.approvals.map((a) => (
+                  {inbox.approvals.map((a) => (void shown(a), (
                     <li key={a._id} className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:gap-4">
                       <div className="min-w-0 flex-1">
                         <p className="text-[14px] leading-snug">{a.summary}</p>
@@ -160,12 +171,12 @@ export default function InboxPage() {
                         )}
                       </div>
                       {a.kind === "run_command" ? (
-                        <div className="flex shrink-0 items-center gap-2">
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                           <button
                             type="button"
                             disabled={busy === a._id}
-                            onClick={() => void decide(a._id, "deny")}
-                            className="rounded-lg px-2.5 py-1 text-[13px] text-ink-2 transition hover:bg-hover disabled:opacity-50"
+                            onClick={() => void decide(a, "deny")}
+                            className="rounded-lg px-3 py-2 text-[13px] sm:px-2.5 sm:py-1 text-ink-2 transition hover:bg-hover disabled:opacity-50"
                           >
                             Deny
                           </button>
@@ -173,8 +184,8 @@ export default function InboxPage() {
                             <button
                               type="button"
                               disabled={busy === a._id}
-                              onClick={() => void decide(a._id, "always")}
-                              className="rounded-lg border border-line px-2.5 py-1 text-[13px] text-ink transition hover:bg-hover disabled:opacity-50"
+                              onClick={() => void decide(a, "always")}
+                              className="rounded-lg border border-line px-3 py-2 text-[13px] sm:px-2.5 sm:py-1 text-ink transition hover:bg-hover disabled:opacity-50"
                             >
                               Always allow
                             </button>
@@ -183,8 +194,8 @@ export default function InboxPage() {
                             <button
                               type="button"
                               disabled={busy === a._id}
-                              onClick={() => void decide(a._id, "always_exact")}
-                              className="rounded-lg border border-line px-2.5 py-1 text-[13px] text-ink transition hover:bg-hover disabled:opacity-50"
+                              onClick={() => void decide(a, "always_exact")}
+                              className="rounded-lg border border-line px-3 py-2 text-[13px] sm:px-2.5 sm:py-1 text-ink transition hover:bg-hover disabled:opacity-50"
                             >
                               Always allow this exact command
                             </button>
@@ -192,34 +203,34 @@ export default function InboxPage() {
                           <button
                             type="button"
                             disabled={busy === a._id}
-                            onClick={() => void decide(a._id, "allow")}
-                            className="inline-flex items-center gap-1 rounded-lg bg-ink px-2.5 py-1 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-50"
+                            onClick={() => void decide(a, "allow")}
+                            className="inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-2 text-[13px] sm:px-2.5 sm:py-1 font-medium text-canvas transition hover:opacity-90 disabled:opacity-50"
                           >
                             <Check size={13} /> Allow
                           </button>
                         </div>
                       ) : (
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                         <button
                           type="button"
                           disabled={busy === a._id}
-                          onClick={() => void act(a._id, reject, "Rejected")}
-                          className="rounded-lg px-2.5 py-1 text-[13px] text-ink-2 transition hover:bg-hover disabled:opacity-50"
+                          onClick={() => void act(a, reject, "Rejected")}
+                          className="rounded-lg px-3 py-2 text-[13px] sm:px-2.5 sm:py-1 text-ink-2 transition hover:bg-hover disabled:opacity-50"
                         >
                           Reject
                         </button>
                         <button
                           type="button"
                           disabled={busy === a._id}
-                          onClick={() => void act(a._id, approve, "Approved")}
-                          className="inline-flex items-center gap-1 rounded-lg bg-ink px-2.5 py-1 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-50"
+                          onClick={() => void act(a, approve, "Approved")}
+                          className="inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-2 text-[13px] sm:px-2.5 sm:py-1 font-medium text-canvas transition hover:opacity-90 disabled:opacity-50"
                         >
                           <Check size={13} /> Approve
                         </button>
                       </div>
                       )}
                     </li>
-                  ))}
+                  )))}
                 </Section>
               )}
 
@@ -303,12 +314,12 @@ export default function InboxPage() {
                         )}
                         {d.preflight === null && <p className="mt-1 text-[12.5px] text-ink-3">Checking whether it is already done…</p>}
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                         <button
                           type="button"
                           disabled={busy === d._id}
                           onClick={() => void dismissIssue(d._id)}
-                          className="rounded-lg px-2.5 py-1 text-[13px] text-ink-2 transition hover:bg-hover disabled:opacity-50"
+                          className="rounded-lg px-3 py-2 text-[13px] sm:px-2.5 sm:py-1 text-ink-2 transition hover:bg-hover disabled:opacity-50"
                         >
                           Dismiss
                         </button>
@@ -316,7 +327,7 @@ export default function InboxPage() {
                           type="button"
                           disabled={busy === d._id}
                           onClick={() => void startIssue(d._id, Boolean(d.preflight?.looksDone))}
-                          className="inline-flex items-center gap-1 rounded-lg bg-ink px-2.5 py-1 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-50"
+                          className="inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-2 text-[13px] sm:px-2.5 sm:py-1 font-medium text-canvas transition hover:opacity-90 disabled:opacity-50"
                         >
                           {d.preflight?.looksDone ? "Start anyway" : "Start"}
                         </button>
@@ -331,7 +342,7 @@ export default function InboxPage() {
                   {inbox.tasks.map((t) => (
                     <li key={t._id}>
                       <Link href={`/chats/${t.projectId}?task=${t._id}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ink-3" />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[14px]">{t.title}</p>
                           <p className="truncate text-[12.5px] text-ink-3">Waiting for approval · {t.projectName}</p>
@@ -348,7 +359,7 @@ export default function InboxPage() {
                   {inbox.failed.map((t) => (
                     <li key={t._id}>
                       <Link href={`/chats/${t.projectId}?task=${t._id}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" />
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[14px]">{t.title}</p>
                           <p className="truncate text-[12.5px] text-ink-3">Failed · {t.projectName}</p>

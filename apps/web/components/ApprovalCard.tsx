@@ -235,7 +235,7 @@ function GenericApprovalCard({
               Reject
             </button>
           )}
-          <span className={`ml-auto text-[12px] ${MUTED}`}>
+          <span className={`ml-auto basis-full text-right text-[12px] sm:basis-auto ${MUTED}`}>
             {acting !== null
               ? "Processing your decision…"
               : lastAction === "hold"

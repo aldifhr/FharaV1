@@ -81,6 +81,22 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const reject = useMutation(api.approvals.reject);
   const hold = useMutation(api.approvals.hold);
   const respondCommand = useMutation(api.commandApprovals.respond);
+  // O6: decisions carry the fingerprint of the approval this chat showed and
+  // when it first showed it; the backend refuses a changed or stale one.
+  const shownAtRef = useRef(new Map<string, number>());
+  const boundTo = (approvalId: unknown): { fingerprint?: string; shownAt?: number } => {
+    const row = approvals?.find((a) => a._id === approvalId);
+    if (!row?.fingerprint) return {};
+    const key = `${row._id}:${row.fingerprint}`;
+    if (!shownAtRef.current.has(key)) shownAtRef.current.set(key, Date.now());
+    return { fingerprint: row.fingerprint, shownAt: shownAtRef.current.get(key)! };
+  };
+  useEffect(() => {
+    for (const row of approvals ?? []) {
+      const key = `${row._id}:${row.fingerprint}`;
+      if (!shownAtRef.current.has(key)) shownAtRef.current.set(key, Date.now());
+    }
+  }, [approvals]);
   const answerQuestion = useMutation(api.tasks.answerQuestion);
   const togglePin = useMutation(api.messages.togglePin);
   const clearChat = useMutation(api.conversations.clearChat);
@@ -564,8 +580,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
 
   const runApproval = async (approvalId: string, action: "approve" | "reject") => {
     try {
-      if (action === "approve") await approve({ approvalId: approvalId as any });
-      else await reject({ approvalId: approvalId as any });
+      if (action === "approve") await approve({ approvalId: approvalId as any, ...boundTo(approvalId) });
+      else await reject({ approvalId: approvalId as any, ...boundTo(approvalId) });
     } catch (err) {
       toast("error", action === "approve" ? "Couldn't approve" : "Couldn't reject", err instanceof Error ? err.message : "Please try again.");
     }
@@ -589,11 +605,11 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     setTrayBusy(busyKey);
     try {
       if (action.id === "allow" || action.id === "always" || action.id === "always_exact" || action.id === "deny") {
-        await respondCommand({ approvalId: item.approvalId as any, decision: action.id, ...(note ? { note } : {}) });
+        await respondCommand({ approvalId: item.approvalId as any, decision: action.id, ...(note ? { note } : {}), ...boundTo(item.approvalId) });
       } else if (action.id === "approve") {
-        await approve({ approvalId: item.approvalId as any });
+        await approve({ approvalId: item.approvalId as any, ...boundTo(item.approvalId) });
       } else if (action.id === "reject") {
-        await reject({ approvalId: item.approvalId as any });
+        await reject({ approvalId: item.approvalId as any, ...boundTo(item.approvalId) });
       } else if (action.id === "open") {
         if (item.taskId) onSelectTask(item.taskId);
       } else if (action.id.startsWith("answer:")) {
@@ -724,10 +740,10 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             conversationTyping={conversationTyping}
             typingAgent={quotedResponder ?? targetAgent ?? agents.find((a: any) => a.role === "cto")}
             onSelectTask={onSelectTask}
-            approve={(approvalId) => approve({ approvalId: approvalId as any })}
-            reject={(approvalId) => reject({ approvalId: approvalId as any })}
+            approve={(approvalId) => approve({ approvalId: approvalId as any, ...boundTo(approvalId) })}
+            reject={(approvalId) => reject({ approvalId: approvalId as any, ...boundTo(approvalId) })}
             hold={(approvalId) => hold({ approvalId: approvalId as any })}
-            respond={(approvalId, decision) => respondCommand({ approvalId: approvalId as any, decision })}
+            respond={(approvalId, decision) => respondCommand({ approvalId: approvalId as any, decision, ...boundTo(approvalId) })}
             togglePin={(messageId, pinned) => void togglePin({ messageId: messageId as never, pinned })}
             onPickProposal={(choice) => void handleChooseProposal(choice)}
             onCreateTaskFrom={createTaskFromMessage}

@@ -3,6 +3,7 @@ import type { Id } from "./_generated/dataModel";
 import { projectAgentDoc } from "./agents";
 import { visibleProjects } from "./lib/authz";
 import { collectNeedsYou, taskAwaitsUserApproval } from "./shell";
+import { approvalFingerprint } from "./lib/approvalFingerprint";
 
 /** Bounded reads (core M7): failed tasks in particular only ever grow. */
 const INBOX_APPROVAL_LIMIT = 100;
@@ -38,7 +39,7 @@ export const list = query({
     for (const a of pendingRows) {
       const task = await ctx.db.get(a.taskId);
       if (task && TERMINAL.has(task.status)) continue;
-      approvals.push(a);
+      approvals.push({ ...a, fingerprint: await approvalFingerprint(a) });
     }
     // needs_approval tasks only while the user still has to decide (a
     // decided approval leaves at once, before the worker resumes the task).

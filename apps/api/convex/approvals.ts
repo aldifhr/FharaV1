@@ -7,6 +7,10 @@ import { scheduleDecisionEvaluation } from "./lib/calibration/store";
 import { resolveCommandApproval } from "./commandApprovals";
 import { signalApprovalDecision } from "./taskSignals";
 import { appendTaskEvent } from "./lib/taskEvents";
+import { approvalFingerprint, checkShown } from "./lib/approvalFingerprint";
+
+/** O6: optional binding of a decision to what the user was shown. */
+const shownArgs = { fingerprint: v.optional(v.string()), shownAt: v.optional(v.number()) };
 
 export const listPendingAll = query({
   args: {},
@@ -17,13 +21,10 @@ export const listPendingAll = query({
       .withIndex("by_status", (q) => q.eq("status", "pending"))
       .order("desc")
       .collect();
-    if (!viewerId) return approvals;
     const visible = [];
     for (const approval of approvals) {
-      const project = await ctx.db.get(approval.projectId);
-      if (canViewProject(viewerId, project)) {
-        visible.push(approval);
-      }
+      if (viewerId && !canViewProject(viewerId, await ctx.db.get(approval.projectId))) continue;
+      visible.push({ ...approval, fingerprint: await approvalFingerprint(approval) });
     }
     return visible;
   },
@@ -35,16 +36,17 @@ export const listPendingForProject = query({
   handler: async (ctx, args) => {
     const viewerId = await getViewerId(ctx);
     if (!canViewProject(viewerId, await ctx.db.get(args.projectId))) return [];
-    return await ctx.db
+    const rows = await ctx.db
       .query("approvals")
       .withIndex("by_project_and_status", (q) => q.eq("projectId", args.projectId).eq("status", "pending"))
       .order("desc")
       .take(100);
+    return await Promise.all(rows.map(async (row) => ({ ...row, fingerprint: await approvalFingerprint(row) })));
   },
 });
 
 export const approve = mutation({
-  args: { approvalId: v.id("approvals") },
+  args: { approvalId: v.id("approvals"), ...shownArgs },
   handler: async (ctx, args) => {
     const approval = await ctx.db.get(args.approvalId);
     if (!approval) throw new Error("Approval not found");
@@ -52,6 +54,8 @@ export const approve = mutation({
     if (approval.status !== "pending") {
       throw new Error(`Approval already ${approval.status}`);
     }
+    const shown = await checkShown(approval, args);
+    if (!shown.ok) throw new Error(shown.reason);
     // In-process command waits record a decision the worker reads (one-time allow).
     if (approval.kind === "run_command") {
       await resolveCommandApproval(ctx, approval, "allow");
@@ -86,7 +90,7 @@ export const approve = mutation({
 });
 
 export const reject = mutation({
-  args: { approvalId: v.id("approvals") },
+  args: { approvalId: v.id("approvals"), ...shownArgs },
   handler: async (ctx, args) => {
     const approval = await ctx.db.get(args.approvalId);
     if (!approval) throw new Error("Approval not found");
@@ -94,6 +98,8 @@ export const reject = mutation({
     if (approval.status !== "pending") {
       throw new Error(`Approval already ${approval.status}`);
     }
+    const shown = await checkShown(approval, args);
+    if (!shown.ok) throw new Error(shown.reason);
     if (approval.kind === "run_command") {
       await resolveCommandApproval(ctx, approval, "deny");
       return true;
@@ -133,7 +139,7 @@ export const reject = mutation({
  * the hold is visible in the task timeline as `approval.held`.
  */
 export const hold = mutation({
-  args: { approvalId: v.id("approvals") },
+  args: { approvalId: v.id("approvals"), ...shownArgs },
   handler: async (ctx, args) => {
     const approval = await ctx.db.get(args.approvalId);
     if (!approval) throw new Error("Approval not found");

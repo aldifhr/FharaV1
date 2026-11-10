@@ -14,6 +14,7 @@
  * or Full access approves (recorded as decidedBy "auto"); everything else asks.
  */
 import { internalMutation, internalQuery, mutation, type MutationCtx } from "./_generated/server";
+import { checkShown } from "./lib/approvalFingerprint";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { assertProjectAccess, getViewerId } from "./lib/authz";
@@ -366,7 +367,14 @@ export async function resolveCommandApproval(
  * the existing mutations, so this is run_command only.
  */
 export const respond = mutation({
-  args: { approvalId: v.id("approvals"), decision: decisionValidator, note: v.optional(v.string()) },
+  args: {
+    approvalId: v.id("approvals"),
+    decision: decisionValidator,
+    note: v.optional(v.string()),
+    // O6: bind the decision to what was shown (lib/approvalFingerprint.ts).
+    fingerprint: v.optional(v.string()),
+    shownAt: v.optional(v.number()),
+  },
   handler: async (ctx, args): Promise<{ decision: CommandDecision }> => {
     const approval = await ctx.db.get(args.approvalId);
     if (!approval) throw new Error("Approval not found");
@@ -374,6 +382,8 @@ export const respond = mutation({
     if (approval.kind !== "run_command") throw new Error("Only command approvals take Allow / Always allow / Deny");
     // git_push / merge_pr never reach this point (other kinds); a push-like
     // run_command was never offered "always", so always_exact is downgraded.
+    const shown = await checkShown(approval, args);
+    if (!shown.ok) throw new Error(shown.reason);
     const decision = await resolveCommandApproval(ctx, approval, args.decision, { note: args.note });
     return { decision };
   },

@@ -1514,7 +1514,9 @@ export default defineSchema({
     .index("by_key", ["key"])
     .index("by_task", ["taskId"])
     .index("by_push", ["pushId"])
-    .index("by_phase_and_updated", ["phase", "updatedAt"]),
+    .index("by_phase_and_updated", ["phase", "updatedAt"])
+    // Project delete cascades the ledger (projects.PROJECT_CASCADE).
+    .index("by_project", ["projectId"]),
 
   // Post-push feedback loop: one row per PR signal that Fhara reacts to,
   // deduped on (PR, signature). `created` rows count toward the per-PR

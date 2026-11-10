@@ -18,6 +18,7 @@
     "doctor": "node scripts/doctor.mjs",
     "codegen:offline": "node scripts/convex-codegen-offline.mjs",
     "stats:roles": "tsx scripts/stats-roles.ts",
+    "catalog:build": "tsx scripts/build-skill-catalog.ts",
     "migrate:github-global": "node scripts/env.mjs run -- npm run --workspace=@fhara/api migrate:github-global",
     "electron:dev": "node scripts/env.mjs sync && concurrently -k -n api,web,worker,app -c blue,magenta,green,yellow \"npm run dev:api\" \"npm run dev:web\" \"npm run worker:supervised\" \"wait-on http://127.0.0.1:3000 && electron electron/main.cjs\"",
     "typecheck": "npm run --workspace=@fhara/web typecheck && npm run --workspace=@fhara/api typecheck && npm run --workspace=@fhara/worker typecheck",

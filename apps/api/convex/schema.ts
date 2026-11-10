@@ -1639,6 +1639,29 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_name", ["name"]),
 
+  // Skill marketplace: a refreshed copy of one catalog index (Library →
+  // Browse → Refresh catalog). The bundled lib/skillCatalog.json is used
+  // for any index with no row here. One row per index repo.
+  skillCatalogs: defineTable({
+    source: v.string(), // index "owner/repo"
+    sha: v.string(),
+    ref: v.string(),
+    license: v.optional(v.string()), // SPDX id of the index repo
+    entries: v.array(
+      v.object({
+        name: v.string(),
+        description: v.string(),
+        category: v.string(),
+        repo: v.string(),
+        path: v.string(),
+        ref: v.optional(v.string()),
+        license: v.union(v.string(), v.null()),
+        author: v.union(v.string(), v.null()),
+      })
+    ),
+    fetchedAt: v.number(),
+  }).index("by_source", ["source"]),
+
   // Skill v2: one row per saved version of a skill (create, edit, import
   // update, rollback). Agents can pin one (agents.skillPins).
   skillVersions: defineTable({

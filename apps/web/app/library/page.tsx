@@ -8,6 +8,7 @@ import { ImportFromGithubModal } from "./ImportFromGithub";
 import { useToast } from "@/components/Toasts";
 import Segmented from "@/components/ui/segmented";
 import { TemplatesTab } from "./TemplatesTab";
+import { BrowseTab } from "./BrowseTab";
 import {
   errorText,
   SkillHistoryModal,
@@ -51,7 +52,7 @@ const headerButton =
  * to agents; at run time it is appended to the agent's prompt as
  * "## Skill: <name>".
  */
-type Tab = "skills" | "sources" | "templates";
+type Tab = "skills" | "browse" | "sources" | "templates";
 
 export default function LibraryPage() {
   return (
@@ -65,7 +66,8 @@ function LibraryInner() {
   const params = useSearchParams();
   const router = useRouter();
   const rawTab = params.get("tab");
-  const tab: Tab = rawTab === "templates" ? "templates" : rawTab === "sources" ? "sources" : "skills";
+  const tab: Tab =
+    rawTab === "templates" ? "templates" : rawTab === "sources" ? "sources" : rawTab === "browse" ? "browse" : "skills";
   const projectId = params.get("project") ?? undefined;
   const setTab = (next: Tab) => {
     const q = new URLSearchParams(params.toString());
@@ -79,7 +81,9 @@ function LibraryInner() {
       <IconRail projectId={projectId} />
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
         <div className="mx-auto max-w-3xl">
-          {tab !== "templates" ? (
+          {tab === "browse" ? (
+            <BrowseView tabs={<LibraryTabs tab={tab} onChange={setTab} />} />
+          ) : tab !== "templates" ? (
             <SkillsTab view={tab} tabs={<LibraryTabs tab={tab} onChange={setTab} />} />
           ) : (
             <TemplatesTab projectId={projectId} tabs={<LibraryTabs tab={tab} onChange={setTab} />} />
@@ -98,11 +102,18 @@ function LibraryTabs({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => void
       onChange={onChange}
       options={[
         { value: "skills", label: "Skills" },
+        { value: "browse", label: "Browse" },
         { value: "sources", label: "Sources" },
         { value: "templates", label: "Templates" },
       ]}
     />
   );
+}
+
+/** Browse (skill marketplace) with the library list it matches installed skills against. */
+function BrowseView({ tabs }: { tabs: React.ReactNode }) {
+  const skills = useQuery(api.skills.list, {}) as Skill[] | undefined;
+  return <BrowseTab tabs={tabs} skills={skills} />;
 }
 
 function SkillsTab({ tabs, view }: { tabs: React.ReactNode; view: "skills" | "sources" }) {

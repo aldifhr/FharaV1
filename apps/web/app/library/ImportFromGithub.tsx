@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { permissionText } from "./SkillsV2";
 import { useAction } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
@@ -45,11 +45,27 @@ function errorText(err: unknown, fallback: string): string {
 /**
  * "Import from GitHub": paste a repo, folder or SKILL.md URL, preview every
  * SKILL.md found (name, description, size, trim note), pick, import.
+ *
+ * Browse → Install opens it with `initialUrl` (one SKILL.md): the preview
+ * runs at once and the import button confirms. `notice` is shown above
+ * the list (the unknown-license warning).
  */
-export function ImportFromGithubModal({ onClose }: { onClose: () => void }) {
+export function ImportFromGithubModal({
+  onClose,
+  initialUrl,
+  title = "Import from GitHub",
+  notice,
+  onImported,
+}: {
+  onClose: () => void;
+  initialUrl?: string;
+  title?: string;
+  notice?: string;
+  onImported?: (created: number, updated: number) => void;
+}) {
   const preview = useAction(api.skills.previewGithubImport);
   const importSkills = useAction(api.skills.importFromGithub);
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(initialUrl ?? "");
   const [result, setResult] = useState<Preview | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -62,12 +78,25 @@ export function ImportFromGithubModal({ onClose }: { onClose: () => void }) {
 
   async function handlePreview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!url.trim()) return;
+    await runPreview(url);
+  }
+
+  // Install from Browse: preview the given SKILL.md once on open.
+  const autoPreviewed = useRef(false);
+  useEffect(() => {
+    if (!initialUrl || autoPreviewed.current) return;
+    autoPreviewed.current = true;
+    void runPreview(initialUrl);
+    // runPreview only reads state setters and the action; run once per URL.
+  }, [initialUrl]);
+
+  async function runPreview(target: string) {
+    if (!target.trim()) return;
     setError("");
     setDone("");
     setLoading(true);
     try {
-      const next = (await preview({ url: url.trim() })) as Preview;
+      const next = (await preview({ url: target.trim() })) as Preview;
       setResult(next);
       setSelected(new Set(next.skills.filter((s) => s.status !== "imported").map((s) => s.path)));
     } catch (err) {
@@ -90,6 +119,7 @@ export function ImportFromGithubModal({ onClose }: { onClose: () => void }) {
         res.unchanged.length ? `${res.unchanged.length} already up to date` : "",
         res.skipped.length ? `${res.skipped.length} skipped` : "",
       ].filter(Boolean);
+      onImported?.(res.created.length, res.updated.length);
       if (res.skipped.length === 0 && res.warnings.length === 0) {
         onClose();
         return;
@@ -113,7 +143,7 @@ export function ImportFromGithubModal({ onClose }: { onClose: () => void }) {
     });
 
   return (
-    <Modal title="Import from GitHub" onClose={onClose} maxWidth="max-w-xl">
+    <Modal title={title} onClose={onClose} maxWidth="max-w-xl">
       <form onSubmit={handlePreview} className="mt-5 flex gap-2">
         <label className="min-w-0 flex-1">
           <span className="sr-only">GitHub URL</span>
@@ -136,6 +166,8 @@ export function ImportFromGithubModal({ onClose }: { onClose: () => void }) {
         </button>
       </form>
       <p className="mt-2 text-[12px] text-ink-3">A repository, a folder (…/tree/main/skills) or one SKILL.md file.</p>
+
+      {notice && <p className="mt-4 text-[12.5px] text-ink-2">{notice}</p>}
 
       {error && <p role="alert" className="mt-4 text-[13px] text-red-600 dark:text-red-400">{error}</p>}
 

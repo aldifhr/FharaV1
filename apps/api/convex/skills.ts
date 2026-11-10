@@ -46,6 +46,7 @@ import {
 } from "./lib/githubSkills";
 import { GithubClient, mapLimit, resolveGithubRepo, type ResolvedRepo } from "./lib/githubSkillsApi";
 import { resolveGithubToken } from "./lib/githubAuth";
+import { importedContentMatches } from "./lib/skillCatalog";
 
 /**
  * Library of agent skills: reusable markdown instructions attached to agents
@@ -941,11 +942,11 @@ export const applyGithubImport = internalMutation({
       );
       const permissions = normalizeSkillPermissions(item.permissions);
       if (existing) {
-        const same =
-          existing.source!.sha === args.sha &&
-          existing.instructions === clean.instructions &&
-          existing.description === (clean.description ?? "") &&
-          sameList(existing.permissions, permissions);
+        // Shared with the Browse tab's update check (skillCatalog.checkUpdates).
+        const same = importedContentMatches(
+          { ...existing, sha: existing.source!.sha },
+          { sha: args.sha, instructions: clean.instructions!, description: clean.description ?? "", permissions }
+        );
         written.push({ skillId: existing._id, item, name: existing.name });
         if (same) {
           result.unchanged.push({ skillId: existing._id, name: existing.name, path: item.path });

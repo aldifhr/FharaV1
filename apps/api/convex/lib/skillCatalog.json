@@ -1,0 +1,526 @@
+{
+  "generatedAt": "2026-11-10",
+  "sources": [
+    {
+      "repo": "khasky/awesome-agent-skills",
+      "file": "README.md",
+      "section": "Skills",
+      "license": "MIT",
+      "attribution": "Awesome Agent Skills by Khasky (MIT)",
+      "sha": "58ea4e8915de64907d04cc909a1b8c6e5cf0fcb7",
+      "entries": [
+        {
+          "name": "awesome-code-review",
+          "description": "Reviews diffs and PRs for correctness, security, and team standards",
+          "category": "Code review",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-code-review/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-code-review-feedback",
+          "description": "Responds to review feedback: verify before implementing, clarify, push back with reasoning",
+          "category": "Code review",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-code-review-feedback/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-code-review-jury",
+          "description": "Second opinion: blind reviewers on different models, a judge that cross-examines them and returns one verdict",
+          "category": "Code review",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-code-review-jury/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-code-standards",
+          "description": "Naming, structure, and patterns for consistent code across a team",
+          "category": "Code quality and refactoring",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-code-standards/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-code-cleanup",
+          "description": "Behavior-preserving cleanup of AI-like code noise: comments, dead code, vague names, over-abstraction",
+          "category": "Code quality and refactoring",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-code-cleanup/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-dependency-upgrade",
+          "description": "Executes dependency upgrades in risk-classified batches, with changelog-driven majors and verification between steps",
+          "category": "Code quality and refactoring",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-dependency-upgrade/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-test-writing",
+          "description": "Designs and writes tests that catch real regressions, every test proven able to fail",
+          "category": "Testing",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-test-writing/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-regression-sweep",
+          "description": "Read-only verification sweep against a recorded baseline: typecheck, lint, tests, wire contracts, deploy drift",
+          "category": "Testing",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-regression-sweep/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-test-gap-audit",
+          "description": "Read-only audit of missing, weak, stale or mis-scoped tests, ranked P0–P3, with a worklist for awesome-test-writing",
+          "category": "Testing",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-test-gap-audit/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-design-doc",
+          "description": "Design docs and ADRs: requirements first, real alternatives, a grounded recommendation, non-goals and rollout",
+          "category": "Design and planning",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-design-doc/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-api-design",
+          "description": "Designs or reviews HTTP API shape before code: resources, versioning, pagination, idempotency",
+          "category": "Design and planning",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-api-design/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-plan-simplify",
+          "description": "Simplifies a written plan against the code it changes: over-engineering, redundant guards, contradictions, as ranked cuts",
+          "category": "Design and planning",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-plan-simplify/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-code-explainer",
+          "description": "Explains how a codebase works as one illustrated page: purpose, stack, structure, main flow, where to start reading, every claim cited",
+          "category": "Understanding a codebase",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-code-explainer/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-code-docs",
+          "description": "Generates a full technical documentation set along the dependency graph: architecture, per-module and API reference, flows, operations, how-to guides",
+          "category": "Understanding a codebase",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-code-docs/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-bug-fix",
+          "description": "Reproduce → isolate root cause → fix → verify; no random edits",
+          "category": "Debugging and reliability",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-bug-fix/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-root-cause",
+          "description": "Root-cause analysis for incidents and process problems with no failing test: 5 Whys, fishbone, PDCA, A3",
+          "category": "Debugging and reliability",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-root-cause/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-error-standards",
+          "description": "Consistent error handling, retries, and user-facing messages",
+          "category": "Debugging and reliability",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-error-standards/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-logging-standards",
+          "description": "Structured logging, levels, and PII handling",
+          "category": "Debugging and reliability",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-logging-standards/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-architecture-audit",
+          "description": "Whole-project design: module boundaries, dependency direction, docs-vs-code drift, extensibility",
+          "category": "Audits",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-architecture-audit/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-security-audit",
+          "description": "Injection, secrets, auth, dependency CVEs, CI/CD exposure, crypto misuse, with CWE-mapped fixes",
+          "category": "Audits",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-security-audit/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-pentest",
+          "description": "Authorization-gated penetration test per PTES and OWASP: scoping, recon, exploitation-to-proof, CWE/CVSS findings, retest",
+          "category": "Audits",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-pentest/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-leak-audit",
+          "description": "What a public client (extension, app, SPA, CLI) reveals about the private backend; client hardening",
+          "category": "Audits",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-leak-audit/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-accessibility-audit",
+          "description": "WCAG checks, each finding carrying its fix",
+          "category": "Audits",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-accessibility-audit/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-seo-audit",
+          "description": "Crawling, indexing, on-page, structured data, rendering, hreflang, links, visibility to LLMs and agents",
+          "category": "Audits",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-seo-audit/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-performance-audit",
+          "description": "Event loop, backpressure, memory and CPU, timeouts, retries, queues, Core Web Vitals, bundles",
+          "category": "Audits",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-performance-audit/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-database-audit",
+          "description": "Schema anti-patterns, query and index fit, integrity, concurrency, migrations, tenancy",
+          "category": "Audits",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-database-audit/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-privacy-audit",
+          "description": "What personal data the code holds, where it flows, retention and deletion, consent, exposure",
+          "category": "Audits",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-privacy-audit/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-dependency-audit",
+          "description": "Supply chain: lockfiles, typosquats, install scripts, CVE reachability, licenses",
+          "category": "Audits",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-dependency-audit/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-landing-audit",
+          "description": "Landing page conversion structure: primary CTA, form friction, message match, trust elements",
+          "category": "Audits",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-landing-audit/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-claims-audit",
+          "description": "Public claims (site, README, store listing, privacy policy) against the code that decides them, then fixes drift",
+          "category": "Audits",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-claims-audit/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-slop-audit",
+          "description": "AI-slop markers across code, tests, docs and CI, ranked and handed to awesome-code-cleanup",
+          "category": "Audits",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-slop-audit/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-git-commit-plan",
+          "description": "Plans a codebase as a bisectable commit series, each commit verified to build and test alone in a scratch clone",
+          "category": "Git and repository operations",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-git-commit-plan/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-git-history-reset",
+          "description": "Wipes a repo's history to a single Initial commit and force-pushes, behind a verified backup, secret scan and confirmation gate",
+          "category": "Git and repository operations",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-git-history-reset/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-git-author-rewrite",
+          "description": "Rewrites a wrong author/committer identity across commits and force-pushes, behind the same gates",
+          "category": "Git and repository operations",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-git-author-rewrite/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-git-history-rebuild",
+          "description": "Replays the same tree as a curated commit series from an approved plan, with a tree-hash proof that nothing was lost",
+          "category": "Git and repository operations",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-git-history-rebuild/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-git-history-salvage",
+          "description": "Read-only recovery of every commit a repo ever held, force-pushed history included",
+          "category": "Git and repository operations",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-git-history-salvage/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-agents-md-generator",
+          "description": "Writes an agent-agnostic AGENTS.md from the codebase's real commands, conventions and boundaries, with counted evidence",
+          "category": "Agent maintenance",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-agents-md-generator/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-skills-purge",
+          "description": "Removes installed skills from every agent on the machine behind a keep list, an archive and a confirmation gate",
+          "category": "Agent maintenance",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-skills-purge/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-copywriting",
+          "description": "Short product copy: headlines, descriptions, buttons, empty states, error messages, subject lines, CTAs",
+          "category": "Writing and text",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-copywriting/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-humanize-en",
+          "description": "Removes signs of AI generation from English text: cliches, filler, sycophancy, fake sources, chatbot markers",
+          "category": "Writing and text",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-humanize-en/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-document-style",
+          "description": "Line-edits Markdown into clear, specific, publication-ready prose",
+          "category": "Writing and text",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-document-style/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-grammar-check",
+          "description": "Advisory copy-edit: grammar, logic, and flow issues as suggestions, without rewriting",
+          "category": "Writing and text",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-grammar-check/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-translate-ru-en",
+          "description": "Russian → English translation that preserves structure, formatting, and the author's voice",
+          "category": "Writing and text",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-translate-ru-en/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-style-mimic",
+          "description": "Learns a website's writing style into a reusable style guide, then rewrites documents in that voice",
+          "category": "Writing and text",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-style-mimic/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-content-voice",
+          "description": "Builds a reusable profile of the user's own writing voice from their posts, files, samples or an interview",
+          "category": "Content marketing",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-content-voice/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-content-campaign",
+          "description": "Plans a scheduled batch of platform-fit posts about a product, every claim traced to evidence",
+          "category": "Content marketing",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-content-campaign/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-content-repurpose",
+          "description": "Turns one text into three posts covering every platform: a long read, a regular and a short post",
+          "category": "Content marketing",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-content-repurpose/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-content-image-adapter",
+          "description": "Adapts one image into a horizontal 16:9 and a vertical 9:16 version for social platforms",
+          "category": "Content marketing",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-content-image-adapter/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        },
+        {
+          "name": "awesome-content-publisher",
+          "description": "Publishes a post batch to the user's own accounts through their live browser, with dedup and scheduling",
+          "category": "Content marketing",
+          "repo": "khasky/awesome-agent-skills",
+          "path": "skills/awesome-content-publisher/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "Khasky"
+        }
+      ]
+    },
+    {
+      "repo": "huanngzh/oh-my-skills",
+      "file": "README.md",
+      "section": "Skills",
+      "category": "Workflow",
+      "license": null,
+      "attribution": "oh-my-skills by huanngzh (no license; names and paths only)",
+      "sha": "dfd87e9da4c76174578f7045793dbc8e26092555",
+      "entries": [
+        {
+          "name": "Main Session Orchestrator",
+          "description": "",
+          "category": "Workflow",
+          "repo": "huanngzh/oh-my-skills",
+          "path": "skills/main-session-orchestrator/SKILL.md",
+          "ref": "main",
+          "license": null,
+          "author": "huanngzh"
+        }
+      ]
+    }
+  ]
+}

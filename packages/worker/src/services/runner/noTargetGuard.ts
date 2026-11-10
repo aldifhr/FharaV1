@@ -1,5 +1,6 @@
 import { requestText } from "@/orchestrator/classifier";
 import { scopeViolations, scopeWarning, type ScopeChange } from "@/execution/scopeGuard";
+import { stagedSyntaxErrors, syntaxWarning } from "@/execution/editGuards";
 
 /** A fix / bug / investigation request (EN/ID). */
 const FIX_REQUEST =
@@ -20,7 +21,13 @@ export function newFilesOnlyFixWarning(
   // guard's findings (execution/scopeGuard): deleted tests, removed
   // exports, code edits on a doc-only request. Kept under this name so the
   // apply stage's single warning call picks them up.
-  const parts = [noTargetWarning(command, changes), scopeWarning(scopeViolations(command ?? "", changes))].filter(
+  // R3: staged files that no longer parse (any executor path, including
+  // native agents that write files themselves) are flagged too.
+  const parts = [
+    noTargetWarning(command, changes),
+    scopeWarning(scopeViolations(command ?? "", changes)),
+    syntaxWarning(stagedSyntaxErrors(changes)),
+  ].filter(
     (part): part is string => Boolean(part)
   );
   return parts.length > 0 ? parts.join("\n\n") : null;

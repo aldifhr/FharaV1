@@ -5,6 +5,10 @@
  *  - deleted_test:      an existing test file deleted, or existing test
  *                       cases (`it(…)` / `test(…)`) dropped from one;
  *  - removed_export:    an exported symbol of an existing source file gone;
+ *  - weakened_test:     an existing test file kept but weakened: `.skip` /
+ *                       `.only` / `xit` / `fdescribe` added, or assertions
+ *                       (`expect(` / `assert(`) removed (R3, SWE-agent
+ *                       "if you have modified any TEST files, revert them");
  *  - doc_only_behavior: a documentation/comment-only request whose change
  *                       touches code outside comments.
  *
@@ -13,7 +17,7 @@
  * back to the implementer once, never a hard block.
  */
 
-export type ScopeViolationCode = "deleted_test" | "removed_export" | "doc_only_behavior";
+export type ScopeViolationCode = "deleted_test" | "weakened_test" | "removed_export" | "doc_only_behavior";
 
 export interface ScopeViolation {
   code: ScopeViolationCode;
@@ -34,6 +38,8 @@ const JS_FILE = /\.(?:[cm]?[jt]sx?|vue|svelte)$/i;
 /** The request asks to remove / delete / rename / replace something. */
 const REMOVAL_REQUEST =
   /\b(?:remove|removes|removing|delete|deletes|deleting|drop|drops|rename|renames|renaming|replace|replaces|rewrite|deprecate|hapus\w*|buang\w*|ganti\w*|ubah nama|rename\w*)\b/i;
+/** The request asks to skip / focus / disable tests. */
+const SKIP_REQUEST = /\b(?:skip|skips|skipping|skipped|disable\w*|focus\w*|lewati\w*|nonaktif\w*|matikan)\b|\.only\b|\.skip\b/i;
 const TEST_WORD = /\b(?:tests?|specs?|unit tests?|test cases?|tes|pengujian)\b/i;
 const DOC_WORD = /\b(?:jsdoc|tsdoc|docstrings?|doc comments?|comments?|komentar\w*|dokumentasi\w*|documentation|documents?|docs?)\b/i;
 /** A doc request still counts as doc-only when it says "only" or the doc is the verb's object. */
@@ -60,6 +66,20 @@ export function testCaseNames(source: string): string[] {
   // Python: def test_x(
   for (const match of source.matchAll(/^\s*(?:async\s+)?def\s+(test_\w+)\s*\(/gm)) names.push(match[1]);
   return names;
+}
+
+const SKIP_MARK = /\b(?:it|test|describe|suite|context)\.(?:skip|todo)\b|\b(?:xit|xtest|xdescribe|xcontext)\s*\(/g;
+const ONLY_MARK = /\b(?:it|test|describe|suite|context)\.only\b|\b(?:fit|fdescribe)\s*\(/g;
+const ASSERTION = /\bexpect\s*\(|\bexpect\.(?:assertions|hasAssertions)\s*\(|\bassert(?:\.\w+)?\s*\(|\.should\b/g;
+
+/** How a JS/TS test file skips, focuses and asserts (comments ignored). */
+export function testStrength(source: string): { skips: number; onlys: number; assertions: number } {
+  const code = stripComments(source);
+  return {
+    skips: code.match(SKIP_MARK)?.length ?? 0,
+    onlys: code.match(ONLY_MARK)?.length ?? 0,
+    assertions: code.match(ASSERTION)?.length ?? 0,
+  };
 }
 
 /** Exported symbol names of a JS/TS module (ESM and CommonJS forms). */
@@ -191,6 +211,20 @@ export function scopeViolations(command: string, changes: ReadonlyArray<ScopeCha
         });
       }
     }
+    if (isTest && JS_FILE.test(filePath)) {
+      const before = testStrength(oldContent);
+      const after = testStrength(newContent);
+      const asksSkip = SKIP_REQUEST.test(request) && TEST_WORD.test(request);
+      const reasons: string[] = [];
+      if (!asksSkip && after.skips > before.skips) reasons.push(`adds ${after.skips - before.skips} skipped test(s) (.skip / xit)`);
+      if (!asksSkip && after.onlys > before.onlys) reasons.push(`adds ${after.onlys - before.onlys} focused test(s) (.only / fit), which silently skips the rest`);
+      if (!asksTestRemoval && after.assertions < before.assertions) {
+        reasons.push(`removes ${before.assertions - after.assertions} assertion(s) (expect / assert)`);
+      }
+      if (reasons.length > 0) {
+        violations.push({ code: "weakened_test", filePath, message: `weakens the existing tests in ${filePath}: ${reasons.join("; ")}` });
+      }
+    }
     if (!isTest && JS_FILE.test(filePath) && !asksRemoval) {
       const after = new Set(exportedSymbols(newContent));
       const removed = exportedSymbols(oldContent).filter((name) => !after.has(name));
@@ -226,6 +260,6 @@ export function scopeRetryFeedback(violations: ReadonlyArray<ScopeViolation>): s
   return [
     "Your previous answer was REJECTED by the scope guard because it changed more than the request asked:",
     ...violations.slice(0, 8).map((violation) => `- ${violation.message}`),
-    "Return the corrected file changes JSON. Keep every existing test case and exported symbol, and keep the existing documentation. For a documentation/comment-only request, change comments only: leave the code (and therefore its behaviour and output) exactly as it is.",
+    "Return the corrected file changes JSON. Keep every existing test case, assertion and exported symbol, do not add .skip / .only to tests, and keep the existing documentation. For a documentation/comment-only request, change comments only: leave the code (and therefore its behaviour and output) exactly as it is.",
   ].join("\n");
 }

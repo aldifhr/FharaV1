@@ -57,6 +57,7 @@ import { maskStringSecrets, validateFilePath } from "@/governance/tools";
 import { recordLlmSnapshot, withSnapshotScope } from "@/llm/snapshots";
 import { isPathWithinOwnership } from "@/utils/ownershipPaths";
 import { scopeRetryFeedback, scopeViolations } from "@/execution/scopeGuard";
+import { newSyntaxErrors, syntaxRetryFeedback, syntaxWarning, type SyntaxIssue } from "@/execution/editGuards";
 import {
   computeDiff,
   diffFromContents,
@@ -1602,6 +1603,55 @@ async function executeCodeChange(
       currentContent: contentReader(workspacePath, (filePath) => input.getStagedChange?.(filePath) ?? input.fileChanges.find((change) => change.filePath === filePath)),
     });
     if (detected) return await escalateOutcome(input, detected);
+  }
+
+  // Syntax gate (R3, Aider lint_edited pattern): staged files that no
+  // longer parse go back to the implementer ONCE with the errors and the
+  // marked lines; files that still do not parse never reach approval.
+  if (draft.files.length > 0 && !signal.aborted) {
+    const readCurrent = contentReader(workspacePath, (filePath) => input.getStagedChange?.(filePath) ?? input.fileChanges.find((change) => change.filePath === filePath));
+    const checkSyntax = async (files: DraftFile[]): Promise<SyntaxIssue[]> =>
+      (await Promise.all(files.map(async (file) => newSyntaxErrors(file.filePath, file.newContent, await readCurrent(file.filePath))))).flat();
+    let issues = await checkSyntax(draft.files);
+    if (issues.length > 0) {
+      await onEvent(
+        "syntax.error",
+        { capability: subtask.capability, attempt: 1, issues: issues.slice(0, 10).map((i) => `${i.filePath}:${i.line}:${i.column}: ${i.message}`) },
+        "warn"
+      );
+      input.assertBudgetForCall?.();
+      try {
+        const contents = new Map(draft.files.map((file) => [file.filePath.replace(/\\/g, "/"), file.newContent] as const));
+        const retried = await runLlmCallWithFallback(
+          [servedBy],
+          baseMessages(input, `${basePayload}\n\n${syntaxRetryFeedback(issues, contents)}`),
+          { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
+        );
+        if (input.onTokenUsage) {
+          await input.onTokenUsage(
+            retried.result.inputTokens ?? 0,
+            retried.result.outputTokens ?? 0,
+            retried.servedBy.config.model,
+            usageMetaFor(retried.servedBy, retried.result)
+          );
+        }
+        const reparsed = parseCodeChangeAnswer(retried.result.content).draft;
+        if (reparsed && reparsed.files.length > 0) {
+          draft = reparsed;
+          issues = await checkSyntax(reparsed.files);
+        }
+      } catch (error) {
+        if (isBudgetExhaustedError(error) || input.signal.aborted) throw error;
+      }
+      await onEvent(
+        "syntax.error",
+        { capability: subtask.capability, attempt: 2, resolved: issues.length === 0 },
+        issues.length === 0 ? "info" : "warn"
+      );
+      if (issues.length > 0) {
+        return { status: "failed", error: syntaxWarning(issues) ?? "The staged files do not parse" };
+      }
+    }
   }
 
   // Scope guard (live test 4: a "JSDoc only" request rewrote formatRupiah's

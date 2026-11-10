@@ -4,6 +4,7 @@ import type { FileDiff } from "@/tools/gitDiff";
 import { routeCapability } from "@/orchestrator/capabilities";
 import { tryAutoApprove } from "./autoApprove";
 import { scopeViolations, scopeWarning } from "@/execution/scopeGuard";
+import { stagedSyntaxErrors, syntaxWarning } from "@/execution/editGuards";
 
 export type FixApplyResult = "applied" | "waiting_approval" | "failed";
 
@@ -42,7 +43,11 @@ export async function applyOrRequestFixApproval(
   // Scope guard: a fix that deletes tests, removes exports or edits code on
   // a doc-only request is flagged on the approval and never auto-approved
   // (live test 3: an out-of-scope verify fix was auto-approved and merged).
-  const warning = scopeWarning(scopeViolations(input.task.command ?? "", fixChanges));
+  // R3: a fix whose staged files no longer parse is flagged the same way.
+  const warning =
+    [scopeWarning(scopeViolations(input.task.command ?? "", fixChanges)), syntaxWarning(stagedSyntaxErrors(fixChanges))]
+      .filter((part): part is string => Boolean(part))
+      .join("\n\n") || null;
   const fixSummary = `Apply ${stage} fix (${fixChanges.length} file(s)): ${fixChanges
     .map((change) => change.filePath)
     .join(", ")}${warning ? `\n\n${warning}` : ""}`;

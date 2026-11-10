@@ -24,7 +24,6 @@ import {
   Search,
   Settings,
   Share2,
-  Scale,
   Sparkles,
   Users,
   FlaskConical,
@@ -297,7 +296,7 @@ export default function IconRail({
         label="Insights"
         buttonRef={insightsRef}
         expanded={panel === "insights"}
-        active={pathname === "/evals" || pathname === "/audit" || pathname === "/improve" || pathname === "/calibration"}
+        active={pathname === "/evals" || pathname === "/audit" || pathname === "/improve"}
         onClick={() => setPanel((p) => (p === "insights" ? null : "insights"))}
       />
       <div className="mt-auto flex flex-col items-center gap-1 pt-3 max-[979px]:ml-auto max-[979px]:mt-0 max-[979px]:flex-row max-[979px]:pt-0">
@@ -325,7 +324,6 @@ export default function IconRail({
               { icon: BarChart3, label: "Evaluations", href: projectId ? `/evals?project=${projectId}` : "/evals", path: "/evals" },
               { icon: ScrollText, label: "Audit log", href: projectId ? `/audit?project=${projectId}` : "/audit", path: "/audit" },
               { icon: Sparkles, label: "Improve", href: projectId ? `/improve?project=${projectId}` : "/improve", path: "/improve" },
-              { icon: Scale, label: "Calibration", href: projectId ? `/calibration?project=${projectId}` : "/calibration", path: "/calibration" },
             ].map(({ icon: Icon, label, href, path }) => (
               <Link
                 key={label}

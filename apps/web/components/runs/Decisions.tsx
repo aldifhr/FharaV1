@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import { DECISION_TYPE_LABELS, type DecisionType } from "@/api/convex/lib/calibration/capture";
@@ -13,13 +12,13 @@ import ContextInspector from "@/components/context/ContextInspector";
  * plain list; the label is coloured text, never a pill.
  */
 
-export const LABEL_TEXT: Record<string, string> = {
+const LABEL_TEXT: Record<string, string> = {
   good: "Good",
   suboptimal: "Suboptimal",
   bad: "Bad",
   unknown: "Unknown",
 };
-export const LABEL_CLASS: Record<string, string> = {
+const LABEL_CLASS: Record<string, string> = {
   good: "text-brand-ink",
   suboptimal: "text-warn",
   bad: "text-destructive",
@@ -30,7 +29,7 @@ function clock(at: number): string {
   return new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-export default function Decisions({ taskId, projectId }: { taskId: string; projectId: string }) {
+export default function Decisions({ taskId }: { taskId: string }) {
   const rows = useQuery(api.calibration.forTask, { taskId: taskId as never });
   const [open, setOpen] = useState<string | null>(null);
   if (!rows || rows.length === 0) return null;
@@ -43,9 +42,6 @@ export default function Decisions({ taskId, projectId }: { taskId: string; proje
           <span className="tabular-nums text-ink-3">{rows.length}</span>
           {bad > 0 && <span className="tabular-nums text-destructive">{bad} bad</span>}
         </span>
-        <Link href={`/calibration?project=${projectId}`} className="text-[12.5px] font-normal text-ink-3 hover:text-ink">
-          Calibration
-        </Link>
       </h2>
       <ul className="divide-y divide-line border-y border-line">
         {rows.map((row) => {

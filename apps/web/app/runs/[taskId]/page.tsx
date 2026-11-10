@@ -678,7 +678,7 @@ export default function RunTracePage() {
                 <RoutingInspector routing={run.routing} instruction={run.task.command} />
               </Section>
 
-              <Decisions taskId={String(run.task._id)} projectId={String(run.task.projectId)} />
+              <Decisions taskId={String(run.task._id)} />
 
               <ReplaySession taskId={String(run.task._id)} />
               <RunContext taskId={String(run.task._id)} />

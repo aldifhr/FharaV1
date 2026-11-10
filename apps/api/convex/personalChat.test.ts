@@ -145,6 +145,39 @@ describe("sendInConversation", () => {
   });
 });
 
+describe("removePersonal", () => {
+  test("deletes the conversation, its messages and participants; get-or-create returns a fresh chat", async () => {
+    const t = makeT();
+    const ids = await seed(t);
+    const id = await t.mutation(api.conversations.getOrCreatePersonal, { agentId: ids.ctoId });
+    await t.mutation(api.messages.sendInConversation, { conversationId: id, content: "hello" });
+    expect(await t.query(api.conversations.get, { conversationId: id })).not.toBeNull();
+    const res = await t.mutation(api.conversations.removePersonal, { conversationId: id });
+    expect(res).toEqual({ deleted: true });
+    expect(await t.query(api.conversations.get, { conversationId: id })).toBeNull();
+    expect(await t.run((ctx) => ctx.db.get(id))).toBeNull();
+    expect(await t.run((ctx) => ctx.db.query("messages").collect())).toHaveLength(0);
+    expect((await t.run((ctx) => ctx.db.query("conversationParticipants").collect())).filter((r) => r.conversationId === id)).toHaveLength(0);
+    const fresh = await t.mutation(api.conversations.getOrCreatePersonal, { agentId: ids.ctoId });
+    expect(fresh).not.toBe(id);
+  });
+
+  test("is idempotent and refuses project conversations", async () => {
+    const t = makeT();
+    const ids = await seed(t);
+    const gone = await t.run(async (ctx) => {
+      const row = await ctx.db.insert("conversations", { kind: "personal", agentId: ids.ctoId, status: "active", createdAt: Date.now() });
+      await ctx.db.delete(row);
+      return row;
+    });
+    await expect(t.mutation(api.conversations.removePersonal, { conversationId: gone })).resolves.toEqual({ deleted: false });
+    const project = await t.mutation(api.messages.send, { projectId: ids.projectId, content: "project msg" });
+    await expect(
+      t.mutation(api.conversations.removePersonal, { conversationId: project.conversationId as Id<"conversations"> })
+    ).rejects.toThrow(/personal chat/);
+  });
+});
+
 describe("listPersonal", () => {
   test("lists enabled agents with their active chat, recent first", async () => {
     const t = makeT();

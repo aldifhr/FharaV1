@@ -15,5 +15,7 @@ export async function taskCardConversationId(
 ): Promise<Id<"conversations"> | undefined> {
   if (!conversationId) return undefined;
   const conversation = await ctx.db.get(conversationId);
-  return conversation && isPersonalConversation(conversation) ? undefined : conversationId;
+  // A deleted personal chat (conversations.removePersonal) leaves tasks with a
+  // dangling id: treat it as "no chat" so no stage card is posted into it.
+  return conversation && !isPersonalConversation(conversation) ? conversationId : undefined;
 }

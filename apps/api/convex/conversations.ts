@@ -694,3 +694,48 @@ export const attachProject = mutation({
     return { attached: true, projectId: project._id };
   },
 });
+
+/**
+ * Delete a personal chat (plan 039): the conversation row, its messages,
+ * participant rows and context summaries. Project chats are refused — this
+ * is the personal chat's delete, not a project's. Tasks the chat started
+ * keep living on their project board; their `conversationId` dangles, which
+ * `taskCardConversationId` treats as "no chat". Messages go first so a
+ * reply scheduled before the delete claims nothing and no-ops.
+ */
+export const removePersonal = mutation({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args): Promise<{ deleted: boolean }> => {
+    await assertPersonalChatAccess(ctx);
+    const conversation = await ctx.db.get(args.conversationId);
+    if (!conversation) return { deleted: false };
+    await assertConversationAccess(ctx, conversation);
+    if (!isPersonalConversation(conversation)) {
+      throw new Error("Only a personal chat can be deleted here");
+    }
+    const agent = conversation.agentId ? await ctx.db.get(conversation.agentId) : null;
+    // One mutation = one transaction: either the whole chat goes or none of it.
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
+      .collect();
+    for (const message of messages) await ctx.db.delete(message._id);
+    const participants = await ctx.db
+      .query("conversationParticipants")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
+      .collect();
+    for (const row of participants) await ctx.db.delete(row._id);
+    const summaries = await ctx.db
+      .query("contextSummaries")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
+      .collect();
+    for (const row of summaries) await ctx.db.delete(row._id);
+    await ctx.db.delete(conversation._id);
+    await recordAudit(ctx, {
+      action: "conversation.remove_personal",
+      target: agent?.name ?? "personal chat",
+      details: { conversationId: conversation._id, messages: messages.length },
+    });
+    return { deleted: true };
+  },
+});

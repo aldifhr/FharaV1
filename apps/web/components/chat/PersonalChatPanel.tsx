@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
-import { Menu, PanelLeftOpen } from "lucide-react";
+import { Menu, PanelLeftOpen, Trash2 } from "lucide-react";
 import { iconButtonClass } from "../shell/usePopover";
 import { api } from "@/api/convex/_generated/api";
 import { composeOfferedTask } from "@/api/convex/lib/chat/intent";
@@ -11,6 +11,7 @@ import { newClientId, optimisticUserRow, reconcileOptimistic, withOptimisticRow 
 import { agentRoleText, roleLabel } from "@/lib/agentRoles";
 import { clockTime, isSameDay, shortDate } from "@/lib/format";
 import { conversationKindLabel, personalDraftKey, personalEmptyText, personalSlashNames } from "@/lib/personalChat";
+import { usePersonalAttachEnabled } from "@/lib/personalAttachPref";
 import { useToast } from "../Toasts";
 import ConfirmDialog, { type ConfirmRequest } from "../ConfirmDialog";
 import ChatComposer, { SLASH_COMMANDS } from "./ChatComposer";
@@ -53,6 +54,7 @@ export default function PersonalChatPanel({
   const tasks = useQuery(api.tasks.listByProject, project ? { projectId: project._id } : "skip");
   const togglePin = useMutation(api.messages.togglePin);
   const startNew = useMutation(api.conversations.startNewPersonal);
+  const deleteChat = useMutation(api.conversations.removePersonal);
   const createTask = useMutation(api.tasks.createFromCommand);
   const sendMutation = useMutation(api.messages.sendInConversation).withOptimisticUpdate((store, args) => {
     if (!args.clientId) return;
@@ -124,8 +126,11 @@ export default function PersonalChatPanel({
   const [chatError, setChatError] = useState("");
   const [chatSending, setChatSending] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [attachEnabled] = usePersonalAttachEnabled();
   const [newConfirm, setNewConfirm] = useState<ConfirmRequest | null>(null);
   const [newPending, setNewPending] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<ConfirmRequest | null>(null);
+  const [deletePending, setDeletePending] = useState(false);
 
   const queue = useChatQueue(
     async (content, queueId) => {
@@ -295,6 +300,25 @@ export default function PersonalChatPanel({
     }
   };
 
+  const confirmDeleteChat = async () => {
+    setDeletePending(true);
+    try {
+      await deleteChat({ conversationId: conversationId as never });
+      try {
+        localStorage.removeItem(personalDraftKey(conversationId));
+      } catch {
+        /* storage denied */
+      }
+      queue.clear();
+      setDeleteConfirm(null);
+      toast("success", "Chat deleted");
+      router.push("/chats");
+    } catch (err) {
+      toast("error", "Couldn't delete the chat", err instanceof Error ? err.message : undefined);
+      setDeletePending(false);
+    }
+  };
+
   const slashCommands = useMemo(
     () => SLASH_COMMANDS.filter((c) => (personalSlashNames(attached) as string[]).includes(c.name)),
     [attached],
@@ -338,7 +362,7 @@ export default function PersonalChatPanel({
           </div>
           {conversation && (
             <div className="flex items-center gap-2">
-              {!attached && !closed && (
+              {!attached && !closed && attachEnabled && (
                 <button
                   type="button"
                   onClick={() => setAttachOpen(true)}
@@ -347,6 +371,23 @@ export default function PersonalChatPanel({
                   Attach project
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() =>
+                  setDeleteConfirm({
+                    title: "Delete this chat?",
+                    message: `All messages in this chat with ${agentName} are deleted and cannot be recovered. Tasks created here stay on their project board.`,
+                    confirmLabel: "Delete chat",
+                    icon: "trash",
+                    tone: "danger",
+                  })
+                }
+                aria-label="Delete chat"
+                title="Delete chat"
+                className="flex h-[30px] w-[30px] items-center justify-center rounded-lg border border-line text-ink-3 outline-none transition hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-brand/40 dark:hover:border-red-900 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+              >
+                <Trash2 size={15} />
+              </button>
               <button
                 type="button"
                 onClick={() =>
@@ -446,6 +487,7 @@ export default function PersonalChatPanel({
       )}
 
       <ConfirmDialog request={newConfirm} pending={newPending} onCancel={() => setNewConfirm(null)} onConfirm={() => void confirmNewChat()} />
+      <ConfirmDialog request={deleteConfirm} pending={deletePending} onCancel={() => setDeleteConfirm(null)} onConfirm={() => void confirmDeleteChat()} />
       {attachOpen && agentRow && (
         <AttachProjectDialog conversationId={conversationId} agent={agentRow} onClose={() => setAttachOpen(false)} />
       )}

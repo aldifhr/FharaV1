@@ -6,6 +6,7 @@ import {
   query,
 } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { taskCardConversationId } from "./lib/conversationScope";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -496,10 +497,11 @@ export const createFixTask = internalMutation({
       ...(owner.sprint !== undefined ? { sprint: owner.sprint } : {}),
       updatedAt: now,
     });
+    const cardConversationId = await taskCardConversationId(ctx, owner.conversationId);
     await ctx.db.insert("messages", {
       projectId: owner.projectId,
       taskId: fixTaskId,
-      ...(owner.conversationId ? { conversationId: owner.conversationId } : {}),
+      ...(cardConversationId ? { conversationId: cardConversationId } : {}),
       authorType: "agent",
       content: `${title}. Fhara will commit the fix on ${owner.branchName}; you approve the push.`,
     });

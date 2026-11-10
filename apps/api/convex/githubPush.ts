@@ -7,6 +7,7 @@ import {
   query,
 } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { taskCardConversationId } from "./lib/conversationScope";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -211,7 +212,7 @@ export const postTaskCard = internalMutation({
     const messageId = await ctx.db.insert("messages", {
       projectId: args.projectId,
       taskId: args.taskId,
-      conversationId: task.conversationId,
+      conversationId: await taskCardConversationId(ctx, task.conversationId),
       agentId: args.agentId,
       authorType: "agent",
       content: (args.content ?? "").trim(),
@@ -311,7 +312,7 @@ export const recordTaskCommit = internalMutation({
     const messageId = await ctx.db.insert("messages", {
       projectId: args.projectId,
       taskId: args.taskId,
-      conversationId: task.conversationId,
+      conversationId: await taskCardConversationId(ctx, task.conversationId),
       agentId: args.agentId,
       authorType: "agent",
       content: "",

@@ -8,6 +8,7 @@ import {
   assertRegistryWriteAccess,
   getViewerId,
 } from "./lib/authz";
+import { recordAudit } from "./lib/recordAudit";
 import { conversationKind, conversationShapeError, isPersonalConversation } from "./lib/conversationShape";
 
 /**
@@ -641,5 +642,55 @@ export const get = query({
       lastMessageAt: conversation.lastMessageAt ?? null,
       participants,
     };
+  },
+});
+
+/**
+ * Attach a project to a personal chat (plan 039 PC4). Once, to a project
+ * the caller can access whose team includes the conversation's agent (D2);
+ * no detach or switch in v1 (D3). Ids and messages are unchanged and no
+ * reply is scheduled: old messages are never re-run. From the next turn on
+ * the reply reads project memory, the repo snapshot and read-only repo
+ * tools through the conversation row. The client's projectId is only a
+ * request: every check runs here.
+ */
+export const attachProject = mutation({
+  args: { conversationId: v.id("conversations"), projectId: v.id("projects") },
+  handler: async (ctx, args): Promise<{ attached: boolean; projectId: Id<"projects"> }> => {
+    const conversation = await ctx.db.get(args.conversationId);
+    if (!conversation) throw new Error("Conversation not found");
+    await assertConversationAccess(ctx, conversation);
+    if (!isPersonalConversation(conversation)) {
+      throw new Error("Only a personal chat can be attached to a project");
+    }
+    if (conversation.status !== "active") throw new Error("This chat is closed. Start a new chat.");
+    if (conversation.projectId === args.projectId) return { attached: false, projectId: args.projectId };
+    if (conversation.projectId) {
+      const current = await ctx.db.get(conversation.projectId);
+      throw new Error(
+        `This chat is already attached to ${current?.name ?? "a project"}. Start a new chat to use another project.`
+      );
+    }
+    const project = await assertProjectAccess(ctx, args.projectId);
+    const agent = conversation.agentId ? await ctx.db.get(conversation.agentId) : null;
+    if (!agent) throw new Error("Agent not found");
+    if (agent.isEnabled === false) throw new Error(`Agent ${agent.name} is disabled`);
+    if (!(project.agentIds ?? []).includes(agent._id)) {
+      throw new Error(`Add ${agent.name} to this project's team first`);
+    }
+    const now = Date.now();
+    await ctx.db.patch(conversation._id, { projectId: project._id, projectAttachedAt: now, updatedAt: now });
+    const rows = await ctx.db
+      .query("conversationParticipants")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
+      .collect();
+    for (const row of rows) await ctx.db.patch(row._id, { projectId: project._id });
+    await recordAudit(ctx, {
+      action: "conversation.attach_project",
+      target: agent.name,
+      projectId: project._id,
+      details: { conversationId: conversation._id },
+    });
+    return { attached: true, projectId: project._id };
   },
 });

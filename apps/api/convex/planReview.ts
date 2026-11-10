@@ -1,5 +1,6 @@
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { taskCardConversationId } from "./lib/conversationScope";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { assertProjectAccess, getVisibleTask } from "./lib/authz";
@@ -294,7 +295,7 @@ export const requestReview = internalMutation({
       await ctx.db.insert("messages", {
         projectId: args.projectId,
         taskId: args.taskId,
-        conversationId: task.conversationId,
+        conversationId: await taskCardConversationId(ctx, task.conversationId),
         authorType: "agent",
         content: "",
         card: { kind: "plan", data: { taskId: String(args.taskId) } },

@@ -202,6 +202,7 @@ export default function LlmSettingsSection({
   const [modelOptions, setModelOptions] = useState<Record<string, string[]>>({});
   const [modelOptionsLoading, setModelOptionsLoading] = useState(false);
   const [modelOptionsError, setModelOptionsError] = useState("");
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
 
   // Order + tests.
   const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
@@ -674,7 +675,7 @@ export default function LlmSettingsSection({
                   )}
                 </p>
                 <p className={`truncate text-[12px] ${opencodeLine.kind === "missing" ? "text-warn" : "text-ink-3"}`} title={opencodeLine.text}>
-                  CLI on the worker · {opencodeLine.text}
+                  {opencodeLine.text}
                   {opencode && opencode.checkedAt > 0 && ` · checked ${relativeTime(opencode.checkedAt)}`}
                   {opencode?.pendingCheck && " · checking…"}
                 </p>
@@ -814,26 +815,46 @@ export default function LlmSettingsSection({
                 </label>
                 <label className={LABEL}>
                   Model
-                  <input
-                    list="llm-model-options"
-                    value={modelForm.modelId}
-                    onChange={(e) => setModelForm({ ...modelForm, modelId: e.target.value })}
-                    placeholder={
-                      addingOpencode
-                        ? "provider/model"
-                        : modelOptionsLoading
-                          ? "Loading models…"
-                          : options.length > 0
-                            ? "Pick or type a model id"
-                            : modelPreset?.modelHint ?? "Model id"
-                    }
-                    className={FIELD}
-                  />
-                  <datalist id="llm-model-options">
-                    {options.map((id) => (
-                      <option key={id} value={id} />
-                    ))}
-                  </datalist>
+                  <div className="relative">
+                    <input
+                      value={modelForm.modelId}
+                      onChange={(e) => setModelForm({ ...modelForm, modelId: e.target.value })}
+                      onFocus={() => setModelMenuOpen(true)}
+                      placeholder={
+                        addingOpencode
+                          ? "provider/model"
+                          : modelOptionsLoading
+                            ? "Loading models…"
+                            : options.length > 0
+                              ? "Pick or type a model id"
+                              : modelPreset?.modelHint ?? "Model id"
+                      }
+                      className={FIELD}
+                    />
+                    {modelMenuOpen && options.length > 0 && (
+                      <div className={popoverClass}>
+                        <ul className="max-h-52 overflow-y-auto">
+                          {options
+                            .filter((id) => id.toLowerCase().includes(modelForm.modelId.toLowerCase()))
+                            .slice(0, 20)
+                            .map((id) => (
+                              <li key={id}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setModelForm({ ...modelForm, modelId: id });
+                                    setModelMenuOpen(false);
+                                  }}
+                                  className="w-full rounded-md px-2 py-1 text-left text-[13px] hover:bg-hover"
+                                >
+                                  {id}
+                                </button>
+                              </li>
+                            ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
                 </label>
               </div>
               {addingOpencode ? (

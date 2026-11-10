@@ -9,7 +9,6 @@ import IconRail from "@/components/IconRail";
 import InitialAvatar from "@/components/InitialAvatar";
 import AgentDetailPanel from "@/components/AgentDetailPanel";
 import WorkloadSection from "@/components/WorkloadSection";
-import CapacitySection from "@/components/team/CapacitySection";
 import CollaborationSection from "@/components/team/CollaborationSection";
 import { CreateAgentModal, EditAgentModal } from "@/components/sidebar/AgentForms";
 import { roleLabel } from "@/lib/agentRoles";
@@ -149,7 +148,6 @@ function TeamPage() {
             </ul>
           )}
 
-          <CapacitySection />
           <WorkloadSection />
           <CollaborationSection />
         </div>

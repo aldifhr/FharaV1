@@ -209,3 +209,63 @@ export function buildChildEnv(
   // framework (Next.js) augments ProcessEnv with required keys.
   return env as ChildEnv;
 }
+
+/**
+ * O1: env overrides that point a child's home at a throwaway per-run dir.
+ *
+ * `buildChildEnv` forwards HOME and the XDG dirs, so an OpenCode agent's
+ * `cat ~/.config/gh/hosts.yml`, `~/.git-credentials`, `~/.ssh/*` or the
+ * OpenCode auth store reached the user's real files. Merged into a
+ * `buildChildEnv` call as `extra`, this sets HOME (and USERPROFILE /
+ * APPDATA / LOCALAPPDATA on Windows) plus every XDG var under `runDir`,
+ * turns off the user's global git config and the gh config dir, and drops
+ * the SSH agent socket, whatever the parent env holds.
+ *
+ * Pure (no Node imports): the caller creates the directories.
+ * `cacheDir` may point at a persistent, credential-free cache (OpenCode's
+ * provider packages) so each run does not reinstall them.
+ */
+export interface ScopedHomeOptions {
+  /** Persistent, secret-free cache dir; defaults to `<runDir>/cache`. */
+  cacheDir?: string;
+  /** Null device for GIT_CONFIG_GLOBAL; "/dev/null" (POSIX) or "NUL" (Windows). */
+  devNull?: string;
+  /** Path separator; "/" by default. */
+  sep?: string;
+}
+
+/** Subdirectories `scopedHome` points at (the caller mkdirs them). */
+export const SCOPED_HOME_DIRS = ["home", "config", "data", "state", "gh", "appdata", "localappdata"] as const;
+
+export function scopedHome(runDir: string, options: ScopedHomeOptions = {}): Record<string, string | undefined> {
+  const sep = options.sep ?? "/";
+  const join = (...parts: string[]) => [runDir.replace(/[\\/]+$/, ""), ...parts].join(sep);
+  const home = join("home");
+  const cache = options.cacheDir ?? join("cache");
+  return {
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: join("appdata"),
+    LOCALAPPDATA: join("localappdata"),
+    XDG_CONFIG_HOME: join("config"),
+    XDG_DATA_HOME: join("data"),
+    XDG_STATE_HOME: join("state"),
+    XDG_CACHE_HOME: cache,
+    // npm's cache follows HOME otherwise (re-download on every run).
+    npm_config_cache: `${cache}${sep}npm`,
+    GIT_CONFIG_GLOBAL: options.devNull ?? "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0",
+    GH_CONFIG_DIR: join("gh"),
+    // Removed even if an operator passed them through.
+    SSH_AUTH_SOCK: undefined,
+    SSH_AGENT_PID: undefined,
+    GIT_ASKPASS: undefined,
+    SSH_ASKPASS: undefined,
+    GH_TOKEN: undefined,
+    GITHUB_TOKEN: undefined,
+    GH_ENTERPRISE_TOKEN: undefined,
+    GITHUB_ENTERPRISE_TOKEN: undefined,
+    XDG_RUNTIME_DIR: undefined,
+  };
+}

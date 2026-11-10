@@ -60,7 +60,8 @@ describe("nativeProvider", () => {
     expect(result.status).toBe("completed");
     expect(result.inputTokens).toBe(5);
     expect(result.outputTokens).toBe(3);
-    expect(events).toEqual(["native.run.started", "native.run.finished"]);
+    // O1: the scoped home announces itself (which login was copied).
+    expect(events).toEqual(["native.run.started", "native.home", "native.run.finished"]);
   });
 
   it("reports a failed run on nonzero exit", async () => {

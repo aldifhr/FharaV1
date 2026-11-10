@@ -68,6 +68,7 @@ import {
 } from "@/tools/gitDiff";
 import { isCommandAllowed, runCommand } from "@/tools/runCommand";
 import { canWriteAny, permissionsForAgent, shellDenial, writeDenial } from "@/utils/rolePolicy";
+import { buildOpencodePolicy } from "./opencodePolicy";
 import { dangerousCommandReason } from "@/api/convex/lib/commandRules";
 import { commandDeniedOutput, type CommandApprovalOutcome } from "@/execution/commandGate";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
@@ -809,6 +810,22 @@ async function executeSubtaskScoped(rawInput: SubtaskExecutionInput): Promise<Su
 }
 
 /**
+ * O1 (jockey no-fallback rule, MIT, ported; see opencodeHome.ts): why a
+ * bound provider connection cannot run, or null. A connection with an
+ * empty key is only fine when it points at a local endpoint.
+ */
+export function boundKeyProblem(handle: { connectionName: string; config: { apiKey: string; baseUrl: string } } | undefined): string | null {
+  if (!handle) return null;
+  if (handle.config.apiKey?.trim()) return null;
+  let host = "";
+  try {
+    host = new URL(handle.config.baseUrl).hostname;
+  } catch {}
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]") return null;
+  return `provider key unreadable for "${handle.connectionName}": the connection this agent is bound to has no usable key. Fhara will not fall back to another provider key; re-save the key in Settings.`;
+}
+
+/**
  * Plan 014 native-provider runtime: run the subtask through the provider
  * CLI in the task workspace (the provider owns its native tools there),
  * then stage any workspace changes it made through the normal host diff
@@ -858,8 +875,26 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
   // OpenCode uses the agent's own OpenCode model when set; otherwise the
   // same LLM the rest of Fhara resolved for this agent (first handle of
   // the resolver chain, else the task/global config).
-  const llm = input.llmHandles?.[0]?.config ?? input.llmConfig ?? getGlobalLLMConfig();
+  const handle = input.llmHandles?.[0];
+  // O1 (jockey rule): a bound provider whose key is missing or unreadable
+  // fails the run. It never falls through to the task/global config, which
+  // would run (and bill) another account.
+  const keyProblem = input.nativeModel?.trim() ? null : boundKeyProblem(handle);
+  if (keyProblem) {
+    await onEvent("native.credential.missing", { capability: subtask.capability, connection: handle?.connectionName, reason: keyProblem }, "error");
+    return { status: "failed", error: keyProblem };
+  }
+  const llm = handle?.config ?? input.llmConfig ?? getGlobalLLMConfig();
+  // O1: per-run, deny-by-default OpenCode permissions from the role and
+  // the subtask's ownership scope. The staging gate below stays the
+  // second line.
+  const policy = buildOpencodePolicy({
+    permissions: permissionsForAgent(agent),
+    allowedPaths: subtask.allowedPaths,
+    mutating: subtask.kind === "code_change" || subtask.kind === "shell",
+  });
   const result = await runNativeProvider({
+    policy,
     workspacePath,
     prompt,
     command: input.nativeProviderCommand,

@@ -5,6 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { EventSink } from "@/types/events";
 import { NATIVE_PROMPT_MESSAGE, workspaceHeader } from "@/prompts/native";
+import { READ_ONLY_OPENCODE_POLICY, type OpencodePolicy } from "./opencodePolicy";
+import { OpencodeCredentialError, prepareOpencodeHome } from "./opencodeHome";
 
 // Prompt text lives in `@/prompts/native`; re-exported for existing importers.
 export { NATIVE_PROMPT_MESSAGE, workspaceHeader, buildNativePrompt } from "@/prompts/native";
@@ -176,25 +178,12 @@ export interface NativeLlmConfig {
 }
 
 /**
- * Safety permissions for every run: the provider must stay inside the
- * task worktree (`external_directory: deny`), never read env files, never
- * push, and never block on an interactive question.
+ * O1: the static rule set (any shell command but `git push`/`git remote`,
+ * no edit rule) is gone. Every run gets a per-run, deny-by-default policy
+ * from `buildOpencodePolicy` (opencodePolicy.ts); a caller with no role
+ * context gets this read-only one (no edits, no shell, no web).
  */
-export const OPENCODE_PERMISSIONS = {
-  external_directory: "deny",
-  question: "deny",
-  read: {
-    "*": "allow",
-    "*.env": "deny",
-    "*.env.*": "deny",
-    "*.env.example": "allow",
-  },
-  bash: {
-    "*": "allow",
-    "git push*": "deny",
-    "git remote*": "deny",
-  },
-} as const;
+export const OPENCODE_PERMISSIONS: OpencodePolicy = READ_ONLY_OPENCODE_POLICY;
 
 function providerPackageFor(provider: string): string | null {
   const p = provider.toLowerCase();
@@ -213,7 +202,14 @@ function providerPackageFor(provider: string): string | null {
  *  - otherwise: permissions only, OpenCode's own default model.
  * The returned `config` never contains key material.
  */
-export function buildOpencodeConfig(input: { model?: string; llm?: NativeLlmConfig }): {
+export function buildOpencodeConfig(input: {
+  model?: string;
+  llm?: NativeLlmConfig;
+  /** Per-run permissions; read-only when omitted. */
+  policy?: OpencodePolicy;
+  /** Provider blocks copied from the user's global OpenCode config (scoped home). */
+  providerConfig?: Record<string, unknown>;
+}): {
   config: Record<string, unknown>;
   model?: string;
   env: Record<string, string>;
@@ -222,10 +218,13 @@ export function buildOpencodeConfig(input: { model?: string; llm?: NativeLlmConf
     $schema: "https://opencode.ai/config.json",
     autoupdate: false,
     share: "disabled",
-    permission: OPENCODE_PERMISSIONS,
+    permission: input.policy ?? OPENCODE_PERMISSIONS,
   };
   const explicit = input.model?.trim();
-  if (explicit) return { config, model: explicit, env: {} };
+  if (explicit) {
+    if (input.providerConfig && Object.keys(input.providerConfig).length > 0) config.provider = { ...input.providerConfig };
+    return { config, model: explicit, env: {} };
+  }
   const llm = input.llm;
   const pkg = llm ? providerPackageFor(llm.provider) : null;
   if (!llm || !pkg || !llm.baseUrl || !llm.model) return { config, env: {} };
@@ -535,6 +534,25 @@ export interface NativeRunInput {
   onChunk?: (delta: string) => Promise<void>;
   onMessage?: (text: string) => Promise<void>;
   spawnImpl?: SpawnImpl;
+  /** O1: per-run permissions (buildOpencodePolicy); read-only when omitted. */
+  policy?: OpencodePolicy;
+  /**
+   * O1: run with a throwaway HOME/XDG tree holding only the provider login
+   * the run needs (opencodeHome.ts). Default true; false only for tests
+   * that inspect the plain env.
+   */
+  scopedHome?: boolean;
+  /** The user's real env used to locate OpenCode's auth/config (tests). Defaults to process.env. */
+  sourceEnv?: Record<string, string | undefined>;
+  /** Persistent OpenCode cache dir (tests); default defaultOpencodeCacheDir(). */
+  opencodeCacheDir?: string;
+}
+
+/** OpenCode tool errors that mean a permission rule refused the call. */
+const PERMISSION_DENIED_RE = /permission denied|prevents you from using|rule which prevents|Permission\.(Blocked|Declined)|not allowed by (the )?permission/i;
+
+export function isOpencodePermissionDenial(error: string | undefined): boolean {
+  return !!error && PERMISSION_DENIED_RE.test(error);
 }
 
 function redact(text: string, secret: string | undefined): string {
@@ -546,8 +564,14 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
   const command = input.command ?? nativeProviderCommand();
   const json = input.json ?? true;
   const timeoutMs = input.timeoutMs ?? nativeTimeoutMs();
-  const { config, model, env: secretEnv } = buildOpencodeConfig({ model: input.model, llm: input.llm });
+  // The scoped home decides the pinned model when none was given (the
+  // user's OpenCode default lives in a config the scratch home hides), so
+  // the config is built after it; this first build only names the mode.
+  const first = buildOpencodeConfig({ model: input.model, llm: input.llm, policy: input.policy });
+  let { config, model } = first;
+  const secretEnv = first.env;
   const secret = secretEnv[OPENCODE_KEY_ENV];
+  const homeMode: "pinned" | "fhara" | "default" = input.model?.trim() ? "pinned" : model ? "fhara" : "default";
   await input.onEvent?.(
     "native.run.started",
     {
@@ -602,6 +626,18 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
       case "tool":
         if (event.status === "completed" || event.status === "error") {
           const { kind: _kind, ...payload } = event;
+          if (event.status === "error" && isOpencodePermissionDenial(event.error)) {
+            // O1: every refusal by the per-run policy is logged (audit row).
+            chain = chain
+              .then(() =>
+                input.onEvent?.(
+                  "agent.permission_denied",
+                  { provider: command, action: event.tool, tool: event.tool, ...(event.target ? { target: event.target } : {}), reason: `OpenCode policy denied ${event.tool}` },
+                  "warn"
+                )
+              )
+              .catch(() => {});
+          }
           chain = chain
             .then(() =>
               input.onEvent?.("native.tool", { provider: command, ...payload }, event.status === "error" ? "warn" : "info")
@@ -630,6 +666,32 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
   let ran: { stdout: string; stderr: string; code: number | null };
   try {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-native-"));
+    let homeEnv: Record<string, string | undefined> = {};
+    if (input.scopedHome ?? true) {
+      const home = await prepareOpencodeHome(
+        {
+          runDir: path.join(tmpDir, "run"),
+          mode: homeMode,
+          model: input.model?.trim() || undefined,
+          sourceEnv: input.sourceEnv,
+          cacheDir: input.opencodeCacheDir,
+        },
+        buildChildEnv(secretEnv, input.sourceEnv ? { source: input.sourceEnv } : {})
+      );
+      homeEnv = home.env;
+      const pinned = model ?? home.defaultModel;
+      ({ config, model } = buildOpencodeConfig({
+        model: homeMode === "fhara" ? undefined : pinned,
+        llm: input.llm,
+        policy: input.policy,
+        providerConfig: home.providerConfig,
+      }));
+      await input.onEvent?.(
+        "native.home",
+        { provider: command, mode: homeMode, copiedProviders: home.copiedProviders, note: home.note, ...(model ? { model } : {}) },
+        "info"
+      );
+    }
     const promptFile = path.join(tmpDir, "prompt.md");
     const configFile = path.join(tmpDir, "opencode.json");
     await fs.writeFile(promptFile, workspaceHeader(input.workspacePath) + input.prompt, { encoding: "utf-8", mode: 0o600 });
@@ -646,6 +708,8 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
       // encryption key and provider keys never reach the agent. The one
       // LLM key the agent needs arrives explicitly via secretEnv.
       env: buildChildEnv({
+        // O1: throwaway HOME/XDG, no gh/git/ssh credentials.
+        ...homeEnv,
         // OpenCode resolves its project dir from $PWD before cwd: an
         // inherited PWD (the worker's own dir) silently redirected every
         // write out of the task worktree in the live smoke run.
@@ -663,6 +727,10 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
     clearTimeout(timer);
     input.signal?.removeEventListener("abort", onOuterAbort);
     await cleanup(tmpDir);
+    if (error instanceof OpencodeCredentialError) {
+      await input.onEvent?.("native.credential.missing", { provider: command, reason: error.message }, "error");
+      return { status: "failed", output: error.message, inputTokens: 0, outputTokens: 0, ...(model ? { model } : {}) };
+    }
     return {
       status: "failed",
       output: `Native provider failed to spawn: ${redact(error instanceof Error ? error.message : String(error), secret)}`,

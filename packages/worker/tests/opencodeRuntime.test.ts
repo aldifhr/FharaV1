@@ -294,6 +294,7 @@ describe("executeSubtask on the OpenCode runtime", () => {
     }).dir;
   });
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await fs.rm(ws, { recursive: true, force: true });
   });
 
@@ -355,6 +356,11 @@ describe("executeSubtask on the OpenCode runtime", () => {
       return { stdout: EVENTS.join("\n"), stderr: "", code: 0 };
     };
     const agent: AgentDefinition = { _id: "a2", name: "BE", role: "backend", executionRuntime: "opencode", opencodeModel: "anthropic/claude-sonnet-4" };
+    // O1: a pinned provider needs an OpenCode login (jockey rule); plant one.
+    const fakeData = await fs.mkdtemp(path.join(os.tmpdir(), "fhara-oc-auth-"));
+    await fs.mkdir(path.join(fakeData, "opencode"), { recursive: true });
+    await fs.writeFile(path.join(fakeData, "opencode", "auth.json"), JSON.stringify({ anthropic: { type: "api", key: "planted" } }));
+    vi.stubEnv("XDG_DATA_HOME", fakeData);
     const { base } = input(agent, spawnImpl);
     const onTokenUsage = vi.fn(async () => undefined);
     await executeSubtask({ ...base, onTokenUsage });

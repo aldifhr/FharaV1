@@ -11,7 +11,8 @@ import { buildContextSnapshot, contextSnapshotsEnabled, estimateTokens, type Cal
 import { completeWithAgent, type ChatLlmConfig, type CompleteResult } from "./llm";
 
 export interface ChatSnapshotScope {
-  projectId: Id<"projects">;
+  /** Absent in a personal chat with no project: no snapshot is recorded. */
+  projectId?: Id<"projects">;
   conversationId?: Id<"conversations">;
   agentId: Id<"agents">;
   agentRole?: string;
@@ -32,6 +33,10 @@ export async function recordChatSnapshot(
   }
 ): Promise<void> {
   if (!contextSnapshotsEnabled()) return;
+  // contextSnapshots rows are per project (retention, cascade); a personal
+  // chat with no project attached records none (plan 039).
+  const projectId = scope.projectId;
+  if (!projectId) return;
   try {
     const messages = [
       { role: "system", content: call.system },
@@ -52,7 +57,7 @@ export async function recordChatSnapshot(
       durationMs: call.durationMs,
     });
     await ctx.runMutation(internal.contextSnapshots.record, {
-      projectId: scope.projectId,
+      projectId,
       ...(scope.conversationId ? { conversationId: scope.conversationId } : {}),
       agentId: scope.agentId,
       ...(scope.agentRole ? { agentRole: scope.agentRole } : {}),

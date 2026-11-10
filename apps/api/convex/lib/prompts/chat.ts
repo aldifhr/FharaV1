@@ -449,3 +449,39 @@ export function buildAssignmentGuidance(
  *  Never for capability questions, explanations, greetings, or status. */
 export const OPTIONS_GUIDANCE =
   "Only use an options block when the user explicitly asks you to propose alternatives for them to pick from for something you will build (e.g. layout or design directions). Never use it for questions, comparisons, recommendations (\"X vs Y, which fits?\" gets your pick in prose), explanations, greetings, status reports, or task updates — answer those plainly. Format when used, exactly:\n[options]\nA|Short title|One-line summary|layout|Toolbar / Templates + Editor*2 + Preview A4\nB|Short title|One-line summary|layout|Toolbar / Editor\n[/options]\nFor a visual layout, the 4th field is 'layout' and the 5th draws the real wireframe: rows split by ' / ', regions in a row split by ' + ', an optional width weight like 'Editor*2', each region named with the words from your summary (max 4 rows, 4 regions per row, 2-3 words each). Each option's wireframe must match its own summary. Use plain as the 4th field (and no 5th) for anything that is not a visual layout (libraries, approaches, wording). Keep it to ONE block per reply, then stop.\nBase the options on the user's CURRENT request only — do not carry over past tasks, files, or topics from earlier in this conversation unless the user asks for them personally. Keep your reply before the block to one short sentence: no plan summary, no delegation talk, no 'Create task' instructions. A pick is an opinion, not an order — do not start execution yourself.\nWhen the user picks one of your options, reply starting with 'I agree' if you endorse the choice, or explain your objection and why.";
+
+/**
+ * Personal chat (plan 039): the opening of a one-to-one reply. No project:
+ * the agent says plainly it cannot read files, run commands or start tasks,
+ * and points at Attach project. Attached: the project's repo snapshot and
+ * read-only tools (when available), tasks only through Create task.
+ */
+export function buildPersonalChatSystem(
+  agent: Persona,
+  opts: { projectName: string | null; repoSnapshot: string | null; repoTools: boolean }
+): string[] {
+  const attached = opts.projectName !== null;
+  return [
+    attached
+      ? `You are ${agent.name}, a ${agent.role}, in a personal one-to-one chat with the user. This chat is attached to project "${opts.projectName}".`
+      : `You are ${agent.name}, a ${agent.role}, in a personal one-to-one chat with the user.`,
+    NOT_THE_MODEL,
+    agent.systemPrompt ?? "",
+    agent.skillsSection ?? "",
+    agent.memorySection ?? "",
+    attached
+      ? [
+          opts.repoSnapshot
+            ? opts.repoTools
+              ? `Repo snapshot (read-only, provided by the host):\n${opts.repoSnapshot}\nRead deeper with the repo tools described below.`
+              : `Repo snapshot (read-only, provided by the host):\n${opts.repoSnapshot}`
+            : "",
+          "You cannot write files or run commands in this chat. For work on the code, the user can create a task (the Create task button or /task).",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "No project, repository or workspace is attached to this chat: you cannot read files, run commands or start tasks here. If the user asks for work on code, say they can attach a project to this chat (Attach project) and you will continue there.",
+    "You are the only agent in this chat. Never hand the question to a teammate, @mention teammates to pull them in, or speak for other agents.",
+    "Reply in the user's language.",
+  ].filter(Boolean);
+}

@@ -65,6 +65,7 @@ import { completeWithSnapshot, type ChatSnapshotScope } from "./lib/chat/snapsho
 import { readRepoSnapshot } from "./lib/chat/repoSnapshot";
 import { quoteContextLine, quotedResponderId } from "./lib/chat/quote";
 import { replyFailureText } from "./lib/chat/replyLifecycle";
+import { personalNoTaskReply, type ChatScope } from "./lib/conversationShape";
 import {
   MAX_REPO_TOOL_CALLS,
   MAX_REPO_TOOL_CALLS_PER_CHAT,
@@ -100,6 +101,7 @@ import {
   buildGroundingGuidance,
   buildHandoffGuidance,
   buildHandoffNotice,
+  buildPersonalChatSystem,
   buildPlanningGuidance,
   buildRoutedSpecialistNotice,
   buildRepoToolProtocol,
@@ -136,6 +138,12 @@ type ChatContextData = {
   activeTask?: { title: string; status: string } | null;
   llmProviders?: PoolConnectionPayload[];
 };
+
+/** A chat turn as scheduled: a personal chat has no projectId (plan 039). */
+type ChatTurnArgs = Omit<ReplyArgs, "projectId"> & { projectId?: Id<"projects"> };
+
+/** Tool result when a personal chat with no project is asked for repo tools. */
+const NO_PROJECT_TOOL_TEXT = "No project is attached to this chat, so there is no repository to read.";
 
 type ReplyArgs = {
   projectId: Id<"projects">;
@@ -630,6 +638,69 @@ async function startOfferedTask(
   }
 }
 
+/**
+ * Explicit task from an ATTACHED personal chat (plan 039 D5): the task is
+ * created in the conversation's project with this conversation as its
+ * source, and the assignment card is posted without projectId (D1). No CTO
+ * assignment round: the chat is one agent; the planner picks owners.
+ */
+async function startPersonalTask(
+  ctx: ActionCtx,
+  opts: {
+    projectId: Id<"projects">;
+    conversationId: Id<"conversations">;
+    userMessageId: Id<"messages">;
+    agent: ChatAgent;
+    command: string;
+    title?: string;
+    fromOffer: boolean;
+  }
+): Promise<void> {
+  const { agent } = opts;
+  const outsidePath = targetsOutsideRepo(opts.command);
+  if (outsidePath) {
+    await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+      agentId: agent._id as any,
+      conversationId: opts.conversationId,
+      replyToMessageId: opts.userMessageId,
+      content: outsideRepoReply(opts.command, outsidePath),
+    });
+    return;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { api } = (await import("./_generated/api.js")) as any;
+  const existing = (await ctx.runQuery(api.tasks.listByProject, { projectId: opts.projectId })) as any[];
+  if (existing.some((t: any) => t.command === opts.command && !TERMINAL_TASK_STATUSES.includes(t.status))) return;
+  const title = opts.title ?? opts.command.split("\n")[0].slice(0, 80);
+  try {
+    const taskId = await ctx.runMutation(api.tasks.createFromCommand, {
+      projectId: opts.projectId,
+      command: opts.command,
+      title,
+      conversationId: opts.conversationId,
+      ...(opts.fromOffer ? { conversationContext: false } : {}),
+    });
+    await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+      agentId: agent._id as any,
+      conversationId: opts.conversationId,
+      replyToMessageId: opts.userMessageId,
+      taskId: taskId as any,
+      content: "",
+      card: {
+        kind: "assignment",
+        data: { taskId: String(taskId), title, assignees: [], assignedBy: agent.name },
+      },
+    });
+  } catch (e: any) {
+    await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+      agentId: agent._id as any,
+      conversationId: opts.conversationId,
+      content: `I couldn't create the task (${e?.message ?? "unknown error"}).`,
+      replyToMessageId: opts.userMessageId,
+    });
+  }
+}
+
 export const replyToChat = internalAction({
   args: {
     // Optional since plan 039: the reply derives its scope from the
@@ -653,12 +724,10 @@ export const replyToChat = internalAction({
         ...(rawArgs.conversationId ? { conversationId: rawArgs.conversationId } : {}),
       });
       if (!scope) throw new Error("This message no longer exists");
-      if (scope.kind === "personal" || !scope.projectId) {
-        throw new Error("Personal chat replies are not available yet");
-      }
-      // Project chat: the project comes from the conversation row, never
+      if (scope.kind !== "personal" && !scope.projectId) throw new Error("Conversation has no project");
+      // The project comes from the conversation row (rule PC-S1), never
       // from the scheduler argument alone.
-      await answerChat(ctx, { ...rawArgs, projectId: scope.projectId });
+      await answerChat(ctx, rawArgs, scope);
     } catch (error) {
       await ctx.runMutation(internal.chatReplies.settleReply, {
         userMessageId: rawArgs.userMessageId,
@@ -680,7 +749,20 @@ export const replyToChat = internalAction({
  * One chat turn: route, stream and persist the replies to `rawArgs.userMessageId`.
  * (Body kept at its original indentation to keep the durable-reply diff small.)
  */
-async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
+async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScope): Promise<void> {
+
+    // Plan 039 (rule PC-S1): one scope, read from the conversation row. A
+    // personal chat answers with its own agent only, writes its messages
+    // without projectId (D1) and gets project features only once a project
+    // is attached (scopeProjectId). There is no default project.
+    const personal = scope.kind === "personal";
+    const scopeProjectId: Id<"projects"> | null = scope.projectId;
+    const messageProjectId = personal ? undefined : (scopeProjectId ?? undefined);
+    const msgScope = messageProjectId ? { projectId: messageProjectId } : {};
+    const requireProjectId = (): Id<"projects"> => {
+      if (!scopeProjectId) throw new Error("No project is attached to this chat");
+      return scopeProjectId;
+    };
 
     // Reply quote: replying to a teammate's message (no @mention) routes the
     // answer to that teammate, as if the user had @mentioned it. The CTO and
@@ -689,17 +771,25 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
     const quoteInfo = await ctx.runQuery(internal.chatContext.getQuoteForReply, {
       userMessageId: rawArgs.userMessageId,
     });
-    const quotedResponder = quoteInfo ? quotedResponderId(quoteInfo.quote, quoteInfo.userMentionCount) : null;
-    const args: ReplyArgs = quotedResponder
+    // A personal chat has one responder whatever is quoted.
+    const quotedResponder = !personal && quoteInfo ? quotedResponderId(quoteInfo.quote, quoteInfo.userMentionCount) : null;
+    const args: ChatTurnArgs = quotedResponder
       ? { ...rawArgs, preferredAgentIds: [quotedResponder as Id<"agents">] }
       : rawArgs;
 
-    const data = (await ctx.runQuery(internal.chatContext.getContext, {
-      projectId: args.projectId,
-      conversationId: args.conversationId,
-      preferredAgentIds: args.preferredAgentIds,
-      userMessageId: args.userMessageId,
-    })) as ChatContextData;
+    const personalConversationId = args.conversationId;
+    if (personal && !personalConversationId) throw new Error("A personal chat reply needs its conversation");
+    const data = (personal && personalConversationId
+      ? await ctx.runQuery(internal.chatContext.getPersonalContext, {
+          conversationId: personalConversationId,
+          userMessageId: args.userMessageId,
+        })
+      : await ctx.runQuery(internal.chatContext.getContext, {
+          projectId: requireProjectId(),
+          conversationId: args.conversationId,
+          preferredAgentIds: args.preferredAgentIds,
+          userMessageId: args.userMessageId,
+        })) as ChatContextData;
 
     const { agents, team: teamAgents, projectName, history, llmProviders } = data;
     const globalConfig = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig());
@@ -707,13 +797,16 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
     // Repo snapshot (read-only, workspace-confined) so structural chat
     // questions ("how is this repo structured?") can be answered from
     // evidence instead of guesses.
-    const repoSnapshot = await loadRepoSnapshot(ctx, args.projectId);
+    // No project (personal chat not attached): no snapshot, no workspace read.
+    const repoSnapshot = scopeProjectId ? await loadRepoSnapshot(ctx, scopeProjectId) : null;
 
     if (agents.length === 0) {
       await ctx.runMutation(internal.chatContext.insertAgentMessage, {
-        projectId: args.projectId,
+        ...msgScope,
         conversationId: args.conversationId,
-        content: "No enabled agents are participating in this conversation. Add agents to the project team and select them for chat.",
+        content: personal
+          ? "This agent is disabled or retired, so it can't reply here."
+          : "No enabled agents are participating in this conversation. Add agents to the project team and select them for chat.",
         replyToMessageId: args.userMessageId,
       });
       return;
@@ -791,7 +884,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
       messageId: unknown,
       callRole: ChatSnapshotScope["callRole"]
     ): ChatSnapshotScope => ({
-      projectId: args.projectId,
+      ...(scopeProjectId ? { projectId: scopeProjectId } : {}),
       ...(args.conversationId ? { conversationId: args.conversationId } : {}),
       agentId,
       agentRole: [...agents, ...(teamAgents ?? [])].find((a) => String(a._id) === String(agentId))?.role,
@@ -813,7 +906,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
     };
     const streamReplyToAgent: StreamReply = async (agentId, config, system, msgs, opts) => {
       const messageId = await ctx.runMutation(internal.chatContext.createStreamingAgentMessage, {
-        projectId: args.projectId,
+        ...msgScope,
         agentId: agentId as any,
         conversationId: args.conversationId,
         replyToMessageId: args.userMessageId,
@@ -913,7 +1006,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
     // as `checkedFiles` for the quiet "Checked: …" line.
     const streamGroundedReply: StreamReply = async (agentId, config, system, msgs, opts) => {
       const messageId = await ctx.runMutation(internal.chatContext.createStreamingAgentMessage, {
-        projectId: args.projectId,
+        ...msgScope,
         agentId: agentId as any,
         conversationId: args.conversationId,
         replyToMessageId: args.userMessageId,
@@ -965,7 +1058,9 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
           },
           callTool: async (call) => {
             if (workerGone) return { ok: false, text: WORKER_UNRESPONSIVE };
-            const result = await callRepoToolViaWorker(ctx, args.projectId, call);
+            // Never a repo call without a project (no worker-root fallback).
+            if (!scopeProjectId) return { ok: false, text: NO_PROJECT_TOOL_TEXT };
+            const result = await callRepoToolViaWorker(ctx, scopeProjectId, call);
             if (result.unclaimed && !workerGone) {
               workerGone = true;
               trace = joinTrace(trace, repoToolsOffNote("unclaimed"));
@@ -1029,6 +1124,123 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
       };
     };
 
+    // Personal chat (plan 039 PC3): the conversation's own agent answers,
+    // alone. No CTO pre-route, no handoff, no @mention queue, no intent
+    // classifier. Tasks only with a project attached and only when asked
+    // explicitly (D5); without one a fixed sentence explains why.
+    if (personal) {
+      const agent = agents[0];
+      const lastText = history[history.length - 1]?.content ?? "";
+      const optionPick = isOptionPickText(lastText);
+      const explicit = optionPick ? null : explicitTaskCommand(lastText);
+      const roleOfPersonal = (id: string | undefined) => (String(id ?? "") === String(agent._id) ? agent.role : undefined);
+      const goOffer = !explicit && !optionPick && isGoReply(lastText) && scopeProjectId ? findOfferedTask(history, roleOfPersonal) : null;
+      if (explicit || goOffer) {
+        if (!scopeProjectId || !personalConversationId) {
+          await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+            agentId: agent._id as any,
+            conversationId: args.conversationId,
+            replyToMessageId: args.userMessageId,
+            content: personalNoTaskReply(lastText),
+          });
+          return;
+        }
+        await startPersonalTask(ctx, {
+          projectId: scopeProjectId,
+          conversationId: personalConversationId,
+          userMessageId: args.userMessageId,
+          agent,
+          command: explicit ?? goOffer?.command ?? lastText,
+          title: goOffer?.title,
+          fromOffer: goOffer !== null,
+        });
+        return;
+      }
+
+      const repoTools = scopeProjectId ? await repoToolsAvailability(ctx, scopeProjectId) : null;
+      const useRepoTools = repoTools?.available === true;
+      const skillLoader = wantsLoadSkillTool(agent.onDemandSkills, "on_demand")
+        ? createSkillLoader(agent.onDemandSkills, { maxCalls: LOAD_SKILL_MAX_CALLS })
+        : undefined;
+      const useToolLoop = useRepoTools || skillLoader !== undefined;
+      const offNote = repoTools && !repoTools.available ? repoToolsOffNote(repoTools.reason) : undefined;
+      const system = [
+        ...buildPersonalChatSystem(agent, {
+          projectName: scopeProjectId ? projectName : null,
+          repoSnapshot,
+          repoTools: useRepoTools,
+        }),
+        ...buildGroundingGuidance(useRepoTools, skillLoader !== undefined),
+        wantsOptions(lastText) ? OPTIONS_GUIDANCE : "Answer in prose. Do not output an [options] block.",
+        useRepoTools
+          ? buildRepoToolProtocol(MAX_REPO_TOOL_CALLS, { loadSkill: skillLoader !== undefined })
+          : skillLoader
+            ? buildSkillToolProtocol()
+            : "",
+        turnContext(),
+      ]
+        .filter(Boolean)
+        .join("\n");
+      try {
+        const config = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), agent as any);
+        const result = await (useToolLoop ? streamGroundedReply : streamReplyToAgent)(
+          agent._id as any,
+          config,
+          system,
+          messagesFor(String(agent._id)),
+          useToolLoop
+            ? {
+                maxCalls: useRepoTools ? MAX_REPO_TOOL_CALLS : 0,
+                ...(skillLoader ? { skillLoader } : {}),
+                ...(offNote ? { traceNote: offNote } : {}),
+              }
+            : offNote
+              ? { traceNote: offNote }
+              : undefined,
+        );
+        // Attached chat with the CTO: a work-shaped request gets the Create
+        // task button (explicit only: the user still presses it, D5).
+        if (
+          scopeProjectId &&
+          result.messageId &&
+          ORCHESTRATOR_ROLE.test(agent.role.trim()) &&
+          classifyChatIntent(lastText).kind === "task" &&
+          !hasAskShape(lastText)
+        ) {
+          const runCommands = detectChatRunCommands(lastText);
+          const taskOffer: ChatTaskOffer = {
+            kind: "implementation",
+            ...(runCommands?.length ? { commands: runCommands } : {}),
+          };
+          await ctx
+            .runMutation(internal.chatContext.updateStreamingAgentMessage, { messageId: result.messageId, taskOffer })
+            .catch(() => undefined);
+        }
+        if (scopeProjectId && result.messageId && result.content.trim()) {
+          const unverified = findUnverifiedRefs(result.content, result.evidence ?? EMPTY_EVIDENCE, repoSnapshot);
+          if (unverified.length > 0) {
+            await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
+              messageId: result.messageId,
+              unverifiedRefs: unverified,
+            });
+          }
+        }
+      } catch (err: any) {
+        await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+          agentId: agent._id as any,
+          conversationId: args.conversationId,
+          content: `I couldn't reply (${err.message}). Check global LLM settings.`,
+          replyToMessageId: args.userMessageId,
+        });
+      }
+      return;
+    }
+
+
+    // Project chat from here on: the project is required.
+    const projectId = requireProjectId();
+    const projectArgs: ReplyArgs = { ...args, projectId };
+
     // Greeting fast-path: a bare "hi" gets a brief LLM persona reply on
     // minimal context (no history, no planning guidance) — previous task
     // commands must not drag an old topic into a full execution plan.
@@ -1082,7 +1294,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
       // "kerjakan itu" right after a CTO offer: the task is that offer and
       // the request it answered, not the bare words plus random turns.
       const backOffer = commandNeedsChatContext(explicitCommand) ? findOfferedTask(history, roleOf) : null;
-      await dispatchTaskFromChat(ctx, args, {
+      await dispatchTaskFromChat(ctx, projectArgs, {
         text: backOffer ? `${explicitCommand}\n\n${backOffer.command}` : explicitCommand,
         ...(backOffer ? { title: backOffer.title, conversationContext: false } : {}),
         agents,
@@ -1101,7 +1313,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
     if (!isOptionPick && isGoReply(lastUserContent)) {
       const offer = findOfferedTask(history, roleOf);
       if (offer) {
-        await startOfferedTask(ctx, args, { offer, team, orchestrator, dispatcher });
+        await startOfferedTask(ctx, projectArgs, { offer, team, orchestrator, dispatcher });
         return;
       }
       // No offer to start: a bare "gas" is just chat.
@@ -1109,7 +1321,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
 
     // The intent below is a suggestion that shapes the reply (answer vs a
     // plan proposal with the Create task button); it never dispatches.
-    let intent = await resolveIntent(ctx, args.projectId, lastUserContent, isOptionPick, globalConfig);
+    let intent = await resolveIntent(ctx, projectId, lastUserContent, isOptionPick, globalConfig);
     // `taskIntent.kind === "task"` makes the CTO propose a short plan and
     // end with the Create task sentence the web button keys on.
     let taskIntent = {
@@ -1125,7 +1337,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
 
     // Lifecycle intents act on the active task instead of chatting.
     if (["continue", "pause", "cancel", "status", "approve", "reject"].includes(intent.intent)) {
-      if (await handleLifecycleIntent(ctx, args, intent, lastUserContent)) return;
+      if (await handleLifecycleIntent(ctx, projectArgs, intent, lastUserContent)) return;
       // Fall through to chat for anything unmatched.
     }
 
@@ -1143,7 +1355,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
     // worker can serve them (the repo lives on the worker's host). Checked
     // once per turn. Otherwise no tools, and the grounding rule makes each
     // agent say it has not checked.
-    const repoTools = !isOptionPick ? await repoToolsAvailability(ctx, args.projectId) : null;
+    const repoTools = !isOptionPick ? await repoToolsAvailability(ctx, projectId) : null;
 
     // CTO dispatch pre-route (lib/chat/dispatch.ts): a question addressed to
     // the CTO (no @mention, or only the To field's default CTO without
@@ -1186,7 +1398,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
           indonesian: looksIndonesianDispatch(lastUserContent),
         });
         const handoffMessageId = await ctx.runMutation(internal.chatContext.insertAgentMessage, {
-          projectId: args.projectId,
+          projectId: projectId,
           agentId: orchestrator._id as any,
           conversationId: args.conversationId,
           content: line,
@@ -1385,7 +1597,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
         }
       } catch (err: any) {
         await ctx.runMutation(internal.chatContext.insertAgentMessage, {
-          projectId: args.projectId,
+          projectId: projectId,
           agentId: agent._id as any,
           conversationId: args.conversationId,
           content: `I couldn't reply (${err.message}). Check global LLM settings.`,
@@ -1423,7 +1635,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
         const wrapUp = sanitizeWrapUp(stripInternalPhrasing(stripToolCallMarkup(raw.content ?? "")), [routedReply]);
         if (wrapUp && !hasToolCallText(wrapUp)) {
           await ctx.runMutation(internal.chatContext.insertAgentMessage, {
-            projectId: args.projectId,
+            projectId: projectId,
             agentId: orchestrator._id as any,
             conversationId: args.conversationId,
             content: wrapUp,

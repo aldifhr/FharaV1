@@ -86,7 +86,9 @@ export function messageProjectIdFor(
 
 /** Fixed reply when a personal chat without a project is asked to start a task. */
 export function personalNoTaskReply(userText: string): string {
-  return looksIndonesian(userText)
+  // The task verbs themselves count: "kerjakan perbaikan bug login".
+  const indonesian = looksIndonesian(userText) || /\b(kerja(kan|in)?|bikin(kan|in)?|buat(kan|in)?|perbaiki|benerin|tambahkan|jalankan)\b/i.test(userText);
+  return indonesian
     ? "Ini chat pribadi tanpa proyek, jadi saya tidak bisa memulai task di sini. Tempelkan proyek (Attach project) untuk mengerjakan kode."
     : "This is a personal chat with no project attached, so I can't start a task here. Attach a project to work on code.";
 }

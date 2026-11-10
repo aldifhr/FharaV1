@@ -87,7 +87,8 @@ export async function insertChatUserMessage(
 
 export const insertAgentMessage = internalMutation({
   args: {
-    projectId: v.id("projects"),
+    // Absent for a personal chat reply (plan 039 D1).
+    projectId: v.optional(v.id("projects")),
     agentId: v.optional(v.id("agents")),
     content: v.string(),
     replyToMessageId: v.optional(v.id("messages")),
@@ -104,7 +105,7 @@ export const insertAgentMessage = internalMutation({
     const content = stripLeakedToolCallTags(args.content.trim());
     if (!content && !args.card) return null;
     return await ctx.db.insert("messages", {
-      projectId: args.projectId,
+      ...(args.projectId ? { projectId: args.projectId } : {}),
       agentId: args.agentId,
       authorType: "agent",
       content,
@@ -172,7 +173,8 @@ export const checkAlreadyReplied = internalQuery({
  */
 export const createStreamingAgentMessage = internalMutation({
   args: {
-    projectId: v.id("projects"),
+    // Absent for a personal chat reply (plan 039 D1).
+    projectId: v.optional(v.id("projects")),
     agentId: v.optional(v.id("agents")),
     conversationId: v.optional(v.id("conversations")),
     replyToMessageId: v.optional(v.id("messages")),
@@ -180,7 +182,7 @@ export const createStreamingAgentMessage = internalMutation({
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("messages", {
-      projectId: args.projectId,
+      ...(args.projectId ? { projectId: args.projectId } : {}),
       agentId: args.agentId,
       authorType: "agent",
       content: "",
@@ -426,6 +428,75 @@ export const getContext = internalQuery({
       contextSummary,
       activeTask,
       llmProviders,
+    };
+  },
+});
+
+/**
+ * Personal chat context (plan 039 PC3): the conversation's one agent, its
+ * last 12 messages read by conversation (anchored at the user message), the
+ * latest summary and the provider pool. No team, no active task. Memory:
+ * pinned shared + this agent's; project memory only once a project is
+ * attached (the project id comes from the conversation row).
+ */
+export const getPersonalContext = internalQuery({
+  args: {
+    conversationId: v.id("conversations"),
+    userMessageId: v.optional(v.id("messages")),
+  },
+  handler: async (ctx, args) => {
+    const conversation = await ctx.db.get(args.conversationId);
+    if (!conversation || conversation.kind !== "personal" || !conversation.agentId) {
+      return { agents: [], team: [], projectName: "", history: [], llmProviders: await loadProviderPool(ctx) };
+    }
+    const project = conversation.projectId ? await ctx.db.get(conversation.projectId) : null;
+    const agent = await ctx.db.get(conversation.agentId);
+    const usable = agent && agent.isEnabled !== false && agent.retiredAt === undefined ? agent : null;
+    const anchor = args.userMessageId ? await ctx.db.get(args.userMessageId) : null;
+    const rows = await ctx.db
+      .query("messages")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))
+      .order("desc")
+      .take(200);
+    const history = rows
+      .filter((m) => !m.taskId && (!anchor || m._creationTime <= anchor._creationTime))
+      .slice(0, 12)
+      .reverse()
+      .map((m) => ({
+        authorType: m.authorType,
+        agentId: m.agentId,
+        content: stripFileAttachments(m.content),
+        ...(m.taskOffer ? { taskOffer: m.taskOffer } : {}),
+      }));
+    const summaries = await ctx.db
+      .query("contextSummaries")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))
+      .order("desc")
+      .take(1);
+    const shape = async (a: Doc<"agents">) => {
+      const skills = await loadPromptSkills(ctx, a);
+      const mode = normalizeSkillLoading(a.skillLoading);
+      return {
+        _id: a._id,
+        name: a.name,
+        role: a.role,
+        systemPrompt: a.systemPrompt,
+        skillsSection: skillsSectionFor(skills, mode) || undefined,
+        ...(mode === "on_demand" && skills.length ? { onDemandSkills: skills } : {}),
+        memorySection:
+          (await loadMemorySection(ctx, { ...(project ? { projectId: project._id } : {}), agentId: a._id })) || undefined,
+      };
+    };
+    const shaped = usable ? [await shape(usable)] : [];
+    return {
+      agents: shaped,
+      // A personal chat is one agent: the "team" is that agent alone.
+      team: shaped,
+      projectName: project?.name ?? "",
+      history,
+      contextSummary: summaries[0]?.summary,
+      activeTask: null,
+      llmProviders: await loadProviderPool(ctx),
     };
   },
 });

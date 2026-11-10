@@ -68,6 +68,8 @@ const SHARED_FOUNDATION = new Set([
   "convex/lib/agentPerformance",
   // Plan 032: the global LLM selection mode (pure).
   "convex/lib/llmSelection",
+  // L2: secret patterns shared with context snapshots (pure).
+  "convex/lib/secretPatterns",
 ]);
 
 const SRC = path.resolve(import.meta.dirname, "../src");

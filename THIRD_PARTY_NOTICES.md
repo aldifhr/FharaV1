@@ -665,3 +665,31 @@ SOFTWARE.
   Fhara's nine fixed roles, the values mirror `ROLES[k].permissions`, there is no "ask" (OpenCode runs
   unattended), and `delegate` is a plain decision (no sub-agents). Also the idea (re-written, no code) of
   refusing `--auto` for unattended runs, from `opencode/scripts/run-routing-live-replay.mjs`.
+- Also used in (L2): `packages/worker/src/utils/shellExportPolicy.ts`, from `opencode/scripts/shell-export-policy.mjs` (copied: `classifyShellExport`, `splitShellCommands`,
+  `tokenizeShellWords`, the secret-name and secret-reader lists). Modified by Fhara: converted to TypeScript and
+  helpers exported; `packages/worker/src/utils/shellGuard.ts` (`shellGuardDecision`, re-exported by `execution/commandGate.ts`) builds the environment-dump,
+  credential-file and secret-echo rules on top of it.
+- Copyright the opencode-agent-orchestration-kit authors. Its NOTICE (`NOTICE.md`) reads, in the part that applies:
+
+```
+opencode-agent-orchestration-kit provides configuration, prompts, wrappers, documentation, and optional Docker
+helpers for OpenCode-oriented agent orchestration.
+
+This repository does not claim affiliation with the upstream projects listed below.
+```
+
+## llm-wiki-cli
+
+- Source: https://github.com/JanYork/llm-wiki-cli (commit `e1be6ab`, `src/secret_scan.rs`)
+- Used in: `packages/worker/src/utils/secretScan.ts`: `detectPossibleSecretReasons` / `containsToken`, rewritten in
+  TypeScript from `detect_possible_secret_reasons` / `contains_token` (same file-name, PEM-marker and token-prefix
+  rules). Modified by Fhara: TypeScript rewrite; staged-change and outgoing-diff wrappers that scan only added text.
+- Copyright the llm-wiki-cli authors. Licensed under the Apache License, Version 2.0 (full text in the Aider entry
+  above). The upstream repository ships no NOTICE file for this code.
+
+## openbot (patterns only)
+
+- Source: openbot `src/backend/mcp-redaction.ts`, `src/backend/stderr-diagnostics.ts`
+- Used in: `packages/worker/src/utils/redact.ts`, `utils/redactStream.ts`: the ideas only (mask configured secret
+  values before pattern rules; walk objects instead of cutting JSON; hold a record until whole across chunks with a
+  64 KiB cap; strip ANSI before redaction). No code copied: openbot is PolyForm Noncommercial.

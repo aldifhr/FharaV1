@@ -74,7 +74,8 @@ describe("T1 push hardening: environment", () => {
         token: TOKEN,
         execGit,
       });
-      expect(seen).toHaveLength(2);
+      // cat-file, the L2 outgoing-diff secret scan (merge-base ×2, rev-parse, show), push.
+      expect(argv.map((a) => a[0])).toEqual(["cat-file", "merge-base", "merge-base", "rev-parse", "show", "push"]);
       for (const env of seen) expect(env.GIT_DIR).toBeUndefined();
       expect(gitChildEnv().GIT_DIR).toBeUndefined();
       // The token never appears in argv.
@@ -171,8 +172,8 @@ describe("T1 push hardening: cwd, timeout, errors", () => {
 
   it("caps the per-call timeout at 5 minutes and leases longer than that", async () => {
     const timeouts: number[] = [];
-    const execGit: ExecGit = async (_args, options) => {
-      timeouts.push(options.timeoutMs);
+    const execGit: ExecGit = async (args, options) => {
+      if (args[0] === "push") timeouts.push(options.timeoutMs);
       return { stdout: "", stderr: "" };
     };
     await pushCommitToGithub({
@@ -186,7 +187,7 @@ describe("T1 push hardening: cwd, timeout, errors", () => {
       execGit,
     });
     expect(GIT_TIMEOUT_MS).toBe(300_000);
-    expect(timeouts[1]).toBe(GIT_TIMEOUT_MS);
+    expect(timeouts[0]).toBe(GIT_TIMEOUT_MS);
     expect(PUSH_LEASE_MS).toBeGreaterThan(GIT_TIMEOUT_MS);
     const claimPushRequest = vi.fn(async () => null);
     await processNextPushRequest({
@@ -219,7 +220,7 @@ describe("T1 push guard", () => {
       process.env.FHARA_ALLOW_BASE_BRANCH_PUSH = "true";
       process.env.FHARA_ALLOW_FORCE_PUSH = "1";
       await pushCommitToGithub({ ...base, branchName: "main", force: true, execGit });
-      expect(execGit.mock.calls[1]![0]).toEqual(["push", "--porcelain", "https://github.com/acme/app.git", `+${SHA}:refs/heads/main`]);
+      expect(execGit.mock.calls.find((call) => call[0][0] === "push")![0]).toEqual(["push", "--porcelain", "https://github.com/acme/app.git", `+${SHA}:refs/heads/main`]);
     } finally {
       if (saved.b === undefined) delete process.env.FHARA_ALLOW_BASE_BRANCH_PUSH;
       else process.env.FHARA_ALLOW_BASE_BRANCH_PUSH = saved.b;

@@ -5,6 +5,7 @@ import { routeCapability } from "@/orchestrator/capabilities";
 import { tryAutoApprove } from "./autoApprove";
 import { scopeViolations, scopeWarning } from "@/execution/scopeGuard";
 import { stagedSyntaxErrors, syntaxWarning } from "@/execution/editGuards";
+import { scanStagedChanges, secretFlag, secretWarning } from "@/utils/secretScan";
 
 export type FixApplyResult = "applied" | "waiting_approval" | "failed";
 
@@ -32,7 +33,10 @@ export async function applyOrRequestFixApproval(
     .map((filePath) => state.fileChanges.get(filePath))
     .filter((change): change is FileDiff => Boolean(change));
 
-  if (input.approvalMode !== "ask") {
+  // L2: a fix that stages a secret always asks, in every mode.
+  const secrets = input.approvalResolved ? [] : scanStagedChanges(fixChanges);
+  const secretNote = secretWarning(secrets);
+  if (input.approvalMode !== "ask" && !secretNote) {
     const applied = await applyStaged(fixChanges, "orchestrator");
     return "stop" in applied ? "failed" : "applied";
   }
@@ -50,10 +54,10 @@ export async function applyOrRequestFixApproval(
       .join("\n\n") || null;
   const fixSummary = `Apply ${stage} fix (${fixChanges.length} file(s)): ${fixChanges
     .map((change) => change.filePath)
-    .join(", ")}${warning ? `\n\n${warning}` : ""}`;
+    .join(", ")}${warning ? `\n\n${warning}` : ""}${secretNote ? `\n\n${secretNote}` : ""}`;
   // Plan 020: auto-accept edits / full access approve the fix themselves
   // (recorded, decidedBy "auto"): the stage re-runs with no pause.
-  const autoApproved = !warning && await tryAutoApprove(ctx, {
+  const autoApproved = !warning && !secretNote && await tryAutoApprove(ctx, {
     kind: "apply_changes",
     summary: fixSummary,
     payload: {
@@ -85,6 +89,7 @@ export async function applyOrRequestFixApproval(
       fixFilePaths: fixChanges.map((change) => change.filePath),
       planVersion: input.planVersion ?? plan.version,
       ...(warning ? { warning } : {}),
+      ...secretFlag(secrets),
       metrics: {
         files: fixChanges.length,
         stage,

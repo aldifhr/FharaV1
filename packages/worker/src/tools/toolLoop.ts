@@ -26,6 +26,7 @@ import type { LLMMessage } from "@/llm";
 import { extractJson } from "@/utils/json";
 import { genericToolLoopPrompt, type ToolLoopPromptSet } from "@/prompts/toolLoop";
 import { StuckDetector, type StuckDetectionThresholds, type StuckEvent, type StuckPattern } from "@/utils/stuckDetector";
+import { redactText } from "@/utils/redact";
 
 /** opencode PRUNE_PROTECT: newest tool output (tokens) that is never pruned. */
 export const PRUNE_PROTECT_TOKENS = 40_000;
@@ -226,7 +227,10 @@ export async function runToolLoop(options: ToolLoopOptions): Promise<ToolLoopRes
     }
 
     toolCalls += 1;
-    const result = await options.callTool({ tool: toolName, args: toolArgs });
+    // L2: a tool result goes back to the LLM, into events and the final
+    // findings: mask secrets (known values + shapes) before any of them.
+    const rawResult = await options.callTool({ tool: toolName, args: toolArgs });
+    const result = { ...rawResult, text: redactText(rawResult.text) };
     toolResults.push({ tool: toolName, text: result.text });
     outputs.push({ messageIndex: messages.length, tool: toolName, text: result.text, isError: result.isError });
     messages.push({

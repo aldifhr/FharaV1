@@ -153,6 +153,8 @@ function GenericApprovalCard({
   const disabled = busy || acting !== null;
   const approveLabel = approval.kind === "git_push" ? "Approve push" : "Approve";
   const metrics = approval.payload?.metrics as Record<string, unknown> | undefined;
+  // L2: the worker flags staged secrets (`flags: ["secret_detected"]`).
+  const secretFindings = secretDetectedFindings(approval.payload);
 
   const run = async (action: string, fn: Handler) => {
     setActing(action);
@@ -245,6 +247,20 @@ function GenericApprovalCard({
         </>
       }
     >
+      {secretFindings && (
+        <div role="alert" className={`border-t ${CARD_DIVIDER} px-4 py-3 text-[13px]`}>
+          <p className="font-semibold text-[#d83a3a]">Possible secret in these changes</p>
+          <ul className={`mt-1 list-disc pl-5 ${MUTED}`}>
+            {secretFindings.map((finding) => (
+              <li key={finding.filePath}>
+                <span className="font-mono text-ink">{finding.filePath}</span>
+                {finding.reasons.length > 0 ? ` — ${finding.reasons.join(", ")}` : ""}
+              </li>
+            ))}
+          </ul>
+          <p className={`mt-1 ${MUTED}`}>Auto-approval is off for this batch. Check the diff before you approve.</p>
+        </div>
+      )}
       {metrics && (
         // Only what the worker reported: a missing check reads "Not run" in
         // grey, never a green "passed".
@@ -257,4 +273,18 @@ function GenericApprovalCard({
       )}
     </CardShell>
   );
+}
+
+/** Staged-secret findings on an approval payload, or null when it carries no `secret_detected` flag. */
+export function secretDetectedFindings(payload: unknown): { filePath: string; reasons: string[] }[] | null {
+  const p = payload as { flags?: unknown; secretFindings?: unknown } | null | undefined;
+  if (!p || !Array.isArray(p.flags) || !p.flags.includes("secret_detected")) return null;
+  const raw = Array.isArray(p.secretFindings) ? p.secretFindings : [];
+  const findings = raw
+    .map((f: any) => ({
+      filePath: typeof f?.filePath === "string" ? f.filePath : "",
+      reasons: Array.isArray(f?.reasons) ? f.reasons.filter((r: unknown): r is string => typeof r === "string") : [],
+    }))
+    .filter((f) => f.filePath);
+  return findings.length > 0 ? findings : [{ filePath: "(staged files)", reasons: [] }];
 }

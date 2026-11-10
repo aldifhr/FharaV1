@@ -2,6 +2,7 @@ import path from "node:path";
 import type { WorkerApi } from "@/workerApi";
 import { GIT_TIMEOUT_MS, pushCommitToGithub, redactSecret, type ExecGit } from "@/tools/gitPush";
 import { openPullRequest, type FetchLike, type PullRequestResult } from "@/tools/githubPr";
+import { registerSecretValues } from "@/utils/redact";
 
 /**
  * Plan 019: the worker side of "Push & open PR".
@@ -43,6 +44,8 @@ export async function processNextPushRequest(deps: PushDeps): Promise<boolean> {
 
 export async function handlePushRequest(claim: PushClaim, deps: PushDeps): Promise<void> {
   const token = claim.token;
+  // L2: the GitHub token is masked on every path out of the worker.
+  registerSecretValues([token]);
   // Always an absolute cwd for git (a relative workspace path is resolved
   // against the worker's workspace root, never the process cwd).
   const repoPath = path.isAbsolute(claim.workspacePath)

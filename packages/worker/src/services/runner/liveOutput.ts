@@ -1,4 +1,6 @@
 import { stripToolCallMarkup } from "@/utils/toolCallMarkup";
+import { redactText } from "@/utils/redact";
+import { holdIndex, isSafeHeldTail } from "@/utils/redactStream";
 
 /**
  * Live output tail for a running subtask.
@@ -13,6 +15,11 @@ import { stripToolCallMarkup } from "@/utils/toolCallMarkup";
  * live output is cosmetic and must not fail the run. `close()` cancels any
  * pending flush and clears the stored tail after every earlier write
  * landed, so the UI never shows a stale tail for a finished subtask.
+ *
+ * L2: the stored tail is masked (known secret values + secret shapes) over
+ * the whole kept text, so a secret split across two deltas is joined before
+ * it is checked. The last word is shown only when it cannot be the start
+ * of a secret (`isSafeHeldTail`); otherwise it waits for the next delta.
  */
 
 export interface LiveOutputSink {
@@ -88,7 +95,13 @@ export class LiveOutputCoalescer {
     // Keep a little slack over the tail so markup cut at the window edge
     // can still be recognized; the stored text is capped again below.
     const keep = this.tailChars * 2;
-    if (this.raw.length > keep) this.raw = this.raw.slice(this.raw.length - keep);
+    if (this.raw.length > keep) {
+      // Cut at a whitespace boundary: never keep the second half of a
+      // secret whose first half was dropped (it would match nothing).
+      let cut = this.raw.length - keep;
+      while (cut < this.raw.length && !/\s/.test(this.raw[cut - 1] ?? " ")) cut += 1;
+      this.raw = this.raw.slice(cut);
+    }
     this.pendingChars += delta.length;
     this.dirty = true;
     if (this.pendingChars >= this.flushChars) {
@@ -113,7 +126,10 @@ export class LiveOutputCoalescer {
 
   /** Current display tail (stripped, capped). */
   snapshot(): string {
-    const text = liveDisplayText(this.raw);
+    const hold = holdIndex(this.raw);
+    const tail = this.raw.slice(hold);
+    const visible = redactText(this.raw.slice(0, hold)) + (isSafeHeldTail(tail) ? redactText(tail) : "");
+    const text = liveDisplayText(visible);
     return text.length > this.tailChars ? text.slice(text.length - this.tailChars) : text;
   }
 

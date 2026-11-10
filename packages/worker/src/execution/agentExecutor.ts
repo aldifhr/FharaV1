@@ -71,7 +71,7 @@ import { isCommandAllowed, runCommand } from "@/tools/runCommand";
 import { canWriteAny, permissionsForAgent, resolveRoleKey, shellDenial, writeDenial } from "@/utils/rolePolicy";
 import { buildOpencodePolicy } from "./opencodePolicy";
 import { dangerousCommandReason } from "@/api/convex/lib/commandRules";
-import { commandDeniedOutput, type CommandApprovalOutcome } from "@/execution/commandGate";
+import { commandDeniedOutput, shellGuardDecisionForArgv, shellGuardOutput, type CommandApprovalOutcome } from "@/execution/commandGate";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
@@ -2355,6 +2355,15 @@ async function executeShell(
   // The raw shell-command JSON must never reach chat; narrate the human
   // command line instead (the result summary below follows on completion).
   await input.onMessage(`$ ${parsed.command} ${parsed.args.join(" ")}`);
+  // L2 shell guard: environment dumps, secret exports and credential-file
+  // reads are refused with the rule name, before the allowlist and before
+  // any approval (no mode, Full access included, may run them).
+  const guarded = shellGuardDecisionForArgv(parsed.command, parsed.args);
+  if (guarded) {
+    const line = `${parsed.command} ${parsed.args.join(" ")}`.trim();
+    await onEvent("shell.command_blocked", { command: parsed.command, args: parsed.args, rule: guarded.rule, reason: guarded.reason }, "warn");
+    return { status: "failed", error: shellGuardOutput(`$ ${line}`, guarded) };
+  }
   if (!isCommandAllowed(parsed.command, parsed.args)) {
     return {
       status: "failed",

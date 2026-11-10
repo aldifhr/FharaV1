@@ -4,6 +4,8 @@ import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import { isCommandAllowed } from "@/utils/commandAllowlist";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import { shouldUseShell } from "@/tools/runCommand";
+import { redactText } from "@/utils/redact";
+import { shellGuardDecisionForArgv } from "@/utils/shellGuard";
 
 export type PtyHandle = Pick<IPty, "pid" | "write" | "kill" | "onData" | "onExit">;
 
@@ -137,6 +139,11 @@ export async function runPty(
   if (!isCommandAllowed(command, args)) {
     throw new Error(`Command blocked (not allowlisted): ${command} ${args.join(" ")}`);
   }
+  // L2: never run a command that dumps the environment or a credential file.
+  const guard = shellGuardDecisionForArgv(command, args);
+  if (guard) {
+    throw new Error(`Command blocked by rule ${guard.rule} (${guard.reason}): ${command} ${args.join(" ")}`);
+  }
   if (options.signal?.aborted) {
     throw new Error("Command aborted before start");
   }
@@ -187,7 +194,8 @@ export async function runPty(
       dataSub?.dispose();
       exitSub?.dispose();
       resolve({
-        stdout: stripAnsi(output),
+        // L2: masked after the ANSI strip (escapes can hide a key=value).
+        stdout: redactText(stripAnsi(output)),
         stderr: "",
         code,
         timedOut,

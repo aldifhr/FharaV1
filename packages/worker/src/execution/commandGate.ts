@@ -30,3 +30,14 @@ export function commandDeniedOutput(line: string, outcome: CommandApprovalOutcom
     .filter(Boolean)
     .join("\n");
 }
+
+// ── L2: shell guard (lives in utils/shellGuard so tools/ can use it) ────
+
+export {
+  SHELL_GUARD_RULES,
+  isSecretFilePath,
+  shellGuardDecision,
+  shellGuardDecisionForArgv,
+  shellGuardOutput,
+  type ShellGuardDecision,
+} from "@/utils/shellGuard";

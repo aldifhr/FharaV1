@@ -3,6 +3,7 @@ import { api } from "@/api/convex/_generated/api";
 import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
 import type { Doc } from "@/api/convex/_generated/dataModel";
 import type { PromptSkill } from "@/api/convex/lib/skills";
+import { redactDeep } from "@/utils/redact";
 
 /** Convex document shapes returned by the worker API. */
 export type WorkerTask = Doc<"tasks">;
@@ -47,6 +48,16 @@ export class WorkerApi {
      */
     private readonly workerId?: string
   ) {}
+
+  /**
+   * L2: text written to Convex from a run (events, messages, audit rows,
+   * cards, subtask output, live tails) is masked first: the worker's known
+   * secret values and secret shapes never leave the process. File contents
+   * (saveFileChange) and the plan structure are not touched.
+   */
+  private masked<T>(input: T): T {
+    return redactDeep(input);
+  }
 
   private args<T extends Record<string, unknown>>(value: T): any {
     return { ...value, workerToken: this.token };
@@ -165,7 +176,7 @@ export class WorkerApi {
     // holds the task lease ("Lease lost" throw / {applied:false}).
     return await this.client.action(
       api.worker.updateExecution,
-      this.args({ workerId: this.workerId, ...input })
+      this.args({ workerId: this.workerId, ...this.masked(input) })
     );
   }
 
@@ -174,7 +185,7 @@ export class WorkerApi {
   ): Promise<FunctionReturnType<typeof api.worker.updateSubtask>> {
     return await this.client.action(
       api.worker.updateSubtask,
-      this.args({ workerId: this.workerId, ...input })
+      this.args({ workerId: this.workerId, ...this.masked(input) })
     );
   }
 
@@ -183,7 +194,7 @@ export class WorkerApi {
   ): Promise<FunctionReturnType<typeof api.worker.setSubtaskActivity>> {
     return await this.client.action(
       api.worker.setSubtaskActivity,
-      this.args({ workerId: this.workerId, ...input })
+      this.args({ workerId: this.workerId, ...this.masked(input) })
     );
   }
 
@@ -192,7 +203,7 @@ export class WorkerApi {
   ): Promise<FunctionReturnType<typeof api.worker.setSubtaskLiveOutput>> {
     return await this.client.action(
       api.worker.setSubtaskLiveOutput,
-      this.args({ workerId: this.workerId, ...input })
+      this.args({ workerId: this.workerId, ...this.masked(input) })
     );
   }
 
@@ -203,7 +214,7 @@ export class WorkerApi {
     // holds the task lease ("Lease lost" throw / {applied:false}).
     return await this.client.action(
       api.worker.requestApproval,
-      this.args({ workerId: this.workerId, ...input })
+      this.args({ workerId: this.workerId, ...this.masked(input) })
     );
   }
 
@@ -213,7 +224,7 @@ export class WorkerApi {
   ): Promise<FunctionReturnType<typeof api.worker.requestCommandApproval>> {
     return await this.client.action(
       api.worker.requestCommandApproval,
-      this.args({ workerId: this.workerId, ...input })
+      this.args({ workerId: this.workerId, ...this.masked(input) })
     );
   }
 
@@ -321,7 +332,7 @@ export class WorkerApi {
   ): Promise<FunctionReturnType<typeof api.worker.completeTask>> {
     return await this.client.action(
       api.worker.completeTask,
-      this.args({ workerId: this.workerId, ...input })
+      this.args({ workerId: this.workerId, ...this.masked(input) })
     );
   }
 
@@ -334,27 +345,27 @@ export class WorkerApi {
   async setTaskStatus(
     input: ActionInput<typeof api.worker.setTaskStatus>
   ): Promise<FunctionReturnType<typeof api.worker.setTaskStatus>> {
-    return await this.client.action(api.worker.setTaskStatus, this.args(input));
+    return await this.client.action(api.worker.setTaskStatus, this.args(this.masked(input)));
   }
 
   // Plan 013 step 4: pause a task for a user answer (`waiting_input`).
   async pauseForInput(
     input: ActionInput<typeof api.worker.pauseForInput>
   ): Promise<FunctionReturnType<typeof api.worker.pauseForInput>> {
-    return await this.client.action(api.worker.pauseForInput, this.args(input));
+    return await this.client.action(api.worker.pauseForInput, this.args(this.masked(input)));
   }
 
   async recordEvaluation(
     input: ActionInput<typeof api.worker.recordEvaluation>
   ): Promise<FunctionReturnType<typeof api.worker.recordEvaluation>> {
-    return await this.client.action(api.worker.recordEvaluation, this.args(input));
+    return await this.client.action(api.worker.recordEvaluation, this.args(this.masked(input)));
   }
 
   // Plan 009: MCP status reports from the worker (best-effort).
   async updateMcpServerStatus(
     input: ActionInput<typeof api.worker.updateMcpServerStatus>
   ): Promise<FunctionReturnType<typeof api.worker.updateMcpServerStatus>> {
-    return await this.client.action(api.worker.updateMcpServerStatus, this.args(input));
+    return await this.client.action(api.worker.updateMcpServerStatus, this.args(this.masked(input)));
   }
 
   async claimMcpServerTest(
@@ -372,13 +383,13 @@ export class WorkerApi {
   async completeRepoToolCall(
     input: ActionInput<typeof api.worker.completeRepoToolCall>
   ): Promise<FunctionReturnType<typeof api.worker.completeRepoToolCall>> {
-    return await this.client.action(api.worker.completeRepoToolCall, this.args(input));
+    return await this.client.action(api.worker.completeRepoToolCall, this.args(this.masked(input)));
   }
 
   async completeMcpServerTest(
     input: ActionInput<typeof api.worker.completeMcpServerTest>
   ): Promise<FunctionReturnType<typeof api.worker.completeMcpServerTest>> {
-    return await this.client.action(api.worker.completeMcpServerTest, this.args(input));
+    return await this.client.action(api.worker.completeMcpServerTest, this.args(this.masked(input)));
   }
 
   /** Plan 022: a subtask's acceptance (gate results / escalation). Lease-fenced. */
@@ -387,7 +398,7 @@ export class WorkerApi {
   ): Promise<FunctionReturnType<typeof api.worker.recordSubtaskAcceptance>> {
     return await this.client.action(
       api.worker.recordSubtaskAcceptance,
-      this.args({ workerId: this.workerId, ...input })
+      this.args({ workerId: this.workerId, ...this.masked(input) })
     );
   }
 
@@ -411,19 +422,19 @@ export class WorkerApi {
   async logEvent(
     input: ActionInput<typeof api.worker.logEvent>
   ): Promise<FunctionReturnType<typeof api.worker.logEvent>> {
-    return await this.client.action(api.worker.logEvent, this.args(input));
+    return await this.client.action(api.worker.logEvent, this.args(this.masked(input)));
   }
 
   async appendAgentMessage(
     input: ActionInput<typeof api.worker.appendAgentMessage>
   ): Promise<FunctionReturnType<typeof api.worker.appendAgentMessage>> {
-    return await this.client.action(api.worker.appendAgentMessage, this.args(input));
+    return await this.client.action(api.worker.appendAgentMessage, this.args(this.masked(input)));
   }
 
   async recordAudit(
     input: ActionInput<typeof api.worker.recordAudit>
   ): Promise<FunctionReturnType<typeof api.worker.recordAudit>> {
-    return await this.client.action(api.worker.recordAudit, this.args(input));
+    return await this.client.action(api.worker.recordAudit, this.args(this.masked(input)));
   }
 
   async recordContextSnapshot(
@@ -483,19 +494,19 @@ export class WorkerApi {
   async upsertTaskContext(
     input: ActionInput<typeof api.worker.upsertTaskContext>
   ): Promise<FunctionReturnType<typeof api.worker.upsertTaskContext>> {
-    return await this.client.action(api.worker.upsertTaskContext, this.args(input));
+    return await this.client.action(api.worker.upsertTaskContext, this.args(this.masked(input)));
   }
 
   async recordDelegation(
     input: ActionInput<typeof api.worker.recordDelegation>
   ): Promise<FunctionReturnType<typeof api.worker.recordDelegation>> {
-    return await this.client.action(api.worker.recordDelegation, this.args(input));
+    return await this.client.action(api.worker.recordDelegation, this.args(this.masked(input)));
   }
 
   async recordLifecycle(
     input: ActionInput<typeof api.worker.recordLifecycle>
   ): Promise<FunctionReturnType<typeof api.worker.recordLifecycle>> {
-    return await this.client.action(api.worker.recordLifecycle, this.args(input));
+    return await this.client.action(api.worker.recordLifecycle, this.args(this.masked(input)));
   }
 
   async getTaskTokenUsage(
@@ -514,13 +525,13 @@ export class WorkerApi {
   async completeMessage(
     input: ActionInput<typeof api.worker.completeMessage>
   ): Promise<FunctionReturnType<typeof api.worker.completeMessage>> {
-    return await this.client.action(api.worker.completeMessage, this.args(input));
+    return await this.client.action(api.worker.completeMessage, this.args(this.masked(input)));
   }
 
   async failMessage(
     input: ActionInput<typeof api.worker.failMessage>
   ): Promise<FunctionReturnType<typeof api.worker.failMessage>> {
-    return await this.client.action(api.worker.failMessage, this.args(input));
+    return await this.client.action(api.worker.failMessage, this.args(this.masked(input)));
   }
 
   async retryMessage(
@@ -548,7 +559,7 @@ export class WorkerApi {
     // Lease fencing: a displaced worker's card is refused.
     return await this.client.action(
       api.worker.postTaskCard,
-      this.args({ workerId: this.workerId, ...input })
+      this.args({ workerId: this.workerId, ...this.masked(input) })
     );
   }
 
@@ -571,7 +582,7 @@ export class WorkerApi {
   async completePushRequest(
     input: ActionInput<typeof api.worker.completePushRequest>
   ): Promise<FunctionReturnType<typeof api.worker.completePushRequest>> {
-    return await this.client.action(api.worker.completePushRequest, this.args(input));
+    return await this.client.action(api.worker.completePushRequest, this.args(this.masked(input)));
   }
 
   // Workload Manager: running executions per agent (load-aware routing).

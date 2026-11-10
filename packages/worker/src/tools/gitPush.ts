@@ -5,6 +5,7 @@ import path from "node:path";
 import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import { UNTRUSTED_GIT_CONFIG, untrustedGitEnv } from "@/vendor/threadbear/safeGit";
 import { settingEnv } from "@/api/convex/lib/appSettings";
+import { scanUnifiedDiff, secretFindingsSummary, type SecretFinding } from "@/utils/secretScan";
 
 /**
  * Plan 019: push a committed sha to a GitHub branch with a short-lived
@@ -236,6 +237,57 @@ export function assertPushAllowed(input: {
   }
 }
 
+/**
+ * L2: secret scan of what a push would publish: the diff from the commit's
+ * merge base with the base branch (local `<base>` or `origin/<base>`), else
+ * from its parent, else the root commit itself. Only added files and `+`
+ * lines count. Throws when the outgoing changes cannot be read (fail closed).
+ */
+export async function scanOutgoingCommit(input: {
+  execGit: ExecGit;
+  repoPath: string;
+  commitSha: string;
+  baseBranch?: string;
+  signal?: AbortSignal;
+}): Promise<SecretFinding[]> {
+  const run = (args: string[]) =>
+    input.execGit(args, { cwd: input.repoPath, env: gitChildEnv(), signal: input.signal, timeoutMs: 60_000 });
+  const base = input.baseBranch?.replace(/^refs\/heads\//, "").trim();
+  let from: string | null = null;
+  for (const ref of base && BRANCH.test(base) ? [base, `origin/${base}`] : []) {
+    try {
+      const { stdout } = await run(["merge-base", input.commitSha, ref]);
+      const sha = stdout.trim();
+      if (SHA.test(sha)) {
+        from = sha;
+        break;
+      }
+    } catch {
+      // No such ref here; try the next one.
+    }
+  }
+  if (!from) {
+    try {
+      const { stdout } = await run(["rev-parse", "--verify", "--quiet", `${input.commitSha}^`]);
+      if (SHA.test(stdout.trim())) from = stdout.trim();
+    } catch {
+      // Root commit: diff the commit itself below.
+    }
+  }
+  const diffArgs = from
+    ? ["diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U0", "--diff-filter=ACMR", from, input.commitSha]
+    : ["show", "--no-color", "--no-ext-diff", "--no-textconv", "-U0", "--format=", "--diff-filter=ACMR", input.commitSha];
+  let diff: string;
+  try {
+    diff = (await run(diffArgs)).stdout;
+  } catch (error) {
+    throw new Error(
+      `Push blocked: the outgoing changes could not be scanned for secrets (${error instanceof Error ? error.message : String(error)})`
+    );
+  }
+  return scanUnifiedDiff(diff);
+}
+
 export async function pushCommitToGithub(input: PushInput): Promise<{ remoteUrl: string }> {
   if (!NAME.test(input.owner) || !NAME.test(input.repo)) throw new Error("Invalid GitHub repository");
   if (!SHA.test(input.commitSha)) throw new Error("Invalid commit sha");
@@ -264,6 +316,17 @@ export async function pushCommitToGithub(input: PushInput): Promise<{ remoteUrl:
       throw new Error(`Push failed before contacting GitHub: ${message}`);
     }
     throw new Error(`Commit ${input.commitSha.slice(0, 12)} is not in the local repository at ${repoPath}`);
+  }
+  // L2: never publish a credential file or token the commit adds.
+  const secrets = await scanOutgoingCommit({
+    execGit,
+    repoPath,
+    commitSha: input.commitSha,
+    baseBranch: input.baseBranch,
+    signal: input.signal,
+  });
+  if (secrets.length > 0) {
+    throw new Error(`Push blocked: possible secret in the outgoing changes: ${secretFindingsSummary(secrets)}`);
   }
   try {
     await execGit(

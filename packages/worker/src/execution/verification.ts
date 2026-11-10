@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { redactText } from "@/utils/redact";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { EvaluationCheck } from "@/types";
@@ -484,7 +485,8 @@ function runCommand(
       settled = true;
       if (timer) clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
-      resolve({ code, timedOut, output, durationMs: Date.now() - started });
+      // L2: step output lands in events and chat: mask secrets first.
+      resolve({ code, timedOut, output: redactText(output), durationMs: Date.now() - started });
     };
 
     let child: ChildProcess;

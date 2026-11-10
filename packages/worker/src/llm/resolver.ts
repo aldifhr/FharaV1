@@ -18,6 +18,7 @@ import {
   orderPoolPairs,
 } from "@/api/convex/lib/llmOrder";
 import { isOpencodeConnection, withoutOpencode } from "@/api/convex/lib/opencodeProvider";
+import { registerSecretValues } from "@/utils/redact";
 
 export { matchesModelPattern };
 
@@ -180,6 +181,8 @@ export async function materializePool(
     } else if (row.apiKeyEnv) {
       apiKey = env[row.apiKeyEnv] ?? "";
     }
+    // L2: a provider key is a known secret from now on (masked everywhere).
+    if (apiKey) registerSecretValues([apiKey]);
     pool.push({
       _id: row._id,
       name: row.name,

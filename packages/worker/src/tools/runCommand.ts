@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import { isCommandAllowed } from "@/utils/commandAllowlist";
+import { redactText } from "@/utils/redact";
+import { shellGuardDecisionForArgv } from "@/utils/shellGuard";
 
 const execFileAsync = promisify(execFile);
 
@@ -30,6 +32,11 @@ export async function runCommand(
   if (!isCommandAllowed(command, args)) {
     throw new Error(`Command blocked (not allowlisted): ${command} ${args.join(" ")}`);
   }
+  // L2: never run a command that dumps the environment or a credential file.
+  const guard = shellGuardDecisionForArgv(command, args);
+  if (guard) {
+    throw new Error(`Command blocked by rule ${guard.rule} (${guard.reason}): ${command} ${args.join(" ")}`);
+  }
   try {
     const { stdout, stderr } = await execFileAsync(command, args, {
       cwd: workspaceRoot,
@@ -43,11 +50,12 @@ export async function runCommand(
       // other command failure.
       signal: options.signal,
     });
-    return { stdout, stderr };
+    // L2: output leaves the worker (chat, events): mask secrets first.
+    return { stdout: redactText(stdout), stderr: redactText(stderr) };
   } catch (err: any) {
     return {
-      stdout: err?.stdout ?? "",
-      stderr: err?.stderr ?? err?.message ?? String(err),
+      stdout: redactText(String(err?.stdout ?? "")),
+      stderr: redactText(String(err?.stderr ?? err?.message ?? String(err))),
     };
   }
 }

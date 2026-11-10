@@ -17,8 +17,12 @@ import { pollOpencodeCatalog } from "./services/opencodeCatalog";
 import { effectiveWorkspaceRoot, reportKnobEnv, syncAppSettings } from "./services/appSettings";
 import { REPO_TOOLS_CAPABILITY } from "@/api/convex/lib/chat/repoTools";
 import { DirectThreads } from "./direct";
+import { installConsoleRedaction, registerEnvSecrets } from "./utils/redact";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
+// L2: the worker's own logs (stdout/stderr) never print a known secret.
+registerEnvSecrets();
+installConsoleRedaction();
 
 const POLL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1500);
 // With the pendingWork subscription live, the poll is only the correctness

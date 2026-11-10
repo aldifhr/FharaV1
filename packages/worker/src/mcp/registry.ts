@@ -28,6 +28,7 @@ import { mcpRoleAllowed } from "@/api/convex/lib/mcpPresets";
 import { redactSecrets, resolveMcpSpawn } from "./spawn";
 import { McpToolSchema } from "@/utils/schemas";
 import type { McpCallResult, McpEventFn, McpServerConfig, McpToolDefinition } from "./types";
+import { registerSecretValues } from "@/utils/redact";
 
 /** A 4 KB path is never legitimate; args above this are refused before spawn. */
 const MAX_ARGS_CHARS = 16_000;
@@ -172,6 +173,8 @@ export class McpRegistry {
     }
     const { command, args, env, secretValues } = spawnSpec;
     entry.secretValues = secretValues;
+    // L2: values handed to an MCP server are masked on every path out.
+    registerSecretValues(secretValues);
     const client = McpClient.start({
       command,
       args,

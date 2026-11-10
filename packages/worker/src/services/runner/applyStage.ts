@@ -8,6 +8,7 @@ import { implementerAgent, resolveWorkspacePath } from "./setup";
 import { mayAutoApproveEdits, tryAutoApprove } from "./autoApprove";
 import { newFilesOnlyFixWarning } from "./noTargetGuard";
 import { generateCommitMessage } from "./commitMessage";
+import { scanStagedChanges, secretFlag, secretWarning } from "@/utils/secretScan";
 
 /** What the apply stage hands the approval request. */
 export interface PreparedApply {
@@ -33,9 +34,12 @@ export async function requestApplyApproval(
   const { preparedChanges, approvedVerdicts, reviewSnapshotId, dryRunSummary } = prepared;
   const implementer = implementerAgent(plan, input.agents);
   const noTarget = newFilesOnlyFixWarning(input.task.command, preparedChanges);
+  // L2: staged secrets are flagged on the approval (secret_detected).
+  const secrets = scanStagedChanges(preparedChanges);
+  const secretNote = secretWarning(secrets);
   const summary = `Apply changes to ${preparedChanges.length} file(s): ${preparedChanges
     .map((change) => change.filePath)
-    .join(", ")}${noTarget ? `\n\n${noTarget}` : ""}`;
+    .join(", ")}${noTarget ? `\n\n${noTarget}` : ""}${secretNote ? `\n\n${secretNote}` : ""}`;
   // Metrics reflect what actually ran: verification and QA run AFTER the
   // apply, so before approval they are "not run" unless a previous
   // invocation recorded a real result.
@@ -54,6 +58,7 @@ export async function requestApplyApproval(
       reviewSnapshotId: approvedVerdicts.length > 0 ? reviewSnapshotId : undefined,
       policyDryRun: dryRunSummary,
       ...(noTarget ? { warning: noTarget } : {}),
+      ...secretFlag(secrets),
       metrics: {
         files: preparedChanges.length,
         review: approvedVerdicts.length > 0 ? "approved" : reviewNodes.length > 0 ? "not approved" : "not run",
@@ -99,6 +104,31 @@ export async function requestApplyApproval(
     details: { dryRun: dryRunSummary, reason },
   });
   return { status: "waiting_approval" };
+}
+
+/**
+ * L2: staged secrets stop the apply for a human look in EVERY permission
+ * mode (auto-accept and auto approval included). Returns the approval
+ * status, or null when there is nothing to flag or the user already
+ * approved this batch (the approval they saw carried the flag).
+ */
+export async function secretGate(
+  ctx: RunContext,
+  prepared: PreparedApply
+): Promise<"waiting_approval" | null> {
+  if (ctx.input.approvalResolved) return null;
+  const findings = scanStagedChanges(prepared.preparedChanges);
+  if (findings.length === 0) return null;
+  await ctx.deps.api
+    .logEvent({
+      taskId: ctx.taskId,
+      projectId: ctx.project._id,
+      type: "secret.detected",
+      payload: { stage: "apply", findings: findings.map((f) => ({ filePath: f.filePath, reasons: f.reasons })) },
+      level: "warn",
+    })
+    .catch(() => undefined);
+  return (await requestApplyApproval(ctx, prepared, "broker")).status;
 }
 
 /**
@@ -150,6 +180,9 @@ export async function brokerCheckAndApply(
     });
     return "failed";
   }
+  // L2: a staged secret always asks, whatever the mode.
+  const secretStop = await secretGate(ctx, prepared);
+  if (secretStop) return secretStop;
   let autoApproved = false;
   // A fix that only adds new files is flagged for a human look: never
   // auto-approved by the permission mode (noTargetGuard).

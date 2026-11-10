@@ -92,7 +92,7 @@ export interface ObjectiveEvidence {
   /** QA verdicts by subtask key. */
   qaVerdicts?: Record<string, QaVerdict>;
   /** Static verification result; undefined when it did not run. */
-  verification?: { status: "passed" | "failed" | "skipped"; details?: string };
+  verification?: { status: "passed" | "failed" | "skipped" | "skipped_env"; details?: string };
   /** The decision whose expectedOutcome is being checked for satisfaction. */
   lastDecision?: { action: DecisionAction; expectedOutcome?: string };
 }

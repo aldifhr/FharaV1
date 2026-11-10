@@ -158,9 +158,16 @@ export async function evaluateTask(input: EvaluationInput): Promise<EvaluationRe
     });
   }
 
+  // Environment-skipped verification steps (missing dependencies, see
+  // execution/verifyEnv) are a reported skip, like an environment-blocked
+  // QA: they never turn the verdict inconclusive on their own.
+  const envSkipped = checks.filter((check) => check.status === "inconclusive" && check.environment);
+  if (envSkipped.length > 0) {
+    notes.push(`Verification skipped (environment): ${envSkipped.map((check) => `${check.name}: ${check.environment}`).join("; ")}`);
+  }
   const verdict: EvaluationVerdict = checks.some((check) => check.status === "failed")
     ? "failed"
-    : checks.some((check) => check.status === "inconclusive")
+    : checks.some((check) => check.status === "inconclusive" && !check.environment)
       ? "inconclusive"
       : "passed";
 

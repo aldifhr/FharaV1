@@ -1,4 +1,5 @@
 import { requestText } from "@/orchestrator/classifier";
+import { scopeViolations, scopeWarning, type ScopeChange } from "@/execution/scopeGuard";
 
 /** A fix / bug / investigation request (EN/ID). */
 const FIX_REQUEST =
@@ -13,9 +14,23 @@ const FIX_REQUEST =
  */
 export function newFilesOnlyFixWarning(
   command: string,
+  changes: ReadonlyArray<ScopeChange>
+): string | null {
+  // The apply approval's `warning` (and summary) also carries the scope
+  // guard's findings (execution/scopeGuard): deleted tests, removed
+  // exports, code edits on a doc-only request. Kept under this name so the
+  // apply stage's single warning call picks them up.
+  const parts = [noTargetWarning(command, changes), scopeWarning(scopeViolations(command ?? "", changes))].filter(
+    (part): part is string => Boolean(part)
+  );
+  return parts.length > 0 ? parts.join("\n\n") : null;
+}
+
+function noTargetWarning(
+  command: string,
   changes: ReadonlyArray<{ filePath: string; changeType: string }>
 ): string | null {
-  if (changes.length === 0 || !FIX_REQUEST.test(requestText(command))) return null;
+  if (changes.length === 0 || !FIX_REQUEST.test(requestText(command ?? ""))) return null;
   if (!changes.every((change) => change.changeType === "new")) return null;
   const files = changes.map((change) => change.filePath);
   return `Check before approving: this is a fix request, but every change creates a new file (${files.slice(0, 5).join(", ")}${

@@ -64,7 +64,13 @@ export interface RunState {
   /** Applied file paths per producing subtask key (Phase 5 Step 5.1). */
   appliedFilesBySubtask: Map<string, string[]>;
   /** Last static verification result, once it has run (Phase 5 Step 5.1). */
-  verification?: { status: "passed" | "failed" | "skipped"; details?: string };
+  verification?: { status: "passed" | "failed" | "skipped" | "skipped_env"; details?: string };
+  /**
+   * Set when the run must end failed WITHOUT a replan (a verify-fix loop
+   * that could not change anything, or that repeated itself): a replan
+   * would only rebuild the same loop. taskRunner fails the task with it.
+   */
+  terminalFailure?: string;
   /**
    * Plan 022: each node's delivered output in this run (gate evidence).
    * priorOutputs is not filled on every decision path.

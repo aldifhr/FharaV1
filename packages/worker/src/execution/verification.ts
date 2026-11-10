@@ -3,6 +3,7 @@ import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { EvaluationCheck } from "@/types";
+import { classifyVerifyFailure, ensureWorktreeDependencies } from "./verifyEnv";
 
 export interface VerificationOptions {
   workspacePath: string;
@@ -30,6 +31,8 @@ export interface VerificationResult {
   checks: EvaluationCheck[];
   ran: string[];
   skipped: string[];
+  /** Package dirs whose node_modules were linked from the main checkout (worktree runs). */
+  linkedDependencies?: string[];
 }
 
 interface StepDefinition {
@@ -92,6 +95,13 @@ export async function runVerification(options: VerificationOptions): Promise<Ver
     return { checks, ran, skipped };
   }
 
+  // A task worktree has no node_modules of its own: reuse the main
+  // checkout's before any step runs (live test 4: TS2688 in the worktree).
+  const linkedDependencies = await ensureWorktreeDependencies(
+    workspacePath,
+    targets.map((target) => target.directory)
+  );
+
   const steps = options.includeBuild === false ? BASE_STEPS : [...BASE_STEPS, BUILD_STEP];
 
   for (const target of targets) {
@@ -102,7 +112,7 @@ export async function runVerification(options: VerificationOptions): Promise<Ver
           status: "inconclusive",
           details: "Verification aborted: the task was cancelled or timed out",
         });
-        return finish(checks, ran, skipped);
+        return finish(checks, ran, skipped, linkedDependencies);
       }
       const command = await buildCommand(step, workspacePath, target, manager);
       if (!command) {
@@ -120,7 +130,7 @@ export async function runVerification(options: VerificationOptions): Promise<Ver
           durationMs: result.durationMs,
           details: `\`${command}\` timed out after ${Math.round(timeoutMs / 1000)}s. ${tail(result.output)}`.trim(),
         });
-        return finish(checks, ran, skipped);
+        return finish(checks, ran, skipped, linkedDependencies);
       }
 
       const scope = options.scopeFiles ?? options.changedFiles ?? [];
@@ -139,6 +149,19 @@ export async function runVerification(options: VerificationOptions): Promise<Ver
       }
 
       if (result.code !== 0) {
+        const classified = classifyVerifyFailure({ output: result.output, code: result.code, changedFiles: scope });
+        if (classified.kind === "env") {
+          // Nothing a code fix can change: report it as skipped and go on
+          // (the next steps may still run; they classify on their own).
+          await record({
+            name: `${target.name}:${step.name}`,
+            status: "inconclusive",
+            durationMs: result.durationMs,
+            environment: classified.reason,
+            details: `Skipped (environment): ${classified.reason}. \`${command}\` exited with code ${result.code}. ${tail(result.output)}`.trim(),
+          });
+          continue;
+        }
         await record({
           ...(named.length > 0 ? { files: named.slice(0, 20) } : {}),
           name: `${target.name}:${step.name}`,
@@ -146,7 +169,7 @@ export async function runVerification(options: VerificationOptions): Promise<Ver
           durationMs: result.durationMs,
           details: `\`${command}\` exited with code ${result.code}. ${tail(result.output)}`.trim(),
         });
-        return finish(checks, ran, skipped);
+        return finish(checks, ran, skipped, linkedDependencies);
       }
 
       const counts = step.name === "test" ? parseTestCounts(result.output) : undefined;
@@ -168,7 +191,7 @@ export async function runVerification(options: VerificationOptions): Promise<Ver
     });
   }
 
-  return finish(checks, ran, skipped);
+  return finish(checks, ran, skipped, linkedDependencies);
 }
 
 /** Steps whose failures name files and can be scoped to the change. */
@@ -213,9 +236,10 @@ export function isPreExistingFailure(named: string[], scope: string[]): boolean 
 async function finish(
   checks: EvaluationCheck[],
   ran: string[],
-  skipped: string[]
+  skipped: string[],
+  linkedDependencies?: string[]
 ): Promise<VerificationResult> {
-  return { checks, ran, skipped };
+  return { checks, ran, skipped, ...(linkedDependencies && linkedDependencies.length > 0 ? { linkedDependencies } : {}) };
 }
 
 async function resolveTargets(

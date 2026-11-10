@@ -9,12 +9,17 @@ import { buildChildEnv } from "./lib/childEnv";
 import { gitIdentityArgs } from "./lib/gitIdentity";
 import { makeTaskBranchName, resolveMainBranch, taskWorktreesFromPorcelain } from "./lib/taskBranch";
 import { worktreeRetentionMs } from "./lib/worktreeRetention";
+import { assertRepoPathExists, resolveRepoPath } from "./lib/workspacePath";
 import type { Id } from "./_generated/dataModel";
 
 // execFile, not a shell string: branch names, paths and the identity
 // (`user.name=Some Name`) are passed as argv, never re-split or interpreted.
 function gitExec(cwd: string, args: string[]): string {
-  return execFileSync("git", args, { cwd, encoding: "utf-8", windowsHide: true, env: buildChildEnv() });
+  // A relative or missing cwd surfaced as "spawnSync git ENOENT" (live
+  // test 4): resolve it and fail with a clear message instead.
+  const dir = resolveRepoPath(cwd);
+  assertRepoPathExists(dir, cwd);
+  return execFileSync("git", args, { cwd: dir, encoding: "utf-8", windowsHide: true, env: buildChildEnv() });
 }
 
 /**
@@ -28,7 +33,12 @@ function gitCommitExec(cwd: string, args: string[]): string {
 }
 
 export const createBranch = internalAction({
-  args: { taskId: v.id("tasks"), projectId: v.id("projects") },
+  args: {
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    /** The worker's absolute WORKSPACE_ROOT: a relative project path resolves under it, as in the worker. */
+    workspaceRoot: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const data = (await ctx.runQuery(internal.orchestration.getBranchContext, args)) as {
       taskTitle: string;
@@ -40,17 +50,22 @@ export const createBranch = internalAction({
       existingWorktreePath?: string;
     };
 
+    // Absolute before any git / spawn call; a clear error when it is missing.
+    const workspacePath = resolveRepoPath(data.workspacePath, { workspaceRoot: args.workspaceRoot });
+    assertRepoPathExists(workspacePath, data.workspacePath);
     const branchName = data.existingBranchName ?? makeTaskBranchName(args.taskId, data.taskTitle);
-    const worktreesBase = data.worktreesPath ?? path.join(data.workspacePath, ".moagent-worktrees");
+    const worktreesBase = data.worktreesPath
+      ? path.resolve(workspacePath, data.worktreesPath)
+      : path.join(workspacePath, ".moagent-worktrees");
     const worktreePath =
       data.existingWorktreePath ?? `${worktreesBase}/${data.projectName}/${branchName}`;
     // Configured base branch, else detected (origin/HEAD → main → master):
     // a hard-coded "main" failed every task on a master repo.
-    const mainBranch = resolveMainBranch(data.mainBranch, (gitArgs) => gitExec(data.workspacePath, gitArgs));
+    const mainBranch = resolveMainBranch(data.mainBranch, (gitArgs) => gitExec(workspacePath, gitArgs));
 
     try {
       // Create worktree directly on new branch from main (avoid checkout main in new wt)
-      gitExec(data.workspacePath, ["worktree", "add", "-b", branchName, worktreePath, mainBranch]);
+      gitExec(workspacePath, ["worktree", "add", "-b", branchName, worktreePath, mainBranch]);
     } catch (err: any) {
       const msg = (err.message ?? "").toLowerCase();
       if (msg.includes("already exists") || msg.includes("already checked out")) {
@@ -62,7 +77,7 @@ export const createBranch = internalAction({
         );
       }
       if (msg.includes("not a git repository")) {
-        throw new Error(`Not a git repository at ${data.workspacePath}`);
+        throw new Error(`Not a git repository at ${workspacePath}`);
       }
       throw new Error(`git worktree failed: ${err.message}`);
     }
@@ -122,11 +137,12 @@ export const mergeBranch = internalAction({
       projectId: string;
       keepWorktree?: boolean;
     };
-    const mainBranch = resolveMainBranch(data.mainBranch, (gitArgs) => gitExec(data.workspacePath, gitArgs));
+    const repo = resolveRepoPath(data.workspacePath, { worktreePath: data.worktreePath });
+    const mainBranch = resolveMainBranch(data.mainBranch, (gitArgs) => gitExec(repo, gitArgs));
 
     try {
-      gitExec(data.workspacePath, ["checkout", mainBranch]);
-      gitCommitExec(data.workspacePath, ["merge", "--no-ff", "--no-edit", data.branchName]);
+      gitExec(repo, ["checkout", mainBranch]);
+      gitCommitExec(repo, ["merge", "--no-ff", "--no-edit", data.branchName]);
     } catch (err: any) {
       await ctx.runMutation(internal.orchestration.mergeBranchCompleted, {
         taskId: args.taskId,
@@ -141,8 +157,8 @@ export const mergeBranch = internalAction({
     // closes, so CI / review fixes land on the same PR.
     if (!data.keepWorktree) {
       try {
-        gitExec(data.workspacePath, ["worktree", "remove", data.worktreePath]);
-        gitExec(data.workspacePath, ["branch", "-D", data.branchName]);
+        gitExec(repo, ["worktree", "remove", data.worktreePath]);
+        gitExec(repo, ["branch", "-D", data.branchName]);
       } catch {
         // cleanup failures are non-fatal
       }
@@ -167,15 +183,16 @@ export const discardBranch = internalAction({
       projectId: string;
     } | null;
     if (!data) return;
+    const repo = resolveRepoPath(data.workspacePath, { worktreePath: data.worktreePath });
 
     if (data.worktreePath) {
       try {
-        gitExec(data.workspacePath, ["worktree", "remove", "--force", data.worktreePath]);
+        gitExec(repo, ["worktree", "remove", "--force", data.worktreePath]);
       } catch {}
     }
     if (data.branchName) {
       try {
-        gitExec(data.workspacePath, ["branch", "-D", data.branchName]);
+        gitExec(repo, ["branch", "-D", data.branchName]);
       } catch {}
     }
 
@@ -199,7 +216,7 @@ function removeTaskWorktrees(workspacePath: string, taskId: string): string[] {
     // lines start with the path followed by sha and branch, so they never
     // named a removable path.
     const porcelain = gitExec(workspacePath, ["worktree", "list", "--porcelain"]);
-    const main = path.resolve(workspacePath);
+    const main = resolveRepoPath(workspacePath);
     for (const wtPath of taskWorktreesFromPorcelain(porcelain, taskId)) {
       if (path.resolve(wtPath) === main) continue;
       try {
@@ -261,11 +278,12 @@ export const releasePrWorktree = internalAction({
   handler: async (ctx, args) => {
     const data = await ctx.runQuery(internal.prFeedback.getReleaseContext, args);
     if (!data) return;
+    const repo = resolveRepoPath(data.workspacePath, { worktreePath: data.worktreePath });
     try {
-      gitExec(data.workspacePath, ["worktree", "remove", "--force", data.worktreePath]);
+      gitExec(repo, ["worktree", "remove", "--force", data.worktreePath]);
     } catch {}
     try {
-      gitExec(data.workspacePath, ["branch", "-D", data.branchName]);
+      gitExec(repo, ["branch", "-D", data.branchName]);
     } catch {}
     await ctx.runMutation(internal.prFeedback.worktreeReleased, args);
   },

@@ -235,9 +235,19 @@ export async function replanOnce(
       failedKeys: scope.failedKeys,
       frozenKeys: scope.frozenKeys,
     });
-    if (quality.ok || (attempts === 2 && quality.hard.length === 0)) {
+    // Soft-only violations (a changed node without replanReasoning) never
+    // cost a planner retry or a rejection: the missing reasoning is filled
+    // deterministically from the replan reason and the plan is accepted
+    // (live test 4: a missing_reasoning retry fed a verify → replan loop).
+    if (quality.ok || quality.hard.length === 0) {
+      const missingKeys = new Set(
+        quality.violations
+          .filter((violation) => violation.code === "missing_reasoning" && violation.key)
+          .map((violation) => violation.key!)
+      );
+      const filledPlan = missingKeys.size === 0 ? guarded.plan : fillMissingReasoning(guarded.plan, missingKeys, opts.reason);
       accepted = {
-        plan: guarded.plan,
+        plan: filledPlan,
         createdBy: replanned.createdBy,
         restored: guarded.restored,
         reasoningMissing: quality.violations
@@ -353,4 +363,19 @@ export async function replanOnce(
     level: "info",
   });
   return "replanned";
+}
+
+/**
+ * Fill `replanReasoning` on the given nodes from the replan reason (marked
+ * as auto-filled), so a replan missing only its reasoning is accepted with
+ * a deterministic record instead of a retry. Exported for tests.
+ */
+export function fillMissingReasoning(plan: ExecutionPlan, keys: ReadonlySet<string>, reason: string): ExecutionPlan {
+  const why = `(auto-filled: the planner gave no reason) Replan for: ${reason.replace(/\s+/g, " ").trim().slice(0, 200)}`;
+  return {
+    ...plan,
+    subtasks: plan.subtasks.map((subtask) =>
+      keys.has(subtask.key) && !subtask.replanReasoning?.trim() ? { ...subtask, replanReasoning: why } : subtask
+    ),
+  };
 }

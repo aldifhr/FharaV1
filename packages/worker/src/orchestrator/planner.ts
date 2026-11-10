@@ -172,7 +172,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
           model,
           orchestrator.name,
           orchestrator._id,
-          usageMetaFor(servedBy, response)
+          usageMetaFor(servedBy, response, "planner")
         );
       }
       const parsed = extractJson(response.content);

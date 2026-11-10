@@ -3,6 +3,7 @@ import { effectiveLlmTimeoutMs, type GlobalLLMConfig, type LLMMessage, type LLMP
 import type { ProviderHealthRegistry } from "@/llm/health";
 import type { TokenUsageMeta } from "@/types/llm";
 import { currentSnapshotScope, recordLlmSnapshot } from "@/llm/snapshots";
+import type { CallRole } from "@/api/convex/lib/contextSnapshot";
 import { classifyProviderError } from "@/utils/stallDetector";
 import { isEmptyCompletion } from "@/api/convex/lib/llmRotation";
 import { emitObservation, markProgress } from "./observationContext";
@@ -324,7 +325,7 @@ export function providerKindOf(provider: string | undefined): string | undefined
  * the runner set around the call. The (input, output, estimated) form is
  * kept for callers without a result.
  */
-export function usageMetaFor(handle: FallbackHandle, result: LLMResult): TokenUsageMeta;
+export function usageMetaFor(handle: FallbackHandle, result: LLMResult, callRole?: CallRole): TokenUsageMeta;
 export function usageMetaFor(
   handle: FallbackHandle,
   inputTokens: number,
@@ -334,14 +335,19 @@ export function usageMetaFor(
 export function usageMetaFor(
   handle: FallbackHandle,
   resultOrInput: LLMResult | number,
-  outputTokensArg?: number,
+  outputTokensOrRole?: number | CallRole,
   estimatedArg?: boolean
 ): TokenUsageMeta {
+  const outputTokensArg = typeof outputTokensOrRole === "number" ? outputTokensOrRole : undefined;
+  // An explicit role wins: planner / decision calls build their meta AFTER
+  // the withSnapshotScope callback returned, where the scope is gone and
+  // the ledger row lost its callRole (live test 4).
+  const explicitRole = typeof outputTokensOrRole === "string" ? outputTokensOrRole : undefined;
   const result: LLMResult | undefined = typeof resultOrInput === "number" ? undefined : resultOrInput;
   const inputTokens = typeof resultOrInput === "number" ? resultOrInput : resultOrInput.inputTokens ?? 0;
   const outputTokens = typeof resultOrInput === "number" ? outputTokensArg ?? 0 : resultOrInput.outputTokens ?? 0;
   const estimated = typeof resultOrInput === "number" ? estimatedArg : resultOrInput.usageEstimated;
-  const callRole = currentSnapshotScope().callRole;
+  const callRole = explicitRole ?? currentSnapshotScope().callRole;
   const providerKind = providerKindOf(handle.config?.provider);
   return {
     providerId: handle.connectionId ? handle.connectionId : undefined,

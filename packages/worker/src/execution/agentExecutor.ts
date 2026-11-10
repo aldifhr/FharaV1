@@ -54,6 +54,7 @@ import { tmpdir } from "node:os";
 import { maskStringSecrets, validateFilePath } from "@/governance/tools";
 import { recordLlmSnapshot, withSnapshotScope } from "@/llm/snapshots";
 import { isPathWithinOwnership } from "@/utils/ownershipPaths";
+import { scopeRetryFeedback, scopeViolations } from "@/execution/scopeGuard";
 import {
   computeDiff,
   diffFromContents,
@@ -1421,6 +1422,71 @@ async function executeCodeChange(
     if (detected) return await escalateOutcome(input, detected);
   }
 
+  // Scope guard (live test 4: a "JSDoc only" request rewrote formatRupiah's
+  // output; a slugify change dropped an existing test). Deleted test cases,
+  // removed exports, or code edits on a doc-only request send the answer
+  // back to the implementer ONCE with the violations; what remains is
+  // carried as a warning to the approval.
+  let scopeWarnings: string[] = [];
+  if (draft.files.length > 0 && !signal.aborted) {
+    const readCurrent = contentReader(workspacePath, (filePath) => input.getStagedChange?.(filePath) ?? input.fileChanges.find((change) => change.filePath === filePath));
+    const request = command;
+    const checkScope = async (files: DraftFile[]) =>
+      scopeViolations(
+        request,
+        await Promise.all(
+          files.slice(0, 5).map(async (file) => {
+            const current = await readCurrent(file.filePath);
+            return current === null
+              ? { filePath: file.filePath, changeType: "new", newContent: file.newContent }
+              : { filePath: file.filePath, changeType: "modified", oldContent: current, newContent: file.newContent };
+          })
+        )
+      );
+    let violations = await checkScope(draft.files);
+    if (violations.length > 0) {
+      await onEvent(
+        "scope.violation",
+        { capability: subtask.capability, attempt: 1, violations: violations.map((v) => ({ code: v.code, filePath: v.filePath, message: v.message })) },
+        "warn"
+      );
+      input.assertBudgetForCall?.();
+      try {
+        const retried = await runLlmCallWithFallback(
+          [servedBy],
+          baseMessages(input, `${basePayload}\n\n${scopeRetryFeedback(violations)}`),
+          { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
+        );
+        if (input.onTokenUsage) {
+          await input.onTokenUsage(
+            retried.result.inputTokens ?? 0,
+            retried.result.outputTokens ?? 0,
+            retried.servedBy.config.model,
+            usageMetaFor(retried.servedBy, retried.result)
+          );
+        }
+        const reparsed = parseCodeChangeAnswer(retried.result.content).draft;
+        if (reparsed && reparsed.files.length > 0) {
+          draft = reparsed;
+          violations = await checkScope(reparsed.files);
+        }
+        await onEvent(
+          "scope.violation",
+          { capability: subtask.capability, attempt: 2, resolved: violations.length === 0, remaining: violations.map((v) => v.message) },
+          violations.length === 0 ? "info" : "warn"
+        );
+      } catch (error) {
+        if (isBudgetExhaustedError(error) || input.signal.aborted) throw error;
+        await onEvent(
+          "scope.violation",
+          { capability: subtask.capability, retry: "failed", message: maskStringSecrets(String((error as Error)?.message ?? error)).slice(0, 300) },
+          "warn"
+        );
+      }
+      scopeWarnings = violations.map((v) => v.message);
+    }
+  }
+
   const prepared: FileDiff[] = [];
   if (draft.files.length === 0) {
     // No-target rule: "Not found: … Checked: …" is the answer, said plainly.
@@ -1515,6 +1581,7 @@ async function executeCodeChange(
     `Prepared ${prepared.length} file change(s): ${prepared.map((change) => change.filePath).join(", ")}`,
     reverted.length > 0 ? `Reverted ${reverted.length} staged file(s) to their original content: ${reverted.join(", ")}` : "",
     unchanged.length > 0 ? `Skipped ${unchanged.length} unchanged file(s): ${unchanged.join(", ")}` : "",
+    scopeWarnings.length > 0 ? `Scope warning (after one corrective retry): ${scopeWarnings.join("; ")}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -1524,6 +1591,7 @@ async function executeCodeChange(
     meta: {
       filePaths: prepared.map((change) => change.filePath),
       ...(reverted.length > 0 ? { revertedPaths: reverted } : {}),
+      ...(scopeWarnings.length > 0 ? { scopeWarnings } : {}),
       ...delegationMeta,
     },
   };

@@ -323,12 +323,18 @@ function fromVerification(
   const matching = verification.checks.filter((check) => steps.includes(stepOf(check.name)));
   const ran = matching.filter((check) => check.status === "passed" || check.status === "failed");
   if (ran.length === 0) {
+    // A step skipped for an environment reason (missing node_modules /
+    // type packages) says so, instead of claiming there is no script.
+    const envSkip = matching.find((check) => /^Skipped \(environment\)/.test(check.details ?? ""));
     return {
       gateId: gate.id,
       status: "skipped",
       evidence: {
         kind: "verification",
-        summary: `No ${steps.join("/")} script in the workspace`,
+        ...(envSkip ? { ref: envSkip.name } : {}),
+        summary: envSkip
+          ? (envSkip.details ?? "").slice(0, 300)
+          : `No ${steps.join("/")} script in the workspace`,
       },
     };
   }

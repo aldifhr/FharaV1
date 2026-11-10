@@ -820,12 +820,19 @@ export const reportProviderHealth = action({
 });
 
 export const createBranch = action({
-  args: { ...tokenArg, taskId: v.id("tasks"), projectId: v.id("projects") },
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    /** The worker's absolute WORKSPACE_ROOT (a relative project path resolves under it). */
+    workspaceRoot: v.optional(v.string()),
+  },
   handler: async (ctx, args): Promise<any> => {
-    const { taskId, projectId } = withoutToken(args);
+    const { taskId, projectId, workspaceRoot } = withoutToken(args);
     return await ctx.runAction(internal.worktreeNode.createBranch, {
       taskId,
       projectId,
+      ...(workspaceRoot ? { workspaceRoot } : {}),
     });
   },
 });

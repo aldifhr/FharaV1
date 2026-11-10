@@ -3,6 +3,7 @@ import type { LlmSelectionMode } from "@/api/convex/lib/llmSelection";
 import { withSnapshotScope } from "@/llm/snapshots";
 import { parseStoredRequirements } from "@/api/convex/lib/requirements";
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import type { WorkerRunAgent, WorkerTask } from "@/workerApi";
 import type { SubtaskKind } from "@/types";
 import { classifyCommand } from "@/orchestrator/classifier";
@@ -144,6 +145,9 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
       const created = await deps.api.createBranch({
         taskId: task._id,
         projectId: project._id,
+        // Absolute, so the backend resolves a relative project path exactly
+        // like resolveWorkspacePath above (live test 4: git ENOENT).
+        workspaceRoot: path.resolve(deps.workspaceRoot),
       });
       branchName = created.branchName;
       worktreePath = resolveWorkspacePath(deps.workspaceRoot, created.worktreePath);
@@ -538,6 +542,12 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
           budget,
           reason: budgetReasonFromSummary(failureSummary),
         });
+        return;
+      }
+      // A verify-fix loop that could change nothing (or repeated itself)
+      // ends here: a replan would rebuild the same loop (live test 4).
+      if (state.terminalFailure) {
+        await fail(state.terminalFailure);
         return;
       }
       if (canReplan()) {

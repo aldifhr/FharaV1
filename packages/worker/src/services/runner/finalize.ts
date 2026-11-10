@@ -8,6 +8,7 @@ import {
   type EvaluationResult,
 } from "@/orchestrator/evaluator";
 import { runVerification } from "@/execution/verification";
+import { verificationStatus } from "@/execution/verifyEnv";
 import type {
   WorkerProject,
   WorkerSubtask,
@@ -84,16 +85,7 @@ export async function finalize(input: {
     // Phase 5 Step 5.1: record the result on the run state so the
     // objective evaluation sees it on later replans. A check with no
     // failures is "passed"; inconclusive evidence is skipped, not failed.
-    const failedChecks = verification.checks.filter((check) => check.status === "failed");
-    const allPassed =
-      verification.checks.length > 0 &&
-      verification.checks.every((check) => check.status === "passed");
-    state.verification = {
-      status: failedChecks.length > 0 ? "failed" : allPassed ? "passed" : "skipped",
-      details: failedChecks
-        .map((check) => `${check.name}: ${check.details ?? ""}`)
-        .join("; ") || undefined,
-    };
+    state.verification = verificationStatus(verification.checks);
   }
 
   const evaluation = await evaluateTask({
@@ -197,6 +189,11 @@ export async function finalize(input: {
       : declined.length > 0
         ? `Verification: ${evaluation.verdict} for the work that ran; the declined command was not checked.`
         : `Verification: ${evaluation.verdict}.`,
+    // Environment-skipped steps (missing dependencies in the workspace) are
+    // reported, never silently counted as passed.
+    state.verification?.status === "skipped_env"
+      ? `Verification skipped_env — ${state.verification.details ?? "the workspace environment could not run some checks"}.`
+      : "",
   ]
     .filter(Boolean)
     .join("\n\n");

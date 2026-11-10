@@ -26,8 +26,10 @@ import { withApiDefaults } from "./helpers/fakeApi";
 const mock = vi.hoisted(() => ({
   executed: [] as Array<{ key: string; kind: string; agentId: string; capability: string; allowedPaths?: string[] }>,
   qaVerdicts: [] as string[],
-  verifyResults: [] as Array<"passed" | "failed">,
+  verifyResults: [] as Array<"passed" | "failed" | "env">,
   verifyCalls: 0,
+  /** Errors returned (in order) by fix_* code_change nodes instead of a change. */
+  fixFailures: [] as string[],
 }));
 
 vi.mock("../src/execution/agentExecutor", () => ({
@@ -43,6 +45,9 @@ vi.mock("../src/execution/agentExecutor", () => ({
       capability: input.subtask.capability,
       allowedPaths: input.subtask.allowedPaths,
     });
+    if (input.subtask.kind === "code_change" && input.subtask.key.startsWith("fix_") && mock.fixFailures.length > 0) {
+      return { status: "failed", error: mock.fixFailures.shift()! };
+    }
     if (input.subtask.kind === "code_change") {
       const file = input.subtask.key.startsWith("fix_") ? "check.txt" : `${input.subtask.key}.txt`;
       await input.saveFileChange({
@@ -81,6 +86,18 @@ vi.mock("../src/execution/verification", async (importOriginal) => {
     runVerification: async () => {
       mock.verifyCalls += 1;
       const result = mock.verifyResults.shift() ?? "passed";
+      if (result === "env") {
+        return {
+          checks: [
+            {
+              name: "root:typecheck",
+              status: "inconclusive",
+              environment: "TS2688: Cannot find type definition file for 'node'.",
+              details: "Skipped (environment): TS2688: Cannot find type definition file for 'node'.",
+            },
+          ],
+        };
+      }
       return {
         checks: [{ name: "tsc", status: result, details: result === "failed" ? "check.txt: type error" : undefined }],
       };
@@ -153,6 +170,7 @@ beforeEach(async () => {
   mock.qaVerdicts = [];
   mock.verifyResults = [];
   mock.verifyCalls = 0;
+  mock.fixFailures = [];
 });
 
 afterEach(async () => {
@@ -535,5 +553,56 @@ describe("approval resume: decisions only for subtasks newly completed in this r
       .map((e) => e.payload?.subtaskKey);
     expect(decided).not.toContain("implement");
     expect(decided).toContain("qa");
+  });
+});
+
+describe("live test 4: env-aware verify loop", () => {
+  it("an environment failure (TS2688) spawns no fixer and is reported as skipped_env", async () => {
+    mock.verifyResults = ["env", "env"];
+    const { deps, captured, task } = createDeps({
+      plan: planOf([node("implement", "code_change", "frontend-development")]),
+      agents: [FRONTEND],
+      policy: { maxReplans: 2 },
+    });
+    await processTask(task, deps);
+    expect(mock.executed.map((e) => e.key)).toEqual(["implement"]);
+    expect(captured.events.some((e) => e.type === "verification.fix_started")).toBe(false);
+    const skipped = captured.events.find((e) => e.type === "verification.skipped_env");
+    expect(skipped?.payload?.checks?.[0]?.reason).toContain("TS2688");
+    expect(captured.events.some((e) => e.type === "plan.replanned")).toBe(false);
+    expect(captured.completions.at(-1)?.status).toBe("done");
+    expect(captured.messages.some((m) => /skipped_env/.test(m.content) && /TS2688/.test(m.content))).toBe(true);
+  });
+
+  it("a fixer that changes nothing counts as an attempt and ends verify as failed, never a replan", async () => {
+    mock.verifyResults = ["failed", "failed", "failed", "failed"];
+    mock.fixFailures = [
+      "No effective change: check.txt would be identical to the current content.",
+      "No effective change: check.txt would be identical to the current content.",
+    ];
+    const { deps, captured, task } = createDeps({
+      plan: planOf([node("implement", "code_change", "frontend-development")]),
+      agents: [FRONTEND],
+      policy: { maxReplans: 3, maxReviewIterations: 2 },
+    });
+    await processTask(task, deps);
+    const fixes = mock.executed.filter((e) => e.key.startsWith("fix_verify_"));
+    expect(fixes.length).toBeGreaterThanOrEqual(1);
+    expect(fixes.length).toBeLessThanOrEqual(2);
+    expect(captured.events.some((e) => e.type === "plan.replanned")).toBe(false);
+    const last = captured.completions.at(-1);
+    expect(last?.status).toBe("failed");
+    expect(last?.errorMessage ?? "").toMatch(/no change|same|repeat/i);
+  });
+
+  it("the verify-fix subtask inherits the owner's allowedPaths", async () => {
+    mock.verifyResults = ["failed", "passed", "passed"];
+    const { deps, task } = createDeps({
+      plan: planOf([node("implement", "code_change", "frontend-development", [], { allowedPaths: ["src/lib/"] })]),
+      agents: [FRONTEND],
+    });
+    await processTask(task, deps);
+    const fix = mock.executed.find((e) => e.key === "fix_verify_1");
+    expect(fix?.allowedPaths).toEqual(["src/lib"]);
   });
 });

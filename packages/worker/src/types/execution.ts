@@ -15,6 +15,13 @@ export interface EvaluationCheck {
    * finding is attributed to the right file (never just the first changed one).
    */
   files?: string[];
+  /**
+   * Set when the step failed for an ENVIRONMENT reason (missing
+   * dependencies / type packages / binaries), not because of the code:
+   * the check is reported as skipped (status "inconclusive") with this
+   * reason, and no fixer is spawned for it.
+   */
+  environment?: string;
 }
 
 /** Review verdicts as parsed from the reviewer agent. */

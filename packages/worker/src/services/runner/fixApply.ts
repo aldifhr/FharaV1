@@ -3,6 +3,7 @@ import type { PlanSubtask } from "@/types";
 import type { FileDiff } from "@/tools/gitDiff";
 import { routeCapability } from "@/orchestrator/capabilities";
 import { tryAutoApprove } from "./autoApprove";
+import { scopeViolations, scopeWarning } from "@/execution/scopeGuard";
 
 export type FixApplyResult = "applied" | "waiting_approval" | "failed";
 
@@ -38,12 +39,16 @@ export async function applyOrRequestFixApproval(
   if (fixChanges.length === 0) return "applied";
 
   const fixer = routeCapability(fixSubtask.capability, agents);
+  // Scope guard: a fix that deletes tests, removes exports or edits code on
+  // a doc-only request is flagged on the approval and never auto-approved
+  // (live test 3: an out-of-scope verify fix was auto-approved and merged).
+  const warning = scopeWarning(scopeViolations(input.task.command ?? "", fixChanges));
   const fixSummary = `Apply ${stage} fix (${fixChanges.length} file(s)): ${fixChanges
     .map((change) => change.filePath)
-    .join(", ")}`;
+    .join(", ")}${warning ? `\n\n${warning}` : ""}`;
   // Plan 020: auto-accept edits / full access approve the fix themselves
   // (recorded, decidedBy "auto"): the stage re-runs with no pause.
-  const autoApproved = await tryAutoApprove(ctx, {
+  const autoApproved = !warning && await tryAutoApprove(ctx, {
     kind: "apply_changes",
     summary: fixSummary,
     payload: {
@@ -74,6 +79,7 @@ export async function applyOrRequestFixApproval(
       filePaths: Array.from(state.fileChanges.keys()),
       fixFilePaths: fixChanges.map((change) => change.filePath),
       planVersion: input.planVersion ?? plan.version,
+      ...(warning ? { warning } : {}),
       metrics: {
         files: fixChanges.length,
         stage,

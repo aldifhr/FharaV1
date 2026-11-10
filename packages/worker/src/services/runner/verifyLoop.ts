@@ -7,6 +7,9 @@ import { ownerForFix } from "@/orchestrator/ownership";
 import { applyOrRequestFixApproval } from "./fixApply";
 import { buildFixSubtask } from "@/orchestrator/reviewLoop";
 import { runVerification } from "@/execution/verification";
+import { verificationStatus } from "@/execution/verifyEnv";
+
+export { verificationStatus };
 import type { ReviewFinding } from "@/utils/json";
 import { buildVerificationCard, postStageCard } from "./cards";
 
@@ -51,6 +54,8 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
   // collide across phases.
   const phase = verificationPhase(plan.subtasks);
   let verifyIteration = verifyFixesInPhase(plan.subtasks, phase);
+  // Fix attempts in this invocation that landed no change.
+  let noChangeFixes = 0;
   while (verifyIteration <= maxVerifyIters) {
     const startedAt = Date.now();
     const verification = await runVerification({
@@ -85,13 +90,24 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
       }),
     });
     const failedChecks = verification.checks.filter((c) => c.status === "failed");
-    const allPassed =
-      verification.checks.length > 0 &&
-      verification.checks.every((c) => c.status === "passed");
-    state.verification = {
-      status: failedChecks.length > 0 ? "failed" : allPassed ? "passed" : "skipped",
-      details: failedChecks.map((c) => `${c.name}: ${c.details ?? ""}`).join("; ") || undefined,
-    };
+    // Environment failures (missing node_modules / type packages / binaries)
+    // are never handed to a fixer: no code change can make them pass.
+    const envChecks = verification.checks.filter((c) => c.environment);
+    state.verification = verificationStatus(verification.checks);
+    if (failedChecks.length === 0 && envChecks.length > 0) {
+      await deps.api
+        .logEvent({
+          taskId,
+          projectId: project._id,
+          type: "verification.skipped_env",
+          payload: {
+            checks: envChecks.map((c) => ({ name: c.name, reason: c.environment })),
+            ...(verification.linkedDependencies ? { linkedDependencies: verification.linkedDependencies } : {}),
+          },
+          level: "warn",
+        })
+        .catch(() => undefined);
+    }
     // Plan 022: the individual checks are the typecheck / test gate evidence.
     state.verificationChecks = verification.checks.map((check) => ({
       name: check.name,
@@ -109,14 +125,19 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
     );
     if (verifyRepeat) {
       state.feedback.push(verifyRepeat);
+      // The same failure again after a fix: a replan would rebuild the
+      // same loop (live test 4), so the task ends here.
+      state.terminalFailure ??= verifyRepeat;
       return "failed";
     }
     if (verifyIteration >= maxVerifyIters) {
-      state.feedback.push(
-        `Verification still failing after ${maxVerifyIters} fix attempt(s)${
-          phase > 0 ? ` (after QA fix round ${phase})` : ""
-        }: ${failedChecks.map((c) => c.name).join(", ")}`
-      );
+      const message = `Verification still failing after ${maxVerifyIters} fix attempt(s)${
+        phase > 0 ? ` (after QA fix round ${phase})` : ""
+      }${noChangeFixes > 0 ? `, ${noChangeFixes} of which changed nothing` : ""}: ${failedChecks
+        .map((c) => c.name)
+        .join(", ")}`;
+      state.feedback.push(message);
+      if (noChangeFixes > 0) state.terminalFailure ??= message;
       return "failed";
     }
     const changedPaths = Array.from(state.fileChanges.keys());
@@ -142,6 +163,11 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
         capability: owner.capability,
         order: plan.subtasks.reduce((max, c) => Math.max(max, c.order), 0) + 1,
       }),
+      // Scope the fix to the owner's files, like the QA fix path (live
+      // test 3: an unscoped verify fix edited tsconfig.json and README).
+      ...(owner.allowedPaths && owner.allowedPaths.length > 0
+        ? { allowedPaths: [...owner.allowedPaths] }
+        : {}),
     };
     plan.subtasks.push(fixSubtask);
     dynamicKeys.add(fixSubtask.key);
@@ -157,7 +183,36 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
       level: "warn",
     });
     const fixRun = await runNodes([fixSubtask]);
-    if (fixRun.status !== "completed") return "cancelled";
+    if (fixRun.status !== "completed") {
+      if (fixRun.status === "cancelled" || ctx.taskCancelled()) return "cancelled";
+      // The fixer ran but landed nothing ("No effective change", a refused
+      // path, an unparseable answer): that is a spent attempt, not a reason
+      // to replan. The node is settled as skipped so it does not fail the
+      // final evaluation if a later attempt fixes the check.
+      const outcome = fixRun.outcomes.get(fixSubtask.key);
+      const error = outcome && outcome.status === "failed" ? outcome.error : `fix run ${fixRun.status}`;
+      noChangeFixes += 1;
+      verifyIteration += 1;
+      await deps.api
+        .updateSubtask({ taskId, key: fixSubtask.key, status: "skipped", error: error.slice(0, 500) })
+        .catch(() => undefined);
+      await deps.api
+        .logEvent({
+          taskId,
+          projectId: project._id,
+          type: "verification.fix_no_change",
+          payload: { iteration: verifyIteration, phase, error: error.slice(0, 500) },
+          level: "warn",
+        })
+        .catch(() => undefined);
+      if (verifyIteration >= maxVerifyIters) {
+        const message = `Verification failed: ${failedChecks.map((c) => c.name).join(", ")} still failing and the last of ${verifyIteration} fix attempt(s) produced no change (${error.slice(0, 200)})`;
+        state.feedback.push(message);
+        state.terminalFailure ??= message;
+        return "failed";
+      }
+      continue;
+    }
     const landed = await applyOrRequestFixApproval(ctx, fixSubtask, "verification");
     if (landed === "waiting_approval") return "waiting_approval";
     if (landed === "failed") return "cancelled";

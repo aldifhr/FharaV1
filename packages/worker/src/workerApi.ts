@@ -530,6 +530,13 @@ export class WorkerApi {
     return await this.client.action(api.worker.recordMemorySuggestions, this.args(input));
   }
 
+  /** Role memory: one role's own learnings in one project (no approval; backend dedupes + caps). */
+  async recordRoleLearnings(
+    input: ActionInput<typeof api.worker.recordRoleLearnings>
+  ): Promise<FunctionReturnType<typeof api.worker.recordRoleLearnings>> {
+    return await this.client.action(api.worker.recordRoleLearnings, this.args(input));
+  }
+
   async recordDelegation(
     input: ActionInput<typeof api.worker.recordDelegation>
   ): Promise<FunctionReturnType<typeof api.worker.recordDelegation>> {

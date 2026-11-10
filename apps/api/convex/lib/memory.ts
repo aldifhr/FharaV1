@@ -4,7 +4,9 @@
  * and the web /memory page. No Convex functions live here.
  *
  * Three scopes: "shared" (every agent, every project), "project" (every
- * agent working in that project) and "agent" (one agent, every project).
+ * agent working in that project) and "agent" (one agent: every project, or
+ * one project when the row carries a projectId — role memory,
+ * lib/roleMemory.ts).
  * Only PINNED memories reach a prompt. They are appended after the static
  * system prompt and the skills section as one "## Memory" section, so the
  * prompt prefix stays identical across runs and prefix caching holds.
@@ -55,7 +57,15 @@ export function selectPromptMemories(
     ? pinned.filter((row) => row.scope === "project" && row.projectId === target.projectId).sort(byAge)
     : [];
   const agent = target.agentId
-    ? pinned.filter((row) => row.scope === "agent" && row.agentId === target.agentId).sort(byAge)
+    ? pinned
+        .filter(
+          (row) =>
+            row.scope === "agent" &&
+            row.agentId === target.agentId &&
+            // Role memory: own global rows + own rows in this project only.
+            (!row.projectId || row.projectId === target.projectId)
+        )
+        .sort(byAge)
     : [];
   return [...shared, ...project, ...agent].map(({ title, content }) => ({ title, content }));
 }

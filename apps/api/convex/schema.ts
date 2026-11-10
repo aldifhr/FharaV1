@@ -345,6 +345,9 @@ export default defineSchema({
     // check passed, the size/sensitive-path gate passed and the head is the
     // commit the user approved. Unset = off.
     autoMerge: v.optional(v.boolean()),
+    // Role memory (additive): true = roles stop writing their own notes in
+    // this project. Absent = on. Existing notes are still recalled.
+    roleMemoryDisabled: v.optional(v.boolean()),
     // O4 issue intake (additive): issues the connected GitHub user opened
     // with this label become DRAFT tasks (never started). Unset = off.
     issueIntake: v.optional(v.object({ enabled: v.boolean(), label: v.optional(v.string()) })),
@@ -1952,8 +1955,8 @@ export default defineSchema({
 
   // Memory: markdown notes agents carry between runs. Pinned rows are
   // injected as a "## Memory" section after the skills (lib/memory.ts):
-  // shared → project (projectId) → agent (agentId). Unpinned rows are
-  // reference-only for now.
+  // shared → project (projectId) → agent (agentId, and projectId for a
+  // role's own notes in one project). Unpinned rows are recalled by search.
   memories: defineTable({
     scope: v.union(v.literal("shared"), v.literal("project"), v.literal("agent")),
     projectId: v.optional(v.id("projects")),
@@ -1969,6 +1972,10 @@ export default defineSchema({
     .index("by_scope", ["scope", "pinned"])
     .index("by_project", ["projectId", "scope"])
     .index("by_agent", ["agentId"])
+    // Role memory (additive): an agent-scope row MAY carry a projectId —
+    // that role's own notes in that project (lib/roleMemory.ts). Agent rows
+    // without a projectId stay "this agent, every project".
+    .index("by_project_agent", ["projectId", "agentId"])
     // Plan L4 (additive): full-text recall of unpinned memories per task /
     // prompt (lib/memoryRecall.ts). Convex search, no embeddings.
     .searchIndex("search_content", {

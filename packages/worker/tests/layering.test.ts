@@ -72,6 +72,8 @@ const SHARED_FOUNDATION = new Set([
   "convex/lib/llmSelection",
   // L2: secret patterns shared with context snapshots (pure).
   "convex/lib/secretPatterns",
+  // Role memory: learnings parse / dedupe / cap helpers (pure).
+  "convex/lib/roleMemory",
 ]);
 
 const SRC = path.resolve(import.meta.dirname, "../src");

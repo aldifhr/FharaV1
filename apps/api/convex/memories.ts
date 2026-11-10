@@ -29,6 +29,16 @@ import {
 
 type Ctx = QueryCtx | MutationCtx;
 
+/**
+ * Role memory: an agent-scope row belongs to the role in every project
+ * (legacy, no projectId) or to the role in ONE project. A role working in
+ * project P sees its global rows and its P rows, never its rows from another
+ * project; with no project (personal chat) only its global rows.
+ */
+function ownAgentRow(row: { projectId?: Id<"projects"> }, projectId: Id<"projects"> | undefined): boolean {
+  return !row.projectId || row.projectId === projectId;
+}
+
 const scopeArg = v.union(v.literal("shared"), v.literal("project"), v.literal("agent"));
 
 function toLike(row: Doc<"memories">): MemoryLike {
@@ -70,7 +80,7 @@ export async function loadMemorySection(
           .query("memories")
           .withIndex("by_agent", (q) => q.eq("agentId", target.agentId))
           .collect()
-      ).filter((row) => row.pinned && row.scope === "agent")
+      ).filter((row) => row.pinned && row.scope === "agent" && ownAgentRow(row, target.projectId))
     : [];
   const picked = selectPromptMemories([...shared, ...project, ...agent].map(toLike), {
     projectId: target.projectId,
@@ -82,7 +92,8 @@ export async function loadMemorySection(
 /**
  * Plan L4: full-text search over one scope's memories (Convex searchIndex).
  * `pinned` narrows to pinned / unpinned rows; absent = both. Never throws:
- * an empty query returns [].
+ * an empty query returns []. For the agent scope `owner.projectId` picks
+ * the role's rows in that project; absent = its global (legacy) rows only.
  */
 async function searchScope(
   ctx: Ctx,
@@ -100,7 +111,7 @@ async function searchScope(
     .withSearchIndex("search_content", (q) => {
       let built = q.search("content", text).eq("scope", scope);
       if (scope === "project") built = built.eq("projectId", owner.projectId);
-      if (scope === "agent") built = built.eq("agentId", owner.agentId);
+      if (scope === "agent") built = built.eq("agentId", owner.agentId).eq("projectId", owner.projectId);
       if (pinned !== undefined) built = built.eq("pinned", pinned);
       return built;
     })
@@ -111,7 +122,9 @@ async function searchScope(
  * Plan L4: the top-k UNPINNED memories (shared, this project's, this
  * agent's) that match `query`. Pinned memories are never recalled here —
  * they are always on through loadMemorySection. Another project's or another
- * agent's memories are never searched.
+ * agent's memories are never searched. Role memory: the agent's own rows in
+ * this project plus its global (legacy) rows; never its rows in another
+ * project, never another role's rows.
  */
 export async function recallMemories(
   ctx: Ctx,
@@ -122,8 +135,14 @@ export async function recallMemories(
   const text = recallSearchText(query);
   if (!text) return [];
   const limit = Math.min(Math.max(1, k), RECALL_MAX);
-  const scopes = ["shared", "project", "agent"] as const;
-  const results = await Promise.all(scopes.map((scope) => searchScope(ctx, scope, target, text, limit, false)));
+  const results = await Promise.all([
+    searchScope(ctx, "shared", target, text, limit, false),
+    searchScope(ctx, "project", target, text, limit, false),
+    // Global (legacy) rows of this agent.
+    searchScope(ctx, "agent", { agentId: target.agentId }, text, limit, false),
+    // This role's own rows in this project.
+    target.projectId ? searchScope(ctx, "agent", target, text, limit, false) : Promise.resolve([]),
+  ]);
   const byId = new Map<string, Doc<"memories">>();
   const candidates: RecallCandidate[] = [];
   for (const rows of results) {
@@ -162,6 +181,8 @@ async function assertScopeAccess(
     if (!agentId) throw new Error("An agent memory needs an agent");
     if (write) await assertAgentAccess(ctx, agentId);
     else if (!(await ctx.db.get(agentId))) throw new Error("Agent not found");
+    // Role memory: a role's notes in one project follow that project's access.
+    if (projectId) await assertProjectAccess(ctx, projectId);
     return;
   }
   if (write) await assertRegistryWriteAccess(ctx);
@@ -174,7 +195,11 @@ async function getWritable(ctx: MutationCtx, memoryId: Id<"memories">) {
   return row;
 }
 
-/** One scope's memories: pinned first, then most recently updated. */
+/**
+ * One scope's memories: pinned first, then most recently updated. For the
+ * agent scope `projectId` lists that role's own notes in the project;
+ * absent = its global notes (every project).
+ */
 export const list = query({
   args: {
     scope: scopeArg,
@@ -192,12 +217,22 @@ export const list = query({
         .collect();
     } else if (args.scope === "agent") {
       if (!args.agentId) return [];
-      rows = (
-        await ctx.db
-          .query("memories")
-          .withIndex("by_agent", (q) => q.eq("agentId", args.agentId))
-          .collect()
-      ).filter((row) => row.scope === "agent");
+      if (args.projectId) {
+        await assertProjectAccess(ctx, args.projectId);
+        rows = (
+          await ctx.db
+            .query("memories")
+            .withIndex("by_project_agent", (q) => q.eq("projectId", args.projectId).eq("agentId", args.agentId))
+            .collect()
+        ).filter((row) => row.scope === "agent");
+      } else {
+        rows = (
+          await ctx.db
+            .query("memories")
+            .withIndex("by_agent", (q) => q.eq("agentId", args.agentId))
+            .collect()
+        ).filter((row) => row.scope === "agent" && !row.projectId);
+      }
     } else {
       rows = await ctx.db
         .query("memories")
@@ -229,7 +264,7 @@ export const search = query({
     text: v.string(),
   },
   handler: async (ctx, args) => {
-    if (args.scope === "project" && args.projectId) await assertProjectAccess(ctx, args.projectId);
+    if (args.projectId && args.scope !== "shared") await assertProjectAccess(ctx, args.projectId);
     return await searchScope(ctx, args.scope, args, recallSearchText(args.text), RECALL_MAX);
   },
 });
@@ -262,7 +297,7 @@ export const create = mutation({
     const memoryId = await ctx.db.insert("memories", {
       scope: args.scope,
       ...(args.scope === "project" ? { projectId: args.projectId } : {}),
-      ...(args.scope === "agent" ? { agentId: args.agentId } : {}),
+      ...(args.scope === "agent" ? { agentId: args.agentId, ...(args.projectId ? { projectId: args.projectId } : {}) } : {}),
       title: clean.title!,
       content: clean.content!,
       ...(clean.tags?.length ? { tags: clean.tags } : {}),
@@ -275,7 +310,7 @@ export const create = mutation({
       action: "memory.create",
       target: `${args.scope}: ${clean.title!}`,
       details: { fields: setFields(args) },
-      ...(args.scope === "project" && args.projectId ? { projectId: args.projectId } : {}),
+      ...(args.scope !== "shared" && args.projectId ? { projectId: args.projectId } : {}),
     });
     return memoryId;
   },
@@ -358,7 +393,7 @@ export const rememberMessage = mutation({
           .query("memories")
           .withIndex("by_agent", (q) => q.eq("agentId", agentId))
           .collect()
-      ).find((row) => row.scope === "agent" && row.content === draft.content);
+      ).find((row) => row.scope === "agent" && !row.projectId && row.content === draft.content);
       if (mine) {
         if (!mine.pinned) await ctx.db.patch(mine._id, { pinned: true, updatedAt: Date.now() });
         return { memoryId: mine._id, created: false };

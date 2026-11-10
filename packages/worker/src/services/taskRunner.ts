@@ -1,4 +1,5 @@
 import { reconcileTaskMemory, summarizeRun } from "./runner/memoryReconcile";
+import { collectRoleLearnings } from "./runner/roleLearnings";
 import { runWithObservationScope } from "@/effects/observationContext";
 import { normalizeModelTiers } from "@/api/convex/lib/modelTiers";
 import type { LlmSelectionMode } from "@/api/convex/lib/llmSelection";
@@ -533,6 +534,28 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
             summary: summarizeRun(state),
           },
           agent: runAgents.find((candidate) => /^cto$/i.test(candidate.role)) ?? runAgents[0] ?? null,
+          llmResolver,
+          assertBudgetForCall,
+          llmTaskGate,
+          onTokenUsage: recordUsage,
+          signal,
+        }).catch(() => undefined);
+        // Role memory: each role that finished work here writes its own
+        // notes for this project (one budget-gated call per role, no
+        // approval; off when the project turned "Role memory" off).
+        await collectRoleLearnings({
+          deps,
+          taskId: task._id,
+          projectId: project._id,
+          project: project as { roleMemoryDisabled?: boolean },
+          task: {
+            title: task.title,
+            request: task.command,
+            status: verification.verdict === "failed" || verification.verdict === "inconclusive" ? "failed" : "done",
+          },
+          agents: runAgents,
+          subtasks: after?.subtasks ?? [],
+          outputs: state.priorOutputs,
           llmResolver,
           assertBudgetForCall,
           llmTaskGate,

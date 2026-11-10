@@ -13,6 +13,7 @@ import { snapshotRecordArgs } from "./contextSnapshots";
 import { permissionArgs } from "./permissionBroker";
 import { briefPatchArgs } from "./briefs";
 import { suggestionInput } from "./memorySuggestions";
+import { learningInput } from "./roleMemories";
 import type { TaskBrief } from "./lib/brief";
 import {
   taskStatus,
@@ -980,6 +981,27 @@ export const recordMemorySuggestions = action({
   },
   handler: async (ctx, args): Promise<{ applied: boolean; reason?: string; inserted: number }> => {
     return await ctx.runMutation(internal.memorySuggestions.record, withoutToken(args));
+  },
+});
+
+/**
+ * Role memory: one role's own learnings in one project, written directly as
+ * unpinned notes (no approval). Refused with a value when the project
+ * turned "Role memory" off.
+ */
+export const recordRoleLearnings = action({
+  args: {
+    ...tokenArg,
+    projectId: v.id("projects"),
+    agentId: v.id("agents"),
+    taskId: v.optional(v.id("tasks")),
+    learnings: v.array(learningInput),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ applied: boolean; reason?: string; inserted: number; updated: number; evicted: number }> => {
+    return await ctx.runMutation(internal.roleMemories.upsertLearnings, withoutToken(args));
   },
 });
 

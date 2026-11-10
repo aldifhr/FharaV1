@@ -5,3 +5,4 @@ export { lookup, rawFrom, readDef, readVar, schemaDefault } from "./read";
 export type { EnvSource, ReadOptions } from "./read";
 export * from "./secrets";
 export * from "./knobs";
+export * from "./convexSync";

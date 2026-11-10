@@ -63,6 +63,7 @@ export const USAGE_VARS = [
     type: "int",
     parse: "atLeast",
     positive: true,
+    floor: true,
     default: 0,
     runtimes: ["convex"],
     group: "usage",

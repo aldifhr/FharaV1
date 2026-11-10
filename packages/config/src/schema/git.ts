@@ -56,7 +56,7 @@ export const GIT_VARS = [
   {
     name: "FHARA_PR_FIX_MAX_ATTEMPTS",
     type: "int",
-    parse: "clamp",
+    parse: "clampBlank",
     default: 3,
     min: 0,
     max: 20,

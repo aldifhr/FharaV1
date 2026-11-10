@@ -118,6 +118,8 @@ export interface NumberVar extends VarBase {
   positive?: boolean;
   /** clampBlank: an explicit 0 turns the feature off instead of clamping up. */
   zeroMeansOff?: boolean;
+  /** clampBlank: a value ≤ 0 reads as the default ("default") or as 0 = off ("off"). */
+  nonPositive?: "default" | "off";
 }
 
 export interface BoolVar extends VarBase {

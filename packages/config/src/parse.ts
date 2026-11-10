@@ -88,6 +88,7 @@ export function parseNumber(def: NumberVar, raw: string | undefined, fallback: (
       const n = Number(raw);
       if (!Number.isFinite(n)) return invalid();
       if (def.zeroMeansOff && n === 0 && (min ?? 0) > 0) return 0;
+      if (def.nonPositive && n <= 0) return def.nonPositive === "off" ? 0 : fallback();
       return clamp(Math.floor(n), min, max);
     }
     case "clampParseInt": {

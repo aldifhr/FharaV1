@@ -53,13 +53,13 @@ const base = (deps: RunnerDeps, extra: Record<string, unknown> = {}) => ({
 
 describe("role memory: per-role learnings after a task", () => {
   it("one call per role with completed work (batched across its subtasks), not per subtask", async () => {
-    const ask = vi.fn(async () => reply);
+    const ask = vi.fn(async (_agent: AgentDefinition, _system: string, _user: string) => reply);
     const { deps, recorded } = fakeApi();
     const out = await collectRoleLearnings({ ...base(deps), ask });
     expect(ask).toHaveBeenCalledTimes(2);
-    expect(ask.mock.calls.map((c) => (c[0] as AgentDefinition).role).sort()).toEqual(["frontend", "qa"]);
+    expect(ask.mock.calls.map((c) => c[0].role).sort()).toEqual(["frontend", "qa"]);
     // Frontend's call carries both of its subtasks.
-    const feUser = ask.mock.calls.find((c) => (c[0] as AgentDefinition).role === "frontend")![2] as string;
+    const feUser = ask.mock.calls.find((c) => c[0].role === "frontend")![2];
     expect(feUser).toContain("Build the card");
     expect(feUser).toContain("Style tweaks");
     expect(feUser).not.toContain("Test the card");
@@ -69,7 +69,7 @@ describe("role memory: per-role learnings after a task", () => {
   });
 
   it("masks secrets in learnings before they leave the worker", async () => {
-    const ask = vi.fn(async () => reply);
+    const ask = vi.fn(async (_agent: AgentDefinition, _system: string, _user: string) => reply);
     const { deps, recorded } = fakeApi();
     await collectRoleLearnings({ ...base(deps), ask });
     const all = JSON.stringify(recorded);
@@ -77,7 +77,7 @@ describe("role memory: per-role learnings after a task", () => {
   });
 
   it("the project toggle (or FHARA_ROLE_MEMORY=0) makes zero calls and writes nothing", async () => {
-    const ask = vi.fn(async () => reply);
+    const ask = vi.fn(async (_agent: AgentDefinition, _system: string, _user: string) => reply);
     const a = fakeApi();
     expect((await collectRoleLearnings({ ...base(a.deps), project: { roleMemoryDisabled: true }, ask })).skipped).toBe("disabled");
     const b = fakeApi();
@@ -88,14 +88,14 @@ describe("role memory: per-role learnings after a task", () => {
   });
 
   it("stops after the backend says the project turned role memory off", async () => {
-    const ask = vi.fn(async () => reply);
+    const ask = vi.fn(async (_agent: AgentDefinition, _system: string, _user: string) => reply);
     const { deps, api } = fakeApi({ disabledBackend: true });
     await collectRoleLearnings({ ...base(deps), ask });
     expect(api.recordRoleLearnings).toHaveBeenCalledTimes(1);
   });
 
   it("budget gate runs before each call; a veto stops further calls", async () => {
-    const ask = vi.fn(async () => reply);
+    const ask = vi.fn(async (_agent: AgentDefinition, _system: string, _user: string) => reply);
     const { deps } = fakeApi();
     const gate = vi.fn(() => {
       throw new Error("over budget");

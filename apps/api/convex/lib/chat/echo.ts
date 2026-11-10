@@ -10,10 +10,11 @@
  * - "<Speaker>: <text of a recent prior message>" — a teammate's (or the
  *   user's) name/role, then text equal to or starting with a prior message;
  *   the copied message is dropped and the rest of the reply kept;
- * - a bare "<OwnName>:" / "<OwnRole>:" speaker prefix.
+ * - any other leading "<AgentName or Role>:" / "**Name:**" speaker label
+ *   (own or a teammate's), keeping the text after it.
  *
  * A reply that only starts with a label that is not a speaker ("Note:",
- * "HTML:"), or a speaker label followed by new text, is left alone.
+ * "HTML:") is left alone.
  */
 
 export interface EchoContext {
@@ -50,7 +51,7 @@ function uniqueNames(names: string[]): string[] {
 /** "**CTO:**", "@CTO:", "CTO (cto):" … at the start of `text`; returns where the label ends. */
 function speakerPrefix(text: string, names: string[]): { end: number; name: string } | null {
   for (const name of uniqueNames(names)) {
-    const re = new RegExp(`^\\s*(?:\\*\\*|__)?@?${escape(name)}(?:\\s*\\([^)\\n]{1,30}\\))?\\s*(?:\\*\\*|__)?\\s*:\\s*(?:\\*\\*|__)?`, "i");
+    const re = new RegExp(`^\\s*(?:\\*\\*|__)?\\[?@?${escape(name)}\\]?(?:\\s*\\([^)\\n]{1,30}\\))?\\s*(?:\\*\\*|__)?\\s*:\\s*(?:\\*\\*|__)?`, "i");
     const m = re.exec(text);
     if (m) return { end: m[0].length, name };
   }
@@ -79,27 +80,26 @@ function cutPrior(rest: string, priors: string[]): string | null {
   return null;
 }
 
-/** The reply without a leading speaker echo (see module doc). At most two passes. */
+/** The reply without a leading speaker echo or speaker prefix (see module doc). At most three passes. */
 export function stripLeadingEcho(content: string, ctx: EchoContext): string {
   let text = content;
-  for (let pass = 0; pass < 2; pass += 1) {
-    const before = text;
-    const other = speakerPrefix(text, [...ctx.speakerNames, ...ctx.selfNames]);
-    if (other) {
-      const rest = text.slice(other.end);
-      const cut = cutPrior(rest, ctx.priorMessages);
-      if (cut !== null) {
-        text = cut;
-        continue;
-      }
+  const names = [...ctx.speakerNames, ...ctx.selfNames];
+  for (let pass = 0; pass < 3; pass += 1) {
+    const prefix = speakerPrefix(text, names);
+    if (!prefix) break;
+    const rest = text.slice(prefix.end);
+    const cut = cutPrior(rest, ctx.priorMessages);
+    if (cut !== null) {
+      text = cut;
+      continue;
     }
-    const self = speakerPrefix(text, ctx.selfNames);
-    if (self) {
-      const rest = text.slice(self.end).trimStart();
-      // "Frontend:" alone (nothing yet) is held by the streaming guard, not stripped here.
-      if (rest) text = rest;
-    }
-    if (text === before) break;
+    // Any speaker label ("CTO:", "**Reviewer:**", own name) followed by new
+    // text: the label goes, the answer stays. A reply never opens with a
+    // name (live test 4: Reviewer and Designer answered "CTO: …").
+    const after = rest.trimStart();
+    // "CTO:" alone (nothing yet) is held by the streaming guard, not stripped here.
+    if (!after) break;
+    text = after;
   }
   return text;
 }
@@ -110,9 +110,10 @@ export function stripLeadingEcho(content: string, ctx: EchoContext): string {
  * nothing yet; once it is decided, show the cleaned text.
  */
 export function streamEchoSafe(content: string, ctx: EchoContext): string {
+  if (mightStillEcho(content, ctx)) return "";
   const cleaned = stripLeadingEcho(content, ctx);
-  if (cleaned !== content) return mightStillEcho(cleaned, ctx) ? "" : cleaned;
-  return mightStillEcho(content, ctx) ? "" : content;
+  if (cleaned !== content && mightStillEcho(cleaned, ctx)) return "";
+  return cleaned;
 }
 
 function mightStillEcho(content: string, ctx: EchoContext): boolean {

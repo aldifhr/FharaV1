@@ -6,7 +6,6 @@ import { api } from "@/api/convex/_generated/api";
 import Link from "next/link";
 import { ArrowUpRight, Check, Inbox as InboxIcon } from "lucide-react";
 import IconRail from "@/components/IconRail";
-import InitialAvatar from "@/components/InitialAvatar";
 import { roleLabel } from "@/lib/agentRoles";
 import { useToast } from "@/components/Toasts";
 
@@ -30,8 +29,11 @@ function Section({ title, count, children }: { title: string; count: number; chi
 }
 
 /**
- * Inbox: everything that waits on the user, across projects. Approvals
- * first (they block work), then stopped tasks, then agents asking.
+ * Inbox: all notifications, across projects. What waits on the user comes
+ * first (approvals, questions, pushes, pull requests, drafts to review);
+ * its count is the server's `waitingCount`, the same number as the sidebar
+ * "Needs you" (shell.ts). Recent failed tasks follow as information and
+ * are never counted as waiting.
  */
 export default function InboxPage() {
   const inbox = useQuery(api.inbox.list, {});
@@ -65,7 +67,10 @@ export default function InboxPage() {
     }
   };
 
-  const total = inbox ? inbox.approvals.length + inbox.notifications.length + inbox.tasks.length + inbox.agents.length : 0;
+  const total = inbox?.waitingCount ?? 0;
+  const anything =
+    inbox !== undefined &&
+    (total > 0 || inbox.approvals.length + inbox.notifications.length + inbox.tasks.length + inbox.failed.length + inbox.questions.length + inbox.pushes.length > 0);
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
@@ -89,13 +94,13 @@ export default function InboxPage() {
                 <div key={i} className="h-16 animate-pulse rounded-xl bg-hover" />
               ))}
             </div>
-          ) : total === 0 ? (
+          ) : !anything ? (
             <div className="mt-16 flex flex-col items-center text-center">
               <span className="flex h-11 w-11 items-center justify-center rounded-full bg-hover text-ink-3">
                 <InboxIcon size={18} />
               </span>
               <p className="mt-4 text-[14px] text-ink-2">You're all caught up.</p>
-              <p className="mt-1 text-[13px] text-ink-3">Approvals and stopped tasks show up here.</p>
+              <p className="mt-1 text-[13px] text-ink-3">Approvals, questions and failed tasks show up here.</p>
             </div>
           ) : (
             <>
@@ -191,16 +196,16 @@ export default function InboxPage() {
                 </Section>
               )}
 
-              {inbox.tasks.length > 0 && (
-                <Section title="Stopped tasks" count={inbox.tasks.length}>
-                  {inbox.tasks.map((t) => (
-                    <li key={t._id}>
-                      <Link href={`/chats/${t.projectId}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
-                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.status === "failed" ? "bg-red-500" : "bg-orange-500"}`} />
+              {inbox.questions.length > 0 && (
+                <Section title="Questions" count={inbox.questions.length}>
+                  {inbox.questions.map((q) => (
+                    <li key={q.key}>
+                      <Link href={`/chats/${q.projectId}${q.taskId ? `?task=${q.taskId}` : ""}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-[14px]">{t.title}</p>
+                          <p className="truncate text-[14px]">{q.title}</p>
                           <p className="truncate text-[12.5px] text-ink-3">
-                            {t.status === "failed" ? "Failed" : "Waiting for approval"} · {t.projectName}
+                            {q.agentRole ? `${roleLabel(q.agentRole)} · ` : ""}
+                            {q.projectName}
                           </p>
                         </div>
                         <ArrowUpRight size={14} className="shrink-0 text-ink-3" />
@@ -210,15 +215,54 @@ export default function InboxPage() {
                 </Section>
               )}
 
-              {inbox.agents.length > 0 && (
-                <Section title="Agents asking" count={inbox.agents.length}>
-                  {inbox.agents.map((a) => (
-                    <li key={a._id} className="flex items-center gap-3 px-4 py-3">
-                      <InitialAvatar agent avatarParams={a.avatarParams} name={roleLabel(a.role)} size={28} status="needs_you" />
-                      <p className="min-w-0 flex-1 truncate text-[14px]">
-                        <span className="font-medium">{roleLabel(a.role)}</span>
-                        <span className="text-ink-3"> needs your input</span>
-                      </p>
+              {inbox.pushes.length > 0 && (
+                <Section title="Ready to push" count={inbox.pushes.length}>
+                  {inbox.pushes.map((p) => (
+                    <li key={p.key}>
+                      <Link href={`/chats/${p.projectId}${p.taskId ? `?task=${p.taskId}` : ""}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[14px]">{p.title}</p>
+                          <p className="truncate text-[12.5px] text-ink-3">
+                            {p.projectName}
+                            {p.note ? ` · ${p.note}` : ""}
+                          </p>
+                        </div>
+                        <ArrowUpRight size={14} className="shrink-0 text-ink-3" />
+                      </Link>
+                    </li>
+                  ))}
+                </Section>
+              )}
+
+              {inbox.tasks.length > 0 && (
+                <Section title="Drafts to review" count={inbox.tasks.length}>
+                  {inbox.tasks.map((t) => (
+                    <li key={t._id}>
+                      <Link href={`/chats/${t.projectId}?task=${t._id}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[14px]">{t.title}</p>
+                          <p className="truncate text-[12.5px] text-ink-3">Waiting for approval · {t.projectName}</p>
+                        </div>
+                        <ArrowUpRight size={14} className="shrink-0 text-ink-3" />
+                      </Link>
+                    </li>
+                  ))}
+                </Section>
+              )}
+
+              {inbox.failed.length > 0 && (
+                <Section title="Recent failures · not waiting on you" count={inbox.failed.length}>
+                  {inbox.failed.map((t) => (
+                    <li key={t._id}>
+                      <Link href={`/chats/${t.projectId}?task=${t._id}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[14px]">{t.title}</p>
+                          <p className="truncate text-[12.5px] text-ink-3">Failed · {t.projectName}</p>
+                        </div>
+                        <ArrowUpRight size={14} className="shrink-0 text-ink-3" />
+                      </Link>
                     </li>
                   ))}
                 </Section>

@@ -1,6 +1,7 @@
 import { query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { visibleProjects } from "./lib/authz";
+import { collectNeedsYou } from "./shell";
 
 /** Bounded reads (core M7): the dashboard must not scan whole tables. */
 const OVERVIEW_TASK_LIMIT = 1000;
@@ -70,16 +71,22 @@ export const get = query({
       if (t) taskTitleById.set(t._id as string, t.title);
     }
 
+    // "N things need you": the sidebar's Needs you, same definition and
+    // count (shell.ts). Failed tasks are listed apart and never counted.
+    const needsYou = await collectNeedsYou(ctx, new Map(projects.map((p) => [p._id as string, p])));
+
     return {
+      needsYou,
       projects,
       perProject,
       agents,
       agentByStatus,
       approvals: approvals.map((a) => ({ ...enrich(a), taskTitle: taskTitleById.get(a.taskId as string) ?? null })),
       recentTasks,
-      // Tasks that stopped and need the user: failed or waiting for input.
+      // Recently failed tasks: information, not counted in needsYou
+      // (questions — waiting_input — are needsYou items).
       attentionTasks: tasks
-        .filter((t) => t.status === "failed" || t.status === "waiting_input")
+        .filter((t) => t.status === "failed")
         .slice(0, 5)
         .map((t) => ({ ...t, projectName: projectNameById.get(t.projectId as string) ?? "—" })),
       taskCounts: { total: tasks.length, byStatus, truncated: tasksTruncated },

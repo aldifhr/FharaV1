@@ -369,6 +369,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         command,
         title,
         conversationContext: false,
+        // Marks the reply's offer used: the button becomes "Task created".
+        offerMessageId: messageId as never,
         ...(assignees.length ? { assignedAgentIds: assignees as never[] } : {}),
         ...((activeConversation as any)?.conversation?._id ? { conversationId: (activeConversation as any).conversation._id } : {}),
       });
@@ -508,18 +510,17 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     return `${shortDate(createdAt)}, ${hm}`;
   };
 
-  const notifications: HeaderNotification[] = [
-    ...pendingItems.map((a: any) => ({
-      key: `a:${a._id}`,
-      title: a.summary,
-      meta: `${roleLabel(agents.find((x) => x._id === a.requestedByAgentId)?.role) } · ${formatMessageTime(a._creationTime)}`,
-      approvalId: a._id,
-      taskId: a.taskId,
-    })),
-    ...(tasks ?? [])
-      .filter((t: any) => t.status === "waiting_input")
-      .map((t: any) => ({ key: `q:${t._id}`, title: t.pendingQuestion || t.title, meta: `Question · ${t.title}`, taskId: t._id })),
-  ];
+  // Bell = this project's slice of "Needs you" (one server definition,
+  // shell.ts): pending approvals on open tasks, agent questions, pushes,
+  // PR notifications. A decided approval leaves at once.
+  const projectNeedsYou = useQuery(api.shell.needsYou, { projectId: projectId as any });
+  const notifications: HeaderNotification[] = (projectNeedsYou?.items ?? []).map((item) => ({
+    key: item.key,
+    title: item.title,
+    meta: `${item.agentRole ? roleLabel(item.agentRole) : item.projectName} · ${item.note ?? formatMessageTime(item.at)}`,
+    ...(item.approvalId ? { approvalId: item.approvalId as string } : {}),
+    ...(item.taskId ? { taskId: item.taskId as string } : {}),
+  }));
 
   // Dismissible agent-error banners for the selected task.
   const taskEvents = useQuery(api.taskEvents.listByTask, selectedTask ? { taskId: selectedTask._id } : "skip");

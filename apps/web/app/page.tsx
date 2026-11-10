@@ -11,11 +11,15 @@ import { roleLabel } from "@/lib/agentRoles";
 import { useNewProject } from "@/components/NewProject";
 import { statusFromLeases, teamStatusLabel, type LeaseEntry } from "@/lib/teamStatus";
 
-const KIND_LABEL: Record<string, string> = {
-  apply_changes: "Apply changes",
-  git_push: "Git push",
-  run_command: "Run command",
-  plan: "Review plan",
+/** Needs-you item kinds (shell.ts NeedsYouKind). */
+const NEEDS_KIND_LABEL: Record<string, string> = {
+  push: "Push",
+  changes: "Apply changes",
+  command: "Run command",
+  merge: "Merge",
+  question: "Question",
+  review: "Review",
+  pr: "Pull request",
 };
 
 const TASK_STATUS_LABEL: Record<string, string> = {
@@ -80,7 +84,9 @@ export default function Home() {
   }, [data, active]);
 
   const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-  const attentionCount = (data?.approvals.length ?? 0) + (data?.attentionTasks?.length ?? 0);
+  // Same number as the sidebar "Needs you" (one server definition, shell.ts).
+  const attentionCount = data?.needsYou.total ?? 0;
+  const failedTasks = data?.attentionTasks ?? [];
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
@@ -156,36 +162,54 @@ export default function Home() {
                     Needs you
                   </SectionTitle>
                   <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
-                    {data.approvals.slice(0, 4).map((a) => (
-                      <li key={a._id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[14px]">{a.summary}</p>
-                          <p className="truncate text-[12.5px] text-ink-3">
-                            {KIND_LABEL[a.kind] ?? a.kind} · {a.projectName}{a.taskTitle ? ` · ${a.taskTitle}` : ""}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => reject({ approvalId: a._id })}
-                            className="rounded-lg px-2.5 py-1 text-[13px] text-ink-2 transition hover:bg-hover"
-                          >
-                            Reject
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => approve({ approvalId: a._id })}
-                            className="rounded-lg bg-ink px-2.5 py-1 text-[13px] font-medium text-canvas transition hover:opacity-90"
-                          >
-                            Approve
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                    {(data.attentionTasks ?? []).map((t) => (
+                    {data.needsYou.items.slice(0, 6).map((item) => {
+                      // Run-command approvals are allowed/denied in the task thread or Inbox.
+                      const decidable = item.approvalId !== null && item.kind !== "command";
+                      const href = `/chats/${item.projectId}${item.taskId ? `?task=${item.taskId}` : ""}`;
+                      return (
+                        <li key={item.key} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
+                          <Link href={href} className="min-w-0 flex-1">
+                            <p className="truncate text-[14px]">{item.title}</p>
+                            <p className="truncate text-[12.5px] text-ink-3">
+                              {NEEDS_KIND_LABEL[item.kind] ?? item.kind} · {item.projectName}
+                              {item.note ? ` · ${item.note}` : ""}
+                            </p>
+                          </Link>
+                          {decidable ? (
+                            <div className="flex shrink-0 items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => reject({ approvalId: item.approvalId! })}
+                                className="rounded-lg px-2.5 py-1 text-[13px] text-ink-2 transition hover:bg-hover"
+                              >
+                                Reject
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => approve({ approvalId: item.approvalId! })}
+                                className="rounded-lg bg-ink px-2.5 py-1 text-[13px] font-medium text-canvas transition hover:opacity-90"
+                              >
+                                Approve
+                              </button>
+                            </div>
+                          ) : (
+                            <ArrowUpRight size={14} className="shrink-0 text-ink-3 max-sm:hidden" />
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              )}
+
+              {failedTasks.length > 0 && (
+                <section className="mt-10">
+                  <SectionTitle>Recent failures</SectionTitle>
+                  <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
+                    {failedTasks.map((t) => (
                       <li key={t._id}>
                         <Link href={`/chats/${t.projectId}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
-                          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.status === "failed" ? "bg-red-500" : "bg-orange-500"}`} />
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-[14px]">{t.title}</p>
                             <p className="truncate text-[12.5px] text-ink-3">{TASK_STATUS_LABEL[t.status] ?? t.status} · {t.projectName}</p>

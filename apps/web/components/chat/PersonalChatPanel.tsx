@@ -209,6 +209,8 @@ export default function PersonalChatPanel({
         title,
         conversationContext: false,
         conversationId: conversationId as never,
+        // Marks the reply's offer used: the button becomes "Task created".
+        offerMessageId: messageId as never,
       });
       toast("success", "Task created", pick ?? undefined);
       openTask(taskId as string);

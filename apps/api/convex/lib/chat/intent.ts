@@ -358,6 +358,14 @@ export function requestAnsweredByOffer(
 export interface ChatTaskOffer {
   kind: string;
   commands?: string[];
+  /** The task created from this offer; a used offer offers nothing more. */
+  usedTaskId?: string;
+  usedAt?: number;
+}
+
+/** Whether a reply's Create task offer already produced a task. */
+export function isOfferUsed(offer: ChatTaskOffer | null | undefined): boolean {
+  return Boolean(offer?.usedTaskId);
 }
 
 /** The task command a run-request offer starts: the run verb + the exact lines. */
@@ -426,6 +434,8 @@ export function findOfferedTask(
         break;
       }
     }
+    // The offer already became a task (button or an earlier go reply).
+    if (isOfferUsed(m.taskOffer)) return null;
     const pick = prevUser?.match(OPTION_PICK)?.[1];
     if (!pick && !m.taskOffer && !OFFERS_CREATE_TASK.test(m.content)) return null;
     const { command, title } = composeOfferedTask(history, i);

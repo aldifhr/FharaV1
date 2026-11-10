@@ -23,6 +23,20 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const TERMINAL = new Set(["done", "failed", "rejected", "cancelled"]);
 
 // ─── Needs you ─────────────────────────────────────────────────────────────
+//
+// ONE definition of "waits on the user", shared by every surface (live test
+// 4 showed 1 / 0 / 17 at the same moment):
+//   - sidebar "Needs you" and the Overview "N things need you": all of it,
+//     across the projects the viewer can see (`needsYou`, `collectNeedsYou`);
+//   - the chat header bell: the same items for the open project only
+//     (`needsYou({ projectId })`);
+//   - Inbox: its "N things wait on you" is this same total; it also lists
+//     recent failed tasks as information ("Recent failures"), never counted.
+// An item is: a pending approval on a task that is still open, an open
+// agent question (task waiting_input), a push waiting for the Push click, an
+// open PR notification, or a legacy needs_approval task with no approval
+// rows at all. A decided (approved/rejected) approval leaves at once, even
+// while its task sits in needs_approval until a worker resumes it.
 
 export type NeedsYouKind =
   | "push"
@@ -75,6 +89,10 @@ const pendingApprovals: NeedsYouSource = async ({ ctx, visible, agentRole }) => 
   for (const a of rows) {
     const project = visible.get(a.projectId as string);
     if (!project) continue;
+    // A finished task's leftover approval is not actionable (same rule as
+    // the chat's decisions tray).
+    const task = await ctx.db.get(a.taskId);
+    if (task && TERMINAL.has(task.status)) continue;
     items.push({
       key: `approval:${a._id}`,
       kind: APPROVAL_KIND[a.kind] ?? "review",
@@ -119,8 +137,22 @@ const openQuestions: NeedsYouSource = async ({ ctx, visible, agentRole }) => {
   return items;
 };
 
-/** Tasks parked in `needs_approval` (their approval row may be on another
- *  page or pre-date approval rows); deduped against approvals below. */
+/**
+ * Whether a `needs_approval` task is still the user's move: it has a pending
+ * approval, or it pre-dates approval rows (none at all). A task whose
+ * approvals are all decided is waiting on the worker to resume it, not on
+ * the user (live test 4: a rejected change stayed in Needs you ~10 min).
+ */
+export async function taskAwaitsUserApproval(ctx: QueryCtx, taskId: Id<"tasks">): Promise<boolean> {
+  const rows = await ctx.db
+    .query("approvals")
+    .withIndex("by_task", (q) => q.eq("taskId", taskId))
+    .take(APPROVAL_LIMIT);
+  return rows.length === 0 || rows.some((r) => r.status === "pending");
+}
+
+/** Tasks parked in `needs_approval` that still wait on the user (see
+ *  taskAwaitsUserApproval); deduped against approvals below. */
 const tasksAwaitingApproval: NeedsYouSource = async ({ ctx, visible, agentRole }) => {
   const rows = await ctx.db
     .query("tasks")
@@ -131,6 +163,7 @@ const tasksAwaitingApproval: NeedsYouSource = async ({ ctx, visible, agentRole }
   for (const t of rows) {
     const project = visible.get(t.projectId as string);
     if (!project) continue;
+    if (!(await taskAwaitsUserApproval(ctx, t._id))) continue;
     items.push({
       key: `task:${t._id}`,
       kind: "review",
@@ -231,28 +264,47 @@ export const NEEDS_YOU_SOURCES: NeedsYouSource[] = [
   tasksAwaitingApproval,
 ];
 
+/**
+ * Every item waiting on the user across `visible` projects, newest first
+ * (the shared definition above). Also read by overview.get and inbox.list
+ * so their counts match the sidebar.
+ */
+export async function collectNeedsYou(
+  ctx: QueryCtx,
+  visible: Map<string, Doc<"projects">>,
+  limit = NEEDS_YOU_LIMIT
+): Promise<{ items: NeedsYouItem[]; total: number }> {
+  const roleCache = new Map<string, string | null>();
+  const agentRole = async (id: Id<"agents"> | undefined | null) => {
+    if (!id) return null;
+    const key = id as string;
+    if (!roleCache.has(key)) roleCache.set(key, (await ctx.db.get(id))?.role ?? null);
+    return roleCache.get(key) ?? null;
+  };
+  const items: NeedsYouItem[] = [];
+  const coveredTasks = new Set<string>();
+  for (const source of NEEDS_YOU_SOURCES) {
+    const batch = await source({ ctx, visible, agentRole });
+    const fresh = batch.filter((item) => !(item.kind === "review" && item.taskId && coveredTasks.has(item.taskId as string)));
+    for (const item of fresh) if (item.taskId) coveredTasks.add(item.taskId as string);
+    items.push(...fresh);
+  }
+  items.sort((a, b) => b.at - a.at);
+  return { items: items.slice(0, limit), total: items.length };
+}
+
+/**
+ * "Needs you" (sidebar, Overview). With `projectId`: the same items for
+ * that project only (the chat header bell).
+ */
 export const needsYou = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { projectId: v.optional(v.id("projects")) },
+  handler: async (ctx, args) => {
     const projects = await visibleProjects(ctx);
-    const visible = new Map(projects.map((p) => [p._id as string, p]));
-    const roleCache = new Map<string, string | null>();
-    const agentRole = async (id: Id<"agents"> | undefined | null) => {
-      if (!id) return null;
-      const key = id as string;
-      if (!roleCache.has(key)) roleCache.set(key, (await ctx.db.get(id))?.role ?? null);
-      return roleCache.get(key) ?? null;
-    };
-    const items: NeedsYouItem[] = [];
-    const coveredTasks = new Set<string>();
-    for (const source of NEEDS_YOU_SOURCES) {
-      const batch = await source({ ctx, visible, agentRole });
-      const fresh = batch.filter((item) => !(item.kind === "review" && item.taskId && coveredTasks.has(item.taskId as string)));
-      for (const item of fresh) if (item.taskId) coveredTasks.add(item.taskId as string);
-      items.push(...fresh);
-    }
-    items.sort((a, b) => b.at - a.at);
-    return { items: items.slice(0, NEEDS_YOU_LIMIT), total: items.length };
+    const visible = new Map(
+      projects.filter((p) => !args.projectId || p._id === args.projectId).map((p) => [p._id as string, p])
+    );
+    return await collectNeedsYou(ctx, visible);
   },
 });
 
@@ -366,11 +418,15 @@ export const decisionsForProject = query({
 
 // ─── Project badges ────────────────────────────────────────────────────────
 
-/** Per visible project: tasks in flight and items needing the user. */
+/**
+ * Per visible project: tasks in flight, and its share of "Needs you" (the
+ * shared definition, so a project badge never disagrees with the sidebar).
+ */
 export const projectCounts = query({
   args: {},
   handler: async (ctx) => {
-    const visible = new Set((await visibleProjects(ctx)).map((p) => p._id as string));
+    const projects = await visibleProjects(ctx);
+    const visible = new Set(projects.map((p) => p._id as string));
     const counts: Record<string, { open: number; needsYou: number }> = {};
     const bump = (projectId: string, field: "open" | "needsYou") => {
       if (!visible.has(projectId)) return;
@@ -383,29 +439,10 @@ export const projectCounts = query({
         .withIndex("by_status", (q) => q.eq("status", status))
         .order("desc")
         .take(500);
-      for (const t of rows) {
-        bump(t.projectId as string, "open");
-        if (status === "waiting_input") bump(t.projectId as string, "needsYou");
-      }
+      for (const t of rows) bump(t.projectId as string, "open");
     }
-    const approvals = await ctx.db
-      .query("approvals")
-      .withIndex("by_status", (q) => q.eq("status", "pending"))
-      .order("desc")
-      .take(APPROVAL_LIMIT);
-    for (const a of approvals) bump(a.projectId as string, "needsYou");
-    for (const status of ["ready", "failed"] as const) {
-      const pushes = await ctx.db
-        .query("taskPushes")
-        .withIndex("by_status_and_requested", (q) => q.eq("status", status))
-        .take(PUSH_LIMIT);
-      for (const p of pushes) bump(p.projectId as string, "needsYou");
-    }
-    const notes = await ctx.db
-      .query("notifications")
-      .withIndex("by_status_and_updated", (q) => q.eq("status", "open"))
-      .take(NOTIFICATION_LIMIT);
-    for (const n of notes) bump(n.projectId as string, "needsYou");
+    const { items } = await collectNeedsYou(ctx, new Map(projects.map((p) => [p._id as string, p])), Number.POSITIVE_INFINITY);
+    for (const item of items) bump(item.projectId as string, "needsYou");
     return counts;
   },
 });

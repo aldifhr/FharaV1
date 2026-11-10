@@ -1,14 +1,14 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Brain, Copy, MoreHorizontal, PanelRightOpen, Pin, PinOff, Plus, Reply, ShieldCheck } from "lucide-react";
+import { Brain, Check, Copy, MoreHorizontal, PanelRightOpen, Pin, PinOff, Plus, Reply, ShieldCheck } from "lucide-react";
 import { useMutation } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import { parseOptions } from "@/lib/options";
 import { roleLabel } from "@/lib/agentRoles";
-import { offersCreateTask } from "@/lib/taskOffer";
+import { isOfferUsed, offersCreateTask } from "@/lib/taskOffer";
 import ApprovalCard from "../ApprovalCard";
 import QaPanel from "../QaPanel";
 import InitialAvatar from "../InitialAvatar";
@@ -162,6 +162,8 @@ export default function MessageList(props: Props) {
       // for a question (or that merely says "create task") never does.
       const role = String((agents as any[])?.find((a: any) => a._id === m.agentId)?.role ?? "").toLowerCase();
       if (role !== "cto") continue;
+      // A used offer shows "Task created" instead (TaskCreatedLink).
+      if (isOfferUsed(m.taskOffer)) return null;
       return afterPick || offersCreateTask(m) ? String(m._id) : null;
     }
     return null;
@@ -450,6 +452,9 @@ export default function MessageList(props: Props) {
                 </div>
               )}
               {hasText && !live && opinions.get(String(m._id)) && <ChatOpinionLine opinion={opinions.get(String(m._id))!} />}
+              {hasText && isOfferUsed(m.taskOffer) && (
+                <TaskCreatedLink taskId={String(m.taskOffer.usedTaskId)} title={taskTitle(String(m.taskOffer.usedTaskId))} onOpen={onSelectTask} />
+              )}
               {hasText && String(m._id) === suggestTaskId && taskState[String(m._id)] !== "done" && (
                 <CreateTaskButton
                   busy={taskState[String(m._id)] === "busy"}
@@ -521,6 +526,9 @@ export default function MessageList(props: Props) {
                 <UnverifiedRefsLine refs={m.unverifiedRefs} />
               )}
               {hasText && !isLive(m) && opinions.get(String(m._id)) && <ChatOpinionLine opinion={opinions.get(String(m._id))!} />}
+              {hasText && isOfferUsed(m.taskOffer) && (
+                <TaskCreatedLink taskId={String(m.taskOffer.usedTaskId)} title={taskTitle(String(m.taskOffer.usedTaskId))} onOpen={onSelectTask} />
+              )}
               {hasText && String(m._id) === suggestTaskId && taskState[String(m._id)] !== "done" && (
                 <button
                   type="button"
@@ -702,6 +710,23 @@ export default function MessageList(props: Props) {
         </div>
       )}
     </CardSurfaceProvider>
+  );
+}
+
+/** A Create task offer that already became a task: a link to it, never a second button. */
+function TaskCreatedLink({ taskId, title, onOpen }: { taskId: string; title?: string; onOpen: (taskId: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(taskId)}
+      title={title ? `Open “${title}”` : "Open the task"}
+      className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-lg px-1 py-0.5 text-[13px] text-ink-3 transition hover:text-ink"
+    >
+      <Check size={13} aria-hidden="true" />
+      <span>Task created</span>
+      <span aria-hidden="true">·</span>
+      <span className="truncate text-brand-ink underline-offset-2 hover:underline">{title && title !== "task" ? title : "Open task"}</span>
+    </button>
   );
 }
 

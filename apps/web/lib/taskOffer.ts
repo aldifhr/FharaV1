@@ -7,7 +7,16 @@
  * the model wrote. Replies from before the field (or a CTO that offers a
  * task on its own) still match the old wording rule.
  */
-export function offersCreateTask(message: { content?: string | null; taskOffer?: { kind: string; commands?: string[] } | null }): boolean {
+type TaskOffer = { kind: string; commands?: string[]; usedTaskId?: string; usedAt?: number };
+
+/** The offer already became a task (messages.taskOffer.usedTaskId). */
+export function isOfferUsed(offer: TaskOffer | null | undefined): offer is TaskOffer & { usedTaskId: string } {
+  return Boolean(offer?.usedTaskId);
+}
+
+export function offersCreateTask(message: { content?: string | null; taskOffer?: TaskOffer | null }): boolean {
+  // A used offer shows "Task created", never the button again.
+  if (isOfferUsed(message.taskOffer)) return false;
   if (message.taskOffer) return true;
   return /\b(create|bikin|buat)\s+task\b/i.test(message.content ?? "");
 }

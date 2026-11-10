@@ -98,7 +98,9 @@ describe("shell.needsYou task pushes", () => {
     expect(items.some((i) => i.title.includes("Hidden"))).toBe(false);
     const counts = await t.query(api.shell.projectCounts, {});
     expect(counts[projectId as string].needsYou).toBe(3);
-    expect(counts[otherId as string].needsYou).toBe(1);
+    // The failed push + the approval-less "Ledger fix" task: the badge now
+    // uses the same definition as the Needs you list (live test 4).
+    expect(counts[otherId as string].needsYou).toBe(2);
   });
 });
 
@@ -107,7 +109,8 @@ describe("shell.projectCounts", () => {
     const { t, projectId, otherId } = await seed();
     const counts = await t.query(api.shell.projectCounts, {});
     expect(counts[projectId as string]).toEqual({ open: 3, needsYou: 2 });
-    expect(counts[otherId as string]).toEqual({ open: 2, needsYou: 0 });
+    // "Ledger fix" (needs_approval, no approval rows) is in Needs you, so it counts here too.
+    expect(counts[otherId as string]).toEqual({ open: 2, needsYou: 1 });
     expect(Object.keys(counts)).toHaveLength(2);
   });
 });

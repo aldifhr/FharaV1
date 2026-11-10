@@ -39,7 +39,8 @@ import {
 } from "./lib/chat/intent";
 import { chooseAskResponder, classifyIntent } from "./lib/chat/classify";
 import { type EchoContext, streamEchoSafe, stripLeadingEcho } from "./lib/chat/echo";
-import { chatPreRouteAllowed, dispatchHandoffLine, looksIndonesian as looksIndonesianDispatch, routeCtoQuestion } from "./lib/chat/dispatch";
+import { ROLE_KEYS, ROLES } from "./lib/roles";
+import { chatPreRouteAllowed, dispatchHandoffLine, looksIndonesian as looksIndonesianDispatch, routeCtoQuestion, routedAnswerSubtype } from "./lib/chat/dispatch";
 import { detectChatRunCommands } from "./lib/chat/runRequest";
 import {
   ORCHESTRATOR_LIKE_ROLE,
@@ -133,7 +134,7 @@ type ChatContextData = {
   agents: ChatAgent[];
   team?: ChatAgent[];
   projectName: string;
-  history: { authorType: string; content: string; agentId?: string; taskOffer?: ChatTaskOffer }[];
+  history: { authorType: string; content: string; agentId?: string; messageId?: Id<"messages">; taskOffer?: ChatTaskOffer }[];
   contextSummary?: string;
   activeTask?: { title: string; status: string } | null;
   llmProviders?: PoolConnectionPayload[];
@@ -585,7 +586,12 @@ async function dispatchTaskFromChat(
 async function startOfferedTask(
   ctx: ActionCtx,
   args: ReplyArgs,
-  opts: { offer: { command: string; title?: string; reply: string }; team: ChatAgent[]; orchestrator: ChatAgent | null; dispatcher: ChatAgent }
+  opts: {
+    offer: { command: string; title?: string; reply: string; messageId?: Id<"messages"> };
+    team: ChatAgent[];
+    orchestrator: ChatAgent | null;
+    dispatcher: ChatAgent;
+  }
 ): Promise<void> {
   const { offer, team, orchestrator, dispatcher } = opts;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -604,6 +610,8 @@ async function startOfferedTask(
       conversationContext: false,
       ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
       ...(assignees.length ? { assignedAgentIds: assignees.map((a) => a._id) } : {}),
+      // Marks the offer used: its button shows "Task created".
+      ...(offer.messageId ? { offerMessageId: offer.messageId } : {}),
     });
     if (orchestrator) {
       await ctx.runMutation(internal.chatContext.insertAgentMessage, {
@@ -654,6 +662,8 @@ async function startPersonalTask(
     command: string;
     title?: string;
     fromOffer: boolean;
+    /** The reply whose offer this is (marked used on create). */
+    offerMessageId?: Id<"messages">;
   }
 ): Promise<void> {
   const { agent } = opts;
@@ -679,6 +689,7 @@ async function startPersonalTask(
       title,
       conversationId: opts.conversationId,
       ...(opts.fromOffer ? { conversationContext: false } : {}),
+      ...(opts.offerMessageId ? { offerMessageId: opts.offerMessageId } : {}),
     });
     await ctx.runMutation(internal.chatContext.insertAgentMessage, {
       agentId: agent._id as any,
@@ -839,7 +850,9 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         selfNames: self ? [self.name, self.role] : [],
         speakerNames: [
           ...everyone.filter((a) => String(a._id) !== String(agentId)).flatMap((a) => [a.name, a.role]),
-          "CTO",
+          // Every fixed role label too: a personal chat has no teammates in
+          // context, yet replies still opened with "CTO:" (live test 4).
+          ...ROLE_KEYS.flatMap((k) => [ROLES[k].label, k]),
           "User",
           "You",
         ].filter((n) => !self || (n.toLowerCase() !== self.name.toLowerCase() && n.toLowerCase() !== self.role.toLowerCase())),
@@ -1153,6 +1166,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           command: explicit ?? goOffer?.command ?? lastText,
           title: goOffer?.title,
           fromOffer: goOffer !== null,
+          ...(goOffer && history[goOffer.index]?.messageId ? { offerMessageId: history[goOffer.index].messageId } : {}),
         });
         return;
       }
@@ -1316,7 +1330,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     if (!isOptionPick && isGoReply(lastUserContent)) {
       const offer = findOfferedTask(history, roleOf);
       if (offer) {
-        await startOfferedTask(ctx, projectArgs, { offer, team, orchestrator, dispatcher });
+        await startOfferedTask(ctx, projectArgs, { offer: { ...offer, messageId: history[offer.index]?.messageId }, team, orchestrator, dispatcher });
         return;
       }
       // No offer to start: a bare "gas" is just chat.
@@ -1421,8 +1435,12 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         handoffLines.push(line);
         // A routed message is chat: the specialist answers it (no plan, no
         // Create task offer), whatever the LLM's suggestion was.
-        if (intent.intent !== "ask") {
-          intent = { ...intent, intent: "ask", subtype: intent.subtype === "implementation" ? "explanation" : intent.subtype };
+        // A code audit / security review routed to the Reviewer is an audit,
+        // whatever the LLM labelled it: the Reviewer reads the code with the
+        // repo tools instead of proposing a plan (live test 4).
+        const routedSubtype = routedAnswerSubtype(route.domain, intent.subtype);
+        if (intent.intent !== "ask" || intent.subtype !== routedSubtype) {
+          intent = { ...intent, intent: "ask", subtype: routedSubtype };
           taskIntent = { ...taskIntent, kind: "chat", subtype: intent.subtype };
         }
       }
@@ -1635,7 +1653,10 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           buildCtoSummaryMessages(lastUserContent, routed, routedReply),
           ctoConfig,
         );
-        const wrapUp = sanitizeWrapUp(stripInternalPhrasing(stripToolCallMarkup(raw.content ?? "")), [routedReply]);
+        const wrapUp = sanitizeWrapUp(
+          stripLeadingEcho(stripInternalPhrasing(stripToolCallMarkup(raw.content ?? "")), echoContextFor(String(orchestrator._id))),
+          [routedReply],
+        );
         if (wrapUp && !hasToolCallText(wrapUp)) {
           await ctx.runMutation(internal.chatContext.insertAgentMessage, {
             projectId: projectId,

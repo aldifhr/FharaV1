@@ -368,3 +368,15 @@ const HANDOFF_LINE = /^(?:Handing this to @[\w.-]+ for [^\n]{1,160}\.|Saya serah
 export function isHandoffLine(text: string): boolean {
   return HANDOFF_LINE.test((text ?? "").trim());
 }
+
+/**
+ * The answer subtype for a routed specialist reply. A code review or
+ * security question is an audit (read the code, list findings) whatever the
+ * LLM called it; an implementation label becomes an explanation (a routed
+ * message is chat, never a plan). Live test 4: the routed Reviewer answered
+ * with a plan + "klik Create task" instead of auditing.
+ */
+export function routedAnswerSubtype<S extends string>(domain: DispatchDomain, subtype: S): S | "audit" | "explanation" {
+  if (domain === "reviewer" || domain === "security") return "audit";
+  return subtype === "implementation" ? "explanation" : subtype;
+}

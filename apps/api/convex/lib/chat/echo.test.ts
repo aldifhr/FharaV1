@@ -58,8 +58,26 @@ describe("stripLeadingEcho", () => {
     ]) {
       expect(stripLeadingEcho(reply, frontend)).toBe(reply);
     }
-    // A teammate label followed by new text is not an echo of a prior message.
-    expect(stripLeadingEcho("CTO: I think we should ship it.", frontend)).toBe("CTO: I think we should ship it.");
+  });
+
+  test("live test 4: any agent name/role prefix is stripped, keeping the answer", () => {
+    const reviewer: EchoContext = {
+      selfNames: ["Reviewer", "reviewer"],
+      speakerNames: ["CTO", "cto", "Designer", "designer", "QA", "qa", "User"],
+      priorMessages: [],
+    };
+    expect(stripLeadingEcho("CTO: I think we should ship it.", frontend)).toBe("I think we should ship it.");
+    expect(stripLeadingEcho("CTO: Fungsi formatRupiah tidak menangani NaN.", reviewer)).toBe(
+      "Fungsi formatRupiah tidak menangani NaN."
+    );
+    expect(stripLeadingEcho("**CTO:** Kontras 4.5:1 cukup.", reviewer)).toBe("Kontras 4.5:1 cukup.");
+    expect(stripLeadingEcho("**Designer**: warna oke.", reviewer)).toBe("warna oke.");
+    expect(stripLeadingEcho("[CTO]: lihat format.js", reviewer)).toBe("lihat format.js");
+    expect(stripLeadingEcho("Reviewer: CTO: hasil audit", reviewer)).toBe("hasil audit");
+    expect(stripLeadingEcho("QA (qa): tes kurang", reviewer)).toBe("tes kurang");
+    // Only at the very start.
+    expect(stripLeadingEcho("Hasil: CTO: benar", reviewer)).toBe("Hasil: CTO: benar");
+    expect(stripLeadingEcho("Kata CTO: ini benar", reviewer)).toBe("Kata CTO: ini benar");
   });
 
   test("a reply that is only the echo becomes empty", () => {
@@ -81,7 +99,12 @@ describe("streamEchoSafe", () => {
   test("ordinary replies stream through unchanged", () => {
     expect(streamEchoSafe("HTML is the markup", frontend)).toBe("HTML is the markup");
     expect(streamEchoSafe("Note: HTML", frontend)).toBe("Note: HTML");
-    expect(streamEchoSafe("CTO: I think", frontend)).toBe("CTO: I think");
+    expect(streamEchoSafe("CTO is", frontend)).toBe("CTO is");
+  });
+
+  test("a speaker label followed by new text streams without the label", () => {
+    expect(streamEchoSafe("CTO: I think", frontend)).toBe("I think");
+    expect(streamEchoSafe("**CTO:** I think", frontend)).toBe("I think");
   });
 });
 

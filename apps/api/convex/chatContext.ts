@@ -355,6 +355,8 @@ export const getContext = internalQuery({
         // again; the compacted summary already carries it.
         content: stripFileAttachments(m.content),
         // The server-detected Create task offer on a CTO reply (go replies).
+        // The message id: a go reply marks the offer it starts as used.
+        messageId: m._id,
         ...(m.taskOffer ? { taskOffer: m.taskOffer } : {}),
       }));
 
@@ -466,6 +468,8 @@ export const getPersonalContext = internalQuery({
         authorType: m.authorType,
         agentId: m.agentId,
         content: stripFileAttachments(m.content),
+        // The message id: a go reply marks the offer it starts as used.
+        messageId: m._id,
         ...(m.taskOffer ? { taskOffer: m.taskOffer } : {}),
       }));
     const summaries = await ctx.db

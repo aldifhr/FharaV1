@@ -223,8 +223,8 @@ export default function ChatHeader({
               type="button"
               onClick={bellPop.toggle}
               aria-expanded={bellPop.open}
-              aria-label={`Notifications, ${notifications.length} waiting on you`}
-              title="Waiting on you"
+              aria-label={`Needs you in this project: ${notifications.length}`}
+              title="Needs you in this project"
               className={`${iconButtonClass} relative`}
             >
               <Bell size={16} />
@@ -232,7 +232,7 @@ export default function ChatHeader({
             </button>
             {bellPop.open && (
               <div className={`${popoverClass} right-0 w-[min(22rem,calc(100vw-1.5rem))]`}>
-                <p className="px-3.5 py-2 text-[13px] font-semibold">Waiting on you</p>
+                <p className="px-3.5 py-2 text-[13px] font-semibold">Needs you in this project</p>
                 <div className="shell-scroll max-h-80 overflow-y-auto">
                   {notifications.length === 0 && <p className="px-3.5 pb-3 text-[13px] text-ink-3">Nothing is waiting on you in this project.</p>}
                   {notifications.map((n) => (

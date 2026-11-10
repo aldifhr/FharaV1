@@ -141,9 +141,25 @@ export const createFromCommand = mutation({
      * the request it answered), so no earlier chat turns are appended.
      */
     conversationContext: v.optional(v.boolean()),
+    /**
+     * The chat reply whose Create task offer this task comes from: the
+     * offer is marked used (messages.taskOffer.usedTaskId). Creating from
+     * an offer that is already used returns that task instead of a second.
+     */
+    offerMessageId: v.optional(v.id("messages")),
   },
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
+    const offerMessage = args.offerMessageId ? await ctx.db.get(args.offerMessageId) : null;
+    if (args.offerMessageId) {
+      if (!offerMessage || offerMessage.authorType !== "agent") throw new Error("Offer message not found");
+      const offerConversation = offerMessage.conversationId ? await ctx.db.get(offerMessage.conversationId) : null;
+      const inProject =
+        offerMessage.projectId === args.projectId || (offerConversation !== null && offerConversation.projectId === args.projectId);
+      if (!inProject) throw new Error("Offer message does not belong to this project");
+      const used = offerMessage.taskOffer?.usedTaskId;
+      if (used && (await ctx.db.get(used))) return used;
+    }
     // The chat the command came from must belong to this project: a task
     // used to store any conversationId verbatim, so its stage cards could be
     // posted into another project's (or a personal) chat. A personal chat
@@ -245,6 +261,11 @@ export const createFromCommand = mutation({
       // task command for the worker only.
       content: rawCommand,
     });
+    if (offerMessage) {
+      await ctx.db.patch(offerMessage._id, {
+        taskOffer: { ...(offerMessage.taskOffer ?? { kind: "implementation" }), usedTaskId: taskId, usedAt: now },
+      });
+    }
     return taskId;
   },
 });

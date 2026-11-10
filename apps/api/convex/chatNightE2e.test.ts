@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { commandNeedsChatContext, composeOfferedTask, findOfferedTask, isMetaFollowUp, requestAnsweredByOffer } from "./lib/chat/intent";
-import { buildChatMessages, buildSeparateSpeakersLine, buildTurnContextSection } from "./lib/prompts/chat";
+import { buildChatMessages, buildSeparateSpeakersLine, buildTurnContextSection, NO_SPEAKER_PREFIX_LINE, teammateContextBlock } from "./lib/prompts/chat";
 import { CALL_OR_ANSWER, FINAL_ANSWER_NOW, isNarrationOnly, runRepoToolLoop } from "./lib/chat/repoTools";
 import { stripLeakedToolCallTags } from "./lib/chat/strip";
 
@@ -184,9 +184,12 @@ describe("(2) history goes in as messages, the latest user message last", () => 
     );
     expect(msgs).toEqual([
       { role: "user", content: "halo apa kabar" },
-      { role: "assistant", content: "Halo, kabar saya baik.\n\nFrontend: Halo juga." },
+      { role: "assistant", content: "Halo, kabar saya baik." },
+      // A teammate's reply is quoted context, never a "Frontend: …" line the model copies (live test 4).
+      { role: "user", content: teammateContextBlock("Frontend", "Halo juga.") },
       { role: "user", content: PASTE },
     ]);
+    for (const m of msgs) expect(m.content).not.toMatch(/^(?:CTO|Frontend):/);
   });
 
   test("leading agent turns and empty card rows are dropped; nothing is role system", () => {
@@ -244,8 +247,10 @@ describe("(3) several @mentions: each agent answers only as itself", () => {
     expect(be.system).toContain("Answer only as yourself (Backend, backend)");
     // Later speakers see earlier replies in their system section, and the
     // user's message stays the last chat message.
-    expect(be.system).toContain("- Frontend: Bagian Frontend.");
-    expect(qa.system).toContain("- Backend: Bagian Backend.");
+    expect(be.system).toContain('<teammate_reply from="Frontend">\nBagian Frontend.\n</teammate_reply>');
+    expect(qa.system).toContain('<teammate_reply from="Backend">\nBagian Backend.\n</teammate_reply>');
+    expect(be.system).not.toContain("- Frontend: Bagian Frontend.");
+    expect(be.system).toContain(NO_SPEAKER_PREFIX_LINE);
     for (const c of calls) expect(c.msgs[c.msgs.length - 1]).toEqual({ role: "user", content: ask });
   });
 });

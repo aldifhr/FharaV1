@@ -278,12 +278,22 @@ function clipTurn(text: string): string {
   return text.length > OLDER_TURN_MAX_CHARS ? `${text.slice(0, OLDER_TURN_MAX_CHARS)}…` : text;
 }
 
+/** Rule for every chat reply: the bubble already shows who is speaking. */
+export const NO_SPEAKER_PREFIX_LINE =
+  "Never start your reply with a name, role or speaker label (no \"CTO:\", \"Reviewer:\", \"**Name:**\"): the chat already shows who is speaking. Start directly with the answer.";
+
+/** A teammate's earlier reply, quoted as context without a "Name:" label. */
+export function teammateContextBlock(name: string | undefined, text: string): string {
+  const who = name?.trim() ? `teammate ${name.trim()}` : "a teammate";
+  return `[Earlier reply from ${who}, quoted for context only, not written by you]\n${text}`;
+}
+
 /**
  * The chat history as real messages for one agent's reply. The user's
  * latest message (the one this reply answers) is always the LAST message,
  * whole; earlier turns come before it in order, clipped. The agent's own
- * earlier replies are `assistant`; a teammate's are `assistant` lines
- * prefixed with its name. Consecutive older turns of one role are merged
+ * earlier replies are `assistant`; a teammate's are `user` context blocks
+ * (teammateContextBlock), never "Name: text" lines. Consecutive older turns of one role are merged
  * and leading agent turns dropped, so the list starts with the user; the
  * latest message is never merged into an earlier one. Nothing here goes into the system prompt (night e2e A5:
  * history serialized inside the tools section made the CTO answer an
@@ -297,17 +307,26 @@ export function buildChatMessages(
   while (last >= 0 && history[last].authorType !== "user") last -= 1;
   const latest = last >= 0 ? history[last].content.trim() : "";
   const older: ChatPromptMessage[] = [];
+  let seenUser = false;
   for (const row of history.slice(0, Math.max(0, last))) {
     const text = row.content?.trim();
     if (!text) continue;
+    // Agent rows before the first user message (an old turn cut by the
+    // window) have nothing to answer: dropped.
+    if (row.authorType === "user") seenUser = true;
+    else if (!seenUser) continue;
     // The CTO's fixed handoff line is routing, not content: as a transcript
     // line it got copied into the specialist's reply.
     if (row.authorType === "agent" && isHandoffLine(text)) continue;
     let msg: ChatPromptMessage;
     if (row.authorType === "agent") {
       const self = opts.selfAgentId !== undefined && String(row.agentId ?? "") === String(opts.selfAgentId);
-      const name = self ? undefined : opts.nameOf?.(row.agentId);
-      msg = { role: "assistant", content: clipTurn(name ? `${name}: ${text}` : text) };
+      // A teammate's reply is context, not the agent's own turn and not a
+      // "Name: text" transcript line: as `assistant` "CTO: …" rows the model
+      // learned that replies open with a name and copied it (live test 4).
+      msg = self
+        ? { role: "assistant", content: clipTurn(text) }
+        : { role: "user", content: teammateContextBlock(opts.nameOf?.(row.agentId), clipTurn(text)) };
     } else {
       msg = { role: "user", content: clipTurn(text) };
     }
@@ -335,9 +354,10 @@ export function buildTurnContextSection(opts: {
   if (opts.turnReplies?.length) {
     lines.push(
       "Teammates already replied to this message (their words, not yours; do not repeat them):",
-      ...opts.turnReplies.map((r) => `- ${r.name}: ${clipTurn(r.content.trim())}`)
+      ...opts.turnReplies.map((r) => `<teammate_reply from="${r.name.replace(/"/g, "")}">\n${clipTurn(r.content.trim())}\n</teammate_reply>`)
     );
   }
+  lines.push(NO_SPEAKER_PREFIX_LINE);
   lines.push(
     "Answer the user's LAST message in the conversation, as a whole (it may span several lines, e.g. a pasted spec). Earlier messages are context only: never answer them again (an earlier greeting is not the question now)."
   );
@@ -376,7 +396,9 @@ export function buildPlanningGuidance(agent: { role: string }, opts: { isOrchest
     opts.hasRepoTools
       ? "You can read the repository with the read-only repo tools described below — check the code yourself before answering and cite only what a tool result shows. You still cannot run commands or modify files."
       : "You can answer structural questions (architecture, folders, features) from the repo snapshot given when present — cite actual paths you see there. You still cannot run commands, modify files, or read beyond the snapshot.",
-    "Only when the user asked for work that needs workspace access (audit, review, run code) say that it needs a task; for plain questions never mention creating a task.",
+    opts.hasRepoTools
+      ? "A read-only audit, review or code question is yours to answer here, now, by reading the code with the repo tools: never answer it with a plan or by telling the user to create a task. Only work that changes files or runs code needs a task."
+      : "Only when the user asked for work that needs workspace access (audit, review, run code) say that it needs a task; for plain questions never mention creating a task.",
     "Do not pretend to have executed code. Respond in plain text.",
   ];
 }
@@ -391,7 +413,7 @@ export function buildAnswerGuidance(subtype: IntentSubtype): string[] {
     case "research":
       return ["Answer from evidence: lead with the verdict, then the concrete details, citing actual paths from the snapshot when present. Show code only when the question is about how to write it. For a comparison, end with your pick in prose, never an options block. No speculation, no execution."];
     case "audit":
-      return ["Give a read-only audit: findings with severity and file refs. Do not modify anything."];
+      return ["Give a read-only audit: read the code first (with the repo tools when you have them), then findings with severity and file refs. Do not modify anything, and do not answer with a plan or a Create task offer."];
     default:
       return [];
   }

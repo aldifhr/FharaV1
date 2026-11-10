@@ -53,13 +53,13 @@ describe("noRawEnv guard (Convex, E2)", () => {
   });
 });
 
-describe("env:sync keys (E2 keeps today's 18)", () => {
-  it("scripts/env.mjs CONVEX_KEYS equals CONVEX_SYNC_KEYS, all schema vars read by Convex", () => {
+describe("env:sync keys", () => {
+  it("scripts/env.mjs CONVEX_KEYS comes from the manifest and equals CONVEX_SYNC_KEYS, all read by Convex", async () => {
     const src = fs.readFileSync(path.join(ROOT, "scripts/env.mjs"), "utf8");
-    const block = /export const CONVEX_KEYS = \[([\s\S]*?)\];/.exec(src)?.[1] ?? "";
-    const keys = [...block.matchAll(/"([A-Z0-9_]+)"/g)].map((m) => m[1]);
-    expect(keys).toEqual([...CONVEX_SYNC_KEYS]);
-    expect(keys).toHaveLength(18);
-    for (const key of keys) expect(envVar(key)?.runtimes.some((r) => r === "convex" || r === "convexNode")).toBe(true);
+    expect(src).toContain("ENV_MANIFEST.convexSync");
+    const envMjs = path.join(ROOT, "scripts/env.mjs");
+    const { CONVEX_KEYS } = (await import(envMjs)) as { CONVEX_KEYS: string[] };
+    expect(CONVEX_KEYS).toEqual([...CONVEX_SYNC_KEYS]);
+    for (const key of CONVEX_KEYS) expect(envVar(key)?.runtimes.some((r) => r === "convex" || r === "convexNode")).toBe(true);
   });
 });

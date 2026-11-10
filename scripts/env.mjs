@@ -15,6 +15,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseDotenv } from "./doctor.mjs";
@@ -23,27 +24,14 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const API_DIR = path.join(ROOT, "apps", "api");
 const isWin = process.platform === "win32";
 
-/** Keys read by Convex functions (process.env.* under apps/api/convex). */
-export const CONVEX_KEYS = [
-  "CONVEX_SERVICE_TOKEN",
-  "PROVIDER_ENCRYPTION_KEY",
-  "PROVIDER_ENCRYPTION_KEY_OLD",
-  "LLM_PROVIDER",
-  "LLM_MODEL",
-  "LLM_BASE_URL",
-  "LLM_OPENAI_BASE_URL",
-  "LLM_ANTHROPIC_BASE_URL",
-  "LLM_API_KEY",
-  "OPENAI_API_KEY",
-  "GITHUB_CLIENT_ID",
-  "GITHUB_CLIENT_SECRET",
-  "GITHUB_OAUTH_CALLBACK_URL",
-  "GITHUB_WEBHOOK_SECRET",
-  "OAUTH_STATE_SECRET",
-  "APP_ORIGIN",
-  "MOAGENT_WEEKLY_TOKEN_BUDGET",
-  "FHARA_PR_FIX_MAX_ATTEMPTS",
-];
+/**
+ * Keys read by Convex functions, pushed by `sync`. The list comes from
+ * @fhara/config (CONVEX_SYNC_KEYS) through its generated manifest, since
+ * plain node cannot import the TypeScript package.
+ */
+const require = createRequire(import.meta.url);
+const ENV_MANIFEST = require("../packages/config/env-manifest.json");
+export const CONVEX_KEYS = [...ENV_MANIFEST.convexSync];
 
 /** Root .env merged under the current process env (process env wins). */
 export function loadRootEnv(env = process.env) {

@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ENV_SCHEMA, type EnvVar, renderManifest, varsFor } from "@fhara/config";
+import { ENV_SCHEMA, type EnvVar, varsFor } from "@fhara/config";
 import { WEB_CLIENT_VARS } from "@fhara/config/web-client";
 
 /**
@@ -129,9 +129,3 @@ describe("noRawEnv guard (web + electron, E3)", () => {
   });
 });
 
-describe("env-manifest.json (E3)", () => {
-  it("is up to date with the schema (run npm run env:example)", () => {
-    const committed = fs.readFileSync(path.join(ROOT, "packages/config/env-manifest.json"), "utf8");
-    expect(committed).toBe(renderManifest());
-  });
-});

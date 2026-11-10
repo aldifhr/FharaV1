@@ -8,3 +8,4 @@ export * from "./knobs";
 export * from "./convexSync";
 export { buildManifest, renderManifest } from "./manifest";
 export type { EnvManifest, ManifestVar } from "./manifest";
+export { CONVEX_CLI_TARGET_VARS, ENV_SECTIONS, exampleValue, renderApiEnvExample, renderEnvExample } from "./envExample";

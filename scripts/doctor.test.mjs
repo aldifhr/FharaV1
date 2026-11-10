@@ -8,6 +8,9 @@ import {
   missingVars,
   modelsRequest,
   parseDotenv,
+  REQUIRED_WORKER_VARS,
+  manifestVar,
+  withAliases,
 } from "./doctor.mjs";
 import { nextBackoff, parseArgs, MAX_BACKOFF_MS, MIN_BACKOFF_MS, STABLE_MS } from "./supervise.mjs";
 
@@ -58,4 +61,15 @@ test("supervise: parseArgs splits options from the command", () => {
   const { options, command } = parseArgs(["--name", "worker", "--", "npx", "tsx", "src/index.ts"]);
   assert.equal(options.name, "worker");
   assert.deepEqual(command, ["npx", "tsx", "src/index.ts"]);
+});
+
+test("doctor: required vars and aliases come from the env manifest", () => {
+  assert.deepEqual(REQUIRED_WORKER_VARS, ["NEXT_PUBLIC_CONVEX_URL", "CONVEX_SERVICE_TOKEN"]);
+  assert.equal(withAliases({ CONVEX_URL: "http://legacy" }, "NEXT_PUBLIC_CONVEX_URL"), "http://legacy");
+  assert.equal(withAliases({ NEXT_PUBLIC_CONVEX_URL: "a", CONVEX_URL: "b" }, "NEXT_PUBLIC_CONVEX_URL"), "a");
+  assert.equal(withAliases({}, "CONVEX_SERVICE_TOKEN"), undefined);
+  for (const name of ["LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY", "PROVIDER_ENCRYPTION_KEY", "WORKSPACE_ROOT", "QA_CHROMIUM_PATH", "ORCHESTRATOR_QA_REQUIRED", "ORCHESTRATOR_EXECUTION_RUNTIME", "ORCHESTRATOR_NATIVE_PROVIDER_COMMAND", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]) {
+    assert.equal(manifestVar(name).name, name);
+  }
+  assert.throws(() => manifestVar("MODEL_CAPABILITY_ROUTING"));
 });

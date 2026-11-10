@@ -1,7 +1,6 @@
 import { wenv, wenvRaw } from "@fhara/config/worker";
 import dotenv from "dotenv";
 import os from "node:os";
-import path from "node:path";
 import { createConvexClient, createConvexSubscriber } from "./convexClient";
 import { WorkerApi, type WorkerTask } from "./workerApi";
 import { loadPolicy } from "./orchestrator/policy";
@@ -20,8 +19,9 @@ import { effectiveWorkspaceRoot, reportKnobEnv, syncAppSettings } from "./servic
 import { REPO_TOOLS_CAPABILITY } from "@/api/convex/lib/chat/repoTools";
 import { DirectThreads } from "./direct";
 import { installConsoleRedaction, registerEnvSecrets } from "./utils/redact";
+import { ROOT_ENV_FILE } from "./utils/rootEnv";
 
-dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
+dotenv.config({ path: ROOT_ENV_FILE });
 // L2: the worker's own logs (stdout/stderr) never print a known secret.
 registerEnvSecrets();
 installConsoleRedaction();

@@ -8,9 +8,12 @@
  * worker token in memory.
  *
  * Env is read from process.env, then the repo's .env files (process.env wins):
- *   .env                 worker + shared (loaded by the worker at startup)
- *   apps/web/.env.local  Next.js (NEXT_PUBLIC_CONVEX_URL, server-side CONVEX_SERVICE_TOKEN)
+ *   .env                 the one env file (worker; the web app loads it too)
+ *   apps/web/.env.local  optional Next.js override
  *   apps/api/.env.local  Convex CLI (CONVEX_DEPLOYMENT or CONVEX_SELF_HOSTED_*)
+ *
+ * Which vars are required, their aliases and defaults come from
+ * @fhara/config's generated env-manifest.json (npm run env:example).
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -19,6 +22,25 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const ENV_MANIFEST = createRequire(import.meta.url)("../packages/config/env-manifest.json");
+
+/** The manifest entry of a var (throws on a name the schema does not know). */
+export function manifestVar(name) {
+  const entry = ENV_MANIFEST.vars.find((v) => v.name === name);
+  if (!entry) throw new Error(`doctor: ${name} is not in packages/config/env-manifest.json`);
+  return entry;
+}
+
+/** Required in the worker (schema `required`), e.g. NEXT_PUBLIC_CONVEX_URL, CONVEX_SERVICE_TOKEN. */
+export const REQUIRED_WORKER_VARS = [...(ENV_MANIFEST.required.worker ?? [])];
+
+/** A var's value with its legacy aliases applied (name first, then aliases). */
+export function withAliases(env, name) {
+  for (const key of [name, ...(manifestVar(name).aliases ?? [])]) {
+    if (env[key]) return env[key];
+  }
+  return undefined;
+}
 
 // ---------------------------------------------------------------- pure parts
 
@@ -163,14 +185,9 @@ async function run() {
       ? { name: ".env", status: "ok", detail: "present" }
       : { name: ".env", status: "fail", detail: "missing", hint: "cp .env.example .env and fill it in" },
   );
-  add(
-    files["apps/web/.env.local"] || env.NEXT_PUBLIC_CONVEX_URL
-      ? { name: "apps/web/.env.local", status: "ok", detail: files["apps/web/.env.local"] ? "present" : "not present (NEXT_PUBLIC_CONVEX_URL comes from the environment)" }
-      : { name: "apps/web/.env.local", status: "fail", detail: "missing", hint: "cp apps/web/.env.example apps/web/.env.local" },
-  );
-  // The web server's token-gated routes (Settings → LLM / MCP, enhance) read
-  // CONVEX_SERVICE_TOKEN from the Next.js env, which is apps/web/.env.local.
-  const webEnv = mergeEnv(process.env, files["apps/web/.env.local"]);
+  // The web app loads the root .env in next.config.mjs; apps/web/.env.local
+  // is only an override (it wins over .env).
+  const webEnv = mergeEnv(process.env, files["apps/web/.env.local"], files[".env"]);
   add(
     webEnv.CONVEX_SERVICE_TOKEN
       ? { name: "Web server token", status: "ok", detail: "CONVEX_SERVICE_TOKEN set for Next.js" }
@@ -179,7 +196,7 @@ async function run() {
           status: "warn",
           required: false,
           detail: "CONVEX_SERVICE_TOKEN not set for Next.js — Settings LLM/MCP writes and enhance are disabled",
-          hint: "add CONVEX_SERVICE_TOKEN (same value as .env) to apps/web/.env.local",
+          hint: "set CONVEX_SERVICE_TOKEN in .env",
         },
   );
   const convexCliTarget = env.CONVEX_DEPLOYMENT ? "cloud" : env.CONVEX_SELF_HOSTED_URL ? "self-hosted" : null;
@@ -196,11 +213,12 @@ async function run() {
   );
 
   // required worker vars
-  const convexUrl = env.NEXT_PUBLIC_CONVEX_URL ?? env.CONVEX_URL;
-  const missingRequired = missingVars({ ...env, NEXT_PUBLIC_CONVEX_URL: convexUrl }, ["NEXT_PUBLIC_CONVEX_URL", "CONVEX_SERVICE_TOKEN"]);
+  const convexUrl = withAliases(env, "NEXT_PUBLIC_CONVEX_URL");
+  const resolved = Object.fromEntries(REQUIRED_WORKER_VARS.map((name) => [name, withAliases(env, name)]));
+  const missingRequired = missingVars(resolved, REQUIRED_WORKER_VARS);
   add(
     missingRequired.length === 0
-      ? { name: "Required env", status: "ok", detail: "NEXT_PUBLIC_CONVEX_URL, CONVEX_SERVICE_TOKEN set" }
+      ? { name: "Required env", status: "ok", detail: `${REQUIRED_WORKER_VARS.join(", ")} set` }
       : { name: "Required env", status: "fail", detail: `missing: ${missingRequired.join(", ")}`, hint: "set them in .env (see .env.example)" },
   );
   const optionalSet = ["LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY", "PROVIDER_ENCRYPTION_KEY", "WORKSPACE_ROOT"].filter((n) => env[n]);

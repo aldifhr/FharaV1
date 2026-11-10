@@ -1,3 +1,4 @@
+import { reconcileTaskMemory, summarizeRun } from "./runner/memoryReconcile";
 import { runWithObservationScope } from "@/effects/observationContext";
 import { normalizeModelTiers } from "@/api/convex/lib/modelTiers";
 import type { LlmSelectionMode } from "@/api/convex/lib/llmSelection";
@@ -517,6 +518,27 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
           }
           continue;
         }
+        // Plan L5: memory suggestions from the finished task (best-effort,
+        // budget-gated, idempotent per task; never changes its status).
+        await reconcileTaskMemory({
+          deps,
+          taskId: task._id,
+          projectId: project._id,
+          task: {
+            title: task.title,
+            request: task.command,
+            status: verification.verdict === "failed" || verification.verdict === "inconclusive" ? "failed" : "done",
+            filesChanged: Array.from(state.fileChanges.keys()),
+            blockers: [...state.feedback],
+            summary: summarizeRun(state),
+          },
+          agent: runAgents.find((candidate) => /^cto$/i.test(candidate.role)) ?? runAgents[0] ?? null,
+          llmResolver,
+          assertBudgetForCall,
+          llmTaskGate,
+          onTokenUsage: recordUsage,
+          signal,
+        }).catch(() => undefined);
         await deps.api
           .recordLifecycle?.({
             taskId: task._id,

@@ -744,8 +744,14 @@ SOFTWARE.
 ## agent-os
 
 - Source: https://github.com/earthwalker17/agent-os (commit `59833d3`)
-- Used in: `apps/api/convex/lib/memoryRecall.ts` (memory recall, plan L4): the query tokenizer, stopword list,
-  keyword score and snippet window, adapted from `backend/execution/local_rag.py` (`_tokens`, `_STOPWORDS`,
-  `_score`, `_snippet`). Ported from Python to TypeScript; changes are marked in the file header. Copyright
+- Used in:
+  - `apps/api/convex/lib/memoryRecall.ts` (memory recall, plan L4): the query tokenizer, stopword list, keyword
+    score and snippet window, adapted from `backend/execution/local_rag.py` (`_tokens`, `_STOPWORDS`, `_score`,
+    `_snippet`).
+  - `packages/worker/src/services/runner/memoryReconcile.ts` and `packages/worker/src/prompts/memoryReconcile.ts`
+    (memory suggestions, plan L5): the skip rules, compact inputs, outcome tags, JSON decision parsing and the
+    reviewer prompt, adapted from `backend/execution/memory_reconciliation.py` (`_is_read_only_run`,
+    `_is_failed_noisy_run`, `_parse_decision`, `_RECONCILIATION_SYSTEM_PROMPT`, `_build_user_prompt`).
+  Ported from Python to TypeScript; changes are marked in the file headers. Copyright
   agent-os contributors. Licensed under the Apache License, Version 2.0 (full text in the Aider entry above).
   agent-os ships no NOTICE file.

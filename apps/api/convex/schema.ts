@@ -1962,6 +1962,43 @@ export default defineSchema({
       filterFields: ["scope", "projectId", "agentId", "pinned"],
     }),
 
+  // Plan L5 (additive): memory suggestions proposed after a task finishes
+  // (worker services/runner/memoryReconcile.ts). Nothing reaches a prompt
+  // until the user accepts one on /memory; an accepted "add" becomes an
+  // UNPINNED memory with source "agent".
+  memorySuggestions: defineTable({
+    projectId: v.id("projects"),
+    taskId: v.id("tasks"),
+    op: v.union(v.literal("add"), v.literal("update"), v.literal("forget")),
+    /** The memory an update/forget targets. */
+    memoryId: v.optional(v.id("memories")),
+    scope: v.union(v.literal("shared"), v.literal("project")),
+    title: v.string(),
+    content: v.string(),
+    reason: v.optional(v.string()),
+    status: v.union(v.literal("proposed"), v.literal("accepted"), v.literal("rejected")),
+    createdAt: v.number(),
+    decidedAt: v.optional(v.number()),
+    /** The memory row an accepted suggestion created or changed. */
+    resultMemoryId: v.optional(v.id("memories")),
+  })
+    .index("by_project", ["projectId", "status"])
+    .index("by_status", ["status", "createdAt"])
+    .index("by_task", ["taskId"]),
+
+  // Plan L5 (additive): one row per task whose memory reconciliation ran
+  // (idempotency: a second finalize of the same task never re-runs it).
+  memoryReconciliations: defineTable({
+    projectId: v.id("projects"),
+    taskId: v.id("tasks"),
+    tag: v.string(),
+    reason: v.optional(v.string()),
+    suggestions: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_task", ["taskId"])
+    .index("by_project", ["projectId"]),
+
   // Context Snapshot (additive): one light row per LLM call — who, what for,
   // model, tokens, per-section token estimates, error. The prompt and
   // response text live in contextSnapshotBodies so list queries stay light.

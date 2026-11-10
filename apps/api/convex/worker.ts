@@ -12,6 +12,7 @@ import { assertServiceToken } from "./lib/authz";
 import { snapshotRecordArgs } from "./contextSnapshots";
 import { permissionArgs } from "./permissionBroker";
 import { briefPatchArgs } from "./briefs";
+import { suggestionInput } from "./memorySuggestions";
 import type { TaskBrief } from "./lib/brief";
 import {
   taskStatus,
@@ -950,6 +951,35 @@ export const updateTaskBrief = action({
   args: { ...tokenArg, taskId: v.id("tasks"), ...briefPatchArgs },
   handler: async (ctx, args): Promise<TaskBrief | null> => {
     return await ctx.runMutation(internal.briefs.updateFromWorker, withoutToken(args));
+  },
+});
+
+/** Plan L5: reconcile state + compact current memories for a finished task. */
+export const getMemoryReconcileContext = action({
+  args: { ...tokenArg, taskId: v.id("tasks") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    reconciled: boolean;
+    memories: Array<{ id: string; scope: "shared" | "project" | "agent"; title: string; content: string; pinned: boolean }>;
+  } | null> => {
+    const { taskId } = withoutToken(args);
+    return await ctx.runQuery(internal.memorySuggestions.reconcileContext, { taskId });
+  },
+});
+
+/** Plan L5: record a finished task's memory suggestions (idempotent per task). */
+export const recordMemorySuggestions = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    tag: v.string(),
+    reason: v.optional(v.string()),
+    suggestions: v.array(suggestionInput),
+  },
+  handler: async (ctx, args): Promise<{ applied: boolean; reason?: string; inserted: number }> => {
+    return await ctx.runMutation(internal.memorySuggestions.record, withoutToken(args));
   },
 });
 

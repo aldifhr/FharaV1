@@ -52,6 +52,7 @@ export const CALL_ROLES = [
   "chat_tool_step",
   "playground",
   "commit",
+  "memory",
 ] as const;
 export type CallRole = (typeof CALL_ROLES)[number];
 
@@ -65,6 +66,7 @@ export const CALL_ROLE_LABELS: Record<CallRole, string> = {
   chat_tool_step: "Chat repo-tool step",
   playground: "Playground",
   commit: "Commit message",
+  memory: "Memory suggestions",
 };
 
 export interface PromptMessage {

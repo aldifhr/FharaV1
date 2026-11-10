@@ -7,6 +7,7 @@ import { Pin, Plus } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import IconRail from "@/components/IconRail";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
+import MemorySuggestions from "@/components/memory/MemorySuggestions";
 import Segmented from "@/components/ui/segmented";
 import { roleLabel } from "@/lib/agentRoles";
 import { relativeTime } from "@/lib/runFormat";
@@ -228,6 +229,7 @@ function MemoryInner() {
             />
           )}
           {error && <p role="alert" className="mt-3 text-[13px] text-red-600 dark:text-red-400">{error}</p>}
+          {!needsTarget && <MemorySuggestions scope={scope} projectId={scope === "project" ? projectId : undefined} />}
 
           {needsTarget ? (
             <div className="mt-10 rounded-xl border border-dashed border-line px-4 py-5 text-[13px] text-ink-3">

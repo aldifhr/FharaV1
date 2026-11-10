@@ -516,6 +516,20 @@ export class WorkerApi {
     return await this.client.action(api.worker.updateTaskBrief, this.args(input));
   }
 
+  /** Plan L5: reconcile state + compact current memories for a finished task. */
+  async getMemoryReconcileContext(
+    input: ActionInput<typeof api.worker.getMemoryReconcileContext>
+  ): Promise<FunctionReturnType<typeof api.worker.getMemoryReconcileContext>> {
+    return await this.client.action(api.worker.getMemoryReconcileContext, this.args(input));
+  }
+
+  /** Plan L5: record a finished task's memory suggestions (idempotent per task). */
+  async recordMemorySuggestions(
+    input: ActionInput<typeof api.worker.recordMemorySuggestions>
+  ): Promise<FunctionReturnType<typeof api.worker.recordMemorySuggestions>> {
+    return await this.client.action(api.worker.recordMemorySuggestions, this.args(input));
+  }
+
   async recordDelegation(
     input: ActionInput<typeof api.worker.recordDelegation>
   ): Promise<FunctionReturnType<typeof api.worker.recordDelegation>> {

@@ -2,7 +2,8 @@ import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { assertProjectAccess } from "./lib/authz";
+import { assertConversationAccess, assertProjectAccess } from "./lib/authz";
+import { isPersonalConversation } from "./lib/conversationShape";
 
 /**
  * Plan 007 (addendum §2): conversation participation as a persisted concept,
@@ -149,7 +150,10 @@ async function findActiveConversation(
     .withIndex("by_project_and_status", (q) =>
       q.eq("projectId", projectId).eq("status", "active")
     )
-    .collect();
+    .collect()
+    // Plan 039: a personal conversation attached to this project is never
+    // "the project's active conversation" (project chat must not post into it).
+    .then((all) => all.filter((row) => !isPersonalConversation(row)));
   if (rows.length === 0) return null;
   return rows.reduce((latest, row) =>
     (row.lastMessageAt ?? row.createdAt) >= (latest.lastMessageAt ?? latest.createdAt)
@@ -184,6 +188,9 @@ export async function ensureChatConversation(
   let conversation = args.conversationId
     ? await ctx.db.get(args.conversationId)
     : null;
+  if (conversation && isPersonalConversation(conversation)) {
+    throw new Error("Use the personal chat for this conversation");
+  }
   if (conversation && conversation.projectId !== args.projectId) {
     throw new Error("Conversation does not belong to this project");
   }
@@ -194,6 +201,7 @@ export async function ensureChatConversation(
     const now = Date.now();
     const id = await ctx.db.insert("conversations", {
       projectId: args.projectId,
+      kind: "project",
       status: "active",
       createdAt: now,
       lastMessageAt: now,
@@ -238,6 +246,23 @@ export async function ensureChatConversation(
   return conversation._id;
 }
 
+/**
+ * The project of a project/team conversation, after the access check.
+ * Participant edits do not apply to a personal conversation: its one
+ * participant is its agent, fixed at creation.
+ */
+async function projectConversationProject(
+  ctx: Ctx,
+  conversation: Doc<"conversations">
+): Promise<Doc<"projects">> {
+  if (isPersonalConversation(conversation)) {
+    throw new Error("A personal conversation has exactly one agent");
+  }
+  const { project } = await assertConversationAccess(ctx, conversation);
+  if (!project) throw new Error("Conversation has no project");
+  return project;
+}
+
 /** Shape the browser may see: identity + live state, never credentials. */
 function participantView(
   agent: AgentDoc,
@@ -276,7 +301,7 @@ export const getParticipants = query({
   handler: async (ctx, args) => {
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) return [];
-    await assertProjectAccess(ctx, conversation.projectId);
+    await assertConversationAccess(ctx, conversation);
     const rows = await activeParticipantRows(ctx, conversation._id);
     const agents = await Promise.all(rows.map((row) => ctx.db.get(row.agentId)));
     return rows.flatMap((row, index) => {
@@ -296,7 +321,7 @@ export const listByProject = query({
       .order("desc")
       .take(50);
     return Promise.all(
-      rows.map(async (conversation) => {
+      rows.filter((row) => !isPersonalConversation(row)).map(async (conversation) => {
         const active = await activeParticipantRows(ctx, conversation._id);
         return { ...conversation, activeParticipantCount: active.length };
       })
@@ -312,7 +337,7 @@ export const setParticipants = mutation({
   handler: async (ctx, args): Promise<Id<"conversations">> => {
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) throw new Error("Conversation not found");
-    const project = await assertProjectAccess(ctx, conversation.projectId);
+    const project = await projectConversationProject(ctx, conversation);
     const team = await loadTeamAgents(ctx, project);
     await syncParticipants(ctx, conversation._id, project, team, args.agentIds);
     return conversation._id;
@@ -327,7 +352,7 @@ export const addParticipant = mutation({
   handler: async (ctx, args): Promise<Id<"conversationParticipants">> => {
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) throw new Error("Conversation not found");
-    const project = await assertProjectAccess(ctx, conversation.projectId);
+    const project = await projectConversationProject(ctx, conversation);
     const agent = await ctx.db.get(args.agentId);
     assertAssignable(agent, project);
 
@@ -359,7 +384,7 @@ export const removeParticipant = mutation({
   handler: async (ctx, args): Promise<Id<"conversationParticipants"> | null> => {
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) throw new Error("Conversation not found");
-    await assertProjectAccess(ctx, conversation.projectId);
+    await projectConversationProject(ctx, conversation);
     const rows = await ctx.db
       .query("conversationParticipants")
       .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
@@ -378,7 +403,7 @@ export const closeConversation = mutation({
   handler: async (ctx, args): Promise<Id<"conversations">> => {
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) throw new Error("Conversation not found");
-    await assertProjectAccess(ctx, conversation.projectId);
+    await assertConversationAccess(ctx, conversation);
     await ctx.db.patch(conversation._id, {
       status: "closed",
       updatedAt: Date.now(),
@@ -421,6 +446,8 @@ export const clearChat = mutation({
       )
       .collect();
     for (const conversation of activeConversations) {
+      // Plan 039: an attached personal chat is not the project's chat.
+      if (isPersonalConversation(conversation)) continue;
       await ctx.db.patch(conversation._id, {
         status: "closed",
         updatedAt: now,

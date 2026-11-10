@@ -10,6 +10,7 @@ import {
   getViewerId,
   visibleProjectIds,
 } from "./lib/authz";
+import { isPersonalConversation } from "./lib/conversationShape";
 import { refreshAgentStatus } from "./orchestration";
 import { onTaskSettled } from "./prFeedback";
 import { taskStatus } from "./schema";
@@ -143,6 +144,16 @@ export const createFromCommand = mutation({
   },
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
+    // The chat the command came from must belong to this project: a task
+    // used to store any conversationId verbatim, so its stage cards could be
+    // posted into another project's (or a personal) chat. A personal chat
+    // qualifies only once it is attached to this project (plan 039).
+    const sourceConversation = args.conversationId ? await ctx.db.get(args.conversationId) : null;
+    if (args.conversationId) {
+      if (!sourceConversation || sourceConversation.projectId !== args.projectId) {
+        throw new Error("Conversation does not belong to this project");
+      }
+    }
     const rawCommand = args.command.trim();
     if (!rawCommand) throw new Error("Command is required");
     if (rawCommand.length > 4000) throw new Error("Command is too long (max 4000 characters)");
@@ -177,11 +188,19 @@ export const createFromCommand = mutation({
     // Do NOT leak LLM/agent error chatter into the task command.
     const isErrorChatter = (content: string) =>
       /I couldn'?t reply|No LLM API key|LLM request failed|Unexpected non-whitespace|Check global LLM settings|I can'?t run shell|Gue nggak bisa jalanin|nggak punya akses terminal/i.test(content);
-    const history = await ctx.db
-      .query("messages")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .order("desc")
-      .take(30);
+    // A personal chat's messages carry no projectId (D1): read them by
+    // conversation instead of by project.
+    const history = sourceConversation && isPersonalConversation(sourceConversation)
+      ? await ctx.db
+          .query("messages")
+          .withIndex("by_conversation", (q) => q.eq("conversationId", sourceConversation._id))
+          .order("desc")
+          .take(30)
+      : await ctx.db
+          .query("messages")
+          .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+          .order("desc")
+          .take(30);
     // The current user message is inserted before the task is created
     // (chat send path), so it is always in this history — echoing it back
     // as "Conversation context" just doubles the command with itself.

@@ -557,7 +557,11 @@ export default defineSchema({
     .index("by_status_and_heartbeat", ["status", "lastHeartbeatAt"]),
 
   messages: defineTable({
-    projectId: v.id("projects"),
+    // Optional since personal chat (plan 039): a message in a `personal`
+    // conversation never carries projectId, even after a project is
+    // attached (D1), so project timelines, pins, clearChat and the delete
+    // cascade never see it. Every other message still sets it.
+    projectId: v.optional(v.id("projects")),
     taskId: v.optional(v.id("tasks")),
     agentId: v.optional(v.id("agents")),
     authorType: v.union(v.literal("user"), v.literal("agent")),
@@ -690,7 +694,11 @@ export default defineSchema({
     .index("by_project_and_client_id", ["projectId", "clientId"])
     .index("by_reply_status", ["replyStatus"])
     // Header pin chip: pinned messages of one project without a scan.
-    .index("by_project_and_pinned", ["projectId", "pinned"]),
+    .index("by_project_and_pinned", ["projectId", "pinned"])
+    // Personal chat (plan 039): conversation history without the by_project
+    // take-200 scan, and send dedupe for messages that have no project.
+    .index("by_conversation", ["conversationId"])
+    .index("by_conversation_and_client_id", ["conversationId", "clientId"]),
 
   // Plan 007 (addendum §2): conversation participation is its own concept,
   // independent of project membership (projects.agentIds) and task assignment
@@ -719,8 +727,20 @@ export default defineSchema({
     .index("by_project", ["projectId"]),
 
   conversations: defineTable({
-    projectId: v.id("projects"),
+    // Optional since personal chat (plan 039): a personal conversation has
+    // no project until attachProject sets it once. Project/team rows always
+    // carry it (lib/conversationShape.ts).
+    projectId: v.optional(v.id("projects")),
     taskId: v.optional(v.id("tasks")),
+    // Plan 039. Absent on legacy rows = "project" (conversationKind()).
+    // "team" is reserved for team chat without a project (deferred, D6).
+    kind: v.optional(v.union(v.literal("personal"), v.literal("project"), v.literal("team"))),
+    // Plan 039: the one agent of a personal conversation (required iff personal).
+    agentId: v.optional(v.id("agents")),
+    // Plan 039: getViewerId at create (null until an auth provider is wired).
+    ownerId: v.optional(v.string()),
+    // Plan 039: when attachProject set projectId on a personal conversation.
+    projectAttachedAt: v.optional(v.number()),
     title: v.optional(v.string()),
     status: v.union(v.literal("active"), v.literal("closed")),
     createdAt: v.number(),
@@ -729,14 +749,19 @@ export default defineSchema({
   })
     .index("by_project", ["projectId"])
     .index("by_project_and_status", ["projectId", "status"])
-    .index("by_task", ["taskId"]),
+    .index("by_task", ["taskId"])
+    // Plan 039: personal get-or-create and the personal list.
+    .index("by_agent_kind_status", ["agentId", "kind", "status"])
+    .index("by_kind_and_last_message", ["kind", "lastMessageAt"]),
 
   // Leaving is a soft delete (leftAt): participation history is kept and
   // queries filter leftAt === undefined. projectId is denormalized so
   // per-project participation reads do not join through conversations.
   conversationParticipants: defineTable({
     conversationId: v.id("conversations"),
-    projectId: v.id("projects"),
+    // Optional since plan 039: a personal conversation's participant row has
+    // no project until the conversation is attached to one.
+    projectId: v.optional(v.id("projects")),
     agentId: v.id("agents"),
     joinedAt: v.number(),
     leftAt: v.optional(v.number()),
@@ -1110,7 +1135,8 @@ export default defineSchema({
   // admin listing.
   contextSummaries: defineTable({
     conversationId: v.id("conversations"),
-    projectId: v.id("projects"),
+    // Optional since plan 039 (personal conversations have no project).
+    projectId: v.optional(v.id("projects")),
     summary: v.string(),
     lastCompactAt: v.number(),
     summaryCharCount: v.number(),

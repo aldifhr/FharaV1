@@ -10,11 +10,24 @@ import { loadPromptSkills } from "./skills";
 import { loadMemorySection } from "./memories";
 import { extractAgentMentions } from "./lib/chat/team";
 import { stripLeakedToolCallTags } from "./lib/chat/strip";
+import { chatScopeOf, type ChatScope } from "./lib/conversationShape";
 
 /** Drop the `--- File: <path> ---` blocks `attachMentionedFiles` appends so
  *  repeated file context does not accumulate in the chat prompt. */
 function stripFileAttachments(content: string): string {
   return content.replace(/\n\n--- File: [^\n]+ ---\n[\s\S]*?(?=\n\n--- File: |\s*$)/g, "").trim();
+}
+
+/**
+ * A quote stays inside its scope: the same project for project chat, the
+ * same conversation for a personal chat (its messages carry no projectId).
+ */
+export function sameQuoteScope(
+  quoted: Pick<Doc<"messages">, "projectId" | "conversationId">,
+  message: { projectId?: Id<"projects">; conversationId?: Id<"conversations"> }
+): boolean {
+  if (message.projectId) return quoted.projectId === message.projectId;
+  return Boolean(message.conversationId) && quoted.conversationId === message.conversationId;
 }
 
 export const insertUserMessage = internalMutation({
@@ -48,7 +61,7 @@ export async function insertChatUserMessage(
   if (content.length > 8000) throw new Error("Message is too long");
   if (args.quotedMessageId) {
     const quoted = await ctx.db.get(args.quotedMessageId);
-    if (!quoted || quoted.projectId !== args.projectId) throw new Error("Quoted message not found");
+    if (!quoted || !sameQuoteScope(quoted, args)) throw new Error("Quoted message not found");
   }
   // Durable chat reply (t3code idea #1): the reply lifecycle lives on the
   // message (replyStatus), claimed by replyToChat. Chat messages no longer
@@ -112,8 +125,9 @@ export const getQuoteForReply = internalQuery({
     const message = await ctx.db.get(args.userMessageId);
     if (!message?.quotedMessageId) return null;
     const quoted = await ctx.db.get(message.quotedMessageId);
-    if (!quoted || quoted.projectId !== message.projectId) return null;
-    const project = await ctx.db.get(message.projectId);
+    if (!quoted || !sameQuoteScope(quoted, message)) return null;
+    // A personal chat message has no project, so no team (plan 039).
+    const project = message.projectId ? await ctx.db.get(message.projectId) : null;
     const teamIds = project?.agentIds ?? [];
     const team = (await Promise.all(teamIds.map((id) => ctx.db.get(id)))).filter(
       (a): a is Doc<"agents"> => a !== null && a.isEnabled !== false
@@ -234,6 +248,28 @@ export const removeEmptyAgentMessage = internalMutation({
       await ctx.db.delete(args.messageId);
     }
     return null;
+  },
+});
+
+/**
+ * The scope a chat reply runs in (plan 039, rule PC-S1), read from the
+ * conversation row on the server: never from a client argument. A message
+ * without a conversation (legacy) is a project chat message of its own
+ * project. Null when neither resolves (deleted rows).
+ */
+export const getChatScope = internalQuery({
+  args: {
+    userMessageId: v.id("messages"),
+    conversationId: v.optional(v.id("conversations")),
+  },
+  handler: async (ctx, args): Promise<ChatScope | null> => {
+    const message = await ctx.db.get(args.userMessageId);
+    if (!message) return null;
+    const conversationId = message.conversationId ?? args.conversationId;
+    const conversation = conversationId ? await ctx.db.get(conversationId) : null;
+    if (conversation) return chatScopeOf(conversation);
+    if (!message.projectId) return null;
+    return { kind: "project", agentId: null, projectId: message.projectId };
   },
 });
 

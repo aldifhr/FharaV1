@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { declineWaitingCommands } from "./commandApprovals";
 import { ensureChatConversation } from "./conversations";
 import { insertChatUserMessage } from "./chatContext";
-import { assertProjectAccess, getVisibleTask } from "./lib/authz";
+import { assertProjectAccess, getVisibleTask, assertMessageAccess } from "./lib/authz";
 import { internal } from "./_generated/api";
 import { permissionModeValidator } from "./lib/permissionModes";
 
@@ -44,7 +44,7 @@ export const togglePin = mutation({
   handler: async (ctx, args) => {
     const message = await ctx.db.get(args.messageId);
     if (!message) throw new Error("Message not found");
-    await assertProjectAccess(ctx, message.projectId);
+    await assertMessageAccess(ctx, message);
     await ctx.db.patch(message._id, { pinned: args.pinned });
     return true;
   },
@@ -170,7 +170,9 @@ export const claimNextMessage = internalMutation({
     // Claim ordering: projectId order (deterministic; the caller can
     // assert `projectId` ascending), and within a project, oldest first.
     candidates.sort((a, b) => {
-      if (a.projectId !== b.projectId) return a.projectId < b.projectId ? -1 : 1;
+      const pa = a.projectId ?? "";
+      const pb = b.projectId ?? "";
+      if (pa !== pb) return pa < pb ? -1 : 1;
       return a._creationTime - b._creationTime;
     });
     const candidate = candidates.find(

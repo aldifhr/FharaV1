@@ -1,4 +1,5 @@
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertProjectAccess, canViewProject, getViewerId } from "./lib/authz";
@@ -18,6 +19,10 @@ function validateWorkspacePath(raw: string): string {
   }
   if (workspacePath.split(/[\\/]+/).includes("..")) {
     throw new Error("Project path must not contain '..' segments");
+  }
+  // "." / "./" resolve to the worker's own workspace root, never a project.
+  if (/^\.[\\/]*$/.test(workspacePath)) {
+    throw new Error("Project path must name a project folder, not '.'");
   }
   return workspacePath;
 }
@@ -295,6 +300,15 @@ export const remove = mutation({
   },
 });
 
+/** True when a participant row belongs to a personal conversation (plan 039). */
+async function isPersonalParticipant(
+  ctx: MutationCtx,
+  row: { conversationId: Id<"conversations"> }
+): Promise<boolean> {
+  const conversation = await ctx.db.get(row.conversationId);
+  return conversation?.kind === "personal";
+}
+
 /**
  * One batch of the project delete cascade. Works through PROJECT_CASCADE
  * from `step`, touching at most PROJECT_CASCADE_BATCH rows, then schedules
@@ -313,6 +327,13 @@ export const cascadeDelete = internalMutation({
         .take(budget);
       for (const row of rows) {
         if (table === "audit") {
+          await ctx.db.patch(row._id, { projectId: undefined });
+        } else if (table === "conversations" && row.kind === "personal") {
+          // Plan 039: an attached personal chat is the user's, not the
+          // project's: detach it instead of deleting it. Its messages carry
+          // no projectId (D1), so they survive the messages step too.
+          await ctx.db.patch(row._id, { projectId: undefined, projectAttachedAt: undefined });
+        } else if (table === "conversationParticipants" && (await isPersonalParticipant(ctx, row))) {
           await ctx.db.patch(row._id, { projectId: undefined });
         } else {
           if (table === "contextSnapshots") {

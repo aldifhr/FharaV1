@@ -35,6 +35,7 @@ import {
   assertProjectAccess,
   getVisibleTask,
   visibleProjectIds,
+  assertConversationAccess,
 } from "./lib/authz";
 import {
   taskStatus,
@@ -2129,7 +2130,7 @@ export const listAgentEvents = query({
     if (args.conversationId) {
       const conversation = await ctx.db.get(args.conversationId);
       if (!conversation) return [];
-      await assertProjectAccess(ctx, conversation.projectId);
+      await assertConversationAccess(ctx, conversation);
     } else if (args.taskId) {
       const task = await getVisibleTask(ctx, args.taskId);
       if (!task) return [];

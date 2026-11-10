@@ -51,7 +51,6 @@ const OP_FIELDS: Record<string, readonly string[]> = {
   createModel: ["providerId", ...MODEL_FIELDS],
   updateModel: ["id", ...MODEL_FIELDS],
   removeModel: ["id"],
-  probeModel: ["providerId", "modelId", "projectId"],
 };
 
 export async function POST(request: NextRequest) {
@@ -125,11 +124,6 @@ export async function POST(request: NextRequest) {
       case "removeModel": {
         await client.mutation(api.llmModels.remove, callArgs);
         return NextResponse.json({ ok: true });
-      }
-      // Plan 027: manual capability probe (two tiny calls, backend-side key).
-      case "probeModel": {
-        const probe = await client.action(api.modelCapabilities.probe, callArgs);
-        return NextResponse.json({ probe });
       }
       default:
         return NextResponse.json({ error: `Unknown op: ${op}` }, { status: 400 });

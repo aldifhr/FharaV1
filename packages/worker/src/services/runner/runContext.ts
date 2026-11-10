@@ -5,7 +5,6 @@ import { routeCapability } from "@/orchestrator/capabilities";
 import { loadAwareRoutingEnabled, pickLoadAware, type LoadAwareDecision } from "@/orchestrator/loadAwareRouting";
 import { performanceRoutingEnabled, pickByPerformance, type PerformanceDecision } from "@/orchestrator/performanceRouting";
 import type { PerformanceScore } from "@/api/convex/lib/agentPerformance";
-import { CALL_SITE_NEEDS, type CapabilityNeeds } from "@/api/convex/lib/modelCapabilities";
 import type { ModelRoutingInfo } from "@/llm/resolver";
 import type { WebClient } from "@/tools/webClient";
 import { applyFileChange, hashContent, type FileDiff } from "@/tools/gitDiff";
@@ -15,7 +14,6 @@ import type { ApplyStagedResult, ExecutePlanInput, RunContext } from "./types";
 import { runNodes } from "./runNodes";
 import { RepeatedOutputGuard, stallThresholdsFromEnv } from "@/utils/stallDetector";
 import { llmTimeoutMs } from "@/llm";
-import { wantsVisualQa } from "@/utils/qaIntent";
 
 /**
  * Build the RunContext for one `executePlan` invocation (plan 012 step 3).
@@ -51,18 +49,6 @@ export function createRunContext(input: ExecutePlanInput, browser: WebClient): R
   const performanceByKey = new Map<string, PerformanceDecision>();
   const modelRoutingByKey = new Map<string, ModelRoutingInfo>();
 
-  /**
-   * Plan 027: what the executor's model must support for this subtask.
-   * Tools: implementation/analysis work on the API runtime (OpenCode owns
-   * its own tools). Vision: QA with screenshot comparison.
-   */
-  const executorNeeds = (subtask: PlanSubtask, agent: AgentDefinition): CapabilityNeeds =>
-    CALL_SITE_NEEDS.executor({
-      kind: subtask.kind,
-      usesTools: subtask.kind !== "qa" && subtask.kind !== "review" && agent.executionRuntime !== "opencode",
-      visualQa: plan.visualQa ?? wantsVisualQa(task.command ?? ""),
-      promptChars: (task.command?.length ?? 0) + (subtask.description?.length ?? 0) + (subtask.title?.length ?? 0),
-    });
   const activeByAgent = new Map<string, number>();
   // Per-branch capability chain per subtask key (root first, ending with
   // the subtask's own capability). Delegation depth and circularity are
@@ -138,8 +124,8 @@ export function createRunContext(input: ExecutePlanInput, browser: WebClient): R
         routeCapability(subtask.capability, input.agents, { allowFallback: true });
     }
     // Plan 027 (opt-in): performance routing ranks exact-capability
-    // agents by availability → score → model fit → budget → order. It
-    // includes the capacity rule, so it supersedes load-aware when on.
+    // agents by availability → score → budget → order. It includes the
+    // capacity rule, so it supersedes load-aware when on.
     const loadOf = (candidate: AgentDefinition) =>
       Math.max(activeByAgent.get(candidate._id) ?? 0, loadSnapshot.get(candidate._id) ?? 0);
     if (agent && performanceRouting) {
@@ -147,10 +133,6 @@ export function createRunContext(input: ExecutePlanInput, browser: WebClient): R
       const pick = pickByPerformance(agent, subtask.capability, input.agents, {
         loadOf,
         scoreOf: (candidate, capability) => performanceScores.get(`${candidate._id}::${capability}`),
-        modelFits: input.llmResolver
-          ? (candidate) =>
-              input.llmResolver!.expectedModelFor(candidate, { capabilities: executorNeeds(subtask, candidate), callRole: "executor" })?.satisfied ?? null
-          : undefined,
         remainingTokens: snapshot ? Math.max(0, snapshot.maxTokenBudget - snapshot.totalTokens) : null,
       });
       if (pick.agent) agent = pick.agent;
@@ -317,7 +299,6 @@ export function createRunContext(input: ExecutePlanInput, browser: WebClient): R
     performanceScoresAt: 0,
     performanceByKey,
     modelRoutingByKey,
-    executorNeeds,
     assign,
     nextOrder: (): number =>
       plan.subtasks.reduce((max, candidate) => Math.max(max, candidate.order), 0) + 1,

@@ -143,7 +143,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         resolutionByKey.delete(node.id);
         llmHandles = prepared
           ? handlesFromResolution(prepared)
-          : input.llmResolver?.handlesFor(agent, { capabilities: ctx.executorNeeds(subtask, agent), callRole: "executor" });
+          : input.llmResolver?.handlesFor(agent, { callRole: "executor" });
       } catch (error) {
         return {
           status: "failed",
@@ -501,14 +501,13 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         const agent = assign(node.id);
         if (!agent) throw new Error(`No enabled agent for capability ${subtask.capability}`);
         activeByAgent.set(agent._id, (activeByAgent.get(agent._id) ?? 0) + 1);
-        // Plan 027: resolve the executor's model against the subtask's
-        // capability needs now, so subtask.routed records the choice and
-        // the reason; the node reuses this resolution for its handles.
+        // Resolve the executor's model now, so subtask.routed records the
+        // choice and the reason; the node reuses this resolution for its
+        // handles.
         let modelRouting: ModelRoutingInfo | undefined;
         if (input.llmResolver) {
           try {
             const resolution = input.llmResolver.resolutionFor(agent, {
-              capabilities: ctx.executorNeeds(subtask, agent),
               callRole: "executor",
             });
             resolutionByKey.set(node.id, resolution);
@@ -537,16 +536,12 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
             ...(ctx.loadAwareByKey.has(node.id) ? { loadAware: ctx.loadAwareByKey.get(node.id) } : {}),
             // Plan 027: performance routing decision with its factor breakdown.
             ...(ctx.performanceByKey.has(node.id) ? { performance: ctx.performanceByKey.get(node.id) } : {}),
-            // Plan 027: the executor model chosen against the subtask's needs.
+            // The executor model chosen for this subtask.
             ...(modelRouting
               ? {
                   model: {
                     model: modelRouting.model,
                     connection: modelRouting.connection,
-                    needs: modelRouting.needs,
-                    satisfied: modelRouting.satisfied,
-                    fallback: modelRouting.fallback,
-                    missing: modelRouting.missing,
                     reason: modelRouting.reason,
                   },
                 }

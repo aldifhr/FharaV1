@@ -1,7 +1,6 @@
 import type { LoadAwareDecision } from "@/orchestrator/loadAwareRouting";
 import type { PerformanceDecision } from "@/orchestrator/performanceRouting";
 import type { PerformanceScore } from "@/api/convex/lib/agentPerformance";
-import type { CapabilityNeeds } from "@/api/convex/lib/modelCapabilities";
 import type { ModelRoutingInfo } from "@/llm/resolver";
 import type { RepeatedOutputGuard, StallThresholds } from "@/utils/stallDetector";
 import type {
@@ -292,8 +291,6 @@ export interface RunContext {
   performanceByKey: Map<string, PerformanceDecision>;
   /** Executor model choice + reason per subtask key (logged on subtask.routed). */
   modelRoutingByKey: Map<string, ModelRoutingInfo>;
-  /** The executor's capability needs for one subtask + agent. */
-  executorNeeds: (subtask: PlanSubtask, agent: AgentDefinition) => CapabilityNeeds;
 
   // --- Helpers (built once by `executePlan`) ------------------------------
   assign: (key: string) => AgentDefinition | null;

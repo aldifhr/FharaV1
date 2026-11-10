@@ -159,10 +159,12 @@ import backend internals.
   A mismatch with the backend key fails with an explicit error — do not fall
   back to a plaintext or env key silently.
 - Selection order: priority → weighted among equals (or round robin when the
-  agent's policy is `round_robin`) → `modelPatterns` filter →
+  app-wide selection mode is `round_robin`) → `modelPatterns` filter →
   provider health (circuit breaker) → fallback chain. Do not hardcode a model.
-  The failover chain is armed in every mode; the policy only changes which
-  connection a call starts on. The round-robin cursor is process-local
+  The failover chain is armed in every mode; the mode only changes which
+  connection a call starts on. The app-wide mode comes from the run context
+  (`llmSelectionMode`, plan 032); an agent's own `llmSelectionPolicy` still
+  wins over it. The round-robin cursor is process-local
   (`llm/roundRobin.ts`): it spreads load, it is never correctness state.
 - Provider-health reports are best-effort: a failed report must never fail the
   provider call.

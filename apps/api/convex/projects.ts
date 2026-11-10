@@ -239,7 +239,6 @@ export const PROJECT_CASCADE = [
   { table: "projectAgents", index: "by_project" },
   { table: "mcpServers", index: "by_project" },
   { table: "memories", index: "by_project" },
-  { table: "modelCapabilityOverrides", index: "by_project" },
   { table: "calibrationActions", index: "by_project" },
   { table: "audit", index: "by_project" },
 ] as const;

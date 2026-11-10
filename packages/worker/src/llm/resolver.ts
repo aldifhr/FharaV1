@@ -9,15 +9,7 @@ import { decryptApiKey } from "./crypto";
 import { providerHealth, type ProviderHealthRegistry } from "./health";
 import { fixedRotationCursor, rotationCursor, type RotationCursor } from "./roundRobin";
 import { applyModelTier, type ModelTiers } from "@/api/convex/lib/modelTiers";
-import {
-  describeNeeds,
-  hasNeeds,
-  missingNeeds,
-  resolveModelCapabilities,
-  type CapabilityNeeds,
-  type CapabilityOverrideRow,
-  type ModelCapabilities,
-} from "@/api/convex/lib/modelCapabilities";
+import { policyForMode, type LlmSelectionMode } from "@/api/convex/lib/llmSelection";
 
 /**
  * LLM Resolver (spec §4) — turns the backend provider pool (connections +
@@ -110,74 +102,22 @@ export interface AgentResolution {
   primary: ResolvedLlm;
   /** Ordered alternatives for in-task fallback (excludes the primary). */
   fallbackChain: ResolvedLlm[];
-  /** Capability routing (plan 027): the chosen model and why. */
+  /** The chosen model and why. */
   routing: ModelRoutingInfo;
 }
 
 export interface ResolveNeed {
   modelId?: string;
-  requireTools?: boolean;
-  requireReasoning?: boolean;
-  /** Plan 027: what this call site needs from its model (registry-checked). */
-  capabilities?: CapabilityNeeds;
   /** Call site label for routing records / warnings ("planner", "executor"…). */
   callRole?: string;
 }
 
-/**
- * Why a model was chosen (plan 027). `fallback` = no candidate satisfied
- * the needs, so the pick is the pre-registry behaviour (and a warning event
- * is due); `skipped` lists earlier-preferred models passed over for a
- * missing capability.
- */
+/** Why a model was chosen. */
 export interface ModelRoutingInfo {
   model: string;
   connection: string;
   callRole?: string;
-  needs: CapabilityNeeds;
-  satisfied: boolean;
-  fallback: boolean;
-  missing: string[];
-  skipped: Array<{ model: string; connection: string; missing: string[] }>;
   reason: string;
-}
-
-/** Capability lookup for one pool pair (resolver option). */
-export type CapabilityLookup = (connection: PoolConnection, model: PoolModel) => ModelCapabilities;
-
-/**
- * Capability routing switch: on unless MODEL_CAPABILITY_ROUTING=0/false/off.
- * Off = needs are recorded but never change the pick.
- */
-export function capabilityRoutingEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  const raw = (env.MODEL_CAPABILITY_ROUTING ?? "").trim().toLowerCase();
-  return !(raw === "0" || raw === "false" || raw === "off");
-}
-
-/** Build the lookup from stored overrides (+ the pool row's registry fields). */
-export function capabilityLookupFrom(
-  overrides: CapabilityOverrideRow[] | undefined,
-  projectId: string | undefined
-): CapabilityLookup {
-  const cache = new Map<string, ModelCapabilities>();
-  return (connection, model) => {
-    const key = `${connection._id}::${model.modelId}`;
-    let caps = cache.get(key);
-    if (!caps) {
-      caps = resolveModelCapabilities(model.modelId, {
-        overrides,
-        projectId,
-        registry: {
-          contextWindow: model.contextWindow,
-          supportsTools: model.supportsTools,
-          inputPricePer1k: model.inputPricePer1k,
-          outputPricePer1k: model.outputPricePer1k,
-        },
-      }).capabilities;
-      cache.set(key, caps);
-    }
-    return caps;
-  };
 }
 
 export type AgentLlmAssignment = Pick<
@@ -200,8 +140,6 @@ export function matchesModelPattern(pattern: string, modelId: string): boolean {
 
 function modelMatchesNeed(model: PoolModel, need: ResolveNeed): boolean {
   if (need.modelId && model.modelId !== need.modelId) return false;
-  if (need.requireTools && model.supportsTools === false) return false;
-  if (need.requireReasoning && model.supportsReasoning === false) return false;
   return true;
 }
 
@@ -324,14 +262,15 @@ export function resolveForAgent(
   need: ResolveNeed,
   pool: PoolConnection[],
   health: ProviderHealthRegistry,
-  options: { random?: () => number; capabilityOf?: CapabilityLookup; capabilityRouting?: boolean; rotation?: RotationCursor } = {}
+  options: {
+    random?: () => number;
+    rotation?: RotationCursor;
+    /** Plan 032: the app-wide selection mode from the run context. */
+    globalMode?: LlmSelectionMode;
+  } = {}
 ): AgentResolution {
   const random = options.random ?? Math.random;
   const rotation = options.rotation ?? rotationCursor;
-  const needs = need.capabilities ?? {};
-  const routeByNeeds = options.capabilityRouting !== false && hasNeeds(needs) && Boolean(options.capabilityOf);
-  const missingFor = (pair: { connection: PoolConnection; model: PoolModel }): string[] =>
-    options.capabilityOf && hasNeeds(needs) ? missingNeeds(options.capabilityOf(pair.connection, pair.model), needs) : [];
 
   // Empty pool: preserve the historical env-based behavior (Settings has
   // no providers configured; the worker env is the configuration).
@@ -341,7 +280,6 @@ export function resolveForAgent(
       _id: "", name: "(worker env)", provider: config.provider, baseUrl: config.baseUrl,
       apiKeyEnv: "", apiKey: config.apiKey, priority: 0, weight: 1, models: [],
     };
-    const missing = missingFor({ connection: envConnection, model: { modelId: config.model, isAvailable: true } });
     return {
       primary: {
         connectionId: "",
@@ -357,15 +295,7 @@ export function resolveForAgent(
         model: config.model,
         connection: "(worker env)",
         callRole: need.callRole,
-        needs,
-        satisfied: missing.length === 0,
-        fallback: missing.length > 0,
-        missing,
-        skipped: [],
-        reason:
-          missing.length === 0
-            ? `worker env model${hasNeeds(needs) ? ` satisfies ${describeNeeds(needs)}` : ""}`
-            : `worker env model is the only choice; it lacks ${missing.join(", ")} (kept, warning)`,
+        reason: "worker env model (no providers configured)",
       },
     };
   }
@@ -395,7 +325,9 @@ export function resolveForAgent(
     (p) => !assignedKeys.has(`${p.connection._id}::${p.model.modelId}`)
   );
 
-  const policy = agent?.llmSelectionPolicy;
+  // Plan 032: the app-wide mode decides the pick; an agent's own policy
+  // (legacy / explicit) still wins over it.
+  const policy = agent?.llmSelectionPolicy ?? policyForMode(options.globalMode);
   const consideredTiers = policy === "fixed" ? [tiers[0], tiers[1]] : tiers;
 
   // Health filter: circuit-open connections are excluded. If exclusion
@@ -420,37 +352,10 @@ export function resolveForAgent(
     );
   }
 
-  // Plan 027: capability needs. When some healthy candidate satisfies the
-  // call site's needs, only those are eligible for the primary (tier order
-  // kept, so the first satisfying model wins). When none does, selection
-  // falls back to the pre-registry behaviour and the routing record says
-  // so (the caller emits a warning event) — a working setup never fails
-  // here because of the registry.
-  const skipped: ModelRoutingInfo["skipped"] = [];
-  let selectionTiers = healthyTiers;
-  let capabilityFallback = false;
-  if (routeByNeeds) {
-    const satisfying = healthyTiers.map((tier) => tier.filter((pair) => missingFor(pair).length === 0));
-    if (satisfying.some((tier) => tier.length > 0)) {
-      const firstTier = satisfying.findIndex((tier) => tier.length > 0);
-      for (const tier of healthyTiers.slice(0, firstTier + 1)) {
-        for (const pair of tier) {
-          const missing = missingFor(pair);
-          if (missing.length > 0 && !skipped.some((s) => s.model === pair.model.modelId && s.connection === pair.connection.name)) {
-            skipped.push({ model: pair.model.modelId, connection: pair.connection.name, missing });
-          }
-        }
-      }
-      selectionTiers = satisfying;
-    } else {
-      capabilityFallback = true;
-    }
-  }
-
   // Primary selection: first non-empty healthy tier; lowest priority in
   // it; among equal priorities, weight decides (unless policy="priority").
   let primaryPair: CandidatePair | undefined;
-  for (const tier of selectionTiers) {
+  for (const tier of healthyTiers) {
     if (tier.length === 0) continue;
     const minPriority = Math.min(...tier.map((p) => p.connection.priority));
     const topPairs = tier.filter((p) => p.connection.priority === minPriority);
@@ -483,9 +388,6 @@ export function resolveForAgent(
 
   // Fallback chain: every other healthy candidate, ordered by tier, then
   // priority, then weight (heavier first), for deterministic behavior.
-  // With capability routing, satisfying candidates come first; the rest
-  // stay at the end so an in-task failover never loses a working model.
-  const satisfiesRank = (p: CandidatePair) => (routeByNeeds && !capabilityFallback && missingFor(p).length > 0 ? 1 : 0);
   const chainPairs = healthyTiers
     .flat()
     .filter(
@@ -497,7 +399,6 @@ export function resolveForAgent(
     )
     .sort(
       (a, b) =>
-        satisfiesRank(a) - satisfiesRank(b) ||
         a.tier - b.tier ||
         a.connection.priority - b.connection.priority ||
         b.connection.weight - a.connection.weight
@@ -511,20 +412,7 @@ export function resolveForAgent(
     fallbackChain.push(toResolved(pair));
   }
 
-  const primaryMissing = missingFor(primaryPair);
   const label = `${primaryPair.model.modelId} on ${primaryPair.connection.name}`;
-  let reason: string;
-  if (!hasNeeds(needs)) reason = `${label}: pool order (no capability needs)`;
-  else if (!options.capabilityOf) reason = `${label}: pool order (no capability registry)`;
-  else if (options.capabilityRouting === false) {
-    reason = `${label}: pool order (capability routing off)${primaryMissing.length ? `; lacks ${primaryMissing.join(", ")}` : ""}`;
-  } else if (capabilityFallback) {
-    reason = `${label}: no candidate satisfies ${describeNeeds(needs)}; kept the usual pick (lacks ${primaryMissing.join(", ") || "nothing"})`;
-  } else if (skipped.length > 0) {
-    reason = `${label}: first model with ${describeNeeds(needs)}; skipped ${skipped.map((s) => `${s.model} (${s.missing.join(", ")})`).join(", ")}`;
-  } else {
-    reason = `${label}: satisfies ${describeNeeds(needs)}`;
-  }
   return {
     primary: toResolved(primaryPair),
     fallbackChain,
@@ -532,12 +420,7 @@ export function resolveForAgent(
       model: primaryPair.model.modelId,
       connection: primaryPair.connection.name,
       callRole: need.callRole,
-      needs,
-      satisfied: primaryMissing.length === 0,
-      fallback: capabilityFallback,
-      missing: primaryMissing,
-      skipped,
-      reason,
+      reason: `${label}: pool order`,
     },
   };
 }
@@ -584,30 +467,17 @@ export interface TaskLlmResolverOptions {
   random?: () => number;
   /** Rotation cursor for policy "round_robin" (default: process-wide). */
   rotation?: RotationCursor;
+  /** Plan 032: the app-wide selection mode ("fallback" | "round_robin"). */
+  globalMode?: LlmSelectionMode;
   tiers?: ModelTiers;
-  /** Plan 027: stored capability overrides (global + this project's). */
-  capabilityOverrides?: CapabilityOverrideRow[];
-  projectId?: string;
-  /** Defaults to capabilityRoutingEnabled() (env MODEL_CAPABILITY_ROUTING). */
-  capabilityRouting?: boolean;
-  /**
-   * Called once per distinct (callRole, model, missing) when no candidate
-   * satisfied a call site's needs — the runner logs a warning event.
-   */
-  onCapabilityFallback?: (routing: ModelRoutingInfo, agent?: AgentLlmAssignment) => void;
 }
 
 export class TaskLlmResolver {
-  private readonly capabilityOf: CapabilityLookup;
-  private readonly warned = new Set<string>();
-
   constructor(
     private readonly pool: PoolConnection[],
     private readonly health: ProviderHealthRegistry = providerHealth,
     private readonly options: TaskLlmResolverOptions = {}
-  ) {
-    this.capabilityOf = capabilityLookupFrom(options.capabilityOverrides, options.projectId);
-  }
+  ) {}
 
   /**
    * Plan 022 precedence: an explicit agent assignment beats the project's
@@ -626,24 +496,11 @@ export class TaskLlmResolver {
     agent?: AgentLlmAssignment,
     need: ResolveNeed = {}
   ): AgentResolution {
-    const resolution = resolveForAgent(this.assignmentFor(agent), need, this.pool, this.health, {
+    return resolveForAgent(this.assignmentFor(agent), need, this.pool, this.health, {
       random: this.options.random,
       rotation: this.options.rotation,
-      capabilityOf: this.capabilityOf,
-      capabilityRouting: this.options.capabilityRouting ?? capabilityRoutingEnabled(),
+      globalMode: this.options.globalMode,
     });
-    if (resolution.routing.fallback && this.options.onCapabilityFallback) {
-      const key = `${resolution.routing.callRole ?? ""}::${resolution.routing.model}::${resolution.routing.missing.join(",")}`;
-      if (!this.warned.has(key)) {
-        this.warned.add(key);
-        try {
-          this.options.onCapabilityFallback(resolution.routing, agent);
-        } catch {
-          // A warning sink must never break resolution.
-        }
-      }
-    }
-    return resolution;
   }
 
   configFor(agent?: AgentLlmAssignment, need: ResolveNeed = {}): GlobalLLMConfig {
@@ -669,20 +526,18 @@ export class TaskLlmResolver {
   expectedModelFor(
     agent?: AgentLlmAssignment,
     need: ResolveNeed = {}
-  ): { model: string; inputPricePer1k?: number; outputPricePer1k?: number; satisfied?: boolean } | null {
+  ): { model: string; inputPricePer1k?: number; outputPricePer1k?: number } | null {
     try {
-      const { primary, routing } = resolveForAgent(this.assignmentFor(agent), need, this.pool, this.health, {
+      const { primary } = resolveForAgent(this.assignmentFor(agent), need, this.pool, this.health, {
         random: () => 0,
         // The estimator must not consume a rotation.
         rotation: fixedRotationCursor,
-        capabilityOf: this.capabilityOf,
-        capabilityRouting: this.options.capabilityRouting ?? capabilityRoutingEnabled(),
+        globalMode: this.options.globalMode,
       });
       return {
         model: primary.model,
         inputPricePer1k: primary.inputPricePer1k,
         outputPricePer1k: primary.outputPricePer1k,
-        satisfied: routing.satisfied,
       };
     } catch {
       return null;

@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
 import { Pencil, Plus, Trash2 } from "lucide-react";
-import ModelCapabilitiesSection from "./ModelCapabilitiesSection";
 
 type Provider = {
   _id: string;
@@ -95,6 +94,9 @@ export default function LlmSettingsSection({
   // Provider health (Phase 5): circuit snapshots mirrored to the backend
   // by the worker. Keyed by provider NAME, like the usage stats.
   const healthStats = useQuery(api.orchestration.providerHealthStats, {});
+  // Plan 032: the app-wide selection mode (fallback | round robin).
+  const selection = useQuery(api.llmSelection.get, {});
+  const setSelectionMode = useMutation(api.llmSelection.set);
   const toast = useToast();
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -364,10 +366,62 @@ export default function LlmSettingsSection({
   const inputCls =
     "w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800";
 
+  const selectionMode = selection?.mode ?? "fallback";
+
+  async function chooseSelectionMode(mode: "fallback" | "round_robin") {
+    try {
+      await setSelectionMode({ mode });
+      toast("success", "Selection mode updated", mode === "fallback" ? "Fallback" : "Round robin");
+    } catch (err) {
+      toast("error", "Failed to update selection mode", err instanceof Error ? err.message : "");
+    }
+  }
+
   return (
     <>
       <ConfirmDialog request={confirmReq} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
       <div className="grid gap-4">
+          <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
+              <h2 className="text-sm font-semibold">Selection mode</h2>
+              <p className="mt-0.5 text-[12px] text-ink-3">
+                How a call picks the provider it starts on. A failed provider always fails over to the next
+                candidate.
+              </p>
+              <div className="mt-2 grid grid-cols-2 gap-1.5">
+                {(
+                  [
+                    {
+                      value: "fallback" as const,
+                      label: "Fallback",
+                      description: "Use one provider at a time, fail over to the next on error.",
+                    },
+                    {
+                      value: "round_robin" as const,
+                      label: "Round robin",
+                      description: "Rotate providers per call, still fails over.",
+                    },
+                  ] as const
+                ).map(({ value, label, description }) => {
+                  const active = selectionMode === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => void chooseSelectionMode(value)}
+                      aria-pressed={active}
+                      className={`rounded-lg border px-2.5 py-2 text-left text-sm transition ${
+                        active
+                          ? "border-brand bg-brand-soft text-brand-ink"
+                          : "border-line hover:bg-hover"
+                      }`}
+                    >
+                      <span className="block font-medium">{label}</span>
+                      <span className="mt-0.5 block text-[12px] text-ink-3">{description}</span>
+                    </button>
+                  );
+                })}
+              </div>
+          </section>
           <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
               <h2 className="text-sm font-semibold">{editingId ? "Edit connection" : "Add connection"}</h2>
               <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-2 gap-2.5 text-sm">
@@ -716,8 +770,6 @@ export default function LlmSettingsSection({
                   </p>
                 )}
             </section>
-
-          <ModelCapabilitiesSection projectId={projectId} />
         </div>
     </>
   );

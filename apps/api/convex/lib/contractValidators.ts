@@ -74,3 +74,9 @@ export const modelTiersValidator = v.object({
   worker: v.optional(v.id("llmModels")),
 });
 
+/** Global LLM selection mode (plan 032): fallback or round robin. */
+export const llmSelectionModeValidator = v.union(
+  v.literal("fallback"),
+  v.literal("round_robin")
+);
+

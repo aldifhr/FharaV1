@@ -37,7 +37,6 @@ export interface PerformanceCandidate {
   insufficient: boolean;
   available: boolean;
   load: { running: number; limit: number };
-  modelFit: boolean | null;
   budgetFit: boolean | null;
   expectedTokens: number | null;
 }
@@ -55,8 +54,6 @@ export interface PerformanceDecision {
 export interface PerformancePickInput {
   loadOf: (agent: AgentDefinition) => number;
   scoreOf: (agent: AgentDefinition, capability: string) => PerformanceScore | undefined;
-  /** Model registry check for this subtask's needs; null = unknown. */
-  modelFits?: (agent: AgentDefinition) => boolean | null;
   /** Task tokens left; null/undefined = no budget signal. */
   remainingTokens?: number | null;
 }
@@ -90,7 +87,6 @@ export function pickByPerformance(
       insufficient: score ? score.insufficient : true,
       available: running < limit,
       load: { running, limit },
-      modelFit: input.modelFits ? input.modelFits(agent) : null,
       budgetFit: remaining === null || expectedTokens === null ? null : expectedTokens <= remaining,
       expectedTokens,
     };
@@ -116,8 +112,8 @@ export function pickByPerformance(
   }
 
   // Stable selection in original order: a later candidate replaces the
-  // best only on a real score gap, or — within the tolerance — on model
-  // fit, then budget fit. Equal on all of them keeps the earlier one.
+  // best only on a real score gap, or — within the tolerance — on budget
+  // fit. Equal on all of them keeps the earlier one.
   const fitRank = (value: boolean | null) => (value === true ? 1 : value === null ? 0 : -1);
   let best = open[0];
   let why = "highest score";
@@ -130,12 +126,6 @@ export function pickByPerformance(
       continue;
     }
     if (Math.abs(b.score - a.score) > SCORE_TOLERANCE) continue;
-    if (fitRank(b.modelFit) > fitRank(a.modelFit)) {
-      best = row;
-      why = "scores tied; its model fits the subtask's needs";
-      continue;
-    }
-    if (fitRank(b.modelFit) < fitRank(a.modelFit)) continue;
     if (fitRank(b.budgetFit) > fitRank(a.budgetFit)) {
       best = row;
       why = "scores tied; its expected tokens fit the remaining budget";

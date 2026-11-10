@@ -42,7 +42,6 @@ function PerformanceFactors({ performance }: { performance: Performance }) {
             <th className="px-2.5 py-1.5 font-normal">Candidate</th>
             <th className="px-2.5 py-1.5 font-normal">Capacity</th>
             <th className="px-2.5 py-1.5 font-normal">Score</th>
-            <th className="px-2.5 py-1.5 font-normal">Model fit</th>
             <th className="px-2.5 py-1.5 font-normal">Budget fit</th>
           </tr>
         </thead>
@@ -60,7 +59,6 @@ function PerformanceFactors({ performance }: { performance: Performance }) {
                   {c.score.toFixed(2)}
                   <span className="text-ink-3"> · {c.insufficient ? `prior (${c.samples} samples)` : `${c.samples} samples`}</span>
                 </td>
-                <td className="px-2.5 py-1.5">{fit(c.modelFit)}</td>
                 <td className="px-2.5 py-1.5">{fit(c.budgetFit)}</td>
               </tr>
             );

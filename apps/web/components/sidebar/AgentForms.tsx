@@ -327,7 +327,6 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
   const [agentLlmModelId, setAgentLlmModelId] = useState(agent.llmModelId ?? "");
   const [agentLlmFallbackProviderId, setAgentLlmFallbackProviderId] = useState(agent.llmFallbackProviderId ?? "");
   const [agentLlmFallbackModelId, setAgentLlmFallbackModelId] = useState(agent.llmFallbackModelId ?? "");
-  const [agentLlmPolicy, setAgentLlmPolicy] = useState(agent.llmSelectionPolicy ?? "");
   // Execution runtime: "" = worker default, "api" | "opencode" override.
   const [agentRuntime, setAgentRuntime] = useState(agent.executionRuntime ?? "");
   const [agentOpencodeModel, setAgentOpencodeModel] = useState(agent.opencodeModel ?? "");
@@ -364,7 +363,8 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
         llmModelId: (agentLlmModelId || null) as never,
         llmFallbackProviderId: (agentLlmFallbackProviderId || null) as never,
         llmFallbackModelId: (agentLlmFallbackModelId || null) as never,
-        llmSelectionPolicy: (agentLlmPolicy || null) as never,
+        // The selection mode is global (Settings → LLM & Models); an agent
+        // keeps its own policy only when it was set explicitly before.
         // Runtime: a value sets it, null clears it (worker default).
         executionRuntime: (agentRuntime || null) as never,
         opencodeModel: agentOpencodeModel.trim() || null,
@@ -525,17 +525,8 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
                     ))}
                   </select>
                 </label>
-                <label className={`${label} sm:col-span-2`}>Selection policy
-                  <select value={agentLlmPolicy} onChange={(event) => setAgentLlmPolicy(event.target.value)} className={select}>
-                    <option value="">Default (weighted by weight)</option>
-                    <option value="weighted">Weighted (by weight)</option>
-                    <option value="priority">Fallback (top priority, then failover)</option>
-                    <option value="round_robin">Round robin (rotate providers)</option>
-                    <option value="fixed">Fixed (assigned connections only)</option>
-                  </select>
-                </label>
               </div>
-              <p className={hint}>Tried first, then the fallback, then the pool. A failed provider always fails over to the next candidate.</p>
+              <p className={hint}>Tried first, then the fallback, then the pool. A failed provider always fails over to the next candidate. The selection mode is global — Settings → LLM &amp; Models.</p>
             </div>
             <div className="grid gap-3">
               <p className="text-[13px] text-ink-2">Runtime</p>

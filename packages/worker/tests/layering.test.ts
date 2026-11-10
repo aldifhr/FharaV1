@@ -59,9 +59,11 @@ const SHARED_FOUNDATION = new Set([
   // Plan 025: requirements traceability and execution observations (pure).
   "convex/lib/requirements",
   "convex/lib/observations",
-  // Plan 027: model capability registry + agent performance scoring (pure).
-  "convex/lib/modelCapabilities",
+  // Plan 027: agent performance scoring (pure). The model capability
+  // registry was removed with plan 033.
   "convex/lib/agentPerformance",
+  // Plan 032: the global LLM selection mode (pure).
+  "convex/lib/llmSelection",
 ]);
 
 const SRC = path.resolve(import.meta.dirname, "../src");

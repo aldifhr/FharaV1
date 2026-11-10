@@ -124,10 +124,7 @@ describe("resolveForAgent — pool ordering", () => {
     expect(res.primary.connectionId).toBe("conn-a");
   });
 
-  it("unavailable models are never selected; tool/reasoning needs filter candidates", () => {
-    // Need semantics: an explicit supportsTools/supportsReasoning = false
-    // excludes a model; an unset flag means "unknown" and stays eligible
-    // (legacy/unmarked registry rows must remain usable).
+  it("unavailable models are never selected", () => {
     const pool = [
       conn({
         _id: "conn-a",
@@ -140,18 +137,54 @@ describe("resolveForAgent — pool ordering", () => {
       }),
     ];
     expect(resolveForAgent(undefined, {}, pool, freshHealth()).primary.model).toBe("plain");
-    expect(resolveForAgent(undefined, { requireTools: true }, pool, freshHealth()).primary.model).toBe("tooled");
-    // "tooled" leaves supportsReasoning unset → still eligible for a
-    // reasoning need; only an explicit false on EVERY model exhausts it.
-    expect(resolveForAgent(undefined, { requireReasoning: true }, pool, freshHealth()).primary.model).toBe("tooled");
-    const noReasoning = [
-      conn({ _id: "conn-n", name: "NoReason", models: [model("basic", { supportsReasoning: false })] }),
-    ];
-    expect(() => resolveForAgent(undefined, { requireReasoning: true }, noReasoning, freshHealth())).toThrow(
-      /No LLM provider can serve/
+  });
+});
+
+describe("resolveForAgent — global selection mode", () => {
+  const pool = [
+    conn({ _id: "conn-a", name: "Alpha", priority: 10 }),
+    conn({ _id: "conn-b", name: "Beta", priority: 10 }),
+    conn({ _id: "conn-c", name: "Gamma", priority: 10 }),
+  ];
+
+  it('mode "fallback" picks one provider and keeps the failover chain', () => {
+    const pick = (random: number) =>
+      resolveForAgent(undefined, {}, pool, freshHealth(), { globalMode: "fallback", random: () => random })
+        .primary.connectionId;
+    // The pool's own order: weight decides among equal priorities.
+    expect(pick(0)).toBe("conn-a");
+    expect(pick(0.99)).toBe("conn-c");
+    const res = resolveForAgent(undefined, {}, pool, freshHealth(), { globalMode: "fallback" });
+    expect(res.fallbackChain).toHaveLength(2);
+    expect(res.fallbackChain.map((f) => f.connectionId)).not.toContain(res.primary.connectionId);
+  });
+
+  it('mode "round_robin" rotates the starting connection', () => {
+    const rotation = new InMemoryRotationCursor();
+    const pick = () =>
+      resolveForAgent(undefined, {}, pool, freshHealth(), {
+        globalMode: "round_robin",
+        rotation,
+      }).primary.connectionId;
+    expect([pick(), pick(), pick(), pick()]).toEqual(["conn-a", "conn-b", "conn-c", "conn-a"]);
+  });
+
+  it("an agent's own policy still wins over the global mode", () => {
+    const rotation = new InMemoryRotationCursor();
+    const res = resolveForAgent(
+      agent({ llmSelectionPolicy: "fixed", llmProviderId: "conn-b" }),
+      {},
+      pool,
+      freshHealth(),
+      { globalMode: "round_robin", rotation }
     );
-    const unmarked = [conn({ _id: "conn-u", name: "Unmarked", models: [model("legacy")] })];
-    expect(resolveForAgent(undefined, { requireTools: true }, unmarked, freshHealth()).primary.model).toBe("legacy");
+    expect(res.primary.connectionId).toBe("conn-b");
+    expect(res.fallbackChain).toEqual([]);
+  });
+
+  it("no mode and no agent policy keeps the pool's own pick", () => {
+    const res = resolveForAgent(undefined, {}, pool, freshHealth(), { random: () => 0.99 });
+    expect(res.primary.connectionId).toBe("conn-c");
   });
 });
 

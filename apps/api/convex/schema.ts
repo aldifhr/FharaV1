@@ -1,6 +1,5 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { capabilityPatchFields, capabilityProbeValidator } from "./lib/capabilityValidators";
 import { permissionModeValidator } from "./lib/permissionModes";
 import {
   decisionExpectedValidator,
@@ -15,6 +14,7 @@ import {
   gateResultValidator,
   subtaskContractFields,
   modelTiersValidator,
+  llmSelectionModeValidator,
 } from "./lib/contractValidators";
 import {
   observationFields,
@@ -1030,19 +1030,14 @@ export default defineSchema({
     .index("by_provider", ["providerId"])
     .index("by_provider_and_model", ["providerId", "modelId"]),
 
-  // Model Capability Registry (plan 027): per-model capability overrides
-  // keyed by the model id string the provider serves, global (no projectId)
-  // or per project, plus the last manual probe observation. Resolution order
-  // and defaults: lib/modelCapabilities.ts.
-  modelCapabilityOverrides: defineTable({
-    modelId: v.string(),
-    projectId: v.optional(v.id("projects")),
-    ...capabilityPatchFields,
-    probe: v.optional(capabilityProbeValidator),
+  // Global LLM selection mode (plan 032): one row for the whole app —
+  // "fallback" (top priority first, fail over on error) or "round_robin"
+  // (rotate the starting provider). Read by the worker through the run
+  // context; it carries no credential material.
+  llmSelectionSettings: defineTable({
+    mode: llmSelectionModeValidator,
     updatedAt: v.number(),
-  })
-    .index("by_model_and_project", ["modelId", "projectId"])
-    .index("by_project", ["projectId"]),
+  }),
 
   // Context summaries (plan 006 Phase 3): deterministic LLM summaries of a
   // conversation's tail so prompts carry a bounded summary + last 12 instead

@@ -172,29 +172,23 @@ describe("pickByPerformance", () => {
     expect(defFull.agent?._id).toBe("fe2");
   });
 
-  it("ties keep the original order; within the tie margin model fit then budget decide", () => {
+  it("ties keep the original order; within the tie margin budget decides", () => {
     const tie = pickByPerformance(fe1, "frontend-development", team, { loadOf: () => 0, scoreOf: scoresOf([score("fe1", 0.8), score("fe2", 0.81)]) });
     expect(tie.agent?._id).toBe("fe1");
     expect(tie.performance?.changed).toBe(false);
     const noScores = pickByPerformance(fe1, "frontend-development", team, { loadOf: () => 0, scoreOf: () => undefined });
     expect(noScores.agent?._id).toBe("fe1");
-    const modelFit = pickByPerformance(fe1, "frontend-development", team, {
-      loadOf: () => 0,
-      scoreOf: scoresOf([score("fe1", 0.8), score("fe2", 0.8)]),
-      modelFits: (a) => a._id === "fe2",
-    });
-    expect(modelFit.agent?._id).toBe("fe2");
     const budget = pickByPerformance(fe1, "frontend-development", team, {
       loadOf: () => 0,
       scoreOf: scoresOf([score("fe1", 0.8, 10, 50_000), score("fe2", 0.8, 10, 1000)]),
       remainingTokens: 10_000,
     });
     expect(budget.agent?._id).toBe("fe2");
-    // A real score gap beats model fit.
+    // A real score gap beats budget fit.
     const gap = pickByPerformance(fe1, "frontend-development", team, {
       loadOf: () => 0,
       scoreOf: scoresOf([score("fe1", 0.9), score("fe2", 0.6)]),
-      modelFits: (a) => a._id === "fe2",
+      remainingTokens: 10_000,
     });
     expect(gap.agent?._id).toBe("fe1");
   });

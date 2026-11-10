@@ -16,7 +16,6 @@ import { validatePlan } from "./planValidator";
 import { extractJson } from "@/utils/json";
 import { planningPrompt, PLAN_NODE_INSTRUCTIONS } from "@/prompts/planner";
 import { wantsVisualQa } from "@/utils/qaIntent";
-import { CALL_SITE_NEEDS } from "@/api/convex/lib/modelCapabilities";
 import { defaultGatesForKind } from "@/api/convex/lib/subtaskContract";
 import {
   extractRequirementsFallback,
@@ -129,7 +128,6 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
       const planningPrompt = buildPlanningPrompt(input);
       const handles: FallbackHandle[] = input.llmResolver
         ? input.llmResolver.handlesFor(orchestrator, {
-            capabilities: CALL_SITE_NEEDS.planner(planningPrompt.length + (orchestrator.systemPrompt?.length ?? 0)),
             callRole: "planner",
           })
         : [{

@@ -81,12 +81,11 @@ export interface RoutingView {
         insufficient: boolean;
         available: boolean;
         load: string;
-        modelFit: boolean | null;
         budgetFit: boolean | null;
       }>;
     } | null;
-    /** Plan 027: the executor model chosen against the subtask's capability needs. */
-    model: { model: string; connection: string | null; satisfied: boolean; fallback: boolean; reason: string | null } | null;
+    /** The executor model chosen for the subtask. */
+    model: { model: string; connection: string | null; reason: string | null } | null;
     why: string[];
   }>;
   handoffs: Array<{
@@ -218,7 +217,6 @@ export function extractRouting(input: {
                 insufficient: c.insufficient === true,
                 available: c.available !== false,
                 load: `${typeof load.running === "number" ? load.running : 0}/${typeof load.limit === "number" ? load.limit : 1}`,
-                modelFit: typeof c.modelFit === "boolean" ? c.modelFit : null,
                 budgetFit: typeof c.budgetFit === "boolean" ? c.budgetFit : null,
               };
             }),
@@ -229,8 +227,6 @@ export function extractRouting(input: {
       ? {
           model: asString(md.model)!,
           connection: asString(md.connection),
-          satisfied: md.satisfied !== false,
-          fallback: md.fallback === true,
           reason: asString(md.reason),
         }
       : null;
@@ -261,7 +257,7 @@ export function extractRouting(input: {
       );
     }
     if (model) {
-      why.push(`Model: ${model.reason ?? model.model}${model.fallback ? " (capability warning)" : ""}`);
+      why.push(`Model: ${model.reason ?? model.model}`);
     }
     if (subtask.origin && subtask.origin !== "planned" && subtask.origin !== "plan") {
       why.push(`Added during the run (${subtask.origin.replace(/_/g, " ")})`);

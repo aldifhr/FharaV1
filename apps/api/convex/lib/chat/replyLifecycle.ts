@@ -7,6 +7,7 @@
  * happens (or a deploy / OOM), the action's own catch never runs, so the
  * user message and its streaming bubble must be settled from outside.
  */
+import { cenvParse, cenvRaw } from "@fhara/config/convex";
 
 /** Convex's hard cap on a Node action. */
 export const NODE_ACTION_LIMIT_MS = 10 * 60_000;
@@ -18,11 +19,9 @@ export const MIN_CHAT_REPLY_STALE_MS = NODE_ACTION_LIMIT_MS + 60_000;
 export const CHAT_SWEEP_BATCH = 100;
 
 /** `CHAT_REPLY_STALE_MS` (ms), clamped to at least MIN_CHAT_REPLY_STALE_MS. */
-export function chatReplyStaleMs(raw: string | undefined = process.env.CHAT_REPLY_STALE_MS): number {
-  if (raw === undefined || raw.trim() === "") return DEFAULT_CHAT_REPLY_STALE_MS;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_CHAT_REPLY_STALE_MS;
-  return Math.max(MIN_CHAT_REPLY_STALE_MS, Math.floor(parsed));
+export function chatReplyStaleMs(raw: string | undefined = cenvRaw("CHAT_REPLY_STALE_MS")): number {
+  // Blank/invalid/≤ 0 → default; at least MIN_CHAT_REPLY_STALE_MS; no upper bound (schema).
+  return cenvParse("CHAT_REPLY_STALE_MS", raw);
 }
 
 export type ReplyStatus = "pending" | "replying" | "answered" | "failed";

@@ -12,6 +12,7 @@
  * follow the design of agent-orchestrator (Apache-2.0). No code or text is
  * taken from it; this is an independent TypeScript implementation.
  */
+import { cenvParse, cenvRaw } from "@fhara/config/convex";
 
 export type CiState = "pending" | "passed" | "failed";
 export type ReviewState = "none" | "approved" | "changes_requested" | "commented";
@@ -332,10 +333,8 @@ export function planReaction(signal: PrSignal, facts: { headSha?: string; mergea
 }
 
 /** FHARA_PR_FIX_MAX_ATTEMPTS, default 3, clamped to 0..20. */
-export function fixMaxAttempts(raw: string | undefined = process.env.FHARA_PR_FIX_MAX_ATTEMPTS): number {
-  const n = raw === undefined || raw.trim() === "" ? NaN : Number(raw);
-  if (!Number.isFinite(n)) return DEFAULT_FIX_MAX_ATTEMPTS;
-  return Math.max(0, Math.min(20, Math.floor(n)));
+export function fixMaxAttempts(raw: string | undefined = cenvRaw("FHARA_PR_FIX_MAX_ATTEMPTS")): number {
+  return cenvParse("FHARA_PR_FIX_MAX_ATTEMPTS", raw);
 }
 
 /** Last lines of a CI log, bounded by lines and characters. */

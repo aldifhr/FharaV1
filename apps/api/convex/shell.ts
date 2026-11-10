@@ -4,6 +4,7 @@
  * bounded with `.take()`; global feeds are scoped to the projects the
  * caller may see (core H5), project feeds assert project access.
  */
+import { cenvRaw } from "@fhara/config/convex";
 import { query, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -588,7 +589,7 @@ export const teamStatus = query({
 
 /** Weekly budget in tokens from the deployment env; null = not configured. */
 function weeklyBudget(): number | null {
-  const raw = Number(process.env.MOAGENT_WEEKLY_TOKEN_BUDGET);
+  const raw = Number(cenvRaw("MOAGENT_WEEKLY_TOKEN_BUDGET"));
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : null;
 }
 

@@ -16,6 +16,7 @@
  *  - buildContextSnapshot: everything above in one call → the light meta row
  *    plus the heavy body (stored in a separate table).
  */
+import { cenv } from "@fhara/config/convex";
 import { settingEnvSource } from "./appSettings";
 
 export const SECTION_KEYS = [
@@ -100,8 +101,7 @@ export const MAX_SNAPSHOT_RETENTION_DAYS = 365;
 
 /** Global kill switch: CONTEXT_SNAPSHOTS=0 (or false/off) disables recording everywhere. */
 export function contextSnapshotsEnabled(env: Record<string, string | undefined> = readEnv()): boolean {
-  const raw = (env.CONTEXT_SNAPSHOTS ?? "").trim().toLowerCase();
-  return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
+  return cenv("CONTEXT_SNAPSHOTS", env); // falsy list, default on
 }
 
 function readEnv(): Record<string, string | undefined> {

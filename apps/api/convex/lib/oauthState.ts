@@ -10,6 +10,7 @@
  * Web Crypto only (`crypto.subtle`, btoa/atob, TextEncoder): Convex runs
  * functions in a V8 isolate without Node's `Buffer`.
  */
+import { cenv, cenvRaw } from "@fhara/config/convex";
 
 export const OAUTH_STATE_MAX_AGE_MS = 10 * 60_000;
 /** Nonce rows older than this are pruned. */
@@ -40,7 +41,7 @@ function base64UrlToBytes(value: string): Uint8Array {
 
 /** OAUTH_STATE_SECRET, falling back to PROVIDER_ENCRYPTION_KEY. */
 export function oauthStateSecret(): string | null {
-  return process.env.OAUTH_STATE_SECRET?.trim() || process.env.PROVIDER_ENCRYPTION_KEY?.trim() || null;
+  return cenv("OAUTH_STATE_SECRET") || cenvRaw("PROVIDER_ENCRYPTION_KEY")?.trim() || null;
 }
 
 async function hmac(secret: string, data: string): Promise<Uint8Array> {
@@ -125,7 +126,7 @@ export function safeReturnTo(value: string | undefined): string | undefined {
  * app and forwarded to Convex), else the local dev default.
  */
 export function appOrigin(): string {
-  for (const raw of [process.env.APP_ORIGIN, process.env.GITHUB_OAUTH_CALLBACK_URL]) {
+  for (const raw of [cenvRaw("APP_ORIGIN"), cenvRaw("GITHUB_OAUTH_CALLBACK_URL")]) {
     if (!raw?.trim()) continue;
     try {
       const url = new URL(raw.trim());

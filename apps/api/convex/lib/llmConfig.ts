@@ -3,18 +3,20 @@
  * LLM_*_BASE_URL, LLM_API_KEY). Used when the provider pool has no usable
  * connection. Shared by the chat client and the prompt enhancer.
  */
+import { cenv, cenvRaw } from "@fhara/config/convex";
 export type LlmEndpointConfig = { provider: string; model: string; baseUrl: string; apiKey: string };
 
 export function getGlobalLLMConfig(): LlmEndpointConfig {
-  const env: Record<string, string | undefined> =
-    (globalThis as any).process?.env ?? {};
-  const provider = (env.LLM_PROVIDER ?? "anthropic").toLowerCase();
+  // Convex flavour: only "openai" takes the OpenAI defaults; openai-compatible
+  // falls back to Anthropic's (the worker differs, D4 / B5).
+  const provider = cenv("LLM_PROVIDER");
+  const openai = provider === "openai";
   return {
     provider,
-    model: env.LLM_MODEL ?? (provider === "openai" ? "gpt-4o-mini" : "claude-sonnet-4-20250514"),
-    baseUrl: provider === "openai"
-      ? (env.LLM_OPENAI_BASE_URL ?? env.LLM_BASE_URL ?? "https://api.openai.com/v1")
-      : (env.LLM_ANTHROPIC_BASE_URL ?? env.LLM_BASE_URL ?? "https://api.anthropic.com/v1"),
-    apiKey: env.LLM_API_KEY ?? env.OPENAI_API_KEY ?? "",
+    model: cenv("LLM_MODEL", undefined, { fallback: openai ? "gpt-4o-mini" : "claude-sonnet-4-20250514" }),
+    baseUrl: openai
+      ? (cenvRaw("LLM_OPENAI_BASE_URL") ?? cenvRaw("LLM_BASE_URL") ?? "https://api.openai.com/v1")
+      : (cenvRaw("LLM_ANTHROPIC_BASE_URL") ?? cenvRaw("LLM_BASE_URL") ?? "https://api.anthropic.com/v1"),
+    apiKey: cenv("LLM_API_KEY"), // alias OPENAI_API_KEY, default ""
   };
 }

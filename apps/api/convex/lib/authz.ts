@@ -1,3 +1,4 @@
+import { cenv } from "@fhara/config/convex";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 
@@ -18,7 +19,7 @@ export async function getViewerId(ctx: Ctx): Promise<string | null> {
 }
 
 export function isServiceTokenValid(token: string | undefined): boolean {
-  const configured = process.env.CONVEX_SERVICE_TOKEN;
+  const configured = cenv("CONVEX_SERVICE_TOKEN");
   if (!configured || !token) return false;
   // Timing-safe comparison: hash both sides, then compare the digests with
   // an XOR-accumulating loop whose runtime does not depend on where (or

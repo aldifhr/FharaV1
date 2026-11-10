@@ -12,6 +12,7 @@
  *
  * Exported for unit tests (taskWatchdog.test.ts).
  */
+import { cenvParse, cenvRaw } from "@fhara/config/convex";
 
 /** Default stuck window: no progress at all for this long fails the task. */
 export const DEFAULT_TASK_STUCK_MS = 30 * 60_000;
@@ -21,12 +22,9 @@ export const MIN_TASK_STUCK_MS = 5 * 60_000;
 export const WATCHDOG_BATCH = 50;
 
 /** The stuck window from `TASK_WATCHDOG_STUCK_MS` (0 disables the stuck check). */
-export function taskStuckMs(raw: string | undefined = process.env.TASK_WATCHDOG_STUCK_MS): number {
-  if (raw === undefined || raw.trim() === "") return DEFAULT_TASK_STUCK_MS;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return DEFAULT_TASK_STUCK_MS;
-  if (parsed <= 0) return 0;
-  return Math.max(MIN_TASK_STUCK_MS, Math.floor(parsed));
+export function taskStuckMs(raw: string | undefined = cenvRaw("TASK_WATCHDOG_STUCK_MS")): number {
+  // Blank/invalid → default; ≤ 0 → 0 (off); at least MIN_TASK_STUCK_MS (schema).
+  return cenvParse("TASK_WATCHDOG_STUCK_MS", raw);
 }
 
 /** Latest progress timestamp among the given signals (undefined ignored). */

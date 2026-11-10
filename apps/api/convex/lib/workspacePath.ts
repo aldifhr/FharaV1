@@ -1,5 +1,6 @@
 "use node";
 
+import { cenvRaw } from "@fhara/config/convex";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -32,7 +33,7 @@ export function resolveRepoPath(
   }
   const fromWorktree = options.worktreePath ? mainCheckoutOfWorktree(options.worktreePath) : null;
   if (fromWorktree) return fromWorktree;
-  const envRoot = (options.env ?? process.env).WORKSPACE_ROOT;
+  const envRoot = cenvRaw("WORKSPACE_ROOT", options.env);
   if (envRoot && envRoot.trim()) return path.resolve(cwd, envRoot.trim(), raw);
   return path.resolve(cwd, raw);
 }

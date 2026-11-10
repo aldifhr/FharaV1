@@ -14,6 +14,7 @@
  * back to some other credential would send requests with the wrong key and
  * hide a broken configuration (PLAN Phase 2).
  */
+import { cenv } from "@fhara/config/convex";
 
 const FORMAT_VERSION = "v1";
 const IV_BYTES = 12;
@@ -66,7 +67,7 @@ async function importKey(
 }
 
 function encryptionKey(usages: KeyUsage[]): Promise<CryptoKey> {
-  return importKey(process.env.PROVIDER_ENCRYPTION_KEY, "PROVIDER_ENCRYPTION_KEY", usages);
+  return importKey(cenv("PROVIDER_ENCRYPTION_KEY"), "PROVIDER_ENCRYPTION_KEY", usages);
 }
 
 /** Encrypt a plaintext API key for storage in `llmProviders.apiKeyCiphertext`. */
@@ -148,7 +149,7 @@ export async function reEncryptApiKey(
   providerName: string
 ): Promise<string> {
   const oldKey = await importKey(
-    process.env.PROVIDER_ENCRYPTION_KEY_OLD,
+    cenv("PROVIDER_ENCRYPTION_KEY_OLD"),
     "PROVIDER_ENCRYPTION_KEY_OLD",
     ["decrypt"]
   );

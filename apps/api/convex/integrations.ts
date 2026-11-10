@@ -1,3 +1,4 @@
+import { cenv, cenvRaw } from "@fhara/config/convex";
 import {
   mutation,
   query,
@@ -41,10 +42,10 @@ import { parsePrSignal } from "./lib/prFeedback";
 
 // GitHub OAuth configuration
 // Read per call (not at module load) so env changes and tests see them.
-const githubClientId = () => process.env.GITHUB_CLIENT_ID ?? "";
-const githubClientSecret = () => process.env.GITHUB_CLIENT_SECRET ?? "";
+const githubClientId = () => cenv("GITHUB_CLIENT_ID");
+const githubClientSecret = () => cenv("GITHUB_CLIENT_SECRET");
 const githubCallbackUrl = () =>
-  process.env.GITHUB_OAUTH_CALLBACK_URL ?? "http://localhost:3000/api/integrations/github/callback";
+  cenvRaw("GITHUB_OAUTH_CALLBACK_URL") ?? "http://localhost:3000/api/integrations/github/callback";
 
 /**
  * Account-level GitHub connection (one per deployment; the app is
@@ -548,7 +549,7 @@ export const handleWebhook = httpAction(async (ctx, request) => {
       return json({ error: "unauthorized" }, 401);
     }
   }
-  if (!secret) secret = process.env.GITHUB_WEBHOOK_SECRET?.trim() || null;
+  if (!secret) secret = cenv("GITHUB_WEBHOOK_SECRET") || null;
   if (!secret) {
     if (!warnedNoWebhookSecret) {
       warnedNoWebhookSecret = true;
@@ -699,7 +700,7 @@ export const recordWebhookDelivery = internalMutation({
 
 /** The webhook URL to paste into GitHub (Convex serves HTTP actions on the site URL). */
 function webhookUrlFor(integrationId: string): string | null {
-  const site = process.env.CONVEX_SITE_URL?.replace(/\/$/, "");
+  const site = cenvRaw("CONVEX_SITE_URL")?.replace(/\/$/, "");
   return site ? `${site}/integrations/github/webhook/${integrationId}` : null;
 }
 
@@ -717,8 +718,8 @@ export const getWebhookSetup = query({
       webhookUrl: webhookUrlFor(integration._id),
       hasSecret: Boolean(integration.webhookSecret),
       secretSetAt: integration.webhookSecretSetAt ?? null,
-      envFallback: Boolean(process.env.GITHUB_WEBHOOK_SECRET?.trim()),
-      canEncrypt: Boolean(process.env.PROVIDER_ENCRYPTION_KEY?.trim()),
+      envFallback: Boolean(cenv("GITHUB_WEBHOOK_SECRET")),
+      canEncrypt: Boolean(cenvRaw("PROVIDER_ENCRYPTION_KEY")?.trim()),
     };
   },
 });

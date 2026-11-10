@@ -591,6 +591,26 @@ export default defineSchema({
         v.literal("cancelled")
       )
     ),
+    // Durable chat replies (t3code idea #1, idea only). A chat user message
+    // carries its reply lifecycle: pending → replying (claimed by one
+    // replyToChat run) → answered | failed. The worker queue (queueStatus)
+    // is not used for chat: nothing ever claimed those rows.
+    replyStatus: v.optional(
+      v.union(v.literal("pending"), v.literal("replying"), v.literal("answered"), v.literal("failed"))
+    ),
+    // The replyToChat run holding the claim and when it is presumed dead.
+    replyRunId: v.optional(v.string()),
+    replyLeaseExpiresAt: v.optional(v.number()),
+    // What the reply needs to be re-run by Retry (send's routing options).
+    replyOptions: v.optional(
+      v.object({
+        preferredAgentIds: v.optional(v.array(v.id("agents"))),
+        permissionMode: v.optional(permissionModeValidator),
+      })
+    ),
+    // Agent bubble whose streaming run died (stale sweep or a failed run):
+    // the UI shows "Reply interrupted" with Retry instead of a live caret.
+    interrupted: v.optional(v.boolean()),
     toAgentId: v.optional(v.id("agents")),
     leasedBy: v.optional(v.string()),
     leaseExpiresAt: v.optional(v.number()),
@@ -651,6 +671,9 @@ export default defineSchema({
     .index("by_task", ["taskId"])
     .index("by_reply_to", ["replyToMessageId"])
     .index("by_queue", ["queueStatus", "projectId"])
+    // Stale sweeps: bubbles still streaming, user messages still replying.
+    .index("by_streaming", ["streaming"])
+    .index("by_reply_status", ["replyStatus"])
     // Header pin chip: pinned messages of one project without a scan.
     .index("by_project_and_pinned", ["projectId", "pinned"]),
 

@@ -1,5 +1,6 @@
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { permissionModeValidator } from "./lib/permissionModes";
 import { MAX_TOOL_STEPS } from "./lib/chat/activity";
 import type { Doc, Id } from "./_generated/dataModel";
 import { loadProviderPool } from "./lib/llmResolver";
@@ -22,6 +23,8 @@ export const insertUserMessage = internalMutation({
     content: v.string(),
     conversationId: v.optional(v.id("conversations")),
     quotedMessageId: v.optional(v.id("messages")),
+    preferredAgentIds: v.optional(v.array(v.id("agents"))),
+    permissionMode: v.optional(permissionModeValidator),
   },
   handler: async (ctx, args) => {
     const content = args.content.trim();
@@ -31,17 +34,22 @@ export const insertUserMessage = internalMutation({
       const quoted = await ctx.db.get(args.quotedMessageId);
       if (!quoted || quoted.projectId !== args.projectId) throw new Error("Quoted message not found");
     }
-    // Durable FIFO queue (plan 016 P0): the row is claimed by the worker with
-    // the task lease pattern. Task-linked agent messages never enter the
-    // queue (queueStatus undefined) — only conversation user messages do.
+    // Durable chat reply (t3code idea #1): the reply lifecycle lives on the
+    // message (replyStatus), claimed by replyToChat. Chat messages no longer
+    // enter the worker queue (queueStatus): no worker ever claimed them, so
+    // they sat "pending" forever and inflated the pickup count.
+    const replyOptions = {
+      ...(args.preferredAgentIds?.length ? { preferredAgentIds: args.preferredAgentIds } : {}),
+      ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
+    };
     return await ctx.db.insert("messages", {
       projectId: args.projectId,
       authorType: "user",
       content,
       conversationId: args.conversationId,
       ...(args.quotedMessageId ? { quotedMessageId: args.quotedMessageId } : {}),
-      queueStatus: "pending",
-      attempts: 0,
+      replyStatus: "pending",
+      ...(Object.keys(replyOptions).length ? { replyOptions } : {}),
     });
   },
 });

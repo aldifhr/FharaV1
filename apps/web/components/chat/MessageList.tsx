@@ -26,6 +26,7 @@ import { useToast } from "../Toasts";
 import { QuotedSnippet, quoteOf } from "./QuoteBlock";
 import { ChatOpinionLine, useChatOpinions, useRequestMessageOpinion } from "../review/Reviewer";
 import ContextDrawer from "../context/ContextDrawer";
+import ReplyInterrupted from "./ReplyInterrupted";
 
 export type MessageKind = "evaluation" | "planning" | "delegation" | "design" | null;
 
@@ -134,7 +135,14 @@ export default function MessageList(props: Props) {
   // A reply is live while the action streams it. The age cap keeps a row
   // from an action that died mid-stream from animating forever.
   const isLive = (m: any) =>
-    m.authorType === "agent" && m.streaming === true && Date.now() - m._creationTime < 180_000;
+    m.authorType === "agent" && m.streaming === true && !m.interrupted && Date.now() - m._creationTime < 180_000;
+  // Durable replies: user messages whose dead reply already shows its own
+  // "Reply interrupted" line on the agent bubble (so it is not shown twice).
+  const interruptedFor = useMemo(() => {
+    const ids = new Set<string>();
+    for (const m of timeline) if (m.authorType === "agent" && m.interrupted && m.replyToMessageId) ids.add(String(m.replyToMessageId));
+    return ids;
+  }, [timeline]);
 
   // The CTO's newest reply offers "Create task" when it answers an option
   // pick or recommends making a task itself.
@@ -374,6 +382,9 @@ export default function MessageList(props: Props) {
           <MessageText content={m.content ?? ""} />
         </div>
       </div>
+      {m.replyStatus === "failed" && !interruptedFor.has(String(m._id)) && (
+        <ReplyInterrupted userMessageId={String(m._id)} reason={m.error} align="end" />
+      )}
     </div>
   );
 
@@ -528,6 +539,9 @@ export default function MessageList(props: Props) {
             </>
           );
         })()}
+        {m.interrupted && m.replyToMessageId && (
+          <ReplyInterrupted userMessageId={String(m.replyToMessageId)} />
+        )}
         {m.card && (
           <div className="mt-2 max-w-3xl">
             <ChatCard card={m.card} />

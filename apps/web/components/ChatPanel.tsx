@@ -228,8 +228,10 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     return () => clearInterval(id);
   }, []);
   const fresh = lastMessage ? typingNow - lastMessage._creationTime < 300_000 : false;
+  // A settled reply (answered or failed: see chatReplies) is not typing.
+  const replySettled = lastMessage?.replyStatus === "answered" || lastMessage?.replyStatus === "failed";
   const conversationTyping =
-    lastMessage?.authorType === "user" && fresh && !(tasks ?? []).some((t: any) => t.title === lastMessage?.content);
+    lastMessage?.authorType === "user" && fresh && !replySettled && !(tasks ?? []).some((t: any) => t.title === lastMessage?.content);
 
   // A reply to a teammate's message (no @mention) is answered by that
   // teammate (chat.ts replyToChat); the ghost bubble shows who.

@@ -8,6 +8,7 @@ import { query, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { assertProjectAccess, canViewProject, getViewerId, visibleProjects } from "./lib/authz";
+import { isChatUserMessage } from "./lib/chat/replyLifecycle";
 
 const APPROVAL_LIMIT = 100;
 const TASK_STATUS_LIMIT = 100;
@@ -341,12 +342,15 @@ export const decisionsForProject = query({
         .withIndex("by_status", (q) => q.eq("status", "queued"))
         .take(TRAY_QUEUE_LIMIT)
     ).filter((t) => t.projectId === args.projectId).length;
+    // Worker-queue messages only: chat messages are answered by the chat
+    // action (replyStatus), never by a worker, so legacy chat rows still
+    // parked as queueStatus "pending" must not count here.
     const pendingMessages = (
       await ctx.db
         .query("messages")
         .withIndex("by_queue", (q) => q.eq("queueStatus", "pending").eq("projectId", args.projectId))
         .take(TRAY_QUEUE_LIMIT)
-    ).length;
+    ).filter((m) => !isChatUserMessage(m)).length;
     const liveWorkers = await ctx.db
       .query("workers")
       .withIndex("by_status_and_heartbeat", (q) => q.eq("status", "online").gte("lastHeartbeatAt", now - WORKER_FRESH_MS))

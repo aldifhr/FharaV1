@@ -67,6 +67,7 @@ import { firstReasoningSentence, intentLineFor, stripInternalPhrasing, toolStepF
 import { completeWithSnapshot, type ChatSnapshotScope } from "./lib/chat/snapshot";
 import { readRepoSnapshot } from "./lib/chat/repoSnapshot";
 import { quoteContextLine, quotedResponderId } from "./lib/chat/quote";
+import { replyFailureText } from "./lib/chat/replyLifecycle";
 import {
   MAX_REPO_TOOL_CALLS,
   MAX_REPO_TOOL_CALLS_PER_CHAT,
@@ -640,11 +641,36 @@ export const replyToChat = internalAction({
     permissionMode: v.optional(permissionModeValidator),
   },
   handler: async (ctx, rawArgs) => {
-    // Concurrency guard: check if this message was already answered
-    const alreadyReplied = await ctx.runQuery(internal.chatContext.checkAlreadyReplied, {
+    // Durable reply (t3code idea #1): the "already replied?" check and the
+    // claim are one mutation, so a double-scheduled run returns here before
+    // it creates a bubble. The claim is settled answered/failed below; a run
+    // killed by the 10-minute Node cap is settled by chatReplies.sweepStale.
+    const claim = await ctx.runMutation(internal.chatReplies.claimReply, { userMessageId: rawArgs.userMessageId });
+    if (!claim.claimed) return;
+    try {
+      await answerChat(ctx, rawArgs);
+    } catch (error) {
+      await ctx.runMutation(internal.chatReplies.settleReply, {
+        userMessageId: rawArgs.userMessageId,
+        runId: claim.runId,
+        outcome: "failed",
+        error: replyFailureText(error),
+      });
+      throw error;
+    }
+    await ctx.runMutation(internal.chatReplies.settleReply, {
       userMessageId: rawArgs.userMessageId,
+      runId: claim.runId,
+      outcome: "answered",
     });
-    if (alreadyReplied) return;
+  },
+});
+
+/**
+ * One chat turn: route, stream and persist the replies to `rawArgs.userMessageId`.
+ * (Body kept at its original indentation to keep the durable-reply diff small.)
+ */
+async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
 
     // Reply quote: replying to a teammate's message (no @mention) routes the
     // answer to that teammate, as if the user had @mentioned it. The CTO and
@@ -1404,5 +1430,4 @@ export const replyToChat = internalAction({
         console.error("CTO wrap-up failed:", err?.message ?? err);
       }
     }
-  },
-});
+}

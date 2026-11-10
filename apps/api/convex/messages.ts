@@ -331,6 +331,8 @@ export const send = action({
       content: args.content,
       conversationId,
       ...(args.quotedMessageId ? { quotedMessageId: args.quotedMessageId } : {}),
+      ...(args.preferredAgentIds?.length ? { preferredAgentIds: args.preferredAgentIds } : {}),
+      ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
     });
     // A message typed while a command waits declines it ("user replied
     // instead"): the agent continues with these words rather than blocking.

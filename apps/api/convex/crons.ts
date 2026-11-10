@@ -27,4 +27,9 @@ crons.interval("sweep stale task worktrees", { hours: 6 }, internal.worktreeNode
 // 30 s as a backup; recoverStale is idempotent, so running both is safe.
 crons.interval("recover expired task leases", { seconds: 30 }, internal.orchestration.recoverStale, {});
 
+// Durable chat replies: settle replies whose action died (10-minute Node cap,
+// deploy, OOM) as interrupted/failed after CHAT_REPLY_STALE_MS (default
+// 15 min), and move legacy chat rows out of the worker queue.
+crons.interval("sweep stale chat replies", { minutes: 2 }, internal.chatReplies.sweepStale, {});
+
 export default crons;

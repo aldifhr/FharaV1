@@ -86,3 +86,41 @@ export function personalIndexTarget(rows: readonly PersonalListRow[] | null | un
   const [latest] = sidebarPersonalRows(rows);
   return latest ? `/chats/personal/${latest.agent._id}` : "/chats";
 }
+
+/**
+ * Plain-text preview of a chat message for one-line rows: drops markdown
+ * syntax (code fences and their language tag, inline code ticks, emphasis,
+ * headings, links, images, lists, quotes, tables, HTML tags) and collapses
+ * whitespace. Code inside fences is kept as text.
+ */
+export function plainTextPreview(markdown: string | null | undefined, maxLength = 160): string {
+  let text = String(markdown ?? "");
+  // Fences: ```lang / ~~~lang lines (open or close) go, their content stays.
+  text = text.replace(/^[ \t]*(```|~~~)[^\n]*$/gm, " ");
+  // Images then links: keep the alt/label text.
+  text = text.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
+  text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  text = text.replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1");
+  // HTML tags.
+  text = text.replace(/<\/?[a-zA-Z][^>]*>/g, "");
+  // Line prefixes: headings, quotes, list bullets/numbers, task boxes, table rules.
+  text = text.replace(/^[ \t]*#{1,6}[ \t]+/gm, "");
+  text = text.replace(/^[ \t]*>+[ \t]?/gm, "");
+  text = text.replace(/^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/gm, "");
+  text = text.replace(/^[ \t]*\|?[ \t]*:?-{3,}:?[ \t]*(?:\|[ \t]*:?-{3,}:?[ \t]*)*\|?[ \t]*$/gm, " ");
+  text = text.replace(/^[ \t]*(?:[-*_][ \t]*){3,}$/gm, " ");
+  text = text.replace(/[ \t]*\|[ \t]*/g, " ");
+  // Inline code ticks, then emphasis / strike markers.
+  text = text.replace(/`+([^`]*)`+/g, "$1");
+  text = text.replace(/`+/g, "");
+  text = text.replace(/(\*\*|__)(.+?)\1/g, "$2");
+  text = text.replace(/(^|[^\w*])\*(?!\s)([^*\n]+?)\*(?!\w)/g, "$1$2");
+  text = text.replace(/(^|[^\w_])_(?!\s)([^_\n]+?)_(?!\w)/g, "$1$2");
+  text = text.replace(/~~(.+?)~~/g, "$1");
+  text = text.replace(/\*\*|__/g, "");
+  // Escapes and whitespace.
+  text = text.replace(/\\([\\`*_{}\[\]()#+\-.!|>~])/g, "$1");
+  text = text.replace(/\s+/g, " ").trim();
+  if (text.length > maxLength) text = `${text.slice(0, maxLength - 1).trimEnd()}…`;
+  return text;
+}

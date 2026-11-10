@@ -182,7 +182,7 @@ function ActivityFeed({ projectId }: { projectId: string }) {
     <div>
       <p className="border-b border-line px-3.5 py-2.5 text-[13px] font-semibold">Activity</p>
       <ul className="shell-scroll max-h-[360px] overflow-y-auto py-1">
-        {events === undefined && <li className="px-3.5 py-3 text-ink-3">Loadingâ€¦</li>}
+        {events === undefined && <li className="px-3.5 py-3 text-ink-3">Loading…</li>}
         {events?.length === 0 && <li className="px-3.5 py-3 text-ink-3">No activity yet in this project.</li>}
         {(events ?? []).map((e: any) => (
           <li key={e._id} className="px-3.5 py-2">
@@ -209,6 +209,12 @@ export default function IconRail({
   const { openNewProject } = useNewProject();
   const { openSettings } = useSettings();
   const [commandOpen, setCommandOpen] = useState(false);
+  // "⌘K" on Mac, "Ctrl K" elsewhere; resolved after mount so SSR markup matches.
+  const [searchShortcut, setSearchShortcut] = useState("⌘K");
+  useEffect(() => {
+    const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? "";
+    if (!/mac|iphone|ipad|ipod/i.test(platform)) setSearchShortcut("Ctrl K");
+  }, []);
   const [panel, setPanel] = useState<"activity" | "insights" | null>(null);
   const activityRef = useRef<HTMLButtonElement>(null);
   const insightsRef = useRef<HTMLButtonElement>(null);
@@ -259,7 +265,7 @@ export default function IconRail({
       <QueryBoundary fallback={<RailButton icon={Inbox} label="Inbox" href="/inbox" active={pathname === "/inbox"} />}>
         <InboxButton active={pathname === "/inbox"} />
       </QueryBoundary>
-      <RailButton icon={Search} label="Search (âŒ˜K)" onClick={() => setCommandOpen(true)} />
+      <RailButton icon={Search} label={`Search (${searchShortcut})`} onClick={() => setCommandOpen(true)} />
       <span aria-hidden="true" className="my-2 h-px w-6 bg-line max-[979px]:hidden" />
       <RailButton icon={MessagesSquare} label="Chats" href={chatHref} active={inChat} />
       <RailButton icon={Users} label="Team" href={projectId ? `/team?project=${projectId}` : "/team"} active={pathname === "/team"} />

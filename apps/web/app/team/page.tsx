@@ -2,7 +2,7 @@
 
 import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { Plus } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import IconRail from "@/components/IconRail";
@@ -11,7 +11,9 @@ import AgentDetailPanel from "@/components/AgentDetailPanel";
 import WorkloadSection from "@/components/WorkloadSection";
 import CollaborationSection from "@/components/team/CollaborationSection";
 import { CreateAgentModal } from "@/components/sidebar/AgentForms";
-import { roleLabel } from "@/lib/agentRoles";
+import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
+import { useToast } from "@/components/Toasts";
+import { agentName, agentRoleText, fixedAgentIds } from "@/lib/agentRoles";
 import { projectMembers } from "@/lib/projectMembers";
 import { teamHeadline, teamLoaded } from "@/lib/teamHeadline";
 import { useHydrated } from "@/lib/useHydrated";
@@ -64,6 +66,33 @@ function TeamPage() {
   const opencode = useQuery(api.opencodeSettings.get, {});
   const [detail, setDetail] = useState<Agent | null>(null);
   const [creating, setCreating] = useState(false);
+  const removeAgent = useMutation(api.agents.remove);
+  const toast = useToast();
+  const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
+  const [confirmPending, setConfirmPending] = useState(false);
+  // Fixed-team roles can't be removed; extra and custom agents can.
+  const fixedIds = useMemo(() => fixedAgentIds(allAgents), [allAgents]);
+  const askRemove = (agent: Agent) => {
+    const name = agentName(agent);
+    setDetail(null);
+    setConfirmReq({
+      title: `Remove agent "${name}"?`,
+      message: "This agent will also be removed from projects that use it.",
+      confirmLabel: "Remove agent",
+      onOk: async () => {
+        setConfirmPending(true);
+        try {
+          await removeAgent({ agentId: agent._id as never });
+          toast("success", "Agent removed", name);
+          setConfirmReq(null);
+        } catch (err) {
+          toast("error", "Failed to remove agent", err instanceof Error ? err.message : "Please try again.");
+        } finally {
+          setConfirmPending(false);
+        }
+      },
+    });
+  };
   // The server always renders the loading state; the client's first render
   // must match it even when the query already has data (hydration).
   const hydrated = useHydrated();
@@ -77,7 +106,7 @@ function TeamPage() {
   const agents = useMemo(() => {
     const list = projectId ? projectMembers(allAgents, memberIds) : allAgents ?? [];
     const word = (a: Agent): TeamStatusWord => status[a._id]?.status ?? "idle";
-    return [...list].sort((a, b) => TEAM_STATUS_RANK[word(a)] - TEAM_STATUS_RANK[word(b)] || roleLabel(a.role).localeCompare(roleLabel(b.role)));
+    return [...list].sort((a, b) => TEAM_STATUS_RANK[word(a)] - TEAM_STATUS_RANK[word(b)] || agentName(a).localeCompare(agentName(b)));
   }, [allAgents, memberIds, projectId, status]);
   const busy = agents.filter((a) => status[a._id] && a.isEnabled !== false).length;
 
@@ -107,7 +136,7 @@ function TeamPage() {
           {!loaded ? (
             <div className="mt-10 space-y-3" aria-label="Loading team">
               {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="h-14 animate-pulse rounded-xl bg-hover" />
+                <div key={i} className="h-14 rounded-xl bg-hover" />
               ))}
             </div>
           ) : agents.length === 0 ? (
@@ -119,6 +148,7 @@ function TeamPage() {
                 const disabled = a.isEnabled === false;
                 const word: TeamStatusWord = entry?.status ?? "idle";
                 const active = !disabled && word !== "idle";
+                const roleText = agentRoleText(a);
                 return (
                   <li key={a._id}>
                     <button
@@ -126,10 +156,11 @@ function TeamPage() {
                       onClick={() => setDetail(a)}
                       className={`flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition hover:bg-hover focus-visible:bg-hover ${disabled ? "opacity-50" : ""}`}
                     >
-                      <InitialAvatar agent avatarParams={a.avatarParams} name={roleLabel(a.role)} size={32} status={active ? word : undefined} />
+                      <InitialAvatar agent avatarParams={a.avatarParams} name={agentName(a)} size={32} status={active ? word : undefined} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[14px]">
-                          <span className="font-medium">{roleLabel(a.role)}</span>
+                          <span className="font-medium">{agentName(a)}</span>
+                          {roleText && <span className="text-ink-3">{` · ${roleText}`}</span>}
                           <span className={active ? ` ${teamStatusTone(word)}` : " text-ink-3"}>
                             {" · "}
                             {disabled ? "disabled" : teamStatusLabel(entry)}
@@ -156,8 +187,10 @@ function TeamPage() {
         <AgentDetailPanel
           agent={(allAgents ?? []).find((a) => a._id === detail._id) ?? detail}
           onClose={() => setDetail(null)}
+          onRemove={fixedIds.has(detail._id) ? undefined : askRemove}
         />
       )}
+      <ConfirmDialog request={confirmReq} pending={confirmPending} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
       {creating && <CreateAgentModal agents={(allAgents ?? []) as any} onClose={() => setCreating(false)} />}
     </div>
   );

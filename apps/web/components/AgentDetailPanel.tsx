@@ -9,7 +9,7 @@ import Modal from "./Modal";
 import { EditAgentModal } from "./sidebar/AgentForms";
 import { Badge } from "./ui/badge";
 import { SkeletonBox } from "skullet/react";
-import { roleLabel } from "@/lib/agentRoles";
+import { agentName, roleLabel } from "@/lib/agentRoles";
 import { LEGACY_ROLE_SUCCESSORS, ROLES, isRoleKey } from "@/api/convex/lib/roles";
 
 /**
@@ -98,6 +98,7 @@ export default function AgentDetailPanel({
   const fallback = roleFallback(roleKey);
   const roleDefinition = (detail as any)?.roleDefinition;
   const roleName: string = roleLabel(agent.role);
+  const displayName: string = agentName(agent);
   const roleDescription: string = roleDefinition?.description ?? fallback?.description ?? "";
   const responsibilities: string[] = [
     ...(roleDescription ? [roleDescription] : []),
@@ -123,17 +124,18 @@ export default function AgentDetailPanel({
   const assignedTasks: any[] = (detail as any)?.assignedTasks ?? [];
 
   return (
-    <Modal title={roleName} onClose={onClose} fullScreen>
+    <Modal title={displayName} onClose={onClose} fullScreen>
       {editing ? (
         <EditAgentModal agent={agent} inline onClose={() => setEditing(false)} />
       ) : (
       <div className="mt-4 space-y-5">
         <div className="flex items-center gap-3">
-          <AgentAvatar name={roleLabel(agent.role)} size={44} status={status.avatar === "idle" ? undefined : status.avatar} avatarParams={agent.avatarParams} />
+          <AgentAvatar name={displayName} size={44} status={status.avatar === "idle" ? undefined : status.avatar} avatarParams={agent.avatarParams} />
           <div className="min-w-0">
-            <p className="text-sm font-medium">{fallback?.displayName ?? roleName}</p>
-            <p className="text-xs capitalize text-gray-500">
-              {roleDefinition?.category ?? fallback?.category ?? fallback?.displayName ?? "Agent"}
+            <p className="text-sm font-medium">{displayName}</p>
+            <p className="text-xs text-ink-3">
+              {fallback?.displayName ?? roleName}
+              {(roleDefinition?.category ?? fallback?.category) ? <span className="capitalize">{` · ${roleDefinition?.category ?? fallback?.category}`}</span> : null}
             </p>
           </div>
           <span className="ml-auto flex items-center gap-2">
@@ -157,7 +159,7 @@ export default function AgentDetailPanel({
               <button
                 type="button"
                 onClick={() => onRemove(agent)}
-                className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-950/40"
+                className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-hover dark:text-red-400"
               >
                 Remove
               </button>

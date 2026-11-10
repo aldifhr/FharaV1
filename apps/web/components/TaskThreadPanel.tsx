@@ -6,7 +6,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { api } from "@/api/convex/_generated/api";
 import MessageText from "./chat/MessageText";
-import { roleLabel } from "@/lib/agentRoles";
+import { agentName, roleLabel } from "@/lib/agentRoles";
 import { subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
 import ApprovalCard from "./ApprovalCard";
 import DiffCard from "./DiffCard";
@@ -580,7 +580,7 @@ export default function TaskThreadPanel({
                           {s.title}
                           {typeof s.reviewRound === "number" && s.reviewRound > 1 ? <span className="ml-1 text-ink-3">(round {s.reviewRound})</span> : null}
                         </span>
-                        {agent && <span className="shrink-0 text-[13px] text-ink-3">{roleLabel(agent.role)}</span>}
+                        {agent && <span className="shrink-0 text-[13px] text-ink-3">{agentName(agent)}</span>}
                         <span className={`w-16 shrink-0 text-right text-[13px] ${meta.cls}`}>{meta.label}</span>
                       </div>
                       {taskId && (s.status === "completed" || s.status === "failed" || s.status === "blocked") && (

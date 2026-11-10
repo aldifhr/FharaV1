@@ -4,10 +4,23 @@
  * seed and role registry also read; this file only adapts them to the
  * shapes the UI uses.
  */
-import { ROLES, ROLE_KEYS, roleKeyForMention, type RoleKey } from "@/api/convex/lib/roles";
+import { FIXED_TEAM_SEED_ORDER, RETIRED_ROLE_KEYS, ROLES, ROLE_KEYS, roleKeyForMention, type RoleKey } from "@/api/convex/lib/roles";
+import { fixedAgentIds as fixedAgentIdsFor, type AgentLike, type AgentRow } from "./agentIdentity";
 import { AGENT_SEED_PROMPTS } from "@/api/convex/lib/prompts/agents";
 
 export { roleKeyForMention, roleLabel } from "@/api/convex/lib/roles";
+import { agentDisplayName, agentRoleCaption } from "./agentIdentity";
+import { roleLabel as roleLabelOf } from "@/api/convex/lib/roles";
+
+/** What to call an agent in the UI: its own name ("Reviewer 2"), else its role label. */
+export function agentName(agent: AgentLike): string {
+  return agentDisplayName(agent, roleLabelOf);
+}
+
+/** The role as secondary text, or null when it only repeats the name. */
+export function agentRoleText(agent: AgentLike): string | null {
+  return agentRoleCaption(agent, roleLabelOf);
+}
 
 /**
  * The default tool permissions of a role (e.g. `researcher` → read_file +
@@ -39,3 +52,8 @@ export const NEUTRAL_MENTION_COLOR =
 export const ROLE_DEFAULT_PROMPTS: Record<string, string> = Object.fromEntries(
   ROLE_KEYS.map((key) => [key, AGENT_SEED_PROMPTS[ROLES[key].defaultPromptKey]])
 );
+
+/** Ids of the fixed-team agents in `agents` (they can't be removed). */
+export function fixedAgentIds(agents: readonly AgentRow[] | null | undefined): Set<string> {
+  return fixedAgentIdsFor(agents, FIXED_TEAM_SEED_ORDER, RETIRED_ROLE_KEYS);
+}

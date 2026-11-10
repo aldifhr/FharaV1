@@ -35,6 +35,7 @@ import {
   Check,
   Moon,
   Sun,
+  Monitor,
 } from "lucide-react";
 import LlmSettingsSection from "./LlmSettings";
 import { useFont, type FontChoice } from "@/components/ui/use-font";
@@ -93,8 +94,8 @@ function BudgetField() {
 
   return (
     <section className="rounded-xl border border-line bg-canvas p-3">
-      <h2 className="text-[13px] font-semibold">Weekly usage budget</h2>
-      <p className="mt-0.5 text-[11px] text-ink-3">
+      <label htmlFor="settings-weekly-budget" className="block text-[13px] font-semibold">Weekly usage budget</label>
+      <p id="settings-weekly-budget-help" className="mt-0.5 text-[11px] text-ink-3">
         Weekly token budget for the sidebar meter (resets Monday 09:00). Leave empty to use the server&apos;s
         MOAGENT_WEEKLY_TOKEN_BUDGET, or show raw tokens when neither is set.
       </p>
@@ -106,11 +107,24 @@ function BudgetField() {
         value={value}
         onChange={(e) => save(e.target.value)}
         placeholder="e.g. 2000000"
-        aria-label="Weekly token budget"
+        id="settings-weekly-budget"
+        aria-describedby="settings-weekly-budget-help"
         className="mt-2 h-8 w-full max-w-xs rounded-lg border border-line bg-canvas px-3 text-xs text-ink outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/15"
       />
     </section>
   );
+}
+
+/**
+ * Escape inside Settings closes an open menu, popover, listbox or nested
+ * dialog first; only a bare Escape closes the whole modal.
+ */
+function hasOpenLayer(panel: HTMLElement | null, target: EventTarget | null): boolean {
+  if (panel?.querySelector('[role="menu"], [role="listbox"], [aria-expanded="true"]')) return true;
+  if (document.querySelector('[role="alertdialog"]')) return true;
+  const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+  if (dialogs.some((d) => d !== panel && !panel?.contains(d) && !d.contains(panel))) return true;
+  return target instanceof HTMLSelectElement;
 }
 
 const NAV_ITEMS: { id: string; label: string; icon: typeof SlidersHorizontal; group?: string }[] = [
@@ -165,7 +179,8 @@ export function SettingsModal({
   onProjectChange: (projectId?: string) => void;
   onClose: () => void;
 }) {
-  const { theme, setTheme } = useTheme();
+  const { preference, setTheme } = useTheme();
+  const panelRef = useRef<HTMLDivElement>(null);
   const { font, setFont } = useFont();
   const [active, setActive] = useState("general");
   const [search, setSearch] = useState("");
@@ -188,6 +203,7 @@ export function SettingsModal({
     if (!open) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        if (e.defaultPrevented || hasOpenLayer(panelRef.current, e.target)) return;
         onClose();
       } else if (e.key === "/" && document.activeElement !== searchInputRef.current) {
         e.preventDefault();
@@ -210,6 +226,10 @@ export function SettingsModal({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.98, y: 8 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="settings-title"
           className="relative z-10 flex h-[720px] max-h-[92vh] w-full max-w-[1040px] overflow-hidden rounded-2xl border border-line bg-panel text-ink shadow-2xl shadow-black/90 font-sans"
           onClick={(e) => e.stopPropagation()}
         >
@@ -223,6 +243,7 @@ export function SettingsModal({
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search"
+                  aria-label="Search settings"
                   className="w-full bg-transparent text-[12.5px] text-ink placeholder:text-ink-3 focus:outline-none"
                 />
                 <kbd className="rounded border border-line bg-hover px-1 py-0.5 text-[10px] font-medium text-ink-3 leading-none">
@@ -385,14 +406,14 @@ export function SettingsModal({
               <div className="flex items-center gap-1.5 text-[13px]">
                 <span className="text-ink-3">Settings</span>
                 <span className="text-ink-3">/</span>
-                <span className="font-semibold text-ink">{activeItem.label}</span>
+                <span id="settings-title" className="font-semibold text-ink">{activeItem.label}</span>
               </div>
 
               <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => {
-                    setTheme("dark");
+                    setTheme("system");
                     setFont("geist");
                   }}
                   className="flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink transition-colors py-1 px-2 rounded-md hover:bg-hover"
@@ -422,14 +443,15 @@ export function SettingsModal({
                   <section className="rounded-xl border border-line bg-canvas p-3">
                     <h2 className="text-[13px] font-semibold">Theme mode</h2>
                     <p className="mt-0.5 text-[11px] text-ink-3">Choose dark, light, or follow device appearance.</p>
-                    <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    <div className="mt-2 grid grid-cols-3 gap-1.5">
                       {(
                         [
                           { value: "light", label: "Light", icon: Sun },
                           { value: "dark", label: "Dark", icon: Moon },
+                          { value: "system", label: "System", icon: Monitor },
                         ] as const
                       ).map(({ value, label, icon: Icon }) => {
-                        const active = theme === value;
+                        const active = preference === value;
                         return (
                           <button
                             key={value}

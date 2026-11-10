@@ -18,7 +18,7 @@ import ProjectList from "./sidebar/ProjectList";
 import PersonalList from "./sidebar/PersonalList";
 import TeamList, { type TeamAgent } from "./sidebar/TeamList";
 import { CreateAgentModal } from "./sidebar/AgentForms";
-import { roleLabel } from "@/lib/agentRoles";
+import { agentName, fixedAgentIds } from "@/lib/agentRoles";
 import { onFocusTeam } from "@/lib/shellEvents";
 
 type Sections = { needsYou: boolean; projects: boolean; personal: boolean; team: boolean };
@@ -107,7 +107,7 @@ export default function Sidebar({
     });
 
   const askRemoveAgent = (agent: TeamAgent) => {
-    const name = roleLabel(agent.role);
+    const name = agentName(agent);
     setDetail(null);
     setConfirmReq({
       title: `Delete agent "${name}"?`,
@@ -221,7 +221,7 @@ export default function Sidebar({
           <AgentDetailPanel
             agent={(agents ?? []).find((a) => a._id === detail._id) ?? detail}
             onClose={() => setDetail(null)}
-            onRemove={askRemoveAgent}
+            onRemove={fixedAgentIds(agents).has(detail._id) ? undefined : askRemoveAgent}
           />
         )}
       </aside>

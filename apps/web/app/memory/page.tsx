@@ -300,7 +300,7 @@ function MemoryEditor({
   const [title, setTitle] = useState(note?.title ?? "");
   const [content, setContent] = useState(note?.content ?? "");
   const [tags, setTags] = useState((note?.tags ?? []).join(", "));
-  const [pinned, setPinnedState] = useState(note?.pinned ?? true);
+  const [pinned, setPinnedState] = useState(note?.pinned ?? false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);

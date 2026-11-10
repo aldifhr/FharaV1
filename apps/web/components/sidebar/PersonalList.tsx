@@ -7,8 +7,8 @@ import { useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import InitialAvatar from "../InitialAvatar";
 import { popoverClass, usePopover } from "../shell/usePopover";
-import { roleLabel } from "@/lib/agentRoles";
-import { personalAgentIdFromPath, sidebarPersonalRows } from "@/lib/personalChat";
+import { agentName, agentRoleText, roleLabel } from "@/lib/agentRoles";
+import { personalAgentIdFromPath, plainTextPreview, sidebarPersonalRows } from "@/lib/personalChat";
 import { relativeTime } from "@/lib/runFormat";
 import { SectionToggle } from "./SectionToggle";
 
@@ -84,9 +84,9 @@ export default function PersonalList({
                   onClick={() => openChat(row.agent._id)}
                   className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] hover:bg-hover"
                 >
-                  <InitialAvatar agent avatarParams={row.agent.avatarParams} name={roleLabel(row.agent.role)} size={20} />
-                  <span className="min-w-0 flex-1 truncate text-ink">{row.agent.name}</span>
-                  <span className="shrink-0 truncate text-[12.5px] text-ink-3">{roleLabel(row.agent.role)}</span>
+                  <InitialAvatar agent avatarParams={row.agent.avatarParams} name={agentName(row.agent)} size={20} />
+                  <span className="min-w-0 flex-1 truncate text-ink">{agentName(row.agent)}</span>
+                  {agentRoleText(row.agent) && <span className="shrink-0 truncate text-[12.5px] text-ink-3">{agentRoleText(row.agent)}</span>}
                 </button>
               ))
             )}
@@ -102,19 +102,21 @@ export default function PersonalList({
             {shown.map((row) => {
               const selected = activeId === row.agent._id;
               const role = roleLabel(row.agent.role);
+              const name = agentName(row.agent);
+              const preview = row.preview ? plainTextPreview(row.preview) : "";
               return (
                 <li key={row.agent._id} className={`rounded-lg transition ${selected ? "bg-hover" : "hover:bg-hover"}`}>
                   <Link
                     href={`/chats/personal/${row.agent._id}`}
                     onClick={onNavigate}
                     aria-current={selected ? "page" : undefined}
-                    title={row.preview ? `${row.agent.name} · ${role}: ${row.preview}` : `${row.agent.name} · ${role}`}
+                    title={preview ? `${name} · ${role}: ${preview}` : `${name} · ${role}`}
                     className="flex min-w-0 items-center gap-2.5 rounded-lg px-2 py-[7px] outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
                   >
-                    <InitialAvatar agent avatarParams={row.agent.avatarParams} name={role} size={24} />
+                    <InitialAvatar agent avatarParams={row.agent.avatarParams} name={name} size={24} />
                     <span className="min-w-0 flex-1">
-                      <span className={`block truncate text-[15px] ${selected ? "font-medium text-ink" : "text-ink"}`}>{row.agent.name}</span>
-                      <span className="block truncate text-[12.5px] text-ink-3">{row.preview ?? "No messages yet"}</span>
+                      <span className={`block truncate text-[15px] ${selected ? "font-medium text-ink" : "text-ink"}`}>{name}</span>
+                      <span className="block truncate text-[12.5px] text-ink-3">{preview || "No messages yet"}</span>
                     </span>
                     {row.lastMessageAt && (
                       <span className="shrink-0 self-start pt-0.5 text-[12px] tabular-nums text-ink-3">{relativeTime(row.lastMessageAt)}</span>

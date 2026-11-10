@@ -8,7 +8,7 @@ import { iconButtonClass } from "../shell/usePopover";
 import { api } from "@/api/convex/_generated/api";
 import { composeOfferedTask } from "@/api/convex/lib/chat/intent";
 import { newClientId, optimisticUserRow, reconcileOptimistic, withOptimisticRow } from "@/lib/optimisticChat";
-import { roleLabel } from "@/lib/agentRoles";
+import { agentRoleText, roleLabel } from "@/lib/agentRoles";
 import { clockTime, isSameDay, shortDate } from "@/lib/format";
 import { conversationKindLabel, personalDraftKey, personalEmptyText, personalSlashNames } from "@/lib/personalChat";
 import { useToast } from "../Toasts";
@@ -333,7 +333,7 @@ export default function PersonalChatPanel({
             <h1 className="truncate text-[26px] font-semibold tracking-tight text-ink">{conversation ? agentName : "Loading…"}</h1>
             <p className="mt-1 text-[13px] text-ink-3">
               {conversation ? conversationKindLabel(conversation.kind as any, project?.name) : "\u00a0"}
-              {agent ? ` · ${roleLabel(agent.role)}` : ""}
+              {agent && agentRoleText(agent) ? ` · ${agentRoleText(agent)}` : ""}
             </p>
           </div>
           {conversation && (

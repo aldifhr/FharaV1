@@ -5,7 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import InitialAvatar from "../InitialAvatar";
 import QueryBoundary from "../shell/QueryBoundary";
-import { roleLabel } from "@/lib/agentRoles";
+import { agentName, agentRoleText, roleLabel } from "@/lib/agentRoles";
 import { subscribeChatTyping } from "@/lib/chatTyping";
 import {
   TEAM_STATUS_RANK,
@@ -50,16 +50,21 @@ function TeamRows({
           const word: TeamStatusWord = entry?.status ?? (isDrafting ? "working" : "idle");
           const label = disabled ? "disabled" : teamStatusLabel(entry, isDrafting);
           const detail = entry?.taskTitle ? `${label} · ${entry.taskTitle}` : label;
+          const name = agentName(a);
+          const roleText = agentRoleText(a);
           return (
             <li key={a._id}>
               <button
                 type="button"
                 onClick={() => onOpenAgent(a)}
-                title={`${roleLabel(a.role)} — ${detail}`}
+                title={`${name}${roleText ? ` (${roleText})` : ""} — ${detail}`}
                 className="flex w-full items-center gap-2.5 rounded-lg px-2 py-[7px] text-left outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
               >
-                <InitialAvatar agent avatarParams={a.avatarParams} name={roleLabel(a.role)} size={24} status={disabled ? undefined : word} />
-                <span className="min-w-0 flex-1 truncate text-[15px] text-ink">{roleLabel(a.role)}</span>
+                <InitialAvatar agent avatarParams={a.avatarParams} name={name} size={24} status={disabled ? undefined : word} />
+                <span className="min-w-0 flex-1 truncate text-[15px] text-ink">
+                  {name}
+                  {roleText && <span className="text-[13px] text-ink-3">{` · ${roleText}`}</span>}
+                </span>
                 <span className={`max-w-[46%] shrink-0 truncate text-right text-[13px] ${disabled ? "text-ink-3" : teamStatusTone(word)}`}>{label}</span>
               </button>
             </li>
@@ -125,8 +130,8 @@ const TeamList = forwardRef<
         <div aria-hidden className="mt-1 space-y-2 px-2 py-1">
           {[55, 40, 62].map((w) => (
             <div key={w} className="flex items-center gap-2.5">
-              <span className="h-6 w-6 animate-pulse rounded-full bg-hover" />
-              <span className="h-3.5 animate-pulse rounded bg-hover" style={{ width: `${w}%` }} />
+              <span className="h-6 w-6 rounded-full bg-hover" />
+              <span className="h-3.5 rounded bg-hover" style={{ width: `${w}%` }} />
             </div>
           ))}
         </div>

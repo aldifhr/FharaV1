@@ -9,6 +9,7 @@ import {
   personalEmptyText,
   personalIndexTarget,
   personalSlashNames,
+  plainTextPreview,
   sidebarPersonalRows,
 } from "../../lib/personalChat.ts";
 
@@ -90,4 +91,18 @@ test("personal path parsing and index redirect target", () => {
   assert.equal(personalAgentIdFromPath("/chats/p1"), null);
   assert.equal(personalIndexTarget([row("a", "Ada", "c1", 1), row("c", "Cy", "c3", 9)]), "/chats/personal/c");
   assert.equal(personalIndexTarget([row("b", "Bo", null, null)]), "/chats");
+});
+
+test("plainTextPreview strips markdown to one plain line", () => {
+  assert.equal(
+    plainTextPreview("```python\n# SELECT related\nqs = Book.objects.select_related('author')\n```"),
+    "SELECT related qs = Book.objects.select_related('author')"
+  );
+  assert.equal(plainTextPreview("Pakai **unit kerja** dan `prefetch_related`."), "Pakai unit kerja dan prefetch_related.");
+  assert.equal(plainTextPreview("## Plan\n- *one*\n- __two__\n1. ~~three~~"), "Plan one two three");
+  assert.equal(plainTextPreview("See [the docs](https://x.dev) and ![logo](a.png)"), "See the docs and logo");
+  assert.equal(plainTextPreview("> quoted\n\n| a | b |\n|---|---|\n| 1 | 2 |"), "quoted a b 1 2");
+  assert.equal(plainTextPreview("snake_case_name stays"), "snake_case_name stays");
+  assert.equal(plainTextPreview(null), "");
+  assert.equal(plainTextPreview("x".repeat(200), 10), `${"x".repeat(9)}…`);
 });

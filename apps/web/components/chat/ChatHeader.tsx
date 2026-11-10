@@ -5,7 +5,7 @@ import { useState } from "react";
 import InitialAvatar from "../InitialAvatar";
 import ProjectAvatar from "../shell/ProjectAvatar";
 import { iconButtonClass, popoverClass, usePopover } from "../shell/usePopover";
-import { roleLabel } from "@/lib/agentRoles";
+import { agentName, roleLabel } from "@/lib/agentRoles";
 import { teamStatusLabel, type StatusMap } from "@/lib/teamStatus";
 import type { AgentRef as Agent } from "@/lib/types";
 
@@ -145,11 +145,11 @@ export default function ChatHeader({
                     key={a._id}
                     type="button"
                     onClick={() => onOpenAgent?.(a._id)}
-                    title={`${roleLabel(a.role)} · ${teamStatusLabel(status?.[a._id])}`}
-                    aria-label={`${roleLabel(a.role)}, ${teamStatusLabel(status?.[a._id])}`}
+                    title={`${agentName(a)} · ${teamStatusLabel(status?.[a._id])}`}
+                    aria-label={`${agentName(a)}, ${teamStatusLabel(status?.[a._id])}`}
                     className="-ml-1 rounded-full ring-2 ring-panel outline-none first:ml-0 focus-visible:ring-brand/50"
                   >
-                    <InitialAvatar agent avatarParams={a.avatarParams} name={roleLabel(a.role)} size={17} />
+                    <InitialAvatar agent avatarParams={a.avatarParams} name={agentName(a)} size={17} />
                   </button>
                 ))}
               </span>

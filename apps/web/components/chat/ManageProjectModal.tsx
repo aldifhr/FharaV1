@@ -6,7 +6,7 @@ import { api } from "@/api/convex/_generated/api";
 import Modal from "../Modal";
 import GithubRepoSettings from "../GithubRepoSettings";
 import { useToast } from "../Toasts";
-import { roleLabel } from "@/lib/agentRoles";
+import { agentName, agentRoleText } from "@/lib/agentRoles";
 import {
   PERMISSION_MODES,
   PERMISSION_MODE_HINTS,
@@ -312,7 +312,7 @@ export default function ManageProjectModal({
                   checked={agentIds.includes(agent._id)}
                   onChange={(e) => setAgentIds((current) => (e.target.checked ? [...current, agent._id] : current.filter((id) => id !== agent._id)))}
                 />
-                <span>{roleLabel(agent.role)}</span>
+                <span>{agentName(agent)}{agentRoleText(agent) ? <span className="text-ink-3">{` · ${agentRoleText(agent)}`}</span> : null}</span>
               </label>
             ))}
           </div>

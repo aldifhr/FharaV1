@@ -22,7 +22,7 @@ import {
   Type,
   X,
 } from "lucide-react";
-import { roleLabel } from "@/lib/agentRoles";
+import { agentName, roleLabel } from "@/lib/agentRoles";
 import InitialAvatar from "../InitialAvatar";
 import { QuoteBar, type ChatQuote } from "./QuoteBlock";
 import { useToast } from "../Toasts";
@@ -585,8 +585,8 @@ export default function ChatComposer({
                           }}
                           className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-ink hover:bg-hover ${agent._id === targetId ? "font-medium" : ""}`}
                         >
-                          <InitialAvatar agent avatarParams={agent.avatarParams} name={roleLabel(agent.role)} size={20} />
-                          <span className="flex-1 truncate">{roleLabel(agent.role)}</span>
+                          <InitialAvatar agent avatarParams={agent.avatarParams} name={agentName(agent)} size={20} />
+                          <span className="flex-1 truncate">{agentName(agent)}</span>
                           {agent._id === targetId && <span className="text-[12px] text-brand-ink">current</span>}
                         </button>
                       </li>

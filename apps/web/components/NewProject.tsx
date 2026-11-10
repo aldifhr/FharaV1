@@ -6,7 +6,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { api } from "@/api/convex/_generated/api";
 import Modal from "./Modal";
-import { roleLabel } from "@/lib/agentRoles";
+import { agentName, agentRoleText } from "@/lib/agentRoles";
 
 interface NewProjectContextValue {
   open: boolean;
@@ -90,12 +90,20 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
         workspacePath,
         agentIds: selectedAgentIds as never[],
       })) as unknown as string;
+      if (!projectId) throw new Error("The project was created but no id came back.");
+      // Open the new project: navigate first, then close the modal, and fall
+      // back to a full navigation if the client router did not move (e.g.
+      // the route was still compiling or the push was dropped).
+      const href = `/chats/${projectId}`;
+      router.push(href);
+      window.setTimeout(() => {
+        if (window.location.pathname !== href) window.location.assign(href);
+      }, 2500);
       setStep("project");
       setName("");
       setWorkspacePath("");
       setSelectedAgentIds([]);
       onClose();
-      if (projectId) router.push(`/chats/${projectId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create project");
     } finally {
@@ -190,9 +198,8 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
                 {(agents ?? []).length === 0 && <p className="text-xs text-gray-500 dark:text-gray-400">No agents yet. Create one with + in the Team section of the sidebar.</p>}
                 {(agents ?? []).map((agent, index) => {
                   const agentList = agents ?? [];
-                  const sameRoleBefore = agentList.slice(0, index).filter((a) => a.role === agent.role).length;
-                  const label = roleLabel(agent.role);
-                  const displayLabel = sameRoleBefore === 0 ? label : `${label} ${sameRoleBefore + 1}`;
+                  const roleText = agentRoleText(agent);
+                  const displayLabel = roleText ? `${agentName(agent)} · ${roleText}` : agentName(agent);
                   return (
                   <label key={agent._id} className="flex items-center gap-2 text-sm">
                     <input

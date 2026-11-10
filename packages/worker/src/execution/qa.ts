@@ -1,3 +1,4 @@
+import { wenv } from "@fhara/config/worker";
 import * as fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import * as path from "node:path";
@@ -162,8 +163,8 @@ const SERVER_LOG_LIMIT = 4_000;
 
 function startupTimeoutMs(options: QaOptions): number {
   if (options.startupTimeoutMs && options.startupTimeoutMs > 0) return options.startupTimeoutMs;
-  const fromEnv = Number(settingEnv("QA_STARTUP_TIMEOUT_MS") ?? settingEnv("QA_SERVER_START_TIMEOUT_MS"));
-  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : DEFAULT_STARTUP_TIMEOUT_MS;
+  // Knob-aware; legacy alias QA_SERVER_START_TIMEOUT_MS; > 0 or the default.
+  return wenv("QA_STARTUP_TIMEOUT_MS", settingEnv, { fallback: DEFAULT_STARTUP_TIMEOUT_MS });
 }
 
 /** Every dev server QA started, so a worker exit/signal never orphans one. */
@@ -247,7 +248,7 @@ async function resolveDevCommand(workspaceRoot: string, port: string): Promise<D
  * dev/start script, or a root index.html (served statically).
  */
 export async function isBrowserRunnable(workspaceRoot: string, explicitUrl?: string): Promise<boolean> {
-  if (explicitUrl || process.env.QA_BASE_URL) return true;
+  if (explicitUrl || wenv("QA_BASE_URL")) return true;
   try {
     const pkg = JSON.parse(await fs.readFile(path.join(workspaceRoot, "package.json"), "utf8"));
     if (pkg?.scripts?.dev || pkg?.scripts?.start) return true;
@@ -298,8 +299,9 @@ async function startStaticServer(root: string, port: number): Promise<import("no
  */
 export function chromiumLaunchOptions(): { headless: true; executablePath?: string; args?: string[] } {
   const executablePath =
-    settingEnv("QA_CHROMIUM_PATH")?.trim() || process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() || undefined;
-  const flag = (settingEnv("QA_CHROMIUM_NO_SANDBOX") ?? "").trim().toLowerCase();
+    wenv("QA_CHROMIUM_PATH", settingEnv) || process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() || undefined;
+  // undefined = auto (root or container), false = off, true = on.
+  const flag = wenv("QA_CHROMIUM_NO_SANDBOX", settingEnv);
   const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
   let inContainer = false;
   try {
@@ -307,7 +309,7 @@ export function chromiumLaunchOptions(): { headless: true; executablePath?: stri
   } catch {
     inContainer = false;
   }
-  const noSandbox = flag === "0" || flag === "false" ? false : flag !== "" || isRoot || inContainer;
+  const noSandbox = flag === false ? false : flag === true || isRoot || inContainer;
   return {
     headless: true,
     ...(executablePath ? { executablePath } : {}),
@@ -350,7 +352,7 @@ export async function runResponsiveQa(
   // given, allocate a free port and let the auto-start dev server run
   // there. Defaulting silently to a fixed port (historically 3000) made
   // QA pass against whatever foreign app happened to sit on it.
-  let baseUrl = options.baseUrl ?? process.env.QA_BASE_URL;
+  let baseUrl = options.baseUrl ?? wenv("QA_BASE_URL");
   if (!baseUrl) {
     const freePort = await getFreePort();
     baseUrl = `http://127.0.0.1:${freePort}`;

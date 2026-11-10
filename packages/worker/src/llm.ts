@@ -1,3 +1,5 @@
+import { schemaDefault } from "@fhara/config";
+import { wenv } from "@fhara/config/worker";
 import Anthropic from "@anthropic-ai/sdk";
 import type { LLMMessage, LLMResult } from "@/types/llm";
 import { emitObservation } from "@/effects/observationContext";
@@ -32,37 +34,31 @@ export interface GlobalLLMConfig {
 }
 
 export function getGlobalLLMConfig(env?: Record<string, string | undefined>): GlobalLLMConfig {
-  const e = env ?? process.env;
-  const provider = (e.LLM_PROVIDER ?? "anthropic").toLowerCase();
-  const model = e.LLM_MODEL ?? (provider === "openai-compatible" || provider === "openai" ? "gpt-4o-mini" : "claude-sonnet-4-20250514");
-  const baseUrl = e.LLM_BASE_URL ?? (provider === "openai-compatible" || provider === "openai" ? "https://api.openai.com/v1" : "https://api.anthropic.com/v1");
-  const apiKey = e.LLM_API_KEY ?? e.OPENAI_API_KEY ?? "";
+  // Worker flavour of the LLM fallback: openai-compatible takes the OpenAI
+  // defaults (Convex differs, D4 / B5). Defaults live in the env schema.
+  const e = env;
+  const provider = wenv("LLM_PROVIDER", e);
+  const model = wenv("LLM_MODEL", e);
+  const baseUrl = wenv("LLM_BASE_URL", e);
+  const apiKey = wenv("LLM_API_KEY", e);
   return { provider, model, baseUrl, apiKey };
 }
 
-export const DEFAULT_LLM_MAX_TOKENS = 8192;
-export const DEFAULT_LLM_TIMEOUT_MS = 300_000;
-
-function intEnv(name: string, fallback: number, min: number, max: number, env: Record<string, string | undefined>): number {
-  const raw = env[name];
-  if (raw === undefined || raw.trim() === "") return fallback;
-  const value = Number.parseInt(raw, 10);
-  if (!Number.isFinite(value)) return fallback;
-  return Math.min(max, Math.max(min, value));
-}
+export const DEFAULT_LLM_MAX_TOKENS = schemaDefault("ORCHESTRATOR_LLM_MAX_TOKENS") as number;
+export const DEFAULT_LLM_TIMEOUT_MS = schemaDefault("ORCHESTRATOR_LLM_TIMEOUT_MS") as number;
 
 /**
  * Max output tokens per LLM call (ORCHESTRATOR_LLM_MAX_TOKENS). A hard
  * cap of 4k tokens truncated full-file JSON answers from code-change
  * subtasks, which then failed as "invalid file changes JSON" (e2e ULTRA).
  */
-export function llmMaxTokens(env: Record<string, string | undefined> = process.env): number {
-  return intEnv("ORCHESTRATOR_LLM_MAX_TOKENS", DEFAULT_LLM_MAX_TOKENS, 256, 200_000, env);
+export function llmMaxTokens(env?: Record<string, string | undefined>): number {
+  return wenv("ORCHESTRATOR_LLM_MAX_TOKENS", env);
 }
 
 /** Ceiling for one LLM request (ORCHESTRATOR_LLM_TIMEOUT_MS). */
-export function llmTimeoutMs(env: Record<string, string | undefined> = process.env): number {
-  return intEnv("ORCHESTRATOR_LLM_TIMEOUT_MS", DEFAULT_LLM_TIMEOUT_MS, 1_000, 3_600_000, env);
+export function llmTimeoutMs(env?: Record<string, string | undefined>): number {
+  return wenv("ORCHESTRATOR_LLM_TIMEOUT_MS", env);
 }
 
 /** Effective timeout of one call: the per-call bound, never above the ceiling. */

@@ -19,6 +19,7 @@
  * This is the minimal internal interface; when the orch-trace
  * ExecutionObservation table lands, these map 1:1 onto its rows.
  */
+import { wenv } from "@fhara/config/worker";
 import { createHash } from "node:crypto";
 
 export type StallKind =
@@ -56,34 +57,20 @@ export interface StallThresholds {
   repeatedOutputLimit: number;
 }
 
-function intEnv(
-  env: Record<string, string | undefined>,
-  name: string,
-  fallback: number,
-  min: number,
-  max: number
-): number {
-  const raw = env[name];
-  if (raw === undefined || raw.trim() === "") return fallback;
-  const value = Number(raw);
-  if (!Number.isFinite(value)) return fallback;
-  if (value === 0 && min > 0 && name === "ORCHESTRATOR_STALL_TIMEOUT_MS") return 0;
-  return Math.min(max, Math.max(min, Math.floor(value)));
-}
-
 /**
  * Defaults: the stall window is one full LLM call timeout plus a minute,
  * so a node waiting on a single in-flight model call (which has its own
  * timeout) is never called stalled; it catches hung tools / runtimes.
  */
 export function stallThresholdsFromEnv(
-  env: Record<string, string | undefined> = process.env,
+  env?: Record<string, string | undefined>,
   llmTimeoutMs = 300_000
 ): StallThresholds {
   return {
-    agentStallMs: intEnv(env, "ORCHESTRATOR_STALL_TIMEOUT_MS", llmTimeoutMs + 60_000, 10_000, 3_600_000),
-    agentStallRetries: intEnv(env, "ORCHESTRATOR_STALL_RETRIES", 1, 0, 3),
-    repeatedOutputLimit: intEnv(env, "ORCHESTRATOR_REPEAT_OUTPUT_LIMIT", 2, 2, 10),
+    // 0 = off; bounds 10s..1h (schema). The default follows the caller's LLM timeout.
+    agentStallMs: wenv("ORCHESTRATOR_STALL_TIMEOUT_MS", env, { fallback: llmTimeoutMs + 60_000 }),
+    agentStallRetries: wenv("ORCHESTRATOR_STALL_RETRIES", env),
+    repeatedOutputLimit: wenv("ORCHESTRATOR_REPEAT_OUTPUT_LIMIT", env),
   };
 }
 

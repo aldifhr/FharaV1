@@ -10,6 +10,7 @@
 // relative-import edges are added beside identifier edges; files are ordered by PageRank
 // with their best definitions; the budget is in characters; the tag cache is a JSON file
 // keyed by mtime+size.
+import { wenv } from "@fhara/config/worker";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
@@ -72,14 +73,12 @@ const MAX_FILE_BYTES = 256 * 1024;
 const DEFAULT_MAX_CHARS = 4_000;
 
 /** REPO_MAP=0 turns the map off; REPO_MAP_MAX_CHARS sets the budget. */
-export function repoMapEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const raw = (env.REPO_MAP ?? "").trim().toLowerCase();
-  return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
+export function repoMapEnabled(env?: NodeJS.ProcessEnv): boolean {
+  return wenv("REPO_MAP", env);
 }
 
-export function repoMapMaxChars(env: NodeJS.ProcessEnv = process.env): number {
-  const value = Number(env.REPO_MAP_MAX_CHARS);
-  return Number.isFinite(value) && value >= 200 ? Math.floor(value) : DEFAULT_MAX_CHARS;
+export function repoMapMaxChars(env?: NodeJS.ProcessEnv): number {
+  return wenv("REPO_MAP_MAX_CHARS", env, { fallback: DEFAULT_MAX_CHARS });
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +267,7 @@ interface WorkspaceCache {
 const memory = new Map<string, WorkspaceCache>();
 
 function cacheDirFor(options: RepoMapOptions): string {
-  return options.cacheDir ?? process.env.FHARA_CACHE_DIR ?? path.join(os.homedir(), ".fhara", "cache");
+  return options.cacheDir ?? wenv("FHARA_CACHE_DIR") ?? path.join(os.homedir(), ".fhara", "cache");
 }
 
 function cacheFile(dir: string, root: string): string {

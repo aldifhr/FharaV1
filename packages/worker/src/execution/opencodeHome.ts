@@ -18,6 +18,7 @@
  * which would bill the wrong one. Modified by Fhara: applied to OpenCode's
  * auth store and global config instead of jockey's credential profiles.
  */
+import { wenv } from "@fhara/config/worker";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -66,8 +67,8 @@ export class OpencodeCredentialError extends Error {
 }
 
 /** Default persistent cache: FHARA_OPENCODE_CACHE_DIR or `<tmp>/fhara-opencode-cache`. */
-export function defaultOpencodeCacheDir(env: Record<string, string | undefined> = process.env): string {
-  return env.FHARA_OPENCODE_CACHE_DIR?.trim() || path.join(os.tmpdir(), "fhara-opencode-cache");
+export function defaultOpencodeCacheDir(env?: Record<string, string | undefined>): string {
+  return wenv("FHARA_OPENCODE_CACHE_DIR", env) || path.join(os.tmpdir(), "fhara-opencode-cache");
 }
 
 function realHome(env: Record<string, string | undefined>): string {

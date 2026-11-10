@@ -1,3 +1,4 @@
+import { wenvRaw } from "@fhara/config/worker";
 import { markProgress } from "@/effects/observationContext";
 import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig, type LLMResult } from "@/llm";
 import {
@@ -2067,7 +2068,9 @@ async function executeReadOnly(
   let toolLoopSection = "";
   if (
     (mode === "research" || mode === "audit") &&
-    process.env.ORCHESTRATOR_TOOL_LOOP === "true"
+    // Raw process.env === "true" on purpose (pre-E1 semantics: no UI
+    // override, "1" ignored). D3, fixed separately by B1.
+    wenvRaw("ORCHESTRATOR_TOOL_LOOP") === "true"
   ) {
     const { tool_search } = await import("../governance/registry");
     const tools = tool_search({

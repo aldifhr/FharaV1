@@ -1,3 +1,5 @@
+import { schemaDefault } from "@fhara/config";
+import { wenv } from "@fhara/config/worker";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { buildChildEnv } from "@/api/convex/lib/childEnv";
@@ -51,9 +53,8 @@ export function resolveExecutionRuntime(
 
 /** Global default from env. ORCHESTRATOR_EXECUTION_RUNTIME wins over the
  *  legacy ORCHESTRATOR_RUNTIME; "opencode" is an alias of "native-provider". */
-export function executionRuntimeFromEnv(env: Record<string, string | undefined> = process.env): ExecutionRuntime {
-  const raw = (env.ORCHESTRATOR_EXECUTION_RUNTIME ?? env.ORCHESTRATOR_RUNTIME ?? "").trim().toLowerCase();
-  return raw === "native-provider" || raw === "opencode" ? "native-provider" : "api";
+export function executionRuntimeFromEnv(env?: Record<string, string | undefined>): ExecutionRuntime {
+  return wenv("ORCHESTRATOR_EXECUTION_RUNTIME", env);
 }
 
 /**
@@ -109,14 +110,13 @@ export interface NativeRunResult {
 }
 
 export function nativeProviderCommand(): string {
-  return process.env.ORCHESTRATOR_NATIVE_PROVIDER_COMMAND ?? "opencode";
+  return wenv("ORCHESTRATOR_NATIVE_PROVIDER_COMMAND");
 }
 
-export const DEFAULT_NATIVE_TIMEOUT_MS = 10 * 60 * 1000;
+export const DEFAULT_NATIVE_TIMEOUT_MS = schemaDefault("ORCHESTRATOR_NATIVE_TIMEOUT_MS") as number;
 
-export function nativeTimeoutMs(env: Record<string, string | undefined> = process.env): number {
-  const parsed = Number(env.ORCHESTRATOR_NATIVE_TIMEOUT_MS);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_NATIVE_TIMEOUT_MS;
+export function nativeTimeoutMs(env?: Record<string, string | undefined>): number {
+  return wenv("ORCHESTRATOR_NATIVE_TIMEOUT_MS", env);
 }
 
 export interface SpawnOptions {
@@ -604,7 +604,7 @@ export function opencodeSafetyEnv(policy: OpencodePolicy, agentName: string): Re
 function shouldVerifyPolicy(input: NativeRunInput, command: string): boolean {
   if (input.verifyPolicy !== undefined) return input.verifyPolicy;
   if (input.spawnImpl) return false;
-  if ((process.env.FHARA_OPENCODE_VERIFY_POLICY ?? "").trim() === "0") return false;
+  if (!wenv("FHARA_OPENCODE_VERIFY_POLICY")) return false;
   return path.basename(command).toLowerCase().startsWith("opencode");
 }
 

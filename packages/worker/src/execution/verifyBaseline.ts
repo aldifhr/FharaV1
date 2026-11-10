@@ -3,6 +3,7 @@
 // format_flake8_output(previous_errors_string=...): keep only errors that are new).
 // SPDX-License-Identifier: MIT. Copyright (c) 2024 John Yang, Carlos E. Jimenez, et al.
 // Rewritten in TypeScript for whole verification commands. See THIRD_PARTY_NOTICES.md.
+import { wenv } from "@fhara/config/worker";
 import { execFile } from "node:child_process";
 import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import { createHash } from "node:crypto";
@@ -28,9 +29,8 @@ import * as path from "node:path";
  */
 
 /** ORCHESTRATOR_VERIFY_BASELINE=0 turns the baseline run off (heuristic only). */
-export function baselineEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const raw = (env.ORCHESTRATOR_VERIFY_BASELINE ?? "").trim().toLowerCase();
-  return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
+export function baselineEnabled(env?: NodeJS.ProcessEnv): boolean {
+  return wenv("ORCHESTRATOR_VERIFY_BASELINE", env);
 }
 
 export interface BaselineRun {

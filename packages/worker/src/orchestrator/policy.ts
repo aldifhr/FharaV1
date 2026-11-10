@@ -1,17 +1,13 @@
+import { wenv, wenvRaw } from "@fhara/config/worker";
 import { executionRuntimeFromEnv } from "@/execution/nativeProvider";
 import { observedLlmLatencyMs } from "@/llm/latency";
 import { settingEnv } from "@/api/convex/lib/appSettings";
 
 // Every knob is read through settingEnv: a value set in Settings (stored in
-// Convex, applied on each heartbeat) wins over the process env.
-
-function intFromEnv(name: string, fallback: number, min: number, max: number): number {
-  const raw = settingEnv(name);
-  if (!raw) return fallback;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(max, Math.max(min, Math.floor(parsed)));
-}
+// Convex, applied on each heartbeat) wins over the process env. Defaults,
+// bounds and parse rules live in the env schema (@fhara/config,
+// schema/policy.ts); the defaultsParity test pins them to the pre-E1 values.
+const setting = <N extends Parameters<typeof wenv>[0]>(name: N) => wenv(name, settingEnv);
 
 export interface ExecutionPolicy {
   maxSubtasks: number;
@@ -213,20 +209,8 @@ export interface ExecutionPolicy {
   performanceRouting?: boolean;
 }
 
-function boolFromEnv(name: string, fallback: boolean): boolean {
-  const raw = settingEnv(name);
-  if (raw === undefined) return fallback;
-  return !["0", "false", "off", "no"].includes(raw.trim().toLowerCase());
-}
-
-/** "always" | "auto" | "never" from env, defaulting to fallback ("auto"). */
-function planningModeFromEnv(name: string, fallback: "auto" | "never" = "auto"): "always" | "auto" | "never" {
-  const raw = (settingEnv(name) ?? "").trim().toLowerCase();
-  return raw === "always" || raw === "auto" || raw === "never" ? raw : fallback;
-}
-
 /** Default subtask timeout when ORCHESTRATOR_SUBTASK_TIMEOUT_MS is unset. */
-export const DEFAULT_SUBTASK_TIMEOUT_MS = 900_000;
+export { DEFAULT_SUBTASK_TIMEOUT_MS } from "@fhara/config";
 /** Latency-aware timeout: fixed headroom plus this many observed LLM calls. */
 export const SUBTASK_LATENCY_BASE_MS = 120_000;
 export const SUBTASK_LATENCY_CALLS = 4;
@@ -282,78 +266,64 @@ export function policyForComplexity(policy: ExecutionPolicy, complexity?: TaskCo
  */
 export function defaultParallelism(worktreeIsolation: boolean): number {
   if (!worktreeIsolation) return 1;
-  return intFromEnv("ORCHESTRATOR_PARALLEL_DEFAULT", 2, 1, 3);
+  return setting("ORCHESTRATOR_PARALLEL_DEFAULT");
 }
 
 export function loadPolicy(): ExecutionPolicy {
-  const maxReplans = intFromEnv("ORCHESTRATOR_MAX_REPLANS", 1, 0, 3);
+  const maxReplans = setting("ORCHESTRATOR_MAX_REPLANS");
   // Off by default: isolation fails tasks whose workspace is not a git
   // repo, and needs the Convex node action to share the worker's disk.
-  const worktreeIsolation = boolFromEnv("ORCHESTRATOR_WORKTREE_ISOLATION", false);
+  const worktreeIsolation = setting("ORCHESTRATOR_WORKTREE_ISOLATION");
   const parallelism = defaultParallelism(worktreeIsolation);
   return {
-    maxSubtasks: intFromEnv("ORCHESTRATOR_MAX_SUBTASKS", 8, 1, 20),
-    maxConcurrency: intFromEnv("ORCHESTRATOR_MAX_CONCURRENCY", parallelism, 1, 8),
+    maxSubtasks: setting("ORCHESTRATOR_MAX_SUBTASKS"),
+    // Defaults to the parallel default (schema-derived, = parallelism).
+    maxConcurrency: wenv("ORCHESTRATOR_MAX_CONCURRENCY", settingEnv, { fallback: parallelism }),
     maxReplans,
     // Spec alias: defaults to the maxReplans value so the two never drift;
     // ORCHESTRATOR_MAX_PLANNING_ITERATIONS overrides the iteration bound
     // directly when set.
-    maxPlanningIterations: intFromEnv(
-      "ORCHESTRATOR_MAX_PLANNING_ITERATIONS",
-      maxReplans,
-      0,
-      3
-    ),
-    maxReviewIterations: intFromEnv("ORCHESTRATOR_MAX_REVIEW_ITERATIONS", 2, 0, 5),
+    maxPlanningIterations: wenv("ORCHESTRATOR_MAX_PLANNING_ITERATIONS", settingEnv, { fallback: maxReplans }),
+    maxReviewIterations: setting("ORCHESTRATOR_MAX_REVIEW_ITERATIONS"),
     // Configurable up to 1h (was clamped to 300s, which a slow model
     // cannot meet on a multi-file change — e2e ULTRA).
     // Default 900s (was 300s): live tests 3/4 timed out medium native
     // (OpenCode) subtasks at 300s while one nous call takes 5-8 min. The
     // runner grows it further from observed latency (subtaskTimeoutFor).
-    subtaskTimeoutMs: intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", DEFAULT_SUBTASK_TIMEOUT_MS, 30_000, 3_600_000),
-    subtaskTimeoutFromEnv: Boolean(process.env.ORCHESTRATOR_SUBTASK_TIMEOUT_MS),
-    subtaskTimeoutMsHigh: intFromEnv(
-      "ORCHESTRATOR_SUBTASK_TIMEOUT_HIGH_MS",
-      // 900s: one slow call (~280s on longcat) plus a full retry must fit.
-      Math.max(900_000, intFromEnv("ORCHESTRATOR_SUBTASK_TIMEOUT_MS", DEFAULT_SUBTASK_TIMEOUT_MS, 30_000, 3_600_000)),
-      30_000,
-      3_600_000
-    ),
-    subtaskRetries: intFromEnv("ORCHESTRATOR_SUBTASK_RETRIES", 1, 0, 3),
-    approvalTimeoutMs: intFromEnv("ORCHESTRATOR_APPROVAL_TIMEOUT_MS", 30 * 60_000, 60_000, 24 * 60 * 60_000),
-    taskTimeoutMs: intFromEnv("ORCHESTRATOR_TASK_TIMEOUT_MS", 20 * 60_000, 60_000, 3 * 60 * 60_000),
-    taskTimeoutMsHigh: intFromEnv(
-      "ORCHESTRATOR_TASK_TIMEOUT_HIGH_MS",
-      Math.max(40 * 60_000, intFromEnv("ORCHESTRATOR_TASK_TIMEOUT_MS", 20 * 60_000, 60_000, 3 * 60 * 60_000)),
-      60_000,
-      3 * 60 * 60_000
-    ),
+    subtaskTimeoutMs: setting("ORCHESTRATOR_SUBTASK_TIMEOUT_MS"),
+    // Raw presence in process.env (no knob source), as before E1.
+    subtaskTimeoutFromEnv: Boolean(wenvRaw("ORCHESTRATOR_SUBTASK_TIMEOUT_MS")),
+    // Default max(900s, subtask timeout): one slow call (~280s on longcat)
+    // plus a full retry must fit.
+    subtaskTimeoutMsHigh: setting("ORCHESTRATOR_SUBTASK_TIMEOUT_HIGH_MS"),
+    subtaskRetries: setting("ORCHESTRATOR_SUBTASK_RETRIES"),
+    approvalTimeoutMs: setting("ORCHESTRATOR_APPROVAL_TIMEOUT_MS"),
+    taskTimeoutMs: setting("ORCHESTRATOR_TASK_TIMEOUT_MS"),
+    // Default max(40 min, task timeout).
+    taskTimeoutMsHigh: setting("ORCHESTRATOR_TASK_TIMEOUT_HIGH_MS"),
     // MausBot mechanism: progress-based termination. Build steps keep the
     // task alive; only true inactivity trips this. 0 = disabled.
-    idleTimeoutMs: intFromEnv("ORCHESTRATOR_IDLE_TIMEOUT_MS", 10 * 60_000, 60_000, 24 * 60 * 60_000),
+    idleTimeoutMs: setting("ORCHESTRATOR_IDLE_TIMEOUT_MS"),
     // Planning watchdog (e2e 2026-11-09: a task sat in planning after a
     // stall-triggered replan). 0 = disabled.
-    planningStallMs: intFromEnv("ORCHESTRATOR_PLANNING_STALL_MS", 12 * 60_000, 0, 3 * 60 * 60_000),
-    verificationEnabled: boolFromEnv("ORCHESTRATOR_VERIFICATION_ENABLED", true),
-    verificationIncludeBuild: boolFromEnv("ORCHESTRATOR_VERIFICATION_BUILD", true),
-    verificationTimeoutMs: intFromEnv("ORCHESTRATOR_VERIFICATION_TIMEOUT_MS", 300_000, 30_000, 300_000),
+    planningStallMs: setting("ORCHESTRATOR_PLANNING_STALL_MS"),
+    verificationEnabled: setting("ORCHESTRATOR_VERIFICATION_ENABLED"),
+    verificationIncludeBuild: setting("ORCHESTRATOR_VERIFICATION_BUILD"),
+    verificationTimeoutMs: setting("ORCHESTRATOR_VERIFICATION_TIMEOUT_MS"),
     // Intelligent orchestrator defaults from spec, env-overridable
-    maxAgentsPerTask: intFromEnv("ORCHESTRATOR_MAX_AGENTS_PER_TASK", 3, 1, 10),
+    maxAgentsPerTask: setting("ORCHESTRATOR_MAX_AGENTS_PER_TASK"),
     // Default raised 5 -> 12: a healthy task spends calls on planning, one
     // implementation attempt + retry, review, and possible fix rounds, so a
     // limit of 5 killed normal tasks once the tracker was actually fed.
-    maxLLMCallsPerTask: intFromEnv("ORCHESTRATOR_MAX_LLM_CALLS_PER_TASK", 400, 1, 1_000),
-    maxDelegationDepth: intFromEnv("ORCHESTRATOR_MAX_DELEGATION_DEPTH", 2, 0, 10),
-    maxDelegations: intFromEnv("ORCHESTRATOR_MAX_DELEGATIONS", 10, 0, 100),
+    maxLLMCallsPerTask: setting("ORCHESTRATOR_MAX_LLM_CALLS_PER_TASK"),
+    maxDelegationDepth: setting("ORCHESTRATOR_MAX_DELEGATION_DEPTH"),
+    maxDelegations: setting("ORCHESTRATOR_MAX_DELEGATIONS"),
     // Phase 5: warn-only by default for ONE release cycle — the pre-call
     // gate logs budget.warning events instead of stopping tasks, so the
     // calibrated limits (12 calls / 50k tokens) can be observed against
     // real workloads before hard-stop enforcement becomes the default.
     // Set ORCHESTRATOR_BUDGET_MODE=enforce to opt into the hard stop now.
-    budgetMode:
-      (settingEnv("ORCHESTRATOR_BUDGET_MODE") ?? "").trim().toLowerCase() === "enforce"
-        ? "enforce"
-        : "warn",
+    budgetMode: setting("ORCHESTRATOR_BUDGET_MODE"),
     // Phase 4: this field is LIVE. Phase 4 hardening: it sizes the
     // PER-TASK LLM gate — the runner creates one LlmConcurrencyGate per
     // task run from this value, so concurrent tasks each honor their
@@ -367,22 +337,15 @@ export function loadPolicy(): ExecutionPolicy {
     // provider-parallel work.
     // Follows the parallel default so side-by-side nodes do not queue on
     // the LLM gate (1 unless worktree isolation is on).
-    maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", parallelism, 1, 8),
-    maxTokenBudgetPerTask: intFromEnv("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK", 2_000_000, 1_000, 100_000_000),
+    maxConcurrentLLMCalls: wenv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", settingEnv, { fallback: parallelism }),
+    maxTokenBudgetPerTask: setting("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK"),
     // Plan 040 (D8): off by default; unmatched work is BLOCKED, never the CTO.
-    allowFallback: boolFromEnv("ORCHESTRATOR_ALLOW_FALLBACK", false),
-    orchestratorAuthoritative: boolFromEnv("ORCHESTRATOR_AUTHORITATIVE", true),
+    allowFallback: setting("ORCHESTRATOR_ALLOW_FALLBACK"),
+    orchestratorAuthoritative: setting("ORCHESTRATOR_AUTHORITATIVE"),
     // Plan 006 Phase 1: the router is deterministic by default; the advisor
     // turns on only when the flag is set (Phase 4 wires the real call).
-    routerLlmMode:
-      (settingEnv("ORCHESTRATOR_ROUTER_LLM") ?? "").trim().toLowerCase() ===
-      "always"
-        ? "always"
-        : (settingEnv("ORCHESTRATOR_ROUTER_LLM") ?? "").trim().toLowerCase() ===
-            "ambiguous"
-          ? "ambiguous"
-          : "off",
-    chatMaxAgents: intFromEnv("ORCHESTRATOR_CHAT_MAX_AGENTS", 1, 1, 5),
+    routerLlmMode: setting("ORCHESTRATOR_ROUTER_LLM"),
+    chatMaxAgents: setting("ORCHESTRATOR_CHAT_MAX_AGENTS"),
     // Global default; an agent's own `executionRuntime` overrides it
     // (resolveExecutionRuntime). ORCHESTRATOR_EXECUTION_RUNTIME wins over
     // the legacy ORCHESTRATOR_RUNTIME; "opencode" aliases "native-provider".
@@ -393,32 +356,29 @@ export function loadPolicy(): ExecutionPolicy {
     // Plan 005 Phase 4 Step 4.3 (enabled once Phase 4 tests went green):
     // the advisor is consulted only on ambiguous observations; the
     // deterministic policy decisions still win via validateDecision.
-    decisionLlmMode:
-      (settingEnv("ORCHESTRATOR_DECISION_LLM") ?? "").trim().toLowerCase() === "always"
-        ? "always"
-        : (settingEnv("ORCHESTRATOR_DECISION_LLM") ?? "").trim().toLowerCase() === "off"
-          ? "off"
-          : "ambiguous",
-    maxDecisionSteps: intFromEnv("ORCHESTRATOR_MAX_DECISION_STEPS", 20, 1, 200),
-    toolLoop: boolFromEnv("ORCHESTRATOR_TOOL_LOOP", false),
-    mcpToolLoop: boolFromEnv("ORCHESTRATOR_MCP_TOOL_LOOP", true),
-    mcpWriteTools: boolFromEnv("ORCHESTRATOR_MCP_WRITE_TOOLS", false),
-    mcpMaxToolIterations: intFromEnv("ORCHESTRATOR_MCP_MAX_TOOL_ITERATIONS", 6, 1, 20),
-    mcpTimeoutMs: intFromEnv("ORCHESTRATOR_MCP_TIMEOUT_MS", 30_000, 1_000, 300_000),
-    mcpMaxResultChars: intFromEnv("ORCHESTRATOR_MCP_MAX_RESULT_CHARS", 8_000, 500, 200_000),
+    decisionLlmMode: setting("ORCHESTRATOR_DECISION_LLM"),
+    maxDecisionSteps: setting("ORCHESTRATOR_MAX_DECISION_STEPS"),
+    toolLoop: setting("ORCHESTRATOR_TOOL_LOOP"),
+    mcpToolLoop: setting("ORCHESTRATOR_MCP_TOOL_LOOP"),
+    mcpWriteTools: setting("ORCHESTRATOR_MCP_WRITE_TOOLS"),
+    mcpMaxToolIterations: setting("ORCHESTRATOR_MCP_MAX_TOOL_ITERATIONS"),
+    mcpTimeoutMs: setting("ORCHESTRATOR_MCP_TIMEOUT_MS"),
+    mcpMaxResultChars: setting("ORCHESTRATOR_MCP_MAX_RESULT_CHARS"),
     // Plan 036: the Agent Reach web tool. Enabled by default; an agent must
     // still declare `web_reach` in its `supportedTools` to get it.
-    agentReachEnabled: boolFromEnv("ORCHESTRATOR_AGENT_REACH_ENABLED", true),
-    agentReachCommand: (settingEnv("ORCHESTRATOR_AGENT_REACH_COMMAND") ?? "agent-reach").trim() || "agent-reach",
-    agentReachTimeoutMs: intFromEnv("ORCHESTRATOR_AGENT_REACH_TIMEOUT_MS", 60_000, 1_000, 300_000),
-    agentReachMaxItems: intFromEnv("ORCHESTRATOR_AGENT_REACH_MAX_ITEMS", 10, 1, 20),
-    agentReachMaxToolIterations: intFromEnv("ORCHESTRATOR_AGENT_REACH_MAX_TOOL_ITERATIONS", 4, 1, 20),
-    reviewMode: planningModeFromEnv("ORCHESTRATOR_REVIEW_MODE"),
-    qaMode: planningModeFromEnv("ORCHESTRATOR_QA_MODE", "auto"),
-    // QA gets its own, smaller fix budget than review (QA audit §5).
-    qaMaxFixIterations: intFromEnv("ORCHESTRATOR_QA_MAX_FIX_ITERATIONS", intFromEnv("QA_MAX_FIX_ITERATIONS", 1, 0, 5), 0, 5),
-    qaRequired: boolFromEnv("ORCHESTRATOR_QA_REQUIRED", boolFromEnv("QA_REQUIRED", false)),
-    loadAwareRouting: boolFromEnv("ORCHESTRATOR_LOAD_AWARE_ROUTING", false),
-    performanceRouting: boolFromEnv("ORCHESTRATOR_PERFORMANCE_ROUTING", false),
+    agentReachEnabled: setting("ORCHESTRATOR_AGENT_REACH_ENABLED"),
+    agentReachCommand: setting("ORCHESTRATOR_AGENT_REACH_COMMAND"),
+    agentReachTimeoutMs: setting("ORCHESTRATOR_AGENT_REACH_TIMEOUT_MS"),
+    agentReachMaxItems: setting("ORCHESTRATOR_AGENT_REACH_MAX_ITEMS"),
+    agentReachMaxToolIterations: setting("ORCHESTRATOR_AGENT_REACH_MAX_TOOL_ITERATIONS"),
+    reviewMode: setting("ORCHESTRATOR_REVIEW_MODE"),
+    qaMode: setting("ORCHESTRATOR_QA_MODE"),
+    // QA gets its own, smaller fix budget than review (QA audit §5);
+    // falls back to the legacy QA_MAX_FIX_ITERATIONS.
+    qaMaxFixIterations: setting("ORCHESTRATOR_QA_MAX_FIX_ITERATIONS"),
+    // Falls back to the legacy QA_REQUIRED.
+    qaRequired: setting("ORCHESTRATOR_QA_REQUIRED"),
+    loadAwareRouting: setting("ORCHESTRATOR_LOAD_AWARE_ROUTING"),
+    performanceRouting: setting("ORCHESTRATOR_PERFORMANCE_ROUTING"),
   };
 }

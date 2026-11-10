@@ -14,6 +14,7 @@
  *
  * Nothing here reads or reports credential material.
  */
+import { wenv } from "@fhara/config/worker";
 import { promises as fs, constants as fsConstants } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -270,8 +271,8 @@ export async function ensureOpencodeDetection(): Promise<OpencodeDetection> {
  * Explicit opt-out of the isolation guard: ORCHESTRATOR_OPENCODE_ALLOW_UNISOLATED
  * = 1 / true / yes lets OpenCode run in the project checkout itself.
  */
-export function opencodeAllowUnisolated(env: Record<string, string | undefined> = process.env): boolean {
-  return /^(1|true|yes|on)$/i.test((env.ORCHESTRATOR_OPENCODE_ALLOW_UNISOLATED ?? "").trim());
+export function opencodeAllowUnisolated(env?: Record<string, string | undefined>): boolean {
+  return wenv("ORCHESTRATOR_OPENCODE_ALLOW_UNISOLATED", env);
 }
 
 /**

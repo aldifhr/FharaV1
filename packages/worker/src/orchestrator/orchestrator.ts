@@ -245,6 +245,8 @@ export interface AuthoritativePlanInput {
   hasQaUrl?: boolean;
   /** Real workspace paths for the planner prompt (allowedPaths grounding). */
   workspaceLayout?: string[];
+  /** R7: ranked repository map (execution/repoMap) for the planner prompt. */
+  repoMap?: string;
   /** Plan 025: the user's own request (requirement extraction source). */
   request?: string;
   /** Plan 025: requirements already fixed for this task. */
@@ -338,6 +340,7 @@ export async function createAuthoritativePlan(
       hasQaUrl: input.hasQaUrl,
       sharedInstructions: input.sharedContext.instructions,
       workspaceLayout: input.workspaceLayout,
+      repoMap: input.repoMap,
       request: input.request,
       requirements: input.requirements,
     });

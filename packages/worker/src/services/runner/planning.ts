@@ -1,6 +1,7 @@
 import { runWithObservationScope } from "@/effects/observationContext";
 import { unwrapSandboxBrief } from "@/orchestrator/classifier";
 import { listWorkspaceLayout } from "@/utils/workspaceLayout";
+import { buildRepoMap } from "@/execution/repoMap";
 import type { WorkerProject, WorkerTask } from "@/workerApi";
 import type {
   AgentDefinition,
@@ -216,6 +217,11 @@ async function callPlanner(
     llmTaskGate: pctx.llmTaskGate,
     hasQaUrl: Boolean(resolveQaBaseUrl(project)),
     workspaceLayout: await listWorkspaceLayout(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath)),
+    // R7: ranked repo map (TS/JS repositories; null elsewhere) for the planner's context.
+    // Not built when a stored plan is adopted (no planner call reads it).
+    repoMap: extra.storedPlan
+      ? undefined
+      : (await buildRepoMap(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath), { query: task.command, signal }))?.map,
     // Requirements come from the user's own request: a Sandbox brief's
     // wrapper (header, guardrails, time box) is not a requirement.
     request: unwrapSandboxBrief(task.command),

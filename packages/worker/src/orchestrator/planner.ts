@@ -84,6 +84,8 @@ export interface PlannerInput {
    * must be declared against these, not guessed.
    */
   workspaceLayout?: string[];
+  /** R7: ranked repository map (execution/repoMap), already within its character budget. */
+  repoMap?: string;
   /**
    * Plan 025: the user's own request (without attached file contexts),
    * the text requirements are extracted from and spans point into.

@@ -107,6 +107,9 @@ describe("executeSubtask cancellation (Phase 4)", () => {
     const provider: LLMProvider = {
       complete: (_messages, _model, opts) => {
         calls += 1;
+        // Abort once the call is in flight ("mid-LLM-call"), however long
+        // the context step before it took (the repo map loads the compiler).
+        setTimeout(() => controller.abort(), 30);
         // Hangs until the caller's signal fires, like a real fetch.
         return new Promise((_resolve, reject) => {
           opts?.signal?.addEventListener(
@@ -119,13 +122,16 @@ describe("executeSubtask cancellation (Phase 4)", () => {
     };
     const saveFileChange = vi.fn(async () => undefined);
     const controller = new AbortController();
-    const started = Date.now();
+    let started = 0;
     const pending = executeSubtask(
       makeInput(provider, controller.signal, saveFileChange)
     );
-    setTimeout(() => controller.abort(), 30);
+    controller.signal.addEventListener("abort", () => {
+      started = Date.now();
+    });
 
     await expect(pending).rejects.toThrowError(/aborted/);
+    // Rejects promptly after the abort.
     expect(Date.now() - started).toBeLessThan(3000);
     // The abort error carries no HTTP status; without the signal check
     // in the retry predicate it would have been replayed as "transient".

@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { readFile } from "@/tools/readFile";
+import { buildRepoMap } from "./repoMap";
 
 const IGNORED = new Set([
   ".git",
@@ -21,6 +22,18 @@ export interface RepositoryContextOptions {
   maxFiles?: number;
   maxFilesToRead?: number;
   maxCharsPerFile?: number;
+  /**
+   * R7: the request / subtask text. With it, a ranked repository map
+   * (execution/repoMap, TS/JS only) replaces the flat file listing, and
+   * its top files are read after the hinted ones. Non-TS repositories keep
+   * the flat listing. Pass `repoMap: false` to keep the old behaviour.
+   */
+  query?: string;
+  /** Files / directories the subtask names (allowedPaths): they personalise the map. */
+  mentionedFiles?: ReadonlyArray<string>;
+  repoMap?: boolean;
+  /** Character budget of the map (default REPO_MAP_MAX_CHARS or 4000). */
+  repoMapMaxChars?: number;
 }
 
 export async function exploreRepository(
@@ -59,16 +72,33 @@ export async function exploreRepository(
     ? files.filter((file) => file.toLowerCase().includes(hint))
     : [];
 
-  // Prefer hinted files, then prefer shallow/source files over dumps.
+  const map =
+    options.repoMap !== false && options.query !== undefined
+      ? await buildRepoMap(workspaceRoot, {
+          query: [options.query, options.fileHint ?? ""].join("\n"),
+          mentionedFiles: options.mentionedFiles,
+          ...(options.repoMapMaxChars ? { maxChars: options.repoMapMaxChars } : {}),
+        })
+      : null;
+  // The map's best files (that exist in the listing walk or not) come right
+  // after the hinted ones.
+  const ranked = map ? map.rankedFiles.slice(0, Math.max(0, Math.ceil(maxFilesToRead / 2))) : [];
+
+  // Prefer hinted files, then the top-ranked map files, then shallow/source files over dumps.
   const ordered = [
     ...new Set([
       ...candidates,
+      ...ranked,
       ...files.slice().sort((a, b) => depthOf(a) - depthOf(b) || a.localeCompare(b)),
     ]),
   ].slice(0, maxFilesToRead * 2);
 
   const selected = ordered.slice(0, maxFilesToRead);
-  const sections: string[] = [`Workspace files:\n${ordered.slice(0, 60).join("\n")}`];
+  const sections: string[] = [
+    map
+      ? `Repository map (files ranked by relevance to this task, with their key definitions; ${map.fileCount} source files indexed):\n${map.map}`
+      : `Workspace files:\n${ordered.slice(0, 60).join("\n")}`,
+  ];
   for (const file of selected) {
     try {
       const content = await readFile(workspaceRoot, file);

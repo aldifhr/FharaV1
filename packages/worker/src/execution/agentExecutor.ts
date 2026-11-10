@@ -846,7 +846,7 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
   } = input;
 
   const fileHint = extractFileHint(`${subtask.description}\n${command}`);
-  const { context } = await exploreRepository(workspacePath, { fileHint });
+  const { context } = await exploreRepository(workspacePath, { fileHint, query: `${subtask.description}\n${command}`, mentionedFiles: subtask.allowedPaths });
   await onEvent("native.context", {
     capability: subtask.capability,
     mode: "native-provider",
@@ -1196,7 +1196,7 @@ async function executeCodeChange(
     };
   }
   const fileHint = extractFileHint(`${subtask.description}\n${command}`);
-  const { context } = await exploreRepository(workspacePath, { fileHint });
+  const { context } = await exploreRepository(workspacePath, { fileHint, query: `${subtask.description}\n${command}`, mentionedFiles: subtask.allowedPaths });
   await onEvent("agent.context", {
     capability: subtask.capability,
     filesHinted: fileHint ?? null,
@@ -2048,6 +2048,8 @@ async function executeReadOnly(
   const fileHint = extractFileHint(subtask.description);
   const { context } = await exploreRepository(workspacePath, {
     fileHint,
+    query: `${subtask.description}\n${command}`,
+    mentionedFiles: subtask.allowedPaths,
     maxFilesToRead: mode === "audit" ? 14 : 10,
   });
   await input.onEvent("agent.context", {

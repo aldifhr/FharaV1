@@ -14,6 +14,8 @@ export interface PlanningPromptInput {
   feedback?: string;
   sharedInstructions?: string;
   workspaceLayout?: string[];
+  /** R7: ranked repository map (files most relevant to the request, with key definitions). */
+  repoMap?: string;
   /** describeCapabilities(agents): one line per available agent. */
   capabilityList: string;
   /**
@@ -37,6 +39,12 @@ export function planningPrompt(input: PlanningPromptInput): string {
       ? [
           `Workspace layout (real paths; directories end with "/"): ${input.workspaceLayout.join(", ")}`,
           "Declare allowedPaths only from this layout (or new files/directories inside it). A shared root file a subtask may edit (e.g. a stylesheet, index.html, README.md) must be listed explicitly.",
+        ]
+      : []),
+    ...(input.repoMap
+      ? [
+          `Repository map (source files ranked by relevance to this request, with their key definitions):\n${input.repoMap}`,
+          "Use the map to pick the files a subtask should touch; it lists only the most relevant part of the repository.",
         ]
       : []),
     "Do NOT force all agents into every task. Only assign agents whose capabilities match the requirements.",

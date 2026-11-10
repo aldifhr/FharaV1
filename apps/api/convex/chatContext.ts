@@ -186,6 +186,7 @@ export const updateStreamingAgentMessage = internalMutation({
     checkedFiles: v.optional(v.array(v.string())),
     unverifiedRefs: v.optional(v.array(v.string())),
     intentLine: v.optional(v.string()),
+    taskOffer: v.optional(v.object({ kind: v.string(), commands: v.optional(v.array(v.string())) })),
   },
   handler: async (ctx, args) => {
     const { messageId, ...patch } = args;
@@ -313,6 +314,8 @@ export const getContext = internalQuery({
         // The file attachment appends context the agents do not need to see
         // again; the compacted summary already carries it.
         content: stripFileAttachments(m.content),
+        // The server-detected Create task offer on a CTO reply (go replies).
+        ...(m.taskOffer ? { taskOffer: m.taskOffer } : {}),
       }));
 
     // Plan 016: the active task for router context (title + status).

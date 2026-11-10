@@ -354,7 +354,11 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     // Same composition as a "gas" reply: the request this reply answers
     // (never a meta follow-up like "kok bikin task?") plus the reply.
     const { command, title, pick } = composeOfferedTask(
-      list.map((m) => ({ authorType: String(m.authorType ?? ""), content: String(m.content ?? "") })),
+      list.map((m) => ({
+        authorType: String(m.authorType ?? ""),
+        content: String(m.content ?? ""),
+        ...(m.taskOffer ? { taskOffer: m.taskOffer } : {}),
+      })),
       at,
     );
     const assignees = mentions.mentionedAgentIds(reply.content);

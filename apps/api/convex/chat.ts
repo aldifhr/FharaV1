@@ -34,20 +34,17 @@ import {
   isSelfReviewRequest,
   previousReplyOf,
   targetsOutsideRepo,
+  type ChatTaskOffer,
   type IntentResult,
 } from "./lib/chat/intent";
 import { chooseAskResponder, classifyIntent } from "./lib/chat/classify";
 import { type EchoContext, streamEchoSafe, stripLeadingEcho } from "./lib/chat/echo";
-import { dispatchHandoffLine, looksIndonesian as looksIndonesianDispatch, routeCtoQuestion } from "./lib/chat/dispatch";
+import { chatPreRouteAllowed, dispatchHandoffLine, looksIndonesian as looksIndonesianDispatch, routeCtoQuestion } from "./lib/chat/dispatch";
 import { detectChatRunCommands } from "./lib/chat/runRequest";
 import {
-  MAX_CTO_HANDOFFS,
   ORCHESTRATOR_LIKE_ROLE,
   ORCHESTRATOR_ROLE,
   extractAgentMentions,
-  selectHandoffs,
-  handoffRequestFor,
-  isVerificationRequest,
   pickConversationalAgent,
   pickGreetingResponders,
   resolveAssignees,
@@ -133,7 +130,7 @@ type ChatContextData = {
   agents: ChatAgent[];
   team?: ChatAgent[];
   projectName: string;
-  history: { authorType: string; content: string; agentId?: string }[];
+  history: { authorType: string; content: string; agentId?: string; taskOffer?: ChatTaskOffer }[];
   contextSummary?: string;
   activeTask?: { title: string; status: string } | null;
   llmProviders?: PoolConnectionPayload[];
@@ -1093,15 +1090,18 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
 
     // The intent below is a suggestion that shapes the reply (answer vs a
     // plan proposal with the Create task button); it never dispatches.
-    const intent = await resolveIntent(ctx, args.projectId, lastUserContent, isOptionPick, globalConfig);
+    let intent = await resolveIntent(ctx, args.projectId, lastUserContent, isOptionPick, globalConfig);
     // `taskIntent.kind === "task"` makes the CTO propose a short plan and
     // end with the Create task sentence the web button keys on.
-    const taskIntent = {
+    let taskIntent = {
       ...classifyChatIntent(lastUserContent),
       kind: intent.intent === "task" ? "task" : "chat",
       subtype: intent.subtype,
       requiresWorkspace: intent.requiresWorkspace,
       requiresExecution: intent.requiresExecution,
+      // "tolong jalankan tes" → ["npm run test"]: the CTO offers Create task
+      // for exactly these lines instead of claiming it has no shell.
+      runCommands: detectChatRunCommands(lastUserContent) ?? undefined,
     };
 
     // Lifecycle intents act on the active task instead of chatting.
@@ -1143,14 +1143,16 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
     // Pasted/relayed text and change-shaped requests stay with the CTO (it
     // discusses the paste, or offers a plan + Create task).
     const workShaped = classifyChatIntent(lastUserContent).kind === "task" && !hasAskShape(lastUserContent);
-    if (
-      orchestrator &&
-      addressedToCto &&
-      intent.intent === "ask" &&
-      !isOptionPick &&
-      !isPastedContent(lastUserContent) &&
-      !workShaped
-    ) {
+    // Deterministic: the LLM's audit/review/research label never decides it.
+    const preRoute = chatPreRouteAllowed({
+      text: lastUserContent,
+      intent,
+      optionPick: isOptionPick,
+      pasted: isPastedContent(lastUserContent),
+      workShaped,
+      runRequest: detectChatRunCommands(lastUserContent) !== null,
+    });
+    if (orchestrator && addressedToCto && preRoute) {
       const route = routeCtoQuestion<ChatAgent>({
         text: lastUserContent,
         team,
@@ -1183,6 +1185,12 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
         // handed it over. As a "- CTO: …" line it got copied verbatim into
         // the specialist's answer. Still a prior message for echo cleanup.
         handoffLines.push(line);
+        // A routed message is chat: the specialist answers it (no plan, no
+        // Create task offer), whatever the LLM's suggestion was.
+        if (intent.intent !== "ask") {
+          intent = { ...intent, intent: "ask", subtype: intent.subtype === "implementation" ? "explanation" : intent.subtype };
+          taskIntent = { ...taskIntent, kind: "chat", subtype: intent.subtype };
+        }
       }
     }
 
@@ -1226,7 +1234,6 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
     const selfReview = isSelfReviewRequest(lastUserContent);
     const answered = new Set<string>();
     const handoffFrom = new Map<string, { by: string; request: string }>();
-    let handoffs = 0;
     if (routed && orchestrator) {
       handoffFrom.set(String(routed._id), { by: orchestrator.name, request: lastUserContent });
     }
@@ -1328,6 +1335,18 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
         );
         toolBudget.spend(result.toolCalls ?? 0);
         content = result.content;
+        // Create task offer: the server's own reading of the request (intent
+        // "task"), stored on the CTO's reply so the web button and a "gas"
+        // reply never depend on the reply's wording.
+        if (isCto && !isOptionPick && taskIntent.kind === "task" && result.messageId) {
+          const taskOffer: ChatTaskOffer = {
+            kind: intent.subtype,
+            ...(taskIntent.runCommands?.length ? { commands: taskIntent.runCommands } : {}),
+          };
+          await ctx
+            .runMutation(internal.chatContext.updateStreamingAgentMessage, { messageId: result.messageId, taskOffer })
+            .catch(() => undefined);
+        }
         // Collaboration graph: record that this reply was a CTO handoff.
         if (handoffBy !== undefined && orchestrator && result.messageId) {
           await ctx
@@ -1361,44 +1380,10 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
         // section; the user's message stays the last chat message.
         turnReplies.push({ name: agent.name, content: content.trim() });
         if (routed && String(routed._id) === String(agent._id)) routedReply = content.trim();
-        // CTO handoff: teammates it @mentioned answer next, in order.
-        if (isCto && !isOptionPick) {
-          // With repo tools off for the rest of the turn, a teammate asked to
-          // check/verify code could only say it has no access: skip it.
-          const toolsOffForTeam = repoTools?.available !== true || workerGone;
-          const dropped: string[] = [];
-          for (const mentioned of selectHandoffs(content, team, String(agent._id))) {
-            if (handoffs >= MAX_CTO_HANDOFFS) break;
-            if (answered.has(String(mentioned._id))) continue;
-            if (queue.some((queued, index) => index > turn && queued._id === mentioned._id)) continue;
-            const request = handoffRequestFor(content, mentioned);
-            if (toolsOffForTeam && isVerificationRequest(request)) {
-              dropped.push(mentioned.name);
-              continue;
-            }
-            queue.push(mentioned);
-            handoffFrom.set(String(mentioned._id), { by: agent.name, request });
-            handoffs += 1;
-            // Activity timeline on the CTO's reply: "Meminta bantuan <role>".
-            if (result.messageId) {
-              await ctx
-                .runMutation(internal.chatContext.appendToolStep, {
-                  messageId: result.messageId,
-                  step: { tool: "handoff", target: mentioned.role, ok: true, at: Date.now() },
-                })
-                .catch(() => undefined);
-            }
-          }
-          if (dropped.length > 0 && result.messageId) {
-            await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
-              messageId: result.messageId,
-              reasoning: joinTrace(
-                result.reasoning ?? "",
-                `Handoff skipped (${dropped.map((n) => `@${n}`).join(", ")}): a verification request, and teammates have no repo access in this reply either`
-              ),
-            });
-          }
-        }
+        // An @Name inside the CTO's own reply never pulls a teammate in:
+        // "izinkan @QA atau @Reviewer lanjut?" is a question to the user,
+        // not a handoff. Only the user's typed @mentions (responders) and
+        // the deterministic pre-route (routed) bring a specialist in.
       }
     }
 

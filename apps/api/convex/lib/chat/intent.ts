@@ -354,6 +354,17 @@ export function requestAnsweredByOffer(
   return best || nearest;
 }
 
+/** The server-detected Create task offer stored on a CTO reply (messages.taskOffer). */
+export interface ChatTaskOffer {
+  kind: string;
+  commands?: string[];
+}
+
+/** The task command a run-request offer starts: the run verb + the exact lines. */
+export function runOfferCommand(commands: string[]): string {
+  return `jalankan ${commands.join(" && ")}`;
+}
+
 /**
  * The Create task command for a CTO reply, composed for both the button
  * (apps/web ChatPanel) and a bare go reply: an option pick right before the
@@ -362,10 +373,19 @@ export function requestAnsweredByOffer(
  * meta follow-up such as "kok bikin task?".
  */
 export function composeOfferedTask(
-  history: Array<{ authorType: string; content: string }>,
+  history: Array<{ authorType: string; content: string; taskOffer?: ChatTaskOffer }>,
   offerIndex: number
 ): { command: string; title?: string; pick?: string } {
   const reply = (history[offerIndex]?.content ?? "").trim();
+  // A run request ("tolong jalankan tes"): the task is exactly the commands
+  // the server detected, with the run verb the worker classifier keys on.
+  // The CTO's prose (which may carry change verbs) stays out of it.
+  const runCommands = history[offerIndex]?.taskOffer?.commands;
+  if (runCommands && runCommands.length > 0) {
+    const ask = requestAnsweredByOffer(history, offerIndex);
+    const title = (ask ? stripRelayPrefix(ask) || ask : runOfferCommand(runCommands)).split("\n")[0].trim().slice(0, 80) || undefined;
+    return { command: runOfferCommand(runCommands), title };
+  }
   let prevUser: string | null = null;
   for (let j = offerIndex - 1; j >= 0; j -= 1) {
     if (history[j].authorType === "user") {
@@ -389,7 +409,7 @@ export function composeOfferedTask(
  * latest message is not preceded by such an offer.
  */
 export function findOfferedTask(
-  history: Array<{ authorType: string; content: string; agentId?: string }>,
+  history: Array<{ authorType: string; content: string; agentId?: string; taskOffer?: ChatTaskOffer }>,
   roleOf: (agentId: string | undefined) => string | undefined
 ): OfferedTask | null {
   const last = history.length - 1;
@@ -407,7 +427,7 @@ export function findOfferedTask(
       }
     }
     const pick = prevUser?.match(OPTION_PICK)?.[1];
-    if (!pick && !OFFERS_CREATE_TASK.test(m.content)) return null;
+    if (!pick && !m.taskOffer && !OFFERS_CREATE_TASK.test(m.content)) return null;
     const { command, title } = composeOfferedTask(history, i);
     return { index: i, command, title, reply: m.content };
   }

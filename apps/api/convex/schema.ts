@@ -649,6 +649,17 @@ export default defineSchema({
     // One sanitized sentence of what the agent is about to do ("Bekerja"
     // line): the classifier's intent or the first reasoning sentence.
     intentLine: v.optional(v.string()),
+    // Create task offer (additive): set on a CTO chat reply when the server
+    // read the user's message as work (intent "task"); `kind` is the intent
+    // subtype ("testing", "implementation", …) and `commands` the
+    // allowlisted command lines a run request asked for ("npm run test").
+    // The web Create task button keys on this, not on the reply's wording.
+    taskOffer: v.optional(
+      v.object({
+        kind: v.string(),
+        commands: v.optional(v.array(v.string())),
+      })
+    ),
     // Collaboration graph (additive): this agent reply was a CTO @mention
     // handoff; the CTO agent that handed the turn over.
     handoffFromAgentId: v.optional(v.id("agents")),

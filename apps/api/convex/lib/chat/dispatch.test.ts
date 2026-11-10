@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dispatchHandoffLine, looksIndonesian, routeCtoQuestion } from "./dispatch";
+import { chatPreRouteAllowed, dispatchHandoffLine, isFollowUpText, looksIndonesian, routeCtoQuestion } from "./dispatch";
 
 type M = { _id: string; name: string; role: string };
 const full: M[] = [
@@ -196,3 +196,43 @@ describe("CTO dispatch: handoff line", () => {
     expect(looksIndonesian("please review the code")).toBe(false);
   });
 });
+
+describe("chat pre-route gate (deterministic, live2 3a/3f)", () => {
+  const base = { optionPick: false, pasted: false, workShaped: false, runRequest: false };
+  const gate = (text: string, intent: { intent: string; subtype: string }, extra: Partial<typeof base> = {}) =>
+    chatPreRouteAllowed({ text, intent, ...base, ...extra });
+
+  it("routes whatever the LLM's audit/review/research label says", () => {
+    expect(gate("tolong audit kode src/", { intent: "task", subtype: "audit" })).toBe(true);
+    expect(gate("tolong audit kode src/", { intent: "task", subtype: "research" })).toBe(true);
+    expect(gate("tolong audit kode src/", { intent: "ask", subtype: "explanation" })).toBe(true);
+  });
+
+  it("follow-ups always route, even when the LLM calls them an implementation", () => {
+    for (const text of ["cek lebih dalam", "lanjutkan", "detailnya?", "ok lanjut", "go deeper"]) {
+      expect(isFollowUpText(text)).toBe(true);
+      expect(gate(text, { intent: "task", subtype: "implementation" })).toBe(true);
+    }
+  });
+
+  it("work stays with the CTO: change requests, run requests, pastes, option picks, LLM implementation", () => {
+    expect(gate("tambahkan tes login", { intent: "task", subtype: "implementation" }, { workShaped: true })).toBe(false);
+    expect(gate("tolong jalankan tes", { intent: "task", subtype: "testing" }, { runRequest: true })).toBe(false);
+    expect(gate("kata dia: audit", { intent: "ask", subtype: "explanation" }, { pasted: true })).toBe(false);
+    expect(gate("I choose A: x", { intent: "ask", subtype: "recommendation" }, { optionPick: true })).toBe(false);
+    expect(gate("halaman checkout lambat sekali", { intent: "task", subtype: "implementation" })).toBe(false);
+  });
+
+  it("a bare 'lanjutkan' goes back to the specialist who answered the previous turn", () => {
+    const history = [
+      { authorType: "user", content: "tes apa yang kurang?" },
+      { authorType: "agent", agentId: "cto", content: "Saya serahkan ke @QA untuk pengecekan tes ini." },
+      { authorType: "agent", agentId: "qa", content: "main.js belum dites." },
+      { authorType: "user", content: "lanjutkan" },
+    ];
+    const r = route("lanjutkan", full, { history });
+    expect(to(r)).toBe("qa");
+    expect(r.kind === "specialist" && r.followUp).toBe(true);
+  });
+});
+

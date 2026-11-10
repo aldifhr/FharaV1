@@ -8,6 +8,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import { parseOptions } from "@/lib/options";
 import { roleLabel } from "@/lib/agentRoles";
+import { offersCreateTask } from "@/lib/taskOffer";
 import ApprovalCard from "../ApprovalCard";
 import QaPanel from "../QaPanel";
 import InitialAvatar from "../InitialAvatar";
@@ -161,8 +162,7 @@ export default function MessageList(props: Props) {
       // for a question (or that merely says "create task") never does.
       const role = String((agents as any[])?.find((a: any) => a._id === m.agentId)?.role ?? "").toLowerCase();
       if (role !== "cto") continue;
-      const recommends = /\b(create|bikin|buat)\s+task\b/i.test(m.content);
-      return afterPick || recommends ? String(m._id) : null;
+      return afterPick || offersCreateTask(m) ? String(m._id) : null;
     }
     return null;
   })();

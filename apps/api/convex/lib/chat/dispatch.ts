@@ -112,6 +112,49 @@ const DEEP = /\b(audit|review|cek lebih dalam|lebih dalam|deep[- ]?dive|telusuri
 /** Follow-up phrases that point back at the previous turn. */
 const FOLLOW_UP =
   /\b(cek lebih dalam|lebih dalam|lebih detail|lebih rinci|dalami|dalemin|deeper|go deeper|dig deeper|more detail\w*|detailnya|lanjut(?:kan)? cek|lanjut(?:kan)? periksa|cek lagi|check again|periksa lagi|cek ulang|elaborate|jelaskan lebih)\b/i;
+/**
+ * A whole short message that only asks to go on or for more ("lanjutkan",
+ * "terus", "detailnya?", "more?"). "lanjut"/"gas" right after a CTO Create
+ * task offer never reaches the pre-route (it starts the offered task).
+ */
+const BARE_FOLLOW_UP =
+  /^(?:(?:ok(?:e|ay)?|sip|ya|yes)[\s,]+)?(?:lanjut(?:kan)?|teruskan|terus|continue|go on|keep going|detail(?:nya|s)?|rinciannya|more|lagi|terus gimana|then\??)(?:\s+(?:aja|ya|dong|lagi|please|kak|bro))?[\s!.?]*$/i;
+
+/** A short follow-up that points back at the previous turn. */
+export function isFollowUpText(text: string): boolean {
+  const t = text.trim();
+  if (BARE_FOLLOW_UP.test(t)) return true;
+  return FOLLOW_UP.test(t) && words(t) <= 10 && matchDomains(t.replace(FOLLOW_UP, " ")).length === 0 && !codeTargetOf(t);
+}
+
+/**
+ * Whether a chat message goes through the deterministic pre-route at all.
+ * Chat is everything without an explicit task trigger (those are handled
+ * before this: Create task button, /task, a leading kerjakan/jalankan/
+ * eksekusi, a go reply to a CTO offer). The LLM intent never gates the route
+ * for read-only work: nous often labels "tolong audit kode src/" or "cek
+ * lebih dalam" as task/audit. Only these stay with the CTO (plan + Create
+ * task offer): pasted content, an option pick, a deterministic change
+ * request, a run request ("tolong jalankan tes"), and a message the LLM
+ * itself calls an implementation (unless it is a follow-up).
+ */
+export function chatPreRouteAllowed(input: {
+  text: string;
+  /** The (suggestion-only) intent from resolveIntent. */
+  intent: { intent: string; subtype: string };
+  optionPick: boolean;
+  pasted: boolean;
+  /** classifyChatIntent says change request and the text has no ask shape. */
+  workShaped: boolean;
+  /** detectChatRunCommands found commands to run. */
+  runRequest: boolean;
+}): boolean {
+  if (input.optionPick || input.pasted || input.workShaped || input.runRequest) return false;
+  if (isFollowUpText(input.text)) return true;
+  if (input.intent.intent === "task" && input.intent.subtype === "implementation") return false;
+  return input.intent.intent === "ask" || input.intent.intent === "task";
+}
+
 /** Re-check-your-reply phrases: only routed back to a specialist who answered. */
 const SELF_REVIEW_FOLLOW_UP = /\b(cek lagi|cek ulang|check again|periksa lagi|koreksi|ralat|baca ulang)\b/i;
 
@@ -231,8 +274,7 @@ export function routeCtoQuestion<T extends TeamMember>(input: {
   const repoTools = input.repoToolsAvailable !== false;
   const { team, orchestratorId } = input;
 
-  const isFollowUp = FOLLOW_UP.test(text) && words(text) <= 10 && matchDomains(text.replace(FOLLOW_UP, " ")).length === 0 && !codeTargetOf(text);
-  if (isFollowUp) {
+  if (isFollowUpText(text)) {
     const prev = previousTurn(input.history ?? []);
     if (prev) {
       // 1) Back to the teammate who answered the previous turn.

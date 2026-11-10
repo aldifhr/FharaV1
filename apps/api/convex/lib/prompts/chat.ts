@@ -5,7 +5,6 @@
  * contract, so change it here deliberately and nowhere else.
  */
 import type { IntentSubtype } from "../chat/intent";
-import { MAX_CTO_HANDOFFS } from "../chat/team";
 import { WRAP_UP_MAX_LINES } from "../chat/wrapUp";
 import { isHandoffLine } from "../chat/dispatch";
 import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_TOOL } from "../skills";
@@ -343,7 +342,17 @@ export function buildTurnContextSection(opts: {
   return lines.join("\n");
 }
 
-export function buildPlanningGuidance(agent: { role: string }, opts: { isOrchestrator: boolean; hasRepoTools?: boolean; taskIntent: { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean } }): string[] {
+export function buildPlanningGuidance(agent: { role: string }, opts: { isOrchestrator: boolean; hasRepoTools?: boolean; taskIntent: { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean; runCommands?: string[] } }): string[] {
+  const run = opts.taskIntent.runCommands;
+  if (opts.isOrchestrator && opts.taskIntent.kind === "task" && run && run.length > 0) {
+    const lines = run.map((line) => `\`${line}\``).join(", ");
+    return [
+      "You are the orchestrator/planner (CTO).",
+      `The user asked to run ${lines}. Chat replies cannot run commands, but the team can: a task runs it on the worker after the user allows the command.`,
+      "Never say you have no shell or terminal access, and never tell the user to run it themselves.",
+      `In 1-2 short sentences in the user's language: say that the Create task button under this reply runs ${lines} (the user approves the command first) and what you will report back. No plan, no bullets, no terminal output, and never claim anything has run.`,
+    ];
+  }
   if (opts.isOrchestrator && opts.taskIntent.kind === "task") {
     return [
       "You are the orchestrator/planner (CTO).",
@@ -388,7 +397,7 @@ export function buildAnswerGuidance(subtype: IntentSubtype): string[] {
 
 /** The CTO verifies repo facts itself when it has tools; teammates are for their specialty. */
 export const SELF_VERIFY_LINE =
-  "If you have repo tools, verify it yourself in this reply; hand off only for the teammate's specialty opinion.";
+  "If you have repo tools, verify it yourself in this reply.";
 
 /** Repo access is off for the whole reply: teammates cannot check code either. */
 export function noRepoAccessHandoffLine(offReason: string): string {
@@ -408,9 +417,9 @@ export function buildHandoffGuidance(
   const others = team.filter((a) => String(a._id) !== String(speakerId));
   if (others.length === 0) return [];
   return [
-    `Teammates you can bring into this chat: ${others.map((a) => `@${a.name}`).join(", ")}.`,
-    `When part of the question needs a teammate's expertise, address them with @Name and say exactly what you need from them (at most ${MAX_CTO_HANDOFFS}). They reply right after you, in this chat. Do not mention teammates for greetings or when you can answer fully yourself.`,
-    "Writing @Name always pulls that teammate into the chat. When you only describe or list the team (who does what), write their role names WITHOUT @.",
+    `Teammates on this project: ${others.map((a) => `@${a.name}`).join(", ")}.`,
+    "Answer the user yourself. Writing @Name in your reply does NOT bring a teammate into this chat: only the user can @mention one. When a teammate's specialty is really needed, say which one (as @Name) and that the user can @mention them; for work that needs running or changing files, offer the Create task button instead. Do not ask the user for permission to bring a teammate in.",
+    "When you only describe or list the team (who does what), write their role names WITHOUT @.",
     repo.hasRepoTools ? SELF_VERIFY_LINE : noRepoAccessHandoffLine(repo.offReason ?? ""),
   ];
 }

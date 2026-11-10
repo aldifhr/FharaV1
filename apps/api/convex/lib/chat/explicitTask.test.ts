@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { explicitTaskCommand, findOfferedTask, hasAskShape, isGoReply, isPastedContent } from "./intent";
+import { composeOfferedTask, explicitTaskCommand, findOfferedTask, hasAskShape, isGoReply, isPastedContent } from "./intent";
 
 // Contract: chat never starts a task by itself. A task starts only from the
 // Create task button, an explicit command, or a bare go reply to a CTO offer.
@@ -107,5 +107,35 @@ describe("go reply after a CTO Create task offer", () => {
   it("a second 'gas' does not re-start the offer", () => {
     const history = [...offer("tambah dark mode"), { authorType: "user", content: "gas" }, { authorType: "user", content: "gas" }];
     expect(findOfferedTask(history, roleOf)).toBeNull();
+  });
+});
+
+describe("server-detected Create task offer (messages.taskOffer)", () => {
+  const history = [
+    { authorType: "user", content: "tolong jalankan tes" },
+    // The reply never says "create task" (live2 3e): the stored offer decides.
+    { authorType: "agent", agentId: "cto", content: "Saya tidak punya akses shell; tambahkan dulu skrip tes.", taskOffer: { kind: "testing", commands: ["npm run test"] } },
+    { authorType: "user", content: "gas" },
+  ];
+
+  it("a go reply finds the offer without the Create task wording", () => {
+    const found = findOfferedTask(history, roleOf);
+    expect(found?.command).toBe("jalankan npm run test");
+    expect(found?.title).toBe("tolong jalankan tes");
+  });
+
+  it("the run command is the detected lines only, never the CTO's prose", () => {
+    expect(composeOfferedTask(history, 1)).toEqual({ command: "jalankan npm run test", title: "tolong jalankan tes" });
+    const two = [{ ...history[0] }, { ...history[1], taskOffer: { kind: "testing", commands: ["npm run test", "npm run lint"] } }];
+    expect(composeOfferedTask(two, 1).command).toBe("jalankan npm run test && npm run lint");
+  });
+
+  it("an offer without commands composes like the button did before", () => {
+    const plan = [
+      { authorType: "user", content: "tambahkan halaman FAQ" },
+      { authorType: "agent", agentId: "cto", content: "Rencana: @Frontend membuat halaman FAQ.", taskOffer: { kind: "implementation" } },
+      { authorType: "user", content: "gas" },
+    ];
+    expect(findOfferedTask(plan, roleOf)?.command).toBe("tambahkan halaman FAQ\n\nRencana: @Frontend membuat halaman FAQ.");
   });
 });

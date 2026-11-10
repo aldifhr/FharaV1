@@ -1,5 +1,53 @@
 import type { PlanSubtask } from "@/types";
 
+/**
+ * Format C (SEARCH/REPLACE) rules and example below are adapted from
+ * Aider-AI/aider, commit 5dc9490, aider/coders/editblock_prompts.py
+ * (`system_reminder`, `example_messages`).
+ * SPDX-License-Identifier: Apache-2.0. Copyright Aider-AI contributors.
+ * Modified by Fhara: shortened, reworded for a single non-interactive
+ * answer (no "add files to the chat", no shell commands), combined with the
+ * existing full-file formats. See THIRD_PARTY_NOTICES.md.
+ */
+export const EDIT_BLOCK_FORMAT_LINES: readonly string[] = [
+  "Format C (SEARCH/REPLACE blocks) — RECOMMENDED for changing EXISTING files: send only the lines that change, not the whole file.",
+  "relative/path/to/file.ext",
+  "```",
+  "<<<<<<< SEARCH",
+  "<a contiguous chunk of lines copied exactly from the current file>",
+  "=======",
+  "<the lines that replace it>",
+  ">>>>>>> REPLACE",
+  "```",
+  "Format C rules:",
+  "- The FULL file path alone on the line before the opening fence, verbatim (no bold, no quotes).",
+  "- Every SEARCH section must EXACTLY MATCH the current file content, character for character, including whitespace, comments and indentation. Use the content shown above (staged content wins over disk).",
+  "- Each block replaces only the first match, so include enough lines in SEARCH to match exactly one place.",
+  "- Keep blocks concise: just the changing lines plus a few surrounding lines for uniqueness. Use several small blocks rather than one big one.",
+  "- To move code, use two blocks: one to delete it, one to insert it at the new place.",
+  "- To create a new file, use an empty SEARCH section with the whole file in REPLACE (or use Format B).",
+  "Example (add an import and change one call in src/app.ts):",
+  "src/app.ts",
+  "```",
+  "<<<<<<< SEARCH",
+  'import { serve } from "./server";',
+  "=======",
+  'import { serve } from "./server";',
+  'import { log } from "./log";',
+  ">>>>>>> REPLACE",
+  "```",
+  "",
+  "src/app.ts",
+  "```",
+  "<<<<<<< SEARCH",
+  "  serve(port);",
+  "=======",
+  "  log(`listening on ${port}`);",
+  "  serve(port);",
+  ">>>>>>> REPLACE",
+  "```",
+];
+
 /** Max characters of an invalid answer handed to the cheap repair retry. */
 export const REPAIR_MAX_ANSWER_CHARS = 120_000;
 
@@ -80,19 +128,21 @@ export function codeChangePrompt(input: {
       ...(staged ? ["", staged] : []),
       "",
       "You cannot call tools or read more files: everything available is above. Do not emit tool calls.",
-      "Return the files you want to change in ONE of these two formats.",
+      "Return your change in ONE of these formats: Format C for edits to existing files, Format B (or A) for new files or full rewrites. Format C and Format B blocks may be mixed in one answer.",
+      "",
+      ...EDIT_BLOCK_FORMAT_LINES,
       "",
       "Format A (JSON):",
       '{"files":[{"filePath":"relative/path","newContent":"FULL file content"}]}',
       "",
-      "Format B (file blocks) — RECOMMENDED for large files or code with many quotes/backslashes, since nothing needs JSON escaping:",
+      "Format B (file blocks) — for new files or full rewrites; nothing needs JSON escaping:",
       "FILE: relative/path/to/file.ext",
       "````",
       "<complete file content, verbatim>",
       "````",
       "(one FILE block per file; use a four-backtick fence so ``` inside the file is safe; no other text.)",
       "",
-      "With Format A you may add these optional top-level fields to the same JSON object (with Format B, append them as one JSON object after the last block):",
+      "With Format A you may add these optional top-level fields to the same JSON object (with Format B or C, append them as one JSON object after the last block):",
       input.qaMode === "never"
         ? '- "delegationRecommendation":{"targetCapability":"...","reason":"..."} when another capability should take over after you (never browser-testing: browser QA is disabled by policy).'
         : '- "delegationRecommendation":{"targetCapability":"...","reason":"..."} when another capability should take over after you (e.g. browser-testing for QA).',
@@ -102,7 +152,7 @@ export function codeChangePrompt(input: {
       "STRICT FORMAT RULES:",
       "- Format A: use exactly the keys \"filePath\" and \"newContent\" (camelCase) on every entry; not \"path\", \"filename\", \"newText\", or \"content\".",
       "- Format A: return the raw JSON object only. No explanation, no markdown fences, no commentary.",
-      "- Either format: give the complete file after your change, not a diff or patch.",
+      "- Format A / B: give the complete file after your change, not a diff or patch. Format C: only SEARCH/REPLACE blocks, never unified diffs.",
       "- If no files need changing, return exactly {\"files\":[]}.",
       "",
       "Rules:",
@@ -157,7 +207,7 @@ export function codeChangeRetryPrompt(input: {
 }): string {
   const { basePayload, requested, previous } = input;
   const retryNote = input.hadMarkup
-    ? "Your previous response was a tool call. Tools are NOT available here: the files you asked for are included above. Return ONLY the file changes now (Format A JSON or Format B file blocks)."
+    ? "Your previous response was a tool call. Tools are NOT available here: the files you asked for are included above. Return ONLY the file changes now (Format C SEARCH/REPLACE blocks, or Format A JSON / Format B file blocks)."
     : "Your previous response could not be parsed. Return the files again, preferably in Format B (FILE: path + four-backtick fenced full content, no JSON escaping), with no other text.";
   return `${basePayload}${requested ? `\n\n${requested}` : ""}\n\n${retryNote}${previous ? `\n\nPrevious response (for reference):\n${previous}` : ""}`;
 }
@@ -187,7 +237,23 @@ export function codeChangeFileRequestPrompt(input: { basePayload: string; reques
     found,
     "",
     "You listed files to read before editing; their current content is above. Do NOT list files again.",
-    "Return ONLY the file changes now (Format A JSON or Format B file blocks). If the code the task refers to is not there, follow the no-target rule: {\"files\":[],\"findings\":[\"Not found: … Checked: …\"]}.",
+    "Return ONLY the file changes now (Format C SEARCH/REPLACE blocks, or Format A JSON / Format B file blocks). If the code the task refers to is not there, follow the no-target rule: {\"files\":[],\"findings\":[\"Not found: … Checked: …\"]}.",
   ].join("\n");
 }
 
+
+/**
+ * R2 full-file fallback: SEARCH/REPLACE blocks for these files still did not
+ * apply after the reflection rounds. Ask for their complete content instead.
+ */
+export function editFallbackPrompt(input: { basePayload: string; requested: string; paths: string[]; feedback: string }): string {
+  return [
+    input.basePayload,
+    "",
+    ...(input.requested ? [input.requested, ""] : []),
+    `Your SEARCH/REPLACE blocks for ${input.paths.join(", ")} could not be applied:`,
+    input.feedback.slice(0, 6000),
+    "",
+    `Do NOT use SEARCH/REPLACE blocks now. Return the COMPLETE new content of ${input.paths.length === 1 ? "this file" : "these files"} (${input.paths.join(", ")}) with the whole task's change applied, in Format B (FILE: path + four-backtick fenced full content), and nothing else.`,
+  ].join("\n");
+}

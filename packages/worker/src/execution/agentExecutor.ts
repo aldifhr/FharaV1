@@ -17,6 +17,7 @@ import {
   codeChangePrompt,
   codeChangeFileRequestPrompt,
   codeChangeRetryPrompt,
+  editFallbackPrompt,
   mcpFindingsBlock,
   REPAIR_SYSTEM_PROMPT,
 } from "@/prompts/codeChange";
@@ -79,6 +80,8 @@ import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
 import { preloadOnDemandSkills } from "./skillLoading";
 import { contentReader, detectEscalation, escalatedError, escalationFromAnswer } from "./escalation";
+import { MAX_EDIT_REFLECTIONS, failedEditPaths, resolveEditAnswer, type EditWorkingSet } from "./editAnswer";
+import { editFailureFeedback, type EditFailure } from "@/utils/editBlocks";
 import type { Escalation } from "@/api/convex/lib/subtaskContract";
 import { runResponsiveQa } from "./qa";
 import { wantsVisualQa } from "@/utils/qaIntent";
@@ -426,7 +429,7 @@ export function stagedChangesContext(changes: FileDiff[]): string {
     sections.push(`--- ${change.filePath} (staged ${change.changeType}) ---\n${body}`);
   }
   return [
-    "Files already changed by earlier subtasks of this task (NOT on disk yet). This is their CURRENT content: build on it and keep those changes; return the full updated file when you change one of them:",
+    "Files already changed by earlier subtasks of this task (NOT on disk yet). This is their CURRENT content: build on it and keep those changes; SEARCH/REPLACE blocks for these files must match this content (or return the full updated file):",
     ...sections,
   ].join("\n");
 }
@@ -1198,6 +1201,34 @@ async function executeCodeChange(
     mcpFindings,
   });
 
+  // R2: SEARCH/REPLACE blocks (Format C) resolve against the current
+  // content (a staged edit of an earlier subtask, else disk) into the same
+  // full-content draft the other formats give; nothing below changes.
+  const readForEdits = contentReader(workspacePath, (filePath) => input.getStagedChange?.(filePath) ?? input.fileChanges.find((change) => change.filePath === filePath));
+  const editPaths = input.fileChanges.map((change) => change.filePath);
+  let editWorking: EditWorkingSet | undefined;
+  let editFailures: EditFailure[] = [];
+  let editApplied = 0;
+  let editAnswerText = "";
+  const parseAnswer = async (content: string, mode: "fresh" | "continue" = "fresh") => {
+    const parsed = parseCodeChangeAnswer(content);
+    const stripped = stripToolCallMarkup(content);
+    const edits = await resolveEditAnswer(stripped, readForEdits, {
+      validPaths: editPaths,
+      start: mode === "continue" ? editWorking : undefined,
+    });
+    if (!edits.used) {
+      if (mode === "fresh") editFailures = [];
+      return parsed;
+    }
+    if (mode === "fresh") editApplied = 0;
+    editWorking = edits.working;
+    editFailures = edits.failures;
+    editApplied += edits.appliedCount;
+    editAnswerText = stripped;
+    return { ...parsed, draft: { files: edits.files }, format: "edit-blocks" as const };
+  };
+
   // Pre-call budget gate (Phase 5): no LLM call starts once the task's
   // call/token budget is spent (enforce mode throws here).
   input.assertBudgetForCall?.();
@@ -1224,7 +1255,7 @@ async function executeCodeChange(
     const asked = escalationFromAnswer(stripToolCallMarkup(response.content));
     if (asked) return await escalateOutcome(input, asked);
   }
-  let parsedAnswer = parseCodeChangeAnswer(response.content);
+  let parsedAnswer = await parseAnswer(response.content);
   let draft = parsedAnswer.draft;
   // A bare list of file paths is a request to read them, not an invalid
   // answer (live sandbox run: "src/proxy.ts\nsrc/app/layout.tsx" failed as
@@ -1261,7 +1292,7 @@ async function executeCodeChange(
       const asked = escalationFromAnswer(stripToolCallMarkup(response.content));
       if (asked) return await escalateOutcome(input, asked);
     }
-    parsedAnswer = parseCodeChangeAnswer(response.content);
+    parsedAnswer = await parseAnswer(response.content);
     draft = parsedAnswer.draft;
     if (!draft) {
       await onEvent(
@@ -1273,6 +1304,90 @@ async function executeCodeChange(
         status: "failed",
         error: `The implementation agent did not return file changes after reading the files it asked for (${fileRequest.slice(0, 6).join(", ")})`,
       };
+    }
+  }
+  if (editFailures.length > 0) {
+    // R2: a SEARCH miss or an ambiguous match goes back to the model with
+    // Aider's "did you mean" report (up to MAX_EDIT_REFLECTIONS rounds; the
+    // reply only resends the failed blocks), then the full-file fallback.
+    const summarize = () => editFailures.map((failure) => ({ filePath: failure.block.filePath, kind: failure.kind }));
+    await onEvent("agent.edit_blocks", { capability: subtask.capability, round: 0, applied: editApplied, failed: summarize() }, "warn");
+    for (let round = 1; round <= MAX_EDIT_REFLECTIONS && editFailures.length > 0; round += 1) {
+      if (!canAffordRetry(input.deadlineAt, firstCallMs).ok || signal.aborted) break;
+      input.assertBudgetForCall?.();
+      const feedback = editFailureFeedback(editFailures, editApplied);
+      ({ result: response, servedBy } = await runLlmCallWithFallback(
+        [servedBy],
+        [
+          ...baseMessages(input, basePayload),
+          { role: "assistant" as const, content: editAnswerText },
+          { role: "user" as const, content: feedback },
+        ],
+        { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
+      ));
+      if (input.onTokenUsage) {
+        await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedBy.config.model, usageMetaFor(servedBy, response));
+      }
+      {
+        const asked = escalationFromAnswer(stripToolCallMarkup(response.content));
+        if (asked) return await escalateOutcome(input, asked);
+      }
+      parsedAnswer = await parseAnswer(response.content, "continue");
+      draft = parsedAnswer.draft;
+      await onEvent(
+        "agent.edit_blocks",
+        { capability: subtask.capability, round, applied: editApplied, failed: summarize() },
+        editFailures.length > 0 ? "warn" : "info"
+      );
+    }
+    if (editFailures.length > 0) {
+      const paths = failedEditPaths(editFailures);
+      if (paths.length === 0) {
+        // Malformed blocks with no file to fall back on: the generic
+        // invalid-answer retry below asks for the full-file format.
+        draft = null;
+        editFailures = [];
+      } else {
+        const fallbackCheck = canAffordRetry(input.deadlineAt, firstCallMs);
+        if (!fallbackCheck.ok) {
+          return {
+            status: "failed",
+            error: `SEARCH/REPLACE blocks for ${paths.join(", ")} did not apply after ${MAX_EDIT_REFLECTIONS} correction round(s), and only ${Math.round(
+              fallbackCheck.remainingMs / 1000
+            )}s are left for the full-file fallback`,
+          };
+        }
+        input.assertBudgetForCall?.();
+        const requested = await requestedFilesContext(workspacePath, "", input.fileChanges, paths);
+        const feedback = editFailureFeedback(editFailures, 0);
+        ({ result: response, servedBy } = await runLlmCallWithFallback(
+          [servedBy],
+          baseMessages(input, editFallbackPrompt({ basePayload, requested, paths, feedback })),
+          { health: healthFor(input), signal: input.signal, timeoutMs: llmCallTimeoutMs(input), taskGate: input.llmTaskGate }
+        ));
+        if (input.onTokenUsage) {
+          await input.onTokenUsage(response.inputTokens ?? 0, response.outputTokens ?? 0, servedBy.config.model, usageMetaFor(servedBy, response));
+        }
+        {
+          const asked = escalationFromAnswer(stripToolCallMarkup(response.content));
+          if (asked) return await escalateOutcome(input, asked);
+        }
+        const full = parseCodeChangeAnswer(response.content).draft;
+        const byPath = new Map((full?.files ?? []).map((file) => [file.filePath.replace(/^\.\//, ""), file]));
+        const missing = paths.filter((filePath) => !byPath.has(filePath));
+        if (missing.length > 0) {
+          await onEvent("agent.edit_blocks", { capability: subtask.capability, fallback: "full-file", ok: false, missing }, "warn");
+          return {
+            status: "failed",
+            error: `SEARCH/REPLACE blocks for ${paths.join(", ")} did not apply, and the full-file fallback did not return ${missing.join(", ")}`,
+          };
+        }
+        const merged = new Map((draft?.files ?? []).map((file) => [file.filePath, file]));
+        for (const filePath of paths) merged.set(filePath, { filePath, newContent: byPath.get(filePath)!.newContent });
+        draft = { files: Array.from(merged.values()) };
+        editFailures = [];
+        await onEvent("agent.edit_blocks", { capability: subtask.capability, fallback: "full-file", ok: true, files: paths });
+      }
     }
   }
   if (parsedAnswer.hadMarkup) {
@@ -1345,7 +1460,7 @@ async function executeCodeChange(
               usageMetaFor(servedBy, response)
             );
           }
-          parsedAnswer = parseCodeChangeAnswer(response.content);
+          parsedAnswer = await parseAnswer(response.content);
           draft = parsedAnswer.draft;
         } catch (error) {
           if (isBudgetExhaustedError(error) || input.signal.aborted) throw error;
@@ -1406,7 +1521,7 @@ async function executeCodeChange(
         usageMetaFor(servedBy, response)
       );
     }
-    parsedAnswer = parseCodeChangeAnswer(response.content);
+    parsedAnswer = await parseAnswer(response.content);
     draft = parsedAnswer.draft;
     if (!draft) {
       await onEvent(
@@ -1415,6 +1530,15 @@ async function executeCodeChange(
         "warn"
       );
     }
+  }
+  if (editFailures.length > 0) {
+    // A late retry answered with SEARCH/REPLACE blocks that do not apply.
+    return {
+      status: "failed",
+      error: `SEARCH/REPLACE blocks did not apply: ${editFailures
+        .map((failure) => `${failure.block.filePath || "(malformed)"} (${failure.kind})`)
+        .join(", ")}`,
+    };
   }
   if (!draft) {
     if (stripToolCallMarkup(response.content).trim() === "" && parsedAnswer.readPaths.length === 0) {
@@ -1488,7 +1612,10 @@ async function executeCodeChange(
             usageMetaFor(retried.servedBy, retried.result)
           );
         }
-        const reparsed = parseCodeChangeAnswer(retried.result.content).draft;
+        const reparsedAnswer = await parseAnswer(retried.result.content);
+        // A scope retry whose SEARCH blocks do not apply keeps the first draft.
+        const reparsed = editFailures.length > 0 ? null : reparsedAnswer.draft;
+        editFailures = [];
         if (reparsed && reparsed.files.length > 0) {
           draft = reparsed;
           violations = await checkScope(reparsed.files);

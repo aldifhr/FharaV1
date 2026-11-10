@@ -145,6 +145,10 @@ SOFTWARE.
     and the "failed to match / did you mean" report of `apply_edits`). Modified by Fhara: ported to TypeScript.
   - `packages/worker/src/prompts/codeChange.ts` (`EDIT_BLOCK_FORMAT_LINES`): Format C rules and example adapted
     from `aider/coders/editblock_prompts.py`. Modified by Fhara: shortened and reworded.
+  - `packages/worker/src/prompts/commit.ts` (`COMMIT_SYSTEM_PROMPT`): copied from `aider/prompts.py`
+    `commit_system`; the user message follows `aider/repo.py` `get_commit_message`. Modified by Fhara: the language
+    placeholder removed, diff truncated. Aider notes that its Conventional Commits wording is adapted from
+    https://www.conventionalcommits.org/en/v1.0.0/#summary (Creative Commons CC BY 3.0); that credit is kept.
 - Aider ships no NOTICE file. Each changed file carries a "Modified by Fhara" line (Apache-2.0 §4b).
 
 ```

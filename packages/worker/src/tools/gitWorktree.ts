@@ -5,10 +5,19 @@ import { gitIdentityArgs } from "@/api/convex/lib/gitIdentity";
 
 const execFileAsync = promisify(execFile);
 
+export interface CommitWorktreeOptions {
+  /**
+   * R9: build the message from the staged diff (`git diff --cached`). A
+   * null / empty result or a throw keeps `message` (the fallback).
+   */
+  messageFromDiff?: (diff: string) => Promise<string | null>;
+}
+
 export async function commitWorktree(
   worktreePath: string,
   message: string,
-  files?: string[]
+  files?: string[],
+  options: CommitWorktreeOptions = {}
 ): Promise<boolean> {
   const { stdout: status } = await execFileAsync("git", ["status", "--porcelain"], {
     cwd: worktreePath,
@@ -23,11 +32,27 @@ export async function commitWorktree(
     windowsHide: true,
     env: buildChildEnv(),
   });
+  let finalMessage = message;
+  if (options.messageFromDiff) {
+    try {
+      const { stdout: diff } = await execFileAsync("git", ["diff", "--cached", "--no-color", "--no-ext-diff"], {
+        cwd: worktreePath,
+        shell: false,
+        windowsHide: true,
+        env: buildChildEnv(),
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      const generated = diff.trim() ? await options.messageFromDiff(diff) : null;
+      if (generated && generated.trim()) finalMessage = generated.trim();
+    } catch {
+      // Best effort: the fallback message stays.
+    }
+  }
   await execFileAsync(
     "git",
     // Identity per command: the scrubbed child env carries no GIT_AUTHOR_*
     // and a fresh clone has no user.name/email (FHARA_GIT_AUTHOR_* override).
-    [...gitIdentityArgs(), "commit", "-m", message],
+    [...gitIdentityArgs(), "commit", "-m", finalMessage],
     { cwd: worktreePath, shell: false, windowsHide: true, env: buildChildEnv() }
   );
   return true;

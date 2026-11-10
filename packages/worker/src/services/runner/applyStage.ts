@@ -7,6 +7,7 @@ import type { RunContext } from "./types";
 import { implementerAgent, resolveWorkspacePath } from "./setup";
 import { mayAutoApproveEdits, tryAutoApprove } from "./autoApprove";
 import { newFilesOnlyFixWarning } from "./noTargetGuard";
+import { generateCommitMessage } from "./commitMessage";
 
 /** What the apply stage hands the approval request. */
 export interface PreparedApply {
@@ -228,11 +229,19 @@ export async function commitAndMergeWorktree(
 ): Promise<boolean> {
   const { deps, project, plan, state, input, taskId, task } = ctx;
   try {
-    const committed = await commitWorktree(
-      worktree.worktreePath,
-      `Fhara: ${task.title}`,
-      Array.from(state.fileChanges.keys())
-    );
+    // R9: message from the staged diff (budget-gated), else this fallback.
+    const committed = await commitWorktree(worktree.worktreePath, `Fhara: ${task.title}`, Array.from(state.fileChanges.keys()), {
+      messageFromDiff: (diff) =>
+        generateCommitMessage(diff, {
+          agent: implementerAgent(plan, input.agents),
+          llmResolver: input.llmResolver,
+          assertBudgetForCall: input.assertBudgetForCall ?? (input.budget ? () => input.budget!.assertLlmCallAllowed() : undefined),
+          llmTaskGate: input.llmTaskGate,
+          onTokenUsage: input.onTokenUsage,
+          signal: input.taskAbort?.signal,
+          context: `Task: ${task.title}`,
+        }),
+    });
     // Plan 019: the push card. Recorded before the local merge (which
     // removes the task branch); the commit stays reachable by sha, which
     // is what the push request pushes. Best-effort: the card never

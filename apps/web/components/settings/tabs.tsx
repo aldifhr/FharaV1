@@ -127,6 +127,37 @@ export function DiffsTab() {
           description="Automatic fix tasks per PR before Fhara stops and leaves it to you (0–20)."
         />
       </Section>
+      <Section
+        title="Auto-merge"
+        description="Fhara merges a task's PR only when every check passed, the diff passes the limits below, and the PR head is the commit you approved. Anything else waits with a reason. Off unless a project turns it on."
+      >
+        <NewProjectToggle
+          field="autoMerge"
+          label="Merge pull requests automatically"
+          description="Default for new projects. Change it per project in the project settings."
+        />
+        <KnobNumber
+          knob="FHARA_AUTO_MERGE_MAX_LINES"
+          label="Largest diff to merge"
+          unit="lines"
+          description="Added plus deleted lines. A bigger PR waits for you (0 = no size limit)."
+        />
+        <KnobText
+          knob="FHARA_AUTO_MERGE_SENSITIVE"
+          label="Paths that always need you"
+          description="Comma-separated globs (** any depth, * one segment). A PR touching one waits for you."
+          width="w-72"
+        />
+        <KnobSelect
+          knob="FHARA_AUTO_MERGE_METHOD"
+          label="Merge method"
+          options={[
+            { value: "squash", label: "Squash" },
+            { value: "merge", label: "Merge commit" },
+            { value: "rebase", label: "Rebase" },
+          ]}
+        />
+      </Section>
     </>
   );
 }
@@ -598,7 +629,7 @@ export function ScheduledTab() {
 
 // ── Projects ────────────────────────────────────────────────────────────
 
-type NewProjectField = "prFeedbackReactions" | "shadowAgentDefault";
+type NewProjectField = "prFeedbackReactions" | "shadowAgentDefault" | "autoMerge" | "issueIntake";
 
 function NewProjectToggle({ field, label, description }: { field: NewProjectField; label: string; description?: string }) {
   const settings = useAppSettings();
@@ -668,6 +699,7 @@ export function ProjectsTab() {
         </Row>
         <NewProjectToggle field="shadowAgentDefault" label="Shadow reviewer" description="New tasks start with the Reviewer observing." />
         <NewProjectToggle field="prFeedbackReactions" label="Fix pull request feedback" description="Queue a fix task when a task's PR gets failed checks or requested changes." />
+        <NewProjectToggle field="autoMerge" label="Merge pull requests automatically" description="Merge a task's PR once every check passed and the diff is within the auto-merge limits." />
       </Section>
       <Section title="Projects" description="Deleting a project removes its tasks, chat and history. Files on disk are not touched.">
         {projects === undefined && <Row label="Loading…" />}

@@ -52,6 +52,10 @@ an explicit decision recorded in `plans/`.
    auto-approve or bypass it for convenience. The only automatic approvals are
    the task's permission mode (plan 020): recorded as an approved row with
    `decidedBy: "auto"`, re-checked by the backend, and never for push / PR.
+   One recorded exception (plan 043, O2): a project that turned on
+   auto-merge may merge a PR whose every commit the user approved for push,
+   once all checks and the size/sensitive-path gate pass; it records a
+   `merge_pr` row with `decidedBy: "auto"` and an audit row.
 6. **The budget gate runs before every LLM call.** `BudgetTracker` + the
    pre-call gate must be evaluated before the request, not after. Do not
    "check the budget" only in the UI.

@@ -340,6 +340,14 @@ export default function PushCard({ data }: { data: PushCardData }) {
           )}
         </div>
       )}
+      {view.prNumber !== undefined && view.autoMerge && (
+        <p className={`flex min-w-0 items-center gap-3 border-t px-4 py-2 text-[12px] ${CARD_DIVIDER}`}>
+          <span className={MUTED}>Auto-merge</span>
+          <span className="min-w-0 truncate text-ink" title={view.autoMerge.reason}>
+            {view.autoMerge.reason}
+          </span>
+        </p>
+      )}
       <p className={`truncate border-t px-4 py-2 font-mono text-[11px] ${CARD_DIVIDER} ${MUTED}`} title={view.commitMessage}>
         {sha} · {view.commitMessage}
         {aheadBehind ? ` · ${aheadBehind}` : ""}

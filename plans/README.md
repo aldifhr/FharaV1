@@ -45,6 +45,7 @@ execution order and a definition of done.
 | 039 | [Personal chat for every agent](039-personal-chat.md) | P2 | L | 007 | IMPLEMENTED (PC1–PC6 landed with convex-test + web unit tests and `next build`; migration `migrations:backfillConversationKinds` then `migrations:verifyConversationKinds` must run on each deployment; live browser checks pending: open /chats/personal/<cto>, real provider reply, reload keeps history, switch CTO ↔ QA ↔ CTO, Attach dialog + header label, repo question after attach with a worker online, project chat pre-route/@mention unchanged) |
 | 040 | [Team roles: enforced permissions, routing, usage ledger](040-team-roles-routing-usage.md) | P1 | M | 022, 036, 038 | IN PROGRESS (P1 implemented with unit + convex-test; no live run) |
 | 041 | ["Always allow this exact command" for run_command approvals](041-command-always-allow-exact.md) | P2 | S | 020, 028 | IN PROGRESS (implemented with unit + convex-test; browser check pending) |
+| 043 | [O-flow: supervised auto-merge, issue intake, research fan-out, phone approvals](043-o-flow-merge-intake-research-phone.md) | P1 | L | 019, 020 | IN PROGRESS (O2 implemented with unit tests; live GitHub merge smoke pending) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

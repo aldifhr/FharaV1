@@ -444,7 +444,14 @@ export type NotificationKind =
   | "changes_requested"
   | "merge_conflict"
   | "fix_cap_reached"
-  | "fix_failed";
+  | "fix_failed"
+  | "auto_merge_blocked";
+
+/**
+ * O2: auto-merge codes the other notifications already cover (a fix may
+ * be on its way, or "CI failed" / "Changes requested" say it).
+ */
+const AUTO_MERGE_COVERED = new Set(["checks_failed", "changes_requested", "dirty", "merged", "closed"]);
 
 export type DesiredNotification = { kind: NotificationKind; title: string };
 
@@ -462,12 +469,20 @@ export function desiredNotifications(input: {
   worktreeAvailable: boolean;
   fixActive: boolean;
   latestFixFailed: boolean;
+  /** O2: the project's auto-merge switch and the PR's newest auto-merge state. */
+  autoMerge?: { enabled: boolean; state?: string; code?: string; reason?: string };
 }): DesiredNotification[] {
   const { facts, prNumber } = input;
   if (facts.prState !== "open" && facts.prState !== "draft") return [];
   const pr = `PR #${prNumber}`;
   const out: DesiredNotification[] = [];
-  if (derivePrLane(facts) === "ready_to_merge") out.push({ kind: "ready_to_merge", title: `${pr} is ready to merge` });
+  const auto = input.autoMerge?.enabled ? input.autoMerge : null;
+  const autoBlocked =
+    auto !== null && (auto.state === "blocked" || auto.state === "failed") && !AUTO_MERGE_COVERED.has(auto.code ?? "");
+  // With auto-merge on, a green PR is Fhara's to merge: no "ready" ping,
+  // unless a gate stopped it (then the gate's reason is the notification).
+  if (autoBlocked) out.push({ kind: "auto_merge_blocked", title: `${pr} needs your merge: ${auto!.reason ?? "auto-merge stopped"}`.slice(0, 200) });
+  else if (!auto && derivePrLane(facts) === "ready_to_merge") out.push({ kind: "ready_to_merge", title: `${pr} is ready to merge` });
   const fhara = input.reactionsEnabled && !input.capReached && input.worktreeAvailable;
   const ciFailed = facts.ciState === "failed";
   const changes = facts.reviewState === "changes_requested";

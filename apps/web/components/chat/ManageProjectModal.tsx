@@ -74,6 +74,11 @@ export default function ManageProjectModal({
   const prSetting = useQuery(api.prFeedback.getProjectSetting, { projectId: projectId as never });
   const [prReactionsChoice, setPrReactionsState] = useState<boolean | null>(null);
   const prReactions = prReactionsChoice ?? prSetting?.enabled ?? Boolean(project.prFeedbackReactions);
+  // O2 supervised auto-merge.
+  const setAutoMerge = useMutation(api.autoMerge.setProjectSetting);
+  const autoMergeSetting = useQuery(api.autoMerge.getProjectSetting, { projectId: projectId as never });
+  const [autoMergeChoice, setAutoMergeState] = useState<boolean | null>(null);
+  const autoMerge = autoMergeChoice ?? autoMergeSetting?.enabled ?? false;
   // Plan 022: model tier per role, picked from the models already configured.
   const tierState = useQuery(api.contracts.getProjectModelTiers, { projectId: projectId as never });
   const setModelTiers = useMutation(api.contracts.setProjectModelTiers);
@@ -131,6 +136,9 @@ export default function ManageProjectModal({
       }
       if (prReactionsChoice !== null) {
         await setPrReactions({ projectId: projectId as never, enabled: prReactionsChoice });
+      }
+      if (autoMergeChoice !== null) {
+        await setAutoMerge({ projectId: projectId as never, enabled: autoMergeChoice });
       }
       const days = Number(retentionDays);
       if (retention && retentionDays !== "" && Number.isFinite(days) && days !== retention.days) {
@@ -291,6 +299,20 @@ export default function ManageProjectModal({
             Fix pull request feedback
             <span className="text-[12.5px] text-ink-3">
               After a push, a failed CI check, a review asking for changes, new review comments or a merge conflict queues a fix on the same branch, up to {prSetting?.maxAttempts ?? 3} per PR. Each fix push still waits for your approval. The task&apos;s worktree is kept until its PR closes. Off by default.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2.5">
+          <input
+            type="checkbox"
+            checked={autoMerge}
+            onChange={(e) => setAutoMergeState(e.target.checked)}
+            className="mt-1 h-4 w-4 accent-[var(--shell-brand)]"
+          />
+          <span className="grid gap-0.5">
+            Merge pull requests automatically
+            <span className="text-[12.5px] text-ink-3">
+              A task&apos;s PR merges ({autoMergeSetting?.method ?? "squash"}) once every check passed, the diff is at most {autoMergeSetting?.maxDiffLines || "any number of"} lines with no sensitive path, and its head is the commit you approved. Otherwise it waits and says why. Never forced. Off by default.
             </span>
           </span>
         </label>

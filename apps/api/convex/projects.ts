@@ -71,6 +71,8 @@ export const create = mutation({
       ...(defaults.planReview ? { planReview: defaults.planReview } : {}),
       ...(defaults.prFeedbackReactions ? { prFeedbackReactions: true } : {}),
       ...(defaults.shadowAgentDefault ? { shadowAgentDefault: true } : {}),
+      ...(defaults.autoMerge ? { autoMerge: true } : {}),
+      ...(defaults.issueIntake ? { issueIntake: { enabled: true } } : {}),
       createdAt: Date.now(),
     });
     await recordAudit(ctx, { action: "project.create", target: name, projectId });

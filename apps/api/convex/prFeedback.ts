@@ -105,7 +105,7 @@ async function rowsForSignal(ctx: Ctx, projectId: Id<"projects">, signal: PrSign
 }
 
 /** The owner task's newest row that has a PR (its own pushes and its fixes'). */
-async function latestPrRow(ctx: Ctx, ownerTaskId: Id<"tasks">): Promise<PushRow | null> {
+export async function latestPrRow(ctx: Ctx, ownerTaskId: Id<"tasks">): Promise<PushRow | null> {
   const own = await ctx.db.query("taskPushes").withIndex("by_task", (q) => q.eq("taskId", ownerTaskId)).take(ROW_SCAN);
   const fixes = await ctx.db
     .query("taskPushes")
@@ -118,7 +118,7 @@ async function latestPrRow(ctx: Ctx, ownerTaskId: Id<"tasks">): Promise<PushRow 
  * Fhara is still working on this PR: a fix task is running, or its commit
  * waits for (or is in) the user's push. A new reaction waits until then.
  */
-async function fixInFlight(ctx: Ctx, ownerTaskId: Id<"tasks">): Promise<boolean> {
+export async function fixInFlight(ctx: Ctx, ownerTaskId: Id<"tasks">): Promise<boolean> {
   const fixes = await ctx.db.query("tasks").withIndex("by_parent", (q) => q.eq("parentTaskId", ownerTaskId)).take(50);
   for (const fix of fixes) {
     if (!fix.prFix) continue;
@@ -215,6 +215,7 @@ export async function ingestSignal(ctx: MutationCtx, projectId: Id<"projects">, 
   if (plan) reaction = await queueReaction(ctx, facts, owner, plan);
 
   if (facts.prState === "merged" || facts.prState === "closed") await onPrClosed(ctx, facts, owner);
+  else await scheduleAutoMerge(ctx, base.projectId, owner);
   await syncPrNotifications(ctx, owner);
   return { matched: samePr.length, reaction };
 }
@@ -557,7 +558,15 @@ export async function onPrPushed(ctx: MutationCtx, row: PushRow) {
   }
   const owner = ownerOf(row);
   await activateDeferred(ctx, owner);
+  await scheduleAutoMerge(ctx, row.projectId, owner);
   await syncPrNotifications(ctx, owner);
+}
+
+/** O2: re-evaluate supervised auto-merge (only when the project turned it on). */
+export async function scheduleAutoMerge(ctx: MutationCtx, projectId: Id<"projects">, ownerTaskId: Id<"tasks">) {
+  const project = await ctx.db.get(projectId);
+  if (!project?.autoMerge) return;
+  await ctx.scheduler.runAfter(0, internal.autoMerge.evaluate, { ownerTaskId });
 }
 
 /** PR merged or closed: drop pending reactions and release the worktree. */
@@ -625,6 +634,9 @@ export async function syncPrNotifications(ctx: MutationCtx, ownerTaskId: Id<"tas
       worktreeAvailable: Boolean(owner.worktreePath && owner.branchName),
       fixActive: await fixInFlight(ctx, ownerTaskId),
       latestFixFailed: lastFix?.status === "failed",
+      autoMerge: project?.autoMerge
+        ? { enabled: true, state: latest.autoMerge?.state, code: latest.autoMerge?.code, reason: latest.autoMerge?.reason }
+        : undefined,
     });
   }
   const now = Date.now();
@@ -698,6 +710,7 @@ export const lanesByProject = query({
         fixing: await fixInFlight(ctx, taskId as Id<"tasks">),
         fixAttempts: await createdCount(ctx, row.repoFullName ?? "", row.prNumber!),
         maxAttempts: max,
+        autoMerge: row.autoMerge ? { state: row.autoMerge.state, reason: row.autoMerge.reason } : null,
       });
     }
     return out;

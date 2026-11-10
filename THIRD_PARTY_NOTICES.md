@@ -536,3 +536,21 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## vigilante
+
+- Source: https://github.com/aliengiraffe/vigilante (commit `a4f7826`)
+- Used in: `apps/api/convex/lib/autoMerge.ts` (`mergeVerdict`: the wait-reason table, ported from
+  `internal/app/app.go` `automergeWaitReason`, lines 5211-5249). Changed by Fhara: TypeScript port, typed
+  wait/blocked verdicts, errored checks block, no-check PRs wait, head must equal the approved commit.
+  Licensed under the Apache License, Version 2.0 (full text in the Aider entry above). vigilante ships no
+  NOTICE file and names no copyright holder in its LICENSE.
+
+## coder (zvenoai)
+
+- Source: https://github.com/zvenoai/coder (commit `1e1cc92`)
+- Used in: `apps/api/convex/lib/autoMerge.ts` (`humanGate`: the diff-size and sensitive-path gate, ported from
+  `orchestrator/pr_monitor.py` `_check_human_gate`, lines 860-902). Changed by Fhara: TypeScript port, fails
+  closed when the file list cannot be read or may be truncated, renamed-from paths are matched too. Licensed
+  under the Apache License, Version 2.0 (full text in the Aider entry above). coder ships no NOTICE file and
+  names no copyright holder in its LICENSE.

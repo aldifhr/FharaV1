@@ -204,8 +204,29 @@ export const notificationKind = v.union(
   v.literal("changes_requested"),
   v.literal("merge_conflict"),
   v.literal("fix_cap_reached"),
-  v.literal("fix_failed")
+  v.literal("fix_failed"),
+  // O2 (additive): auto-merge is on but a gate needs the user.
+  v.literal("auto_merge_blocked")
 );
+
+/** O2 supervised auto-merge state on a PR's newest push row (additive). */
+export const autoMergeState = v.object({
+  state: v.union(
+    v.literal("waiting"),
+    v.literal("blocked"),
+    v.literal("checking"),
+    v.literal("merging"),
+    v.literal("merged"),
+    v.literal("failed")
+  ),
+  code: v.string(),
+  reason: v.string(),
+  // The PR head this state was computed for.
+  headSha: v.optional(v.string()),
+  attemptedAt: v.optional(v.number()),
+  approvalId: v.optional(v.id("approvals")),
+  updatedAt: v.number(),
+});
 
 // Workflow Studio (plan 030): a visual agent-workflow DAG definition. Node
 // and edge shapes stay string-keyed (frontend ids such as `node_abc12345`),
@@ -303,6 +324,13 @@ export default defineSchema({
     // asks for changes, new review comments or a merge conflict on a task's
     // PR queue a fix task on the same branch/worktree. Unset = off.
     prFeedbackReactions: v.optional(v.boolean()),
+    // O2 supervised auto-merge (additive): merge a task's PR when every
+    // check passed, the size/sensitive-path gate passed and the head is the
+    // commit the user approved. Unset = off.
+    autoMerge: v.optional(v.boolean()),
+    // O4 issue intake (additive): issues the connected GitHub user opened
+    // with this label become DRAFT tasks (never started). Unset = off.
+    issueIntake: v.optional(v.object({ enabled: v.boolean(), label: v.optional(v.string()) })),
     commandAllowRules: v.optional(
       v.array(
         v.object({
@@ -1384,6 +1412,18 @@ export default defineSchema({
     mergeable: v.optional(prMergeable),
     lastCommentAt: v.optional(v.number()),
     prFactsAt: v.optional(v.number()),
+    // O2 (additive): supervised auto-merge state for this PR.
+    autoMerge: v.optional(autoMergeState),
+    // O8 hook (additive): the dependency check's verdict on this push.
+    // "failed" (a high finding) blocks auto-merge.
+    dependencyCheck: v.optional(
+      v.object({
+        status: v.union(v.literal("passed"), v.literal("failed"), v.literal("skipped")),
+        high: v.optional(v.number()),
+        summary: v.optional(v.string()),
+        checkedAt: v.number(),
+      })
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -1967,6 +2007,9 @@ export default defineSchema({
     newProjectPlanReview: v.optional(planReviewSetting),
     newProjectPrFeedback: v.optional(v.boolean()),
     newProjectShadowAgent: v.optional(v.boolean()),
+    // O2 / O4 new-project defaults (additive). Unset = off.
+    newProjectAutoMerge: v.optional(v.boolean()),
+    newProjectIssueIntake: v.optional(v.boolean()),
     updatedAt: v.number(),
   }),
 

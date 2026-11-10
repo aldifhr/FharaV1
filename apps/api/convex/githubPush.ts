@@ -554,6 +554,8 @@ export const get = query({
       prTitle: row.prTitle,
       prState: row.prState,
       prCheckedAt: row.prCheckedAt,
+      // O2: supervised auto-merge state and its reason (one line on the card).
+      autoMerge: row.autoMerge ? { state: row.autoMerge.state, reason: row.autoMerge.reason } : null,
       // T1: CI on the PR head commit (webhooks + refresh). null = never read.
       checks:
         row.prNumber !== undefined && (row.ciChecks !== undefined || row.ciState !== undefined)

@@ -48,6 +48,8 @@ export async function loadNewProjectDefaults(ctx: Ctx) {
     planReview: row?.newProjectPlanReview,
     prFeedbackReactions: row?.newProjectPrFeedback,
     shadowAgentDefault: row?.newProjectShadowAgent,
+    autoMerge: row?.newProjectAutoMerge,
+    issueIntake: row?.newProjectIssueIntake,
   };
 }
 
@@ -89,6 +91,8 @@ export const get = query({
         planReview: row?.newProjectPlanReview ?? null,
         prFeedbackReactions: row?.newProjectPrFeedback ?? false,
         shadowAgentDefault: row?.newProjectShadowAgent ?? false,
+        autoMerge: row?.newProjectAutoMerge ?? false,
+        issueIntake: row?.newProjectIssueIntake ?? false,
       },
       updatedAt: row?.updatedAt ?? null,
     };
@@ -134,6 +138,8 @@ export const setNewProjectDefaults = mutation({
     planReview: v.optional(v.union(planReviewSetting, v.null())),
     prFeedbackReactions: v.optional(v.boolean()),
     shadowAgentDefault: v.optional(v.boolean()),
+    autoMerge: v.optional(v.boolean()),
+    issueIntake: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await assertRegistryWriteAccess(ctx);
@@ -162,6 +168,14 @@ export const setNewProjectDefaults = mutation({
     if (args.shadowAgentDefault !== undefined) {
       patch.newProjectShadowAgent = args.shadowAgentDefault || undefined;
       changed.push("shadowAgentDefault");
+    }
+    if (args.autoMerge !== undefined) {
+      patch.newProjectAutoMerge = args.autoMerge || undefined;
+      changed.push("autoMerge");
+    }
+    if (args.issueIntake !== undefined) {
+      patch.newProjectIssueIntake = args.issueIntake || undefined;
+      changed.push("issueIntake");
     }
     if (changed.length === 0) return;
     await upsert(ctx, patch);

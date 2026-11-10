@@ -44,6 +44,15 @@ export const SETTING_KNOBS = {
   // Pull requests
   FHARA_PR_DRAFT: { type: "bool", defaultValue: "true", reader: "worker" },
   FHARA_PR_FIX_MAX_ATTEMPTS: { type: "int", defaultValue: "3", reader: "api", min: 0, max: 20 },
+  // O2 supervised auto-merge (per project switch; these shape the gate)
+  FHARA_AUTO_MERGE_MAX_LINES: { type: "int", defaultValue: "400", reader: "api", min: 0, max: 100_000 },
+  FHARA_AUTO_MERGE_SENSITIVE: {
+    type: "string",
+    defaultValue: ".github/**, **/.env*, **/*.env, **/*.pem, **/*.key, infra/**, apps/api/convex/schema.ts",
+    reader: "api",
+    maxLength: 1000,
+  },
+  FHARA_AUTO_MERGE_METHOD: { type: "enum", defaultValue: "squash", reader: "api", options: ["squash", "merge", "rebase"] },
   // Worktrees
   FHARA_WORKTREE_RETENTION_HOURS: { type: "int", defaultValue: "72", reader: "api", min: 1, max: 720 },
   ORCHESTRATOR_WORKTREE_ISOLATION: { type: "bool", defaultValue: "false", reader: "worker" },

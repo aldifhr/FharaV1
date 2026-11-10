@@ -25,6 +25,7 @@ import { llmTimeoutMs } from "@/llm";
 import { handlesFromResolution, type AgentResolution, type ExecutionRoute, type ModelRoutingInfo } from "@/llm/resolver";
 import { ensureOpencodeDetection, opencodeGateFor } from "@/execution/opencodeDetect";
 import type { PerformanceScore } from "@/api/convex/lib/agentPerformance";
+import { isResearchSynthesis } from "@/prompts/research";
 
 /**
  * The DAG nodes runner (plan 012 step 2): run a set of subtasks through
@@ -136,6 +137,8 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       dependencies: subtask.dependencies.filter((dependency) => subsetKeys.has(dependency)),
       paths: subtask.allowedPaths,
       writes: subtask.kind === "code_change" || subtask.kind === "shell",
+      // O7: the research synthesis answers from the angles that succeeded.
+      ...(isResearchSynthesis(subtask) ? { partialDependencies: true } : {}),
     })),
     async (node, signal, runInfo): Promise<NodeOutcome> => {
       const subtask = plan.subtasks.find((candidate) => candidate.key === node.id)!;

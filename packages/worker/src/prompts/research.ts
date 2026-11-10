@@ -77,9 +77,21 @@ export function synthesisDescription(question: string, total: number): string {
     `The reports are the previous subtask outputs ${keys}, each inside [BEGIN_RA_n] … [END_RA_n].`,
     "Write: an executive summary, key findings, where the reports agree and disagree, and recommended next steps.",
     "Keep every source link the reports cite (inline markdown links). Do not invent sources.",
-    "If a report is missing or empty, say which angle is missing instead of filling the gap.",
+    "An angle that failed has no report: name the missing angle and answer from the reports you have, without filling the gap.",
     "Read-only: do not modify files or run mutating commands.",
   ].join("\n");
+}
+
+/**
+ * The synthesis node of a `/research` fan-out plan: it runs on partial input
+ * (the scheduler starts it once every angle settled and one succeeded).
+ */
+export function isResearchSynthesis(subtask: { key: string; dependencies: string[] }): boolean {
+  return (
+    subtask.key === SYNTHESIS_KEY &&
+    subtask.dependencies.length >= 2 &&
+    subtask.dependencies.every((dependency) => /^ra-\d+$/.test(dependency))
+  );
 }
 
 /** The fan-out plan: N parallel angles + one synthesis that depends on all. */

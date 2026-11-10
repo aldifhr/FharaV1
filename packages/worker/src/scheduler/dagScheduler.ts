@@ -20,7 +20,17 @@ export interface SchedulerNode {
    * that both have no declared paths can touch anything, so they conflict.
    */
   writes?: boolean;
+  /**
+   * Runs on partial input: once every dependency has settled (succeeded,
+   * failed or blocked) and at least one of them succeeded. Used by the
+   * research synthesis node, which still answers from the angles that
+   * produced a report when another angle failed. Default: every dependency
+   * must succeed.
+   */
+  partialDependencies?: boolean;
 }
+
+const SETTLED_DEPENDENCY_STATES = new Set(["success", "failed", "blocked"]);
 
 /**
  * Conflict guard for parallel runs: two nodes conflict (and are run one
@@ -458,6 +468,18 @@ export async function runScheduler(
     running.set(node.id, promise);
   };
 
+  /** Every dependency succeeded; or, for a partialDependencies node, all settled and one succeeded. */
+  const dependenciesReady = (node: SchedulerNode): boolean => {
+    if (!node.partialDependencies) {
+      return node.dependencies.every((dependency) => states.get(dependency) === "success");
+    }
+    if (node.dependencies.some((dependency) => !byId.has(dependency))) return false;
+    return (
+      node.dependencies.every((dependency) => SETTLED_DEPENDENCY_STATES.has(states.get(dependency) ?? "")) &&
+      node.dependencies.some((dependency) => states.get(dependency) === "success")
+    );
+  };
+
   const markBlocked = async (reason: string) => {
     let changed = true;
     while (changed) {
@@ -467,7 +489,12 @@ export async function runScheduler(
         const node = byId.get(id);
         if (!node) continue;
         const missingDependency = node.dependencies.find((dependency) => !byId.has(dependency));
-        const blockingDependency = node.dependencies.find((dependency) => {
+        // A partialDependencies node is blocked only once no dependency can
+        // succeed any more (one success is enough for it to run).
+        const anySuccess = node.partialDependencies
+          ? node.dependencies.some((dependency) => states.get(dependency) === "success")
+          : false;
+        const blockingDependency = anySuccess ? undefined : node.dependencies.find((dependency) => {
           const dependencyState = states.get(dependency);
           return (
             dependencyState === "failed" ||
@@ -547,10 +574,7 @@ export async function runScheduler(
       for (const node of allNodes) {
         if (running.size >= concurrency) break;
         if (states.get(node.id) !== "pending") continue;
-        const dependenciesSatisfied = node.dependencies.every(
-          (dependency) => states.get(dependency) === "success"
-        );
-        if (!dependenciesSatisfied) continue;
+        if (!dependenciesReady(node)) continue;
         // Per-agent concurrency gate: a node whose agent is at its
         // limit is deferred to a later pass — not started, not failed.
         // It becomes runnable again as soon as a same-agent node
@@ -587,6 +611,21 @@ export async function runScheduler(
         return { status: "halted", outcomes, failed };
       }
       await markBlocked("Dependency failed");
+      // Blocking may have settled the last open dependency of a
+      // partialDependencies node: give it a start pass instead of ending.
+      if (
+        !cancelled &&
+        !halted &&
+        allNodes.some(
+          (node) =>
+            node.partialDependencies &&
+            states.get(node.id) === "pending" &&
+            dependenciesReady(node) &&
+            (!hooks.canStartNode || hooks.canStartNode(node))
+        )
+      ) {
+        continue;
+      }
       const pendingLeft = Array.from(states.values()).some((state) => state === "pending");
       // A dependency that never ran (missing dep, cycle) blocks dependents
       // via markBlocked above; anything still pending after that is stalled

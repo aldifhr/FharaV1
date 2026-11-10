@@ -4,8 +4,10 @@ import { createPlan } from "@/orchestrator/planner";
 import type { AgentDefinition } from "@/orchestrator/types";
 import { loadPolicy } from "@/orchestrator/policy";
 import { validatePlan } from "@/orchestrator/planValidator";
+import { runScheduler, type NodeOutcome, type SchedulerNode } from "@/scheduler/dagScheduler";
 import {
   angleDescription,
+  isResearchSynthesis,
   RESEARCH_ANGLES,
   REPORT_CHAR_BUDGET,
   researchFanoutPlan,
@@ -101,5 +103,52 @@ describe("research fan-out", () => {
     const command = "/research compare A vs B";
     const result = await createPlan({ command, classification: classifyCommand(command), agents: [frontend], policy });
     expect(result.plan.subtasks.some((s) => s.key === "synthesis")).toBe(false);
+  });
+
+  it("synthesis still runs when one angle fails, on the angles that succeeded", async () => {
+    const plan = researchFanoutPlan({ question: "Q?", angles: 3 }, policy.maxSubtasks);
+    expect(plan.subtasks.filter(isResearchSynthesis).map((s) => s.key)).toEqual(["synthesis"]);
+    expect(isResearchSynthesis({ key: "synthesis", dependencies: ["build"] })).toBe(false);
+    const schedulerNodes: SchedulerNode[] = plan.subtasks.map((s) => ({
+      id: s.key,
+      dependencies: s.dependencies,
+      ...(isResearchSynthesis(s) ? { partialDependencies: true } : {}),
+    }));
+    const hooks = (outcomes: Record<string, string>) => ({
+      maxConcurrency: 4,
+      timeoutMs: 2000,
+      retries: 0,
+      onStart: async () => undefined,
+      onOutcome: async (node: SchedulerNode, outcome: NodeOutcome) => {
+        outcomes[node.id] = outcome.status;
+      },
+      onBlocked: async (node: SchedulerNode) => {
+        outcomes[node.id] = "blocked";
+      },
+    });
+
+    const outcomes: Record<string, string> = {};
+    const ran: string[] = [];
+    const result = await runScheduler(
+      schedulerNodes,
+      async (node): Promise<NodeOutcome> => {
+        ran.push(node.id);
+        return node.id === "ra-2" ? { status: "failed", error: "search provider down" } : { status: "completed", output: `report ${node.id}` };
+      },
+      hooks(outcomes)
+    );
+    expect(ran[ran.length - 1]).toBe("synthesis");
+    expect(outcomes.synthesis).toBe("completed");
+    expect(result.failed).toEqual(["ra-2"]);
+
+    // Every angle failed: nothing to synthesize, the node is blocked.
+    const none: Record<string, string> = {};
+    const allFailed = await runScheduler(
+      schedulerNodes,
+      async (): Promise<NodeOutcome> => ({ status: "failed", error: "down" }),
+      hooks(none)
+    );
+    expect(allFailed.status).toBe("failed");
+    expect(none.synthesis).toBe("blocked");
   });
 });

@@ -1954,7 +1954,13 @@ export default defineSchema({
   })
     .index("by_scope", ["scope", "pinned"])
     .index("by_project", ["projectId", "scope"])
-    .index("by_agent", ["agentId"]),
+    .index("by_agent", ["agentId"])
+    // Plan L4 (additive): full-text recall of unpinned memories per task /
+    // prompt (lib/memoryRecall.ts). Convex search, no embeddings.
+    .searchIndex("search_content", {
+      searchField: "content",
+      filterFields: ["scope", "projectId", "agentId", "pinned"],
+    }),
 
   // Context Snapshot (additive): one light row per LLM call — who, what for,
   // model, tokens, per-section token estimates, error. The prompt and

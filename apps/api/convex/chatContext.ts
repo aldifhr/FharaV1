@@ -7,7 +7,7 @@ import { loadProviderPool } from "./lib/llmResolver";
 import { activeParticipantRows, selectDefaultChatAgents } from "./conversations";
 import { normalizeSkillLoading, skillsSectionFor } from "./lib/skillRuntime";
 import { loadPromptSkills } from "./skills";
-import { loadMemorySection } from "./memories";
+import { loadMemorySection, loadRecalledSection } from "./memories";
 import { extractAgentMentions } from "./lib/chat/team";
 import { stripLeakedToolCallTags } from "./lib/chat/strip";
 import { chatScopeOf, type ChatScope } from "./lib/conversationShape";
@@ -405,7 +405,15 @@ export const getContext = internalQuery({
       skillsSection: skillsSectionFor(skills, mode) || undefined,
       ...(mode === "on_demand" && skills.length ? { onDemandSkills: skills } : {}),
       // Pinned memories for this agent in this project, after the skills.
-      memorySection: (await loadMemorySection(ctx, { projectId: args.projectId, agentId: a._id })) || undefined,
+      // Plan L4: then the unpinned memories this message recalls (a second
+      // section, so the pinned prefix above stays byte-identical).
+      memorySection:
+        [
+          await loadMemorySection(ctx, { projectId: args.projectId, agentId: a._id }),
+          anchor?.content ? await loadRecalledSection(ctx, { projectId: args.projectId, agentId: a._id }, anchor.content) : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n") || undefined,
       };
     };
 

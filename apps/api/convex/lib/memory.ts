@@ -8,7 +8,8 @@
  * Only PINNED memories reach a prompt. They are appended after the static
  * system prompt and the skills section as one "## Memory" section, so the
  * prompt prefix stays identical across runs and prefix caching holds.
- * Unpinned memories are reference-only for now.
+ * Unpinned memories are recalled per task / prompt by full-text search and
+ * rendered as a second section after this one (lib/memoryRecall.ts, plan L4).
  */
 
 export const MEMORY_TITLE_MAX = 120;

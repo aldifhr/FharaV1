@@ -740,3 +740,12 @@ SOFTWARE.
   `workspace/backend/app/routers/briefs.py`. Ported from Python to TypeScript; changes are marked in the file
   headers. Copyright OpenAgents contributors. Licensed under the Apache License, Version 2.0 (full text in the
   Aider entry above). openagents ships no NOTICE file.
+
+## agent-os
+
+- Source: https://github.com/earthwalker17/agent-os (commit `59833d3`)
+- Used in: `apps/api/convex/lib/memoryRecall.ts` (memory recall, plan L4): the query tokenizer, stopword list,
+  keyword score and snippet window, adapted from `backend/execution/local_rag.py` (`_tokens`, `_STOPWORDS`,
+  `_score`, `_snippet`). Ported from Python to TypeScript; changes are marked in the file header. Copyright
+  agent-os contributors. Licensed under the Apache License, Version 2.0 (full text in the Aider entry above).
+  agent-os ships no NOTICE file.

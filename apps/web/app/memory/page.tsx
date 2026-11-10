@@ -11,6 +11,7 @@ import Segmented from "@/components/ui/segmented";
 import { roleLabel } from "@/lib/agentRoles";
 import { relativeTime } from "@/lib/runFormat";
 import { MEMORY_CONTENT_MAX, MEMORY_PROMPT_BUDGET, MEMORY_TITLE_MAX, type MemoryScope } from "@/api/convex/lib/memory";
+import { RECALL_TOP_K } from "@/api/convex/lib/memoryRecall";
 
 type Memory = {
   _id: string;
@@ -63,7 +64,8 @@ export default function MemoryPage() {
 /**
  * Memory: notes agents carry between runs. Pinned memories are added to an
  * agent's prompt after its skills — shared, then the project's, then the
- * agent's own. Unpinned memories are kept for reference only.
+ * agent's own. Unpinned memories are recalled when they match a task or
+ * message (Convex full-text search, plan L4).
  */
 function MemoryInner() {
   const params = useSearchParams();
@@ -112,12 +114,34 @@ function MemoryInner() {
           ...(scope === "agent" ? { agentId: agentId as never } : {}),
         },
   ) as Memory[] | undefined;
+  const [searchText, setSearchText] = useState("");
+  const searchQuery = searchText.trim();
+  const hits = useQuery(
+    api.memories.search,
+    needsTarget || !searchQuery
+      ? "skip"
+      : {
+          scope,
+          ...(scope === "project" ? { projectId: projectId as never } : {}),
+          ...(scope === "agent" ? { agentId: agentId as never } : {}),
+          text: searchQuery,
+        },
+  ) as Array<{ _id: string }> | undefined;
+  const visible = useMemo(() => {
+    if (!searchQuery) return memories;
+    if (!memories || !hits) return undefined;
+    const byId = new Map(memories.map((m) => [m._id, m]));
+    return hits.map((h) => byId.get(h._id)).filter((m): m is Memory => Boolean(m));
+  }, [searchQuery, memories, hits]);
   const setPinned = useMutation(api.memories.setPinned);
   const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [error, setError] = useState("");
 
   // A scope change closes an open editor (it belongs to the old list).
-  useEffect(() => setEditingId(null), [scope, projectId, agentId]);
+  useEffect(() => {
+    setEditingId(null);
+    setSearchText("");
+  }, [scope, projectId, agentId]);
 
   const pinnedCount = (memories ?? []).filter((m) => m.pinned).length;
   const loading = !needsTarget && memories === undefined;
@@ -189,9 +213,20 @@ function MemoryInner() {
               : `${SCOPE_HINT[scope]} · ${pinnedCount} pinned`}
           </p>
           <p className="mt-1 text-[12.5px] text-ink-3">
-            Only pinned memories are added to an agent's instructions (shared, then project, then the agent's own, up to{" "}
-            {MEMORY_PROMPT_BUDGET.toLocaleString("en-US")} characters). Unpinned ones are kept for reference.
+            Pinned memories are always added to an agent's instructions (shared, then project, then the agent's own, up to{" "}
+            {MEMORY_PROMPT_BUDGET.toLocaleString("en-US")} characters). Unpinned ones are added only when they match the
+            task or message, up to {RECALL_TOP_K} at a time.
           </p>
+          {!needsTarget && (
+            <input
+              type="search"
+              aria-label="Search memory"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="Search memory"
+              className={`${field} mt-4 h-9 py-1 text-[13px]`}
+            />
+          )}
           {error && <p role="alert" className="mt-3 text-[13px] text-red-600 dark:text-red-400">{error}</p>}
 
           {needsTarget ? (
@@ -199,11 +234,11 @@ function MemoryInner() {
               {scope === "project" ? "No projects yet. Create a project to keep project memory." : "No agents yet."}
             </div>
           ) : loading ? (
-            <div className="mt-10 space-y-3" aria-label="Loading memory">
-              {[0, 1, 2].map((i) => (
-                <div key={i} className="h-14 animate-pulse rounded-xl bg-hover" />
-              ))}
-            </div>
+            <p className="mt-10 text-[13px] text-ink-3" aria-label="Loading memory">Loading…</p>
+          ) : searchQuery && (visible === undefined || visible.length === 0) && editingId === null ? (
+            <p className="mt-10 text-[13px] text-ink-3">
+              {visible === undefined ? "Searching…" : `No memories match “${searchQuery}”.`}
+            </p>
           ) : (memories ?? []).length === 0 && editingId === null ? (
             <div className="mt-10 rounded-xl border border-dashed border-line px-4 py-5 text-[13px] text-ink-3">
               <p>
@@ -225,7 +260,7 @@ function MemoryInner() {
                   <MemoryEditor note={null} target={target} onClose={() => setEditingId(null)} />
                 </li>
               )}
-              {(memories ?? []).map((m) => (
+              {(visible ?? []).map((m) => (
                 <li key={m._id} className="transition hover:bg-hover">
                   {editingId === m._id ? (
                     <MemoryEditor note={m} target={target} onClose={() => setEditingId(null)} />
@@ -240,13 +275,7 @@ function MemoryInner() {
                           <p className="truncate text-[14px] font-medium">{m.title}</p>
                           <p className="truncate text-[12.5px] text-ink-2">{snippet(m.content)}</p>
                           {m.tags && m.tags.length > 0 && (
-                            <p className="mt-1 flex flex-wrap gap-1">
-                              {m.tags.map((t) => (
-                                <span key={t} className="rounded-full border border-line px-1.5 py-0.5 text-[10.5px] text-ink-3">
-                                  {t}
-                                </span>
-                              ))}
-                            </p>
+                            <p className="mt-0.5 truncate text-[11.5px] text-ink-3">{m.tags.join(", ")}</p>
                           )}
                         </div>
                         <span className="shrink-0 pt-0.5 text-right text-[12px] text-ink-3">
@@ -257,7 +286,7 @@ function MemoryInner() {
                         type="button"
                         aria-label={m.pinned ? `Unpin ${m.title}` : `Pin ${m.title}`}
                         aria-pressed={m.pinned}
-                        title={m.pinned ? "Pinned — added to prompts" : "Not pinned — reference only"}
+                        title={m.pinned ? "Pinned — added to prompts" : "Not pinned — added when it matches a task"}
                         onClick={async () => {
                           setError("");
                           try {
@@ -381,7 +410,7 @@ function MemoryEditor({
         <input type="checkbox" checked={pinned} onChange={(e) => setPinnedState(e.target.checked)} className="mt-0.5 accent-current" />
         <span>
           Pinned
-          <span className="block text-[12px] text-ink-3">Pinned memories are added to the agent's instructions. Unpinned ones are reference only.</span>
+          <span className="block text-[12px] text-ink-3">Pinned memories are always added to the agent's instructions. Unpinned ones are added only when they match the task or message.</span>
         </span>
       </label>
 

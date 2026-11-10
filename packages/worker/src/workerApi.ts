@@ -13,7 +13,12 @@ export type WorkerAgent = Doc<"agents">;
  * Agent row as getRunContext delivers it: plus its attached library skills
  * and its pre-rendered "## Memory" section (pinned memories, capped).
  */
-export type WorkerRunAgent = WorkerAgent & { attachedSkills?: PromptSkill[]; memorySection?: string };
+export type WorkerRunAgent = WorkerAgent & {
+  attachedSkills?: PromptSkill[];
+  memorySection?: string;
+  /** Plan L4: unpinned memories recalled for this task (after the pinned section). */
+  recalledMemorySection?: string;
+};
 export type WorkerPlanRecord = Doc<"plans">;
 export type WorkerSubtask = Doc<"subtasks">;
 export type WorkerFileChange = Doc<"fileChanges">;

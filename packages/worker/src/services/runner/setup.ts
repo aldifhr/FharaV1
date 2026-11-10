@@ -231,9 +231,14 @@ export function toAgentDefinition(agent: WorkerRunAgent): AgentDefinition {
     // reads this field.
     // Then the pinned-memory section (shared → project → agent, capped at
     // MEMORY_PROMPT_BUDGET), still after everything static.
+    // Plan L4: then the recalled (unpinned) memories for this task, last, so
+    // the pinned prefix is identical with and without recall.
     systemPrompt: appendMemoryToPrompt(
-      appendAgentSkills(agent.systemPrompt, agent.attachedSkills, skillLoading),
-      agent.memorySection
+      appendMemoryToPrompt(
+        appendAgentSkills(agent.systemPrompt, agent.attachedSkills, skillLoading),
+        agent.memorySection
+      ),
+      agent.recalledMemorySection
     ),
     ...(skillLoading === "on_demand" && agent.attachedSkills?.length ? { onDemandSkills: agent.attachedSkills } : {}),
     description: agent.description,

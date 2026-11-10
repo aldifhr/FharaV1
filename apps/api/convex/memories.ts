@@ -10,6 +10,14 @@ import {
   type MemoryLike,
 } from "./lib/memory";
 import { recordAudit, setFields } from "./lib/recordAudit";
+import {
+  RECALL_MAX,
+  RECALL_TOP_K,
+  formatRecalledSection,
+  pickRecalled,
+  recallSearchText,
+  type RecallCandidate,
+} from "./lib/memoryRecall";
 
 /**
  * Memory (shared / project / agent). Access follows the rest of the
@@ -69,6 +77,72 @@ export async function loadMemorySection(
     agentId: target.agentId,
   });
   return formatMemorySection(picked);
+}
+
+/**
+ * Plan L4: full-text search over one scope's memories (Convex searchIndex).
+ * `pinned` narrows to pinned / unpinned rows; absent = both. Never throws:
+ * an empty query returns [].
+ */
+async function searchScope(
+  ctx: Ctx,
+  scope: Doc<"memories">["scope"],
+  owner: { projectId?: Id<"projects">; agentId?: Id<"agents"> },
+  text: string,
+  limit: number,
+  pinned?: boolean
+): Promise<Doc<"memories">[]> {
+  if (!text) return [];
+  if (scope === "project" && !owner.projectId) return [];
+  if (scope === "agent" && !owner.agentId) return [];
+  return await ctx.db
+    .query("memories")
+    .withSearchIndex("search_content", (q) => {
+      let built = q.search("content", text).eq("scope", scope);
+      if (scope === "project") built = built.eq("projectId", owner.projectId);
+      if (scope === "agent") built = built.eq("agentId", owner.agentId);
+      if (pinned !== undefined) built = built.eq("pinned", pinned);
+      return built;
+    })
+    .take(limit);
+}
+
+/**
+ * Plan L4: the top-k UNPINNED memories (shared, this project's, this
+ * agent's) that match `query`. Pinned memories are never recalled here —
+ * they are always on through loadMemorySection. Another project's or another
+ * agent's memories are never searched.
+ */
+export async function recallMemories(
+  ctx: Ctx,
+  target: { projectId?: Id<"projects">; agentId?: Id<"agents"> },
+  query: string,
+  k: number = RECALL_TOP_K
+): Promise<Doc<"memories">[]> {
+  const text = recallSearchText(query);
+  if (!text) return [];
+  const limit = Math.min(Math.max(1, k), RECALL_MAX);
+  const scopes = ["shared", "project", "agent"] as const;
+  const results = await Promise.all(scopes.map((scope) => searchScope(ctx, scope, target, text, limit, false)));
+  const byId = new Map<string, Doc<"memories">>();
+  const candidates: RecallCandidate[] = [];
+  for (const rows of results) {
+    rows.forEach((row, rank) => {
+      byId.set(row._id, row);
+      candidates.push({ id: row._id, title: row.title, content: row.content, scope: row.scope, pinned: row.pinned, rank });
+    });
+  }
+  return pickRecalled(candidates, query, limit).map((pick) => byId.get(pick.id)!);
+}
+
+/** Plan L4: the rendered "## Recalled memory" section ("" when nothing matched). */
+export async function loadRecalledSection(
+  ctx: Ctx,
+  target: { projectId?: Id<"projects">; agentId?: Id<"agents"> },
+  query: string
+): Promise<string> {
+  const rows = await recallMemories(ctx, target, query);
+  return formatRecalledSection(rows, query);
 }
 
 /** Validates the scope/owner pair and the caller's access to it. */
@@ -140,6 +214,33 @@ export const previewSection = query({
   handler: async (ctx, args) => {
     if (args.projectId) await assertProjectAccess(ctx, args.projectId);
     return await loadMemorySection(ctx, args);
+  },
+});
+
+/**
+ * Plan L4: the /memory search box — one scope's memories (pinned and
+ * unpinned) matching `text`, at most 10. Read-only.
+ */
+export const search = query({
+  args: {
+    scope: scopeArg,
+    projectId: v.optional(v.id("projects")),
+    agentId: v.optional(v.id("agents")),
+    text: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (args.scope === "project" && args.projectId) await assertProjectAccess(ctx, args.projectId);
+    return await searchScope(ctx, args.scope, args, recallSearchText(args.text), RECALL_MAX);
+  },
+});
+
+/** Plan L4: what a request would recall for an agent in a project (preview). */
+export const previewRecall = query({
+  args: { projectId: v.optional(v.id("projects")), agentId: v.optional(v.id("agents")), text: v.string() },
+  handler: async (ctx, args) => {
+    if (args.projectId) await assertProjectAccess(ctx, args.projectId);
+    const rows = await recallMemories(ctx, args, args.text);
+    return rows.map((row) => ({ _id: row._id, scope: row.scope, title: row.title }));
   },
 });
 

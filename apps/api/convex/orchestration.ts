@@ -20,7 +20,7 @@ import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver"
 import type { PromptSkill } from "./lib/skills";
 import { loadPromptSkills } from "./skills";
 import { resolveRunMcpServers } from "./mcpServers";
-import { loadMemorySection } from "./memories";
+import { loadMemorySection, loadRecalledSection } from "./memories";
 import { touchBriefQuestion } from "./briefs";
 import { contractDefinition, writePlanVersion } from "./lib/planStore";
 import { decidePermissionCore, permissionArgs } from "./permissionBroker";
@@ -180,7 +180,7 @@ export const getRunContext = internalQuery({
      * skills, resolved in order. The worker appends them after the static
      * system prompt (lib/skills.appendSkillsToPrompt).
      */
-    agents: Array<Doc<"agents"> & { attachedSkills: PromptSkill[]; memorySection?: string }>;
+    agents: Array<Doc<"agents"> & { attachedSkills: PromptSkill[]; memorySection?: string; recalledMemorySection?: string }>;
     plan: Doc<"plans"> | null;
     subtasks: Doc<"subtasks">[];
     /**
@@ -279,6 +279,16 @@ export const getRunContext = internalQuery({
           ...(await (async () => {
             const section = await loadMemorySection(ctx, { projectId: task.projectId, agentId: agent._id });
             return section ? { memorySection: section } : {};
+          })()),
+          // Plan L4: unpinned memories recalled for this task's request
+          // (Convex full-text search, top-k), appended after the pinned one.
+          ...(await (async () => {
+            const recalled = await loadRecalledSection(
+              ctx,
+              { projectId: task.projectId, agentId: agent._id },
+              `${task.title}\n${task.command}`
+            );
+            return recalled ? { recalledMemorySection: recalled } : {};
           })()),
         }))
       ),

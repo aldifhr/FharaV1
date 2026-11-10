@@ -4,6 +4,17 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { EvaluationCheck } from "@/types";
 import { classifyVerifyFailure, ensureWorktreeDependencies } from "./verifyEnv";
+import {
+  baselineCacheKey,
+  baselineEnabled,
+  cachedBaseline,
+  compareWithBaseline,
+  createBaselineTree,
+  describeSignature,
+  storeBaseline,
+  type BaselineRun,
+  type BaselineTree,
+} from "./verifyBaseline";
 
 export interface VerificationOptions {
   workspacePath: string;
@@ -25,6 +36,15 @@ export interface VerificationOptions {
    * killTree the timeout uses.
    */
   signal?: AbortSignal;
+  /**
+   * Pre-change baseline (R1): when a typecheck / lint / test step fails,
+   * re-run the same command once on the tree as it was before the task
+   * (a temporary git worktree at HEAD plus the workspace's own edits to
+   * files the task did not touch) and count only failures that are NEW.
+   * Defaults to on (ORCHESTRATOR_VERIFY_BASELINE=0 turns it off). Outside
+   * a git repository the file-name heuristic (`scopeFiles`) still applies.
+   */
+  baseline?: boolean;
 }
 
 export interface VerificationResult {
@@ -104,95 +124,173 @@ export async function runVerification(options: VerificationOptions): Promise<Ver
 
   const steps = options.includeBuild === false ? BASE_STEPS : [...BASE_STEPS, BUILD_STEP];
 
-  for (const target of targets) {
-    for (const step of steps) {
-      if (options.signal?.aborted) {
-        await record({
-          name: "verification",
-          status: "inconclusive",
-          details: "Verification aborted: the task was cancelled or timed out",
-        });
-        return finish(checks, ran, skipped, linkedDependencies);
-      }
-      const command = await buildCommand(step, workspacePath, target, manager);
-      if (!command) {
-        skipped.push(`${target.name}:${step.name}`);
-        continue;
-      }
+  // Baseline tree, created on the first failure that needs it and removed
+  // when this verification run ends.
+  const useBaseline = options.baseline ?? baselineEnabled();
+  let baselineTree: BaselineTree | null | undefined;
+  const baselineFor = async (command: string, cwd: string): Promise<BaselineRun | null> => {
+    if (!useBaseline || options.signal?.aborted) return null;
+    const changed = options.changedFiles ?? [];
+    const key = await baselineCacheKey({ workspacePath, changedFiles: changed, command, cwd });
+    if (!key) return null;
+    const cached = cachedBaseline(key);
+    if (cached) return cached;
+    if (baselineTree === undefined) {
+      baselineTree = await createBaselineTree({
+        workspacePath,
+        changedFiles: changed,
+        packageDirs: targets.map((target) => path.relative(workspacePath, target.directory) || "."),
+      });
+    }
+    if (!baselineTree) return null;
+    const run = await runCommand(command, baselineTree.dirFor(cwd), timeoutMs, options.signal);
+    if (run.timedOut || options.signal?.aborted) return null;
+    const result = { code: run.code, output: baselineTree.normalizeOutput(run.output) };
+    storeBaseline(key, result);
+    return result;
+  };
 
-      const result = await runCommand(command, target.directory, timeoutMs, options.signal);
-      ran.push(`${target.name}:${step.name}`);
+  try {
+    for (const target of targets) {
+      for (const step of steps) {
+        if (options.signal?.aborted) {
+          await record({
+            name: "verification",
+            status: "inconclusive",
+            details: "Verification aborted: the task was cancelled or timed out",
+          });
+          return finish(checks, ran, skipped, linkedDependencies);
+        }
+        const command = await buildCommand(step, workspacePath, target, manager);
+        if (!command) {
+          skipped.push(`${target.name}:${step.name}`);
+          continue;
+        }
 
-      if (result.timedOut) {
-        await record({
-          name: `${target.name}:${step.name}`,
-          status: "failed",
-          durationMs: result.durationMs,
-          details: `\`${command}\` timed out after ${Math.round(timeoutMs / 1000)}s. ${tail(result.output)}`.trim(),
-        });
-        return finish(checks, ran, skipped, linkedDependencies);
-      }
+        const result = await runCommand(command, target.directory, timeoutMs, options.signal);
+        ran.push(`${target.name}:${step.name}`);
 
-      const scope = options.scopeFiles ?? options.changedFiles ?? [];
-      const named = result.code !== 0 ? filesInOutput(result.output, workspacePath, target.directory) : [];
-      if (result.code !== 0 && SCOPED_STEPS.has(step.name) && isPreExistingFailure(named, scope)) {
-        // Every file the failure names is outside this change: it existed
-        // before (e.g. a react-hooks lint error in an untouched component).
+        if (result.timedOut) {
+          await record({
+            name: `${target.name}:${step.name}`,
+            status: "failed",
+            durationMs: result.durationMs,
+            details: `\`${command}\` timed out after ${Math.round(timeoutMs / 1000)}s. ${tail(result.output)}`.trim(),
+          });
+          return finish(checks, ran, skipped, linkedDependencies);
+        }
+
+        const scope = options.scopeFiles ?? options.changedFiles ?? [];
+        const named = result.code !== 0 ? filesInOutput(result.output, workspacePath, target.directory) : [];
+        if (result.code !== 0) {
+          const heuristicPreExisting = SCOPED_STEPS.has(step.name) && isPreExistingFailure(named, scope);
+          if (!heuristicPreExisting) {
+            const classified = classifyVerifyFailure({ output: result.output, code: result.code, changedFiles: scope });
+            if (classified.kind === "env") {
+              // Nothing a code fix can change: report it as skipped and go on
+              // (the next steps may still run; they classify on their own).
+              await record({
+                name: `${target.name}:${step.name}`,
+                status: "inconclusive",
+                durationMs: result.durationMs,
+                environment: classified.reason,
+                details: `Skipped (environment): ${classified.reason}. \`${command}\` exited with code ${result.code}. ${tail(result.output)}`.trim(),
+              });
+              continue;
+            }
+          }
+
+          // R1: only failures that are new since the change count. The
+          // baseline also overrules the file-name heuristic: a change that
+          // breaks an untouched importer is new, not pre-existing.
+          const baseline = BASELINE_STEPS.has(step.name) ? await baselineFor(command, target.directory) : null;
+          if (baseline) {
+            const verdict = compareWithBaseline({
+              after: { code: result.code, output: result.output },
+              before: baseline,
+              root: workspacePath,
+              cwd: target.directory,
+            });
+            if (verdict.verdict === "pre_existing") {
+              await record({
+                name: `${target.name}:${step.name}`,
+                status: "passed",
+                durationMs: result.durationMs,
+                ...(named.length > 0 ? { files: named.slice(0, 20) } : {}),
+                details: `\`${command}\` failed, but the same failure${
+                  verdict.matched > 1 ? `s (${verdict.matched})` : ""
+                } already happen${verdict.matched > 1 ? "" : "s"} on the tree before this change (pre-existing, ignored)`,
+              });
+              continue;
+            }
+            if (verdict.verdict === "new") {
+              const fresh = verdict.newFailures;
+              await record({
+                ...(named.length > 0 ? { files: named.slice(0, 20) } : {}),
+                name: `${target.name}:${step.name}`,
+                status: "failed",
+                durationMs: result.durationMs,
+                details: `\`${command}\` exited with code ${result.code}.${
+                  fresh.length > 0
+                    ? ` New since this change (${fresh.length}): ${fresh.slice(0, 8).map(describeSignature).join("; ")}${fresh.length > 8 ? "; …" : ""}.`
+                    : ""
+                } ${tail(result.output)}`.trim(),
+              });
+              return finish(checks, ran, skipped, linkedDependencies);
+            }
+            // "unknown": nothing nameable and the outputs differ; fall through.
+          }
+
+          if (heuristicPreExisting) {
+            // Every file the failure names is outside this change: it existed
+            // before (e.g. a react-hooks lint error in an untouched component).
+            await record({
+              name: `${target.name}:${step.name}`,
+              status: "passed",
+              durationMs: result.durationMs,
+              files: named.slice(0, 20),
+              details: `\`${command}\` failed only in files this change did not touch (pre-existing, ignored): ${named.slice(0, 8).join(", ")}${named.length > 8 ? ", …" : ""}`,
+            });
+            continue;
+          }
+
+          await record({
+            ...(named.length > 0 ? { files: named.slice(0, 20) } : {}),
+            name: `${target.name}:${step.name}`,
+            status: "failed",
+            durationMs: result.durationMs,
+            details: `\`${command}\` exited with code ${result.code}. ${tail(result.output)}`.trim(),
+          });
+          return finish(checks, ran, skipped, linkedDependencies);
+        }
+
+        const counts = step.name === "test" ? parseTestCounts(result.output) : undefined;
         await record({
           name: `${target.name}:${step.name}`,
           status: "passed",
           durationMs: result.durationMs,
-          files: named.slice(0, 20),
-          details: `\`${command}\` failed only in files this change did not touch (pre-existing, ignored): ${named.slice(0, 8).join(", ")}${named.length > 8 ? ", …" : ""}`,
+          ...(counts ? { counts } : {}),
+          details: `\`${command}\` passed in ${(result.durationMs / 1000).toFixed(1)}s`,
         });
-        continue;
       }
+    }
 
-      if (result.code !== 0) {
-        const classified = classifyVerifyFailure({ output: result.output, code: result.code, changedFiles: scope });
-        if (classified.kind === "env") {
-          // Nothing a code fix can change: report it as skipped and go on
-          // (the next steps may still run; they classify on their own).
-          await record({
-            name: `${target.name}:${step.name}`,
-            status: "inconclusive",
-            durationMs: result.durationMs,
-            environment: classified.reason,
-            details: `Skipped (environment): ${classified.reason}. \`${command}\` exited with code ${result.code}. ${tail(result.output)}`.trim(),
-          });
-          continue;
-        }
-        await record({
-          ...(named.length > 0 ? { files: named.slice(0, 20) } : {}),
-          name: `${target.name}:${step.name}`,
-          status: "failed",
-          durationMs: result.durationMs,
-          details: `\`${command}\` exited with code ${result.code}. ${tail(result.output)}`.trim(),
-        });
-        return finish(checks, ran, skipped, linkedDependencies);
-      }
-
-      const counts = step.name === "test" ? parseTestCounts(result.output) : undefined;
+    if (ran.length === 0) {
       await record({
-        name: `${target.name}:${step.name}`,
-        status: "passed",
-        durationMs: result.durationMs,
-        ...(counts ? { counts } : {}),
-        details: `\`${command}\` passed in ${(result.durationMs / 1000).toFixed(1)}s`,
+        name: "verification",
+        status: "inconclusive",
+        details: `No typecheck/lint/test scripts found (skipped: ${skipped.join(", ")})`,
       });
     }
-  }
 
-  if (ran.length === 0) {
-    await record({
-      name: "verification",
-      status: "inconclusive",
-      details: `No typecheck/lint/test scripts found (skipped: ${skipped.join(", ")})`,
-    });
+    return finish(checks, ran, skipped, linkedDependencies);
+  } finally {
+    if (baselineTree) await baselineTree.cleanup();
   }
-
-  return finish(checks, ran, skipped, linkedDependencies);
 }
+
+/** Steps whose failures are compared against the pre-change baseline (R1). */
+const BASELINE_STEPS = new Set(["typecheck", "lint", "test"]);
 
 /** Steps whose failures name files and can be scoped to the change. */
 const SCOPED_STEPS = new Set(["typecheck", "lint"]);

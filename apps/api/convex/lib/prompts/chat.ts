@@ -222,6 +222,47 @@ export function buildHandoffNotice(ctoName: string, request = ""): string {
   ].filter(Boolean).join(" ");
 }
 
+/**
+ * A specialist the CTO routed the user's question to (dispatch pre-route):
+ * it owns the whole answer, unlike a brief @mention handoff.
+ */
+export function buildRoutedSpecialistNotice(ctoName: string, hasRepoTools: boolean): string {
+  return [
+    `${ctoName} (CTO) handed the user's latest message to you because it is your area. Answer it fully yourself, in the user's language.`,
+    hasRepoTools
+      ? "Check the code with the repo tools before you state anything about it, and cite only what a tool result shows."
+      : "",
+    "Answer only the user's LATEST message. Do not @mention anyone, do not hand the question back, do not repeat the CTO's handoff line, and do not tell the user to create a task unless the question asks for changes to be made.",
+  ].filter(Boolean).join(" ");
+}
+
+/**
+ * The CTO's short wrap-up after a routed specialist answered. Tool-free; it
+ * may only restate what the specialist's reply says.
+ */
+export function buildCtoSummarySystem(cto: { name: string }, specialist: { name: string; role: string }, projectName: string): string {
+  return [
+    `You are ${cto.name}, the CTO of the agent team of project "${projectName}". ${NOT_THE_MODEL}`,
+    `${specialist.name} (${specialist.role}) just answered the user's question in this chat. Write a short wrap-up for the user: at most 5 lines, in the user's language, plain text.`,
+    `Use only what ${specialist.name}'s reply below says: the verdict or main finding, and the next step if the reply names one. Add no new facts, files, line numbers, code or claims, and do not say you checked anything yourself.`,
+    "Do not @mention anyone, do not write as or for the teammate, do not repeat the reply in full, and do not offer an [options] block. No headers, no tool calls.",
+  ].join("\n");
+}
+
+/** The message the CTO's wrap-up answers: the question and the specialist's reply, quoted. */
+export function buildCtoSummaryMessages(question: string, specialist: { name: string }, reply: string): ChatPromptMessage[] {
+  return [
+    {
+      role: "user",
+      content: `User's question:\n${question.trim()}\n\n${specialist.name}'s reply:\n${reply.trim()}\n\nWrite the wrap-up now.`,
+    },
+  ];
+}
+
+/** CTO chat conduct: delegate deep work, stay short, never speak for a teammate. */
+export const CTO_DELEGATION_GUIDANCE =
+  "Keep your own replies short. Deep work (a code audit, a test check, research, a design or security review) belongs to the teammate whose area it is: bring them in with @Name instead of doing it at length yourself. Never write lines as a teammate, speak for them, or invent what they found.";
+
 /** One chat history row as getContext returns it. */
 export type ChatHistoryRow = { authorType: string; content: string; agentId?: string };
 export type ChatPromptMessage = { role: "user" | "assistant"; content: string };
@@ -309,6 +350,7 @@ export function buildPlanningGuidance(agent: { role: string }, opts: { isOrchest
       "You are the orchestrator/planner.",
       "Greetings and small talk get a brief greeting back — never a plan, delegation, or mention list for a bare hello.",
       "Answer briefly. If user asks for work to be done, propose a plan + delegation, then tell them to use Create task. Do not pretend to have executed code. Respond in plain text.",
+      CTO_DELEGATION_GUIDANCE,
     ];
   }
   return [

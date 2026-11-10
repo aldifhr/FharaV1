@@ -85,7 +85,7 @@ const DOMAIN_RULES: Array<{ domain: DispatchDomain; pattern: RegExp }> = [
   {
     domain: "designer",
     pattern:
-      /\b(desain|design|ux|ui\/ux|wireframe|mockup|warna|colou?rs?|palet\w*|palette|tipografi|typography|font|branding|logo|user flow|alur pengguna)\b/i,
+      /\b((?:desain|design)(?!\s+(?:tabel|tables?|schema|skema|database|db|api|endpoints?|data|query|index))|ux|ui\/ux|wireframe|mockup|warna|colou?rs?|palet\w*|palette|tipografi|typography|font|branding|logo|user flow|alur pengguna)\b/i,
   },
   {
     domain: "frontend",
@@ -95,7 +95,7 @@ const DOMAIN_RULES: Array<{ domain: DispatchDomain; pattern: RegExp }> = [
   {
     domain: "backend",
     pattern:
-      /\b(backend|back-end|api|endpoints?|database|db|schema|skema|convex|query|mutation|server|migrasi|migration|webhook|indexes|index db)\b/i,
+      /\b(backend|back-end|api|endpoints?|database|db|schema|skema|tabel|tables?|convex|query|mutation|server|migrasi|migration|webhook|indexes|index db)\b/i,
   },
 ];
 
@@ -174,7 +174,9 @@ export function lightReason(text: string): string | null {
 /** Domains that need the repo tools to be useful (else the CTO answers). */
 function needsRepo(domain: DispatchDomain, text: string): boolean {
   if (domain === "reviewer") return true;
-  return (domain === "qa" || domain === "security") && mentionsCode(text);
+  // A question about specific code ("schema.ts", "fungsi parseConfig") needs
+  // the repo whatever the domain; research (libraries, docs) does not.
+  return domain !== "researcher" && mentionsCode(text);
 }
 
 function pick<T extends TeamMember>(

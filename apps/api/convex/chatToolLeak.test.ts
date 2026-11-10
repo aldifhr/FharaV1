@@ -194,7 +194,7 @@ describe("tools on: several calls + prose in one reply", () => {
         return "Belum saya cek — worker tidak merespons, jadi jumlah baris dan tabel schema.ts belum bisa saya pastikan.";
       },
     ];
-    const replies = await ask(t, projectId);
+    const replies = await ask(t, projectId, `@CTO ${QUESTION}`) // typed @CTO: no dispatch pre-route;
     expect(replies).toHaveLength(1);
     expect(replies[0].content).toBe(
       "Belum saya cek — worker tidak merespons, jadi jumlah baris dan tabel schema.ts belum bisa saya pastikan."

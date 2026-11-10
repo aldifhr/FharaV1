@@ -140,6 +140,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// "@CTO" typed: the CTO answers itself (no dispatch pre-route) and hands off by @mention.
 describe("handoff teammates get repo tools", () => {
   test("a teammate the CTO hands off to reads the repo itself; the CTO prompt says verify it yourself", async () => {
     const { t, projectId, backendId } = await setup({ worker: "new" });
@@ -149,7 +150,7 @@ describe("handoff teammates get repo tools", () => {
       if (who === "CTO") return results === 0 ? GREP : "Tabel ada di schema.ts. @Backend tolong beri pendapat soal desain index tabel users.";
       return results === 0 ? READ : "Index users sudah sesuai: schema.ts baris 1 saya baca.";
     };
-    const replies = await ask(t, projectId, "tabel apa saja di schema dan apakah index users sudah benar?");
+    const replies = await ask(t, projectId, "@CTO tabel apa saja di schema dan apakah index users sudah benar?");
     const backend = replies.find((r) => r.agentId === backendId);
     expect(backend?.content).toBe("Index users sudah sesuai: schema.ts baris 1 saya baca.");
     expect(backend?.checkedFiles).toEqual(["apps/api/convex/schema.ts"]);
@@ -187,7 +188,7 @@ describe("shared repo tool budget", () => {
       if (who === "Frontend") return "UI chat oke; belum saya cek kodenya.";
       return exhausted ? `${who} selesai.` : GREP;
     };
-    const replies = await ask(t, projectId, "tolong nilai desain schema, test, dan UI");
+    const replies = await ask(t, projectId, "@CTO tolong nilai desain schema, test, dan UI");
     expect(queued.count).toBe(MAX_REPO_TOOL_CALLS_PER_CHAT);
     // CTO 4, Backend 6 (its own cap), QA gets the 2 left, Frontend none.
     expect(Math.max(...callsBy("CTO").map(toolResults))).toBe(4);
@@ -234,7 +235,7 @@ describe("tools off: no verification handoff", () => {
     const { t, projectId, backendId } = await setup({ worker: "none" });
     let n = 0;
     reply = () => (n++ === 0 ? "Belum saya cek. @Backend tolong beri pendapat soal desain tabel." : "Pendapat saya: pisahkan tabel log.");
-    const replies = await ask(t, projectId, "desain tabel log bagusnya gimana?");
+    const replies = await ask(t, projectId, "@CTO desain tabel log bagusnya gimana?");
     expect(replies.find((r) => r.agentId === backendId)?.content).toBe("Pendapat saya: pisahkan tabel log.");
   });
 
@@ -253,5 +254,51 @@ describe("tools off: no verification handoff", () => {
     expect(buildHandoffGuidance(team, "cto", { hasRepoTools: false, offReason: "project folder not set" }).at(-1)).toMatch(
       /no repo access.*\(reason: project folder not set\)/
     );
+  });
+});
+
+describe("CTO dispatch pre-route (no @mention)", () => {
+  test("a QA question goes to QA: CTO handoff line, QA answers with tools, CTO wraps up from QA's reply only", async () => {
+    const { t, projectId, ctoId, qaId } = await setup({ worker: "new" });
+    reply = (call) => {
+      const who = speaker(call);
+      if (who === "QA") return toolResults(call) === 0 ? GREP : "Cakupan tes schema masih tipis: belum ada tes untuk defineTable.";
+      return "QA: cakupan tes schema masih tipis.";
+    };
+    const replies = await ask(t, projectId, "gimana cakupan tes untuk schema kita sekarang?");
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId, qaId, ctoId]);
+    expect(replies[0].content).toBe("Saya serahkan ke @QA untuk pengecekan tes ini.");
+    expect(replies[1].content).toBe("Cakupan tes schema masih tipis: belum ada tes untuk defineTable.");
+    const qaFirst = callsBy("QA")[0];
+    expect(qaFirst.system).toContain("## Repo tools");
+    expect(qaFirst.system).toContain("handed the user's latest message to you");
+    const summary = calls[calls.length - 1];
+    expect(summary.system).toContain("at most 5 lines");
+    expect(summary.system).not.toContain("## Repo tools");
+    expect(summary.msgs.at(-1)?.content).toContain("QA's reply:\nCakupan tes schema masih tipis");
+  });
+
+  test("the CTO itself answers a planning question", async () => {
+    const { t, projectId, ctoId } = await setup({ worker: "new" });
+    reply = () => "Fokus ke login dulu.";
+    const replies = await ask(t, projectId, "prioritas kita minggu ini apa?");
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
+  });
+
+  test("a code question with repo tools off stays with the CTO", async () => {
+    const { t, projectId, ctoId } = await setup({ worker: "none" });
+    reply = () => "Belum saya cek.";
+    const replies = await ask(t, projectId, "apakah fungsi parseConfig sudah dites?");
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
+  });
+
+  test("'tolong jalankan tes' gets a CTO Create task offer, never a task", async () => {
+    const { t, projectId, ctoId } = await setup({ worker: "new" });
+    reply = () => "Rencananya @QA menjalankan npm run test. To execute this plan, klik Create task — saya akan delegasikan ke agent yang sesuai.";
+    const replies = await ask(t, projectId, "tolong jalankan tes");
+    expect(replies[0].agentId).toBe(ctoId);
+    expect(calls[0].system).toContain("klik Create task");
+    const tasks = await t.run(async (ctx) => ctx.db.query("tasks").collect());
+    expect(tasks).toHaveLength(0);
   });
 });

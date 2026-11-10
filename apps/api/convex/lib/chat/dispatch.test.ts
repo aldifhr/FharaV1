@@ -35,6 +35,8 @@ describe("CTO dispatch: domain routing (EN/ID)", () => {
     ["the react button component looks broken", "frontend"],
     ["skema database untuk tabel tasks perlu index apa", "backend"],
     ["which convex query does the inbox endpoint use", "backend"],
+    ["desain tabel log bagusnya gimana?", "backend"],
+    ["what do you think about the design api for uploads", "backend"],
   ])("%s → %s", (text, role) => {
     expect(to(route(text))).toBe(role);
   });

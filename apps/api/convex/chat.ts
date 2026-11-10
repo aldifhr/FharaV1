@@ -37,6 +37,8 @@ import {
   type IntentResult,
 } from "./lib/chat/intent";
 import { chooseAskResponder, classifyIntent } from "./lib/chat/classify";
+import { dispatchHandoffLine, looksIndonesian as looksIndonesianDispatch, routeCtoQuestion } from "./lib/chat/dispatch";
+import { detectChatRunCommands } from "./lib/chat/runRequest";
 import {
   MAX_CTO_HANDOFFS,
   ORCHESTRATOR_LIKE_ROLE,
@@ -91,11 +93,14 @@ import {
   buildChatMessages,
   buildTurnContextSection,
   buildCtoAssignmentSystem,
+  buildCtoSummaryMessages,
+  buildCtoSummarySystem,
   buildGreetingSystem,
   buildGroundingGuidance,
   buildHandoffGuidance,
   buildHandoffNotice,
   buildPlanningGuidance,
+  buildRoutedSpecialistNotice,
   buildRepoToolProtocol,
   buildSkillToolProtocol,
   buildSelfReviewGuidance,
@@ -291,6 +296,19 @@ async function resolveIntent(
       requiresExecution: false,
       confidence: 1,
       reasoning: "pasted or relayed content",
+    };
+  }
+  // "tolong jalankan tes" / "bisa run npm test?" is work, not a question: the
+  // CTO offers Create task. (A leading "jalankan …" order never reaches here;
+  // explicitTaskCommand already dispatched it.)
+  if (detectChatRunCommands(text)) {
+    return {
+      intent: "task",
+      subtype: "testing",
+      requiresWorkspace: true,
+      requiresExecution: true,
+      confidence: 1,
+      reasoning: "run-command request (suggestion only; Create task starts it)",
     };
   }
   if (fast.kind === "task" && !fastIsAsk) {
@@ -1049,10 +1067,76 @@ export const replyToChat = internalAction({
     const mentionedAgents = (args.preferredAgentIds ?? [])
       .map((id) => agents.find((a) => a._id === String(id)))
       .filter((a): a is ChatAgent => Boolean(a));
+    // Repo tools for every agent answering in this turn (the CTO, the
+    // teammates it hands off to, agents the user @mentioned): only when a
+    // worker can serve them (the repo lives on the worker's host). Checked
+    // once per turn. Otherwise no tools, and the grounding rule makes each
+    // agent say it has not checked.
+    const repoTools = !isOptionPick ? await repoToolsAvailability(ctx, args.projectId) : null;
+
+    // CTO dispatch pre-route (lib/chat/dispatch.ts): a question addressed to
+    // the CTO (no @mention, or only the To field's default CTO without
+    // "@CTO" typed) that belongs to a specialist's domain goes straight to
+    // that specialist; the CTO posts a one-line handoff and a short wrap-up.
+    // Questions only — a work request keeps the CTO's plan + Create task.
+    const ctoTyped =
+      orchestrator !== null &&
+      new RegExp(`@(?:cto|${orchestrator.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![\\w-])`, "i").test(lastUserContent);
+    const addressedToCto =
+      orchestrator !== null &&
+      !ctoTyped &&
+      (mentionedAgents.length === 0 ||
+        (mentionedAgents.length === 1 && String(mentionedAgents[0]._id) === String(orchestrator._id)));
+    let routed: ChatAgent | null = null;
+    // Pasted/relayed text and change-shaped requests stay with the CTO (it
+    // discusses the paste, or offers a plan + Create task).
+    const workShaped = classifyChatIntent(lastUserContent).kind === "task" && !hasAskShape(lastUserContent);
+    if (
+      orchestrator &&
+      addressedToCto &&
+      intent.intent === "ask" &&
+      !isOptionPick &&
+      !isPastedContent(lastUserContent) &&
+      !workShaped
+    ) {
+      const route = routeCtoQuestion<ChatAgent>({
+        text: lastUserContent,
+        team,
+        orchestratorId: String(orchestrator._id),
+        history,
+        repoToolsAvailable: repoTools?.available === true,
+      });
+      if (route.kind === "specialist") {
+        routed = route.agent;
+        const line = dispatchHandoffLine(route.agent, route.domain, {
+          topic: route.topic,
+          indonesian: looksIndonesianDispatch(lastUserContent),
+        });
+        const handoffMessageId = await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+          projectId: args.projectId,
+          agentId: orchestrator._id as any,
+          conversationId: args.conversationId,
+          content: line,
+          replyToMessageId: args.userMessageId,
+        });
+        if (handoffMessageId) {
+          await ctx
+            .runMutation(internal.chatContext.appendToolStep, {
+              messageId: handoffMessageId,
+              step: { tool: "handoff", target: route.agent.role, ok: true, at: Date.now() },
+            })
+            .catch(() => undefined);
+        }
+        turnReplies.push({ name: orchestrator.name, content: line });
+      }
+    }
+
     let responders: ChatAgent[];
     // A suggested work request ("task") is answered like a question: the
     // CTO (or the @mentioned agent) replies, with a plan proposal.
-    if ((intent.intent === "ask" || intent.intent === "task") && !isOptionPick) {
+    if (routed) {
+      responders = [routed];
+    } else if ((intent.intent === "ask" || intent.intent === "task") && !isOptionPick) {
       if (mentionedAgents.length > 0) {
         responders = mentionedAgents;
       } else if (orchestrator !== null) {
@@ -1079,12 +1163,6 @@ export const replyToChat = internalAction({
     // Sequential multi-agent replies: each selected agent answers with its persona.
     // The queue grows when the CTO @mentions teammates in its reply (handoff).
     const queue = [...responders];
-    // Repo tools for every agent answering in this turn (the CTO, the
-    // teammates it hands off to, agents the user @mentioned): only when a
-    // worker can serve them (the repo lives on the worker's host). Checked
-    // once per turn. Otherwise no tools, and the grounding rule makes each
-    // agent say it has not checked.
-    const repoTools = !isOptionPick ? await repoToolsAvailability(ctx, args.projectId) : null;
     // One shared budget: each reply up to MAX_REPO_TOOL_CALLS, the whole
     // turn up to MAX_REPO_TOOL_CALLS_PER_CHAT.
     const toolBudget = createRepoToolBudget();
@@ -1094,6 +1172,10 @@ export const replyToChat = internalAction({
     const answered = new Set<string>();
     const handoffFrom = new Map<string, { by: string; request: string }>();
     let handoffs = 0;
+    if (routed && orchestrator) {
+      handoffFrom.set(String(routed._id), { by: orchestrator.name, request: lastUserContent });
+    }
+    let routedReply = "";
     for (let turn = 0; turn < queue.length; turn += 1) {
       const agent = queue[turn];
       if (answered.has(String(agent._id))) continue;
@@ -1135,9 +1217,15 @@ export const replyToChat = internalAction({
         ...(isOptionPick
           ? ["The user's last message is a button pick ('I choose …'), not their language: reply in the language of their earlier messages, in 2-3 sentences, and do not bring teammates in. Say which roles would do the work (as @Role) and that the Create task button under your reply starts it; never ask them to type a command."]
           : []),
-        ...(handoffBy !== undefined ? [buildHandoffNotice(handoffBy.by, handoffBy.request)] : []),
+        ...(handoffBy !== undefined
+          ? [
+              routed && String(routed._id) === String(agent._id)
+                ? buildRoutedSpecialistNotice(handoffBy.by, useRepoTools)
+                : buildHandoffNotice(handoffBy.by, handoffBy.request),
+            ]
+          : []),
         ...buildGroundingGuidance(useRepoTools, skillLoader !== undefined),
-        selfReview && handoffBy === undefined
+        selfReview && (handoffBy === undefined || (routed !== null && String(routed._id) === String(agent._id)))
           ? buildSelfReviewGuidance(previousReplyOf(history, String(agent._id)), useRepoTools)
           : "",
         // Questions (compare, explain, recommend) get a prose answer; the
@@ -1217,6 +1305,7 @@ export const replyToChat = internalAction({
         // Later speakers in this turn see this reply in their system
         // section; the user's message stays the last chat message.
         turnReplies.push({ name: agent.name, content: content.trim() });
+        if (routed && String(routed._id) === String(agent._id)) routedReply = content.trim();
         // CTO handoff: teammates it @mentioned answer next, in order.
         if (isCto && !isOptionPick) {
           // With repo tools off for the rest of the turn, a teammate asked to
@@ -1255,6 +1344,23 @@ export const replyToChat = internalAction({
             });
           }
         }
+      }
+    }
+
+    // Routed question: the CTO wraps up in ≤5 tool-free lines, citing only
+    // the specialist's reply. Nothing to wrap up when the specialist said nothing.
+    if (routed && orchestrator && routedReply) {
+      try {
+        const ctoConfig = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), orchestrator as any);
+        await streamReplyToAgent(
+          orchestrator._id as any,
+          ctoConfig,
+          buildCtoSummarySystem(orchestrator, routed, projectName),
+          buildCtoSummaryMessages(lastUserContent, routed, routedReply),
+          { intentLine },
+        );
+      } catch (err: any) {
+        console.error("CTO wrap-up failed:", err?.message ?? err);
       }
     }
   },

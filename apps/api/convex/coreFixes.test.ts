@@ -381,3 +381,29 @@ describe("M10 retired roles and revoked capabilities", () => {
     expect(cto?.capabilities).toContain("security-audit");
   });
 });
+
+// live2 1d: Tolak / Deny on a run_command card is not work done.
+describe("a declined command settles the subtask as skipped", () => {
+  test("completed execution with meta.commandDeclined → subtask skipped with the reason", async () => {
+    const { t, projectId, taskId } = await seed({ workerId: "w" });
+    await t.mutation(internal.orchestration.savePlan, {
+      workerId: "w", taskId, projectId, version: 1, strategy: "s", createdBy: "orchestrator" as const, goal: "g",
+      payload: { subtasks: [{ key: "shell" }] },
+      subtasks: [{ key: "shell", title: "run", description: "", kind: "shell" as const, capability: "shell-execution", dependencies: [], order: 0 }],
+    });
+    const executionId = await t.mutation(internal.orchestration.startExecution, {
+      taskId, projectId, subtaskKey: "shell", agentName: "DevOps", capability: "shell-execution", workerId: "w", attempt: 1,
+    });
+    await t.mutation(internal.orchestration.updateExecution, {
+      executionId, subtaskKey: "shell", status: "completed", output: "Command not run", workerId: "w",
+      meta: { commandDeclined: "deny", declinedCommand: "npm run typecheck" },
+    });
+    const row = await t.run(async (ctx) =>
+      ctx.db.query("subtasks").withIndex("by_task_and_key", (q) => q.eq("taskId", taskId).eq("key", "shell")).unique()
+    );
+    expect(row?.status).toBe("skipped");
+    expect(row?.error).toBe("Declined by user: npm run typecheck");
+    expect(row?.completedAt).toBeTypeOf("number");
+    expect(row?.acceptanceStatus).toBeUndefined();
+  });
+});

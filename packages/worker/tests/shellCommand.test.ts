@@ -332,3 +332,21 @@ describe("planner: run-command tasks", () => {
     expect(prompt).toMatch(/NEVER emit code_change/);
   });
 });
+
+// live2 1d: Tolak / Deny read as success ("Done. Verification: passed.").
+describe("executeShell: a declined command", () => {
+  it("settles without running and marks the outcome as declined (backend stores it as skipped)", async () => {
+    const { provider } = scripted(['{"command":"node","args":["--version"]}']);
+    const messages: string[] = [];
+    const input = shellInput(provider);
+    input.onMessage = async (text: string) => {
+      messages.push(text);
+    };
+    input.requestCommandApproval = async () => ({ allowed: false, via: "deny", reason: "the user denied it" }) as any;
+    const result = await executeSubtask(input);
+    expect(result.status).toBe("completed");
+    expect(result.status === "completed" ? result.meta : undefined).toEqual({ commandDeclined: "deny", declinedCommand: "node --version" });
+    expect(messages.join("\n")).not.toMatch(/v\d+\./);
+  });
+});
+

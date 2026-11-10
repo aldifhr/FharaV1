@@ -46,20 +46,28 @@ export async function evaluateTask(input: EvaluationInput): Promise<EvaluationRe
   const checks: EvaluationCheck[] = [];
   const notes: string[] = [];
 
+  // A skipped subtask (a command the user declined) is settled, not
+  // pending; finalize reports it instead of claiming it passed.
+  const skippedSubtasks = input.subtasks.filter((subtask) => subtask.status === "skipped");
+  if (skippedSubtasks.length > 0) {
+    notes.push(`Skipped: ${skippedSubtasks.map((subtask) => `${subtask.key} (${subtask.error ?? "skipped"})`).join("; ")}`);
+  }
   const failedSubtasks = input.subtasks.filter((subtask) => subtask.status === "failed");
   checks.push({
     name: "subtasks",
     status: failedSubtasks.length === 0 ? "passed" : "failed",
     details:
       failedSubtasks.length === 0
-        ? `${input.subtasks.length} subtask(s) completed`
+        ? skippedSubtasks.length > 0
+          ? `${input.subtasks.length - skippedSubtasks.length} subtask(s) completed, ${skippedSubtasks.length} skipped`
+          : `${input.subtasks.length} subtask(s) completed`
         : failedSubtasks
             .map((subtask) => `${subtask.key}: ${subtask.error ?? "failed"}`)
             .join("; "),
   });
 
   const pendingSubtasks = input.subtasks.filter(
-    (subtask) => subtask.status !== "completed" && subtask.status !== "failed"
+    (subtask) => subtask.status !== "completed" && subtask.status !== "failed" && subtask.status !== "skipped"
   );
   if (pendingSubtasks.length > 0) {
     checks.push({

@@ -87,6 +87,19 @@ const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set([
  * pending/running/blocked by a write that was issued before the
  * completion landed.
  */
+/**
+ * "Declined by user: npm run typecheck" when a completed execution only
+ * carries a declined command (agentExecutor meta.commandDeclined), else null.
+ */
+export function commandDeclinedReason(status: string, meta: unknown): string | null {
+  if (status !== "completed" || !meta || typeof meta !== "object") return null;
+  const m = meta as { commandDeclined?: unknown; declinedCommand?: unknown };
+  if (!m.commandDeclined) return null;
+  return typeof m.declinedCommand === "string" && m.declinedCommand.trim()
+    ? `Declined by user: ${m.declinedCommand.trim()}`
+    : "Declined by user";
+}
+
 function monotonicSubtaskStatus(
   current: string,
   next: string
@@ -1244,8 +1257,13 @@ export const updateExecution = internalMutation({
         )
         .unique();
       if (subtask) {
+        // A command the user declined (Tolak / Deny) settles the node but
+        // is not work done: the subtask is `skipped` with the reason.
+        const declined = commandDeclinedReason(args.status, args.meta);
         const mapped =
-          args.status === "completed"
+          declined !== null
+            ? "skipped"
+            : args.status === "completed"
             ? "completed"
             : args.status === "failed"
               ? "failed"
@@ -1263,9 +1281,9 @@ export const updateExecution = internalMutation({
         await ctx.db.patch(subtask._id, {
           status: nextStatus,
           output: args.output ?? subtask.output,
-          error: args.error,
+          error: declined ?? args.error,
           completedAt:
-            nextStatus === "completed" || nextStatus === "failed"
+            nextStatus === "completed" || nextStatus === "failed" || nextStatus === "skipped"
               ? now
               : undefined,
           // Plan 022: executor "done" is only delivered; the acceptance

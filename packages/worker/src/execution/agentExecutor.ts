@@ -1945,7 +1945,10 @@ async function executeShell(
       }
       const output = commandDeniedOutput(`$ ${line}`, outcome);
       await onMessage(output);
-      return { status: "completed", output, meta: { commandDeclined: outcome.via } };
+      // Settled, not retried or replanned, but never a success: the backend
+      // stores the subtask as `skipped` ("Declined by user: …") and the CTO
+      // summary says the command was not run (finalize.ts).
+      return { status: "completed", output, meta: { commandDeclined: outcome.via, declinedCommand: line } };
     }
   }
   await onEvent("shell.command", {

@@ -41,7 +41,10 @@ export function buildStateFromDb(input: {
   // a resumed run (or a crash recovery) from executing that work again.
   const finished = input.subtasks.filter(
     (subtask) =>
-      subtask.status === "completed" || subtask.status === "waiting_approval"
+      subtask.status === "completed" ||
+      subtask.status === "waiting_approval" ||
+      // Declined by the user: decided, never asked again on resume.
+      subtask.status === "skipped"
   );
   const completedKeys = new Set(finished.map((subtask) => subtask.key));
   const appliedFilesBySubtask = new Map<string, string[]>();

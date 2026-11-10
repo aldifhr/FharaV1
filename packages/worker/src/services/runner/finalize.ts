@@ -16,6 +16,13 @@ import type {
 import type { OutstandingIssue } from "@/orchestrator/taskContext";
 import type { RunnerDeps, RunState } from "./types";
 
+/** The commands the user declined, from the subtask rows ("Declined by user: npm run typecheck"). */
+export function declinedCommandsOf(subtasks: Array<{ status: string; error?: string }>): string[] {
+  return subtasks
+    .filter((subtask) => subtask.status === "skipped" && /^Declined by user\b/i.test(subtask.error ?? ""))
+    .map((subtask) => (subtask.error ?? "").replace(/^Declined by user:?\s*/i, "").trim() || "a command");
+}
+
 export async function finalize(input: {
   deps: RunnerDeps;
   task: WorkerTask;
@@ -172,13 +179,24 @@ export async function finalize(input: {
         : qaValues.every(([, verdict]) => verdict === "passed")
           ? "QA: structural browser checks passed."
           : "";
+  const declined = declinedCommandsOf(input.subtasks);
+  const ranNothing = declined.length > 0 && input.subtasks.every((subtask) => subtask.status === "skipped");
   const message = [
-    evaluation.verdict === "inconclusive"
-      ? `Finished, but verification is inconclusive: ${details || "not all checks were performed"}.`
-      : "Done.",
+    ranNothing
+      ? "Not run."
+      : evaluation.verdict === "inconclusive"
+        ? `Finished, but verification is inconclusive: ${details || "not all checks were performed"}.`
+        : "Done.",
+    declined.length > 0
+      ? `Declined by user: ${declined.map((line) => `\`${line}\``).join(", ")}. ${declined.length === 1 ? "That command was" : "Those commands were"} not run.`
+      : "",
     reviewLine,
     qaLine,
-    `Verification: ${evaluation.verdict}.`,
+    ranNothing
+      ? "Verification: skipped (the command was declined)."
+      : declined.length > 0
+        ? `Verification: ${evaluation.verdict} for the work that ran; the declined command was not checked.`
+        : `Verification: ${evaluation.verdict}.`,
   ]
     .filter(Boolean)
     .join("\n\n");

@@ -16,7 +16,6 @@ import {
   Inbox,
   KanbanSquare,
   MessagesSquare,
-  Siren,
   TestTubes,
   Plug,
   Plus,
@@ -275,7 +274,6 @@ export default function IconRail({
       <RailButton icon={GitBranch} label="Runs" href={projectId ? `/runs?project=${projectId}` : "/runs"} active={pathname.startsWith("/runs")} />
       <RailButton icon={FlaskConical} label="Playground" href="/playground" active={pathname === "/playground"} />
       <RailButton icon={Workflow} label="Workflow Studio" href="/workflows" active={pathname.startsWith("/workflows")} />
-      <RailButton icon={Siren} label="Incident Room" href={projectId ? `/incidents?project=${projectId}` : "/incidents"} active={pathname === "/incidents"} />
       <RailButton icon={TestTubes} label="Agent Sandbox" href="/sandbox" active={pathname === "/sandbox"} />
       <RailButton icon={Globe} label="Browser Lab" href="/browser-lab" active={pathname === "/browser-lab"} />
       {projectId && (

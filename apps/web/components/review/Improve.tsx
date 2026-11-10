@@ -5,7 +5,7 @@
  * change shown as a diff with Apply / Dismiss. Nothing applies by itself.
  */
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/api/convex/_generated/api";
 import { useToast } from "@/components/Toasts";
@@ -119,7 +119,7 @@ export function SuggestionItem({ suggestion, showTask = false }: { suggestion: S
   );
 }
 
-export function SuggestFixButton({ incidentId, taskId, label = "Suggest fix" }: { incidentId?: string; taskId?: string; label?: string }) {
+export function SuggestFixButton({ taskId, label = "Suggest fix" }: { taskId?: string; label?: string }) {
   const toast = useToast();
   const request = useMutation(api.improve.requestSuggestion);
   const [busy, setBusy] = useState(false);
@@ -130,7 +130,7 @@ export function SuggestFixButton({ incidentId, taskId, label = "Suggest fix" }: 
       onClick={async () => {
         setBusy(true);
         try {
-          await request({ ...(incidentId ? { incidentId: incidentId as never } : {}), ...(taskId ? { taskId: taskId as never } : {}) });
+          await request({ ...(taskId ? { taskId: taskId as never } : {}) });
           toast("info", "Reading the failed run", "One suggestion appears here when it's ready. Nothing is applied until you click Apply.");
         } catch (err) {
           toast("error", "Couldn't start", errorText(err));
@@ -142,20 +142,5 @@ export function SuggestFixButton({ incidentId, taskId, label = "Suggest fix" }: 
     >
       {busy ? "Starting…" : label}
     </button>
-  );
-}
-
-/** Suggestions for one incident (detail page). */
-export function IncidentSuggestions({ incidentId }: { incidentId: string }) {
-  const rows = useQuery(api.improve.listSuggestions, { incidentId: incidentId as never });
-  if (!rows || rows.length === 0) return null;
-  return (
-    <ul className="divide-y divide-line">
-      {rows.map((row) => (
-        <li key={row._id}>
-          <SuggestionItem suggestion={row} />
-        </li>
-      ))}
-    </ul>
   );
 }

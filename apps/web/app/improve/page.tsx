@@ -18,11 +18,8 @@ import { relativeTime } from "@/lib/runFormat";
 function ImprovePage() {
   const projectId = useSearchParams().get("project") ?? undefined;
   const scope = projectId ? { projectId: projectId as never } : {};
-  const incidents = useQuery(api.incidents.list, { ...scope, status: "open" });
   const failed = useQuery(api.improve.listFailedRuns, scope);
   const suggestions = useQuery(api.improve.listSuggestions, scope);
-  const incidentTasks = new Set((incidents ?? []).map((row) => row.taskId));
-  const looseFailed = (failed ?? []).filter((task) => !incidentTasks.has(task._id));
   const waiting = (suggestions ?? []).filter((row) => row.status === "ready" || row.status === "running");
   const decided = (suggestions ?? []).filter((row) => row.status !== "ready" && row.status !== "running");
 
@@ -51,13 +48,13 @@ function ImprovePage() {
 
           <section className="mt-10">
             <h2 className="mb-2 text-[13px] font-medium text-ink-2">Failed runs</h2>
-            {incidents === undefined || failed === undefined ? (
+            {failed === undefined ? (
               <div className="space-y-3" aria-label="Loading failed runs">
                 {[0, 1].map((i) => (
                   <div key={i} className="h-14 animate-pulse rounded-xl bg-hover" />
                 ))}
               </div>
-            ) : incidents.length === 0 && looseFailed.length === 0 ? (
+            ) : failed.length === 0 ? (
               <div className="mt-6 flex flex-col items-center text-center">
                 <span className="flex h-11 w-11 items-center justify-center rounded-full bg-hover text-ink-3">
                   <Sparkles size={18} />
@@ -66,20 +63,7 @@ function ImprovePage() {
               </div>
             ) : (
               <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
-                {incidents.map((row) => (
-                  <li key={row._id} className="flex items-center gap-3 px-4 py-3">
-                    <div className="min-w-0 flex-1">
-                      <Link href={`/incidents/${row._id}`} className="block truncate text-[14px] hover:underline">
-                        {row.title}
-                      </Link>
-                      <p className="truncate text-[12.5px] text-ink-3">
-                        {[projectId ? null : row.projectName, row.error, relativeTime(row.createdAt)].filter(Boolean).join(" · ")}
-                      </p>
-                    </div>
-                    <SuggestFixButton incidentId={row._id} />
-                  </li>
-                ))}
-                {looseFailed.map((task) => (
+                {failed.map((task) => (
                   <li key={task._id} className="flex items-center gap-3 px-4 py-3">
                     <div className="min-w-0 flex-1">
                       <Link href={`/runs/${task._id}`} className="block truncate text-[14px] hover:underline">

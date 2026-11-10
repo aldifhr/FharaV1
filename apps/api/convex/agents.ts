@@ -14,7 +14,7 @@ import {
 import { defaultAvatarParams } from "./lib/avatar";
 import { changedFields, recordAudit, setFields } from "./lib/recordAudit";
 import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT, PREVIOUS_SEED_PROMPTS } from "./lib/prompts/agents";
-import { applyAgentSkills } from "./skills";
+import { applyAgentSkills, applyBuiltinSkills, seedBuiltinSkills } from "./skills";
 
 /**
  * Plan 007: browser-safe agent projection — the same shape `list` has always
@@ -634,6 +634,22 @@ export async function syncFixedTeam(ctx: MutationCtx, projectId?: Id<"projects">
         actor: "system",
         target: match.name,
         details: { changed: Object.keys(patch).sort(), reason: "fixed-team sync" },
+      });
+    }
+  }
+
+  // Built-in skills: seed the Library once, then attach each role's
+  // defaults once per enabled fixed-team agent.
+  const seeded = await seedBuiltinSkills(ctx);
+  for (const agentId of createdAgentIds) {
+    const agent = await ctx.db.get(agentId);
+    if (!agent || agent.isEnabled === false) continue;
+    if (await applyBuiltinSkills(ctx, agent, seeded)) {
+      await recordAudit(ctx, {
+        action: "agent.builtin_skills",
+        actor: "system",
+        target: agent.name,
+        details: { changed: ["skillIds"], reason: "built-in skills" },
       });
     }
   }

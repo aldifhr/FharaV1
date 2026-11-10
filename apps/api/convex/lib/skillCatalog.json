@@ -2,6 +2,77 @@
   "generatedAt": "2026-11-10",
   "sources": [
     {
+      "repo": "aldifhr/Fhara",
+      "file": "skills/builtin/README.md",
+      "section": "Skills",
+      "category": "Fhara built-in",
+      "license": "MIT",
+      "attribution": "Fhara built-in skills (MIT; adapted skills keep their upstream licence, see THIRD_PARTY_NOTICES.md)",
+      "sha": "643962fcd4f691111d1117ed51ec1c5b343ab150",
+      "entries": [
+        {
+          "name": "design-system-detection",
+          "description": "Read the app's Tailwind config, CSS tokens and component library first and design within them.",
+          "category": "Fhara built-in",
+          "repo": "aldifhr/Fhara",
+          "path": "skills/builtin/design-system-detection/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "aldifhr"
+        },
+        {
+          "name": "design-options-review",
+          "description": "Mock 2–4 static HTML variants and ask the user with show_options before building; check the build against the pick.",
+          "category": "Fhara built-in",
+          "repo": "aldifhr/Fhara",
+          "path": "skills/builtin/design-options-review/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "aldifhr"
+        },
+        {
+          "name": "frontend-design",
+          "description": "Aesthetic direction without templated defaults (Apache-2.0, adapted from anthropics/skills).",
+          "category": "Fhara built-in",
+          "repo": "aldifhr/Fhara",
+          "path": "skills/builtin/frontend-design/SKILL.md",
+          "ref": "main",
+          "license": "Apache-2.0",
+          "author": "aldifhr"
+        },
+        {
+          "name": "ui-ux-rules",
+          "description": "Prioritized UI/UX rules plus the design_lookup database (MIT, adapted from ui-ux-pro-max).",
+          "category": "Fhara built-in",
+          "repo": "aldifhr/Fhara",
+          "path": "skills/builtin/ui-ux-rules/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "aldifhr"
+        },
+        {
+          "name": "accessibility-audit",
+          "description": "Read-only WCAG 2.2 audit with a fix per finding (MIT, adapted from awesome-agent-skills).",
+          "category": "Fhara built-in",
+          "repo": "aldifhr/Fhara",
+          "path": "skills/builtin/accessibility-audit/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "aldifhr"
+        },
+        {
+          "name": "web-interface-guidelines",
+          "description": "Review against the Vercel Web Interface Guidelines, fetched at run time (MIT, vercel-labs/agent-skills).",
+          "category": "Fhara built-in",
+          "repo": "aldifhr/Fhara",
+          "path": "skills/builtin/web-interface-guidelines/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "aldifhr"
+        }
+      ]
+    },
+    {
       "repo": "khasky/awesome-agent-skills",
       "file": "README.md",
       "section": "Skills",

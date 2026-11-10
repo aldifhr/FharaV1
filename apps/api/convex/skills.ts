@@ -47,6 +47,7 @@ import {
 import { GithubClient, mapLimit, resolveGithubRepo, type ResolvedRepo } from "./lib/githubSkillsApi";
 import { resolveGithubToken } from "./lib/githubAuth";
 import { importedContentMatches } from "./lib/skillCatalog";
+import { BUILTIN_SKILLS, builtinSkillKeysForRole } from "./lib/builtinSkills";
 
 /**
  * Library of agent skills: reusable markdown instructions attached to agents
@@ -745,7 +746,12 @@ export const seedDefaults = mutation({
   args: {},
   handler: async (ctx) => {
     await assertRegistryWriteAccess(ctx);
-    const any = await ctx.db.query("skills").first();
+    // Built-in rows (lib/builtinSkills.ts) do not count: the starter set is
+    // offered while the user has no skills of their own.
+    const any = await ctx.db
+      .query("skills")
+      .filter((q) => q.eq(q.field("builtin"), undefined))
+      .first();
     if (any) return { inserted: 0 };
     const now = Date.now();
     for (const skill of DEFAULT_SKILLS) {
@@ -755,6 +761,65 @@ export const seedDefaults = mutation({
     return { inserted: DEFAULT_SKILLS.length };
   },
 });
+
+/**
+ * Built-in skills (lib/builtinSkills.ts): insert each into the Library once.
+ * A key already in `builtinSkillSeeds` is never inserted again, so a
+ * built-in the user deleted stays deleted, and an edited one is never
+ * overwritten. A same-named skill already in the Library is adopted as is.
+ * Returns built-in key → skill id for the rows that exist now.
+ */
+export async function seedBuiltinSkills(ctx: MutationCtx): Promise<Map<string, Id<"skills">>> {
+  const out = new Map<string, Id<"skills">>();
+  const now = Date.now();
+  for (const skill of BUILTIN_SKILLS) {
+    const seed = (await ctx.db.query("builtinSkillSeeds").withIndex("by_key", (q) => q.eq("key", skill.key)).take(1))[0];
+    if (seed) {
+      if (seed.skillId && (await ctx.db.get(seed.skillId))) out.set(skill.key, seed.skillId);
+      continue;
+    }
+    const sameName = (await ctx.db.query("skills").withIndex("by_name", (q) => q.eq("name", skill.name)).take(1))[0];
+    let skillId: Id<"skills">;
+    if (sameName) {
+      skillId = sameName._id;
+    } else {
+      skillId = await ctx.db.insert("skills", {
+        name: skill.name,
+        description: skill.description,
+        instructions: skill.instructions,
+        tags: [...skill.tags],
+        builtin: skill.key,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await recordVersion(ctx, skillId, "create", { author: "system", note: "Fhara built-in" });
+    }
+    await ctx.db.insert("builtinSkillSeeds", { key: skill.key, skillId, seededAt: now });
+    out.set(skill.key, skillId);
+  }
+  return out;
+}
+
+/**
+ * Attach the built-ins a role gets by default to one agent, each key at
+ * most once per agent (`builtinSkillsApplied`): a skill the user detached
+ * is not attached again. Returns true when the agent changed.
+ */
+export async function applyBuiltinSkills(
+  ctx: MutationCtx,
+  agent: Doc<"agents">,
+  seeded: Map<string, Id<"skills">>
+): Promise<boolean> {
+  const keys = builtinSkillKeysForRole(agent.role);
+  const applied = new Set(agent.builtinSkillsApplied ?? []);
+  const fresh = keys.filter((key) => !applied.has(key) && seeded.has(key));
+  if (fresh.length === 0) return false;
+  const current = (agent.skillIds ?? []).map(String);
+  const additions = fresh.map((key) => String(seeded.get(key))).filter((id) => !current.includes(id));
+  if (additions.length) await applyAgentSkills(ctx, agent, [...current, ...additions]);
+  await ctx.db.patch(agent._id, { builtinSkillsApplied: [...applied, ...fresh] });
+  return additions.length > 0;
+}
 
 /**
  * Role assignment: attach this skill to every ENABLED agent whose role is

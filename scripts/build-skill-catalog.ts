@@ -4,6 +4,7 @@
  *
  *   npm run catalog:build                      # read every index from GitHub
  *   npm run catalog:build -- --local khasky/awesome-agent-skills=../ref/awesome-agent-skills
+ *   npm run catalog:build -- --local aldifhr/Fhara=.     # the built-in skills from this checkout
  *
  * --local reads an index (and its SKILL.md front matter, for license and
  * author) from a clone instead of the network. GITHUB_TOKEN is used for
@@ -24,6 +25,14 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(ROOT, "apps/api/convex/lib/skillCatalog.json");
 
 const SOURCES: CatalogSource[] = [
+  {
+    repo: "aldifhr/Fhara",
+    file: "skills/builtin/README.md",
+    section: "Skills",
+    category: "Fhara built-in",
+    license: "MIT",
+    attribution: "Fhara built-in skills (MIT; adapted skills keep their upstream licence, see THIRD_PARTY_NOTICES.md)",
+  },
   {
     repo: "khasky/awesome-agent-skills",
     file: "README.md",

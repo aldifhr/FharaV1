@@ -430,6 +430,9 @@ export default defineSchema({
     // within SKILLS_PROMPT_BUDGET; "on_demand" lists names + descriptions
     // and gives the agent the read-only load_skill tool.
     skillLoading: v.optional(v.union(v.literal("inline"), v.literal("on_demand"))),
+    // Built-in skill keys (lib/builtinSkills.ts) the fixed-team sync already
+    // attached to this agent once; a skill the user detaches stays detached.
+    builtinSkillsApplied: v.optional(v.array(v.string())),
   }).index("by_enabled", ["isEnabled"]),
 
   tasks: defineTable({
@@ -1880,9 +1883,19 @@ export default defineSchema({
     requires: v.optional(v.array(v.id("skills"))),
     // Tools/permissions it needs (advisory: warns, never grants).
     permissions: v.optional(v.array(v.string())),
+    // Set on rows seeded from a Fhara built-in (lib/builtinSkills.ts key).
+    builtin: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_name", ["name"]),
+
+  // Built-in skills already seeded into the Library, one row per key, so a
+  // built-in the user deleted is never inserted again.
+  builtinSkillSeeds: defineTable({
+    key: v.string(),
+    skillId: v.optional(v.id("skills")),
+    seededAt: v.number(),
+  }).index("by_key", ["key"]),
 
   // Skill marketplace: a refreshed copy of one catalog index (Library →
   // Browse → Refresh catalog). The bundled lib/skillCatalog.json is used

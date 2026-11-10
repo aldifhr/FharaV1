@@ -205,7 +205,8 @@ function mockGithub(opts: { sha: string; files: Files; indexReadme?: string; fai
     if (raw) {
       const path = decodeURIComponent(raw[4]);
       if (`${raw[1]}/${raw[2]}` !== "o/r") {
-        return path === "README.md" && opts.indexReadme ? new Response(opts.indexReadme) : new Response("404", { status: 404 });
+        // Any index file (README.md, or skills/builtin/README.md for Fhara's own).
+        return /(^|\/)README\.md$/.test(path) && opts.indexReadme ? new Response(opts.indexReadme) : new Response("404", { status: 404 });
       }
       const body = opts.files[path];
       return body === undefined ? new Response("404", { status: 404 }) : new Response(body);

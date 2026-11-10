@@ -1,0 +1,9 @@
+frontend-design (Fhara built-in skill)
+
+Based on skills/frontend-design from github.com/anthropics/skills
+(commit 2c5958ecac7cee2b583967a2c4981d0f4a75c579), licensed under the
+Apache License, Version 2.0 (see LICENSE.txt in this folder).
+
+Modified by Fhara (2026-11-11): condensed to fit Fhara's inline skill
+prompt budget, reordered, and extended with a rule to design within an
+existing application's design system.

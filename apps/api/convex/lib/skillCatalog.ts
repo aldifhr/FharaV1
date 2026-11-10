@@ -208,7 +208,17 @@ export function catalogKey(repo: string, path: string): string {
 export type SourcedSkill = {
   _id: string;
   source?: { kind: "github"; repo: string; path: string; url?: string; sha?: string } | null;
+  /** Fhara built-in key (lib/builtinSkills.ts) on seeded rows. */
+  builtin?: string | null;
 };
+
+/** Repo the built-in skills are listed under in the Browse catalog. */
+export const BUILTIN_CATALOG_REPO = "aldifhr/Fhara";
+
+/** Catalog path of a built-in skill's SKILL.md. */
+export function builtinCatalogPath(key: string): string {
+  return `skills/builtin/${key}/SKILL.md`;
+}
 
 /** repo+path of a GitHub blob URL ("https://github.com/o/r/blob/<ref>/a/SKILL.md"). */
 function sourceFromUrl(url: string | undefined): { repo: string; path: string } | null {
@@ -230,6 +240,11 @@ function sourceFromUrl(url: string | undefined): { repo: string; path: string } 
 export function installedIndex<S extends SourcedSkill>(skills: readonly S[]): Map<string, S> {
   const map = new Map<string, S>();
   for (const skill of skills) {
+    // A seeded built-in counts as installed for its catalog row.
+    if (skill.builtin) {
+      const key = catalogKey(BUILTIN_CATALOG_REPO, builtinCatalogPath(skill.builtin));
+      if (!map.has(key)) map.set(key, skill);
+    }
     const source = skill.source;
     if (!source || source.kind !== "github") continue;
     const keys = [catalogKey(source.repo, source.path)];

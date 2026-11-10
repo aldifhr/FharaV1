@@ -209,10 +209,9 @@ export default function IconRail({
   const { openNewProject } = useNewProject();
   const { openSettings } = useSettings();
   const [commandOpen, setCommandOpen] = useState(false);
-  const [panel, setPanel] = useState<"activity" | "insights" | "user" | null>(null);
+  const [panel, setPanel] = useState<"activity" | "insights" | null>(null);
   const activityRef = useRef<HTMLButtonElement>(null);
   const insightsRef = useRef<HTMLButtonElement>(null);
-  const userRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -288,17 +287,14 @@ export default function IconRail({
         active={pathname === "/audit" || pathname === "/improve"}
         onClick={() => setPanel((p) => (p === "insights" ? null : "insights"))}
       />
-      <div className="mt-auto flex flex-col items-center gap-1 pt-3 max-[979px]:ml-auto max-[979px]:mt-0 max-[979px]:flex-row max-[979px]:pt-0">
+      <div className="mt-[8px] flex flex-col items-center gap-1 max-[979px]:ml-auto max-[979px]:flex-row max-[979px]:pt-0">
         <button
-          ref={userRef}
           type="button"
-          onClick={() => setPanel((p) => (p === "user" ? null : "user"))}
-          aria-haspopup="menu"
-          aria-expanded={panel === "user"}
-          aria-label="Account"
-          className="mt-1 flex h-9 w-9 shrink-0 max-[979px]:hidden items-center justify-center rounded-full bg-hover text-[12px] font-semibold text-ink-2 outline-none ring-1 ring-line transition hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+          onClick={() => openSettings(projectId)}
+          aria-label="Settings"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
         >
-          OA
+          <Settings size={18} strokeWidth={1.75} />
         </button>
       </div>
       {panel === "activity" && projectId && (
@@ -324,41 +320,6 @@ export default function IconRail({
                 <Icon size={15} className="text-ink-3" /> {label}
               </Link>
             ))}
-          </div>
-        </RailPanel>
-      )}
-      {panel === "user" && (
-        <RailPanel anchor={userRef.current} onClose={() => setPanel(null)} width={232}>
-          <div role="menu" aria-label="Account" className="p-1.5">
-            <div className="px-2 py-2">
-              <p className="text-[13px] font-semibold">Local user</p>
-              <p className="text-xs text-ink-3">Single-user workspace</p>
-            </div>
-            <div className="my-1 h-px bg-line" />
-            {[
-              { icon: Settings, label: "Settings", run: () => openSettings(projectId) },
-            ].map(({ icon: Icon, label, run }) => (
-              <button
-                key={label}
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setPanel(null);
-                  run();
-                }}
-                className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-hover"
-              >
-                <Icon size={15} className="text-ink-3" /> {label}
-              </button>
-            ))}
-            <Link
-              href={projectId ? `/integrations?project=${projectId}` : "/integrations"}
-              role="menuitem"
-              onClick={() => setPanel(null)}
-              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] hover:bg-hover"
-            >
-              <Plug size={15} className="text-ink-3" /> Integrations
-            </Link>
           </div>
         </RailPanel>
       )}

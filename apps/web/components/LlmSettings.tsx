@@ -20,7 +20,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowDown, ArrowUp, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, MoreHorizontal, Plus } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { findPreset, guessPreset, LLM_PROVIDER_PRESETS } from "@/api/convex/lib/llmPresets";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
@@ -28,6 +28,7 @@ import Segmented from "./ui/segmented";
 import { useToast } from "./Toasts";
 import { OPENCODE_INSTALL_COMMAND, isOpencodeConnection } from "@/api/convex/lib/opencodeProvider";
 import { relativeTime } from "@/lib/runFormat";
+import { popoverClass, usePopover } from "./shell/usePopover";
 import {
   effectiveOrder,
   formForPreset,
@@ -83,8 +84,54 @@ const GHOST =
 const ICON =
   "rounded-md p-1.5 text-ink-3 transition hover:bg-hover hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent";
 const ERROR_TEXT = "text-[12.5px] text-red-600 dark:text-red-400";
-const SECTION = "grid gap-3";
-const SECTION_TITLE = "text-[15px] font-semibold text-ink";
+
+/**
+ * One row's secondary actions, tucked behind a small menu so a list stays
+ * quiet. Every item is a real control with a working handler.
+ */
+function RowMenu({
+  label,
+  items,
+}: {
+  label: string;
+  items: Array<{ label: string; onClick: () => void; danger?: boolean }>;
+}) {
+  const { open, toggle, setOpen, ref } = usePopover<HTMLDivElement>();
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={toggle}
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="inline-flex h-8 min-w-8 items-center justify-center rounded-lg text-ink-3 transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+      >
+        <MoreHorizontal size={15} />
+      </button>
+      {open && (
+        <div role="menu" className={`${popoverClass} right-0 mt-1 min-w-[11rem] p-1`}>
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                item.onClick();
+              }}
+              className={`block w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] transition hover:bg-hover ${
+                item.danger ? "text-red-600 dark:text-red-400" : "text-ink-2 hover:text-ink"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const emptyModelForm = {
   providerId: "",
@@ -482,11 +529,8 @@ export default function LlmSettingsSection({
       <ConfirmDialog request={confirmReq} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
       <div className="mx-auto grid max-w-3xl gap-8">
         <header className="grid gap-1">
-          <h2 className="text-[26px] font-semibold tracking-tight text-ink">LLM &amp; Models</h2>
-          <p className={HINT}>
-            Pick how calls choose a model, add a provider, then put its models in the order you want. Chat and tasks use
-            the same list.
-          </p>
+          <h2 className="text-[24px] font-semibold tracking-tight text-ink">LLM &amp; Models</h2>
+          <p className={HINT}>One list for chat and tasks. The order decides who answers first.</p>
         </header>
 
         {keyStorageMissing && (
@@ -498,31 +542,33 @@ export default function LlmSettingsSection({
         )}
 
         {/* 1. Mode */}
-        <section className={SECTION} aria-labelledby="llm-mode">
-          <h3 id="llm-mode" className={SECTION_TITLE}>Mode</h3>
-          <Segmented
-            label="Model selection mode"
-            value={selectionMode}
-            onChange={(mode) => void chooseSelectionMode(mode)}
-            options={[
-              { value: "fallback", label: "Fallback" },
-              { value: "round_robin", label: "Round robin" },
-            ]}
-          />
+        <section className="grid gap-2" aria-labelledby="llm-mode">
+          <div className="flex items-center justify-between gap-3">
+            <h3 id="llm-mode" className="text-[13px] font-medium text-ink-2">Mode</h3>
+            <Segmented
+              label="Model selection mode"
+              value={selectionMode}
+              onChange={(mode) => void chooseSelectionMode(mode)}
+              options={[
+                { value: "fallback", label: "Fallback" },
+                { value: "round_robin", label: "Round robin" },
+              ]}
+            />
+          </div>
           <p className={HINT}>
             {selectionMode === "fallback"
-              ? "Fallback: every call starts at the top of the list and moves down only when a model fails or answers empty."
-              : "Round robin: calls take turns starting at each model in the list. A failing model still hands over to the next one."}
+              ? "Every call starts at the top of the list and moves down only when a model fails or answers empty."
+              : "Calls take turns starting at each model in the list. A failing model still hands over to the next one."}
           </p>
         </section>
 
         {/* 2. Providers */}
-        <section className={SECTION} aria-labelledby="llm-providers">
+        <section className="grid gap-2" aria-labelledby="llm-providers">
           <div className="flex items-center justify-between gap-3">
-            <h3 id="llm-providers" className={SECTION_TITLE}>Providers</h3>
+            <h3 id="llm-providers" className="text-[13px] font-medium text-ink-2">Providers</h3>
             {!providerFormOpen && (
-              <button type="button" onClick={openAddProvider} className={PRIMARY}>
-                <Plus size={14} /> Add provider
+              <button type="button" onClick={openAddProvider} className={GHOST}>
+                <Plus size={13} /> Add
               </button>
             )}
           </div>
@@ -618,24 +664,22 @@ export default function LlmSettingsSection({
           )}
 
           {/* Plan 038: OpenCode, a special row (the CLI on the worker, no URL, no key). */}
-          <div className="grid gap-1 border-y border-line py-3" aria-label="OpenCode provider">
-            <div className="flex items-center gap-3">
+          <div className="grid gap-1" aria-label="OpenCode provider">
+            <div className="flex items-center gap-3 border-y border-line py-2">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[14px] font-medium text-ink">
+                <p className="truncate text-[13.5px] text-ink">
                   OpenCode
                   {opencode && !opencode.enabled && (
-                    <span className="ml-2 text-[12.5px] font-normal text-ink-3">
-                      {opencode.configured ? "disabled" : "not added"}
-                    </span>
+                    <span className="ml-2 text-[12px] text-ink-3">{opencode.configured ? "disabled" : "not added"}</span>
                   )}
                 </p>
-                <p className={`truncate text-[12.5px] ${opencodeLine.kind === "missing" ? "text-warn" : "text-ink-3"}`} title={opencodeLine.text}>
+                <p className={`truncate text-[12px] ${opencodeLine.kind === "missing" ? "text-warn" : "text-ink-3"}`} title={opencodeLine.text}>
                   CLI on the worker · {opencodeLine.text}
                   {opencode && opencode.checkedAt > 0 && ` · checked ${relativeTime(opencode.checkedAt)}`}
                   {opencode?.pendingCheck && " · checking…"}
                 </p>
               </div>
-              <label className="flex items-center gap-1.5 text-[12.5px] text-ink-2">
+              <label className="flex items-center gap-1.5 text-[12px] text-ink-2">
                 <input
                   type="checkbox"
                   checked={opencode?.enabled ?? false}
@@ -645,23 +689,16 @@ export default function LlmSettingsSection({
                 />
                 Enabled
               </label>
-              <button
-                type="button"
-                onClick={() => void testOpencode("p:opencode")}
-                disabled={!opencode || opencode.pendingTest || opencode.installed !== true || !opencode.workerOnline}
-                className={GHOST}
-              >
-                {opencode?.pendingTest && opencodeTestKey === "p:opencode" ? "Testing…" : "Test"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void checkOpencodeAgain()}
-                disabled={!opencode || opencode.pendingCheck}
-                className={GHOST}
-                aria-label="Check again for OpenCode"
-              >
-                <RefreshCw size={13} /> Check again
-              </button>
+              <RowMenu
+                label="OpenCode actions"
+                items={[
+                  {
+                    label: opencode?.pendingTest && opencodeTestKey === "p:opencode" ? "Testing…" : "Test",
+                    onClick: () => void testOpencode("p:opencode"),
+                  },
+                  { label: "Check again", onClick: () => void checkOpencodeAgain() },
+                ]}
+              />
             </div>
             {opencodeLine.kind === "missing" && (
               <p className={HINT}>
@@ -681,10 +718,6 @@ export default function LlmSettingsSection({
                   : `Failed · ${opencodeTest.model ?? "OpenCode"} · ${opencodeTest.error ?? "error"}`}
               </p>
             )}
-            <p className={HINT}>
-              Tasks run an OpenCode entry of the list on the OpenCode CLI, only with worktree isolation on. Chat uses the
-              API models.
-            </p>
           </div>
 
           {sortedProviders === undefined && <p className={HINT}>Loading…</p>}
@@ -708,25 +741,29 @@ export default function LlmSettingsSection({
                     ? `key from env ${p.apiKeyEnv}, if set`
                     : "no key";
                 return (
-                  <li key={p._id} className="grid gap-1 py-3">
+                  <li key={p._id} className="grid gap-1 py-2">
                     <div className="flex items-center gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-[14px] font-medium text-ink">
+                        <p className="truncate text-[13.5px] text-ink">
                           {p.name}
-                          {p.isEnabled === false && <span className="ml-2 text-[12.5px] font-normal text-ink-3">disabled</span>}
+                          {p.isEnabled === false && <span className="ml-2 text-[12px] text-ink-3">disabled</span>}
                         </p>
-                        <p className="truncate text-[12.5px] text-ink-3">
+                        <p className="truncate text-[12px] text-ink-3">
                           {known.label} · {hostOf(p.baseUrl)} · {keyStatus} · {count} model{count === 1 ? "" : "s"}
                           {circuitOpen && ` · paused until ${new Date(health!.circuitOpenUntil!).toLocaleTimeString()}`}
                         </p>
                       </div>
-                      <button type="button" onClick={() => void runTest(`p:${p._id}`, p._id)} disabled={test === "running"} className={GHOST}>
-                        {test === "running" ? "Testing…" : "Test"}
-                      </button>
-                      <button type="button" onClick={() => openEditProvider(p)} className={GHOST}>Edit</button>
-                      <button type="button" onClick={() => askRemoveProvider(p)} className={ICON} aria-label={`Remove ${p.name}`}>
-                        <Trash2 size={14} />
-                      </button>
+                      <RowMenu
+                        label={`${p.name} actions`}
+                        items={[
+                          {
+                            label: test === "running" ? "Testing…" : "Test",
+                            onClick: () => void runTest(`p:${p._id}`, p._id),
+                          },
+                          { label: "Edit", onClick: () => openEditProvider(p) },
+                          { label: "Remove", onClick: () => askRemoveProvider(p), danger: true },
+                        ]}
+                      />
                     </div>
                     {test && test !== "running" && (
                       <p className={test.ok ? HINT : ERROR_TEXT}>{testLine(test)}</p>
@@ -739,12 +776,12 @@ export default function LlmSettingsSection({
         </section>
 
         {/* 3. Models (the order) */}
-        <section className={SECTION} aria-labelledby="llm-models">
+        <section className="grid gap-2" aria-labelledby="llm-models">
           <div className="flex items-center justify-between gap-3">
-            <h3 id="llm-models" className={SECTION_TITLE}>Models</h3>
+            <h3 id="llm-models" className="text-[13px] font-medium text-ink-2">Models</h3>
             {!modelFormOpen && canAddModel && (
-              <button type="button" onClick={openAddModel} className={PRIMARY}>
-                <Plus size={14} /> Add model
+              <button type="button" onClick={openAddModel} className={GHOST}>
+                <Plus size={13} /> Add
               </button>
             )}
           </div>
@@ -874,14 +911,14 @@ export default function LlmSettingsSection({
                     : undefined
                   : tests[`m:${m._id}`];
                 return (
-                  <li key={m._id} className="grid gap-1 py-2.5">
+                  <li key={m._id} className="grid gap-1 py-1.5">
                     <div className="flex items-center gap-2">
-                      <span className="w-5 shrink-0 text-right text-[12.5px] tabular-nums text-ink-3">{index + 1}</span>
+                      <span className="w-4 shrink-0 text-right text-[12px] tabular-nums text-ink-3">{index + 1}</span>
                       <div className="min-w-0 flex-1">
-                        <p className={`truncate text-[14px] ${off ? "text-ink-3" : "text-ink"}`}>
+                        <p className={`truncate text-[13.5px] ${off ? "text-ink-3" : "text-ink"}`}>
                           {m.displayName || m.modelId}
                         </p>
-                        <p className="truncate text-[12.5px] text-ink-3">
+                        <p className="truncate text-[12px] text-ink-3">
                           {isOpencode ? "OpenCode · tasks only" : owner?.name ?? "Unknown provider"}
                           {m.displayName ? ` · ${m.modelId}` : ""}
                           {!m.isAvailable
@@ -899,18 +936,20 @@ export default function LlmSettingsSection({
                       <button type="button" onClick={() => void move(index, 1)} disabled={index === orderedModels.length - 1} className={ICON} aria-label={`Move ${m.modelId} down`}>
                         <ArrowDown size={14} />
                       </button>
-                      <button type="button" onClick={() => void runTest(`m:${m._id}`, m.providerId, m._id)} disabled={test === "running"} className={GHOST}>
-                        {test === "running" ? "Testing…" : "Test"}
-                      </button>
-                      <button type="button" onClick={() => void toggleModel(m)} className={GHOST}>
-                        {m.isAvailable ? "Disable" : "Enable"}
-                      </button>
-                      <button type="button" onClick={() => askRemoveModel(m)} className={ICON} aria-label={`Remove ${m.modelId}`}>
-                        <Trash2 size={14} />
-                      </button>
+                      <RowMenu
+                        label={`${m.modelId} actions`}
+                        items={[
+                          {
+                            label: test === "running" ? "Testing…" : "Test",
+                            onClick: () => void runTest(`m:${m._id}`, m.providerId, m._id),
+                          },
+                          { label: m.isAvailable ? "Disable" : "Enable", onClick: () => void toggleModel(m) },
+                          { label: "Remove", onClick: () => askRemoveModel(m), danger: true },
+                        ]}
+                      />
                     </div>
                     {test && test !== "running" && (
-                      <p className={`pl-7 ${test.ok ? HINT : ERROR_TEXT}`}>{testLine(test)}</p>
+                      <p className={`pl-6 ${test.ok ? HINT : ERROR_TEXT}`}>{testLine(test)}</p>
                     )}
                   </li>
                 );

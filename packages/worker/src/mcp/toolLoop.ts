@@ -20,6 +20,7 @@ import {
 import {
   runToolLoop,
   type ToolLoopCallTool,
+  type ToolLoopOptions as ToolLoopBaseOptions,
   type ToolLoopResult,
 } from "@/tools/toolLoop";
 
@@ -35,6 +36,9 @@ export interface ToolLoopOptions {
   maxIterations?: number;
   signal?: AbortSignal;
   onEvent?: (type: string, payload: Record<string, unknown>) => void;
+  /** R10: stuck detector thresholds (`false` = off) and pruning budget, passed through. */
+  stuckDetection?: ToolLoopBaseOptions["stuckDetection"];
+  prune?: ToolLoopBaseOptions["prune"];
 }
 
 export async function runMcpToolLoop(options: ToolLoopOptions): Promise<ToolLoopResult> {
@@ -46,6 +50,8 @@ export async function runMcpToolLoop(options: ToolLoopOptions): Promise<ToolLoop
     maxIterations: options.maxIterations,
     signal: options.signal,
     onEvent: options.onEvent,
+    stuckDetection: options.stuckDetection,
+    prune: options.prune,
     prompt: {
       instruction: mcpToolLoopPrompt,
       nudge: MCP_TOOL_LOOP_NUDGE,

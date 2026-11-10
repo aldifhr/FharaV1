@@ -105,6 +105,10 @@ SOFTWARE.
 - Used in:
   - `packages/worker/src/utils/editReplacers.ts`: the `Replacer` generators, `trimDiff` and `replace` from
     `tool/edit.ts` lines 142-640, copied verbatim (extracted from the edit tool).
+  - `packages/worker/src/tools/toolLoop.ts` (`pruneToolOutputs`, `estimateTokens`, `PRUNE_PROTECT_TOKENS`,
+    `PRUNE_MINIMUM_TOKENS`): ported from `session/compaction.ts` `prune()` (lines 43-88) to the loop's tool-result
+    messages.
+  - `packages/worker/src/context/compaction.ts` (`isOverflow`): ported from `session/compaction.ts` `isOverflow`.
 - opencode credits these replacer approaches to Cline and gemini-cli (both Apache-2.0); see the two entries below.
 
 ```
@@ -360,3 +364,36 @@ SOFTWARE.
 - Used in: `packages/worker/src/utils/editReplacers.ts`, indirectly: opencode's replacers credit this file for
   their escape-normalizing approach. Copyright Google LLC. Licensed under the Apache License, Version 2.0 (full
   text in the Aider entry above).
+
+## OpenHands software-agent-sdk
+
+- Source: https://github.com/OpenHands/software-agent-sdk (shallow clone of 2026-11-11)
+- Used in: `packages/worker/src/utils/stuckDetector.ts`: the stuck detector from
+  `clients/typescript/src/conversation/stuck-detector.ts` (action-observation loop, action-error loop, monologue,
+  alternating pattern; thresholds 4/4/4/6), with the SDK event types replaced by a local event union.
+- `packages/worker/src/context/compaction.ts` keeps the first messages verbatim like the SDK's
+  `LLMSummarizingCondenser` `keep_first` (idea only, no code).
+
+```
+The MIT License (MIT)
+
+Copyright © 2025 OpenHands
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

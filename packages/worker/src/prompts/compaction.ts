@@ -1,4 +1,6 @@
 export const PROMPT_TAIL = 12;
+/** R10: the first messages (the task statement) are kept verbatim, never summarised. */
+export const KEEP_FIRST = 2;
 
 export interface HistoryMessage {
   authorType: "user" | "agent" | string;
@@ -6,12 +8,16 @@ export interface HistoryMessage {
 }
 
 export function buildSummaryPrompt(messages: HistoryMessage[]): string {
+  const head = messages.slice(0, Math.min(KEEP_FIRST, Math.max(0, messages.length - PROMPT_TAIL)));
   const tail = messages.slice(-PROMPT_TAIL);
-  const older = messages.slice(0, -PROMPT_TAIL);
+  const older = messages.slice(head.length, -PROMPT_TAIL);
   const render = (list: HistoryMessage[]) =>
     list.map((m) => `${m.authorType === "agent" ? "agent" : "user"}: ${m.content}`).join("\n");
   return [
     "Summarize the earlier conversation concisely. Keep only durable facts, decisions, and open questions.",
+    ...(head.length > 0
+      ? ["Opening messages (kept verbatim elsewhere; do not summarize, context only):", render(head)]
+      : []),
     "Earlier conversation:",
     older.length > 0 ? render(older) : "(no earlier messages)",
     "Recent tail (do not summarize, context only):",

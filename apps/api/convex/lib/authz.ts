@@ -233,3 +233,63 @@ export async function assertAgentAccess(
   await assertRegistryWriteAccess(ctx);
   return agent;
 }
+
+/**
+ * Personal chat (plan 039): access to one conversation.
+ *
+ *  - project/team kind, or a personal conversation with a project attached:
+ *    assertProjectAccess on that project (owner rule);
+ *  - personal: an ownerId must equal the viewer; without one the row is
+ *    reachable only in local single-user mode (no owned project yet), the
+ *    same rule as the agent registry. Not a privacy boundary until an auth
+ *    provider stamps ownerId on every row.
+ */
+export async function assertConversationAccess(
+  ctx: Ctx,
+  conversation: Doc<"conversations">
+): Promise<{ project: Doc<"projects"> | null }> {
+  const kind = conversation.kind ?? "project";
+  if (kind === "personal") {
+    const viewerId = await getViewerId(ctx);
+    if (conversation.ownerId) {
+      if (!viewerId || viewerId !== conversation.ownerId) {
+        throw new Error("Unauthorized: conversation access denied");
+      }
+    } else if (!viewerId && (await anyOwnedProject(ctx))) {
+      throw new Error("Unauthorized: conversation access denied");
+    }
+    if (!conversation.projectId) return { project: null };
+    return { project: await assertProjectAccess(ctx, conversation.projectId) };
+  }
+  if (!conversation.projectId) throw new Error("Conversation has no project");
+  return { project: await assertProjectAccess(ctx, conversation.projectId) };
+}
+
+/** Load a conversation by id and check access; throws when missing. */
+export async function getAccessibleConversation(
+  ctx: Ctx,
+  conversationId: Id<"conversations">
+): Promise<{ conversation: Doc<"conversations">; project: Doc<"projects"> | null }> {
+  const conversation = await ctx.db.get(conversationId);
+  if (!conversation) throw new Error("Conversation not found");
+  const { project } = await assertConversationAccess(ctx, conversation);
+  return { conversation, project };
+}
+
+/**
+ * Access to one message: through its project when it has one, else through
+ * its conversation (a personal chat message carries no projectId, plan
+ * 039 D1). A message with neither is refused.
+ */
+export async function assertMessageAccess(
+  ctx: Ctx,
+  message: Doc<"messages">
+): Promise<{ project: Doc<"projects"> | null; conversation: Doc<"conversations"> | null }> {
+  if (message.projectId) {
+    const project = await assertProjectAccess(ctx, message.projectId);
+    const conversation = message.conversationId ? await ctx.db.get(message.conversationId) : null;
+    return { project, conversation };
+  }
+  if (!message.conversationId) throw new Error("Message not found");
+  return getAccessibleConversation(ctx, message.conversationId);
+}

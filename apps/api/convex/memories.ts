@@ -1,7 +1,7 @@
 import { query, mutation, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { assertAgentAccess, assertProjectAccess, assertRegistryWriteAccess } from "./lib/authz";
+import { assertAgentAccess, assertProjectAccess, assertRegistryWriteAccess, assertMessageAccess } from "./lib/authz";
 import {
   formatMemorySection,
   memoryFromMessage,
@@ -244,13 +244,47 @@ export const rememberMessage = mutation({
   handler: async (ctx, args) => {
     const message = await ctx.db.get(args.messageId);
     if (!message) throw new Error("Message not found");
-    await assertProjectAccess(ctx, message.projectId);
+    const { conversation } = await assertMessageAccess(ctx, message);
     const draft = memoryFromMessage(message.content);
     if (!draft.content) throw new Error("Nothing to remember in this message");
+    // Plan 039 D7: "Remember" in a personal chat saves a pinned memory for
+    // that conversation's agent only, never shared or project memory.
+    if (!message.projectId) {
+      const agentId = conversation?.kind === "personal" ? conversation.agentId : undefined;
+      if (!agentId) throw new Error("Nothing to remember in this message");
+      const mine = (
+        await ctx.db
+          .query("memories")
+          .withIndex("by_agent", (q) => q.eq("agentId", agentId))
+          .collect()
+      ).find((row) => row.scope === "agent" && row.content === draft.content);
+      if (mine) {
+        if (!mine.pinned) await ctx.db.patch(mine._id, { pinned: true, updatedAt: Date.now() });
+        return { memoryId: mine._id, created: false };
+      }
+      const now = Date.now();
+      const memoryId = await ctx.db.insert("memories", {
+        scope: "agent",
+        agentId,
+        title: draft.title,
+        content: draft.content,
+        pinned: true,
+        source: "user",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await recordAudit(ctx, {
+        action: "memory.create",
+        target: `agent: ${draft.title}`,
+        details: { fromMessage: true, personal: true },
+      });
+      return { memoryId, created: true };
+    }
+    const projectId = message.projectId;
     const existing = (
       await ctx.db
         .query("memories")
-        .withIndex("by_project", (q) => q.eq("projectId", message.projectId).eq("scope", "project"))
+        .withIndex("by_project", (q) => q.eq("projectId", projectId).eq("scope", "project"))
         .collect()
     ).find((row) => row.content === draft.content);
     if (existing) {
@@ -260,7 +294,7 @@ export const rememberMessage = mutation({
     const now = Date.now();
     const memoryId = await ctx.db.insert("memories", {
       scope: "project",
-      projectId: message.projectId,
+      projectId,
       title: draft.title,
       content: draft.content,
       pinned: true,
@@ -272,7 +306,7 @@ export const rememberMessage = mutation({
       action: "memory.create",
       target: `project: ${draft.title}`,
       details: { fromMessage: true },
-      projectId: message.projectId,
+      projectId,
     });
     return { memoryId, created: true };
   },

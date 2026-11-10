@@ -85,7 +85,11 @@ export const requestMessageOpinion = mutation({
   handler: async (ctx, args) => {
     const message = await ctx.db.get(args.messageId);
     if (!message) throw new Error("Message not found");
-    await assertProjectAccess(ctx, message.projectId);
+    // Second opinion is off for personal chat in v1 (plan 039 D8): a
+    // personal reply has no project for the opinion row.
+    if (!message.projectId) throw new Error("A second opinion is not available in a personal chat");
+    const projectId = message.projectId;
+    await assertProjectAccess(ctx, projectId);
     if (message.authorType !== "agent") throw new Error("A second opinion is for an agent reply");
     if (message.streaming) throw new Error("Wait for the reply to finish");
     if (!message.content.trim()) throw new Error("This reply has no text to review");
@@ -96,7 +100,7 @@ export const requestMessageOpinion = mutation({
     const running = rows.find((row) => row.status === "running");
     if (running) return running._id;
     const opinionId = await ctx.db.insert("reviewOpinions", {
-      projectId: message.projectId,
+      projectId,
       ...(message.taskId ? { taskId: message.taskId } : {}),
       messageId: message._id,
       ...(message.conversationId ? { conversationId: message.conversationId } : {}),
@@ -405,14 +409,16 @@ export const getReviewContext = internalQuery({
     } else {
       if (!opinion.messageId) return null;
       const message = await ctx.db.get(opinion.messageId);
-      if (!message) return null;
+      // Personal chat replies have no project and get no opinion (D8).
+      if (!message || !message.projectId) return null;
+      const messageProjectId = message.projectId;
       let question = "";
       const asked = message.replyToMessageId ? await ctx.db.get(message.replyToMessageId) : null;
       if (asked) question = asked.content;
       else {
         const before = await ctx.db
           .query("messages")
-          .withIndex("by_project", (q) => q.eq("projectId", message.projectId))
+          .withIndex("by_project", (q) => q.eq("projectId", messageProjectId))
           .order("desc")
           .take(60);
         question =
@@ -424,7 +430,7 @@ export const getReviewContext = internalQuery({
           )?.content ?? "";
       }
       const agent = message.agentId ? await ctx.db.get(message.agentId) : null;
-      const proj = await ctx.db.get(message.projectId);
+      const proj = await ctx.db.get(messageProjectId);
       material = buildMessageMaterial({
         projectName: proj?.name ?? "Project",
         question,

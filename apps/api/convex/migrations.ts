@@ -1,4 +1,6 @@
 import { internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { v } from "convex/values";
 import { encryptApiKey, reEncryptApiKey } from "./lib/llmCrypto";
 
 /**
@@ -221,5 +223,122 @@ export const rotateEncryptionKeys = internalMutation({
       rotated++;
     }
     return { rotated };
+  },
+});
+
+/**
+ * Plan 039 (personal chat): stamp `kind: "project"` on conversations
+ * created before `kind` existed. Ids are unchanged and no message is
+ * rewritten (D10). Readers already treat a missing kind as "project", so
+ * this is explicit bookkeeping and may run any time after the deploy.
+ * Idempotent and batched: it reschedules itself until a pass finds nothing.
+ *
+ *   npx convex run migrations:backfillConversationKinds
+ *   npx convex run migrations:verifyConversationKinds
+ */
+export const CONVERSATION_BACKFILL_BATCH = 200;
+
+export const backfillConversationKinds = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())), scanned: v.optional(v.number()), patched: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<{ scanned: number; patched: number; done: boolean; cursor: string | null }> => {
+    const page = await ctx.db
+      .query("conversations")
+      .paginate({ cursor: args.cursor ?? null, numItems: CONVERSATION_BACKFILL_BATCH });
+    let patched = args.patched ?? 0;
+    for (const row of page.page) {
+      if (row.kind === undefined) {
+        await ctx.db.patch(row._id, { kind: "project" });
+        patched += 1;
+      }
+    }
+    const scanned = (args.scanned ?? 0) + page.page.length;
+    const done = page.isDone;
+    if (!done) {
+      await ctx.scheduler.runAfter(0, internal.migrations.backfillConversationKinds, {
+        cursor: page.continueCursor,
+        scanned,
+        patched,
+      });
+    }
+    return { scanned, patched, done, cursor: done ? null : page.continueCursor };
+  },
+});
+
+/**
+ * Plan 039 invariants after the backfill. Every count except
+ * `conversations` must be 0:
+ *  - withoutKind: conversations still missing `kind` (backfill not finished);
+ *  - personalWithoutAgent: personal rows with no agentId;
+ *  - projectWithoutProject: project/team rows with no projectId;
+ *  - personalMessagesWithProject: messages in a personal conversation that
+ *    carry a projectId (D1 invariant).
+ */
+export const verifyConversationKinds = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("conversations").collect();
+    let withoutKind = 0;
+    let personalWithoutAgent = 0;
+    let projectWithoutProject = 0;
+    let personalMessagesWithProject = 0;
+    let personal = 0;
+    for (const row of rows) {
+      if (row.kind === undefined) withoutKind += 1;
+      if (row.kind === "personal") {
+        personal += 1;
+        if (!row.agentId) personalWithoutAgent += 1;
+        const messages = await ctx.db
+          .query("messages")
+          .withIndex("by_conversation", (q) => q.eq("conversationId", row._id))
+          .collect();
+        personalMessagesWithProject += messages.filter((m) => m.projectId !== undefined).length;
+      } else if (!row.projectId) {
+        projectWithoutProject += 1;
+      }
+    }
+    return {
+      conversations: rows.length,
+      personal,
+      withoutKind,
+      personalWithoutAgent,
+      projectWithoutProject,
+      personalMessagesWithProject,
+      ok: withoutKind === 0 && personalWithoutAgent === 0 && projectWithoutProject === 0 && personalMessagesWithProject === 0,
+    };
+  },
+});
+
+/**
+ * Plan 039 rollback helper, never scheduled automatically: deletes every
+ * personal conversation with its participant rows and messages, one batch
+ * per call (rerun until done). Only needed before narrowing
+ * `conversations.projectId` / `messages.projectId` back to required, which
+ * Convex refuses while a personal row exists. Export the data first.
+ */
+export const deletePersonalConversations = internalMutation({
+  args: { confirm: v.literal("delete personal conversations") },
+  handler: async (ctx): Promise<{ deletedConversations: number; deletedMessages: number; done: boolean }> => {
+    const rows = await ctx.db
+      .query("conversations")
+      .withIndex("by_kind_and_last_message", (q) => q.eq("kind", "personal"))
+      .take(20);
+    let deletedMessages = 0;
+    for (const row of rows) {
+      const messages = await ctx.db
+        .query("messages")
+        .withIndex("by_conversation", (q) => q.eq("conversationId", row._id))
+        .collect();
+      for (const m of messages) {
+        await ctx.db.delete(m._id);
+        deletedMessages += 1;
+      }
+      const participants = await ctx.db
+        .query("conversationParticipants")
+        .withIndex("by_conversation", (q) => q.eq("conversationId", row._id))
+        .collect();
+      for (const p of participants) await ctx.db.delete(p._id);
+      await ctx.db.delete(row._id);
+    }
+    return { deletedConversations: rows.length, deletedMessages, done: rows.length < 20 };
   },
 });

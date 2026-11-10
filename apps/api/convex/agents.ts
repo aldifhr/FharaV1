@@ -5,13 +5,15 @@ import { assertAgentAccess, assertProjectAccess, assertRegistryWriteAccess } fro
 import {
   FIXED_TEAM_SEED_ORDER,
   REVOKED_DEFAULT_CAPABILITIES,
+  ADDED_DEFAULT_TOOLS,
+  REVOKED_DEFAULT_TOOLS,
   ROLES,
   isRetiredRole,
   normalizeRoleKey,
 } from "./lib/roles";
 import { defaultAvatarParams } from "./lib/avatar";
 import { changedFields, recordAudit, setFields } from "./lib/recordAudit";
-import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT } from "./lib/prompts/agents";
+import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT, PREVIOUS_SEED_PROMPTS } from "./lib/prompts/agents";
 import { applyAgentSkills } from "./skills";
 
 /**
@@ -545,6 +547,21 @@ export const FIXED_AGENTS = FIXED_TEAM_SEED_ORDER.map((key) => {
 });
 
 /**
+ * Plan 040: the row's tools after adding this role's newly added defaults
+ * and removing its revoked ones, or null when nothing changes. A row with
+ * no stored tools list keeps relying on the role defaults.
+ */
+export function syncedTools(current: readonly string[] | undefined, role: string): string[] | null {
+  if (!current) return null;
+  const revoked = new Set(REVOKED_DEFAULT_TOOLS[role] ?? []);
+  const next = Array.from(new Set([...current, ...(ADDED_DEFAULT_TOOLS[role] ?? [])])).filter(
+    (tool) => !revoked.has(tool)
+  );
+  const same = next.length === current.length && next.every((tool, index) => tool === current[index]);
+  return same ? null : next;
+}
+
+/**
  * Sync the fixed team: seed missing roles, union new default capabilities
  * into existing rows, and retire removed roles exactly once.
  *
@@ -598,7 +615,27 @@ export async function syncFixedTeam(ctx: MutationCtx, projectId?: Id<"projects">
     if (!sameCaps) patch.capabilities = merged;
     if (!match.description?.trim()) patch.description = def.description;
     if (!match.systemPrompt?.trim()) patch.systemPrompt = def.systemPrompt;
-    if (Object.keys(patch).length > 0) await ctx.db.patch(match._id, patch);
+    // Plan 040 (D10): a prompt still EXACTLY equal to an earlier seed was
+    // never edited, so it follows the new seed. Edited prompts never change.
+    else if (
+      match.systemPrompt !== def.systemPrompt &&
+      (PREVIOUS_SEED_PROMPTS[def.role] ?? []).includes(match.systemPrompt)
+    ) {
+      patch.systemPrompt = def.systemPrompt;
+    }
+    // Plan 040: tools. Only the listed new defaults are added and only the
+    // listed revoked ones removed; a user's own tool choices stay.
+    const tools = syncedTools(match.supportedTools, def.role);
+    if (tools) patch.supportedTools = tools;
+    if (Object.keys(patch).length > 0) {
+      await ctx.db.patch(match._id, patch);
+      await recordAudit(ctx, {
+        action: "agent.sync",
+        actor: "system",
+        target: match.name,
+        details: { changed: Object.keys(patch).sort(), reason: "fixed-team sync" },
+      });
+    }
   }
 
   if (projectId) {

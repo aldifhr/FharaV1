@@ -3,7 +3,7 @@ import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { assertProjectAccess } from "./lib/authz";
+import { assertProjectAccess, assertMessageAccess } from "./lib/authz";
 import {
   CHAT_SWEEP_BATCH,
   REPLY_INTERRUPTED_TEXT,
@@ -175,7 +175,7 @@ export const retryReply = mutation({
   handler: async (ctx, args) => {
     const message = await ctx.db.get(args.messageId);
     if (!message) throw new Error("Message not found");
-    await assertProjectAccess(ctx, message.projectId);
+    await assertMessageAccess(ctx, message);
     if (message.authorType !== "user") throw new Error("Only a user message can be retried");
     const replies = await ctx.db
       .query("messages")
@@ -192,8 +192,10 @@ export const retryReply = mutation({
       replyLeaseExpiresAt: undefined,
       error: undefined,
     });
+    // The reply derives its scope from the conversation (plan 039): a
+    // personal message has no projectId to pass.
     await ctx.scheduler.runAfter(0, internal.chat.replyToChat, {
-      projectId: message.projectId,
+      ...(message.projectId ? { projectId: message.projectId } : {}),
       ...(message.conversationId ? { conversationId: message.conversationId } : {}),
       userMessageId: message._id,
       ...(message.replyOptions?.preferredAgentIds ? { preferredAgentIds: message.replyOptions.preferredAgentIds } : {}),

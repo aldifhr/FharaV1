@@ -63,6 +63,8 @@ import {
   type FileDiff,
 } from "@/tools/gitDiff";
 import { isCommandAllowed, runCommand } from "@/tools/runCommand";
+import { canWriteAny, permissionsForAgent, shellDenial, writeDenial } from "@/utils/rolePolicy";
+import { dangerousCommandReason } from "@/api/convex/lib/commandRules";
 import { commandDeniedOutput, type CommandApprovalOutcome } from "@/execution/commandGate";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import { promises as fs } from "node:fs";
@@ -244,7 +246,9 @@ function mcpScope(input: SubtaskExecutionInput) {
   return {
     role: input.agent.role,
     supportedTools: input.agent.supportedTools,
-    allowWrite: input.mcp?.writeTools === true,
+    // Plan 040: MCP writes only for roles that may write anywhere in
+    // scope; a path-scoped role (DevOps) stays on the gated diff path.
+    allowWrite: input.mcp?.writeTools === true && permissionsForAgent(input.agent).write === true,
   };
 }
 
@@ -343,6 +347,7 @@ async function runWebReachExploration(
   const config = input.webReach;
   if (!config) return null;
   if (!agentAllowsWebReach(input.agent.supportedTools)) return null;
+  if (!permissionsForAgent(input.agent).web) return null;
 
   const handles = handlesFor(input);
   const health = healthFor(input);
@@ -734,6 +739,17 @@ export async function executeSubtask(
 async function executeSubtaskScoped(rawInput: SubtaskExecutionInput): Promise<SubtaskExecutionResult> {
   const { subtask } = rawInput;
   try {
+    // Plan 040: the role's permissions are enforced here, before any LLM
+    // call or runtime, whatever the agent's prompt or declared tools say.
+    const refused = roleRefusal(rawInput);
+    if (refused) {
+      await rawInput.onEvent(
+        "agent.permission_denied",
+        { capability: subtask.capability, role: rawInput.agent.role, kind: subtask.kind, reason: refused },
+        "warn"
+      );
+      return { status: "failed", error: `Refused: ${refused}` };
+    }
     const input = await withOnDemandSkills(rawInput);
     // Plan 014: native-provider runtime (provider CLI with its own native
     // tools in the task workspace). Falls back to the API path when the
@@ -877,6 +893,8 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
   // out of scope (forbidden paths, invalid paths, outside allowedPaths, or
   // any write from a read-only kind) so it can never reach a commit.
   const mutating = subtask.kind === "code_change" || subtask.kind === "shell";
+  const nativePermissions = permissionsForAgent(agent);
+  const nativeRoleLabel = (agent.role ?? "").trim() || "agent";
   const prepared: { filePath: string }[] = [];
   const rejected: { filePath: string; reason: string }[] = [];
   let changedPaths: string[] = [];
@@ -899,9 +917,12 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
       : await readHeadContent(workspacePath, filePath);
     // Dirty before the run and untouched by the provider: not its change.
     if ((baseline ?? null) === newContent) continue;
+    const roleDenied = mutating ? writeDenial(nativeRoleLabel, nativePermissions, filePath) : null;
     const reason = !mutating
       ? `read-only ${subtask.kind} subtask`
-      : isForbiddenPath(filePath)
+      : roleDenied
+        ? roleDenied
+        : isForbiddenPath(filePath)
         ? "forbidden path"
         : !validateFilePath(filePath).ok
           ? "invalid path"
@@ -1080,17 +1101,34 @@ async function escalateOutcome(input: SubtaskExecutionInput, escalation: Escalat
   };
 }
 
-/** Plan 022: roles that never stage file changes or run commands. */
-export const READ_ONLY_ROLES = new Set(["reviewer"]);
+/**
+ * Plan 040: why this agent may not run this subtask kind at all, or null.
+ * A code_change needs some write permission, a shell node some shell
+ * permission. Read-only kinds (analysis/audit/research/review/qa) are open
+ * to every role; their writes are refused by construction.
+ */
+export function roleRefusal(input: Pick<SubtaskExecutionInput, "agent" | "subtask">): string | null {
+  const permissions = permissionsForAgent(input.agent);
+  const label = (input.agent.role ?? "").trim() || "agent";
+  if (input.subtask.kind === "code_change" && !canWriteAny(permissions)) {
+    return `the ${label} role is read-only and cannot modify files`;
+  }
+  if (input.subtask.kind === "shell" && permissions.shell === "none") {
+    return `the ${label} role may not run commands`;
+  }
+  return null;
+}
 
 async function executeCodeChange(
   input: SubtaskExecutionInput
 ): Promise<SubtaskExecutionResult> {
   const { workspacePath, command, subtask, onEvent, onMessage, signal } = input;
-  if (READ_ONLY_ROLES.has((input.agent.role ?? "").trim().toLowerCase())) {
+  const permissions = permissionsForAgent(input.agent);
+  const roleLabel = (input.agent.role ?? "").trim() || "agent";
+  if (!canWriteAny(permissions)) {
     return {
       status: "failed",
-      error: `Refusing to modify files: the ${input.agent.role} role is read-only`,
+      error: `Refusing to modify files: the ${roleLabel} role is read-only`,
     };
   }
   const fileHint = extractFileHint(`${subtask.description}\n${command}`);
@@ -1409,6 +1447,11 @@ async function executeCodeChange(
     }
     if (!isPathWithinOwnership(file.filePath, subtask.allowedPaths)) {
       return { status: "failed", error: `Refusing to modify path outside declared ownership: ${file.filePath}` };
+    }
+    const denied = writeDenial(roleLabel, permissions, file.filePath);
+    if (denied) {
+      await onEvent("agent.permission_denied", { capability: subtask.capability, role: input.agent.role, filePath: file.filePath, reason: denied }, "warn");
+      return { status: "failed", error: `Refusing to modify ${file.filePath}: ${denied}` };
     }
     try {
       // Build on what earlier/concurrent subtasks already staged for this
@@ -1735,7 +1778,8 @@ async function executeReadOnly(
   const webReachAvailable =
     (mode === "research" || mode === "audit") &&
     Boolean(input.webReach) &&
-    agentAllowsWebReach(input.agent.supportedTools);
+    agentAllowsWebReach(input.agent.supportedTools) &&
+    permissionsForAgent(input.agent).web;
 
   let instruction = readOnlyInstruction(mode, { webTool: webReachAvailable });
   if (toolLoopSection) instruction += toolLoopSection;
@@ -2006,6 +2050,18 @@ async function executeShell(
       status: "failed",
       error: `Command blocked (not allowlisted): ${parsed.command} ${parsed.args.join(" ")}`,
     };
+  }
+  // Plan 040: the role's shell permission (QA: verification commands only).
+  const shellDenied = shellDenial((input.agent.role ?? "").trim() || "agent", permissionsForAgent(input.agent), parsed.command, parsed.args);
+  if (shellDenied) {
+    await onEvent("agent.permission_denied", { capability: subtask.capability, role: input.agent.role, command: parsed.command, args: parsed.args, reason: shellDenied }, "warn");
+    return { status: "failed", error: `Command blocked: ${shellDenied}: ${parsed.command} ${parsed.args.join(" ")}` };
+  }
+  // Destructive / push-like commands always ask. With no approval channel
+  // (legacy callers) such a command never runs.
+  const danger = dangerousCommandReason(parsed.command, parsed.args, workspacePath);
+  if (danger && !input.requestCommandApproval) {
+    return { status: "failed", error: `Command blocked (${danger}; needs the user's approval): ${parsed.command} ${parsed.args.join(" ")}` };
   }
 
   // Approval gate (Supervised / Auto-accept edits ask; rules and Full

@@ -632,7 +632,9 @@ async function startOfferedTask(
 
 export const replyToChat = internalAction({
   args: {
-    projectId: v.id("projects"),
+    // Optional since plan 039: the reply derives its scope from the
+    // conversation row (getChatScope); a personal chat has no project.
+    projectId: v.optional(v.id("projects")),
     conversationId: v.optional(v.id("conversations")),
     preferredAgentIds: v.optional(v.array(v.id("agents"))),
     userMessageId: v.id("messages"),
@@ -646,7 +648,17 @@ export const replyToChat = internalAction({
     const claim = await ctx.runMutation(internal.chatReplies.claimReply, { userMessageId: rawArgs.userMessageId });
     if (!claim.claimed) return;
     try {
-      await answerChat(ctx, rawArgs);
+      const scope = await ctx.runQuery(internal.chatContext.getChatScope, {
+        userMessageId: rawArgs.userMessageId,
+        ...(rawArgs.conversationId ? { conversationId: rawArgs.conversationId } : {}),
+      });
+      if (!scope) throw new Error("This message no longer exists");
+      if (scope.kind === "personal" || !scope.projectId) {
+        throw new Error("Personal chat replies are not available yet");
+      }
+      // Project chat: the project comes from the conversation row, never
+      // from the scheduler argument alone.
+      await answerChat(ctx, { ...rawArgs, projectId: scope.projectId });
     } catch (error) {
       await ctx.runMutation(internal.chatReplies.settleReply, {
         userMessageId: rawArgs.userMessageId,

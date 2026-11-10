@@ -58,49 +58,12 @@ export const ROLE_DEFINITIONS: Record<AgentRole, RoleDefinition> = Object.fromEn
   }),
 ) as Record<AgentRole, RoleDefinition>;
 
-/** Free-text role names (legacy rows, LLM output) that are not a key or title. */
-const ROLE_ALIASES: Readonly<Record<string, AgentRole>> = {
-  orchestrator: "cto",
-  planner: "cto",
-  architect: "cto",
-  "ui-ux": "designer",
-  ux: "designer",
-  "ui/ux": "designer",
-  "ui/ux designer": "designer",
-  "frontend-developer": "frontend",
-  developer: "frontend",
-  "backend-developer": "backend",
-  tester: "qa",
-  documentation: "support",
-  "technical-writer": "support",
-  writer: "support",
-  "dev ops": "devops",
-  "code-review": "reviewer",
-  "code review": "reviewer",
-  research: "researcher",
-  "product-analyst": "researcher",
-  product: "researcher",
-  analyst: "researcher",
-  "product analyst": "researcher",
-  security: "backend",
-  "security auditor": "backend",
-  "security engineer": "backend",
-  database: "backend",
-  "database engineer": "backend",
-  db: "backend",
-};
-
-const ROLE_BY_NAME: ReadonlyMap<string, AgentRole> = new Map<string, AgentRole>([
-  ...ROLE_KEYS.flatMap((key): Array<[string, AgentRole]> => [
-    [key, key],
-    [ROLES[key].title.toLowerCase(), key],
-  ]),
-  ...Object.entries(ROLE_ALIASES),
-]);
+export { resolveRoleKey } from "@/utils/rolePolicy";
+import { resolveRoleKey } from "@/utils/rolePolicy";
 
 /** Free-text role → fixed role; unknown and empty fall back to frontend. */
 export function normalizeRole(role: string): AgentRole {
-  return ROLE_BY_NAME.get(role.trim().toLowerCase()) ?? "frontend";
+  return resolveRoleKey(role) ?? "frontend";
 }
 
 export function roleForAgent(agent: AgentDefinition): AgentRole {

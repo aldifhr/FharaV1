@@ -24,6 +24,7 @@
  *  - idempotent per task (backend marker `memoryReconciliations`);
  *  - nothing reaches a prompt until the user accepts a suggestion.
  */
+import { wenv } from "@fhara/config/worker";
 import { runLlmCallWithFallback, usageMetaFor, type FallbackHandle, type LlmConcurrencyGate } from "@/effects/llmCall";
 import { providerHealth } from "@/llm/health";
 import { withSnapshotScope } from "@/llm/snapshots";
@@ -186,11 +187,11 @@ export async function reconcileTaskMemory(input: ReconcileInput): Promise<Reconc
     return { tag, reason, suggestions: inserted };
   };
   try {
-    const env = input.env ?? process.env;
+    const env = input.env;
     if (typeof api.getMemoryReconcileContext !== "function" || typeof api.recordMemorySuggestions !== "function") {
       return { tag: TAG.disabled, reason: "backend has no memory suggestions", suggestions: 0 };
     }
-    if (env.FHARA_MEMORY_SUGGESTIONS === "0") return { tag: TAG.disabled, reason: "disabled", suggestions: 0 };
+    if (!wenv("FHARA_MEMORY_SUGGESTIONS", env)) return { tag: TAG.disabled, reason: "disabled", suggestions: 0 };
     const context = await api.getMemoryReconcileContext({ taskId: input.taskId as never });
     if (!context) return { tag: TAG.error, reason: "task not found", suggestions: 0 };
     if (context.reconciled) return { tag: TAG.alreadyReconciled, reason: "already reconciled", suggestions: 0 };

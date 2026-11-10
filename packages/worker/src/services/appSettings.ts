@@ -1,3 +1,5 @@
+import { schemaDefault } from "@fhara/config";
+import { wenv } from "@fhara/config/worker";
 import type { WorkerApi } from "@/workerApi";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
 import { loadPolicy } from "@/orchestrator/policy";
@@ -22,10 +24,10 @@ export interface AppSettingsTarget {
   workspaceRoot: string;
 }
 
-export const DEFAULT_WORKSPACE_ROOT = "./workspaces";
+export const DEFAULT_WORKSPACE_ROOT = schemaDefault("WORKSPACE_ROOT") as string;
 
 export function effectiveWorkspaceRoot(): string {
-  return settingEnv("WORKSPACE_ROOT")?.trim() || DEFAULT_WORKSPACE_ROOT;
+  return wenv("WORKSPACE_ROOT", settingEnv);
 }
 
 let lastUpdatedAt = -1;

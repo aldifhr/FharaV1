@@ -20,6 +20,7 @@
  * The exact-argv allowlist stays a hard deny BEFORE this runs (callers check
  * `isCommandAllowed` first); nothing here widens it.
  */
+import { wenv } from "@fhara/config/worker";
 import type { WorkerApi } from "@/workerApi";
 import type { CommandApprovalOutcome } from "@/execution/commandGate";
 
@@ -55,10 +56,7 @@ export interface CommandApprovalWaitOptions {
 }
 
 /** Default wait before a pending command counts as declined (10 min). */
-export const COMMAND_APPROVAL_TIMEOUT_MS = (() => {
-  const raw = Number(process.env.ORCHESTRATOR_COMMAND_APPROVAL_TIMEOUT_MS);
-  return Number.isFinite(raw) && raw >= 10_000 ? raw : 10 * 60_000;
-})();
+export const COMMAND_APPROVAL_TIMEOUT_MS = wenv("ORCHESTRATOR_COMMAND_APPROVAL_TIMEOUT_MS"); // ≥ 10s, read at module load
 const DEFAULT_POLL_MS = 1_500;
 
 function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {

@@ -1,3 +1,4 @@
+import { wenvRaw } from "@fhara/config/worker";
 import { withSnapshotScope } from "@/llm/snapshots";
 import type {
   PlanSubtask,
@@ -113,7 +114,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       failed: unmet.map((node) => node.key),
     };
   }
-  const stallThresholds = ctx.stallThresholds ?? stallThresholdsFromEnv(process.env, llmTimeoutMs());
+  const stallThresholds = ctx.stallThresholds ?? stallThresholdsFromEnv(undefined, llmTimeoutMs());
   // One timeline event per deadlock / stall observation (`stall.<kind>`).
   const reportStall = async (observation: StallObservation): Promise<void> => {
     await deps.api
@@ -301,7 +302,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
               holdClock: runInfo?.holdClock,
             }
           ),
-        nativeProviderCommand: process.env.ORCHESTRATOR_NATIVE_PROVIDER_COMMAND,
+        nativeProviderCommand: wenvRaw("ORCHESTRATOR_NATIVE_PROVIDER_COMMAND"),
         taskContext: input.sharedContext,
         onUserInputsRendered: ackInputs,
         priorOutputs: state.priorOutputs,

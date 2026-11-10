@@ -1,3 +1,4 @@
+import { wenv, wenvRaw } from "@fhara/config/worker";
 import dotenv from "dotenv";
 import os from "node:os";
 import path from "node:path";
@@ -25,32 +26,31 @@ dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
 registerEnvSecrets();
 installConsoleRedaction();
 
-const POLL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1500);
+// Read once at startup, after dotenv. Parse rules: env schema (legacyNumber,
+// no NaN guard yet — B3).
+const POLL_MS = wenv("WORKER_POLL_INTERVAL_MS");
 // With the pendingWork subscription live, the poll is only the correctness
 // fallback (a missed push, timers the subscription cannot see).
-const FALLBACK_POLL_MS = Math.max(POLL_MS, Number(process.env.WORKER_FALLBACK_POLL_MS ?? 10_000));
-const HEARTBEAT_MS = Number(process.env.WORKER_HEARTBEAT_MS ?? 10_000);
-const LEASE_MS = Number(process.env.WORKER_LEASE_MS ?? 60_000);
-const CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY ?? 1));
-const STALE_GRACE_MS = Number(process.env.WORKER_STALE_GRACE_MS ?? 30_000);
+const FALLBACK_POLL_MS = Math.max(POLL_MS, wenv("WORKER_FALLBACK_POLL_MS"));
+const HEARTBEAT_MS = wenv("WORKER_HEARTBEAT_MS");
+const LEASE_MS = wenv("WORKER_LEASE_MS");
+const CONCURRENCY = wenv("WORKER_CONCURRENCY"); // ≥ 1
+const STALE_GRACE_MS = wenv("WORKER_STALE_GRACE_MS");
 // Plan 019: how often an idle worker checks for approved push requests.
-const PUSH_POLL_MS = Math.max(1000, Number(process.env.WORKER_PUSH_POLL_MS ?? 5000));
+const PUSH_POLL_MS = wenv("WORKER_PUSH_POLL_MS"); // ≥ 1000
 // Integrations: how often an idle worker checks for MCP "Test connection" requests.
-const MCP_TEST_POLL_MS = Math.max(1000, Number(process.env.WORKER_MCP_TEST_POLL_MS ?? 3000));
+const MCP_TEST_POLL_MS = wenv("WORKER_MCP_TEST_POLL_MS"); // ≥ 1000
 // Grounded chat repo tools: a chat reply waits on these, so the poll is
 // fast while a reply is using tools and slower when idle.
-const REPO_TOOL_IDLE_POLL_MS = Math.max(250, Number(process.env.WORKER_REPO_TOOL_POLL_MS ?? 1000));
+const REPO_TOOL_IDLE_POLL_MS = wenv("WORKER_REPO_TOOL_POLL_MS"); // ≥ 250
 const REPO_TOOL_HOT_POLL_MS = 200;
 const REPO_TOOL_HOT_WINDOW_MS = 30_000;
 // Plan 033: how often the worker checks whether the OpenCode model catalog
 // needs a refresh (the UI can request one at any time).
-const OPENCODE_CATALOG_POLL_MS = Math.max(
-  5_000,
-  Number(process.env.WORKER_OPENCODE_CATALOG_POLL_MS ?? 15_000)
-);
+const OPENCODE_CATALOG_POLL_MS = wenv("WORKER_OPENCODE_CATALOG_POLL_MS"); // ≥ 5000
 
 const workerId =
-  process.env.WORKER_ID ??
+  wenv("WORKER_ID") ??
   `${os.hostname()}-${process.pid}`;
 
 function sleep(ms: number) {
@@ -63,7 +63,7 @@ function log(...args: unknown[]) {
 
 async function main() {
   const client = createConvexClient();
-  const api = new WorkerApi(client, process.env.CONVEX_SERVICE_TOKEN!, workerId);
+  const api = new WorkerApi(client, wenv("CONVEX_SERVICE_TOKEN")!, workerId);
   // O5: git/gh commands without their own recorder (network git from
   // safeGit) still leave one sanitized `cmd` audit row.
   setCommandSink(async (entry) => {
@@ -145,7 +145,7 @@ async function main() {
   });
 
   log(
-    `listening: convex=${process.env.NEXT_PUBLIC_CONVEX_URL} root=${workspaceRoot} concurrency=${CONCURRENCY}`
+    `listening: convex=${wenvRaw("NEXT_PUBLIC_CONVEX_URL", undefined, { aliases: false })} root=${workspaceRoot} concurrency=${CONCURRENCY}`
   );
 
   // Retry recover until Convex is reachable (cloud or local dev)

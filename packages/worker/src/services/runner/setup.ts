@@ -1,3 +1,4 @@
+import { wenv } from "@fhara/config/worker";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import {
@@ -96,7 +97,7 @@ export function stagehandConfigFrom(
 let qaEnvFallbackCache: string | undefined | null = null;
 function qaEnvFallback(): string | undefined {
   if (qaEnvFallbackCache === null) {
-    qaEnvFallbackCache = process.env.QA_BASE_URL;
+    qaEnvFallbackCache = wenv("QA_BASE_URL");
   }
   return qaEnvFallbackCache;
 }

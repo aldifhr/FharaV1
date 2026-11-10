@@ -15,6 +15,7 @@
  *  - written UNPINNED as scope "agent" + projectId + agentId, source
  *    "agent"; the backend dedupes and caps per role per project.
  */
+import { wenv } from "@fhara/config/worker";
 import { runLlmCallWithFallback, usageMetaFor, type LlmConcurrencyGate } from "@/effects/llmCall";
 import { providerHealth } from "@/llm/health";
 import { withSnapshotScope } from "@/llm/snapshots";
@@ -88,8 +89,8 @@ export async function collectRoleLearnings(input: RoleLearningsInput): Promise<R
   const api = deps.api;
   const outcome: RoleLearningsOutcome = { roles: [] };
   try {
-    const env = input.env ?? process.env;
-    if (input.project.roleMemoryDisabled || env.FHARA_ROLE_MEMORY === "0") return { ...outcome, skipped: "disabled" };
+    const env = input.env;
+    if (input.project.roleMemoryDisabled || !wenv("FHARA_ROLE_MEMORY", env)) return { ...outcome, skipped: "disabled" };
     if (typeof api.recordRoleLearnings !== "function") return { ...outcome, skipped: "no_backend" };
     const work = groupWorkByAgent(input.subtasks, input.outputs);
     for (const [agentId, items] of work) {

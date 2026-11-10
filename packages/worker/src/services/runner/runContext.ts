@@ -254,7 +254,7 @@ export function createRunContext(input: ExecutePlanInput, browser: WebClient): R
     return { applied: appliedPaths };
   };
 
-  const stallThresholds = stallThresholdsFromEnv(process.env, llmTimeoutMs());
+  const stallThresholds = stallThresholdsFromEnv(undefined, llmTimeoutMs());
   const ctx: RunContext = {
     input,
     stallThresholds,

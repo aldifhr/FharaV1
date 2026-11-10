@@ -11,6 +11,7 @@
  * DIRECT_IDLE_MIN without a turn the session is released (the thread waits
  * for the user; the next message re-queues it and the session resumes).
  */
+import { wenv, wenvRaw } from "@fhara/config/worker";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { buildChildEnv } from "@/api/convex/lib/childEnv";
@@ -31,16 +32,15 @@ import { ApiLoopEngine } from "./apiLoopSession";
 import { ThreadRunner, type DirectStore } from "./threadRunner";
 import type { DirectEngine } from "./types";
 
-export const DIRECT_POLL_MS = Math.max(250, Number(process.env.DIRECT_POLL_MS ?? 750));
+/** Read at module load (before the entrypoint's dotenv), as before E1. */
+export const DIRECT_POLL_MS = wenv("DIRECT_POLL_MS"); // ≥ 250
 
-export function directIdleMs(env: Record<string, string | undefined> = process.env): number {
-  const minutes = Number(env.DIRECT_IDLE_MIN ?? 10);
-  return Math.max(1, Number.isFinite(minutes) ? minutes : 10) * 60_000;
+export function directIdleMs(env?: Record<string, string | undefined>): number {
+  return wenv("DIRECT_IDLE_MIN", env) * 60_000; // minutes, ≥ 1
 }
 
-export function directMaxLive(env: Record<string, string | undefined> = process.env): number {
-  const n = Math.floor(Number(env.DIRECT_MAX_LIVE ?? 4));
-  return Math.min(8, Math.max(1, Number.isFinite(n) ? n : 4));
+export function directMaxLive(env?: Record<string, string | undefined>): number {
+  return wenv("DIRECT_MAX_LIVE", env); // 1–8
 }
 
 /** Which engine a thread gets: ACP when OpenCode is installed and may run there. */
@@ -49,8 +49,8 @@ export function chooseDirectEngine(input: {
   worktreeIsolation: boolean | undefined;
   env?: Record<string, string | undefined>;
 }): { engine: "opencode-acp" | "api-loop"; reason: string } {
-  const env = input.env ?? process.env;
-  if ((env.DIRECT_ENGINE ?? "").trim() === "api-loop") return { engine: "api-loop", reason: "DIRECT_ENGINE=api-loop" };
+  const env = input.env;
+  if (wenv("DIRECT_ENGINE", env) === "api-loop") return { engine: "api-loop", reason: "DIRECT_ENGINE=api-loop" };
   if (!input.binary) return { engine: "api-loop", reason: "OpenCode is not installed on this worker" };
   if (!input.worktreeIsolation && !opencodeAllowUnisolated(env)) {
     return {
@@ -171,7 +171,7 @@ export class DirectThreads {
     }
     await fs.mkdir(cwd, { recursive: true });
 
-    const binary = findOpencodeBinary({ explicit: process.env.ORCHESTRATOR_NATIVE_PROVIDER_COMMAND });
+    const binary = findOpencodeBinary({ explicit: wenvRaw("ORCHESTRATOR_NATIVE_PROVIDER_COMMAND") });
     const choice = chooseDirectEngine({ binary, worktreeIsolation: isolated });
     const resolver = await buildTaskLlmResolver(context.llmProviders);
     const agentDef = agentRow ? toAgentDefinition(agentRow as never) : undefined;

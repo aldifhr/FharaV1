@@ -8,6 +8,7 @@
  * (`Fhara: <task title>`). The commit never waits on this beyond one call.
  * `FHARA_COMMIT_MESSAGE_LLM=0` turns it off.
  */
+import { wenv } from "@fhara/config/worker";
 import { runLlmCallWithFallback, usageMetaFor, type FallbackHandle } from "@/effects/llmCall";
 import { providerHealth } from "@/llm/health";
 import { withSnapshotScope } from "@/llm/snapshots";
@@ -37,12 +38,12 @@ export interface CommitMessageDeps {
 
 /** Generated message, or null to keep the caller's fallback. Never throws. */
 export async function generateCommitMessage(diff: string, deps: CommitMessageDeps): Promise<string | null> {
-  const env = deps.env ?? process.env;
+  const env = deps.env;
   const fallback = (reason: string) => {
     deps.onFallback?.(reason);
     return null;
   };
-  if (env.FHARA_COMMIT_MESSAGE_LLM === "0") return fallback("disabled");
+  if (!wenv("FHARA_COMMIT_MESSAGE_LLM", env)) return fallback("disabled");
   if (!diff.trim()) return fallback("empty diff");
   if (deps.signal?.aborted) return fallback("aborted");
   let handles: FallbackHandle[] = [];

@@ -1,3 +1,4 @@
+import { wenv } from "@fhara/config/worker";
 import { redactSecret } from "./gitPush";
 import { proxyAwareFetch, type FetchLike } from "./proxyFetch";
 import { settingEnv } from "@/api/convex/lib/appSettings";
@@ -135,7 +136,7 @@ export async function openPullRequest(input: {
 
   // Settings → Diffs & PR: "Open pull requests as drafts" (FHARA_PR_DRAFT,
   // default on). A repository without draft support falls back to ready.
-  const draft = !/^(0|false|off|no)$/i.test((settingEnv("FHARA_PR_DRAFT") ?? "").trim());
+  const draft = wenv("FHARA_PR_DRAFT", settingEnv);
   let response = await create(draft);
   if (response.status === 422) {
     const text = await response.clone().text();

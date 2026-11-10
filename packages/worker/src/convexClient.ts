@@ -1,9 +1,10 @@
+import { wenv } from "@fhara/config/worker";
 import { ConvexClient, ConvexHttpClient } from "convex/browser";
 
 export function createConvexClient(): ConvexHttpClient {
-  const url = process.env.NEXT_PUBLIC_CONVEX_URL ?? process.env.CONVEX_URL;
+  const url = wenv("NEXT_PUBLIC_CONVEX_URL"); // legacy alias CONVEX_URL
   if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL missing");
-  const token = process.env.CONVEX_SERVICE_TOKEN;
+  const token = wenv("CONVEX_SERVICE_TOKEN");
   if (!token) throw new Error("CONVEX_SERVICE_TOKEN missing");
   return new ConvexHttpClient(url);
 }
@@ -15,8 +16,8 @@ export function createConvexClient(): ConvexHttpClient {
  * WebSocket; the worker then runs on its poll alone.
  */
 export function createConvexSubscriber(): ConvexClient | null {
-  if (process.env.WORKER_SUBSCRIBE === "0") return null;
-  const url = process.env.NEXT_PUBLIC_CONVEX_URL ?? process.env.CONVEX_URL;
+  if (!wenv("WORKER_SUBSCRIBE")) return null;
+  const url = wenv("NEXT_PUBLIC_CONVEX_URL");
   if (!url || typeof (globalThis as { WebSocket?: unknown }).WebSocket !== "function") return null;
   return new ConvexClient(url, { unsavedChangesWarning: false });
 }

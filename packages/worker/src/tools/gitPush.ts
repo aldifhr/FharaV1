@@ -1,3 +1,4 @@
+import { wenv } from "@fhara/config/worker";
 import { execFile } from "node:child_process";
 import { withAccessLog, type CommandRecorder } from "@/utils/accessLog";
 import fs from "node:fs";
@@ -210,9 +211,9 @@ export interface PushInput {
 /** Branch names a task push may never target without an explicit override. */
 const ALWAYS_PROTECTED = new Set(["main", "master"]);
 
-function envFlag(name: string): boolean {
+function envFlag(name: "FHARA_ALLOW_BASE_BRANCH_PUSH" | "FHARA_ALLOW_FORCE_PUSH"): boolean {
   // Settings → Source control overrides the env value (lib/appSettings.ts).
-  return /^(1|true|yes|on)$/i.test((settingEnv(name) ?? "").trim());
+  return wenv(name, settingEnv); // 1|true|yes|on, knob-aware
 }
 
 /**

@@ -9,6 +9,7 @@
  * Decryption failure is a HARD error naming the provider — never a silent
  * fallback to another credential.
  */
+import { wenv } from "@fhara/config/worker";
 
 const FORMAT_VERSION = "v1";
 const TAG_BYTES = 16;
@@ -22,7 +23,7 @@ let cachedKey: Promise<CryptoKey> | null = null;
 function encryptionKey(): Promise<CryptoKey> {
   if (!cachedKey) {
     cachedKey = (async () => {
-      const raw = process.env.PROVIDER_ENCRYPTION_KEY;
+      const raw = wenv("PROVIDER_ENCRYPTION_KEY");
       if (!raw) {
         throw new Error(
           "PROVIDER_ENCRYPTION_KEY is not set in the worker environment. Provider credentials stored encrypted cannot be decrypted until it matches the key set on the Convex deployment."

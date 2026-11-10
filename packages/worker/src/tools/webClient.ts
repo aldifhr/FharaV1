@@ -1,3 +1,4 @@
+import { wenv } from "@fhara/config/worker";
 import {
   localBrowser,
   Stagehand,
@@ -92,9 +93,8 @@ export class WebClient {
     // remain as operator overrides.
     const modelName: StagehandModelName =
       (this.config.stagehandModelName as StagehandModelName | undefined) ??
-      (process.env.STAGEHAND_MODEL as StagehandModelName | undefined) ??
-      "anthropic/claude-sonnet-4-20250514";
-    const apiKey = this.config.stagehandApiKey ?? process.env.STAGEHAND_API_KEY ?? "";
+      (wenv("STAGEHAND_MODEL") as StagehandModelName); // default anthropic/claude-sonnet-4-20250514
+    const apiKey = this.config.stagehandApiKey ?? wenv("STAGEHAND_API_KEY");
     const stagehand = await Stagehand.create({
       browser,
       ...(apiKey ? { model: { modelName, apiKey } } : {}),

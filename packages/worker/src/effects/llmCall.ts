@@ -1,3 +1,4 @@
+import { wenv } from "@fhara/config/worker";
 import { Effect, Schedule } from "effect";
 import { effectiveLlmTimeoutMs, type GlobalLLMConfig, type LLMMessage, type LLMProvider, type LLMResult } from "@/llm";
 import type { ProviderHealthRegistry } from "@/llm/health";
@@ -161,11 +162,8 @@ export class LlmConcurrencyGate {
  * tasks come and go, the worker bound stays.
  */
 function workerGateLimitFromEnv(): number {
-  const raw =
-    process.env.WORKER_LLM_MAX_CONCURRENCY ??
-    process.env.ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS;
-  const parsed = raw ? Number(raw) : Number.NaN;
-  return Number.isFinite(parsed) ? parsed : 1;
+  // Falls back to ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS, then 1 (schema).
+  return wenv("WORKER_LLM_MAX_CONCURRENCY");
 }
 
 const workerLlmGate = new LlmConcurrencyGate(workerGateLimitFromEnv());

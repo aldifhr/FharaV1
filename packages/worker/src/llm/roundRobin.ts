@@ -13,6 +13,7 @@
  * a call.
  */
 
+import { wenv } from "@fhara/config/worker";
 import { StickyRotationCursor } from "@/api/convex/lib/llmRotation";
 
 /** A rotation cursor: hands out the next index of a candidate list. */
@@ -59,7 +60,7 @@ export class InMemoryRotationCursor implements RotationCursor {
  * call); a higher limit keeps a provider's prompt cache warm longer.
  */
 export const rotationCursor: RotationCursor = new StickyRotationCursor(
-  Number(process.env.LLM_ROUND_ROBIN_STICKY_LIMIT) || 1
+  wenv("LLM_ROUND_ROBIN_STICKY_LIMIT")
 );
 
 /**

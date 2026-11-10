@@ -2,10 +2,11 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useConvex, useQuery } from "convex/react";
-import { ChevronRight, ScrollText } from "lucide-react";
+import { useConvex, useMutation, useQuery } from "convex/react";
+import { ChevronRight, Download, ScrollText, Trash2 } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import IconRail from "@/components/IconRail";
+import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { roleLabel } from "@/lib/agentRoles";
 import { clockTime, isSameDay, shortDate } from "@/lib/format";
 import { useToast } from "@/components/Toasts";
@@ -64,6 +65,51 @@ function actorLabel(row: Row): string {
   return row.actorRole ? roleLabel(row.actorRole) : row.actor;
 }
 
+function downloadText(text: string, filename: string, type: string) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+const CSV_COLUMNS: { key: keyof Row; label: string }[] = [
+  { key: "createdAt", label: "createdAt" },
+  { key: "actor", label: "actor" },
+  { key: "actorRole", label: "actorRole" },
+  { key: "tool", label: "tool" },
+  { key: "action", label: "action" },
+  { key: "decision", label: "decision" },
+  { key: "target", label: "target" },
+  { key: "projectName", label: "project" },
+  { key: "details", label: "details" },
+];
+
+function csvCell(value: unknown): string {
+  const text =
+    value === null || value === undefined
+      ? ""
+      : typeof value === "object"
+        ? JSON.stringify(value)
+        : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function toCsv(rows: Row[]): string {
+  const header = CSV_COLUMNS.map((c) => c.label).join(",");
+  const body = rows.map((row) =>
+    CSV_COLUMNS.map((c) => csvCell(row[c.key])).join(","),
+  );
+  return [header, ...body].join("\r\n");
+}
+
+function exportStamp(): string {
+  return new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+}
+
 function AuditPage() {
   const projectId = useSearchParams().get("project") ?? undefined;
   const [filter, setFilter] = useState<Filter>("all");
@@ -72,7 +118,13 @@ function AuditPage() {
   // undefined until the first "Load more"; then the cursor that page returned.
   const [cursor, setCursor] = useState<number | null | undefined>(undefined);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
+  const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState<"json" | "csv" | null>(null);
   const convex = useConvex();
+  const remove = useMutation(api.auditLog.remove);
+  const removeMany = useMutation(api.auditLog.removeMany);
   const toast = useToast();
 
   const base = { ...(projectId ? { projectId: projectId as never } : {}), ...filterArgs(filter) };
@@ -87,7 +139,9 @@ function AuditPage() {
 
   const nextCursor = cursor !== undefined ? cursor : (first?.nextCursor ?? null);
   const firstIds = new Set<string>((first?.items ?? []).map((r) => r._id as string));
-  const rows: Row[] = [...((first?.items ?? []) as Row[]), ...older.filter((r) => !firstIds.has(r._id))];
+  const rows: Row[] = [...((first?.items ?? []) as Row[]), ...older.filter((r) => !firstIds.has(r._id))].filter(
+    (r) => !removedIds.has(r._id),
+  );
 
   const loadMore = async () => {
     if (nextCursor === null) return;
@@ -105,15 +159,130 @@ function AuditPage() {
 
   const projectName = (project as { name?: string } | null | undefined)?.name;
 
+  /** Page through every row that matches the current filter (bounded). */
+  const collectAll = async (): Promise<Row[]> => {
+    const collected: Row[] = [];
+    let pageCursor: number | null = null;
+    for (let page = 0; page < 40; page++) {
+      const result: { items: Row[]; nextCursor: number | null } = await convex.query(
+        api.auditLog.list,
+        pageCursor === null
+          ? { ...base, limit: 100 }
+          : { ...base, limit: 100, cursor: pageCursor },
+      );
+      collected.push(...result.items);
+      if (result.nextCursor === null) break;
+      pageCursor = result.nextCursor;
+    }
+    return collected;
+  };
+
+  const exportRows = async (format: "json" | "csv") => {
+    setExporting(format);
+    try {
+      const data = await collectAll();
+      if (data.length === 0) {
+        toast("info", "Nothing to export", "No entries match this filter.");
+        return;
+      }
+      const stamp = exportStamp();
+      if (format === "json") {
+        downloadText(JSON.stringify(data, null, 2), `audit-log-${stamp}.json`, "application/json");
+      } else {
+        downloadText(toCsv(data), `audit-log-${stamp}.csv`, "text/csv;charset=utf-8");
+      }
+      toast("success", "Export ready", `${data.length} ${data.length === 1 ? "entry" : "entries"} downloaded.`);
+    } catch (err) {
+      toast("error", "Export failed", err instanceof Error ? err.message : undefined);
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const runDelete = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setBusy(true);
+    try {
+      if (ids.length === 1) {
+        await remove({ id: ids[0] as never });
+      } else {
+        for (let i = 0; i < ids.length; i += 200) {
+          const chunk = ids.slice(i, i + 200);
+          await removeMany({ ids: chunk.map((id) => id as never) });
+        }
+      }
+      setRemovedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of ids) next.add(id);
+        return next;
+      });
+      setOlder((prev) => prev.filter((r) => !ids.includes(r._id)));
+      setOpen(null);
+      toast("success", ids.length === 1 ? "Entry deleted" : `${ids.length} entries deleted`);
+    } catch (err) {
+      toast("error", "Couldn't delete", err instanceof Error ? err.message : undefined);
+    } finally {
+      setBusy(false);
+      setConfirmReq(null);
+    }
+  };
+
+  const askDelete = (row: Row) =>
+    setConfirmReq({
+      title: "Delete audit entry?",
+      message: `${actionLabel(row)}${row.target ? ` · ${row.target}` : ""} from ${when(row.createdAt)}. This cannot be undone.`,
+      confirmLabel: "Delete",
+      onOk: () => void runDelete([row._id]),
+    });
+
+  const askDeleteShown = () =>
+    setConfirmReq({
+      title: `Delete ${rows.length} ${rows.length === 1 ? "entry" : "entries"}?`,
+      message: "Every entry currently shown for this filter is removed. This cannot be undone.",
+      confirmLabel: "Delete shown",
+      onOk: () => void runDelete(rows.map((r) => r._id)),
+    });
+
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
       <IconRail projectId={projectId} />
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
         <div className="mx-auto max-w-3xl">
-          <header>
-            {projectName && <p className="truncate text-[13px] text-ink-3">{projectName}</p>}
-            <h1 className="mt-1 text-[26px] font-semibold tracking-tight">Audit log</h1>
-            <p className="mt-1 text-[15px] text-ink-2">Tool calls, approvals and configuration changes, newest first.</p>
+          <header className="flex flex-wrap items-end justify-between gap-3">
+            <div className="min-w-0">
+              {projectName && <p className="truncate text-[13px] text-ink-3">{projectName}</p>}
+              <h1 className="mt-1 text-[26px] font-semibold tracking-tight">Audit log</h1>
+              <p className="mt-1 text-[15px] text-ink-2">Tool calls, approvals and configuration changes, newest first.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                disabled={exporting !== null}
+                onClick={() => void exportRows("json")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+              >
+                <Download size={14} />
+                {exporting === "json" ? "Exporting…" : "Export JSON"}
+              </button>
+              <button
+                type="button"
+                disabled={exporting !== null}
+                onClick={() => void exportRows("csv")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+              >
+                <Download size={14} />
+                {exporting === "csv" ? "Exporting…" : "Export CSV"}
+              </button>
+              <button
+                type="button"
+                disabled={rows.length === 0 || busy}
+                onClick={askDeleteShown}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] text-ink-3 outline-none transition hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
+              >
+                <Trash2 size={14} />
+                Delete shown
+              </button>
+            </div>
           </header>
 
           <div role="tablist" aria-label="Filter" className="mt-8 flex flex-wrap gap-1.5">
@@ -156,34 +325,45 @@ function AuditPage() {
                   const expanded = open === row._id;
                   return (
                     <li key={row._id}>
-                      <button
-                        type="button"
-                        aria-expanded={expanded}
-                        onClick={() => setOpen(expanded ? null : row._id)}
-                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none transition hover:bg-hover focus-visible:bg-hover"
-                      >
-                        <span
-                          aria-label={row.decision}
-                          title={row.decision}
-                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${DOT[row.decision]}`}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[14px]">
-                            <span className="text-ink">{actionLabel(row)}</span>
-                            {row.target && <span className="text-ink-2"> · {row.target}</span>}
-                          </p>
-                          <p className="truncate text-[12.5px] text-ink-3">
-                            {actorLabel(row)}
-                            {row.projectName && !projectId ? ` · ${row.projectName}` : ""}
-                            {row.decision !== "recorded" ? ` · ${row.decision}` : ""}
-                          </p>
-                        </div>
-                        <span className="shrink-0 text-[12px] tabular-nums text-ink-3">{when(row.createdAt)}</span>
-                        <ChevronRight
-                          size={14}
-                          className={`shrink-0 text-ink-3 transition-transform ${expanded ? "rotate-90" : ""}`}
-                        />
-                      </button>
+                      <div className="flex items-center gap-2 px-4 py-2.5 transition hover:bg-hover">
+                        <button
+                          type="button"
+                          aria-expanded={expanded}
+                          onClick={() => setOpen(expanded ? null : row._id)}
+                          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                        >
+                          <span
+                            aria-label={row.decision}
+                            title={row.decision}
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${DOT[row.decision]}`}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[14px]">
+                              <span className="text-ink">{actionLabel(row)}</span>
+                              {row.target && <span className="text-ink-2"> · {row.target}</span>}
+                            </p>
+                            <p className="truncate text-[12.5px] text-ink-3">
+                              {actorLabel(row)}
+                              {row.projectName && !projectId ? ` · ${row.projectName}` : ""}
+                              {row.decision !== "recorded" ? ` · ${row.decision}` : ""}
+                            </p>
+                          </div>
+                          <span className="shrink-0 text-[12px] tabular-nums text-ink-3">{when(row.createdAt)}</span>
+                          <ChevronRight
+                            size={14}
+                            className={`shrink-0 text-ink-3 transition-transform ${expanded ? "rotate-90" : ""}`}
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => askDelete(row)}
+                          aria-label={`Delete ${actionLabel(row)}`}
+                          title="Delete entry"
+                          className="shrink-0 rounded-lg p-1.5 text-ink-3 outline-none transition hover:bg-hover hover:text-destructive focus-visible:ring-2 focus-visible:ring-brand/40"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                       {expanded && (
                         <pre className="mx-4 mb-3 max-h-72 overflow-auto rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[12px] leading-relaxed text-ink-2">
                           {JSON.stringify(
@@ -213,6 +393,12 @@ function AuditPage() {
           )}
         </div>
       </main>
+      <ConfirmDialog
+        request={confirmReq}
+        pending={busy}
+        onCancel={() => setConfirmReq(null)}
+        onConfirm={() => confirmReq?.onOk()}
+      />
     </div>
   );
 }

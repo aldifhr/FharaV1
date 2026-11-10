@@ -1,4 +1,4 @@
-/** Number formatting shared by the Evaluations and Audit pages. */
+/** Number formatting shared by the team and workload views. */
 
 /** 0.734 -> "73%"; null -> "—". */
 export function pct(value: number | null | undefined): string {

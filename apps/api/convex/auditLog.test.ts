@@ -147,6 +147,72 @@ describe("auditLog.list", () => {
   });
 });
 
+describe("auditLog.remove", () => {
+  test("deletes one row and reports false when it is already gone", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, id } = await t.run(async (ctx) => {
+      const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p" });
+      const id = await ctx.db.insert("audit", {
+        projectId,
+        actor: "user",
+        tool: "run_command",
+        action: "run",
+        decision: "allowed",
+        createdAt: 1,
+      });
+      return { projectId, id };
+    });
+
+    expect(await t.mutation(api.auditLog.remove, { id })).toBe(true);
+    expect(await t.mutation(api.auditLog.remove, { id })).toBe(false);
+    const page = await t.query(api.auditLog.list, { projectId });
+    expect(page.items).toHaveLength(0);
+  });
+
+  test("removeMany deletes every listed row and leaves the rest", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, ids } = await t.run(async (ctx) => {
+      const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p" });
+      const base = { projectId, actor: "user", tool: "run_command", action: "run", decision: "allowed" as const };
+      const a = await ctx.db.insert("audit", { ...base, target: "drop-a", createdAt: 1 });
+      const b = await ctx.db.insert("audit", { ...base, target: "drop-b", createdAt: 2 });
+      await ctx.db.insert("audit", { ...base, target: "keep", createdAt: 3 });
+      return { projectId, ids: [a, b] };
+    });
+
+    expect(await t.mutation(api.auditLog.removeMany, { ids })).toBe(2);
+    const page = await t.query(api.auditLog.list, { projectId });
+    expect(page.items.map((r) => r.target)).toEqual(["keep"]);
+  });
+
+  test("refuses rows of a project the viewer cannot see", async () => {
+    const t = convexTest(schema, modules);
+    const id = await t.run(async (ctx) => {
+      const owned = await ctx.db.insert("projects", { name: "O", workspacePath: "/tmp/o", ownerId: "x" });
+      return ctx.db.insert("audit", {
+        projectId: owned,
+        actor: "a",
+        tool: "read_file",
+        action: "read",
+        decision: "allowed",
+        createdAt: 1,
+      });
+    });
+
+    await expect(t.mutation(api.auditLog.remove, { id })).rejects.toThrow(/Unauthorized/);
+  });
+
+  test("global rows follow the registry write rule", async () => {
+    const t = convexTest(schema, modules);
+    const id = await t.run(async (ctx) => {
+      await ctx.db.insert("projects", { name: "Owned", workspacePath: "/tmp/o", ownerId: "x" });
+      return ctx.db.insert("audit", { actor: "user", tool: "config", action: "agent.create", decision: "recorded", createdAt: 2 });
+    });
+
+    await expect(t.mutation(api.auditLog.remove, { id })).rejects.toThrow(/Unauthorized/);
+  });
+});
+
 describe("changedFields", () => {
   test("compares values but returns names only", () => {
     expect(changedFields({ a: 1, b: "x", c: [1] }, { a: 1, b: "y", c: [1, 2], updatedAt: 5 })).toEqual(["b", "c"]);

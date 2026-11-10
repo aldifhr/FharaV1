@@ -1,7 +1,7 @@
-import { query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import { assertProjectAccess, visibleProjectIds } from "./lib/authz";
+import { assertProjectAccess, assertRegistryWriteAccess, visibleProjectIds } from "./lib/authz";
 
 /**
  * Audit log page (read-only), newest first.
@@ -120,5 +120,40 @@ export const list = query({
       })),
       nextCursor,
     };
+  },
+});
+
+/**
+ * Delete one audit row. Project rows require project access; global rows
+ * (agent registry, providers, removed projects) follow the registry write
+ * rule, matching the read path.
+ */
+export const remove = mutation({
+  args: { id: v.id("audit") },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.id);
+    if (!row) return false;
+    if (row.projectId) await assertProjectAccess(ctx, row.projectId);
+    else await assertRegistryWriteAccess(ctx);
+    await ctx.db.delete(args.id);
+    return true;
+  },
+});
+
+/** Delete several audit rows (bulk "delete shown"). Capped per call. */
+export const removeMany = mutation({
+  args: { ids: v.array(v.id("audit")) },
+  handler: async (ctx, args) => {
+    if (args.ids.length > 200) throw new Error("Too many rows in one delete (max 200)");
+    let deleted = 0;
+    for (const id of args.ids) {
+      const row = await ctx.db.get(id);
+      if (!row) continue;
+      if (row.projectId) await assertProjectAccess(ctx, row.projectId);
+      else await assertRegistryWriteAccess(ctx);
+      await ctx.db.delete(id);
+      deleted++;
+    }
+    return deleted;
   },
 });

@@ -31,6 +31,7 @@ const PROVIDER_FIELDS = [
   "weight",
   "modelPatterns",
   "isEnabled",
+  "presetId",
 ] as const;
 const MODEL_FIELDS = [
   "modelId",
@@ -45,9 +46,13 @@ const MODEL_FIELDS = [
 
 const OP_FIELDS: Record<string, readonly string[]> = {
   create: PROVIDER_FIELDS,
+  // Validate the key (list the models) before storing anything.
+  validateAndCreate: PROVIDER_FIELDS,
   update: ["id", ...PROVIDER_FIELDS],
   remove: ["id"],
-  fetchModels: ["baseUrl", "providerId", "apiKey"],
+  fetchModels: ["baseUrl", "providerId", "apiKey", "provider"],
+  testModel: ["providerId", "modelRowId"],
+  reorderModels: ["orderedIds"],
   createModel: ["providerId", ...MODEL_FIELDS],
   updateModel: ["id", ...MODEL_FIELDS],
   removeModel: ["id"],
@@ -100,6 +105,35 @@ export async function POST(request: NextRequest) {
         const id = await client.mutation(api.llmProviders.create, callArgs);
         return NextResponse.json({ id });
       }
+      case "validateAndCreate": {
+        // Save = validate: list the provider's models with the key the
+        // user typed. A rejected key or an unreachable URL stops here and
+        // nothing is stored.
+        let models: string[] = [];
+        try {
+          models = await client.action(api.llmProviders.fetchModels, {
+            token,
+            baseUrl: String(payload.baseUrl ?? ""),
+            provider: typeof payload.provider === "string" ? payload.provider : undefined,
+            ...(typeof payload.apiKey === "string" && payload.apiKey ? { apiKey: payload.apiKey } : {}),
+          });
+        } catch (error) {
+          return NextResponse.json(
+            { error: `Key check failed: ${friendlyError(error)}` },
+            { status: 400 }
+          );
+        }
+        const id = await client.mutation(api.llmProviders.create, { ...callArgs, model: "" });
+        return NextResponse.json({ id, models });
+      }
+      case "testModel": {
+        const result = await client.action(api.llmProvidersNode.testModel, callArgs);
+        return NextResponse.json(result);
+      }
+      case "reorderModels": {
+        await client.mutation(api.llmModels.reorder, callArgs);
+        return NextResponse.json({ ok: true });
+      }
       case "update": {
         await client.mutation(api.llmProviders.updateProvider, callArgs);
         return NextResponse.json({ ok: true });
@@ -129,12 +163,20 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: `Unknown op: ${op}` }, { status: 400 });
     }
   } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Provider operation failed",
-      },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: friendlyError(error) }, { status: 400 });
   }
+}
+
+/**
+ * The backend error without the Convex wrapper ("[CONVEX M(...)] Server
+ * Error Uncaught Error: ..."), and a setup hint instead of the raw message
+ * when the deployment has no PROVIDER_ENCRYPTION_KEY.
+ */
+function friendlyError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : "Provider operation failed";
+  if (/PROVIDER_ENCRYPTION_KEY/.test(raw) && /not configured|missing|not set/i.test(raw)) {
+    return "API keys can't be stored yet: PROVIDER_ENCRYPTION_KEY is not set on the Convex deployment. Run `npx convex env set PROVIDER_ENCRYPTION_KEY \"$(openssl rand -base64 32)\"`, put the same value in .env for the worker, then save again.";
+  }
+  const match = raw.match(/Uncaught Error:\s*([\s\S]*?)(?:\n\s+at |\n\s*Called by|$)/);
+  return (match ? match[1] : raw).trim();
 }

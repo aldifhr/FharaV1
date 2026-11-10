@@ -163,7 +163,7 @@ describe("completeWithAgent routing", () => {
     expect(result.primaryError).toContain("openai-compatible @ primary:1");
   });
 
-  test("resolveConfigChain: primary then the agent's fallback; same model is not repeated", async () => {
+  test("resolveConfigChain: primary, the agent's fallback, then the rest of the list; no repeats", async () => {
     const pool = [
       { _id: "p1", name: "A", provider: "openai-compatible", model: "a", baseUrl: "http://a/v1", apiKeyEnv: "X_A", priority: 0, weight: 1, models: [{ _id: "m1", modelId: "a", isAvailable: true }] },
       { _id: "p2", name: "B", provider: "openai-compatible", model: "b", baseUrl: "http://b/v1", apiKeyEnv: "X_B", priority: 1, weight: 1, models: [{ _id: "m2", modelId: "b", isAvailable: true }] },
@@ -171,9 +171,14 @@ describe("completeWithAgent routing", () => {
     const env = { provider: "openai", model: "g", baseUrl: "http://g/v1", apiKey: "global" };
     const chain = await resolveConfigChain(pool, env, { llmProviderId: "p1", llmModelId: "m1", llmFallbackProviderId: "p2", llmFallbackModelId: "m2" });
     expect(chain.map((c) => c.model)).toEqual(["a", "b"]);
-    const single = await resolveConfigChain(pool, env, { llmProviderId: "p1", llmModelId: "m1", llmFallbackProviderId: "p1", llmFallbackModelId: "m1" });
-    expect(single.map((c) => c.model)).toEqual(["a"]);
-    expect((await resolveConfigChain(pool, env, { llmProviderId: "p1" })).length).toBe(1);
+    // Same model as primary and fallback: listed once, then the rest of the
+    // pool (the worker's tier 2), so chat fails over like a task does.
+    const same = await resolveConfigChain(pool, env, { llmProviderId: "p1", llmModelId: "m1", llmFallbackProviderId: "p1", llmFallbackModelId: "m1" });
+    expect(same.map((c) => c.model)).toEqual(["a", "b"]);
+    expect((await resolveConfigChain(pool, env, { llmProviderId: "p2" })).map((c) => c.model)).toEqual(["b", "a"]);
+    // Policy "fixed" never leaves the agent's own assignment.
+    const fixed = await resolveConfigChain(pool, env, { llmProviderId: "p1", llmSelectionPolicy: "fixed" });
+    expect(fixed.map((c) => c.model)).toEqual(["a"]);
   });
 });
 

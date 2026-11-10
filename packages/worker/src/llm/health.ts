@@ -9,7 +9,13 @@
  * it (counters reset). Permanent errors (4xx) never count: they indicate a
  * bad request/credential, not an unhealthy provider, and must not sideline
  * a connection.
+ *
+ * Rate limits are the exception to the threshold (lib/llmRotation.ts,
+ * rules adapted from 9router): a 429 or rate-limit wording opens the
+ * circuit at once for an exponential backoff (2s, 4s, … max 5 min) that
+ * grows with each consecutive rate limit and resets on success.
  */
+import { cooldownForFailure } from "@/api/convex/lib/llmRotation";
 
 export interface ProviderHealthSnapshot {
   consecutiveTransientFailures: number;
@@ -21,6 +27,7 @@ export interface ProviderHealthSnapshot {
 }
 
 interface ConnectionHealth {
+  rateLimitLevel?: number;
   consecutiveTransientFailures: number;
   totalSuccesses: number;
   totalTransientFailures: number;
@@ -112,6 +119,7 @@ export class ProviderHealthRegistry {
     health.lastSuccessAt = this.now();
     health.consecutiveTransientFailures = 0;
     health.circuitOpenUntil = null;
+    health.rateLimitLevel = 0;
     this.notifyChange(connectionId);
   }
 
@@ -120,13 +128,21 @@ export class ProviderHealthRegistry {
    * permanent failures are recorded nowhere except the timestamp — they
    * neither open the circuit nor reset the consecutive counter.
    */
-  recordFailure(connectionId: string, options: { transient?: boolean } = {}): void {
+  recordFailure(
+    connectionId: string,
+    options: { transient?: boolean; error?: unknown } = {}
+  ): void {
     const health = this.entry(connectionId);
     health.lastFailureAt = this.now();
     if (options.transient === false) return;
     health.totalTransientFailures++;
     health.consecutiveTransientFailures++;
-    if (health.consecutiveTransientFailures >= this.failureThreshold) {
+    const cooldown = options.error === undefined ? undefined : cooldownForFailure(options.error, health.rateLimitLevel ?? 0);
+    if (cooldown?.kind === "rate_limit") {
+      health.rateLimitLevel = cooldown.backoffLevel;
+      const until = this.now() + cooldown.cooldownMs;
+      health.circuitOpenUntil = Math.max(health.circuitOpenUntil ?? 0, until);
+    } else if (health.consecutiveTransientFailures >= this.failureThreshold) {
       health.circuitOpenUntil = this.now() + this.cooldownMs;
     }
     this.notifyChange(connectionId);
@@ -157,7 +173,8 @@ export class ProviderHealthRegistry {
         circuitOpenUntil: null,
       };
     }
-    return { ...health };
+    const { rateLimitLevel: _level, ...snapshot } = health;
+    return snapshot;
   }
 
   /**

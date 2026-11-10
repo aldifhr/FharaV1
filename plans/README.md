@@ -40,6 +40,7 @@ execution order and a definition of done.
 | 034 | [OpenCode model catalog in the agent editor](034-opencode-model-catalog.md) | P2 | M | 014 | DONE (implemented with unit tests; live check in the running app) |
 | 035 | [Global OpenCode runtime, per-agent Fhara LLM](035-global-opencode-runtime.md) | P2 | M | 014, 032, 034 | IN PROGRESS (implemented with unit tests; live check done; worker restart pending) |
 | 036 | [Agent Reach web tool for read-only agents](036-agent-reach-web-tool.md) | P2 | M | — | IN PROGRESS (implemented with unit + executor tests; live CLI smoke done, full task smoke pending) |
+| 037 | [LLM & Models simple flow, one model order](037-llm-models-simple-flow.md) | P2 | M | 032, 035 | IN PROGRESS (implemented with unit + convex-test; browser check pending) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

@@ -2,6 +2,7 @@ import { isSafeApiKeyEnv } from "./apiKeyEnv";
 import type { QueryCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { decryptApiKey } from "./llmCrypto";
+import { normalizeSelectionMode, type LlmSelectionMode } from "./llmSelection";
 
 /**
  * Backend provider-pool assembly (spec §4) — the single place where
@@ -30,6 +31,8 @@ export interface PoolModelPayload {
   inputPricePer1k?: number;
   outputPricePer1k?: number;
   isAvailable: boolean;
+  /** Place in the one model list (lib/llmOrder.ts). Unset on legacy rows. */
+  position?: number;
   /** True when synthesized from the legacy `model` column (pre-migration row). */
   legacy?: boolean;
 }
@@ -54,6 +57,12 @@ export interface PoolConnectionPayload {
   modelPatterns?: string[];
   isEnabled?: boolean;
   models: PoolModelPayload[];
+  /**
+   * The app-wide selection mode (plan 032), repeated on every row so a
+   * caller that only holds the pool array (backend chat) orders and
+   * rotates it the same way the worker does. No credential material.
+   */
+  selectionMode?: LlmSelectionMode;
 }
 
 /**
@@ -63,7 +72,8 @@ export interface PoolConnectionPayload {
  * synthesized model so resolution keeps working during the transition.
  */
 export async function loadProviderPool(
-  ctx: QueryCtx
+  ctx: QueryCtx,
+  options: { includeDisabled?: boolean } = {}
 ): Promise<PoolConnectionPayload[]> {
   const providers = await ctx.db.query("llmProviders").collect();
   const modelDocs = await ctx.db.query("llmModels").collect();
@@ -80,13 +90,16 @@ export async function loadProviderPool(
       inputPricePer1k: m.inputPricePer1k,
       outputPricePer1k: m.outputPricePer1k,
       isAvailable: m.isAvailable,
+      ...(typeof m.position === "number" ? { position: m.position } : {}),
     });
     modelsByProvider.set(m.providerId, list);
   }
 
+  const settings = await ctx.db.query("llmSelectionSettings").first();
+  const selectionMode = normalizeSelectionMode(settings?.mode);
   const pool: PoolConnectionPayload[] = [];
   for (const p of providers) {
-    if (p.isEnabled === false) continue;
+    if (p.isEnabled === false && !options.includeDisabled) continue;
     let models = modelsByProvider.get(p._id) ?? [];
     if (models.length === 0 && p.model) {
       models = [{ modelId: p.model, isAvailable: true, legacy: true }];
@@ -104,24 +117,11 @@ export async function loadProviderPool(
       modelPatterns: p.modelPatterns,
       isEnabled: p.isEnabled,
       models,
+      selectionMode,
     });
   }
   pool.sort((a, b) => a.priority - b.priority);
   return pool;
-}
-
-/**
- * The primary connection for agent-less callers (chat): the lowest-priority
- * connection that has at least one available model.
- */
-export function pickPrimaryConnection(
-  pool: PoolConnectionPayload[]
-): { connection: PoolConnectionPayload; model: PoolModelPayload } | null {
-  for (const connection of pool) {
-    const model = connection.models.find((m) => m.isAvailable);
-    if (model) return { connection, model };
-  }
-  return null;
 }
 
 /**

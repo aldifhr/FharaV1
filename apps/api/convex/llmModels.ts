@@ -2,6 +2,25 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { assertServiceToken } from "./lib/authz";
 import { changedFields, recordAudit, setFields } from "./lib/recordAudit";
+import { nextPosition, positionsFromOrder, sortModelRows } from "./lib/llmOrder";
+import type { MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+
+/**
+ * Give every model row a position, in the current list order, when some
+ * rows have none (rows written before the list existed). Run before an
+ * insert so a new model lands at the END of the list, not ahead of the
+ * unpositioned rows.
+ */
+export async function materializePositions(ctx: MutationCtx): Promise<void> {
+  const models = await ctx.db.query("llmModels").collect();
+  if (models.every((m) => typeof m.position === "number")) return;
+  const providers = await ctx.db.query("llmProviders").collect();
+  const ordered = sortModelRows(models, providers);
+  for (const [index, model] of ordered.entries()) {
+    if (model.position !== index) await ctx.db.patch(model._id, { position: index });
+  }
+}
 
 /**
  * Model Registry (spec §4B): models are their own entities, independent of
@@ -31,7 +50,46 @@ export const list = query({
           .withIndex("by_provider", (q) => q.eq("providerId", args.providerId!))
           .collect()
       : await ctx.db.query("llmModels").collect();
-    return docs.sort((a, b) => a.modelId.localeCompare(b.modelId));
+    // List order (lib/llmOrder.ts): the fallback order Settings shows.
+    const providers = await ctx.db.query("llmProviders").collect();
+    return sortModelRows(docs, providers);
+  },
+});
+
+/**
+ * Set the whole model order at once: `orderedIds` must name every model
+ * row exactly once. Position i goes to the i-th id, and each connection's
+ * priority follows its first model, so legacy readers of priority agree.
+ * One mutation, so the order is never half-applied.
+ */
+export const reorder = mutation({
+  args: { token: v.string(), orderedIds: v.array(v.id("llmModels")) },
+  handler: async (ctx, args) => {
+    assertServiceToken(args.token);
+    const models = await ctx.db.query("llmModels").collect();
+    const ids = args.orderedIds.map(String);
+    if (new Set(ids).size !== ids.length) throw new Error("The model order lists a model twice");
+    const known = new Set(models.map((m) => String(m._id)));
+    if (ids.length !== known.size || ids.some((id) => !known.has(id))) {
+      throw new Error("The model order is out of date; reload and try again");
+    }
+    const { positions, providerPriority } = positionsFromOrder(
+      ids,
+      new Map(models.map((m) => [String(m._id), String(m.providerId)]))
+    );
+    const now = Date.now();
+    for (const model of models) {
+      const position = positions.get(String(model._id))!;
+      if (model.position !== position) await ctx.db.patch(model._id, { position, updatedAt: now });
+    }
+    for (const [providerId, priority] of providerPriority) {
+      const provider = await ctx.db.get(providerId as Id<"llmProviders">);
+      if (provider && provider.priority !== priority) {
+        await ctx.db.patch(provider._id, { priority, updatedAt: now });
+      }
+    }
+    await recordAudit(ctx, { action: "llmModel.reorder", details: { count: ids.length } });
+    return { ok: true };
   },
 });
 
@@ -54,9 +112,11 @@ export const create = mutation({
         `Model "${modelId}" is already registered for provider "${provider.name}"`
       );
     }
+    await materializePositions(ctx);
     const now = Date.now();
     const id = await ctx.db.insert("llmModels", {
       providerId: args.providerId,
+      position: nextPosition(await ctx.db.query("llmModels").collect()),
       modelId,
       displayName: args.displayName?.trim() || undefined,
       contextWindow: args.contextWindow,

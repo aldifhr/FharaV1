@@ -6,6 +6,22 @@ import { assertSafeApiKeyEnv, isSafeApiKeyEnv } from "./lib/apiKeyEnv";
 import { changedFields, recordAudit, setFields } from "./lib/recordAudit";
 import { encryptApiKey, decryptApiKey } from "./lib/llmCrypto";
 import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver";
+import { listProviderModels } from "./lib/llmModelList";
+import { nextPosition } from "./lib/llmOrder";
+import { materializePositions } from "./llmModels";
+
+/**
+ * Whether this deployment can store a provider key: the Convex env has a
+ * PROVIDER_ENCRYPTION_KEY. Settings shows a setup hint instead of a raw
+ * error when it does not. Returns a boolean only, never the value.
+ */
+export const encryptionStatus = query({
+  args: {},
+  handler: async (): Promise<{ configured: boolean }> => {
+    const env: Record<string, string | undefined> = (globalThis as any).process?.env ?? {};
+    return { configured: Boolean(env.PROVIDER_ENCRYPTION_KEY?.trim()) };
+  },
+});
 
 /**
  * Public view of a provider connection: NEVER includes credential material
@@ -56,18 +72,25 @@ export const create = mutation({
     baseUrl: v.string(),
     apiKeyEnv: v.string(),
     apiKey: v.optional(v.string()),
-    priority: v.number(),
+    /** Unset = after every existing connection (Settings orders models, not connections). */
+    priority: v.optional(v.number()),
     weight: v.optional(v.number()),
     modelPatterns: v.optional(v.array(v.string())),
     isEnabled: v.optional(v.boolean()),
+    presetId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     assertServiceToken(args.token);
     assertSafeApiKeyEnv(args.apiKeyEnv);
     const { token: _token, apiKey, ...fields } = args;
     const now = Date.now();
+    const existingProviders = await ctx.db.query("llmProviders").collect();
+    const priority =
+      args.priority ??
+      existingProviders.reduce((max, p) => Math.max(max, p.priority + 1), 0);
     const id = await ctx.db.insert("llmProviders", {
       ...fields,
+      priority,
       weight: args.weight ?? 100,
       isEnabled: args.isEnabled ?? true,
       ...(apiKey ? { apiKeyCiphertext: await encryptApiKey(apiKey) } : {}),
@@ -78,10 +101,13 @@ export const create = mutation({
     // models are managed through llmModels mutations.
     const modelId = args.model.trim();
     if (modelId) {
+      // Appended at the end of the one model list (lib/llmOrder.ts).
+      await materializePositions(ctx);
       await ctx.db.insert("llmModels", {
         providerId: id,
         modelId,
         isAvailable: true,
+        position: nextPosition(await ctx.db.query("llmModels").collect()),
         createdAt: now,
         updatedAt: now,
       });
@@ -110,6 +136,7 @@ export const updateProvider = mutation({
     weight: v.optional(v.number()),
     modelPatterns: v.optional(v.array(v.string())),
     isEnabled: v.optional(v.boolean()),
+    presetId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     assertServiceToken(args.token);
@@ -137,10 +164,12 @@ export const updateProvider = mutation({
         .first();
       if (!existing) {
         const now = Date.now();
+        await materializePositions(ctx);
         await ctx.db.insert("llmModels", {
           providerId: id,
           modelId,
           isAvailable: true,
+          position: nextPosition(await ctx.db.query("llmModels").collect()),
           createdAt: now,
           updatedAt: now,
         });
@@ -190,18 +219,24 @@ export const fetchModels = action({
     baseUrl: v.string(),
     providerId: v.optional(v.id("llmProviders")),
     apiKey: v.optional(v.string()),
+    /** Wire format for an unsaved provider (decides the auth header). */
+    provider: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<string[]> => {
     assertServiceToken(args.token);
     let base = args.baseUrl.trim().replace(/\/$/, "");
     let apiKey = args.apiKey?.trim() || undefined;
-    if (!apiKey && args.providerId) {
+    let wire = args.provider?.trim() || "openai-compatible";
+    if (args.providerId) {
       const pool: PoolConnectionPayload[] = await ctx.runQuery(
         internal.llmProviders.getForProject,
         {}
       );
       const connection = pool.find((p) => p._id === args.providerId);
       if (connection) {
+        wire = connection.provider;
+      }
+      if (connection && !apiKey) {
         // A stored key only ever goes to the connection's STORED baseUrl
         // (release audit P0-3): the caller's baseUrl is ignored here, so a
         // request cannot redirect a saved credential to another host.
@@ -212,26 +247,21 @@ export const fetchModels = action({
           const env: Record<string, string | undefined> =
             (globalThis as any).process?.env ?? {};
           apiKey = env[connection.apiKeyEnv]?.trim() || undefined;
+        } else {
+          // A legacy row naming a platform secret: never read it, never
+          // call out without the key the row expects.
+          throw new Error(
+            "An API key is required (enter one, or fetch models for a saved provider)"
+          );
         }
       }
     }
+    // Otherwise a missing key is allowed: local servers (Ollama, LM
+    // Studio) answer without one, and a vendor that needs one says so
+    // with a 401 the caller shows as "the provider rejected the key".
     if (!base) throw new Error("Base URL is required");
     if (!/^https?:\/\//i.test(base)) throw new Error("Base URL must be http(s)");
-    if (!apiKey) {
-      throw new Error(
-        "An API key is required (enter one, or fetch models for a saved provider)"
-      );
-    }
-    const res = await fetch(`${base}/models`, {
-      headers: { authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) throw new Error(`Provider returned HTTP ${res.status}`);
-    const data: any = await res.json();
-    const ids: string[] = (data.data ?? data.models ?? [])
-      .map((m: any) => (typeof m === "string" ? m : m?.id))
-      .filter(Boolean);
-    return [...new Set(ids)].sort();
+    return await listProviderModels(base, wire, apiKey);
   },
 });
 
@@ -248,3 +278,15 @@ export const getForProject = internalQuery({
   },
 });
 
+
+/**
+ * Every connection, disabled ones included, in the pool payload shape (the
+ * Settings Test button on a disabled row). Internal only: it carries the
+ * encrypted key like getForProject.
+ */
+export const getAllForTest = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await loadProviderPool(ctx, { includeDisabled: true });
+  },
+});

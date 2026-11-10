@@ -1053,6 +1053,9 @@ export default defineSchema({
     weight: v.number(),
     modelPatterns: v.optional(v.array(v.string())),
     isEnabled: v.optional(v.boolean()),
+    // Settings preset the connection was added from (lib/llmPresets.ts).
+    // Additive; unset on rows added before presets existed.
+    presetId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.optional(v.number()),
   }),
@@ -1069,6 +1072,11 @@ export default defineSchema({
     inputPricePer1k: v.optional(v.number()),
     outputPricePer1k: v.optional(v.number()),
     isAvailable: v.boolean(),
+    // Place in the one model list across connections (lib/llmOrder.ts):
+    // the fallback order, and the rotation start priority in round robin.
+    // Additive; unset rows sort after positioned ones by connection
+    // priority, which is the order they had before the list existed.
+    position: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

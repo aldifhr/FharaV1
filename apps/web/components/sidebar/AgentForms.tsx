@@ -532,7 +532,7 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className={label}>Provider
                   <select value={agentLlmProviderId} onChange={(event) => { setAgentLlmProviderId(event.target.value); setAgentLlmModelId(""); }} className={select}>
-                    <option value="">Pool default</option>
+                    <option value="">Global order (default)</option>
                     {(llmProviders ?? []).map((p: any) => (
                       <option key={p._id} value={p._id}>{p.name}</option>
                     ))}
@@ -563,7 +563,7 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
                   </select>
                 </label>
               </div>
-              <p className={hint}>The Fhara model this agent uses. Tried first, then the fallback, then the pool. A failed provider always fails over to the next candidate. The selection mode and the OpenCode runtime are global — Settings → LLM &amp; Models.</p>
+              <p className={hint}>Leave empty to use the global model order. A provider set here is tried first, then the fallback, then the global order. The order, the mode and the OpenCode runtime live in Settings → LLM &amp; Models.</p>
             </div>
           </div>
         </details>

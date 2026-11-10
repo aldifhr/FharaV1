@@ -3,17 +3,23 @@
  * OpenAI-compatible or Anthropic endpoint, plus config resolution from the
  * shared provider pool (llmResolver) with the env-var global fallback.
  */
-import {
-  pickPrimaryConnection,
-  resolveConnectionKey,
-  type PoolConnectionPayload,
-} from "../llmResolver";
+import { resolveConnectionKey, type PoolConnectionPayload, type PoolModelPayload } from "../llmResolver";
 
 import { getGlobalLLMConfig, type LlmEndpointConfig } from "../llmConfig";
+import { applySelectionMode, orderPoolPairs } from "../llmOrder";
+import { cooldownForFailure, errorStatus, isEmptyCompletion, StickyRotationCursor } from "../llmRotation";
 import { describeEndpoint, endpointCandidates, llmHttpError, wireProtocolFor } from "./llmEndpoint";
 
-/** Endpoint + credentials for one chat completion. */
-export type ChatLlmConfig = LlmEndpointConfig;
+/**
+ * Endpoint + credentials for one chat completion. `fallbacks` is the rest
+ * of the ordered pool (resolveConfigFromProviders): completeWithAgent
+ * walks it when the first config fails or answers with nothing.
+ * `connectionId` names the pool connection (for the in-memory cooldown).
+ */
+export type ChatLlmConfig = LlmEndpointConfig & {
+  connectionId?: string;
+  fallbacks?: (LlmEndpointConfig & { connectionId?: string })[];
+};
 export { getGlobalLLMConfig };
 
 interface StreamChunk {
@@ -38,10 +44,99 @@ export function reasoningDelta(delta: { reasoning_content?: unknown; reasoning?:
   return "";
 }
 
+/**
+ * Backend-side cooldown per connection (best effort: per Convex isolate,
+ * like the worker's in-memory circuit). A 429 / rate-limit answer backs
+ * the connection off exponentially, an auth failure for 2 min, a 5xx or
+ * network failure for 30 s; a request-scoped 4xx never cools down.
+ */
+const chatCooldown = new Map<string, { until: number; level: number }>();
+const chatRotation = new StickyRotationCursor(1, "chat");
+
+function coolingDown(connectionId: string | undefined, now: number): boolean {
+  if (!connectionId) return false;
+  const entry = chatCooldown.get(connectionId);
+  return Boolean(entry && entry.until > now);
+}
+
+function recordChatFailure(connectionId: string | undefined, error: unknown): void {
+  if (!connectionId) return;
+  const previous = chatCooldown.get(connectionId);
+  const cooldown = cooldownForFailure(error, previous?.level ?? 0);
+  if (cooldown.cooldownMs <= 0) return;
+  chatCooldown.set(connectionId, {
+    until: Date.now() + cooldown.cooldownMs,
+    level: cooldown.backoffLevel ?? previous?.level ?? 0,
+  });
+}
+
+/** Test hook: forget every cooldown and the rotation cursor. */
+export function resetChatRouting(): void {
+  chatCooldown.clear();
+  chatRotation.reset();
+}
+
+/** A request-scoped client error: the next model would get the same request rejected. */
+function isRequestScopedError(error: unknown): boolean {
+  const status = errorStatus(error);
+  return status === 400 || status === 413 || status === 422;
+}
+
+/**
+ * One completion over the config's chain: the config itself, then its
+ * `fallbacks` in order. Moves on when a call fails (except a
+ * request-scoped 4xx) or answers with nothing, as long as no text has
+ * been streamed to the caller yet. Connections in cooldown are tried last.
+ */
 export async function completeWithAgent(
   system: string,
   history: { role: string; content: string }[],
   globalConfig: ChatLlmConfig,
+  onChunk?: (partial: StreamChunk) => void,
+  opts?: { temperature?: number },
+): Promise<CompleteResult> {
+  const { fallbacks, ...first } = globalConfig;
+  if (!fallbacks || fallbacks.length === 0) {
+    return await completeOnce(system, history, first, onChunk, opts);
+  }
+  const now = Date.now();
+  const chain = [first, ...fallbacks];
+  const ready = chain.filter((c) => !coolingDown(c.connectionId, now));
+  const cooling = chain.filter((c) => coolingDown(c.connectionId, now));
+  const ordered = [...ready, ...cooling];
+  const errors: string[] = [];
+  for (const [index, config] of ordered.entries()) {
+    let streamed = false;
+    const relay = onChunk
+      ? (partial: StreamChunk) => {
+          if (partial.content) streamed = true;
+          onChunk(partial);
+        }
+      : undefined;
+    try {
+      const result = await completeOnce(system, history, config, relay, opts);
+      if (isEmptyCompletion(result) && index < ordered.length - 1) {
+        errors.push(`${describeEndpoint(config)} model "${config.model}" returned an empty response`);
+        continue;
+      }
+      return result;
+    } catch (error) {
+      recordChatFailure(config.connectionId, error);
+      if (streamed || isRequestScopedError(error) || index === ordered.length - 1) {
+        if (errors.length === 0) throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`${errors[0]} — fallback also failed: ${[...errors.slice(1), message].join(" | ")}`);
+      }
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  throw new Error(errors.join(" | ") || "LLM request failed");
+}
+
+async function completeOnce(
+  system: string,
+  history: { role: string; content: string }[],
+  globalConfig: LlmEndpointConfig,
   onChunk?: (partial: StreamChunk) => void,
   /** Optional sampling temperature; unset = provider default. */
   opts?: { temperature?: number },
@@ -291,51 +386,6 @@ export async function completeWithAgent(
   return finish(content, reasoning);
 }
 
-/**
- * Resolve the chat LLM config from the shared provider pool (llmResolver).
- * Respects per-agent assignment when the agent carries one (llmProviderId +
- * llmModelId): that connection+model wins; otherwise fall back to the primary
- * connection (lowest priority with an available model). The key is decrypted
- * here on the backend for the backend's own call — a decryption failure is a
- * hard error naming the provider — with the connection's `apiKeyEnv` env var
- * as fallback.
- */
-export async function resolveConfigFromProviders(
-  providers: PoolConnectionPayload[] | undefined,
-  fallback: ChatLlmConfig,
-  agent?: { llmProviderId?: string; llmModelId?: string; llmFallbackProviderId?: string; llmFallbackModelId?: string; llmSelectionPolicy?: string }
-): Promise<ChatLlmConfig> {
-  if (providers && agent?.llmProviderId) {
-    const conn = providers.find((p) => String(p._id) === String(agent.llmProviderId));
-    if (conn) {
-      const model =
-        conn.models.find((m) => String(m._id) === String(agent.llmModelId)) ??
-        conn.models.find((m) => m.isAvailable) ??
-        conn.models[0];
-      if (model) {
-        const key = await resolveConnectionKey(conn);
-        return {
-          provider: conn.provider.toLowerCase(),
-          model: model.modelId,
-          baseUrl: conn.baseUrl,
-          apiKey: key || fallback.apiKey,
-        };
-      }
-    }
-  }
-  const pick = providers ? pickPrimaryConnection(providers) : null;
-  if (pick) {
-    const key = await resolveConnectionKey(pick.connection);
-    return {
-      provider: pick.connection.provider.toLowerCase(),
-      model: pick.model.modelId,
-      baseUrl: pick.connection.baseUrl,
-      apiKey: key || fallback.apiKey,
-    };
-  }
-  return fallback;
-}
-
 type AgentLlmPrefs = {
   llmProviderId?: string;
   llmModelId?: string;
@@ -343,6 +393,112 @@ type AgentLlmPrefs = {
   llmFallbackModelId?: string;
   llmSelectionPolicy?: string;
 };
+
+type PoolPair = { connection: PoolConnectionPayload; model: PoolModelPayload };
+
+/** The pair an agent assignment names (model row, else the connection's first available model). */
+function assignedPair(
+  providers: PoolConnectionPayload[],
+  providerId: string | undefined,
+  modelRowId: string | undefined
+): PoolPair | null {
+  if (!providerId) return null;
+  const connection = providers.find((p) => String(p._id) === String(providerId));
+  if (!connection) return null;
+  const model =
+    (modelRowId ? connection.models.find((m) => String(m._id) === String(modelRowId)) : undefined) ??
+    connection.models.find((m) => m.isAvailable) ??
+    connection.models[0];
+  return model ? { connection, model } : null;
+}
+
+/**
+ * The ordered candidate pairs for one call: the agent's assignment, its
+ * fallback, then (unless the agent's policy is "fixed") the model list in
+ * order, rotated in round robin. Same order as the worker resolver
+ * (packages/worker/src/llm/resolver.ts) for a pool with an explicit order;
+ * the parity test pins that. An empty value on the agent means "use the
+ * global order".
+ */
+export function orderedChatPairs(
+  providers: PoolConnectionPayload[] | undefined,
+  agent?: AgentLlmPrefs,
+  cursor: { next(size: number): number } = chatRotation
+): PoolPair[] {
+  if (!providers || providers.length === 0) return [];
+  const enabled = providers.filter((p) => p.isEnabled !== false);
+  const out: PoolPair[] = [];
+  const seen = new Set<string>();
+  const push = (pair: PoolPair | null) => {
+    if (!pair) return;
+    const key = `${pair.connection._id}::${pair.model.modelId}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(pair);
+  };
+  const ordered = orderPoolPairs(enabled);
+  // An assignment is every listed model it names (one model, or all of the
+  // connection's models when no model is set), in list order. A model the
+  // list does not offer (unavailable / filtered) falls back to the
+  // connection's first model, as chat always did.
+  const assignment = (providerId?: string, modelRowId?: string) => {
+    if (!providerId) return [];
+    const listed = ordered.filter(
+      (pair) =>
+        String(pair.connection._id) === String(providerId) &&
+        (!modelRowId || String(pair.model._id) === String(modelRowId))
+    );
+    if (listed.length > 0) return listed;
+    const legacy = assignedPair(enabled, providerId, modelRowId);
+    return legacy ? [legacy] : [];
+  };
+  for (const pair of assignment(agent?.llmProviderId, agent?.llmModelId)) push(pair);
+  for (const pair of assignment(agent?.llmFallbackProviderId, agent?.llmFallbackModelId)) push(pair);
+  if (agent?.llmSelectionPolicy === "fixed" && out.length > 0) return out;
+  // An agent's own policy wins over the global mode, like in the worker.
+  const mode = agent?.llmSelectionPolicy
+    ? agent.llmSelectionPolicy === "round_robin"
+      ? "round_robin"
+      : "fallback"
+    : enabled[0]?.selectionMode ?? "fallback";
+  const pool = ordered.filter((pair) => !seen.has(`${pair.connection._id}::${pair.model.modelId}`));
+  // Rotation applies to the pool part only: an explicit agent assignment
+  // always goes first, exactly like the worker's tiers 0 and 1.
+  for (const pair of out.length === 0 ? applySelectionMode(pool, mode, cursor) : pool) push(pair);
+  return out;
+}
+
+async function pairConfig(pair: PoolPair, fallback: ChatLlmConfig): Promise<LlmEndpointConfig & { connectionId: string }> {
+  const key = await resolveConnectionKey(pair.connection);
+  return {
+    provider: pair.connection.provider.toLowerCase(),
+    model: pair.model.modelId,
+    baseUrl: pair.connection.baseUrl,
+    apiKey: key || fallback.apiKey,
+    connectionId: String(pair.connection._id),
+  };
+}
+
+/**
+ * Resolve the chat LLM config from the shared provider pool: the first
+ * candidate of orderedChatPairs, carrying the rest as `fallbacks` so
+ * completeWithAgent fails over through the same ordered list the worker
+ * uses. The key is decrypted here on the backend for the backend's own
+ * call (a decryption failure is a hard error naming the provider), with
+ * the connection's `apiKeyEnv` env var as fallback. An empty pool returns
+ * the env config.
+ */
+export async function resolveConfigFromProviders(
+  providers: PoolConnectionPayload[] | undefined,
+  fallback: ChatLlmConfig,
+  agent?: AgentLlmPrefs
+): Promise<ChatLlmConfig> {
+  const pairs = orderedChatPairs(providers, agent);
+  if (pairs.length === 0) return fallback;
+  const configs = await Promise.all(pairs.map((pair) => pairConfig(pair, fallback)));
+  const [primary, ...rest] = configs;
+  return rest.length > 0 ? { ...primary, fallbacks: rest } : primary;
+}
 
 /**
  * The agent's configured fallback (llmFallbackProviderId + optional
@@ -354,40 +510,27 @@ export async function resolveFallbackConfigFromProviders(
   fallback: ChatLlmConfig,
   agent?: AgentLlmPrefs
 ): Promise<ChatLlmConfig | null> {
-  if (!providers || !agent?.llmFallbackProviderId) return null;
-  const conn = providers.find((p) => String(p._id) === String(agent.llmFallbackProviderId));
-  if (!conn) return null;
-  const model =
-    (agent.llmFallbackModelId ? conn.models.find((m) => String(m._id) === String(agent.llmFallbackModelId)) : undefined) ??
-    conn.models.find((m) => m.isAvailable) ??
-    conn.models[0];
-  if (!model) return null;
-  const key = await resolveConnectionKey(conn);
-  return {
-    provider: conn.provider.toLowerCase(),
-    model: model.modelId,
-    baseUrl: conn.baseUrl,
-    apiKey: key || fallback.apiKey,
-  };
+  if (!providers) return null;
+  const pair = assignedPair(
+    providers.filter((p) => p.isEnabled !== false),
+    agent?.llmFallbackProviderId,
+    agent?.llmFallbackModelId
+  );
+  return pair ? await pairConfig(pair, fallback) : null;
 }
 
 /**
- * Primary config plus the agent's fallback (when configured and different
- * from the primary), in the order they should be tried.
+ * The whole ordered chain as separate configs (no nested `fallbacks`),
+ * in the order they should be tried: the agent's primary, its fallback,
+ * then the rest of the model list.
  */
 export async function resolveConfigChain(
   providers: PoolConnectionPayload[] | undefined,
   fallback: ChatLlmConfig,
   agent?: AgentLlmPrefs
 ): Promise<ChatLlmConfig[]> {
-  const primary = await resolveConfigFromProviders(providers, fallback, agent);
-  const secondary = await resolveFallbackConfigFromProviders(providers, fallback, agent);
-  const same =
-    secondary &&
-    secondary.provider === primary.provider &&
-    secondary.model === primary.model &&
-    secondary.baseUrl === primary.baseUrl;
-  return secondary && !same ? [primary, secondary] : [primary];
+  const { fallbacks, ...primary } = await resolveConfigFromProviders(providers, fallback, agent);
+  return [primary, ...(fallbacks ?? [])];
 }
 
 /**
@@ -404,7 +547,9 @@ export async function completeWithFallback(
 ): Promise<CompleteResult & { config: ChatLlmConfig; fellBack: boolean; primaryError?: string }> {
   if (configs.length === 0) throw new Error("No LLM config to call");
   const errors: string[] = [];
-  for (const [index, config] of configs.entries()) {
+  for (const [index, entry] of configs.entries()) {
+    // Each entry is one attempt; a nested chain would repeat the pool.
+    const { fallbacks: _nested, ...config } = entry;
     try {
       const result = await completeWithAgent(system, history, config, onChunk, opts);
       return { ...result, config, fellBack: index > 0, ...(errors[0] ? { primaryError: errors[0] } : {}) };

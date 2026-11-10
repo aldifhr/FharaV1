@@ -13,6 +13,8 @@
  * a call.
  */
 
+import { StickyRotationCursor } from "@/api/convex/lib/llmRotation";
+
 /** A rotation cursor: hands out the next index of a candidate list. */
 export interface RotationCursor {
   /**
@@ -50,8 +52,15 @@ export class InMemoryRotationCursor implements RotationCursor {
   }
 }
 
-/** The worker's process-wide rotation cursor. */
-export const rotationCursor = new InMemoryRotationCursor();
+/**
+ * The worker's process-wide rotation cursor: sticky round robin
+ * (lib/llmRotation.ts, adapted from 9router). Each start is handed out
+ * LLM_ROUND_ROBIN_STICKY_LIMIT times in a row (default 1 = rotate every
+ * call); a higher limit keeps a provider's prompt cache warm longer.
+ */
+export const rotationCursor: RotationCursor = new StickyRotationCursor(
+  Number(process.env.LLM_ROUND_ROBIN_STICKY_LIMIT) || 1
+);
 
 /**
  * A cursor that always returns the first candidate and never advances —

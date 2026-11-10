@@ -10,6 +10,15 @@ import { providerHealth, type ProviderHealthRegistry } from "./health";
 import { fixedRotationCursor, rotationCursor, type RotationCursor } from "./roundRobin";
 import { applyModelTier, type ModelTiers } from "@/api/convex/lib/modelTiers";
 import { policyForMode, type LlmSelectionMode } from "@/api/convex/lib/llmSelection";
+import {
+  applySelectionMode,
+  connectionServesModel,
+  hasExplicitOrder,
+  matchesModelPattern,
+  orderPoolPairs,
+} from "@/api/convex/lib/llmOrder";
+
+export { matchesModelPattern };
 
 /**
  * LLM Resolver (spec §4) — turns the backend provider pool (connections +
@@ -24,6 +33,10 @@ import { policyForMode, type LlmSelectionMode } from "@/api/convex/lib/llmSelect
  *      (also finally consumed) unless the agent's selection policy is
  *      "priority" (deterministic) or "round_robin" (rotates the starting
  *      connection) — policy "fixed" never leaves steps 1–2.
+ *      Once the user has ordered the model list (llmModels.position),
+ *      step 3 walks that list instead (lib/llmOrder.ts, shared with
+ *      backend chat): the list order is the fallback order, and round
+ *      robin rotates its start with the sticky cursor.
  * Connections whose circuit is open (health registry) are excluded; if
  * that exhausts every candidate the resolver throws an explicit error
  * naming the providers instead of silently returning something wrong.
@@ -45,6 +58,8 @@ export interface PoolModel {
   inputPricePer1k?: number;
   outputPricePer1k?: number;
   isAvailable: boolean;
+  /** Place in the one model list (lib/llmOrder.ts). */
+  position?: number;
   legacy?: boolean;
 }
 
@@ -129,24 +144,9 @@ export type AgentLlmAssignment = Pick<
   | "llmSelectionPolicy"
 > & { name?: string; role?: string };
 
-/** Glob match for model patterns: only `*` is special (e.g. `gpt-4*`). */
-export function matchesModelPattern(pattern: string, modelId: string): boolean {
-  const escaped = pattern
-    .split("*")
-    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join(".*");
-  return new RegExp(`^${escaped}$`).test(modelId);
-}
-
 function modelMatchesNeed(model: PoolModel, need: ResolveNeed): boolean {
   if (need.modelId && model.modelId !== need.modelId) return false;
   return true;
-}
-
-function connectionServesModel(connection: PoolConnection, model: PoolModel): boolean {
-  const patterns = connection.modelPatterns;
-  if (!patterns || patterns.length === 0) return true;
-  return patterns.some((pattern) => matchesModelPattern(pattern, model.modelId));
 }
 
 /**
@@ -309,6 +309,8 @@ export function resolveForAgent(
       allPairs.push({ connection, model, tier: 2 });
     }
   }
+  // The user's list order (Settings → LLM & Models), when one is set.
+  const explicitOrder = hasExplicitOrder(allPairs);
 
   const tiers: CandidatePair[][] = [[], [], []];
   tiers[0] = assignmentTier(allPairs, agent?.llmProviderId, agent?.llmModelId, 0);
@@ -321,9 +323,13 @@ export function resolveForAgent(
   const assignedKeys = new Set(
     [...tiers[0], ...tiers[1]].map((p) => `${p.connection._id}::${p.model.modelId}`)
   );
-  tiers[2] = allPairs.filter(
-    (p) => !assignedKeys.has(`${p.connection._id}::${p.model.modelId}`)
-  );
+  tiers[2] = (
+    explicitOrder
+      ? orderPoolPairs(pool, (pair) => modelMatchesNeed(pair.model, need)).map(
+          (pair): CandidatePair => ({ connection: pair.connection, model: pair.model, tier: 2 })
+        )
+      : allPairs
+  ).filter((p) => !assignedKeys.has(`${p.connection._id}::${p.model.modelId}`));
 
   // Plan 032: the app-wide mode decides the pick; an agent's own policy
   // (legacy / explicit) still wins over it.
@@ -355,7 +361,26 @@ export function resolveForAgent(
   // Primary selection: first non-empty healthy tier; lowest priority in
   // it; among equal priorities, weight decides (unless policy="priority").
   let primaryPair: CandidatePair | undefined;
-  for (const tier of healthyTiers) {
+  // Explicit list order (Settings → LLM & Models): every tier is walked in
+  // list order, and round robin rotates the start of the list when no
+  // agent assignment applies. Same rule as backend chat
+  // (lib/chat/llm.ts orderedChatPairs).
+  const pairKey = (p: { connection: { _id: string }; model: { modelId: string } }) =>
+    `${p.connection._id}::${p.model.modelId}`;
+  let explicitChain: CandidatePair[] | null = null;
+  if (explicitOrder) {
+    const baseRank = new Map(orderPoolPairs(pool).map((pair, index) => [pairKey(pair), index]));
+    const rank = (p: CandidatePair) => baseRank.get(pairKey(p)) ?? Number.MAX_SAFE_INTEGER;
+    const firstTier = healthyTiers.findIndex((tier) => tier.length > 0);
+    explicitChain = healthyTiers.flatMap((tier, tierIndex) => {
+      const sorted = [...tier].sort((a, b) => rank(a) - rank(b));
+      return tierIndex === 2 && firstTier === 2
+        ? applySelectionMode(sorted, policy === "round_robin" ? "round_robin" : undefined, rotation)
+        : sorted;
+    });
+    primaryPair = explicitChain[0];
+  }
+  for (const tier of explicitChain ? [] : healthyTiers) {
     if (tier.length === 0) continue;
     const minPriority = Math.min(...tier.map((p) => p.connection.priority));
     const topPairs = tier.filter((p) => p.connection.priority === minPriority);
@@ -388,22 +413,24 @@ export function resolveForAgent(
 
   // Fallback chain: every other healthy candidate, ordered by tier, then
   // priority, then weight (heavier first), for deterministic behavior.
-  const chainPairs = healthyTiers
-    .flat()
-    .filter(
-      (p) =>
-        !(
-          p.connection._id === primaryPair!.connection._id &&
-          p.model.modelId === primaryPair!.model.modelId
+  const chainPairs = explicitChain
+    ? explicitChain.slice(1)
+    : healthyTiers
+        .flat()
+        .filter(
+          (p) =>
+            !(
+              p.connection._id === primaryPair!.connection._id &&
+              p.model.modelId === primaryPair!.model.modelId
+            )
         )
-    )
-    .sort(
-      (a, b) =>
-        a.tier - b.tier ||
-        a.connection.priority - b.connection.priority ||
-        b.connection.weight - a.connection.weight
-    );
-  const seen = new Set<string>();
+        .sort(
+          (a, b) =>
+            a.tier - b.tier ||
+            a.connection.priority - b.connection.priority ||
+            b.connection.weight - a.connection.weight
+        );
+  const seen = new Set<string>([pairKey(primaryPair)]);
   const fallbackChain: ResolvedLlm[] = [];
   for (const pair of chainPairs) {
     const key = `${pair.connection._id}::${pair.model.modelId}`;
@@ -420,7 +447,7 @@ export function resolveForAgent(
       model: primaryPair.model.modelId,
       connection: primaryPair.connection.name,
       callRole: need.callRole,
-      reason: `${label}: pool order`,
+      reason: `${label}: ${explicitOrder ? "model list order" : "pool order"}`,
     },
   };
 }

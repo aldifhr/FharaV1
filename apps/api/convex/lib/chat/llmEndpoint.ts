@@ -59,7 +59,7 @@ const HAS_VERSION = /\/v\d+[a-z0-9]*(\/|$)/i;
  * with `/v1` added when the base has no version segment at all. A base that
  * already ends with the suffix is used as-is with no alternative.
  */
-export function endpointCandidates(baseUrl: string, suffix: "/chat/completions" | "/messages"): string[] {
+export function endpointCandidates(baseUrl: string, suffix: "/chat/completions" | "/messages" | "/models"): string[] {
   const parts = splitBase(baseUrl);
   if (!parts) {
     // Not a URL we can reason about: keep the historical behavior.

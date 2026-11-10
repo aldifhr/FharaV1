@@ -4,6 +4,7 @@ import type { ProviderHealthRegistry } from "@/llm/health";
 import type { TokenUsageMeta } from "@/types/llm";
 import { recordLlmSnapshot } from "@/llm/snapshots";
 import { classifyProviderError } from "@/utils/stallDetector";
+import { isEmptyCompletion } from "@/api/convex/lib/llmRotation";
 import { emitObservation, markProgress } from "./observationContext";
 
 export type { TokenUsageMeta } from "@/types/llm";
@@ -401,6 +402,13 @@ export async function runLlmCallWithFallback(
         gate: options.gate,
       });
       options.health?.recordSuccess(handle.connectionId);
+      // A 2xx answer with nothing in it (no text, no tool call) moves on to
+      // the next model in the chain, like an error (lib/llmRotation.ts).
+      // The connection stays healthy: it answered, just emptily.
+      if (isEmptyCompletion(result) && index < handles.length - 1) {
+        lastError = new Error(`${handle.connectionName} returned an empty response (model "${handle.config.model}")`);
+        continue;
+      }
       const estimated = withUsageEstimate(messages, result);
       recordLlmSnapshot({
         messages,
@@ -425,7 +433,7 @@ export async function runLlmCallWithFallback(
         throw error;
       }
       if (handle === handles[handles.length - 1]) fail(error, handle);
-      options.health?.recordFailure(handle.connectionId, { transient: true });
+      options.health?.recordFailure(handle.connectionId, { transient: true, error });
       // Provider unavailable (connection / 5xx / 429): switch to the next
       // provider in the chain when one is configured, else fail clearly.
       const failureClass = classifyProviderError(error);

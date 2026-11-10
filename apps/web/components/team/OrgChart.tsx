@@ -8,23 +8,17 @@ import InitialAvatar from "@/components/InitialAvatar";
 import { ROLES, type RoleKey } from "@/api/convex/lib/roles";
 
 /**
- * Org chart, drawn like a classic organisation chart (top-down tree):
- * User / Owner at the top, CTO below, then one column per department
- * (Product, Engineering, Quality, Operations, Research), then the roles.
- * A card looks like an employee directory entry: avatar + name + title +
- * responsibility + capabilities. Clicking an agent card opens its
- * performance profile.
- *
- * Purely presentational: the data is the `orgIntel.orgChart` query (CTO at
- * the root); the User root and the department grouping are display-only.
+ * Minimal top-down org chart: User/Owner → CTO → departments → roles.
+ * Clicking an agent card opens its performance profile. Layout and data are
+ * presentational; the source is the `orgIntel.orgChart` query.
  */
 
-const CARD_W = 232;
-const CARD_H = 176;
-const COL_GAP = 48;
-const ROW_GAP = 56;
+const CARD_W = 180;
+const CARD_H = 72;
+const COL_GAP = 32;
+const ROW_GAP = 40;
 const PAD = 24;
-const VIEW_H = 700;
+const VIEW_H = 520;
 
 type CardKind = "user" | "cto" | "group" | "role";
 
@@ -78,7 +72,6 @@ function buildTree(nodes: ChartNode[]): Card {
 
   const roleCard = (n: ChartNode): Card => {
     const meta = roleMeta(n.roleKey);
-    const tools = n.tools.length ? n.tools.join(", ") : "no tools";
     const vacant = !n.agentId;
     const disabled = !!n.agentId && !n.enabled;
     return {
@@ -86,14 +79,7 @@ function buildTree(nodes: ChartNode[]): Card {
       kind: "role",
       name: n.label,
       title: n.registryName ?? meta?.title ?? n.label,
-      detail: [
-        meta?.description ?? "",
-        n.capabilities.length ? `Capabilities: ${n.capabilities.join(", ")}` : null,
-        `${n.model ?? "default model"}${n.runtime === "opencode" ? " · OpenCode" : ""} · ${n.skills} skill${n.skills === 1 ? "" : "s"} · ${tools}`,
-        vacant ? "Vacant — no agent yet" : disabled ? "Disabled" : null,
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      detail: vacant ? "Vacant" : disabled ? "Disabled" : (meta?.description ?? ""),
       agentId: n.agentId ?? undefined,
       muted: vacant || disabled,
       children: [],
@@ -111,7 +97,7 @@ function buildTree(nodes: ChartNode[]): Card {
     key: `group:${category}`,
     kind: "group",
     name: category,
-    title: `${members.length} role${members.length === 1 ? "" : "s"}`,
+    title: "",
     detail: "",
     children: members.map(roleCard),
   }));
@@ -143,7 +129,7 @@ function layoutTree(root: Card): { boxes: Box[]; width: number; height: number }
   };
   const place = (card: Card, x: number, y: number) => {
     const width = widthOf(card);
-    const height = card.kind === "group" ? 56 : CARD_H;
+    const height = card.kind === "group" ? 28 : CARD_H;
     boxes.push({ key: card.key, card, x: x + (width - CARD_W) / 2, y, w: CARD_W, h: height });
     let cursor = x;
     for (const child of card.children) {
@@ -163,33 +149,29 @@ function CardView({ box, onSelect }: { box: Box; onSelect: (card: Card) => void 
     return (
       <div
         data-orgcard="1"
-        className="absolute flex flex-col justify-center rounded-lg border border-line bg-hover px-3 text-center"
+        className="absolute flex items-center justify-center text-center"
         style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
         aria-label={`Department: ${card.name}`}
       >
-        <p className="text-[13px] font-semibold text-ink">{card.name}</p>
-        <p className="text-[11px] text-ink-3">{card.title}</p>
+        <p className="text-[11px] font-medium tracking-wide text-ink-3 uppercase">{card.name}</p>
       </div>
     );
   }
   const inner = (
-    <>
-      <div className="flex items-center gap-2.5">
-        <InitialAvatar agent name={card.name} size={36} />
-        <div className="min-w-0">
-          <p className="truncate text-[13px] font-semibold leading-tight text-ink">{card.name}</p>
-          <p className="truncate text-[11px] leading-tight text-ink-3">{card.title}</p>
-        </div>
+    <div className="flex min-w-0 items-center gap-2.5">
+      <InitialAvatar agent name={card.name} size={28} />
+      <div className="min-w-0">
+        <p className="truncate text-[13px] font-medium leading-tight text-ink">{card.name}</p>
+        <p className="truncate text-[11px] leading-tight text-ink-3">{card.title}</p>
       </div>
-      <p className="mt-2 line-clamp-4 break-words text-[11px] leading-snug text-ink-2">{card.detail}</p>
-    </>
+    </div>
   );
   const style = { left: box.x, top: box.y, width: box.w, height: box.h } as const;
-  const cls = `absolute rounded-lg border bg-canvas p-3 text-left shadow-sm transition ${
-    card.muted ? "border-line opacity-60" : "border-line"
-  } ${card.kind === "user" ? "border-brand ring-1 ring-brand/30" : ""}`;
+  const cls = `absolute flex items-center rounded-lg border bg-canvas px-3 transition ${
+    card.muted ? "border-line opacity-50" : "border-line"
+  } ${card.kind === "user" ? "border-brand/60" : ""}`;
   return card.agentId ? (
-    <button type="button" data-orgcard="1" onClick={() => onSelect(card)} aria-label={`${card.name}, ${card.title}`} className={`${cls} outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40`} style={style}>
+    <button type="button" data-orgcard="1" onClick={() => onSelect(card)} aria-label={`${card.name}, ${card.title}`} className={`${cls} text-left outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40`} style={style}>
       {inner}
     </button>
   ) : (
@@ -293,9 +275,8 @@ export default function OrgChart() {
         </h2>
         {chart && (
           <p className="text-[12.5px] text-ink-3">
-            User → CTO → departments → roles · {chart.counts.enabled} of {chart.counts.agents} agents enabled
+            {chart.counts.enabled}/{chart.counts.agents} enabled
             {chart.counts.vacant ? ` · ${chart.counts.vacant} vacant` : ""}
-            {chart.counts.custom ? ` · ${chart.counts.custom} custom` : ""}
           </p>
         )}
       </header>
@@ -303,12 +284,11 @@ export default function OrgChart() {
         <div className="mt-6 h-64 animate-pulse rounded-xl bg-hover" aria-label="Loading org chart" />
       ) : (
         <div className="mt-6">
-          <div className="flex items-center justify-end gap-2">
-            <span className="text-[12px] text-ink-3">Drag the empty area to pan · click a card to open its profile.</span>
+          <div className="flex items-center justify-end">
             <button
               type="button"
               onClick={recenter}
-              className="rounded-lg border border-line px-2.5 py-1 text-[12px] text-ink-2 outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
+              className="rounded-md px-2 py-1 text-[12px] text-ink-3 outline-none transition hover:text-ink-2 focus-visible:ring-2 focus-visible:ring-brand/40"
             >
               Reset view
             </button>
@@ -317,7 +297,7 @@ export default function OrgChart() {
             ref={viewRef}
             role="region"
             aria-label="Org chart canvas. Drag the empty area to pan; click a card to open its profile."
-            className="relative mt-2 cursor-grab overflow-hidden rounded-xl border border-line bg-panel active:cursor-grabbing"
+            className="relative mt-2 cursor-grab overflow-hidden rounded-xl border border-line bg-canvas active:cursor-grabbing"
             style={{ height: VIEW_H }}
             onPointerDown={(event) => {
               if ((event.target as HTMLElement).closest("[data-orgcard]")) return;
@@ -330,7 +310,7 @@ export default function OrgChart() {
             >
             <svg className="absolute inset-0" width={laid.width} height={laid.height} aria-hidden="true">
               {connectors.map(([x1, y1, x2, y2], index) => (
-                <line key={index} x1={x1} y1={y1} x2={x2} y2={y2} strokeWidth={1.5} className="stroke-line-strong" />
+                <line key={index} x1={x1} y1={y1} x2={x2} y2={y2} strokeWidth={1} className="stroke-line" />
               ))}
             </svg>
             {laid.boxes.map((box) => (
@@ -346,8 +326,8 @@ export default function OrgChart() {
           </div>
         </div>
       )}
-      <p className="mt-3 text-[12px] text-ink-3">
-        Reporting line is the solid tree. Who reviews, verifies or hands off to whom is in the Collaboration graph below — there it is weighted by real history.
+      <p className="mt-2 text-[12px] text-ink-3">
+        Click a card to open its profile.
       </p>
     </section>
   );

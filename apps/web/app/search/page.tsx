@@ -40,7 +40,7 @@ export default function SearchPage() {
               <h2 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Project</h2>
               <div className="mt-2 grid gap-2">
                 {results.projects.map((p) => (
-                  <Link key={p._id} href={`/workspace/${p._id}`} className="rounded-xl border border-gray-200 p-3 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900">
+                  <Link key={p._id} href={`/chats/${p._id}`} className="rounded-xl border border-gray-200 p-3 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900">
                     <p className="font-medium">{p.name}</p>
                     <p className="text-xs text-gray-500">{p.workspacePath}</p>
                   </Link>
@@ -54,7 +54,7 @@ export default function SearchPage() {
               <h2 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Task</h2>
               <div className="mt-2 grid gap-2">
                 {results.tasks.map((t) => (
-                  <Link key={t._id} href={`/workspace/${t.projectId}`} className="rounded-xl border border-gray-200 p-3 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900">
+                  <Link key={t._id} href={`/chats/${t.projectId}`} className="rounded-xl border border-gray-200 p-3 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900">
                     <p className="font-medium">{t.title}</p>
                     <p className="text-xs text-gray-500">{t.projectName} · {t.status}</p>
                   </Link>

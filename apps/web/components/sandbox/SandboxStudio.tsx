@@ -9,6 +9,7 @@
  */
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { FlaskConical, Play, ShieldCheck } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
@@ -20,7 +21,6 @@ import {
   sandboxCommand,
   validateSandbox,
   type SandboxConfig,
-  type SandboxMode,
 } from "@/lib/sandbox";
 
 const INPUT =
@@ -31,22 +31,24 @@ const GHOST_BTN =
 const PRIMARY_BTN =
   "inline-flex items-center justify-center gap-1.5 rounded-lg bg-ink px-3 py-2 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-50";
 
-const MODES: Array<{ key: SandboxMode; label: string; hint: string }> = [
-  { key: "plan", label: "Plan only", hint: "Agents plan, change nothing" },
-  { key: "dry-run", label: "Dry run", hint: "Simulates, applies no edits" },
-  { key: "run", label: "Run", hint: "Real task, supervised approvals" },
-];
-
 type TaskRow = {
   _id: string;
   title: string;
   status: string;
   createdAt?: number;
   startedAt?: number;
+  requirementCoverage?: { outcome?: string } | null;
 };
+
+function coverageNote(outcome: string | undefined): string | null {
+  if (outcome === "gaps") return "coverage gaps";
+  if (outcome === "completed_with_gaps") return "done with gaps";
+  return null;
+}
 
 export default function SandboxStudio() {
   const toast = useToast();
+  const router = useRouter();
   const projects = useQuery(api.projects.list, {}) as Array<{ _id: string; name: string }> | undefined;
   const createTask = useMutation(api.tasks.createFromCommand);
   const [config, setConfig] = useState<SandboxConfig>(() => defaultSandboxConfig());
@@ -62,12 +64,15 @@ export default function SandboxStudio() {
     [tasks],
   );
 
-  const issues = useMemo(() => validateSandbox({ ...config, projectId }), [config, projectId]);
+  const projectsLoading = projects === undefined;
+  const projectsEmpty = projects !== undefined && projects.length === 0;
+  const validation = useMemo(() => validateSandbox({ ...config, projectId }), [config, projectId]);
+  const issues = projectsLoading ? [] : validation;
   const preview = useMemo(() => sandboxCommand({ ...config, projectId }), [config, projectId]);
 
   const run = async () => {
-    if (issues.length > 0) {
-      toast("error", "Cannot run yet", issues[0]);
+    if (validation.length > 0) {
+      toast("error", "Cannot run yet", validation[0]);
       return;
     }
     setRunning(true);
@@ -79,11 +84,10 @@ export default function SandboxStudio() {
         permissionMode: "supervised",
       });
       toast("success", "Sandbox experiment queued", config.name);
-      setConfig((current) => ({ ...current, instruction: "", name: "Untitled experiment" }));
-      return taskId as unknown as string | null;
+      setConfig((current) => ({ ...current, instruction: "", name: "" }));
+      router.push(`/runs/${String(taskId)}`);
     } catch (err) {
       toast("error", "Couldn't queue", err instanceof Error ? err.message : "Please try again.");
-      return null;
     } finally {
       setRunning(false);
     }
@@ -123,13 +127,19 @@ export default function SandboxStudio() {
                 onChange={(event) => patch({ projectId: event.target.value })}
                 className={INPUT}
                 aria-label="Project"
+                disabled={projectsLoading || projectsEmpty}
               >
+                {projectsLoading && <option value="">Loading projects…</option>}
+                {projectsEmpty && <option value="">No projects yet</option>}
                 {projects?.map((p) => (
                   <option key={p._id} value={p._id}>
                     {p.name}
                   </option>
                 ))}
               </select>
+              {projectsEmpty && (
+                <span className="text-[12px] text-ink-3">Create a project first — sandbox experiments are real tasks in a project.</span>
+              )}
             </label>
             <label className={LABEL}>
               Instruction
@@ -142,28 +152,11 @@ export default function SandboxStudio() {
                 aria-label="Experiment instruction"
               />
             </label>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className={LABEL} role="group" aria-label="Mode">
-                <span>Mode</span>
-                <div className="grid gap-1.5">
-                  {MODES.map((mode) => (
-                    <button
-                      key={mode.key}
-                      type="button"
-                      aria-pressed={config.mode === mode.key}
-                      onClick={() => patch({ mode: mode.key })}
-                      className={`rounded-lg border px-2.5 py-1.5 text-left text-[13px] outline-none transition focus-visible:ring-2 focus-visible:ring-brand/40 ${
-                        config.mode === mode.key ? "border-brand bg-brand-soft font-medium text-ink" : "border-line text-ink-2 hover:bg-hover"
-                      }`}
-                    >
-                      {mode.label}
-                      <span className="block text-[12px] text-ink-3">{mode.hint}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className={LABEL} role="group" aria-label="Guardrails">
-                <span>Guardrails</span>
+            <div className={LABEL} role="group" aria-label="Guardrails">
+              <span>
+                Guardrails{" "}
+                <span className="font-normal text-ink-3">— written into the brief; the real gate is supervised approval</span>
+              </span>
                 <label className="flex items-start gap-2 rounded-lg border border-line px-2.5 py-2 text-[13px] text-ink-2">
                   <input
                     type="checkbox"
@@ -188,8 +181,8 @@ export default function SandboxStudio() {
                     <span className="block text-[12px] text-ink-3">Nothing leaves the worktree without approval</span>
                   </span>
                 </label>
-                <label className="grid gap-1 text-[13px] text-ink-2">
-                  Time box (minutes)
+                <label className="grid gap-1 text-[13px] text-ink-2 sm:max-w-60">
+                  Time box (minutes, advisory)
                   <input
                     type="number"
                     min={5}
@@ -200,13 +193,12 @@ export default function SandboxStudio() {
                     aria-label="Time box in minutes"
                   />
                 </label>
-              </div>
             </div>
             {issues.length > 0 && (
               <p className="text-[13px] text-amber-700 dark:text-amber-400">{issues.join(" ")}</p>
             )}
             <div className="flex items-center gap-2">
-              <button type="button" onClick={() => void run()} disabled={running || issues.length > 0} className={PRIMARY_BTN}>
+              <button type="button" onClick={() => void run()} disabled={running || validation.length > 0} className={PRIMARY_BTN}>
                 <Play size={14} /> {running ? "Queueing…" : "Run in sandbox"}
               </button>
               <span className="text-[12px] text-ink-3">Creates a real supervised task titled `[Sandbox] …`.</span>
@@ -217,15 +209,23 @@ export default function SandboxStudio() {
             <section className="mt-8">
               <h2 className="text-[15px] font-semibold">Recent sandbox runs</h2>
               <ul className="mt-2 divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
-                {history.map((task) => (
-                  <li key={task._id}>
-                    <Link href={`/runs/${task._id}`} className="flex items-center gap-3 px-4 py-2.5 transition hover:bg-hover">
-                      <span className="min-w-0 flex-1 truncate text-[13px]">{task.title}</span>
-                      <span className="shrink-0 text-[12px] text-ink-3">{task.status}</span>
-                      <span className="shrink-0 text-[12px] tabular-nums text-ink-3">{relativeTime(task.createdAt ?? task.startedAt ?? Date.now())}</span>
-                    </Link>
-                  </li>
-                ))}
+                  {history.map((task) => {
+                    const note = coverageNote(task.requirementCoverage?.outcome);
+                    return (
+                      <li key={task._id}>
+                        <Link href={`/runs/${task._id}`} className="flex items-center gap-3 px-4 py-2.5 transition hover:bg-hover">
+                          <span className="min-w-0 flex-1 truncate text-[13px]">{task.title}</span>
+                          {note && (
+                            <span className="shrink-0 rounded-full border border-amber-500/40 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-400">
+                              {note}
+                            </span>
+                          )}
+                          <span className="shrink-0 text-[12px] text-ink-3">{task.status}</span>
+                          <span className="shrink-0 text-[12px] tabular-nums text-ink-3">{relativeTime(task.createdAt ?? task.startedAt ?? Date.now())}</span>
+                        </Link>
+                      </li>
+                    );
+                  })}
               </ul>
             </section>
           )}
@@ -238,8 +238,8 @@ export default function SandboxStudio() {
           <ul className="mt-2 grid gap-1.5 text-[12.5px] text-ink-2">
             <li>• Supervised mode — every file change and command is asked.</li>
             <li>• Worktree-scoped — nothing lands on the main branch silently.</li>
-            <li>• Push / PR always ask, even in other modes.</li>
-            <li>• The task is visible under Runs like any other.</li>
+            <li>• Push / PR always ask.</li>
+            <li>• The task is visible under Runs — this page opens it after queuing.</li>
           </ul>
           <p className="mt-3 text-[12px] font-semibold text-ink-2">Dispatched command</p>
           <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[11.5px] text-ink-2">

@@ -1,12 +1,14 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useQuery } from "convex/react";
-import { GitBranch } from "lucide-react";
+import { useMutation, useQuery } from "convex/react";
+import { GitBranch, Trash2 } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import IconRail from "@/components/IconRail";
+import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
+import { useToast } from "@/components/Toasts";
 import { roleLabel } from "@/lib/agentRoles";
 import { taskStatusLabel } from "@/lib/taskStatus";
 import { formatDuration, formatTokens, relativeTime, statusDot } from "@/lib/runFormat";
@@ -18,9 +20,33 @@ import { formatDuration, formatTokens, relativeTime, statusDot } from "@/lib/run
 function RunsPage() {
   const projectId = useSearchParams().get("project") ?? undefined;
   const data = useQuery(api.runs.list, projectId ? { projectId: projectId as never, limit: 50 } : { limit: 50 });
+  const removeTask = useMutation(api.tasks.remove);
+  const toast = useToast();
+  const [confirm, setConfirm] = useState<(ConfirmRequest & { run: () => Promise<void> }) | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const runs = data?.runs;
   const active = runs?.filter((r) => r.status === "running" || r.status === "queued").length ?? 0;
   const failed = runs?.filter((r) => r.status === "failed").length ?? 0;
+
+  const deleteRun = (taskId: string, title: string) => {
+    setConfirm({
+      title: `Delete run "${title}"?`,
+      message: "This run and all of its history will be deleted permanently.",
+      confirmLabel: "Delete run",
+      run: async () => {
+        setDeleting(taskId);
+        try {
+          await removeTask({ taskId: taskId as never });
+          toast("success", "Run deleted", title);
+          setConfirm(null);
+        } catch (err) {
+          toast("error", "Failed to delete run", err instanceof Error ? err.message : "Failed to delete run");
+        } finally {
+          setDeleting(null);
+        }
+      },
+    });
+  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
@@ -71,8 +97,8 @@ function RunsPage() {
                   r.errorCount ? `${r.errorCount} ${r.errorCount === 1 ? "error" : "errors"}` : null,
                 ].filter(Boolean);
                 return (
-                  <li key={r.taskId}>
-                    <Link href={`/runs/${r.taskId}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
+                  <li key={r.taskId} className="flex items-center">
+                    <Link href={`/runs/${r.taskId}`} className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 transition hover:bg-hover">
                       <span
                         title={taskStatusLabel(r.status)}
                         aria-label={taskStatusLabel(r.status)}
@@ -84,6 +110,16 @@ function RunsPage() {
                       </div>
                       <span className="shrink-0 text-[12.5px] tabular-nums text-ink-3">{relativeTime(r.createdAt)}</span>
                     </Link>
+                    <button
+                      type="button"
+                      aria-label={`Delete run ${r.title}`}
+                      title={r.status === "running" ? "Running runs can't be deleted" : "Delete run"}
+                      disabled={r.status === "running" || deleting === r.taskId}
+                      onClick={() => deleteRun(r.taskId, r.title)}
+                      className="mr-3 shrink-0 rounded-lg p-2 text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </li>
                 );
               })}
@@ -91,6 +127,12 @@ function RunsPage() {
           )}
         </div>
       </main>
+      <ConfirmDialog
+        request={confirm}
+        pending={deleting !== null}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => void confirm?.run()}
+      />
     </div>
   );
 }

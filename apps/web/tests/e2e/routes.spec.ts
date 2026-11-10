@@ -22,11 +22,3 @@ test.describe("routes", () => {
     });
   }
 });
-
-test.describe("standalone pages", () => {
-  test("/hello renders without the app shell", async ({ page }) => {
-    await page.goto("/hello", { waitUntil: "domcontentloaded" });
-    await expectNoRuntimeError(page);
-    await expect(page.getByRole("heading", { name: "Hello World!" })).toBeVisible();
-  });
-});

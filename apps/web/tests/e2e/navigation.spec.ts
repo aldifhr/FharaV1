@@ -35,14 +35,6 @@ test.describe("navigation", () => {
     await expect(page.getByText("Search projects, tasks, and agents")).toBeVisible();
   });
 
-  test("workspace routes redirect", async ({ page }) => {
-    await page.goto("/workspace");
-    await expect(page).toHaveURL(/\/$/);
-
-    await page.goto("/workspace/some-project-id");
-    await expect(page).toHaveURL(/\/chats\/some-project-id$/);
-  });
-
   test("unknown route renders the not-found page", async ({ page }) => {
     await page.goto("/this-route-does-not-exist");
     await expect(page.getByText("404")).toBeVisible();

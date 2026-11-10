@@ -1,10 +1,11 @@
 /**
- * Workflow Studio model (frontend only).
+ * Workflow Studio model.
  *
  * A workflow is a visual DAG of agent steps. It is a *definition* only:
  * nothing here executes agents. The type shapes are intentionally close to
  * the backend `ExecutionPlan` subtasks (key + dependencies) so a future
- * backend compile can map 1:1. Persisted in localStorage; no Convex table.
+ * backend compile can map 1:1. Persisted in the backend via `api.workflows.*`;
+ * the pure helpers below stay framework-free (preview, validation, brief).
  */
 
 export type WorkflowNodeType = "start" | "agent" | "approval" | "conditional" | "end";
@@ -49,8 +50,6 @@ export interface WorkflowIssue {
   message: string;
 }
 
-const STORAGE_KEY = "fhara.workflows.v1";
-
 export function newId(prefix: string): string {
   const rand =
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -81,25 +80,6 @@ export function defaultWorkflow(): Workflow {
   return { id: newId("wf"), name: "Standard pipeline", createdAt: now, updatedAt: now, nodes, edges };
 }
 
-export function loadWorkflows(): Workflow[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [defaultWorkflow()];
-    const parsed = JSON.parse(raw) as Workflow[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return [defaultWorkflow()];
-    return parsed;
-  } catch {
-    return [defaultWorkflow()];
-  }
-}
-
-export function saveWorkflows(workflows: Workflow[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(workflows));
-  } catch {
-    /* storage denied */
-  }
-}
 
 export function nodeById(workflow: Workflow, id: string): WorkflowNode | undefined {
   return workflow.nodes.find((node) => node.id === id);

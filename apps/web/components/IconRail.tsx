@@ -7,19 +7,15 @@ import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 
 import { useQuery } from "convex/react";
 import {
   Activity,
-  AlertTriangle,
   BarChart3,
   BookOpen,
-  Building2,
   Brain,
   Cpu,
   GitBranch,
   Home,
   Inbox,
   KanbanSquare,
-  Lightbulb,
   MessagesSquare,
-  Moon,
   Network,
   Siren,
   TestTubes,
@@ -31,10 +27,8 @@ import {
   Share2,
   Scale,
   Sparkles,
-  Sun,
   Users,
   FlaskConical,
-  FolderTree,
   Globe,
   Workflow,
 } from "lucide-react";
@@ -42,7 +36,6 @@ import { api } from "@/api/convex/_generated/api";
 import { useNewProject } from "./NewProject";
 import { useSettings } from "./Settings";
 import { useLlmSettings } from "./LlmSettings";
-import { useTheme } from "./ui/use-theme";
 import CommandMenu from "./CommandMenu";
 import QueryBoundary from "./shell/QueryBoundary";
 import { clockTime } from "@/lib/format";
@@ -186,7 +179,7 @@ function eventSummary(e: { type: string; payload?: any }): string {
   const p = e.payload ?? {};
   const detail = p.label ?? p.stage ?? p.message ?? p.instruction ?? p.answer ?? p.status ?? "";
   const label = EVENT_LABEL[e.type] ?? e.type.replace(/^task\./, "").replace(/[._]/g, " ");
-  return detail ? `${label} · ${String(detail).slice(0, 80)}` : label;
+  return detail ? `${label} Â· ${String(detail).slice(0, 80)}` : label;
 }
 
 function ActivityFeed({ projectId }: { projectId: string }) {
@@ -197,13 +190,13 @@ function ActivityFeed({ projectId }: { projectId: string }) {
     <div>
       <p className="border-b border-line px-3.5 py-2.5 text-[13px] font-semibold">Activity</p>
       <ul className="shell-scroll max-h-[360px] overflow-y-auto py-1">
-        {events === undefined && <li className="px-3.5 py-3 text-ink-3">Loading…</li>}
+        {events === undefined && <li className="px-3.5 py-3 text-ink-3">Loadingâ€¦</li>}
         {events?.length === 0 && <li className="px-3.5 py-3 text-ink-3">No activity yet in this project.</li>}
         {(events ?? []).map((e: any) => (
           <li key={e._id} className="px-3.5 py-2">
             <p className={`truncate text-[13px] ${e.level === "error" ? "text-red-600 dark:text-red-400" : "text-ink"}`}>{eventSummary(e)}</p>
             <p className="mt-0.5 truncate text-xs text-ink-3">
-              {title(e.taskId) ?? "Task"} · {clockTime(e._creationTime)}
+              {title(e.taskId) ?? "Task"} Â· {clockTime(e._creationTime)}
             </p>
           </li>
         ))}
@@ -224,7 +217,6 @@ export default function IconRail({
   const { openNewProject } = useNewProject();
   const { openSettings } = useSettings();
   const { openLlmSettings } = useLlmSettings();
-  const { theme, toggleTheme: toggle } = useTheme();
   const [commandOpen, setCommandOpen] = useState(false);
   const [panel, setPanel] = useState<"activity" | "insights" | "user" | null>(null);
   const activityRef = useRef<HTMLButtonElement>(null);
@@ -276,11 +268,10 @@ export default function IconRail({
       <QueryBoundary fallback={<RailButton icon={Inbox} label="Inbox" href="/inbox" active={pathname === "/inbox"} />}>
         <InboxButton active={pathname === "/inbox"} />
       </QueryBoundary>
-      <RailButton icon={Search} label="Search (⌘K)" onClick={() => setCommandOpen(true)} />
+      <RailButton icon={Search} label="Search (âŒ˜K)" onClick={() => setCommandOpen(true)} />
       <span aria-hidden="true" className="my-2 h-px w-6 bg-line max-[979px]:hidden" />
       <RailButton icon={MessagesSquare} label="Chats" href={chatHref} active={inChat} />
       <RailButton icon={Users} label="Team" href={projectId ? `/team?project=${projectId}` : "/team"} active={pathname === "/team"} />
-      <RailButton icon={Building2} label="Office" href={projectId ? `/office?project=${projectId}` : "/office"} active={pathname === "/office"} />
       <RailButton icon={BookOpen} label="Library" href="/library" active={pathname === "/library"} />
       <RailButton icon={Brain} label="Memory" href={projectId ? `/memory?scope=project&project=${projectId}` : "/memory"} active={pathname === "/memory"} />
       <RailButton icon={GitBranch} label="Runs" href={projectId ? `/runs?project=${projectId}` : "/runs"} active={pathname.startsWith("/runs")} />
@@ -289,7 +280,6 @@ export default function IconRail({
       <RailButton icon={Network} label="Knowledge Graph" href="/knowledge" active={pathname === "/knowledge"} />
       <RailButton icon={Siren} label="Incident Room" href={projectId ? `/incidents?project=${projectId}` : "/incidents"} active={pathname === "/incidents"} />
       <RailButton icon={TestTubes} label="Agent Sandbox" href="/sandbox" active={pathname === "/sandbox"} />
-      <RailButton icon={FolderTree} label="Project Intelligence" href="/intelligence" active={pathname === "/intelligence"} />
       <RailButton icon={Globe} label="Browser Lab" href="/browser-lab" active={pathname === "/browser-lab"} />
       {projectId && (
         <>
@@ -309,12 +299,10 @@ export default function IconRail({
         label="Insights"
         buttonRef={insightsRef}
         expanded={panel === "insights"}
-        active={pathname === "/evals" || pathname === "/audit" || pathname.startsWith("/incidents") || pathname === "/improve" || pathname === "/calibration"}
+        active={pathname === "/evals" || pathname === "/audit" || pathname === "/improve" || pathname === "/calibration"}
         onClick={() => setPanel((p) => (p === "insights" ? null : "insights"))}
       />
       <div className="mt-auto flex flex-col items-center gap-1 pt-3 max-[979px]:ml-auto max-[979px]:mt-0 max-[979px]:flex-row max-[979px]:pt-0">
-        <RailButton icon={theme === "dark" ? Sun : Moon} label={theme === "dark" ? "Light mode" : "Dark mode"} onClick={toggle} />
-        <RailButton icon={Settings} label="Settings" onClick={openSettings} />
         <button
           ref={userRef}
           type="button"
@@ -338,7 +326,6 @@ export default function IconRail({
             {[
               { icon: BarChart3, label: "Evaluations", href: projectId ? `/evals?project=${projectId}` : "/evals", path: "/evals" },
               { icon: ScrollText, label: "Audit log", href: projectId ? `/audit?project=${projectId}` : "/audit", path: "/audit" },
-              { icon: AlertTriangle, label: "Incidents", href: projectId ? `/incidents?project=${projectId}` : "/incidents", path: "/incidents" },
               { icon: Sparkles, label: "Improve", href: projectId ? `/improve?project=${projectId}` : "/improve", path: "/improve" },
               { icon: Scale, label: "Calibration", href: projectId ? `/calibration?project=${projectId}` : "/calibration", path: "/calibration" },
             ].map(({ icon: Icon, label, href, path }) => (
@@ -381,20 +368,14 @@ export default function IconRail({
                 <Icon size={15} className="text-ink-3" /> {label}
               </button>
             ))}
-            {[
-              { icon: Lightbulb, label: "Ideas", href: "/ideas" },
-              { icon: Plug, label: "Integrations", href: projectId ? `/integrations?project=${projectId}` : "/integrations" },
-            ].map(({ icon: Icon, label, href }) => (
-              <Link
-                key={label}
-                href={href}
-                role="menuitem"
-                onClick={() => setPanel(null)}
-                className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] hover:bg-hover"
-              >
-                <Icon size={15} className="text-ink-3" /> {label}
-              </Link>
-            ))}
+            <Link
+              href={projectId ? `/integrations?project=${projectId}` : "/integrations"}
+              role="menuitem"
+              onClick={() => setPanel(null)}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] hover:bg-hover"
+            >
+              <Plug size={15} className="text-ink-3" /> Integrations
+            </Link>
           </div>
         </RailPanel>
       )}

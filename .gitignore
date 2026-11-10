@@ -7,6 +7,7 @@ apps/api/convex/*.js
 apps/api/.convex-local.sqlite3
 apps/api/.convex/
 workspaces/
+sandbox/
 *.log
 .next
 apps/web/.next

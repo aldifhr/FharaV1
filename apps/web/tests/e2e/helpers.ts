@@ -6,13 +6,11 @@ export const ROUTES = [
   { path: "/chats", heading: "Select a project" },
   { path: "/inbox", heading: "Inbox" },
   { path: "/search", heading: "Search" },
-  // /hello is standalone (no IconRail); tested separately.
 ] as const;
 
 /**
  * Navigate and wait until the app shell has rendered. Convex queries resolve
  * against the local deployment, so pages that gate on data need a real wait.
- * Some pages (/hello) have no <nav> — pass skipNavCheck to handle those.
  */
 export async function gotoApp(page: Page, path: string): Promise<void> {
   await page.goto(path, { waitUntil: "domcontentloaded" });
@@ -21,7 +19,7 @@ export async function gotoApp(page: Page, path: string): Promise<void> {
   try {
     await nav.toBeVisible({ timeout: 8_000 });
   } catch {
-    // Pages without IconRail (e.g. /hello) skip this check.
+    // Pages without IconRail skip this check.
     await expect(page.locator("body")).toBeVisible();
   }
 }

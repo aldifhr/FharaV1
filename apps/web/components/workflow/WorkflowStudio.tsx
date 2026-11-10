@@ -1,12 +1,13 @@
 "use client";
 
 /**
- * Workflow Studio (frontend only): visual node editor for agent workflows.
- * Definitions are persisted in localStorage via `@/lib/workflow`; nothing
- * here executes agents or touches Convex. "Simulate" is a dry-run preview
- * that walks the graph in topological order.
+ * Workflow Studio: visual node editor for agent workflows.
+ * Definitions persist in the backend via `api.workflows.*`; nothing here
+ * executes agents. "Simulate" is a dry-run preview that walks the graph in
+ * topological order.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery } from "convex/react";
 import {
   AlertTriangle,
   Bot,
@@ -25,14 +26,13 @@ import {
   CircleDot,
   Upload,
 } from "lucide-react";
+import { api } from "@/api/convex/_generated/api";
 import { ROLE_KEYS, roleLabel } from "@/api/convex/lib/roles";
 import {
   defaultWorkflow,
-  loadWorkflows,
   newId,
   nodeById,
   previewOrder,
-  saveWorkflows,
   validateWorkflow,
   workflowToBrief,
   type EdgeCondition,
@@ -102,33 +102,57 @@ function edgeMid(from: WorkflowNode, to: WorkflowNode): { x: number; y: number }
 
 export default function WorkflowStudio() {
   const toast = useToast();
-  const [workflows, setWorkflows] = useState<Workflow[]>(() => [defaultWorkflow()]);
+  const workflowsQuery = useQuery(api.workflows.list, {});
+  const createWorkflowMutation = useMutation(api.workflows.create);
+  const updateWorkflowMutation = useMutation(api.workflows.update);
+  const removeWorkflowMutation = useMutation(api.workflows.remove);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const seededRef = useRef(false);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [simStep, setSimStep] = useState(-1);
   const [simRunning, setSimRunning] = useState(false);
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ nodeId: string; dx: number; dy: number } | null>(null);
+  const dragRef = useRef<{ nodeId: string; dx: number; dy: number; nodeEl: HTMLElement | null; pointerId: number; finalX: number; finalY: number } | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const linkRef = useRef<{ from: string; x: number; y: number } | null>(null);
   const [linkLine, setLinkLine] = useState<{ from: string; x: number; y: number } | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const simTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Hydration: localStorage only exists on the client.
-  const [hydrated, setHydrated] = useState(false);
+  // Load the workflow list from the backend (client-side data).
   useEffect(() => {
-    const loaded = loadWorkflows();
-    setWorkflows(loaded);
-    setActiveId(loaded[0]?.id ?? null);
-    setHydrated(true);
-  }, []);
+    if (workflowsQuery === undefined) return;
+    setWorkflows(workflowsQuery);
+    setActiveId((current) =>
+      current && workflowsQuery.some((candidate) => candidate.id === current)
+        ? current
+        : (workflowsQuery[0]?.id ?? null),
+    );
+    if (workflowsQuery.length === 0 && !seededRef.current) {
+      seededRef.current = true;
+      const fresh = defaultWorkflow();
+      createWorkflowMutation({ nodes: fresh.nodes, edges: fresh.edges, name: fresh.name }).catch(() => {
+        toast("error", "Seed failed", "The default workflow could not be saved to the backend.");
+      });
+    }
+  }, [createWorkflowMutation, toast, workflowsQuery]);
 
-  const persist = useCallback((next: Workflow[]) => {
-    setWorkflows(next);
-    saveWorkflows(next);
-  }, []);
+  const schedulePersist = useCallback(
+    (next: Workflow) => {
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+      persistTimer.current = setTimeout(() => {
+        persistTimer.current = null;
+        updateWorkflowMutation({ id: next.id, patch: { name: next.name, nodes: next.nodes, edges: next.edges } }).catch(() => {
+          toast("error", "Save failed", "The workflow could not be saved to the backend.");
+        });
+      }, 600);
+    },
+    [toast, updateWorkflowMutation],
+  );
 
   const workflow = useMemo(
     () => workflows.find((candidate) => candidate.id === activeId) ?? workflows[0],
@@ -144,9 +168,10 @@ export default function WorkflowStudio() {
       const next = workflows.map((candidate) =>
         candidate.id === workflow.id ? { ...fn(candidate), updatedAt: Date.now() } : candidate,
       );
-      persist(next);
+      setWorkflows(next);
+      schedulePersist(next.find((candidate) => candidate.id === workflow.id)!);
     },
-    [persist, workflow, workflows],
+    [schedulePersist, workflow, workflows],
   );
 
   const updateNode = useCallback(
@@ -267,9 +292,16 @@ export default function WorkflowStudio() {
     if ((event.target as HTMLElement).closest("[data-port]")) return;
     event.preventDefault();
     const pos = pointerPos(event);
-    dragRef.current = { nodeId: node.id, dx: node.x - pos.x, dy: node.y - pos.y };
+    const el = event.currentTarget as HTMLElement;
+    dragRef.current = { nodeId: node.id, dx: node.x - pos.x, dy: node.y - pos.y, nodeEl: el, pointerId: event.pointerId, finalX: node.x, finalY: node.y };
+    setDraggingId(node.id);
     setSelectedNode(node.id);
     setSelectedEdge(null);
+    try {
+      el.setPointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
   };
 
   useEffect(() => {
@@ -280,25 +312,45 @@ export default function WorkflowStudio() {
         setLinkLine({ ...linkRef.current, x: event.clientX - rect.left, y: event.clientY - rect.top });
         return;
       }
-      if (!dragRef.current) return;
+      const drag = dragRef.current;
+      if (!drag) return;
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const { nodeId, dx, dy } = dragRef.current;
-      updateNode(nodeId, {
-        x: Math.max(0, Math.min(CANVAS_W - NODE_W, event.clientX - rect.left + dx)),
-        y: Math.max(0, Math.min(CANVAS_H - NODE_H, event.clientY - rect.top + dy)),
-      });
+      const x = Math.max(0, Math.min(CANVAS_W - NODE_W, event.clientX - rect.left + drag.dx));
+      const y = Math.max(0, Math.min(CANVAS_H - NODE_H, event.clientY - rect.top + drag.dy));
+      drag.finalX = x;
+      drag.finalY = y;
+      if (drag.nodeEl) {
+        drag.nodeEl.style.left = `${x}px`;
+        drag.nodeEl.style.top = `${y}px`;
+      }
     };
-    const onUp = () => {
+    const onUp = (event: PointerEvent) => {
+      const drag = dragRef.current;
+      if (drag) {
+        if (drag.nodeEl) {
+          drag.nodeEl.style.left = "";
+          drag.nodeEl.style.top = "";
+          try {
+            drag.nodeEl.releasePointerCapture(event.pointerId);
+          } catch {
+            /* ignore */
+          }
+        }
+        updateNode(drag.nodeId, { x: drag.finalX, y: drag.finalY });
+      }
       dragRef.current = null;
       linkRef.current = null;
       setLinkLine(null);
+      setDraggingId(null);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
     };
   }, [updateNode]);
 
@@ -329,16 +381,21 @@ export default function WorkflowStudio() {
     setLinkLine(null);
   };
 
-  const createWorkflow = () => {
+  const createWorkflow = async () => {
     const fresh = defaultWorkflow();
     fresh.name = `Workflow ${workflows.length + 1}`;
-    persist([...workflows, fresh]);
-    setActiveId(fresh.id);
-    setSelectedNode(null);
-    setSelectedEdge(null);
+    try {
+      const created = await createWorkflowMutation({ nodes: fresh.nodes, edges: fresh.edges, name: fresh.name });
+      setWorkflows((current) => [...current, created]);
+      setActiveId(created.id);
+      setSelectedNode(null);
+      setSelectedEdge(null);
+    } catch {
+      toast("error", "Create failed", "The workflow could not be saved to the backend.");
+    }
   };
 
-  const duplicateWorkflow = () => {
+  const duplicateWorkflow = async () => {
     if (!workflow) return;
     const copy: Workflow = {
       ...structuredClone(workflow),
@@ -347,25 +404,35 @@ export default function WorkflowStudio() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    persist([...workflows, copy]);
-    setActiveId(copy.id);
-    toast("success", "Duplicated", copy.name);
+    try {
+      const created = await createWorkflowMutation({ nodes: copy.nodes, edges: copy.edges, name: copy.name });
+      setWorkflows((current) => [...current, created]);
+      setActiveId(created.id);
+      toast("success", "Duplicated", created.name);
+    } catch {
+      toast("error", "Duplicate failed", "The workflow could not be saved to the backend.");
+    }
   };
 
   const askDeleteWorkflow = () => {
     if (!workflow || workflows.length <= 1) return;
     setConfirmReq({
       title: `Delete "${workflow.name}"?`,
-      message: "This workflow definition will be removed from this browser.",
+      message: "This workflow definition will be removed from the backend.",
       confirmLabel: "Delete",
-      onOk: () => {
-        const next = workflows.filter((candidate) => candidate.id !== workflow.id);
-        persist(next);
-        setActiveId(next[0]?.id ?? null);
-        setSelectedNode(null);
-        setSelectedEdge(null);
-        setConfirmReq(null);
-        toast("success", "Deleted", workflow.name);
+      onOk: async () => {
+        try {
+          await removeWorkflowMutation({ id: workflow.id });
+          const next = workflows.filter((candidate) => candidate.id !== workflow.id);
+          setWorkflows(next);
+          setActiveId(next[0]?.id ?? null);
+          setSelectedNode(null);
+          setSelectedEdge(null);
+          setConfirmReq(null);
+          toast("success", "Deleted", workflow.name);
+        } catch {
+          toast("error", "Delete failed", "The workflow could not be removed from the backend.");
+        }
       },
     });
   };
@@ -376,15 +443,20 @@ export default function WorkflowStudio() {
       title: `Reset "${workflow.name}"?`,
       message: "This will restore the default template (User → CTO → Developer → QA → Reviewer → Done). The name is kept. Your edits to nodes and edges will be discarded.",
       confirmLabel: "Reset",
-      onOk: () => {
+      onOk: async () => {
         const fresh = defaultWorkflow();
         const reset: Workflow = { ...fresh, id: workflow.id, name: workflow.name, createdAt: workflow.createdAt, updatedAt: Date.now() };
-        persist(workflows.map((candidate) => (candidate.id === workflow.id ? reset : candidate)));
-        setSelectedNode(null);
-        setSelectedEdge(null);
-        stopSim();
-        setConfirmReq(null);
-        toast("success", "Reset", reset.name);
+        try {
+          const updated = await updateWorkflowMutation({ id: workflow.id, patch: { name: reset.name, nodes: reset.nodes, edges: reset.edges } });
+          setWorkflows((current) => current.map((candidate) => (candidate.id === workflow.id ? updated : candidate)));
+          setSelectedNode(null);
+          setSelectedEdge(null);
+          stopSim();
+          setConfirmReq(null);
+          toast("success", "Reset", reset.name);
+        } catch {
+          toast("error", "Reset failed", "The workflow could not be saved to the backend.");
+        }
       },
     });
   };
@@ -392,17 +464,25 @@ export default function WorkflowStudio() {
   const askResetAll = () => {
     setConfirmReq({
       title: "Reset all workflows?",
-      message: "All locally saved workflows will be replaced with the single default template.",
+      message: "All saved workflows will be replaced with the single default template.",
       confirmLabel: "Reset all",
-      onOk: () => {
+      onOk: async () => {
         const fresh = defaultWorkflow();
-        persist([fresh]);
-        setActiveId(fresh.id);
-        setSelectedNode(null);
-        setSelectedEdge(null);
-        stopSim();
-        setConfirmReq(null);
-        toast("success", "Reset complete", fresh.name);
+        try {
+          for (const candidate of workflows) {
+            await removeWorkflowMutation({ id: candidate.id });
+          }
+          const created = await createWorkflowMutation({ nodes: fresh.nodes, edges: fresh.edges, name: fresh.name });
+          setWorkflows([created]);
+          setActiveId(created.id);
+          setSelectedNode(null);
+          setSelectedEdge(null);
+          stopSim();
+          setConfirmReq(null);
+          toast("success", "Reset complete", created.name);
+        } catch {
+          toast("error", "Reset failed", "The workflows could not be reset on the backend.");
+        }
       },
     });
   };
@@ -420,22 +500,27 @@ export default function WorkflowStudio() {
   const importWorkflow = (file: File) => {
     file
       .text()
-      .then((raw) => {
-        const parsed = JSON.parse(raw) as Workflow;
-        if (!parsed || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) {
-          throw new Error("Not a workflow file");
+      .then(async (raw) => {
+        try {
+          const parsed = JSON.parse(raw) as Workflow;
+          if (!parsed || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) {
+            throw new Error("Not a workflow file");
+          }
+          const imported: Workflow = {
+            ...parsed,
+            id: newId("wf"),
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+          const created = await createWorkflowMutation({ nodes: imported.nodes, edges: imported.edges, name: imported.name });
+          setWorkflows((current) => [...current, created]);
+          setActiveId(created.id);
+          toast("success", "Imported", created.name);
+        } catch {
+          toast("error", "Import failed", "The file is not a valid workflow JSON.");
         }
-        const imported: Workflow = {
-          ...parsed,
-          id: newId("wf"),
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-        persist([...workflows, imported]);
-        setActiveId(imported.id);
-        toast("success", "Imported", imported.name);
       })
-      .catch(() => toast("error", "Import failed", "The file is not a valid workflow JSON."));
+      .catch(() => toast("error", "Import failed", "The file could not be read."));
   };
 
   const copyBrief = async () => {
@@ -448,7 +533,7 @@ export default function WorkflowStudio() {
     }
   };
 
-  if (!hydrated || !workflow) {
+  if (workflowsQuery === undefined || !workflow) {
     return <main className="flex min-h-0 flex-1 items-center justify-center text-[13px] text-ink-3">Loading…</main>;
   }
 
@@ -668,14 +753,18 @@ export default function WorkflowStudio() {
                         setSelectedEdge(null);
                       }
                     }}
-                    className={`absolute select-none rounded-xl border bg-panel shadow-sm outline-none transition ${
+                    className={`absolute select-none rounded-xl border bg-panel shadow-sm outline-none ${
+                      draggingId === node.id
+                        ? "z-20 cursor-grabbing shadow-lg ring-2 ring-brand/25"
+                        : "cursor-grab transition hover:shadow-md"
+                    } ${
                       active
                         ? "border-brand ring-2 ring-brand/30"
                         : simulated
                           ? "border-emerald-500 ring-2 ring-emerald-500/30"
                           : "border-line hover:border-line-strong"
                     }`}
-                    style={{ left: node.x, top: node.y, width: NODE_W, minHeight: NODE_H }}
+                    style={{ left: node.x, top: node.y, width: NODE_W, minHeight: NODE_H, touchAction: "none" }}
                   >
                     <span className={`block h-1 rounded-t-xl ${meta.bar}`} aria-hidden="true" />
                     <div className="px-3 py-2">
@@ -748,7 +837,7 @@ export default function WorkflowStudio() {
               </ul>
             )}
             <p className="mt-1.5 text-[11.5px] text-ink-3">
-              Frontend definition only — Simulate is a dry-run animation; no agent runs and nothing is sent to Convex. Save happens in your browser (localStorage).
+              Frontend definition only — Simulate is a dry-run animation;               no agent runs. Save happens in the backend (Convex).
             </p>
           </div>
         </div>

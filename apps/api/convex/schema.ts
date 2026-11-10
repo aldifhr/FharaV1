@@ -167,6 +167,54 @@ export const notificationKind = v.union(
   v.literal("fix_failed")
 );
 
+// Workflow Studio (plan 030): a visual agent-workflow DAG definition. Node
+// and edge shapes stay string-keyed (frontend ids such as `node_abc12345`),
+// not Convex ids: they are a frontend DAG contract and the backend
+// ExecutionPlan mapping is future work. Mirrors `@/lib/workflow` in the web.
+export const workflowNodeType = v.union(
+  v.literal("start"),
+  v.literal("agent"),
+  v.literal("approval"),
+  v.literal("conditional"),
+  v.literal("end")
+);
+
+export const edgeCondition = v.union(
+  v.literal("always"),
+  v.literal("on_success"),
+  v.literal("on_failure"),
+  v.literal("custom")
+);
+
+export const workflowNodeValidator = v.object({
+  id: v.string(),
+  type: workflowNodeType,
+  title: v.string(),
+  role: v.optional(v.string()),
+  prompt: v.optional(v.string()),
+  retries: v.optional(v.number()),
+  message: v.optional(v.string()),
+  x: v.number(),
+  y: v.number(),
+});
+
+export const workflowEdgeValidator = v.object({
+  id: v.string(),
+  from: v.string(),
+  to: v.string(),
+  condition: edgeCondition,
+  label: v.optional(v.string()),
+});
+
+/**
+ * Partial patch of a workflow; `undefined` fields are left untouched.
+ */
+export const workflowPatchValidator = v.object({
+  name: v.optional(v.string()),
+  nodes: v.optional(v.array(workflowNodeValidator)),
+  edges: v.optional(v.array(workflowEdgeValidator)),
+});
+
 export default defineSchema({
   projects: defineTable({
     name: v.string(),
@@ -1393,6 +1441,19 @@ export default defineSchema({
     .index("by_task", ["taskId"])
     .index("by_project_and_status", ["projectId", "status"])
     .index("by_status", ["status"]),
+
+  // Workflow Studio (plan 030): user-defined agent-workflow DAGs, persisted
+  // backend-side like every other Fhara store. Additive: a fresh table, no
+  // legacy rows, no migration. The execution mapping into ExecutionPlan
+  // subtasks is future work.
+  workflows: defineTable({
+    name: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    nodes: v.array(workflowNodeValidator),
+    edges: v.array(workflowEdgeValidator),
+  })
+    .index("by_updated", ["updatedAt"]),
 
   // Self-Improvement Lab: an LLM-proposed change to a prompt, skill or role
   // config after a failed run. Applied only on the user's Apply (audited).

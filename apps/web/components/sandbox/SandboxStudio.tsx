@@ -19,9 +19,15 @@ import {
   SANDBOX_PREFIX,
   defaultSandboxConfig,
   sandboxCommand,
+  sandboxModeSummary,
   validateSandbox,
   type SandboxConfig,
 } from "@/lib/sandbox";
+import {
+  PERMISSION_MODES,
+  PERMISSION_MODE_HINTS,
+  PERMISSION_MODE_LABELS,
+} from "@/api/convex/lib/permissionModes";
 
 const INPUT =
   "w-full rounded-lg border border-line bg-canvas px-3 py-2 text-[14px] text-ink outline-none placeholder:text-ink-3 focus:border-line-strong";
@@ -81,7 +87,7 @@ export default function SandboxStudio() {
         projectId: projectId as never,
         command: preview,
         title: `${SANDBOX_PREFIX} ${config.name.trim()}`,
-        permissionMode: "supervised",
+        permissionMode: config.permissionMode,
       });
       toast("success", "Sandbox experiment queued", config.name);
       setConfig((current) => ({ ...current, instruction: "", name: "" }));
@@ -104,8 +110,9 @@ export default function SandboxStudio() {
               <FlaskConical size={24} /> Agent Sandbox
             </h1>
             <p className="mt-1 max-w-2xl text-[14px] text-ink-2">
-              Run agent experiments isolated from production: a supervised task in the project worktree, prefixed with
-              `[Sandbox]`, with explicit guardrails. Nothing is pushed or merged without your approval.
+              Run agent experiments isolated from production: a task in the project worktree, prefixed with `[Sandbox]`,
+              with explicit guardrails. You pick how much it may do on its own; nothing is pushed or merged without your
+              approval.
             </p>
           </header>
 
@@ -152,10 +159,26 @@ export default function SandboxStudio() {
                 aria-label="Experiment instruction"
               />
             </label>
+            <label className={LABEL}>
+              Approval mode
+              <select
+                value={config.permissionMode}
+                onChange={(event) => patch({ permissionMode: event.target.value as SandboxConfig["permissionMode"] })}
+                className={INPUT}
+                aria-label="Approval mode"
+              >
+                {PERMISSION_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {PERMISSION_MODE_LABELS[mode]}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[12px] text-ink-3">{PERMISSION_MODE_HINTS[config.permissionMode]}.</span>
+            </label>
             <div className={LABEL} role="group" aria-label="Guardrails">
               <span>
                 Guardrails{" "}
-                <span className="font-normal text-ink-3">— written into the brief; the real gate is supervised approval</span>
+                <span className="font-normal text-ink-3">— written into the brief; the real gate is the approval mode above</span>
               </span>
                 <label className="flex items-start gap-2 rounded-lg border border-line px-2.5 py-2 text-[13px] text-ink-2">
                   <input
@@ -201,7 +224,9 @@ export default function SandboxStudio() {
               <button type="button" onClick={() => void run()} disabled={running || validation.length > 0} className={PRIMARY_BTN}>
                 <Play size={14} /> {running ? "Queueing…" : "Run in sandbox"}
               </button>
-              <span className="text-[12px] text-ink-3">Creates a real supervised task titled `[Sandbox] …`.</span>
+              <span className="text-[12px] text-ink-3">
+                Creates a real task titled `[Sandbox] …` in {PERMISSION_MODE_LABELS[config.permissionMode]} mode.
+              </span>
             </div>
           </div>
 
@@ -236,7 +261,7 @@ export default function SandboxStudio() {
             <ShieldCheck size={14} /> What runs
           </p>
           <ul className="mt-2 grid gap-1.5 text-[12.5px] text-ink-2">
-            <li>• Supervised mode — every file change and command is asked.</li>
+            <li>• {sandboxModeSummary(config.permissionMode)}</li>
             <li>• Worktree-scoped — nothing lands on the main branch silently.</li>
             <li>• Push / PR always ask.</li>
             <li>• The task is visible under Runs — this page opens it after queuing.</li>
@@ -246,7 +271,7 @@ export default function SandboxStudio() {
             {preview}
           </pre>
           <p className="mt-3 text-[11.5px] text-ink-3">
-            Honest limits: no separate production database or network namespace — isolation here is the supervised gate, worktree
+            Honest limits: no separate production database or network namespace — isolation here is the approval mode, worktree
             scoping, and the no-push guardrail. Use separate projects for fully separate data.
           </p>
           <button

@@ -40,7 +40,9 @@ describe("explicit task commands", () => {
   });
   it("'kerjakan tambah dark mode' is a task", () => {
     expect(explicitTaskCommand("kerjakan tambah dark mode")).toBe("tambah dark mode");
-    expect(explicitTaskCommand("Jalankan: test e2e login")).toBe("test e2e login");
+    // A run order keeps its verb so the worker plans a shell task (detectRunCommands).
+    expect(explicitTaskCommand("Jalankan: test e2e login")).toBe("Jalankan: test e2e login");
+    expect(explicitTaskCommand("jalankan migrasi database")).toBe("migrasi database");
     expect(explicitTaskCommand("eksekusi migrasi schema users")).toBe("migrasi schema users");
     expect(explicitTaskCommand("do it: add a dark mode toggle")).toBe("add a dark mode toggle");
     expect(explicitTaskCommand("run this refactor of the header")).toBe("refactor of the header");

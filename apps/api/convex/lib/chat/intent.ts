@@ -4,6 +4,8 @@
  * APIs — so it is unit-testable and safe to import from any runtime.
  */
 
+import { detectChatRunCommands, explicitRunCommand } from "./runRequest";
+
 // Mirrored from packages/worker/src/router/route.ts (Convex cannot import
 // worker code). The backend chat auto-dispatch must honor the same platform
 // rule: questions, advice and analysis never become tasks.
@@ -250,6 +252,11 @@ export function explicitTaskCommand(text: string): string | null {
   const slash = SLASH_TASK.exec(t);
   if (slash) return slash[1].trim() || null;
   if (isPastedContent(t) || /\?\s*$/.test(t) || EXPLICIT_NEGATION.test(t)) return null;
+  // A run order ("jalankan tes", "run npm test", "run the tests") keeps its
+  // run verb: the worker classifier (detectRunCommands) plans a shell task
+  // from "jalankan tes", but would read the bare "tes" as something else.
+  const run = explicitRunCommand(t);
+  if (run) return run;
   const go = GO_PREFIX.exec(t);
   if (!go) return null;
   const rest = go[2].trim();
@@ -420,6 +427,8 @@ export function commandNeedsChatContext(command: string): boolean {
   const t = command.trim();
   if (!t) return false;
   if (BARE_COMMAND.test(t)) return true;
+  // A run order ("jalankan tes itu") carries its own subject: the commands.
+  if (detectChatRunCommands(t)) return false;
   // Long commands carry their own subject.
   if (t.length >= 60 || /\n/.test(t)) return false;
   return BACK_REFERENCE.test(t);

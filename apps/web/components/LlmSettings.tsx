@@ -1,42 +1,12 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
-import Modal from "./Modal";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import ModelCapabilitiesSection from "./ModelCapabilitiesSection";
-
-interface LlmSettingsContextValue {
-  openLlmSettings: (projectId?: string) => void;
-}
-
-const LlmSettingsContext = createContext<LlmSettingsContextValue | null>(null);
-
-export function useLlmSettings(): LlmSettingsContextValue {
-  const context = useContext(LlmSettingsContext);
-  if (!context) throw new Error("useLlmSettings must be used within LlmSettingsProvider");
-  return context;
-}
-
-export function LlmSettingsProvider({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const [projectId, setProjectId] = useState<string | undefined>(undefined);
-  const openLlmSettings = useCallback((projectId?: string) => {
-    setProjectId(projectId);
-    setOpen(true);
-  }, []);
-
-  return (
-    <LlmSettingsContext.Provider value={{ openLlmSettings }}>
-      {children}
-      <LlmSettingsModal open={open} onClose={() => setOpen(false)} projectId={projectId} onProjectChange={setProjectId} />
-    </LlmSettingsContext.Provider>
-  );
-}
 
 type Provider = {
   _id: string;
@@ -112,23 +82,19 @@ async function providerAdmin(
   return data;
 }
 
-function LlmSettingsModal({
-  open,
-  onClose,
+export default function LlmSettingsSection({
   projectId,
   onProjectChange,
 }: {
-  open: boolean;
-  onClose: () => void;
   projectId?: string;
   onProjectChange: (projectId?: string) => void;
 }) {
-  const projects = useQuery(api.projects.list, open ? {} : "skip");
-  const providers = useQuery(api.llmProviders.list, open ? {} : "skip");
-  const models = useQuery(api.llmModels.list, open ? {} : "skip");
+  const projects = useQuery(api.projects.list, {});
+  const providers = useQuery(api.llmProviders.list, {});
+  const models = useQuery(api.llmModels.list, {});
   // Provider health (Phase 5): circuit snapshots mirrored to the backend
   // by the worker. Keyed by provider NAME, like the usage stats.
-  const healthStats = useQuery(api.orchestration.providerHealthStats, open ? {} : "skip");
+  const healthStats = useQuery(api.orchestration.providerHealthStats, {});
   const toast = useToast();
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -144,31 +110,16 @@ function LlmSettingsModal({
   const [modelError, setModelError] = useState("");
 
   useEffect(() => {
-    if (!open) {
-      setForm(emptyForm);
-      setEditingId(null);
-      setModelForm(emptyModelForm);
-      setEditingModelId(null);
-      setAddingModelFor(null);
-      setConfirmReq(null);
-    }
-  }, [open ]);
-
-  // Default the model form's connection to the first one in the pool.
-  useEffect(() => {
-    if (open && providers && providers.length > 0 && !modelForm.providerId && !editingModelId) {
+    if (providers && providers.length > 0 && !modelForm.providerId && !editingModelId) {
       setModelForm((f) => ({ ...f, providerId: providers[0]._id }));
     }
-  }, [open, providers, modelForm.providerId, editingModelId]);
+  }, [providers, modelForm.providerId, editingModelId]);
 
   useEffect(() => {
-    if (!open) return;
     if (projects && projects.length > 0 && !projectId) {
       onProjectChange(projects[0]._id);
     }
-  }, [open, projects, projectId, onProjectChange]);
-
-  if (!open) return null;
+  }, [projects, projectId, onProjectChange]);
 
   const sorted = providers ? [...providers].sort((a, b) => a.priority - b.priority) : undefined;
 
@@ -414,10 +365,9 @@ function LlmSettingsModal({
     "w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800";
 
   return (
-    <Modal title="LLM Settings" onClose={onClose} maxWidth="max-w-2xl">
+    <>
       <ConfirmDialog request={confirmReq} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
-      <div className="mt-4 max-h-[70vh] overflow-y-auto pr-1">
-        <div className="grid gap-4">
+      <div className="grid gap-4">
           <section className="rounded-2xl border border-[#ebe9f0] bg-white/70 p-4 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/60">
               <h2 className="text-sm font-semibold">{editingId ? "Edit connection" : "Add connection"}</h2>
               <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-2 gap-2.5 text-sm">
@@ -769,7 +719,6 @@ function LlmSettingsModal({
 
           <ModelCapabilitiesSection projectId={projectId} />
         </div>
-      </div>
-    </Modal>
+    </>
   );
 }

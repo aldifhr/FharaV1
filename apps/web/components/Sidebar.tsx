@@ -146,7 +146,7 @@ export default function Sidebar({
                 <Icon size={18} />
               </Link>
             ))}
-            <button type="button" onClick={openSettings} aria-label="Settings" className="flex h-10 w-10 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
+            <button type="button" onClick={() => openSettings()} aria-label="Settings" className="flex h-10 w-10 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
               <Settings size={18} />
             </button>
             <button type="button" onClick={toggle} aria-label={theme === "dark" ? "Light mode" : "Dark mode"} className="flex h-10 w-10 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">

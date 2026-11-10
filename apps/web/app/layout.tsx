@@ -7,7 +7,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ToastProvider } from "@/components/Toasts";
 import { NewProjectProvider } from "@/components/NewProject";
 import { SettingsProvider } from "@/components/Settings";
-import { LlmSettingsProvider } from "@/components/LlmSettings";
 import { ShellBackground } from "@/components/ui/background-snippets";
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import { SkulletProvider } from "skullet/react";
@@ -42,7 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <TooltipProvider>
           <ToastProvider>
         <ConvexClientProvider>
-          <NewProjectProvider><SettingsProvider><LlmSettingsProvider>{children}</LlmSettingsProvider></SettingsProvider></NewProjectProvider>
+          <NewProjectProvider><SettingsProvider>{children}</SettingsProvider></NewProjectProvider>
         </ConvexClientProvider>
           </ToastProvider>
         </TooltipProvider>

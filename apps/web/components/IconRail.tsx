@@ -10,7 +10,6 @@ import {
   BarChart3,
   BookOpen,
   Brain,
-  Cpu,
   GitBranch,
   Home,
   Inbox,
@@ -32,7 +31,6 @@ import {
 import { api } from "@/api/convex/_generated/api";
 import { useNewProject } from "./NewProject";
 import { useSettings } from "./Settings";
-import { useLlmSettings } from "./LlmSettings";
 import CommandMenu from "./CommandMenu";
 import QueryBoundary from "./shell/QueryBoundary";
 import { clockTime } from "@/lib/format";
@@ -213,7 +211,6 @@ export default function IconRail({
   const pathname = usePathname();
   const { openNewProject } = useNewProject();
   const { openSettings } = useSettings();
-  const { openLlmSettings } = useLlmSettings();
   const [commandOpen, setCommandOpen] = useState(false);
   const [panel, setPanel] = useState<"activity" | "insights" | "user" | null>(null);
   const activityRef = useRef<HTMLButtonElement>(null);
@@ -346,8 +343,7 @@ export default function IconRail({
             </div>
             <div className="my-1 h-px bg-line" />
             {[
-              { icon: Settings, label: "Settings", run: openSettings },
-              { icon: Cpu, label: "LLM settings", run: () => openLlmSettings(projectId) },
+              { icon: Settings, label: "Settings", run: () => openSettings(projectId) },
             ].map(({ icon: Icon, label, run }) => (
               <button
                 key={label}

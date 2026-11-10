@@ -83,6 +83,7 @@ import {
   resolveNoToolsReply,
   streamVisibleText,
   toolBudgetFallback,
+  noAnswerFallback,
 } from "./lib/chat/toolCallText";
 import { EMPTY_EVIDENCE, collectRepoEvidence, findUnverifiedRefs, type RepoEvidence } from "./lib/chat/refCheck";
 import type { RepoToolsOffReason } from "./repoTools";
@@ -983,8 +984,14 @@ async function answerChat(ctx: ActionCtx, rawArgs: ReplyArgs): Promise<void> {
       // The loop's answer is already free of tool-call text; a reply that
       // never got past tool calls gets the fallback instead of vanishing.
       let content = stripLeadingEcho(stripInternalPhrasing(stripToolCallMarkup(loop.answer)), echoCtx);
-      if (!content.trim() && loop.calls.length > 0) {
-        content = workerGone ? noToolsFallback(userText) : toolBudgetFallback(userText);
+      if (!content.trim()) {
+        // A grounded reply never vanishes: with no checks made (the model only
+        // announced one), say so plainly instead of removing the bubble.
+        content = workerGone
+          ? noToolsFallback(userText)
+          : loop.calls.length > 0
+            ? toolBudgetFallback(userText)
+            : noAnswerFallback(userText);
       }
       const reasoningDurationMs = Date.now() - startedAt;
       await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {

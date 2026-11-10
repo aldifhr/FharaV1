@@ -310,6 +310,28 @@ describe("M8 cancel cleans up", () => {
     expect(execution?.status).toBe("cancelled");
   });
 
+  test("cancel settles never-started subtasks as skipped (Cancelled by user); a running one stays blocked", async () => {
+    const { t, projectId, taskId } = await seed({ workerId: "w" });
+    const base = { taskId, projectId, description: "d", kind: "code_change" as const, capability: "c", dependencies: [], order: 0, attempts: 0 };
+    const ids = await t.run(async (ctx) => ({
+      running: await ctx.db.insert("subtasks", { ...base, key: "run", title: "r", status: "running" }),
+      pending: await ctx.db.insert("subtasks", { ...base, key: "pend", title: "p", status: "pending" }),
+      blocked: await ctx.db.insert("subtasks", { ...base, key: "blk", title: "b", status: "blocked" }),
+      done: await ctx.db.insert("subtasks", { ...base, key: "done", title: "d", status: "completed" }),
+    }));
+    expect(await t.mutation(api.tasks.cancel, { taskId })).toBe(true);
+    const rows = await t.run(async (ctx) => ({
+      running: await ctx.db.get(ids.running),
+      pending: await ctx.db.get(ids.pending),
+      blocked: await ctx.db.get(ids.blocked),
+      done: await ctx.db.get(ids.done),
+    }));
+    expect([rows.running?.status, rows.running?.error]).toEqual(["blocked", "Cancelled by user"]);
+    expect([rows.pending?.status, rows.pending?.error]).toEqual(["skipped", "Cancelled by user"]);
+    expect([rows.blocked?.status, rows.blocked?.error]).toEqual(["skipped", "Cancelled by user"]);
+    expect(rows.done?.status).toBe("completed");
+  });
+
   test("retry supersedes an old rejection", async () => {
     const { t, projectId, taskId } = await seed({ status: "queued" });
     await t.run(async (ctx) => {

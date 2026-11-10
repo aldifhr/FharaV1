@@ -158,6 +158,10 @@ export function isNarrationOnly(text: string): boolean {
   const t = text.trim();
   if (!t) return false;
   if (t.length > 240 || t.split(/(?<=[.!?…:])\s+/).filter(Boolean).length > 2) return false;
+  // Addressed to the user, not a plan: "Saya cek sendiri. @QA bisa bantu
+  // kalau Anda minta." (an @mention pointer or a "kalau Anda / if you" offer).
+  // Treating it as narration nudged twice and then dropped the whole reply.
+  if (/(?:^|\s)@[A-Za-z]\w*|\b(?:kalau|jika|bila|kalo) (?:anda|kamu|mau)\b|\bif you\b/i.test(t)) return false;
   // A finding, not a plan: "Saya sudah cek: tidak ketemu", "I checked src/x.ts".
   if (/\b(?:sudah|telah|udah|tidak ketemu|nggak ketemu|ditemukan|ketemu|found|checked|i'?ve|have|has|hasilnya|result)\b|`|\w\.(?:ts|tsx|js|json|md)\b|:\d+/i.test(t)) return false;
   return NARRATION.test(t) || /(?:…|\.\.\.|:)\s*$/.test(t) && /\b(?:cek|check|periksa|lihat|look|verify)\b/i.test(t);

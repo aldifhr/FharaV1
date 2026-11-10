@@ -361,6 +361,9 @@ export const cancel = mutation({
     for (const subtask of subtasks) {
       if (subtask.status === "running" || subtask.status === "waiting_approval") {
         await ctx.db.patch(subtask._id, { status: "blocked", error: "Cancelled by user" });
+      } else if (subtask.status === "pending" || subtask.status === "ready" || subtask.status === "blocked") {
+        // Never started: the stop settles it as skipped, not left waiting.
+        await ctx.db.patch(subtask._id, { status: "skipped", error: "Cancelled by user", completedAt: now });
       }
     }
     for (const agentId of affectedAgents) await refreshAgentStatus(ctx, agentId);

@@ -408,6 +408,28 @@ describe("pre-route ignores the LLM's audit/review label", () => {
     expect(replies[0].taskOffer).toEqual({ kind: "implementation" });
   });
 
+  // live2: this CTO reply came back empty (taken for narration, nudged twice,
+  // then dropped), so no agent message was written for the user's turn.
+  test("'Saya cek sendiri. @QA bisa bantu kalau Anda minta.' is kept as the CTO's answer", async () => {
+    const { t, projectId, ctoId } = await setup({ worker: "new" });
+    llmIntent.intent = "task";
+    llmIntent.subtype = "audit";
+    reply = () => "Saya cek sendiri. @QA bisa bantu kalau Anda minta.";
+    const replies = await ask(t, projectId, "@CTO cek kode tes src");
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
+    expect(replies[0].content).toBe("Saya cek sendiri. @QA bisa bantu kalau Anda minta.");
+    expect(callsBy("CTO")).toHaveLength(1);
+    expect(callsBy("QA")).toHaveLength(0);
+  });
+
+  test("a CTO reply that only ever announces a check still leaves an agent message", async () => {
+    const { t, projectId, ctoId } = await setup({ worker: "new" });
+    reply = () => "Saya cek dulu filenya.";
+    const replies = await ask(t, projectId, "@CTO cek kode tes src");
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
+    expect(replies[0].content).toMatch(/^Belum saya cek — saya belum sempat membaca repo/);
+  });
+
   test("the user typed @CTO: no pre-route and no handoff", async () => {
     const { t, projectId, ctoId } = await setup({ worker: "new" });
     llmIntent.intent = "task";

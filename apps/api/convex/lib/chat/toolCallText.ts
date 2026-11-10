@@ -378,6 +378,17 @@ export function toolBudgetFallback(userText: string): string {
 }
 
 /**
+ * Shown when a grounded reply ended with no answer and no repo check (the
+ * model only kept announcing a check). Never an empty bubble: that left no
+ * agent message for the user's turn.
+ */
+export function noAnswerFallback(userText: string): string {
+  return looksIndonesian(userText)
+    ? "Belum saya cek — saya belum sempat membaca repo untuk balasan ini. Sebutkan file atau bagian yang perlu saya periksa."
+    : "I haven't checked that yet — I didn't get to read the repo for this reply. Name the file or part you want me to look at.";
+}
+
+/**
  * Final text for a reply made without tools after it was retried once: its
  * prose when the model answered (a stray call is dropped), otherwise the
  * fallback.

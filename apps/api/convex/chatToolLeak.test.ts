@@ -82,8 +82,8 @@ async function setup(opts: { workspacePath?: string; worker?: "none" | "old" | "
   return { t, ...ids };
 }
 
-async function ask(t: Awaited<ReturnType<typeof setup>>["t"], projectId: any, content = QUESTION) {
-  const { messageId } = await t.mutation(api.messages.send, { projectId, content });
+async function ask(t: Awaited<ReturnType<typeof setup>>["t"], projectId: any, content = QUESTION, preferredAgentIds?: any[]) {
+  const { messageId } = await t.mutation(api.messages.send, { projectId, content, ...(preferredAgentIds ? { preferredAgentIds } : {}) });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   return await t.run(async (ctx) =>
     ctx.db
@@ -154,20 +154,19 @@ describe("no tools: a tool call is never shown", () => {
     expect(await oldWorker.t.run(async (ctx) => ctx.db.query("repoToolCalls").collect())).toHaveLength(0);
   });
 
-  test("a handoff teammate's tool call is held back the same way", async () => {
+  // The CTO's own @mentions no longer hand off (a333222): the teammate here
+  // is one the user @mentions, which gets the same no-tools handling.
+  test("a teammate the user @mentions has its tool call held back the same way", async () => {
     const { t, projectId, backendId } = await setup({ workspacePath: "/repo", worker: "none" });
     script = [
-      "Belum saya cek. @Backend tolong jelaskan tabel di schema.",
       '{"tool":"grep","arguments":{"query":"defineTable"}}',
       "Belum saya cek tabelnya; perlu task untuk membaca repo.",
     ];
-    const replies = await ask(t, projectId);
+    const replies = await ask(t, projectId, `@Backend ${QUESTION}`, [backendId]);
     const backend = replies.find((r) => r.agentId === backendId);
     expect(backend?.content).toBe("Belum saya cek tabelnya; perlu task untuk membaca repo.");
     for (const r of replies) expect(r.content).not.toMatch(JSONISH);
-    expect(calls[2].system).toContain(NO_TOOLS_RETRY_LINE);
-    // Only the CTO's trace carries the tools-off note.
-    expect(backend?.reasoning ?? "").not.toContain("Repo tools off");
+    expect(calls[1].system).toContain(NO_TOOLS_RETRY_LINE);
   });
 
   test("post-answer check: a cited path or file:line nobody checked is listed as unverified", async () => {

@@ -259,6 +259,8 @@ describe("(4) the tool loop always ends on an answer", () => {
     }
     for (const t of [
       "Saya sudah cek: tidak ketemu.",
+      "Saya cek sendiri. @QA bisa bantu kalau Anda minta.",
+      "I'll check it if you want.",
       "Fungsi itu ada di src/a.ts:12.",
       "Tidak ada fungsi bernama foo di repo ini, saya cari lewat grep dan 0 hasil di seluruh repo; jadi itu tidak ada.",
       "",

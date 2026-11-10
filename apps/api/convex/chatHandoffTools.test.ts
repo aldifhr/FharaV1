@@ -120,7 +120,7 @@ async function setup(opts: { worker: "none" | "new" }) {
 }
 
 async function ask(t: Awaited<ReturnType<typeof setup>>["t"], projectId: any, content: string, preferredAgentIds?: any[]) {
-  const { messageId } = await t.action(api.messages.send, { projectId, content, ...(preferredAgentIds ? { preferredAgentIds } : {}) });
+  const { messageId } = await t.mutation(api.messages.send, { projectId, content, ...(preferredAgentIds ? { preferredAgentIds } : {}) });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   return await t.run(async (ctx) =>
     ctx.db

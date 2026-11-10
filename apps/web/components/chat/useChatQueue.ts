@@ -14,7 +14,7 @@ export type QueuedMessage = {
   status: "queued" | "sending" | "sent" | "failed";
 };
 
-export function useChatQueue(send: (content: string) => Promise<unknown>, onError?: (message: string) => void) {
+export function useChatQueue(send: (content: string, id: string) => Promise<unknown>, onError?: (message: string) => void) {
   const [items, setItemsState] = useState<QueuedMessage[]>([]);
   const [sending, setSending] = useState(false);
   // Mirror of `items` so async callers (auto-send timers) never read a
@@ -72,7 +72,7 @@ export function useChatQueue(send: (content: string) => Promise<unknown>, onErro
         if (!current) continue;
         setItems((q) => q.map((m) => (m.id === item.id ? { ...m, status: "sending" } : m)));
         try {
-          await send(current.content);
+          await send(current.content, current.id);
           setItems((q) => q.map((m) => (m.id === item.id ? { ...m, status: "sent" } : m)));
         } catch (err) {
           setItems((q) => q.map((m) => (m.id === item.id ? { ...m, status: "failed" } : m)));

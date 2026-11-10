@@ -170,67 +170,73 @@ export const ensureForChat = internalMutation({
     conversationId: v.optional(v.id("conversations")),
     preferredAgentIds: v.optional(v.array(v.id("agents"))),
   },
-  handler: async (ctx, args): Promise<Id<"conversations">> => {
-    const project = await ctx.db.get(args.projectId);
-    if (!project) throw new Error("Project not found");
-
-    let conversation = args.conversationId
-      ? await ctx.db.get(args.conversationId)
-      : null;
-    if (conversation && conversation.projectId !== args.projectId) {
-      throw new Error("Conversation does not belong to this project");
-    }
-    if (!conversation) {
-      conversation = await findActiveConversation(ctx, args.projectId);
-    }
-    if (!conversation) {
-      const now = Date.now();
-      const id = await ctx.db.insert("conversations", {
-        projectId: args.projectId,
-        status: "active",
-        createdAt: now,
-        lastMessageAt: now,
-      });
-      conversation = (await ctx.db.get(id))!;
-    }
-
-    const team = await loadTeamAgents(ctx, project);
-    const active = await activeParticipantRows(ctx, conversation._id);
-
-    if (args.preferredAgentIds?.length) {
-      await syncParticipants(
-        ctx,
-        conversation._id,
-        project,
-        team,
-        args.preferredAgentIds
-      );
-    } else if (active.length === 0) {
-      const seeded = selectDefaultChatAgents(project.agentIds, team);
-      await syncParticipants(
-        ctx,
-        conversation._id,
-        project,
-        team,
-        seeded.map((a) => a._id)
-      );
-    } else {
-      // Migrate legacy default (Researcher/Support) to CTO once.
-      const teamById = new Map(team.map((a) => [String(a._id), a]));
-      const activeAgents = active
-        .map((row) => teamById.get(String(row.agentId)))
-        .filter(Boolean) as AgentDoc[];
-      const isLegacyDefault = activeAgents.every((a) =>
-        /^(researcher|support|general|assistant)$/i.test(a.role)
-      );
-      const cto = team.find((a) => /^cto$/i.test(a.role));
-      if (isLegacyDefault && cto && !activeAgents.some((a) => /^cto$/i.test(a.role))) {
-        await syncParticipants(ctx, conversation._id, project, team, [cto._id]);
-      }
-    }
-    return conversation._id;
-  },
+  handler: async (ctx, args): Promise<Id<"conversations">> => ensureChatConversation(ctx, args),
 });
+
+/** ensureForChat's logic, callable inside another mutation (messages.send). */
+export async function ensureChatConversation(
+  ctx: MutationCtx,
+  args: { projectId: Id<"projects">; conversationId?: Id<"conversations">; preferredAgentIds?: Id<"agents">[] }
+): Promise<Id<"conversations">> {
+  const project = await ctx.db.get(args.projectId);
+  if (!project) throw new Error("Project not found");
+
+  let conversation = args.conversationId
+    ? await ctx.db.get(args.conversationId)
+    : null;
+  if (conversation && conversation.projectId !== args.projectId) {
+    throw new Error("Conversation does not belong to this project");
+  }
+  if (!conversation) {
+    conversation = await findActiveConversation(ctx, args.projectId);
+  }
+  if (!conversation) {
+    const now = Date.now();
+    const id = await ctx.db.insert("conversations", {
+      projectId: args.projectId,
+      status: "active",
+      createdAt: now,
+      lastMessageAt: now,
+    });
+    conversation = (await ctx.db.get(id))!;
+  }
+
+  const team = await loadTeamAgents(ctx, project);
+  const active = await activeParticipantRows(ctx, conversation._id);
+
+  if (args.preferredAgentIds?.length) {
+    await syncParticipants(
+      ctx,
+      conversation._id,
+      project,
+      team,
+      args.preferredAgentIds
+    );
+  } else if (active.length === 0) {
+    const seeded = selectDefaultChatAgents(project.agentIds, team);
+    await syncParticipants(
+      ctx,
+      conversation._id,
+      project,
+      team,
+      seeded.map((a) => a._id)
+    );
+  } else {
+    // Migrate legacy default (Researcher/Support) to CTO once.
+    const teamById = new Map(team.map((a) => [String(a._id), a]));
+    const activeAgents = active
+      .map((row) => teamById.get(String(row.agentId)))
+      .filter(Boolean) as AgentDoc[];
+    const isLegacyDefault = activeAgents.every((a) =>
+      /^(researcher|support|general|assistant)$/i.test(a.role)
+    );
+    const cto = team.find((a) => /^cto$/i.test(a.role));
+    if (isLegacyDefault && cto && !activeAgents.some((a) => /^cto$/i.test(a.role))) {
+      await syncParticipants(ctx, conversation._id, project, team, [cto._id]);
+    }
+  }
+  return conversation._id;
+}
 
 /** Shape the browser may see: identity + live state, never credentials. */
 function participantView(

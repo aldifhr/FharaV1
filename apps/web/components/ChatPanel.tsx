@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
+import { newClientId, optimisticUserRow, reconcileOptimistic, withOptimisticRow } from "@/lib/optimisticChat";
 import { X } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import TaskBoard from "./TaskBoard";
@@ -84,7 +85,30 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const togglePin = useMutation(api.messages.togglePin);
   const clearChat = useMutation(api.conversations.clearChat);
   const createTask = useMutation(api.tasks.createFromCommand);
-  const sendMessage = useAction(api.messages.send);
+  // Idempotent, optimistic send (t3code idea #2): every send carries a
+  // client id; the bubble draws at once and the server row with the same
+  // clientId replaces it (reconcileOptimistic in the timeline below).
+  const sendMutation = useMutation(api.messages.send).withOptimisticUpdate((store, args) => {
+    if (!args.clientId) return;
+    const listArgs = { projectId: args.projectId };
+    const current = store.getQuery(api.messages.listByProject, listArgs);
+    if (current === undefined) return;
+    const row = optimisticUserRow(
+      {
+        projectId: args.projectId as string,
+        content: args.content,
+        clientId: args.clientId,
+        ...(args.quotedMessageId ? { quotedMessageId: args.quotedMessageId as string } : {}),
+      },
+      Date.now(),
+    );
+    store.setQuery(api.messages.listByProject, listArgs, withOptimisticRow(current as any[], row as any) as any);
+  });
+  const sendMessage = useCallback(
+    (args: Omit<Parameters<typeof sendMutation>[0], "clientId"> & { clientId?: string }) =>
+      sendMutation({ ...args, clientId: args.clientId ?? newClientId() }),
+    [sendMutation],
+  );
 
   // Plan 020: permission mode for tasks dispatched from this composer.
   // Starts at the project's default; a pick holds until the project changes.
@@ -126,7 +150,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   // the task thread.
   const timeline = useMemo(
     () =>
-      (messages ?? [])
+      reconcileOptimistic((messages ?? []) as any[])
         // Plan 019: task cards posted into this chat (assignment, changes,
         // verification, QA, push) carry taskId AND conversationId — they
         // belong in the chat as well as in the task thread.
@@ -293,8 +317,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     return targetId ? [targetId] : undefined;
   };
   const queue = useChatQueue(
-    async (content) => {
-      await sendMessage({ projectId: projectId as any, content, preferredAgentIds: recipientsFor(content) as any, permissionMode });
+    async (content, queueId) => {
+      // The queue row id doubles as the client id: a retried row never sends twice.
+      await sendMessage({ projectId: projectId as any, content, preferredAgentIds: recipientsFor(content) as any, permissionMode, clientId: queueId });
     },
     (message) => setChatError(message),
   );

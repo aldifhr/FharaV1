@@ -2194,9 +2194,20 @@ export const logEvent = internalMutation({
     agentId: v.optional(v.id("agents")),
     message: v.optional(v.string()),
     metadata: v.optional(v.any()),
+    /** Optional idempotency key: a re-emit with the same key is a no-op. */
+    eventKey: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    if (args.eventKey) {
+      const seen = await ctx.db
+        .query("taskEvents")
+        .withIndex("by_task_and_event_key", (q) => q.eq("taskId", args.taskId).eq("eventKey", args.eventKey))
+        .first();
+      // Already recorded: skip the event and its derived rows (decision,
+      // observations, canonical event) so a replay cannot double-count.
+      if (seen) return;
+    }
     const eventId = await appendTaskEvent(ctx, {
       ...args,
       createdAt: now,

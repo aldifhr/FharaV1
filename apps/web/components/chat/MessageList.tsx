@@ -364,7 +364,8 @@ export default function MessageList(props: Props) {
         <span>{formatTime(m._creationTime)}</span>
       </div>
       <div className="flex min-w-0 max-w-full items-center gap-1.5">
-        <MessageActions
+        {/* Optimistic bubble (not saved yet): no actions on a placeholder id. */}
+        {!m.optimistic && <MessageActions
           inline
           pinned={Boolean(m.pinned)}
           messageId={m._id}
@@ -373,7 +374,7 @@ export default function MessageList(props: Props) {
           onTogglePin={() => togglePin(m._id, !m.pinned)}
           onOpenTask={onSelectTask}
           onReply={onReply && m.content?.trim() ? () => onReply(m) : undefined}
-        />
+        />}
         <div className="min-w-0 rounded-2xl rounded-tr-md bg-brand-soft px-4 py-2.5 text-ink [&_p]:my-0">
           {m.quotedMessageId && (() => {
             const quoted = timeline.find((q: any) => q._id === m.quotedMessageId);

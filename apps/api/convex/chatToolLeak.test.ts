@@ -83,7 +83,7 @@ async function setup(opts: { workspacePath?: string; worker?: "none" | "old" | "
 }
 
 async function ask(t: Awaited<ReturnType<typeof setup>>["t"], projectId: any, content = QUESTION) {
-  const { messageId } = await t.action(api.messages.send, { projectId, content });
+  const { messageId } = await t.mutation(api.messages.send, { projectId, content });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   return await t.run(async (ctx) =>
     ctx.db

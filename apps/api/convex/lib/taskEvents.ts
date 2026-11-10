@@ -28,6 +28,15 @@ export async function nextTaskEventSequence(ctx: Pick<MutationCtx, "db">, taskId
 }
 
 export async function appendTaskEvent(ctx: Pick<MutationCtx, "db">, event: TaskEventInput): Promise<Id<"taskEvents">> {
+  // Idempotent re-emit (t3code idea #2): same task + same key → the
+  // existing row, no new sequence number.
+  if (event.eventKey) {
+    const existing = await ctx.db
+      .query("taskEvents")
+      .withIndex("by_task_and_event_key", (q) => q.eq("taskId", event.taskId).eq("eventKey", event.eventKey))
+      .first();
+    if (existing) return existing._id;
+  }
   const sequence = await nextTaskEventSequence(ctx, event.taskId);
   return await ctx.db.insert("taskEvents", {
     ...event,

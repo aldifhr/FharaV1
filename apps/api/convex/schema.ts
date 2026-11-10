@@ -608,6 +608,9 @@ export default defineSchema({
         permissionMode: v.optional(permissionModeValidator),
       })
     ),
+    // Idempotent send (t3code idea #2): the composer's client message id.
+    // A retried/double-submitted send with the same id returns this row.
+    clientId: v.optional(v.string()),
     // Agent bubble whose streaming run died (stale sweep or a failed run):
     // the UI shows "Reply interrupted" with Retry instead of a live caret.
     interrupted: v.optional(v.boolean()),
@@ -673,6 +676,7 @@ export default defineSchema({
     .index("by_queue", ["queueStatus", "projectId"])
     // Stale sweeps: bubbles still streaming, user messages still replying.
     .index("by_streaming", ["streaming"])
+    .index("by_project_and_client_id", ["projectId", "clientId"])
     .index("by_reply_status", ["replyStatus"])
     // Header pin chip: pinned messages of one project without a scan.
     .index("by_project_and_pinned", ["projectId", "pinned"]),
@@ -836,11 +840,15 @@ export default defineSchema({
     // Monotonic per-task ordering (plan 016): UI sorts by this, not by
     // timestamp, so late-arriving events never reorder the trace.
     sequence: v.optional(v.number()),
+    // Idempotency key (t3code idea #2): a re-emit with the same key for the
+    // same task (replayed attempt, retried mutation) writes nothing new.
+    eventKey: v.optional(v.string()),
     metadata: v.optional(v.any()),
     createdAt: v.optional(v.number()),
   })
     .index("by_task", ["taskId"])
     .index("by_task_and_sequence", ["taskId", "sequence"])
+    .index("by_task_and_event_key", ["taskId", "eventKey"])
     .index("by_project", ["projectId"])
     // Workload view: one event type (subtask.routed) per project in a time
     // window, without scanning every tool event of every task.

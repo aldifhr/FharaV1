@@ -1,6 +1,6 @@
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import { permissionModeValidator } from "./lib/permissionModes";
+import { permissionModeValidator, type PermissionMode } from "./lib/permissionModes";
 import { MAX_TOOL_STEPS } from "./lib/chat/activity";
 import type { Doc, Id } from "./_generated/dataModel";
 import { loadProviderPool } from "./lib/llmResolver";
@@ -25,34 +25,50 @@ export const insertUserMessage = internalMutation({
     quotedMessageId: v.optional(v.id("messages")),
     preferredAgentIds: v.optional(v.array(v.id("agents"))),
     permissionMode: v.optional(permissionModeValidator),
+    clientId: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
-    const content = args.content.trim();
-    if (!content) throw new Error("Message is required");
-    if (content.length > 8000) throw new Error("Message is too long");
-    if (args.quotedMessageId) {
-      const quoted = await ctx.db.get(args.quotedMessageId);
-      if (!quoted || quoted.projectId !== args.projectId) throw new Error("Quoted message not found");
-    }
-    // Durable chat reply (t3code idea #1): the reply lifecycle lives on the
-    // message (replyStatus), claimed by replyToChat. Chat messages no longer
-    // enter the worker queue (queueStatus): no worker ever claimed them, so
-    // they sat "pending" forever and inflated the pickup count.
-    const replyOptions = {
-      ...(args.preferredAgentIds?.length ? { preferredAgentIds: args.preferredAgentIds } : {}),
-      ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
-    };
-    return await ctx.db.insert("messages", {
-      projectId: args.projectId,
-      authorType: "user",
-      content,
-      conversationId: args.conversationId,
-      ...(args.quotedMessageId ? { quotedMessageId: args.quotedMessageId } : {}),
-      replyStatus: "pending",
-      ...(Object.keys(replyOptions).length ? { replyOptions } : {}),
-    });
-  },
+  handler: async (ctx, args) => insertChatUserMessage(ctx, args),
 });
+
+/** insertUserMessage's logic, callable inside another mutation (messages.send). */
+export async function insertChatUserMessage(
+  ctx: MutationCtx,
+  args: {
+    projectId: Id<"projects">;
+    content: string;
+    conversationId?: Id<"conversations">;
+    quotedMessageId?: Id<"messages">;
+    preferredAgentIds?: Id<"agents">[];
+    permissionMode?: PermissionMode;
+    clientId?: string;
+  }
+): Promise<Id<"messages">> {
+  const content = args.content.trim();
+  if (!content) throw new Error("Message is required");
+  if (content.length > 8000) throw new Error("Message is too long");
+  if (args.quotedMessageId) {
+    const quoted = await ctx.db.get(args.quotedMessageId);
+    if (!quoted || quoted.projectId !== args.projectId) throw new Error("Quoted message not found");
+  }
+  // Durable chat reply (t3code idea #1): the reply lifecycle lives on the
+  // message (replyStatus), claimed by replyToChat. Chat messages no longer
+  // enter the worker queue (queueStatus): no worker ever claimed them, so
+  // they sat "pending" forever and inflated the pickup count.
+  const replyOptions = {
+    ...(args.preferredAgentIds?.length ? { preferredAgentIds: args.preferredAgentIds } : {}),
+    ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
+  };
+  return await ctx.db.insert("messages", {
+    projectId: args.projectId,
+    authorType: "user",
+    content,
+    conversationId: args.conversationId,
+    ...(args.quotedMessageId ? { quotedMessageId: args.quotedMessageId } : {}),
+    replyStatus: "pending",
+    ...(args.clientId ? { clientId: args.clientId } : {}),
+    ...(Object.keys(replyOptions).length ? { replyOptions } : {}),
+  });
+}
 
 export const insertAgentMessage = internalMutation({
   args: {

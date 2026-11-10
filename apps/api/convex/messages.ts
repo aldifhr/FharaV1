@@ -1,6 +1,8 @@
-import { query, mutation, action, internalMutation, internalQuery } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { declineWaitingCommands } from "./commandApprovals";
+import { ensureChatConversation } from "./conversations";
+import { insertChatUserMessage } from "./chatContext";
 import { assertProjectAccess, getVisibleTask } from "./lib/authz";
 import { internal } from "./_generated/api";
 import { permissionModeValidator } from "./lib/permissionModes";
@@ -300,7 +302,25 @@ export const recoverStaleMessages = internalMutation({
   },
 });
 
-export const send = action({
+/** Longest client message id accepted (a UUID is 36). */
+export const CLIENT_ID_MAX = 100;
+
+export function normalizeClientId(raw: string | undefined): string | undefined {
+  const id = raw?.trim();
+  if (!id) return undefined;
+  if (id.length > CLIENT_ID_MAX) throw new Error("clientId is too long");
+  return id;
+}
+
+/**
+ * Send a chat message. One mutation (t3code idea #2, idea only): the access
+ * check, conversation, user row, "user replied instead" decline and the
+ * reply schedule commit together, which also lets the web draw the bubble
+ * optimistically. `clientId` makes it idempotent: a retried or
+ * double-submitted send with the same id returns the existing row and
+ * schedules nothing.
+ */
+export const send = mutation({
   args: {
     projectId: v.id("projects"),
     content: v.string(),
@@ -310,37 +330,49 @@ export const send = action({
     permissionMode: v.optional(permissionModeValidator),
     /** Chat "Reply": the earlier message this one quotes. */
     quotedMessageId: v.optional(v.id("messages")),
+    /** Composer-generated id for dedupe + optimistic reconcile. */
+    clientId: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<{ messageId: string; conversationId: string }> => {
-    // Authorization (core H5): the caller's identity propagates into
-    // runQuery, so owned projects require their owner; open projects stay
-    // open (local single-user mode). Without this anyone could post into
-    // any project and trigger paid LLM replies there.
-    await ctx.runQuery(internal.access.checkProjectAccess, { projectId: args.projectId });
+  handler: async (ctx, args): Promise<{ messageId: string; conversationId: string; deduped: boolean }> => {
+    // Authorization (core H5): owned projects require their owner; open
+    // projects stay open (local single-user mode). Without this anyone could
+    // post into any project and trigger paid LLM replies there.
+    await assertProjectAccess(ctx, args.projectId);
     if (!args.content.trim()) throw new Error("Message is required");
+    const clientId = normalizeClientId(args.clientId);
+    if (clientId) {
+      const existing = await ctx.db
+        .query("messages")
+        .withIndex("by_project_and_client_id", (q) => q.eq("projectId", args.projectId).eq("clientId", clientId))
+        .first();
+      if (existing) {
+        return {
+          messageId: existing._id as string,
+          conversationId: (existing.conversationId ?? "") as string,
+          deduped: true,
+        };
+      }
+    }
     // Plan 007: resolve (or create) the project's active conversation and sync
     // the caller's participant selection into it before the reply runs, so
     // participation is persisted rather than recomputed per message.
-    const conversationId = await ctx.runMutation(internal.conversations.ensureForChat, {
+    const conversationId = await ensureChatConversation(ctx, {
       projectId: args.projectId,
       conversationId: args.conversationId,
       preferredAgentIds: args.preferredAgentIds,
     });
-    const messageId = await ctx.runMutation(internal.chatContext.insertUserMessage, {
+    const messageId = await insertChatUserMessage(ctx, {
       projectId: args.projectId,
       content: args.content,
       conversationId,
       ...(args.quotedMessageId ? { quotedMessageId: args.quotedMessageId } : {}),
       ...(args.preferredAgentIds?.length ? { preferredAgentIds: args.preferredAgentIds } : {}),
       ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
+      ...(clientId ? { clientId } : {}),
     });
     // A message typed while a command waits declines it ("user replied
     // instead"): the agent continues with these words rather than blocking.
-    await ctx.runMutation(internal.commandApprovals.declineWaiting, {
-      projectId: args.projectId,
-      conversationId,
-      text: args.content,
-    });
+    await declineWaitingCommands(ctx, { projectId: args.projectId, conversationId, text: args.content });
     await ctx.scheduler.runAfter(0, internal.chat.replyToChat, {
       projectId: args.projectId,
       conversationId,
@@ -348,7 +380,7 @@ export const send = action({
       preferredAgentIds: args.preferredAgentIds,
       ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
     });
-    return { messageId: messageId as string, conversationId: conversationId as string };
+    return { messageId: messageId as string, conversationId: conversationId as string, deduped: false };
   },
 });
 

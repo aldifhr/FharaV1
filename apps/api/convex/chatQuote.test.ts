@@ -57,7 +57,7 @@ async function send(
   t: Awaited<ReturnType<typeof setup>>["t"],
   args: { projectId: any; content: string; preferredAgentIds?: any[]; quotedMessageId?: any }
 ) {
-  const res = await t.action(api.messages.send, args);
+  const res = await t.mutation(api.messages.send, args);
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   return res;
 }
@@ -157,7 +157,7 @@ describe("reply quote routing", () => {
       const other = await ctx.db.insert("projects", { name: "O", workspacePath: "/tmp/o" });
       return ctx.db.insert("messages", { projectId: other, agentId: frontendId, authorType: "agent", content: "x" });
     });
-    await expect(t.action(api.messages.send, { projectId, content: "ini?", quotedMessageId: otherQuote })).rejects.toThrow(
+    await expect(t.mutation(api.messages.send, { projectId, content: "ini?", quotedMessageId: otherQuote })).rejects.toThrow(
       /Quoted message not found/
     );
   });

@@ -65,7 +65,7 @@ async function setup() {
 }
 
 async function send(t: Awaited<ReturnType<typeof setup>>["t"], args: { projectId: any; content: string; preferredAgentIds?: any[] }) {
-  const res = await t.action(api.messages.send, args);
+  const res = await t.mutation(api.messages.send, args);
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   return res;
 }

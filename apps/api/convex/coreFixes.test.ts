@@ -334,7 +334,7 @@ describe("H5 authorization on owned projects", () => {
     await expect(t.mutation(api.roleRegistry.assignToProject, { projectId, agentId })).rejects.toThrow(/Unauthorized/);
     await expect(t.mutation(api.agents.create, { name: "X", role: "backend" })).rejects.toThrow(/Unauthorized/);
     await expect(
-      t.action(api.messages.send, { projectId, content: "hi" })
+      t.mutation(api.messages.send, { projectId, content: "hi" })
     ).rejects.toThrow(/Unauthorized/);
     // The owner is allowed.
     const owner = t.withIdentity({ subject: "user-1" });

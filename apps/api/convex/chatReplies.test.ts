@@ -150,7 +150,7 @@ describe("claimReply / settleReply", () => {
 describe("replyToChat settles the user message", () => {
   test("answered after a successful reply (no longer stuck pending)", async () => {
     const { t, projectId } = await setup();
-    const { messageId } = await t.action(api.messages.send, { projectId, content: "apa itu convex?" });
+    const { messageId } = await t.mutation(api.messages.send, { projectId, content: "apa itu convex?" });
     expect((await get(t, messageId)).replyStatus).toBe("pending");
     expect((await get(t, messageId)).queueStatus).toBeUndefined();
     await t.finishAllScheduledFunctions(vi.runAllTimers);
@@ -161,7 +161,7 @@ describe("replyToChat settles the user message", () => {
 
   test("a second scheduled run for the same message does nothing", async () => {
     const { t, projectId } = await setup();
-    const { messageId, conversationId } = await t.action(api.messages.send, { projectId, content: "apa itu convex?" });
+    const { messageId, conversationId } = await t.mutation(api.messages.send, { projectId, content: "apa itu convex?" });
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     const before = await t.run((ctx) =>
       ctx.db.query("messages").withIndex("by_reply_to", (q) => q.eq("replyToMessageId", messageId as any)).collect()
@@ -176,7 +176,7 @@ describe("replyToChat settles the user message", () => {
   test("failed when the run throws; Retry runs it again and answers", async () => {
     const { t, projectId } = await setup();
     llm.fail = true;
-    const { messageId } = await t.action(api.messages.send, { projectId, content: "apa itu convex?" });
+    const { messageId } = await t.mutation(api.messages.send, { projectId, content: "apa itu convex?" });
     await t.finishAllScheduledFunctions(vi.runAllTimers).catch(() => undefined);
     const failed = await get(t, messageId);
     expect(failed.replyStatus).toBe("failed");

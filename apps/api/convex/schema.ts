@@ -1695,4 +1695,25 @@ export default defineSchema({
     .index("by_created", ["createdAt"])
     // Project delete cascade (projects.cascadeDelete).
     .index("by_project", ["projectId"]),
+
+  // Plan 034: the OpenCode model list a worker read from its local CLI
+  // (`opencode models`). One row per worker; the UI reads the freshest row so
+  // the agent editor can offer the models that CLI can actually run.
+  opencodeModelCatalog: defineTable({
+    workerId: v.string(),
+    hostname: v.optional(v.string()),
+    // `provider/model` ids, capped by the reporter.
+    models: v.array(v.string()),
+    // False when the CLI is missing or the listing failed.
+    available: v.boolean(),
+    error: v.optional(v.string()),
+    // The binary that was asked (ORCHESTRATOR_NATIVE_PROVIDER_COMMAND).
+    command: v.optional(v.string()),
+    updatedAt: v.number(),
+    // Set by the UI ("Refresh"); the worker picks it up on its next poll and
+    // clears it by reporting again.
+    refreshRequestedAt: v.optional(v.number()),
+  })
+    .index("by_worker_id", ["workerId"])
+    .index("by_updated_at", ["updatedAt"]),
 });

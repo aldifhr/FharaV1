@@ -205,6 +205,16 @@ and any write by a read-only subtask are reverted to their pre-run content
 (tool name/status/target only), `native.run.finished` (tokens, exit, timeout);
 text streams through `onChunk`.
 
+Model catalog (plan 034): the models the local CLI can run live on the worker
+machine, so the worker reads them (`opencode models`, scrubbed env, no config
+override) and publishes the ids through the token-gated
+`worker.reportOpencodeModels`. The agent editor reads the freshest catalog
+(`opencodeModels.list`) and offers them as a dropdown; the UI can ask for a
+refresh (`opencodeModels.requestRefresh`) and the worker serves it on its next
+poll. The worker only re-reads the CLI when it has to: the UI asked, nothing
+was reported yet, or the last report is older than 10 min
+(`services/opencodeCatalog.ts`). Model ids only — never credential material.
+
 ## Environment
 
 | Variable | Default | Meaning |
@@ -236,6 +246,7 @@ text streams through `onChunk`.
 | `ORCHESTRATOR_EXECUTION_RUNTIME` | `api` | Global runtime default: `api` or `opencode` (alias `native-provider`); legacy `ORCHESTRATOR_RUNTIME` still read. A per-agent `executionRuntime` overrides it |
 | `ORCHESTRATOR_NATIVE_PROVIDER_COMMAND` | `opencode` | OpenCode CLI binary |
 | `ORCHESTRATOR_NATIVE_TIMEOUT_MS` | `600000` | Wall-clock limit per OpenCode run; the process tree is killed on expiry |
+| `WORKER_OPENCODE_CATALOG_POLL_MS` | `30000` | How often the worker checks whether the OpenCode model catalog needs a refresh |
 
 The worker loads the root `.env` (`../../.env` from `packages/worker`).
 

@@ -37,6 +37,7 @@ execution order and a definition of done.
 | 031 | [User-selectable LLM selection mode (fallback vs round robin)](031-llm-selection-mode-fallback-or-round-robin.md) | P2 | M | 027, 022 | IN PROGRESS (implemented with unit tests; browser check pending) |
 | 032 | [Global LLM selection mode (fallback vs round robin)](032-global-llm-selection-mode.md) | P2 | M | 031 | IN PROGRESS (implemented with unit tests; browser check pending) |
 | 033 | [Remove the model capability registry and capability routing](033-remove-model-capabilities.md) | P2 | L | 027 | IN PROGRESS (implemented with unit tests; browser check pending) |
+| 034 | [OpenCode model catalog in the agent editor](034-opencode-model-catalog.md) | P2 | M | 014 | DONE (implemented with unit tests; live check in the running app) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

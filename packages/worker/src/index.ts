@@ -13,6 +13,7 @@ import { combineSignals, isLeaseLostOrShutdown, LEASE_LOST_PREFIX } from "./serv
 import { processNextPushRequest } from "./services/pushRequests";
 import { processNextMcpTest } from "./services/mcpTests";
 import { processNextRepoToolCall } from "./services/repoTools";
+import { pollOpencodeCatalog } from "./services/opencodeCatalog";
 import { REPO_TOOLS_CAPABILITY } from "@/api/convex/lib/chat/repoTools";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
@@ -34,6 +35,12 @@ const MCP_TEST_POLL_MS = Math.max(1000, Number(process.env.WORKER_MCP_TEST_POLL_
 const REPO_TOOL_IDLE_POLL_MS = Math.max(250, Number(process.env.WORKER_REPO_TOOL_POLL_MS ?? 1000));
 const REPO_TOOL_HOT_POLL_MS = 200;
 const REPO_TOOL_HOT_WINDOW_MS = 30_000;
+// Plan 033: how often the worker checks whether the OpenCode model catalog
+// needs a refresh (the UI can request one at any time).
+const OPENCODE_CATALOG_POLL_MS = Math.max(
+  5_000,
+  Number(process.env.WORKER_OPENCODE_CATALOG_POLL_MS ?? 30_000)
+);
 
 const workerId =
   process.env.WORKER_ID ??
@@ -334,6 +341,16 @@ async function main() {
   };
   void pollRepoTools();
 
+  // Plan 033: the OpenCode model catalog. Reported once at boot (so the
+  // agent editor has a list right away) and refreshed on request after that.
+  let lastOpencodeCatalogPoll = 0;
+  const pollOpencodeCatalogs = () => {
+    const now = Date.now();
+    if (stopping || now - lastOpencodeCatalogPoll < OPENCODE_CATALOG_POLL_MS) return;
+    lastOpencodeCatalogPoll = now;
+    void pollOpencodeCatalog({ api, workerId, hostname: os.hostname(), log });
+  };
+
   let lastClaimPoll = 0;
   const idle = (ms: number) =>
     new Promise<void>((resolve) => {
@@ -349,6 +366,7 @@ async function main() {
   while (!stopping) {
     pollPushes();
     pollMcpTests();
+    pollOpencodeCatalogs();
     try {
       if (inFlight.size >= CONCURRENCY) {
         await sleep(200);

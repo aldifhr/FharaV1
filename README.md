@@ -153,6 +153,7 @@ deployment env. All are listed in `.env.example`.
 | `ORCHESTRATOR_EXECUTION_RUNTIME` | `.env` | `api` | `api` or `opencode` (legacy `ORCHESTRATOR_RUNTIME`) |
 | `ORCHESTRATOR_NATIVE_PROVIDER_COMMAND` | `.env` | `opencode` | OpenCode CLI binary |
 | `ORCHESTRATOR_NATIVE_TIMEOUT_MS` | `.env` | `600000` | Wall-clock limit per OpenCode run |
+| `WORKER_OPENCODE_CATALOG_POLL_MS` | `.env` | `30000` | How often the worker refreshes the OpenCode model catalog |
 | `ORCHESTRATOR_REVIEW_MODE` / `ORCHESTRATOR_QA_MODE` | `.env` | `auto` | `always` / `auto` / `never` |
 | `ORCHESTRATOR_QA_REQUIRED` | `.env` | `0` | `1` = environment-blocked QA fails the task |
 | `QA_CHROMIUM_PATH` | `.env` | Playwright's Chromium | System Chromium (fallback `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`) |
@@ -207,6 +208,11 @@ OpenCode model the CLI is pointed at the agent's resolved Fhara LLM through
 a temporary config; the key travels only in the child process env
 (`MOAGENT_OPENCODE_API_KEY`). Each run is killed after
 `ORCHESTRATOR_NATIVE_TIMEOUT_MS`.
+
+The OpenCode model is a dropdown: the worker reads the models the local CLI
+can run (`opencode models`) and publishes them, so the agent form offers the
+ids instead of making you type one. "Fhara LLM (default)" leaves the field
+empty; "Refresh" asks the worker to re-read the list.
 
 ## Skills library
 

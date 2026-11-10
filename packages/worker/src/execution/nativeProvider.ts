@@ -661,3 +661,89 @@ async function cleanup(dir: string | undefined): Promise<void> {
     // Best-effort cleanup; the run result stands.
   }
 }
+
+// ── model catalog (Plan 034) ───────────────────────────────────────────
+
+/** Hard cap on the ids one listing may carry. */
+export const MAX_CATALOG_MODELS = 500;
+
+/**
+ * `opencode models` prints one `provider/model` per line. Anything else on
+ * stdout (a banner, a warning) is dropped, duplicates are removed and the
+ * order is kept.
+ */
+export function parseOpencodeModelList(stdout: string): string[] {
+  const seen = new Set<string>();
+  const models: string[] = [];
+  for (const raw of stdout.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || !/^[A-Za-z0-9._-]+\/[^\s]+$/.test(line)) continue;
+    if (seen.has(line)) continue;
+    seen.add(line);
+    models.push(line);
+    if (models.length >= MAX_CATALOG_MODELS) break;
+  }
+  return models;
+}
+
+export interface OpencodeModelCatalog {
+  /** `provider/model` ids the CLI reported. */
+  models: string[];
+  /** False when the CLI is missing, failed or timed out. */
+  available: boolean;
+  /** Why it is unavailable (never contains credential material). */
+  error?: string;
+}
+
+export interface ListOpencodeModelsInput {
+  /** Binary to ask; defaults to ORCHESTRATOR_NATIVE_PROVIDER_COMMAND. */
+  command?: string;
+  /** Wall-clock limit; default 15 s. */
+  timeoutMs?: number;
+  spawnImpl?: SpawnImpl;
+}
+
+/**
+ * Read the model list from the local OpenCode CLI. The CLI runs with the
+ * scrubbed env (`buildChildEnv`), outside any task worktree and without a
+ * config override, so it reports the models the user's own OpenCode setup
+ * can run. A failure is a value, never an exception: the caller reports
+ * "the CLI is unavailable" to the UI.
+ */
+export async function listOpencodeModels(
+  input: ListOpencodeModelsInput = {}
+): Promise<OpencodeModelCatalog> {
+  const command = input.command ?? nativeProviderCommand();
+  const timeoutMs = input.timeoutMs ?? 15_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const { stdout, stderr, code } = await (input.spawnImpl ?? defaultSpawn)(
+      command,
+      ["models"],
+      {
+        // Not a task worktree: this is a machine-level listing.
+        cwd: os.tmpdir(),
+        signal: controller.signal,
+        env: buildChildEnv(),
+      }
+    );
+    if (code !== 0) {
+      return {
+        models: [],
+        available: false,
+        error: (stderr.trim() || `opencode models exited with code ${code}`).slice(0, 300),
+      };
+    }
+    return { models: parseOpencodeModelList(stdout), available: true };
+  } catch (error) {
+    return {
+      models: [],
+      available: false,
+      error: (error instanceof Error ? error.message : String(error)).slice(0, 300),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+

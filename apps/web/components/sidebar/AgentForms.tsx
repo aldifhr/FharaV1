@@ -13,6 +13,7 @@ import type { AvatarParams } from "@/api/convex/lib/avatar";
 import { nextAgentName } from "@/api/convex/lib/agentTemplates";
 import { AGENT_ROLES, ROLE_DEFAULT_PROMPTS, roleLabel } from "@/lib/agentRoles";
 import { useToast } from "../Toasts";
+import { OpencodeModelField } from "./OpencodeModelField";
 
 type AgentDoc = {
   _id: string;
@@ -538,9 +539,11 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
                     <option value="opencode">OpenCode</option>
                   </select>
                 </label>
-                <label className={label}>OpenCode model
-                  <input value={agentOpencodeModel} onChange={(event) => setAgentOpencodeModel(event.target.value)} disabled={agentRuntime !== "opencode"} placeholder="provider/model" className={`${field} disabled:opacity-40`} />
-                </label>
+                <OpencodeModelField
+                  value={agentOpencodeModel}
+                  onChange={setAgentOpencodeModel}
+                  disabled={agentRuntime !== "opencode"}
+                />
               </div>
               <p className={hint}>OpenCode runs native tools in the task worktree.</p>
             </div>

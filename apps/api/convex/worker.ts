@@ -117,6 +117,45 @@ export const markOffline = action({
   },
 });
 
+/**
+ * Plan 034: the worker publishes the model list its OpenCode CLI reported
+ * (`opencode models`). Model ids only — never credential material.
+ */
+export const reportOpencodeModels = action({
+  args: {
+    ...tokenArg,
+    workerId: v.string(),
+    hostname: v.optional(v.string()),
+    models: v.array(v.string()),
+    available: v.boolean(),
+    error: v.optional(v.string()),
+    command: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ models: number }> => {
+    return await ctx.runMutation(internal.opencodeModels.report, withoutToken(args));
+  },
+});
+
+/**
+ * Plan 034: the worker asks whether the UI requested a refresh and when it
+ * last reported, so it only re-reads the CLI when it has to.
+ */
+export const getOpencodeModelState = action({
+  args: { ...tokenArg, workerId: v.string() },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    hasCatalog: boolean;
+    available: boolean;
+    updatedAt: number;
+    refreshRequestedAt: number;
+  }> => {
+    const { workerId } = withoutToken(args);
+    return await ctx.runQuery(internal.opencodeModels.state, { workerId });
+  },
+});
+
 export const recover = action({
   args: {
     ...tokenArg,

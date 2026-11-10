@@ -68,6 +68,20 @@ export class WorkerApi {
     return await this.client.action(api.worker.heartbeat, this.args(input));
   }
 
+  /** Plan 033: publish the model list the local OpenCode CLI reported. */
+  async reportOpencodeModels(
+    input: ActionInput<typeof api.worker.reportOpencodeModels>
+  ): Promise<FunctionReturnType<typeof api.worker.reportOpencodeModels>> {
+    return await this.client.action(api.worker.reportOpencodeModels, this.args(input));
+  }
+
+  /** Plan 033: is a refresh pending, and when did this worker last report? */
+  async getOpencodeModelState(
+    input: ActionInput<typeof api.worker.getOpencodeModelState>
+  ): Promise<FunctionReturnType<typeof api.worker.getOpencodeModelState>> {
+    return await this.client.action(api.worker.getOpencodeModelState, this.args(input));
+  }
+
   async markOffline(
     input: ActionInput<typeof api.worker.markOffline>
   ): Promise<FunctionReturnType<typeof api.worker.markOffline>> {

@@ -79,6 +79,11 @@ export default function ManageProjectModal({
   const autoMergeSetting = useQuery(api.autoMerge.getProjectSetting, { projectId: projectId as never });
   const [autoMergeChoice, setAutoMergeState] = useState<boolean | null>(null);
   const autoMerge = autoMergeChoice ?? autoMergeSetting?.enabled ?? false;
+  // Role memory: roles write their own notes for this project (default on).
+  const setRoleMemory = useMutation(api.roleMemories.setProjectSetting);
+  const roleMemorySetting = useQuery(api.roleMemories.getProjectSetting, { projectId: projectId as never });
+  const [roleMemoryChoice, setRoleMemoryState] = useState<boolean | null>(null);
+  const roleMemory = roleMemoryChoice ?? roleMemorySetting?.enabled ?? true;
   // O4 issue intake.
   const setIssueIntake = useMutation(api.issueIntake.setProjectSetting);
   const intakeSetting = useQuery(api.issueIntake.getProjectSetting, { projectId: projectId as never });
@@ -146,6 +151,9 @@ export default function ManageProjectModal({
       }
       if (autoMergeChoice !== null) {
         await setAutoMerge({ projectId: projectId as never, enabled: autoMergeChoice });
+      }
+      if (roleMemoryChoice !== null) {
+        await setRoleMemory({ projectId: projectId as never, enabled: roleMemoryChoice });
       }
       if (intakeChoice !== null || intakeLabelText !== null) {
         await setIssueIntake({ projectId: projectId as never, enabled: intakeOn, label: intakeLabelValue });
@@ -323,6 +331,20 @@ export default function ManageProjectModal({
             Merge pull requests automatically
             <span className="text-[12.5px] text-ink-3">
               A task&apos;s PR merges ({autoMergeSetting?.method ?? "squash"}) once every check passed, the diff is at most {autoMergeSetting?.maxDiffLines || "any number of"} lines with no sensitive path, and its head is the commit you approved. Otherwise it waits and says why. Never forced. Off by default.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2.5">
+          <input
+            type="checkbox"
+            checked={roleMemory}
+            onChange={(e) => setRoleMemoryState(e.target.checked)}
+            className="mt-1 h-4 w-4 accent-[var(--shell-brand)]"
+          />
+          <span className="grid gap-0.5">
+            Role memory
+            <span className="text-[12.5px] text-ink-3">
+              After a task, each role that worked on it saves short notes for this project (facts, conventions, pitfalls), up to {roleMemorySetting?.cap ?? 50} per role. Only that role recalls them, and only in this project. Edit, pin or delete them on the Memory page. Turning this off stops new notes; existing ones are still used. On by default.
             </span>
           </span>
         </label>

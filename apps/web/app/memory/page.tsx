@@ -39,8 +39,11 @@ const picker = `${field} h-9 w-auto max-w-[240px] bg-canvas py-1 text-[13px]`;
 const SCOPE_HINT: Record<MemoryScope, string> = {
   shared: "Every agent, in every project",
   project: "Every agent working in this project",
-  agent: "This agent, in every project",
+  agent: "This role, in every project",
 };
+const ROLE_PROJECT_HINT = "This role's own notes in this project. Roles write these themselves after their work; other roles never see them";
+
+type SourceFilter = "all" | "agent" | "user";
 
 /** "Remember: Use pnpm…" → first ~140 chars of the content, on one line. */
 function snippet(content: string): string {
@@ -77,6 +80,10 @@ function MemoryInner() {
   const agents = useQuery(api.agents.list, {}) as Agent[] | undefined;
   const projectId = params.get("project") ?? (projects?.[0]?._id ?? "");
   const agentParam = params.get("agent") ?? "";
+  // Role memory: the agent scope narrows to one project ("" = every project).
+  const roleProjectId = scope === "agent" ? (params.get("rproject") ?? "") : "";
+  const rawSource = params.get("source");
+  const source: SourceFilter = rawSource === "agent" || rawSource === "user" ? rawSource : "all";
 
   const sortedAgents = useMemo(
     () =>
@@ -113,6 +120,7 @@ function MemoryInner() {
           scope,
           ...(scope === "project" ? { projectId: projectId as never } : {}),
           ...(scope === "agent" ? { agentId: agentId as never } : {}),
+          ...(scope === "agent" && roleProjectId ? { projectId: roleProjectId as never } : {}),
         },
   ) as Memory[] | undefined;
   const [searchText, setSearchText] = useState("");
@@ -125,15 +133,17 @@ function MemoryInner() {
           scope,
           ...(scope === "project" ? { projectId: projectId as never } : {}),
           ...(scope === "agent" ? { agentId: agentId as never } : {}),
+          ...(scope === "agent" && roleProjectId ? { projectId: roleProjectId as never } : {}),
           text: searchQuery,
         },
   ) as Array<{ _id: string }> | undefined;
   const visible = useMemo(() => {
-    if (!searchQuery) return memories;
+    const bySource = (list: Memory[]) => (source === "all" ? list : list.filter((m) => m.source === source));
+    if (!searchQuery) return memories ? bySource(memories) : memories;
     if (!memories || !hits) return undefined;
     const byId = new Map(memories.map((m) => [m._id, m]));
-    return hits.map((h) => byId.get(h._id)).filter((m): m is Memory => Boolean(m));
-  }, [searchQuery, memories, hits]);
+    return bySource(hits.map((h) => byId.get(h._id)).filter((m): m is Memory => Boolean(m)));
+  }, [searchQuery, memories, hits, source]);
   const setPinned = useMutation(api.memories.setPinned);
   const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [error, setError] = useState("");
@@ -142,19 +152,20 @@ function MemoryInner() {
   useEffect(() => {
     setEditingId(null);
     setSearchText("");
-  }, [scope, projectId, agentId]);
+  }, [scope, projectId, agentId, roleProjectId]);
 
   const pinnedCount = (memories ?? []).filter((m) => m.pinned).length;
   const loading = !needsTarget && memories === undefined;
   const target = {
     scope,
-    projectId: scope === "project" ? projectId : undefined,
+    projectId: scope === "project" ? projectId : scope === "agent" && roleProjectId ? roleProjectId : undefined,
     agentId: scope === "agent" ? agentId : undefined,
   };
+  const hint = scope === "agent" && roleProjectId ? ROLE_PROJECT_HINT : SCOPE_HINT[scope];
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
-      <IconRail projectId={scope === "project" && projectId ? projectId : undefined} />
+      <IconRail projectId={scope === "project" && projectId ? projectId : roleProjectId || undefined} />
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
         <div className="mx-auto max-w-3xl">
           <header className="flex items-end justify-between gap-4">
@@ -177,7 +188,7 @@ function MemoryInner() {
               options={[
                 { value: "shared", label: "Shared" },
                 { value: "project", label: "Project" },
-                { value: "agent", label: "Agent" },
+                { value: "agent", label: "Role" },
               ]}
             />
             {scope === "project" && (
@@ -195,7 +206,7 @@ function MemoryInner() {
             )}
             {scope === "agent" && (
               <select
-                aria-label="Agent"
+                aria-label="Role"
                 value={agentId}
                 onChange={(e) => setParam({ agent: e.target.value })}
                 className={picker}
@@ -206,12 +217,35 @@ function MemoryInner() {
                 ))}
               </select>
             )}
+            {scope === "agent" && (
+              <select
+                aria-label="Role memory project"
+                value={roleProjectId}
+                onChange={(e) => setParam({ rproject: e.target.value || null })}
+                className={picker}
+              >
+                <option value="">Every project</option>
+                {(projects ?? []).map((p) => (
+                  <option key={p._id} value={p._id}>{p.name}</option>
+                ))}
+              </select>
+            )}
+            <select
+              aria-label="Written by"
+              value={source}
+              onChange={(e) => setParam({ source: e.target.value === "all" ? null : e.target.value })}
+              className={picker}
+            >
+              <option value="all">Written by anyone</option>
+              <option value="agent">Written by agents</option>
+              <option value="user">Written by you</option>
+            </select>
           </div>
 
           <p className="mt-6 text-[15px] text-ink-2">
             {loading
               ? "Loading…"
-              : `${SCOPE_HINT[scope]} · ${pinnedCount} pinned`}
+              : `${hint} · ${pinnedCount} pinned`}
           </p>
           <p className="mt-1 text-[12.5px] text-ink-3">
             Pinned memories are always added to an agent's instructions (shared, then project, then the agent's own, up to{" "}
@@ -255,6 +289,10 @@ function MemoryInner() {
                 Write a memory
               </button>
             </div>
+          ) : (visible ?? []).length === 0 && editingId === null ? (
+            <p className="mt-10 text-[13px] text-ink-3">
+              {source === "agent" ? "No memories written by agents here." : "No memories written by you here."}
+            </p>
           ) : (
             <ul className="mt-10 divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
               {editingId === "new" && (

@@ -78,7 +78,7 @@ export function eventKind(type: string): ReplayStepKind {
   if (type.startsWith("verification.") || type === "task.check" || type.startsWith("acceptance.")) return "verification";
   if (type.startsWith("qa.")) return "qa";
   if (type.startsWith("review.")) return "review";
-  if (type.startsWith("mcp.") || type.startsWith("shell.") || type.startsWith("tool.") || type.startsWith("repo.") || type === "agent.web_context")
+  if (type.startsWith("mcp.") || type.startsWith("shell.") || type.startsWith("tool.") || type.startsWith("repo.") || type === "agent.web_context" || type === "agent.web_reach")
     return "tool";
   if (type.startsWith("approval.") || type.startsWith("permission.")) return "approval";
   if (type.startsWith("subtask.")) return "subtask";

@@ -201,7 +201,9 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     registryDescription: "Technical research.",
     capabilities: ["research"],
     registryCapabilities: ["research"],
-    defaultTools: ["read_file"],
+    // Plan 036: `web_reach` is the read-only Agent Reach web tool (public
+    // channels only). The researcher is the role that needs it.
+    defaultTools: ["read_file", "web_reach"],
     priority: 6,
     maxConcurrency: 2,
     hint: "Prefer official docs; distinguish facts from assumptions with sources. Read-only research — no file modifications.",

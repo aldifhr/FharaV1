@@ -15,6 +15,7 @@ import { buildStateFromDb } from "./state";
 import {
   buildTaskLlmResolver,
   mcpForTask,
+  webReachForTask,
   resolveQaBaseUrl,
   resolveWorkspacePath,
   seedBudgetFromPersisted,
@@ -120,6 +121,8 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
 
   // Plan 009: seed the shared MCP registry (see processTask).
   const mcp = mcpForTask(context.mcpServers, workspacePath, deps.policy, mcpStatusReporter(deps));
+  // Plan 036: the Agent Reach web tool for read-only agents.
+  const webReach = webReachForTask(deps.policy);
 
   const changes = await deps.api.getFileChanges({ taskId });
 
@@ -229,6 +232,7 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
       onTokenUsage: recordUsage,
       qaBaseUrl: resolveQaBaseUrl(context.project),
       mcp,
+      webReach,
       worktree:
         context.task.branchName && persistedWorktree
           ? { branchName: context.task.branchName, worktreePath: persistedWorktree }

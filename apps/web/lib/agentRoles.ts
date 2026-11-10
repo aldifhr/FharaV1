@@ -4,10 +4,19 @@
  * seed and role registry also read; this file only adapts them to the
  * shapes the UI uses.
  */
-import { ROLES, ROLE_KEYS, type RoleKey } from "@/api/convex/lib/roles";
+import { ROLES, ROLE_KEYS, roleKeyForMention, type RoleKey } from "@/api/convex/lib/roles";
 import { AGENT_SEED_PROMPTS } from "@/api/convex/lib/prompts/agents";
 
 export { roleKeyForMention, roleLabel } from "@/api/convex/lib/roles";
+
+/**
+ * The default tool permissions of a role (e.g. `researcher` → read_file +
+ * web_reach). An agent without its own `supportedTools` uses these.
+ */
+export function roleDefaultTools(role: string): string[] {
+  const key = roleKeyForMention(role);
+  return key ? [...ROLES[key].defaultTools] : [];
+}
 
 /** The current team roles, in display order. Every role menu reads this list. */
 export const AGENT_ROLES = ROLE_KEYS;

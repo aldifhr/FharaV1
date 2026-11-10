@@ -152,6 +152,15 @@ import backend internals.
   the wait. Waiting out `approvalTimeoutMs` means "not approved".
 - A tool must not write outside the workspace, and must not read `.env`,
   credential files, or another task's workspace.
+- `web_reach` (plan 036) is the read-only Agent Reach web tool for research
+  and audit subtasks. It shells out to the `agent-reach` CLI with an argv
+  built from a fixed channel/action table (`tools/agentReach.ts`): public
+  channels only (`web`, `v2ex`, `youtube`, `github`, `bilibili`), no write,
+  post, comment, like, message or login action. URL arguments go through
+  `assertUrlAllowed` (`tools/urlGuard.ts`), the binary runs without a shell
+  with the scrubbed child env, and every call is time-boxed and aborted
+  with the task. An agent only gets the tool when it declares `web_reach`
+  in its `supportedTools`.
 
 ## Providers
 
@@ -246,6 +255,11 @@ was reported yet, or the last report is older than 10 min
 | `ORCHESTRATOR_MCP_MAX_TOOL_ITERATIONS` | `6` | Bound on tool-loop rounds per subtask |
 | `ORCHESTRATOR_MCP_TIMEOUT_MS` | `30000` | Per-MCP-request timeout; a hung server is killed |
 | `ORCHESTRATOR_MCP_MAX_RESULT_CHARS` | `8000` | Cap on a tool result before it reaches the LLM |
+| `ORCHESTRATOR_AGENT_REACH_ENABLED` | `true` | Plan 036: offer the read-only Agent Reach web tool to agents that declare `web_reach` |
+| `ORCHESTRATOR_AGENT_REACH_COMMAND` | `agent-reach` | The Agent Reach binary |
+| `ORCHESTRATOR_AGENT_REACH_TIMEOUT_MS` | `60000` | Wall-clock limit per Agent Reach call |
+| `ORCHESTRATOR_AGENT_REACH_MAX_ITEMS` | `10` | Items one call returns (1-20) |
+| `ORCHESTRATOR_AGENT_REACH_MAX_TOOL_ITERATIONS` | `4` | Bound on the web tool-loop rounds per subtask |
 | `WORKER_LLM_MAX_CONCURRENCY` | from policy | Worker-wide LLM gate (set once) |
 | `ORCHESTRATOR_EXECUTION_RUNTIME` | `api` | Global runtime default: `api` or `opencode` (alias `native-provider`); legacy `ORCHESTRATOR_RUNTIME` still read. A per-agent `executionRuntime` overrides it |
 | `ORCHESTRATOR_NATIVE_PROVIDER_COMMAND` | `opencode` | OpenCode CLI binary |

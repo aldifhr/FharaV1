@@ -28,6 +28,7 @@ import type { DynamicSubtaskOrigin } from "@/types/subtask";
 import type { WebClient } from "@/tools/webClient";
 import type { LlmConcurrencyGate } from "@/effects/llmCall";
 import type { McpRunConfig } from "@/mcp/registry";
+import type { WebReachConfig } from "@/execution/webReachTools";
 import type { SchedulerResult } from "@/scheduler/dagScheduler";
 
 /**
@@ -141,6 +142,8 @@ export interface ExecutePlanInput {
   llmTaskGate?: LlmConcurrencyGate;
   /** Plan 009: MCP tool provider for this run; absent means "no MCP tools". */
   mcp?: McpRunConfig;
+  /** Plan 036: the Agent Reach web tool for read-only agents; absent means "no web tool". */
+  webReach?: WebReachConfig;
   /**
    * Usage sink for plan-level LLM calls (the decision advisor). Threaded
    * from the caller's recorder so advisor spend is metered in the same

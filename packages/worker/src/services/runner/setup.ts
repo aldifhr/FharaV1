@@ -22,6 +22,7 @@ import type { LlmSelectionMode } from "@/api/convex/lib/llmSelection";
 import { routeCapability } from "@/orchestrator/capabilities";
 import type { ReviewFinding } from "@/utils/json";
 import { getMcpRegistry, type McpRunConfig } from "@/mcp/registry";
+import type { WebReachConfig } from "@/execution/webReachTools";
 import type { WebClientConfig } from "@/tools/webClient";
 import type { NodeOutcome, SchedulerResult } from "@/scheduler/dagScheduler";
 import type { FileDiff } from "@/tools/gitDiff";
@@ -302,6 +303,22 @@ export function mcpForTask(
     sessions,
     writeTools: policy.mcpWriteTools ?? false,
     maxIterations: policy.mcpMaxToolIterations ?? 6,
+  };
+}
+
+/**
+ * Plan 036: build the Agent Reach web-tool config for a task.
+ *
+ * The tool is offered to read-only agents that declare `web_reach` in their
+ * `supportedTools`; the policy decides whether it exists at all.
+ */
+export function webReachForTask(policy: ExecutionPolicy): WebReachConfig | undefined {
+  if (policy.agentReachEnabled === false) return undefined;
+  return {
+    command: policy.agentReachCommand ?? "agent-reach",
+    timeoutMs: policy.agentReachTimeoutMs ?? 60_000,
+    maxItems: policy.agentReachMaxItems ?? 10,
+    maxIterations: policy.agentReachMaxToolIterations ?? 4,
   };
 }
 

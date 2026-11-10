@@ -8,8 +8,16 @@ export const SUGGESTED_FOLLOW_UPS =
 /**
  * Instruction for a read-only subtask (audit / research / analysis),
  * including the optional delegation/findings JSON footer.
+ *
+ * `webTool` (plan 036) adds the read-only web tool to the scope: the agent
+ * may read public web content, so "only the repository context" is no
+ * longer the whole truth.
  */
-export function readOnlyInstruction(mode: "audit" | "research" | "analysis"): string {
+export function readOnlyInstruction(
+  mode: "audit" | "research" | "analysis",
+  options: { webTool?: boolean } = {}
+): string {
+  const webTool = options.webTool === true;
   let instruction: string;
   if (mode === "audit") {
     instruction = [
@@ -17,14 +25,18 @@ export function readOnlyInstruction(mode: "audit" | "research" | "analysis"): st
       "Do not modify files and do not return file-change JSON.",
       "Report concrete findings with severity, file path, impact and a concise recommendation.",
       "If no issues are found, say so and summarize what you checked.",
-      "Never claim a check passed unless the evidence is in the repository context.",
+      webTool
+        ? "Never claim a check passed unless the evidence is in the repository context or in a web source you read."
+        : "Never claim a check passed unless the evidence is in the repository context.",
     ].join("\n");
   } else if (mode === "research") {
     instruction = [
-      "Answer the user's question using only the repository context.",
+      webTool
+        ? "Answer the user's question using the repository context and, when it helps, the public web tool."
+        : "Answer the user's question using only the repository context.",
       "Cite file paths for every claim.",
       "Do not modify files.",
-      "If the context is insufficient, say exactly what is missing.",
+      webTool ? "Say which claims come from the web and name the source." : "If the context is insufficient, say exactly what is missing.",
       SUGGESTED_FOLLOW_UPS,
     ].join("\n");
   } else {

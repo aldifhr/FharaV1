@@ -270,6 +270,39 @@ row to change its scope, role allowlist, secrets and on/off state.
 - Host requirements: Node (npx) for most presets, Docker for GitHub, `uv`
   for Fetch.
 
+## Web research (Agent Reach)
+
+Read-only agents (research / audit) can read public web content during a
+subtask with the `web_reach` tool. It wraps
+[Agent Reach](https://github.com/Panniantong/Agent-Reach), a CLI that
+returns one JSON object per call for public channels only: `web` (search +
+page text), `v2ex`, `youtube` (search, metadata, subtitles), `github` and
+`bilibili`. There is no write, post, comment, like, message or login action,
+so the tool cannot change anything.
+
+Install the CLI once per worker machine:
+
+```bash
+uv tool install https://github.com/Panniantong/Agent-Reach/releases/latest/download/agent-reach.zip
+```
+
+Then give an agent the tool: an agent's **Tool permissions** must contain
+`web_reach` (the Researcher role has it by default). Without that entry the
+tool is neither offered nor callable.
+
+How it is governed:
+
+- The argv is built from a fixed channel/action table; the model's free text
+  can never add a flag or a channel.
+- URL arguments go through the same outbound guard as the browser
+  (loopback, private and metadata hosts are refused).
+- The binary runs without a shell, with the scrubbed child env, a timeout
+  (`ORCHESTRATOR_AGENT_REACH_TIMEOUT_MS`) and the task's abort signal.
+- Every call is reported as a task event and the tool result is capped
+  (`ORCHESTRATOR_AGENT_REACH_MAX_ITEMS`).
+
+The knobs live in the root `.env`; see `.env.example`.
+
 ## GitHub push and draft PRs
 
 1. Create a GitHub OAuth app with the callback

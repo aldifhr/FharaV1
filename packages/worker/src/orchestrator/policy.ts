@@ -140,6 +140,23 @@ export interface ExecutionPolicy {
   mcpTimeoutMs?: number;
   mcpMaxResultChars?: number;
   /**
+   * Plan 036: the Agent Reach web tool for read-only agents.
+   *  - `agentReachEnabled`: when true (default), an agent that declares
+   *    `web_reach` in its `supportedTools` may read public web content
+   *    during a research or audit subtask. The tool is read-only and only
+   *    the public channels are reachable.
+   *  - `agentReachCommand`: the Agent Reach binary (default `agent-reach`).
+   *  - `agentReachTimeoutMs`: wall-clock limit per Agent Reach call.
+   *  - `agentReachMaxItems`: cap on the items one call returns.
+   *  - `agentReachMaxToolIterations`: bound on the tool-loop rounds.
+   * All optional so hand-built policies (tests) keep working unchanged.
+   */
+  agentReachEnabled?: boolean;
+  agentReachCommand?: string;
+  agentReachTimeoutMs?: number;
+  agentReachMaxItems?: number;
+  agentReachMaxToolIterations?: number;
+  /**
    * Plan 005 Phase 3 (progressive planning): when a review node is added
    * for a code change.
    *  - "always": every code change gets a review node (legacy behaviour).
@@ -344,6 +361,13 @@ export function loadPolicy(): ExecutionPolicy {
     mcpMaxToolIterations: intFromEnv("ORCHESTRATOR_MCP_MAX_TOOL_ITERATIONS", 6, 1, 20),
     mcpTimeoutMs: intFromEnv("ORCHESTRATOR_MCP_TIMEOUT_MS", 30_000, 1_000, 300_000),
     mcpMaxResultChars: intFromEnv("ORCHESTRATOR_MCP_MAX_RESULT_CHARS", 8_000, 500, 200_000),
+    // Plan 036: the Agent Reach web tool. Enabled by default; an agent must
+    // still declare `web_reach` in its `supportedTools` to get it.
+    agentReachEnabled: boolFromEnv("ORCHESTRATOR_AGENT_REACH_ENABLED", true),
+    agentReachCommand: (process.env.ORCHESTRATOR_AGENT_REACH_COMMAND ?? "agent-reach").trim() || "agent-reach",
+    agentReachTimeoutMs: intFromEnv("ORCHESTRATOR_AGENT_REACH_TIMEOUT_MS", 60_000, 1_000, 300_000),
+    agentReachMaxItems: intFromEnv("ORCHESTRATOR_AGENT_REACH_MAX_ITEMS", 10, 1, 20),
+    agentReachMaxToolIterations: intFromEnv("ORCHESTRATOR_AGENT_REACH_MAX_TOOL_ITERATIONS", 4, 1, 20),
     reviewMode: planningModeFromEnv("ORCHESTRATOR_REVIEW_MODE"),
     qaMode: planningModeFromEnv("ORCHESTRATOR_QA_MODE", "auto"),
     // QA gets its own, smaller fix budget than review (QA audit §5).

@@ -79,6 +79,15 @@ import { wantsVisualQa } from "@/utils/qaIntent";
 import { getMcpRegistry, sessionAllowedForRole, type McpHooks, type McpRunConfig } from "@/mcp/registry";
 import { runMcpToolLoop } from "@/mcp/toolLoop";
 import type { McpToolDefinition } from "@/mcp/types";
+import { runToolLoop } from "@/tools/toolLoop";
+import { webReachToolLoopPromptSet } from "@/prompts/webReach";
+import {
+  agentAllowsWebReach,
+  runWebReachTool,
+  WEB_REACH_TOOL,
+  WEB_REACH_TOOL_NAME,
+  type WebReachConfig,
+} from "./webReachTools";
 
 const execFileAsync = promisify(execFile);
 
@@ -171,6 +180,12 @@ export interface SubtaskExecutionInput {
    * write-capable MCP tools are filtered for every role.
    */
   mcp?: Pick<McpRunConfig, "sessions"> & Partial<McpRunConfig>;
+  /**
+   * Plan 036: the Agent Reach web tool for read-only agents. Absent means
+   * "no web tool" (the policy disabled it, or the runner did not build it).
+   * The agent must also declare `web_reach` in its `supportedTools`.
+   */
+  webReach?: WebReachConfig;
   /**
    * Plan 014 runtime: "api" (default, host tools + gated LLM) or
    * "native-provider" (provider CLI with its own native tools in the
@@ -305,6 +320,75 @@ async function runMcpExploration(
   });
 
   return { answer: result.answer, toolCalls: result.toolCalls, toolCount: tools.length };
+}
+
+/**
+ * Plan 036: run the bounded Agent Reach tool loop for this subtask.
+ *
+ * Returns null when the tool is not configured, when the agent did not
+ * declare `web_reach` in its `supportedTools`, or when the mode is not
+ * research / audit — the tool is read-only research aid, never part of a
+ * code change.
+ *
+ * The loop runs one LLM step per iteration through the normal provider
+ * chain, so the pre-call budget gate and both LLM concurrency gates apply
+ * exactly as they do to a direct call.
+ */
+async function runWebReachExploration(
+  input: SubtaskExecutionInput,
+  instruction: string,
+  context: string
+): Promise<{ answer: string; toolCalls: number } | null> {
+  const config = input.webReach;
+  if (!config) return null;
+  if (!agentAllowsWebReach(input.agent.supportedTools)) return null;
+
+  const handles = handlesFor(input);
+  const health = healthFor(input);
+  const messages = baseMessages(
+    input,
+    readOnlyUserContent({ instruction, context, command: input.command })
+  );
+
+  const result = await runToolLoop({
+    tools: [WEB_REACH_TOOL],
+    maxIterations: config.maxIterations,
+    signal: input.signal,
+    messages,
+    prompt: webReachToolLoopPromptSet,
+    runLlm: async (loopMessages) => {
+      input.assertBudgetForCall?.();
+      const { result: llmResult, servedBy } = await runLlmCallWithFallback(handles, loopMessages, {
+        health,
+        signal: input.signal,
+        timeoutMs: llmCallTimeoutMs(input),
+        taskGate: input.llmTaskGate,
+      });
+      if (input.onTokenUsage) {
+        await input.onTokenUsage(
+          llmResult.inputTokens ?? 0,
+          llmResult.outputTokens ?? 0,
+          servedBy.config.model,
+          usageMetaFor(servedBy, llmResult.inputTokens ?? 0, llmResult.outputTokens ?? 0, llmResult.usageEstimated)
+        );
+      }
+      return llmResult.content;
+    },
+    callTool: async ({ tool, args }) => {
+      if (tool !== WEB_REACH_TOOL_NAME) {
+        return { ok: false, text: `Unknown tool "${tool}"`, isError: true };
+      }
+      const outcome = await runWebReachTool(args, { config, signal: input.signal });
+      await input.onEvent(
+        "tool.web_reach",
+        { capability: input.subtask.capability, tool, ok: outcome.ok },
+        outcome.ok ? "info" : "warn"
+      );
+      return outcome;
+    },
+  });
+
+  return { answer: result.answer, toolCalls: result.toolCalls };
 }
 
 export type SubtaskExecutionResult =
@@ -1566,8 +1650,42 @@ async function executeReadOnly(
     }
   }
 
-  let instruction = readOnlyInstruction(mode);
+  // Plan 036: the Agent Reach web tool is offered to read-only agents that
+  // declare it. The instruction then says the agent may read public web
+  // content, so it does not claim the repository is the only source.
+  const webReachAvailable =
+    (mode === "research" || mode === "audit") &&
+    Boolean(input.webReach) &&
+    agentAllowsWebReach(input.agent.supportedTools);
+
+  let instruction = readOnlyInstruction(mode, { webTool: webReachAvailable });
   if (toolLoopSection) instruction += toolLoopSection;
+
+  // Plan 036: the Agent Reach web tool. When the policy enabled it and the
+  // agent declared `web_reach`, the agent can search the public web and
+  // read public platform content through a bounded tool loop. The tool is
+  // read-only, so it is offered for research and audit only.
+  if (webReachAvailable) {
+    const webResult = await runWebReachExploration(input, instruction, context);
+    if (webResult) {
+      const content = webResult.answer.trim() || "No findings from web research.";
+      if (content) await input.onChunk(content);
+      await input.onMessage(sanitizeForChat(stripToolCallMarkup(content)));
+      await input.onEvent("agent.web_reach", {
+        capability: subtask.capability,
+        toolCalls: webResult.toolCalls,
+      });
+      const delegation = parseDelegation(content);
+      return {
+        status: "completed",
+        output: content,
+        meta: {
+          ...(delegation?.delegationRecommendation ? { delegationRecommendation: delegation.delegationRecommendation } : {}),
+          ...(delegation?.findings ? { findings: delegation.findings } : {}),
+        },
+      };
+    }
+  }
 
   // Plan 009: MCP filesystem tools. When the runner seeded sessions and
   // the server yielded permitted tools, the agent uses them mid-task

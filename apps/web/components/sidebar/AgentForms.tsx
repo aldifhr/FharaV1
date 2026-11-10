@@ -11,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { deserializeAvatartion, randomAvatartion, type AvatartionAvatar } from "../ui/avatartion";
 import type { AvatarParams } from "@/api/convex/lib/avatar";
 import { nextAgentName } from "@/api/convex/lib/agentTemplates";
-import { AGENT_ROLES, ROLE_DEFAULT_PROMPTS, roleLabel } from "@/lib/agentRoles";
+import { AGENT_TOOL_OPTIONS } from "@/api/convex/lib/toolNames";
+import { AGENT_ROLES, ROLE_DEFAULT_PROMPTS, roleDefaultTools, roleLabel } from "@/lib/agentRoles";
 import { useToast } from "../Toasts";
 
 type AgentDoc = {
@@ -30,6 +31,7 @@ type AgentDoc = {
   skillIds?: string[];
   skillPins?: Array<{ skillId: string; version: number }>;
   skillLoading?: "inline" | "on_demand";
+  supportedTools?: string[];
 };
 
 /** Template as agentTemplates.list returns it (built-in or custom). */
@@ -320,6 +322,11 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
   const [agentName, setAgentName] = useState(agent.name);
   const [agentRole, setAgentRole] = useState(agent.role);
   const [agentPrompt, setAgentPrompt] = useState(agent.systemPrompt ?? "");
+  // Tool permissions (plan 036): the agent's own list wins; without one the
+  // role defaults apply. `toolsTouched` keeps an untouched list from
+  // becoming a custom override on save.
+  const [agentTools, setAgentTools] = useState<string[]>(agent.supportedTools ?? roleDefaultTools(agent.role));
+  const [toolsTouched, setToolsTouched] = useState(false);
   // LLM assignment (Phase 2 resolver): "" = unassigned (pool decides).
   const [agentLlmProviderId, setAgentLlmProviderId] = useState(agent.llmProviderId ?? "");
   const [agentLlmModelId, setAgentLlmModelId] = useState(agent.llmModelId ?? "");
@@ -361,6 +368,9 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
         // The selection mode is global (Settings → LLM & Models); an agent
         // keeps its own policy only when it was set explicitly before.
         ...(skillLoading !== (agent.skillLoading ?? "inline") ? { skillLoading } : {}),
+        // Tool permissions (plan 036): only sent when the user touched the
+        // list, so an untouched agent keeps its role defaults.
+        ...(toolsTouched ? { supportedTools: agentTools } : {}),
         ...avatarArgs(avatarSeed),
       });
       // Library skills are saved separately so the update payload stays as-is.
@@ -474,6 +484,41 @@ export function EditAgentModal({ agent, onClose }: { agent: AgentDoc; onClose: (
               <option value="on_demand">On demand</option>
             </select>
           </label>
+        </fieldset>
+
+        <fieldset className="grid gap-2">
+          <legend className="mb-1.5 text-[12.5px] text-ink-3">Tool permissions</legend>
+          <div className="grid gap-1.5">
+            {AGENT_TOOL_OPTIONS.map((option) => {
+              const checked = agentTools.includes(option.name);
+              return (
+                <label key={option.name} className="flex items-start gap-2 text-[13px] text-ink-2">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(event) => {
+                      setToolsTouched(true);
+                      setAgentTools((prev) =>
+                        event.target.checked
+                          ? [...prev, option.name]
+                          : prev.filter((name) => name !== option.name)
+                      );
+                    }}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    {option.label}
+                    <span className="block text-[12px] text-ink-3">{option.hint}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          <p className="text-[12px] text-ink-3">
+            {agent.supportedTools
+              ? "Custom for this agent. Unchecking everything falls back to the role defaults."
+              : "Role defaults until you change them."}
+          </p>
         </fieldset>
 
         <details className="group rounded-lg border border-line">

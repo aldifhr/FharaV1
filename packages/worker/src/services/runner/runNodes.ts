@@ -198,6 +198,8 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         llmTaskGate: input.llmTaskGate,
         qaBaseUrl: input.qaBaseUrl,
         mcp: input.mcp,
+        // Plan 036: the Agent Reach web tool for read-only agents.
+        webReach: input.webReach,
         // Plan 035: the app-wide OpenCode runtime and model win; the
         // per-agent values are legacy and only apply when the setting was
         // never written; the env default is the last resort.

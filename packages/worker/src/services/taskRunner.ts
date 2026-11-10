@@ -18,6 +18,7 @@ import { buildStateFromDb } from "./runner/state";
 import {
   buildTaskLlmResolver,
   mcpForTask,
+  webReachForTask,
   resolveQaBaseUrl,
   resolveWorkspacePath,
   seedBudgetFromPersisted,
@@ -133,6 +134,8 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
   // Plan 009: seed the shared MCP registry for this workspace. Status
   // reports are best-effort; the task runs on regardless.
   const mcp = mcpForTask(context.mcpServers, workspacePath, deps.policy, mcpStatusReporter(deps));
+  // Plan 036: the Agent Reach web tool for read-only agents.
+  const webReach = webReachForTask(deps.policy);
 
   let branchName: string | undefined;
   let worktreePath: string | undefined;
@@ -401,6 +404,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
         onTokenUsage: recordUsage,
         qaBaseUrl,
         mcp,
+        webReach,
         worktree:
           branchName && worktreePath ? { branchName, worktreePath } : undefined,
         onDynamicSubtasks: dynamicSubtaskPersister(deps, task._id, project._id),

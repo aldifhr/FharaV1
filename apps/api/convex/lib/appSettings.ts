@@ -21,67 +21,16 @@
  * refused, so the UI can never set an arbitrary worker variable.
  */
 
-export type SettingKnobType = "bool" | "int" | "enum" | "string";
+import { KNOBS_FROM_SCHEMA, type KnobName, type SettingKnob, type SettingKnobType } from "@fhara/config";
 
-export interface SettingKnob {
-  type: SettingKnobType;
-  /** The value the code uses when neither the UI nor the env sets one. */
-  defaultValue: string;
-  /** Who reads it: the worker process, or a Convex function. */
-  reader: "worker" | "api" | "both";
-  min?: number;
-  max?: number;
-  options?: readonly string[];
-  maxLength?: number;
-}
+export type { SettingKnob, SettingKnobType };
 
-export const SETTING_KNOBS = {
-  // Source control
-  FHARA_GIT_AUTHOR_NAME: { type: "string", defaultValue: "Fhara", reader: "both", maxLength: 100 },
-  FHARA_GIT_AUTHOR_EMAIL: { type: "string", defaultValue: "fhara@users.noreply.github.com", reader: "both", maxLength: 200 },
-  FHARA_ALLOW_FORCE_PUSH: { type: "bool", defaultValue: "false", reader: "worker" },
-  FHARA_ALLOW_BASE_BRANCH_PUSH: { type: "bool", defaultValue: "false", reader: "worker" },
-  // Pull requests
-  FHARA_PR_DRAFT: { type: "bool", defaultValue: "true", reader: "worker" },
-  FHARA_PR_FIX_MAX_ATTEMPTS: { type: "int", defaultValue: "3", reader: "api", min: 0, max: 20 },
-  // O2 supervised auto-merge (per project switch; these shape the gate)
-  FHARA_AUTO_MERGE_MAX_LINES: { type: "int", defaultValue: "400", reader: "api", min: 0, max: 100_000 },
-  FHARA_AUTO_MERGE_SENSITIVE: {
-    type: "string",
-    defaultValue: ".github/**, **/.env*, **/*.env, **/*.pem, **/*.key, infra/**, apps/api/convex/schema.ts",
-    reader: "api",
-    maxLength: 1000,
-  },
-  FHARA_AUTO_MERGE_METHOD: { type: "enum", defaultValue: "squash", reader: "api", options: ["squash", "merge", "rebase"] },
-  // Worktrees
-  FHARA_WORKTREE_RETENTION_HOURS: { type: "int", defaultValue: "72", reader: "api", min: 1, max: 720 },
-  ORCHESTRATOR_WORKTREE_ISOLATION: { type: "bool", defaultValue: "false", reader: "worker" },
-  // Snapshots
-  CONTEXT_SNAPSHOTS: { type: "bool", defaultValue: "true", reader: "both" },
-  FHARA_SNAPSHOT_RETENTION_DAYS: { type: "int", defaultValue: "14", reader: "api", min: 1, max: 365 },
-  // Threads
-  CHAT_REPLY_STALE_MS: { type: "int", defaultValue: String(15 * 60_000), reader: "api", min: 11 * 60_000, max: 24 * 60 * 60_000 },
-  ORCHESTRATOR_IDLE_TIMEOUT_MS: { type: "int", defaultValue: String(10 * 60_000), reader: "worker", min: 60_000, max: 24 * 60 * 60_000 },
-  ORCHESTRATOR_TASK_TIMEOUT_MS: { type: "int", defaultValue: String(20 * 60_000), reader: "worker", min: 60_000, max: 3 * 60 * 60_000 },
-  // Browser (QA)
-  ORCHESTRATOR_QA_MODE: { type: "enum", defaultValue: "auto", reader: "worker", options: ["always", "auto", "never"] },
-  ORCHESTRATOR_QA_REQUIRED: { type: "bool", defaultValue: "false", reader: "worker" },
-  QA_CHROMIUM_PATH: { type: "string", defaultValue: "", reader: "worker", maxLength: 500 },
-  QA_CHROMIUM_NO_SANDBOX: { type: "bool", defaultValue: "false", reader: "worker" },
-  QA_STARTUP_TIMEOUT_MS: { type: "int", defaultValue: "90000", reader: "worker", min: 5_000, max: 600_000 },
-  // Sharing & access (what agents may do)
-  ORCHESTRATOR_APPROVAL_TIMEOUT_MS: { type: "int", defaultValue: String(30 * 60_000), reader: "worker", min: 60_000, max: 24 * 60 * 60_000 },
-  ORCHESTRATOR_MCP_WRITE_TOOLS: { type: "bool", defaultValue: "false", reader: "worker" },
-  ORCHESTRATOR_AGENT_REACH_ENABLED: { type: "bool", defaultValue: "true", reader: "worker" },
-  // Labs
-  ORCHESTRATOR_TOOL_LOOP: { type: "bool", defaultValue: "false", reader: "worker" },
-  ORCHESTRATOR_PERFORMANCE_ROUTING: { type: "bool", defaultValue: "false", reader: "worker" },
-  ORCHESTRATOR_LOAD_AWARE_ROUTING: { type: "bool", defaultValue: "false", reader: "worker" },
-  ORCHESTRATOR_ROUTER_LLM: { type: "enum", defaultValue: "off", reader: "worker", options: ["off", "ambiguous", "always"] },
-  ORCHESTRATOR_DECISION_LLM: { type: "enum", defaultValue: "ambiguous", reader: "worker", options: ["off", "ambiguous", "always"] },
-  // Workspace
-  WORKSPACE_ROOT: { type: "string", defaultValue: "./workspaces", reader: "worker", maxLength: 500 },
-} as const satisfies Record<string, SettingKnob>;
+/**
+ * The knobs the Settings modal may write, derived from the env schema in
+ * @fhara/config (type, default, reader, bounds). Same keys, values and
+ * order as the literal that lived here before E1 (knobsParity test).
+ */
+export const SETTING_KNOBS: Readonly<Record<KnobName, SettingKnob>> = KNOBS_FROM_SCHEMA;
 
 export type SettingKey = keyof typeof SETTING_KNOBS;
 

@@ -20,6 +20,7 @@
  * including passthrough and extras. Pure: no Node imports, safe to bundle.
  */
 import { getChildEnvOverrides } from "./appSettings";
+import { DEFAULT_DENIED_SECRET_ENV_NAMES, PLATFORM_SECRET_ENV_NAMES } from "@fhara/config";
 
 /** Exact names forwarded from the parent env when set. */
 export const CHILD_ENV_ALLOWLIST: readonly string[] = [
@@ -99,48 +100,14 @@ export const CHILD_ENV_PASSTHROUGH_VAR = "FHARA_CHILD_ENV_PASSTHROUGH";
  * Never forwarded, not even through passthrough or explicit extras. These
  * belong to the worker / control plane; no child has a legitimate need.
  */
-export const WORKER_SECRET_ENV_KEYS: readonly string[] = [
-  "CONVEX_SERVICE_TOKEN",
-  "PROVIDER_ENCRYPTION_KEY",
-  "PROVIDER_ENCRYPTION_KEY_OLD",
-  "CONVEX_SELF_HOSTED_ADMIN_KEY",
-  "CONVEX_ADMIN_KEY",
-  "CONVEX_DEPLOY_KEY",
-  "OAUTH_STATE_SECRET",
-  "GITHUB_CLIENT_SECRET",
-  "GITHUB_WEBHOOK_SECRET",
-  "AUTH_GITHUB_SECRET",
-  "JWT_PRIVATE_KEY",
-];
+export const WORKER_SECRET_ENV_KEYS: readonly string[] = PLATFORM_SECRET_ENV_NAMES;
 
 /**
  * Secret-shaped names that are dropped from the parent env by default but
  * that an operator may deliberately opt into via passthrough (e.g. a test
  * suite that needs OPENAI_API_KEY). Listed so the denylist test covers them.
  */
-export const DEFAULT_DENIED_SECRET_ENV_KEYS: readonly string[] = [
-  "LLM_API_KEY",
-  "STAGEHAND_API_KEY",
-  "ANTHROPIC_API_KEY",
-  "OPENAI_API_KEY",
-  "OPENROUTER_API_KEY",
-  "GEMINI_API_KEY",
-  "GOOGLE_API_KEY",
-  "GROQ_API_KEY",
-  "MISTRAL_API_KEY",
-  "DEEPSEEK_API_KEY",
-  "XAI_API_KEY",
-  "GITHUB_TOKEN",
-  "GH_TOKEN",
-  "GITHUB_PERSONAL_ACCESS_TOKEN",
-  "NPM_TOKEN",
-  "AWS_ACCESS_KEY_ID",
-  "AWS_SECRET_ACCESS_KEY",
-  "AWS_SESSION_TOKEN",
-  "NODE_OPTIONS",
-  "LD_PRELOAD",
-  "DYLD_INSERT_LIBRARIES",
-];
+export const DEFAULT_DENIED_SECRET_ENV_KEYS: readonly string[] = DEFAULT_DENIED_SECRET_ENV_NAMES;
 
 const WORKER_SECRET_SET = new Set(WORKER_SECRET_ENV_KEYS.map((k) => k.toUpperCase()));
 const ALLOWLIST_SET = new Set(CHILD_ENV_ALLOWLIST);

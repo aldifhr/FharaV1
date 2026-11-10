@@ -80,6 +80,14 @@ export default function AgentProfilePage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
+                  {p.agent.enabled && (
+                    <Link
+                      href={`/chats/personal/${agentId}`}
+                      className="inline-flex h-[30px] items-center rounded-lg border border-line px-3 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+                    >
+                      Chat
+                    </Link>
+                  )}
                   {projects && projects.length > 1 && (
                     <select
                       aria-label="Project"

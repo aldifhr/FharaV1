@@ -14,6 +14,7 @@ import {
   Home,
   Inbox,
   KanbanSquare,
+  MessageCircle,
   MessagesSquare,
   TestTubes,
   Plug,
@@ -224,7 +225,8 @@ export default function IconRail({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  const inChat = pathname.startsWith("/chats");
+  const inPersonal = pathname.startsWith("/chats/personal");
+  const inChat = pathname.startsWith("/chats") && !inPersonal;
   const chatHref = projectId ? `/chats/${projectId}` : "/chats";
 
   return (
@@ -261,6 +263,7 @@ export default function IconRail({
       <RailButton icon={Search} label="Search (âŒ˜K)" onClick={() => setCommandOpen(true)} />
       <span aria-hidden="true" className="my-2 h-px w-6 bg-line max-[979px]:hidden" />
       <RailButton icon={MessagesSquare} label="Chats" href={chatHref} active={inChat} />
+      <RailButton icon={MessageCircle} label="Personal chat" href="/chats/personal" active={inPersonal} />
       <RailButton icon={Users} label="Team" href={projectId ? `/team?project=${projectId}` : "/team"} active={pathname === "/team"} />
       <RailButton icon={BookOpen} label="Library" href="/library" active={pathname === "/library"} />
       <RailButton icon={Brain} label="Memory" href={projectId ? `/memory?scope=project&project=${projectId}` : "/memory"} active={pathname === "/memory"} />

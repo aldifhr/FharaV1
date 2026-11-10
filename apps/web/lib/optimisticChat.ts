@@ -7,7 +7,8 @@
 export const OPTIMISTIC_PREFIX = "optimistic:";
 
 export type SendArgs = {
-  projectId: string;
+  /** Absent in a personal chat (plan 039): its rows carry no project. */
+  projectId?: string;
   content: string;
   conversationId?: string;
   quotedMessageId?: string;
@@ -24,7 +25,7 @@ export function optimisticUserRow(args: SendArgs & { clientId: string }, now: nu
   return {
     _id: `${OPTIMISTIC_PREFIX}${args.clientId}`,
     _creationTime: now,
-    projectId: args.projectId,
+    ...(args.projectId ? { projectId: args.projectId } : {}),
     authorType: "user" as const,
     content: args.content.trim(),
     clientId: args.clientId,

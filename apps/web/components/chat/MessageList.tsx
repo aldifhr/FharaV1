@@ -374,6 +374,7 @@ export default function MessageList(props: Props) {
           onTogglePin={() => togglePin(m._id, !m.pinned)}
           onOpenTask={onSelectTask}
           onReply={onReply && m.content?.trim() ? () => onReply(m) : undefined}
+          personal={!m.projectId}
         />}
         <div className="min-w-0 rounded-2xl rounded-tr-md bg-brand-soft px-4 py-2.5 text-ink [&_p]:my-0">
           {m.quotedMessageId && (() => {
@@ -413,7 +414,9 @@ export default function MessageList(props: Props) {
           onTogglePin={() => togglePin(m._id, !m.pinned)}
           onOpenTask={onSelectTask}
           onReply={onReply && m.content?.trim() && !isLive(m) ? () => onReply(m) : undefined}
-          onSecondOpinion={m.content?.trim() && !isLive(m) ? () => void requestOpinion(String(m._id)) : undefined}
+          // Personal chat replies carry no project: no second opinion (plan 039 D8).
+          onSecondOpinion={m.projectId && m.content?.trim() && !isLive(m) ? () => void requestOpinion(String(m._id)) : undefined}
+          personal={!m.projectId}
         />
         {hasActivityTimeline(m) && (() => {
           // Activity timeline replaces the Thought line and the separate
@@ -725,9 +728,12 @@ function MessageActions({
   onOpenTask,
   onReply,
   onSecondOpinion,
+  personal = false,
   inline = false,
 }: {
   inline?: boolean;
+  /** Personal chat message: Remember saves to the agent's memory (plan 039 D7). */
+  personal?: boolean;
   onReply?: () => void;
   /** Agent replies only: ask the Reviewer for a second opinion. */
   onSecondOpinion?: () => void;
@@ -838,7 +844,7 @@ function MessageActions({
                 // Saved as a pinned project memory: the project's agents get it
                 // in their next prompt. Editable on /memory.
                 rememberMessage({ messageId: messageId as never }).then(
-                  (r) => toast("success", r.created ? "Remembered" : "Already remembered", "Pinned to this project's memory"),
+                  (r) => toast("success", r.created ? "Remembered" : "Already remembered", personal ? "Pinned to this agent's memory" : "Pinned to this project's memory"),
                   (err) => toast("error", "Couldn't remember", err instanceof Error ? err.message : undefined),
                 );
               }}

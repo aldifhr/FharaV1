@@ -103,6 +103,7 @@ export default function ChatComposer({
   onCancelQuote,
   placeholder,
   onKeyIntercept,
+  slashCommands = SLASH_COMMANDS,
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -139,6 +140,8 @@ export default function ChatComposer({
   placeholder?: string;
   /** Runs first on Enter / Escape when no picker is open; true = handled. */
   onKeyIntercept?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => boolean;
+  /** Slash commands offered in this composer (personal chat: /task after attach only). */
+  slashCommands?: SlashCommand[];
 }) {
   const toast = useToast();
   const textareaRef = useAutoGrowRef([draft], 200);
@@ -194,7 +197,7 @@ export default function ChatComposer({
 
   // Slash menu: the draft is a bare "/word" being typed.
   const slashMatch = draft.match(/^\/(\w*)$/);
-  const slashOptions = slashMatch ? SLASH_COMMANDS.filter((c) => c.name.startsWith(slashMatch[1].toLowerCase())) : [];
+  const slashOptions = slashMatch ? slashCommands.filter((c) => c.name.startsWith(slashMatch[1].toLowerCase())) : [];
   const slashOpen = slashOptions.length > 0;
 
   const mentionOptions: MentionOption[] = [

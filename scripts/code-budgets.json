@@ -268,7 +268,7 @@
     "lines": 969
   },
   "packages/worker/src/orchestrator/planner.ts": {
-    "lines": 898
+    "lines": 887
   },
   "packages/worker/src/review/htmlPreview.test.ts": {
     "suppressions": 1

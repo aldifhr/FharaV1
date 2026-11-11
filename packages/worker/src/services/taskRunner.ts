@@ -607,6 +607,14 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
         });
         return;
       }
+      // O3 (bug c): a failed node whose error is a provider hold (429,
+      // quota, offline, every connection excluded) holds the task; a
+      // replan would repeat the node and be rejected as a repeat.
+      const heldFailure = findProviderHoldMessage(state.feedback);
+      if (heldFailure) {
+        await fail(heldFailure);
+        return;
+      }
       // A verify-fix loop that could change nothing (or repeated itself)
       // ends here: a replan would rebuild the same loop (live test 4).
       if (state.terminalFailure) {

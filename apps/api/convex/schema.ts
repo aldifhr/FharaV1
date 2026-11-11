@@ -27,6 +27,7 @@ import { mcpWriteTables } from "./lib/mcpWriteSchema";
 import { decisionTurnTables } from "./lib/decisionTurnSchema";
 import { threadIndexTable, titleSetByValidator } from "./lib/threadIndexSchema";
 import { projectScriptsValidator } from "./lib/projectScriptsSchema";
+import { directGoalValidator } from "./lib/directGoalSchema";
 
 export const taskStatus = v.union(
   v.literal("queued"),
@@ -128,16 +129,15 @@ export const directThreadValidator = v.object({
   lastSeq: v.number(),
   // Highest user.message seq handed to the engine (sent, steered or dropped by Stop); above it is queued.
   deliveredSeq: v.optional(v.number()),
-  // "Always allow" rules for THIS thread only (never the project's).
-  allowRules: v.optional(v.array(v.string())),
+  allowRules: v.optional(v.array(v.string())), // "Always allow" rules for THIS thread only (never the project's)
   idleSince: v.optional(v.number()),
   // Stop pressed: the worker interrupts the live turn when this is newer than the one it last handled.
   interruptRequestedAt: v.optional(v.number()),
-  // The worker died mid-turn (recoverDirect); cleared by the next turn.
-  stoppedMidTurn: v.optional(v.boolean()),
+  stoppedMidTurn: v.optional(v.boolean()), // the worker died mid-turn (recoverDirect); cleared by the next turn
   error: v.optional(v.string()),
   mcpSetHash: v.optional(v.string()), // N10: the declared MCP set (lib/mcpDeclaration.ts, no secrets)
   effort: v.optional(v.string()), // N10: picked reasoning effort; unset = agent default
+  goal: v.optional(directGoalValidator), // D8 goal mode (lib/directGoalSchema.ts); unset = no goal
 });
 
 /** Options review draft / response (lib/optionsReview.ts ReviewDraft). */

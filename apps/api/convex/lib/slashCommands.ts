@@ -24,8 +24,8 @@ export type SlashCommandKind = "custom" | "builtin";
 /** Where the definition came from. Fhara uses `builtin` and `project` (skills). */
 export type SlashCommandSource = "project" | "global" | "plugin" | "harness" | "builtin";
 
-/** Which chat a builtin is offered in. */
-export type SlashCommandScope = "project" | "personal";
+/** Which chat a builtin is offered in ("direct": a direct thread's composer). */
+export type SlashCommandScope = "project" | "personal" | "direct";
 
 export interface SlashCommandIdentity {
   name: string;
@@ -146,6 +146,8 @@ export const FHARA_BUILTIN_COMMANDS: readonly FharaBuiltinCommand[] = [
   builtin("qa", "[what to check]", "Ask QA to check the latest change", ["project"]),
   builtin("review", "[focus]", "Ask for a code review of the latest change", ["project"]),
   builtin("push", "", "Open the push waiting for your approval", ["project"]),
+  // D8: handled by directThreads.send (lib/directGoal.ts), never shown to the agent.
+  builtin("goal", "<objective> [rounds] | pause | resume | clear", "Keep the agent working toward an objective, round by round", ["direct"]),
 ];
 
 /**

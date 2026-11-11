@@ -10,6 +10,7 @@ import { taskStatusLabel } from "@/lib/taskStatus";
 import { taskStatusTone } from "@/lib/taskStatusTone";
 import { isWidePanel, toggledPanelWidth } from "@/lib/useResizablePanel";
 import { PERMISSION_MODE_LABELS, normalizePermissionMode } from "@/api/convex/lib/permissionModes";
+import { goalStatusLine, type DirectGoal } from "@/api/convex/lib/directGoalSchema";
 
 const HEADER_BUTTON =
   "flex h-8 w-8 shrink-0 items-center justify-center rounded-field text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30";
@@ -26,7 +27,7 @@ function statusLabel(status: string, needsYou: boolean): string {
 /**
  * Task thread header on the Inspector shell (dashboard F7, split out of
  * TaskThreadPanel): editable title, a meta line (project, permission mode,
- * trace link), the status as a StatusTag, Pause/Resume + Stop while the task
+ * trace link; a direct thread's goal line, D8), the status as a StatusTag, Pause/Resume + Stop while the task
  * runs, widen/narrow and close on desktop, Back on the phone sheet.
  * `task` undefined is loading, null is gone.
  */
@@ -83,6 +84,7 @@ export default function TaskThreadHeader({
 
   const status = task.status as string;
   const running = status === "running" || status === "queued" || status === "paused";
+  const goal: DirectGoal | undefined = task.mode === "direct" ? task.direct?.goal : undefined;
   return (
     <InspectorHeader
       icon={back}
@@ -96,6 +98,14 @@ export default function TaskThreadHeader({
           <Link href={`/runs/${task._id}`} className="underline-offset-2 hover:text-ink hover:underline">
             View trace
           </Link>
+          {goal && (
+            <>
+              {" · "}
+              <span title={goal.objective} className={goal.phase === "blocked" ? "text-danger" : "text-ink-2"}>
+                {goalStatusLine(goal)}
+              </span>
+            </>
+          )}
         </>
       }
       status={<StatusTag tone={taskStatusTone(status, needsYou)}>{statusLabel(status, needsYou)}</StatusTag>}

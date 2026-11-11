@@ -54,6 +54,9 @@ export const DIRECT_EVENT_TYPES = [
   "plan.updated",
   // Nuphos N4: one per session start (op, pid, phases, outcome; no content).
   "session.restore",
+  // D8 goal mode: a goal change (user or worker) and a round / wrap-up prompt.
+  "goal.updated",
+  "goal.prompt",
 ] as const;
 export type DirectEventType = (typeof DIRECT_EVENT_TYPES)[number];
 

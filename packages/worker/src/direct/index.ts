@@ -54,6 +54,7 @@ import { buildDirectMcpSet, EMPTY_MCP_SET, mcpRestartDue, type DirectMcpSet } fr
 import type { McpServerConfig } from "@/mcp/types";
 import { ThreadRunner, type DirectStore } from "./threadRunner";
 import type { DirectEngine } from "./types";
+import type { DirectGoal as GoalState } from "./goal";
 import { runSetupOnWorktreeCreate } from "@/services/runner/projectScriptHooks";
 
 /** Read at module load; the entrypoint loads the root .env before this module is evaluated. */
@@ -479,6 +480,9 @@ export class DirectThreads {
           live.lastActivity = Date.now();
           await live.runner.deliver({ seq: message.seq, text: message.text });
         }
+        // D8: after the messages, so a queued message is answered before the next round.
+        const goalPoll = state as { goal?: GoalState | null; automationHeld?: boolean };
+        live.runner.setGoalState(goalPoll.goal ?? null, goalPoll.automationHeld === true);
       }
       if (live.runner.busy) live.lastActivity = Date.now();
       else if (Date.now() - live.lastActivity > directIdleMs()) {

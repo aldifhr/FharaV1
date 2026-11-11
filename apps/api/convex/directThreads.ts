@@ -21,7 +21,7 @@
  * which would drop the lease and re-queue the task.
  */
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { v, type Infer } from "convex/values";
+import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { assertProjectAccess, getViewerId } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
@@ -46,6 +46,10 @@ import {
 } from "./lib/directThreads";
 import { directMcpSetHash } from "./directThreadSettings";
 import { patchTask, syncTaskThread } from "./lib/threadIndex";
+import { applyDirectPatch, directPatchValidator, type DirectPatch } from "./lib/directPatch";
+import { applyGoalCommand, clearGoalHandler, goalCommandOf, goalTaskArgs, GOAL_USAGE, pauseGoalHandler, setGoalArgs, setGoalHandler } from "./lib/directGoal";
+import { goalWantsWorker } from "./lib/directGoalSchema";
+import { isAutomationHeld } from "./lib/automationHold";
 
 const TERMINAL = new Set(["done", "failed", "rejected", "cancelled"]);
 const LEASE_LOST = "Lease lost: this task is no longer owned by this worker";
@@ -53,16 +57,6 @@ const DEFAULT_LEASE_MS = 60_000;
 const MAX_TEXT = 20_000;
 const TAIL_MAX = 80;
 const PAGE_MAX = 200;
-
-const engineValidator = v.union(v.literal("opencode-acp"), v.literal("api-loop"));
-const directStatusValidator = v.union(
-  v.literal("idle"),
-  v.literal("starting"),
-  v.literal("running"),
-  v.literal("waiting"),
-  v.literal("stopped"),
-  v.literal("error")
-);
 
 async function loadDirectTask(ctx: Pick<MutationCtx, "db">, taskId: Id<"tasks">): Promise<Doc<"tasks">> {
   const task = await ctx.db.get(taskId);
@@ -200,9 +194,20 @@ export const send = mutation({
     const task = await loadDirectTask(ctx, args.taskId);
     await assertProjectAccess(ctx, task.projectId);
     if (TERMINAL.has(task.status)) throw new Error(`This thread is ${task.status}`);
+    const goal = goalCommandOf(args.text); // D8: `/goal …` sets the goal; the agent never sees the line
+    if (goal === "invalid") throw new Error(GOAL_USAGE);
+    if (goal) {
+      const done = await applyGoalCommand(ctx, task._id, goal, cleanClientId(args.clientId));
+      return { eventId: done.eventId, deduped: done.deduped === true, declined: 0 };
+    }
     return await sendDirectMessage(ctx, task, cleanText(args.text), cleanClientId(args.clientId));
   },
 });
+
+/** D8 goal mode (lib/directGoal.ts): set (no objective resumes a paused goal), pause, clear. */
+export const setGoal = mutation({ args: setGoalArgs, handler: setGoalHandler });
+export const pauseGoal = mutation({ args: goalTaskArgs, handler: pauseGoalHandler });
+export const clearGoal = mutation({ args: goalTaskArgs, handler: clearGoalHandler });
 
 /** Write one user message and wake the thread; `send` and review rounds (diffComments.sendRound) share it. */
 export async function sendDirectMessage(ctx: MutationCtx, task: Doc<"tasks">, text: string, clientId: string) {
@@ -477,6 +482,8 @@ export const poll = internalQuery({
       allowRules: task.direct.allowRules ?? [],
       mcpSetHash: await directMcpSetHash(ctx, task.projectId, task.direct.role),
       effort: task.direct.effort ?? null,
+      goal: task.direct.goal ?? null, // D8; no new round while automation is held (G3)
+      automationHeld: await isAutomationHeld(ctx),
       messages: messages.map((row) => ({
         seq: row.sequence ?? 0,
         text: String((row.payload as { text?: unknown } | undefined)?.text ?? ""),
@@ -485,36 +492,6 @@ export const poll = internalQuery({
     };
   },
 });
-
-const directPatchValidator = v.object({
-  status: v.optional(directStatusValidator),
-  sessionId: v.optional(v.union(v.string(), v.null())),
-  turnId: v.optional(v.union(v.string(), v.null())),
-  engine: v.optional(engineValidator),
-  deliveredSeq: v.optional(v.number()),
-  idleSince: v.optional(v.union(v.number(), v.null())),
-  error: v.optional(v.union(v.string(), v.null())),
-  stoppedMidTurn: v.optional(v.boolean()),
-  allowRules: v.optional(v.array(v.string())),
-  mcpSetHash: v.optional(v.string()),
-});
-
-type DirectPatch = Infer<typeof directPatchValidator>;
-
-function applyDirectPatch(direct: NonNullable<Doc<"tasks">["direct"]>, patch: DirectPatch, lastSeq: number) {
-  const next = { ...direct, lastSeq: Math.max(direct.lastSeq, lastSeq) };
-  if (patch.status !== undefined) next.status = patch.status;
-  if (patch.engine !== undefined) next.engine = patch.engine;
-  if (patch.deliveredSeq !== undefined) next.deliveredSeq = Math.max(direct.deliveredSeq ?? 0, patch.deliveredSeq);
-  if (patch.sessionId !== undefined) next.sessionId = patch.sessionId ?? undefined;
-  if (patch.turnId !== undefined) next.turnId = patch.turnId ?? undefined;
-  if (patch.idleSince !== undefined) next.idleSince = patch.idleSince ?? undefined;
-  if (patch.error !== undefined) next.error = patch.error ? patch.error.slice(0, 1000) : undefined;
-  if (patch.stoppedMidTurn !== undefined) next.stoppedMidTurn = patch.stoppedMidTurn;
-  if (patch.allowRules !== undefined) next.allowRules = patch.allowRules.slice(-50);
-  if (patch.mcpSetHash !== undefined) next.mcpSetHash = patch.mcpSetHash.slice(0, 64);
-  return next;
-}
 
 /**
  * Persist engine events in order (each gets the next gapless sequence),
@@ -814,7 +791,8 @@ export const release = internalMutation({
       return { status: task.status };
     }
     const pending = await userMessagesAfter(ctx, task._id, task.direct!.deliveredSeq ?? 0, 1);
-    const status = pending.length > 0 ? "queued" : "waiting_input";
+    const goalWaits = !args.error && goalWantsWorker(task.direct!.goal, await isAutomationHeld(ctx)); // D8: an active goal goes on
+    const status = pending.length > 0 || goalWaits ? "queued" : "waiting_input";
     await patchTask(ctx, task._id, {
       status,
       workerId: undefined,

@@ -25,6 +25,7 @@ import {
   sideEffectKind,
 } from "./schema";
 import { directCancelReasonValidator, type DirectApprovalState } from "./lib/directThreads";
+import { directPatchValidator } from "./lib/directPatch";
 
 const tokenArg = { workerToken: v.string() };
 
@@ -1540,28 +1541,6 @@ export const releasePausedTask = action({
 
 // ── Direct threads (threadbear T2): token-gated wrappers over directThreads.ts ──
 
-const directPatchArg = v.object({
-  status: v.optional(
-    v.union(
-      v.literal("idle"),
-      v.literal("starting"),
-      v.literal("running"),
-      v.literal("waiting"),
-      v.literal("stopped"),
-      v.literal("error")
-    )
-  ),
-  sessionId: v.optional(v.union(v.string(), v.null())),
-  turnId: v.optional(v.union(v.string(), v.null())),
-  engine: v.optional(v.union(v.literal("opencode-acp"), v.literal("api-loop"))),
-  deliveredSeq: v.optional(v.number()),
-  idleSince: v.optional(v.union(v.number(), v.null())),
-  error: v.optional(v.union(v.string(), v.null())),
-  stoppedMidTurn: v.optional(v.boolean()),
-  allowRules: v.optional(v.array(v.string())),
-  mcpSetHash: v.optional(v.string()),
-});
-
 export const claimDirectThread = action({
   args: { ...tokenArg, workerId: v.string(), leaseMs: v.optional(v.number()) },
   handler: async (ctx, args): Promise<any> => {
@@ -1582,7 +1561,7 @@ export const appendDirectEvents = action({
     taskId: v.id("tasks"),
     workerId: v.string(),
     events: v.array(v.object({ type: v.string(), eventKey: v.optional(v.string()), payload: v.any() })),
-    state: v.optional(directPatchArg),
+    state: v.optional(directPatchValidator),
   },
   handler: async (ctx, args): Promise<{ seqs: number[] }> => {
     return await ctx.runMutation(internal.directThreads.appendEvents, withoutToken(args));

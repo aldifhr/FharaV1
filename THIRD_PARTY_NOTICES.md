@@ -1078,9 +1078,15 @@ SOFTWARE.
     adapted prose, distilled into a short checklist from `docs/defensive-patterns/general.md`, `docs/testing.md` and
     `.agents/skills/{dsh-code-review,dsh-error-handling,dsh-ci-test-reliability}/SKILL.md`; attribution in its front
     matter. Bundled through the generated `apps/api/convex/lib/builtinSkills.data.ts`.
+  - `apps/api/convex/lib/directGoalSchema.ts`, `apps/api/convex/lib/directGoal.ts` and
+    `packages/worker/src/direct/goal.ts` (D8, goal mode for direct threads): the goal state machine (objective, round
+    limit, active/paused/blocked/complete, a `round-limit` block, a closing turn without tools) after
+    `packages/goal/goal/src/{types,domain}.ts` and `packages/goal/goal-round-driver`; pattern only.
 - Copied (MIT, header in the file): `packages/worker/src/vendor/deepseek-harness/prunerConfig.ts` from
   `packages/compaction/compaction-tool-result-pruner/src/config.ts` (head 4096 + marker + tail 1024, at most 8192;
-  `deepFreeze` and the types inlined).
+  `deepFreeze` and the types inlined); `packages/worker/src/vendor/deepseek-harness/goalPrompts.ts` (D8) from
+  `packages/goal/goal-round-driver/src/prompt.ts` and `packages/goal/tool-goal/src/wrapup.ts` (plain strings; the
+  goal-tool sentences replaced by Fhara's reply-marker rule).
 
 ```
 MIT License

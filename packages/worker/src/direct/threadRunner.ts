@@ -37,6 +37,12 @@
  *   agent pid registry), and completes as `timed_out` with that reason. A
  *   turn parked on an approval card is exempt up to a cap. The thread stays
  *   usable: the next message resumes the session.
+ * - Goal mode (D8, goal.ts): between turns, an active goal queues its next
+ *   round prompt (a `goal.prompt` event, never a user message); the round's
+ *   last line `GOAL: complete|blocked: …` ends it, then one wrap-up turn
+ *   whose tool requests are refused. Messages mid-round are steers. No
+ *   round starts while automation is held (G3); a timed-out round (N3)
+ *   blocks the goal; Stop pauses it.
  * - Bounded approval wait (Nuphos N5): a card nobody answers within
  *   `approvalMaxMs` (DIRECT_APPROVAL_MAX_MIN, default 30) is closed with
  *   reason `expired`, the agent is told no (reject_once) and the turn goes
@@ -48,11 +54,16 @@
  *   reason}`: written by the store when it closed a card, here otherwise.
  */
 import type { AcpOutput, NormalizedEvent } from "@/vendor/threadbear/acp/normalize";
-import { TurnWatchdog, type TurnTimeoutReason } from "@/vendor/nuphos/turnTimers";
+import { TurnWatchdog } from "@/vendor/nuphos/turnTimers";
 import { handoffNote, resendTexts, type HandoffEvent } from "./handoff";
 import { PERMANENT_RESTORE_NOTE, SessionResumeTransientError, TRANSIENT_RESTORE_NOTE, type RestoreRecord } from "./restore";
 import { DirectStreamRedactor, redactErrorText, redactPayload } from "./streamRedactor";
 import { cancelReasonOf, type ToolGateAnswer, type ToolGateCall } from "./toolGate";
+import { applyGoalPatch } from "@/api/convex/lib/directGoalSchema";
+import * as G from "./goal";
+import { addUsage, expiredMessage, timeoutMessage, type TurnTimeout } from "./turnMessages";
+
+export { expiredMessage, timeoutMessage, type TurnTimeout };
 import {
   SessionNotFoundError,
   type ApprovalCancelReason,
@@ -82,6 +93,8 @@ export type DirectStatePatch = {
   stoppedMidTurn?: boolean;
   /** Nuphos N10: the MCP set hash the live session declared (lib/mcpDeclaration.ts). */
   mcpSetHash?: string;
+  /** D8: the worker's side of the goal (lib/directGoalSchema.ts applyGoalPatch). */
+  goal?: G.GoalWorkerPatch;
 };
 
 export type StoredEvent = { type: string; eventKey?: string; payload: Record<string, unknown> };
@@ -141,26 +154,16 @@ export interface ThreadRunnerOptions {
 
 export type TurnWatchdogConfig = { inactivityMs: number; progressMs: number; approvalCapMs?: number };
 
-export type TurnTimeout = { reason: TurnTimeoutReason; windowMs: number; waitingOnApproval: boolean };
 
-function span(ms: number): string {
-  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))} s`;
-  const min = Math.round(ms / 60_000);
-  return `${min} min`;
-}
 
-/** What the person reads when the watchdog stops a turn. */
-export function timeoutMessage(t: TurnTimeout): string {
-  const why = t.waitingOnApproval
-    ? `This turn waited on an approval for ${span(t.windowMs)}`
-    : t.reason === "no_output"
-      ? `The agent sent nothing for ${span(t.windowMs)}`
-      : `The agent stayed connected but made no progress (no text, tool or plan updates) for ${span(t.windowMs)}`;
-  return `${why}, so the turn was stopped. Send a message to continue.`;
-}
+type TurnKind = "user" | "round" | "wrapup";
 
 type Turn = {
   turnId: string;
+  kind: TurnKind;
+  goalId?: string;
+  /** The last assistant.text of the turn (the goal marker is its last line). */
+  lastText?: string;
   startedAt: number;
   messages: number[];
   interruptRequested: boolean;
@@ -200,6 +203,11 @@ export class ThreadRunner {
   // L2: deltas are masked chunk-safely before they reach a hot row.
   private redactor = new DirectStreamRedactor();
   private turnDone: Array<() => void> = [];
+  // D8 goal mode: the goal as this worker knows it, the G3 hold, and a round being queued.
+  private goal: G.DirectGoal | null = null;
+  private held = false;
+  private heldNoted = false;
+  private goalPending?: Promise<void>;
 
   constructor(opts: ThreadRunnerOptions) {
     this.opts = opts;
@@ -208,7 +216,11 @@ export class ThreadRunner {
   }
 
   get busy(): boolean {
-    return Boolean(this.turn);
+    return Boolean(this.turn || this.goalPending);
+  }
+
+  get goalState(): G.DirectGoal | null {
+    return this.goal;
   }
 
   get currentTurnId(): string | undefined {
@@ -232,6 +244,7 @@ export class ThreadRunner {
    * start of a new turn.
    */
   async deliver(input: UserInput): Promise<void> {
+    if (this.goalPending) await this.goalPending; // a round being queued takes this as a steer
     if (this.closed) return;
     if (this.turn && this.session && !this.turn.interruptRequested) {
       if (!this.passesBudget()) {
@@ -258,34 +271,113 @@ export class ThreadRunner {
     }
   }
 
-  private async startTurn(input: UserInput): Promise<void> {
+  /** False when the budget gate refused it. A goal prompt (kind ≠ user) leaves deliveredSeq alone. */
+  private async startTurn(input: UserInput, kind: TurnKind = "user", goalId?: string): Promise<boolean> {
     const turnId = this.opts.newTurnId?.() ?? `turn-${input.seq}-${this.now().toString(36)}`;
+    const seen = kind === "user" ? { deliveredSeq: input.seq } : {};
+    const started = { turnId, messageSeq: input.seq, ...(kind !== "user" ? { goal: kind } : {}) };
     // Rule 6: before the prompt and before any process is started.
     const budget = this.passesBudget();
     if (budget !== true) {
       await this.persist(
         [
-          { type: "turn.started", eventKey: `turn.started:${turnId}`, payload: { turnId, messageSeq: input.seq } },
+          { type: "turn.started", eventKey: `turn.started:${turnId}`, payload: started },
           {
             type: "turn.completed",
             eventKey: `turn.completed:${turnId}`,
             payload: { turnId, outcome: "failed", durationMs: 0, error: `Budget: ${budget}` },
           },
         ],
-        { deliveredSeq: input.seq, status: "idle", turnId: null, idleSince: this.now() }
+        { ...seen, status: "idle", turnId: null, idleSince: this.now() }
       );
-      return;
+      return false;
     }
-    const turn: Turn = { turnId, startedAt: this.now(), messages: [input.seq], interruptRequested: false };
+    const turn: Turn = { turnId, kind, goalId, startedAt: this.now(), messages: [input.seq], interruptRequested: false };
     this.turn = turn;
     this.armWatchdog(turn);
     await this.persist(
-      [{ type: "turn.started", eventKey: `turn.started:${turnId}`, payload: { turnId, messageSeq: input.seq } }],
-      { deliveredSeq: input.seq, status: this.session ? "running" : "starting", turnId, idleSince: null, stoppedMidTurn: false, error: null }
+      [{ type: "turn.started", eventKey: `turn.started:${turnId}`, payload: started }],
+      { ...seen, status: this.session ? "running" : "starting", turnId, idleSince: null, stoppedMidTurn: false, error: null }
     );
-    if (this.turn !== turn) return; // stopped while persisting
+    if (this.turn !== turn) return true; // stopped while persisting
     if (!this.session) this.startSession(this.opts.preamble);
     this.session!.send(input);
+    return true;
+  }
+
+  // ── Goal mode (D8) ────────────────────────────────────────────────────
+
+  /** Each poll: the stored goal and the G3 hold. Between turns the next goal step runs at once. */
+  setGoalState(stored: G.DirectGoal | null, held: boolean): void {
+    this.goal = G.mergeGoal(this.goal, stored);
+    this.held = held;
+    if (!held) this.heldNoted = false;
+    const step = G.nextGoalStep(this.goal, held);
+    const due = step === "held" ? !this.heldNoted : step !== "none";
+    if (due && !this.turn && !this.goalPending && !this.closed) void this.runGoal(() => this.goalStep());
+  }
+
+  /** One goal step at a time; `busy` covers it and a message waits for it (then steers). */
+  private runGoal(work: () => Promise<void>): Promise<void> {
+    const run: Promise<void> = work()
+      .catch((e) => this.opts.log?.("goal step failed", this.opts.taskId, e))
+      .finally(() => {
+        if (this.goalPending === run) this.goalPending = undefined;
+      });
+    this.goalPending = run;
+    return run;
+  }
+
+  private async updateGoal(u: G.GoalUpdate): Promise<void> {
+    const g = this.goal;
+    if (!g) return;
+    const next = applyGoalPatch(g, { goalId: g.id, ...u.patch }, this.now())!;
+    this.goal = next;
+    const { phase, round, maxRounds, blockedReason } = next;
+    const payload = { action: u.action, by: "agent", goalId: g.id, phase, round, maxRounds, ...(blockedReason ? { blockedReason } : {}) };
+    await this.persist([{ type: "goal.updated", eventKey: `goal.updated:${g.id}:${u.action}:${round}`, payload }], { goal: { goalId: g.id, ...u.patch } });
+  }
+
+  /** A turn ended: what it means for the goal (rounds only), then the next step. */
+  private async goalAfterTurn(turn: Turn, outcome: TurnResult["outcome"], error?: string): Promise<void> {
+    if (this.closed || !this.goal) return;
+    if (turn.goalId === this.goal.id && turn.kind === "wrapup") await this.updateGoal({ action: "wrapped-up", patch: { wrappedUp: true } });
+    else if (turn.goalId === this.goal.id && turn.kind === "round") {
+      const u = G.roundOutcome(outcome, error && redactErrorText(error).slice(0, 1000), turn.lastText);
+      if (u) await this.updateGoal(u);
+    } else if (outcome === "interrupted" && this.goal.phase === "active") await this.updateGoal({ action: "paused", patch: { phase: "paused" } }); // Stop means stop
+    await this.goalStep();
+  }
+
+  /** Between turns: a round, the round limit, or the wrap-up; nothing while held or paused. */
+  private async goalStep(): Promise<void> {
+    if (this.turn || this.closed) return;
+    let step = G.nextGoalStep(this.goal, this.held);
+    if (step === "held" && !this.heldNoted) {
+      this.heldNoted = true;
+      await this.persist([{ type: "system.note", payload: { text: G.GOAL_HELD_NOTE } }]);
+    }
+    if (step === "round-limit") {
+      await this.updateGoal(G.roundLimitUpdate(this.goal!));
+      step = G.nextGoalStep(this.goal, this.held);
+    }
+    const g = this.goal;
+    if (!g || (step !== "round" && step !== "wrapup")) return;
+    const round = g.round + 1;
+    const text =
+      step === "round"
+        ? G.renderGoalRoundPrompt(g, round, G.GOAL_MARKER_RULE)
+        : G.renderWrapupPrompt(g.objective, g.phase === "blocked" ? (g.blockedReason?.message ?? "Blocked.") : undefined);
+    if (step === "round") await this.updateGoal({ action: "round", patch: { round } });
+    await this.drain();
+    if (this.turn || this.closed) return;
+    const kind = step;
+    const key = `goal.prompt:${g.id}:${kind === "round" ? round : "wrapup"}`;
+    const event = { type: "goal.prompt", eventKey: key, payload: redactPayload({ goalId: g.id, kind, round: kind === "round" ? round : g.round, text }) };
+    const [seq] = await this.opts.store.appendEvents([event]);
+    if (seq > this.lastSeq) this.lastSeq = seq;
+    const ok = await this.startTurn({ seq, text }, kind, g.id);
+    if (!ok) await this.updateGoal({ action: "blocked", patch: { phase: "blocked", blockedReason: { code: "budget", message: "The task's LLM budget is spent." }, wrappedUp: true } });
   }
 
   /**
@@ -352,6 +444,7 @@ export class ThreadRunner {
     switch (out.kind) {
       case "event": {
         const stored = eventPayload(out.event);
+        if (out.event.type === "assistant.text" && this.turn) this.turn.lastText = out.event.text;
         const itemId = (out.event as { itemId?: string }).itemId;
         if (itemId && (out.event.type === "assistant.text" || out.event.type === "reasoning")) {
           this.redactor.drop(itemId);
@@ -438,6 +531,8 @@ export class ThreadRunner {
       { status: "idle", turnId: null, idleSince: this.now() }
     );
     await this.opts.store.clearStreams().catch(() => undefined);
+    if (this.goal && !this.closed) await this.runGoal(() => this.goalAfterTurn(turn, outcome, error));
+    if (this.turn) return; // the goal started its next turn: idle() waits for that one too
     const waiters = this.turnDone;
     this.turnDone = [];
     waiters.forEach((w) => w());
@@ -554,6 +649,7 @@ export class ThreadRunner {
   // ── Approvals (in-process; the lease stays with this worker) ──────────
 
   private async requestApproval(call: ToolGateCall): Promise<ToolGateAnswer> {
+    if (this.turn?.kind === "wrapup") return { decision: "deny", message: G.WRAPUP_NO_TOOLS }; // D8: the closing turn runs no tools
     await this.drain(); // the tool row lands before its card
     const asked = await this.opts.store.requestApproval({
       itemId: call.itemId,
@@ -698,20 +794,4 @@ export class ThreadRunner {
     await session?.end().catch(() => session.kill());
     await this.drain();
   }
-}
-
-/** What the person (and the card) read when a card expires unanswered. */
-export function expiredMessage(maxMs: number): string {
-  return `No one answered this approval within ${span(maxMs)}, so it expired and the agent was told no. The turn goes on.`;
-}
-
-function addUsage(a: TurnUsage | undefined, b: TurnUsage): TurnUsage {
-  if (!a) return { ...b };
-  return {
-    inputTokens: a.inputTokens + b.inputTokens,
-    outputTokens: a.outputTokens + b.outputTokens,
-    ...(a.cachedReadTokens || b.cachedReadTokens ? { cachedReadTokens: (a.cachedReadTokens ?? 0) + (b.cachedReadTokens ?? 0) } : {}),
-    ...(b.costUsd !== undefined || a.costUsd !== undefined ? { costUsd: (a.costUsd ?? 0) + (b.costUsd ?? 0) } : {}),
-    ...(b.model ?? a.model ? { model: b.model ?? a.model } : {}),
-  };
 }

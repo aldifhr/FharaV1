@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { FHARA_BUILTIN_COMMANDS } from "../../../api/convex/lib/slashCommands.ts";
+import { FHARA_BUILTIN_COMMANDS, builtinCommandsForScope } from "../../../api/convex/lib/slashCommands.ts";
 import { personalSlashNames } from "../../lib/personalChat.ts";
 import {
   committedUsage,
@@ -17,8 +17,9 @@ import {
 } from "../../lib/slashMenu.ts";
 
 // Registry builtins runSlash does not handle in the client. Since Paradev C3
-// it handles all of them: /research creates its task like /task does.
-const NOT_IN_RUN_SLASH = new Set([]);
+// it handles all of them: /research creates its task like /task does. D8's /goal
+// is a direct-thread command, handled by directThreads.send on the server.
+const NOT_IN_RUN_SLASH = new Set(["goal"]);
 
 test("runSlash handles exactly the registry builtins it owns", () => {
   const src = readFileSync(new URL("../../components/chat/useProjectSlash.ts", import.meta.url), "utf8");
@@ -54,9 +55,10 @@ test("'/' lists Commands first, then Skills", () => {
   const state = filterSlashEntries("/", project);
   assert.deepEqual(names(state), ["memory", "push", "qa", "research", "review", "task", "frontend-design", "release-notes"]);
   const kinds = state.matches.map((e) => e.entryKind);
-  assert.equal(kinds.indexOf("skill"), FHARA_BUILTIN_COMMANDS.length, "skills follow every project builtin");
+  const projectBuiltins = builtinCommandsForScope("project");
+  assert.equal(kinds.indexOf("skill"), projectBuiltins.length, "skills follow every project builtin");
   assert.ok(kinds.slice(kinds.indexOf("skill")).every((k) => k === "skill"));
-  assert.deepEqual(state.matches.slice(0, 6).map((e) => e.name).sort(), FHARA_BUILTIN_COMMANDS.map((c) => c.name).sort());
+  assert.deepEqual(state.matches.slice(0, 6).map((e) => e.name).sort(), projectBuiltins.map((c) => c.name).sort());
 });
 
 test("'/re' → research then review (prefix rank, then name), skills after", () => {

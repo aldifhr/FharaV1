@@ -16,7 +16,7 @@
       "id": "planner-retry",
       "role": "planner",
       "match": [
-        "You are the CTO decision-maker",
+        "You plan work for a team of specialist roles",
         "RETRY\\.md"
       ],
       "reply": "{\"goal\": \"Add docs/RETRY.md\", \"strategy\": \"single\", \"requiresApproval\": true, \"maxConcurrency\": 1, \"requirements\": [{\"id\": \"r1\", \"text\": \"Add docs/RETRY.md\", \"quote\": \"mock\"}], \"subtasks\": [{\"key\": \"implement\", \"requirementIds\": [\"r1\"], \"title\": \"Write docs/RETRY.md (mock)\", \"description\": \"Write docs/RETRY.md.\", \"kind\": \"code_change\", \"capability\": \"frontend-development\", \"dependencies\": [], \"order\": 0, \"allowedPaths\": [\"docs\"], \"objective\": \"docs/RETRY.md exists\", \"constraints\": [\"Touch only docs/\"], \"deliverable\": \"A new file\", \"acceptance\": [{\"id\": \"file\", \"criterion\": \"docs/RETRY.md exists\", \"check\": \"file_exists\", \"target\": \"docs/RETRY.md\"}]}]}"

@@ -13,6 +13,7 @@ import {
   type AcceptanceGate,
 } from "./subtaskContract";
 import { parseStoredRequirements, type Requirement } from "./requirements";
+import { parseArchitectureFlag, type ArchitectureFlag } from "./architectureFlag";
 
 export type ValidatedSubtaskKind =
   | "analysis"
@@ -57,6 +58,8 @@ export interface ValidatedPlan {
   replanRemovals?: Array<{ key: string; reasoning: string }>;
   /** Plan 025: the requirements extracted from the request at plan time. */
   requirements?: Requirement[];
+  /** O1: the planner's architecture flag (CTO decision node), kept when stored. */
+  architecture?: ArchitectureFlag;
 }
 
 /** Same normalisation as the worker's `normalizeCapability`. */
@@ -433,6 +436,7 @@ function validatePlanInner(raw: unknown, maxSubtasks: number, readOnly: boolean)
 
   if (errors.length > 0) return { ok: false, errors };
   const requirements = parseStoredRequirements(candidate.requirements);
+  const architecture = parseArchitectureFlag(candidate.architecture);
 
   return {
     ok: true,
@@ -446,6 +450,7 @@ function validatePlanInner(raw: unknown, maxSubtasks: number, readOnly: boolean)
       ...(typeof candidate.visualQa === "boolean" ? { visualQa: candidate.visualQa } : {}),
       ...replanRemovalsOf(candidate.replanRemovals),
       ...(requirements.length > 0 ? { requirements } : {}),
+      ...(architecture?.needed ? { architecture } : {}),
       subtasks: subtasks
         .slice()
         .sort((a, b) => a.order - b.order)

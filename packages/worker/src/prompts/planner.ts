@@ -1,7 +1,7 @@
 import type { Classification } from "@/types";
 import { isReadOnlyTaskKind } from "@/api/convex/lib/planValidation";
 
-/** What the CTO planning prompt is built from. */
+/** What the planning prompt is built from (neutral planner, no persona). */
 export interface PlanningPromptInput {
   command: string;
   classification: Classification;
@@ -25,15 +25,19 @@ export interface PlanningPromptInput {
   requirements?: Array<{ id: string; text: string }>;
 }
 
-/** The CTO planning prompt (strict-JSON execution plan). */
+/**
+ * The planning prompt (strict-JSON execution plan). O1: the planner is
+ * system code with no persona; the CTO is a role it can route to, and only
+ * for an architecture-level decision it flags.
+ */
 export function planningPrompt(input: PlanningPromptInput): string {
   const { command, classification, policy } = input;
   return [
-    "You are the CTO decision-maker for the multi-agent software engineering workspace.",
+    "You plan work for a team of specialist roles in Fhara. You do not do the work.",
     ...(input.sharedInstructions
       ? [`Durable shared instructions for this project (must follow): ${input.sharedInstructions}`]
       : []),
-    "Your team consists of specialized agents: CTO, Designer, Frontend, Backend, QA, Support, DevOps, Reviewer, Researcher.",
+    "The team's roles: CTO (architecture decisions, only when flagged), Designer, Frontend, Backend, QA, Support, DevOps, Reviewer, Researcher.",
     "Analyze the user task, identify which agents are strictly relevant, and produce an execution plan as STRICT JSON.",
     ...(input.workspaceLayout && input.workspaceLayout.length > 0
       ? [
@@ -55,10 +59,8 @@ export function planningPrompt(input: PlanningPromptInput): string {
     "- When design, visual layout, or pricing directions are needed:",
     "  Designer (ui-ux-design) drafts layout options / proposals (Option A vs Option B) as an analysis subtask. The Designer never writes files; Frontend implements.",
     "- Reviewer (code-review, security-audit): independent code review of implementation diffs and security audits. Read-only.",
-    "- CTO (architecture, project-coordination): technical architecture decisions, decomposition, and risk evaluation; oversees but does not perform code review or security audits itself. Read-only.",
-    "- CTO must verify before approval: frontend/backend boundaries are sensible; project-standard technologies are used consistently; database and API designs are correct; service-to-service communication is explicit; no duplicate implementation is introduced; the solution is scalable and maintainable; and architectural changes are justified, minimal, and reversible.",
-    "- CTO must reject or request revision when any of those checks fail or when the plan lacks enough evidence to decide. Do not approve by default just because an agent completed.",
-    "- Technical-debt findings must include evidence, root cause, impact, and a durable remediation owner. The CTO directs the implementer agent to coordinate cross-agent fixes; do not hide debt behind a local patch or add a second orchestration path.",
+    "- CTO (architecture): decides architecture-level questions only, through the architecture flag below. Never give the CTO implementation, review, QA or coordination subtasks. Read-only.",
+    "- Technical-debt findings must include evidence, root cause, impact, and a durable remediation owner. The implementer agent coordinates cross-agent fixes; do not hide debt behind a local patch or add a second orchestration path.",
     "- Frontend (frontend-development): UI components, tokens, styling, client implementation, and Next.js app code including src/lib types and utils (lib/resume is frontend unless it contains Convex/api routes).",
     "- Backend (backend-development): Convex/API routes, database schema, server logic. A plain Next.js lib/ file with TypeScript types is frontend, not backend.",
     "- DevOps (github, shell-execution): repositories, issues/PRs, CI, infra commands. May edit only .github/**, Dockerfile*, docker-compose*, infra/**.",
@@ -150,7 +152,7 @@ export function planningPrompt(input: PlanningPromptInput): string {
         ]
       : policy.reviewMode === "never"
         ? [
-            "- Do NOT add a review node: policy reviewMode=never forbids it. The CTO quality gate still verifies the plan outcome, but the plan carries no review subtask.",
+            "- Do NOT add a review node: policy reviewMode=never forbids it. The plan carries no review subtask.",
           ]
         : [
             "- Add a review node served by the Reviewer agent only for risky changes: auth, security, payments, migrations, concurrency, multi-domain, or multi-capability work. Simple single-capability changes get no review node. (policy reviewMode=auto: risk signal, not a mandate.)",
@@ -167,10 +169,12 @@ export function planningPrompt(input: PlanningPromptInput): string {
             "- Add a QA node only when the change touches UI (frontend/design files) or the user explicitly asks for QA / e2e / browser testing (policy qaMode=auto). Backend-only, docs, config or unit-test-only changes get no QA node.",
           ]),
     "- UI changes: a subtask that creates a new component must name its integration file (the existing page / layout / entry point that renders it) in the description and include it in allowedPaths. A component nothing renders is not done.",
+    "- ARCHITECTURE FLAG: set architecture.needed=true ONLY when the plan makes an architecture-level decision: a new dependency or framework (new_dependency), a database schema / data-model change (schema_change), an auth or security boundary (auth_boundary), a new cross-component API contract (api_contract), or an infra change that alters the architecture such as splitting services (infra_deploy). Give the reasons, the one-line question the CTO must decide, and gatedKeys (the subtasks that must wait for the decision). Do NOT add a CTO subtask yourself; the system adds the decision node.",
+    "- Small decisions inside one role's scope (a button colour, a typo, a UI-only table column, a CI fix, a refactor inside one module) are NOT architecture: leave architecture.needed=false.",
     "- Do NOT invent capabilities that are not listed above.",
     "- Keep the plan minimal; do not add decorative steps.",
     "",
-    'Schema: {"goal":"...","strategy":"single"|"dag","requiresApproval":true,"maxConcurrency":1,"requirements":[{"id":"r1","text":"...","quote":"..."}],"subtasks":[{"key":"implement","requirementIds":["r1"],"title":"...","description":"...","kind":"code_change","capability":"frontend-development","dependencies":[],"order":0,"allowedPaths":["apps/web"],"objective":"...","constraints":["..."],"deliverable":"...","acceptance":[{"id":"typecheck","criterion":"Typecheck passes","check":"typecheck"},{"id":"tests","criterion":"Relevant tests pass","check":"test"}]}]}',
+    'Schema: {"goal":"...","strategy":"single"|"dag","requiresApproval":true,"maxConcurrency":1,"requirements":[{"id":"r1","text":"...","quote":"..."}],"architecture":{"needed":false,"reasons":[],"question":"","gatedKeys":[]},"subtasks":[{"key":"implement","requirementIds":["r1"],"title":"...","description":"...","kind":"code_change","capability":"frontend-development","dependencies":[],"order":0,"allowedPaths":["apps/web"],"objective":"...","constraints":["..."],"deliverable":"...","acceptance":[{"id":"typecheck","criterion":"Typecheck passes","check":"typecheck"},{"id":"tests","criterion":"Relevant tests pass","check":"test"}]}]}',
   ]
     .filter((line) => line !== "")
     .join("\n");
@@ -178,6 +182,8 @@ export function planningPrompt(input: PlanningPromptInput): string {
 
 /** Instructions carried by the nodes the planner adds itself (hints, heuristic plans). */
 export const PLAN_NODE_INSTRUCTIONS = {
+  archDecision:
+    "Architecture decision (CTO). Decide only the architecture question below for this plan: the approach, the constraints the implementing roles must follow, and the main risk, in 2-3 plain sentences. Do not plan, implement or review the work. End with exactly one line: \"Decision: go\" (the plan may proceed), \"Decision: revise\" (the plan must change; say how), or \"Decision: stop\" (the work must not be done; say why).",
   review:
     "Reviewer must inspect the completed implementation diff and either approve it or request revision. Check code quality, security, regression risk, performance, contract compatibility, project conventions, duplication, scalability, maintainability, and whether architectural changes are justified. Do NOT run verification commands (tsc, lint, test, build) — those are executed by the runtime verification loop, not by the reviewer (read-only). For every finding, identify the root cause, define the smallest durable fix, and direct the implementer agent to coordinate the remediation when it spans agents or subsystems.",
   qaVisual:

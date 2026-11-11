@@ -12,7 +12,7 @@
       "id": "planner-hold",
       "role": "planner",
       "match": [
-        "You are the CTO decision-maker",
+        "You plan work for a team of specialist roles",
         "HOLD\\.md"
       ],
       "reply": "{\"goal\": \"Add docs/HOLD.md\", \"strategy\": \"single\", \"requiresApproval\": true, \"maxConcurrency\": 1, \"requirements\": [{\"id\": \"r1\", \"text\": \"Add docs/HOLD.md\", \"quote\": \"mock\"}], \"subtasks\": [{\"key\": \"implement\", \"requirementIds\": [\"r1\"], \"title\": \"Write docs/HOLD.md (mock)\", \"description\": \"Write docs/HOLD.md.\", \"kind\": \"code_change\", \"capability\": \"frontend-development\", \"dependencies\": [], \"order\": 0, \"allowedPaths\": [\"docs\"], \"objective\": \"docs/HOLD.md exists\", \"constraints\": [\"Touch only docs/\"], \"deliverable\": \"A new file\", \"acceptance\": [{\"id\": \"file\", \"criterion\": \"docs/HOLD.md exists\", \"check\": \"file_exists\", \"target\": \"docs/HOLD.md\"}]}]}"

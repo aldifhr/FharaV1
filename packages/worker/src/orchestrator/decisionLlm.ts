@@ -58,7 +58,7 @@ export interface DecisionAdvisorInput {
   ask?: (prompt: string) => Promise<string>;
 }
 
-/** The agent the decision advisor speaks as: the run's CTO, else the planner fallback CTO. */
+/** The decision advisor's model source: the run's CTO, else the planner fallback CTO (no persona). */
 export function pickDecisionAdvisor(
   agents: AgentDefinition[],
   plannerAgent?: AgentDefinition | null
@@ -119,12 +119,9 @@ async function runRealCall(input: DecisionAdvisorInput, prompt: string, orchestr
         })();
   const { result: response, servedBy } = await withSnapshotScope({ callRole: "decision", agentId: orchestrator._id, agentRole: orchestrator.role }, () => runLlmCallWithFallback(
     handles,
-    [
-      ...(orchestrator.systemPrompt
-        ? [{ role: "system" as const, content: orchestrator.systemPrompt }]
-        : []),
-      { role: "user", content: prompt },
-    ],
+    // O1: no persona. The CTO (or fallback) is only the model source; the
+    // advisor prompt itself is neutral system code.
+    [{ role: "user", content: prompt }],
     {
       health: input.llmResolver ? providerHealth : undefined,
       signal: input.signal,

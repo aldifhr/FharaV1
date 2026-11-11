@@ -14,7 +14,7 @@
       "id": "planner-greet",
       "role": "planner",
       "match": [
-        "You are the CTO decision-maker",
+        "You plan work for a team of specialist roles",
         "greet"
       ],
       "reply": "{\"goal\": \"Add a typed greet() helper in src/greet.ts\", \"strategy\": \"single\", \"requiresApproval\": true, \"maxConcurrency\": 1, \"requirements\": [{\"id\": \"r1\", \"text\": \"Add a typed greet() helper in src/greet.ts\", \"quote\": \"mock\"}], \"subtasks\": [{\"key\": \"implement\", \"requirementIds\": [\"r1\"], \"title\": \"Add src/greet.ts (mock)\", \"description\": \"Add a typed greet(name) helper in src/greet.ts.\", \"kind\": \"code_change\", \"capability\": \"backend-development\", \"dependencies\": [], \"order\": 0, \"allowedPaths\": [\"src\"], \"objective\": \"src/greet.ts exists\", \"constraints\": [\"Touch only src/\"], \"deliverable\": \"A new file\", \"acceptance\": [{\"id\": \"file\", \"criterion\": \"src/greet.ts exists\", \"check\": \"file_exists\", \"target\": \"src/greet.ts\"}]}]}"

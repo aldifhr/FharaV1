@@ -41,7 +41,7 @@ describe("mock LLM server", () => {
     const server = await mock();
     const provider = new OpenAICompatibleProvider("test-token", "mock/default", server.url);
     const chunks: string[] = [];
-    const result = await provider.stream([{ role: "user", content: "You are the CTO decision-maker for the multi-agent software engineering workspace." }], (d) => chunks.push(d));
+    const result = await provider.stream([{ role: "user", content: "You plan work for a team of specialist roles in Fhara. You do not do the work." }], (d) => chunks.push(d));
     expect(chunks.length).toBeGreaterThan(10);
     expect(chunks.every((c) => c.length >= 1 && c.length <= 12)).toBe(true);
     expect(chunks.join("")).toBe(result.content);
@@ -86,8 +86,8 @@ describe("mock LLM server", () => {
 
 describe("default mock script matches the worker's parsers", () => {
   it("planner reply is a valid plan; the read-only variant only has research nodes", () => {
-    expect(validatePlan(JSON.parse(replyFor("You are the CTO decision-maker …")), 6).ok).toBe(true);
-    const research = validatePlan(JSON.parse(replyFor("You are the CTO decision-maker …\nREAD-ONLY TASK (classification: research)")), 6, { taskKind: "research" });
+    expect(validatePlan(JSON.parse(replyFor("You plan work for a team of specialist roles …")), 6).ok).toBe(true);
+    const research = validatePlan(JSON.parse(replyFor("You plan work for a team of specialist roles …\nREAD-ONLY TASK (classification: research)")), 6, { taskKind: "research" });
     expect(research.ok).toBe(true);
     expect(research.plan?.subtasks.every((s) => s.kind === "research")).toBe(true);
   });

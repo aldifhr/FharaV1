@@ -16,6 +16,8 @@ import { canWriteAny, permissionsForAgent } from "@/utils/rolePolicy";
 import { validatePlan } from "./planValidator";
 import { extractJson } from "@/utils/json";
 import { planningPrompt, PLAN_NODE_INSTRUCTIONS } from "@/prompts/planner";
+import { applyArchitectureGate } from "./architecture";
+import { conversationReplyCapability, pickPlannerModelSource } from "./plannerAgent";
 import { researchFanoutPlan, researchFanoutRequest } from "@/prompts/research";
 import { wantsVisualQa } from "@/utils/qaIntent";
 import { defaultGatesForKind } from "@/api/convex/lib/subtaskContract";
@@ -136,7 +138,11 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   // O7: an explicit `/research` task gets the fan-out plan (no planner call).
   const fanout = researchFanout(input, notes);
   if (fanout) return fanout;
-  const orchestrator = pickPlanner(input.agents, input.plannerAgent);
+  // O1: the planner has no persona; the CTO/fallback (else any enabled
+  // agent) is only the model source of the call.
+  const source = pickPlannerModelSource(input.agents, input.plannerAgent);
+  const orchestrator = source?.agent ?? null;
+  if (source?.viaTeamMember) notes.push(`${input.plannerFallbackReason ?? "CTO not in project team"}: planning on ${source.agent.name}'s model chain`);
   if (orchestrator) {
     // Pre-call budget gate (Phase 5) — OUTSIDE the try below on purpose:
     // the catch treats call errors as planner unavailability and degrades
@@ -159,9 +165,6 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
             provider: createProviderForAgent(orchestrator, input.llmConfig),
           }];
       const { result: response, servedBy } = await withSnapshotScope({ callRole: "planner", agentId: orchestrator._id, agentRole: orchestrator.role }, () => runLlmCallWithFallback(handles, [
-        ...(orchestrator.systemPrompt
-          ? [{ role: "system" as const, content: orchestrator.systemPrompt }]
-          : []),
         { role: "user", content: planningPrompt },
       ], {
         health: input.llmResolver ? providerHealth : undefined,
@@ -206,7 +209,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         const routed = ensureRoutable(hinted, input.agents);
         if (routed) {
           return {
-            plan: withRequirements(withDefaultContracts(regateQa(routed.plan, input)), input, parsed),
+            plan: withRequirements(withDefaultContracts(gateArchitecture(regateQa(routed.plan, input), input, notes)), input, parsed),
             createdBy: "orchestrator",
             notes,
             droppedHintKeys: routed.dropped,
@@ -254,7 +257,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   });
   const routedFallback = ensureRoutable(fallback, input.agents);
   return {
-    plan: withRequirements(withDefaultContracts(routedFallback ? regateQa(routedFallback.plan, input) : fallback), input, null),
+    plan: withRequirements(withDefaultContracts(routedFallback ? gateArchitecture(regateQa(routedFallback.plan, input), input, notes) : fallback), input, null),
     createdBy: "fallback",
     notes,
     degradedReason: notes.join("; "),
@@ -349,28 +352,9 @@ function splitForComplexity(plan: ExecutionPlan, input: PlannerInput, notes: str
   return split;
 }
 
-export function pickOrchestrator(agents: AgentDefinition[]): AgentDefinition | null {
-  const enabled = agents.filter(isAgentEnabled);
-  if (enabled.length === 0) return null;
-  // CTO is the sole decision authority (team is specialist-only since Lead removal).
-  const cto = enabled.find((agent) => /^cto$/i.test(agent.role.trim()));
-  if (cto) return cto;
-  return enabled.find((agent) => /^orchestrator$/i.test(agent.role.trim())) ?? null;
-}
+export { pickOrchestrator, pickPlanner } from "./plannerAgent";
 
-/**
- * The planner for a run: the run's own CTO/orchestrator, else the global
- * fallback CTO (planner only — it stays out of `agents`, so routing never
- * assigns it an executor subtask).
- */
-export function pickPlanner(
-  agents: AgentDefinition[],
-  fallback?: AgentDefinition | null
-): AgentDefinition | null {
-  return pickOrchestrator(agents) ?? (fallback && isAgentEnabled(fallback) ? fallback : null);
-}
-
-/** Builds the CTO planning prompt. Exported for prompt-shape tests. */
+/** Builds the (persona-free) planning prompt. Exported for prompt-shape tests. */
 export function buildPlanningPrompt(input: PlannerInput): string {
   return planningPrompt({
     ...input,
@@ -595,6 +579,11 @@ function uniqueKey(base: string, subtasks: ExecutionPlan["subtasks"]): string {
   return `${base}_${index}`;
 }
 
+/** O1: the planner's architecture flag + backstop → CTO decision node (see architecture.ts). */
+function gateArchitecture(plan: ExecutionPlan, input: PlannerInput, notes: string[]): ExecutionPlan {
+  return applyArchitectureGate(plan, { command: input.request ?? input.command, agents: input.agents }, notes);
+}
+
 /**
  * Plan 005 Phase 3 Step 3.2: drop unroutable nodes instead of discarding
  * the whole LLM plan. The returned `dropped` keys are logged by the caller
@@ -718,8 +707,8 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
           description:
             PLAN_NODE_INSTRUCTIONS.reply,
           kind: "analysis",
-          // Plan 040 (D2): the CTO answers conversation (no Support catch-all).
-          capability: CAPABILITY.COORDINATION,
+          // O1: the topic owner answers conversation (Support by default), not the CTO.
+          capability: conversationReplyCapability(command, agents),
           dependencies: [],
           order: 0,
         },

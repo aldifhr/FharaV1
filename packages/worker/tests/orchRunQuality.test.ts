@@ -71,7 +71,7 @@ describe("1. planner fallback: global CTO plans when the team lacks one", () => 
     expect(result.plan.subtasks.every((s) => s.capability !== "architecture")).toBe(true);
   });
 
-  it("the degraded note says why when there is no planner at all", async () => {
+  it("without a CTO the planner runs on a team member's chain (O1); the note says why", async () => {
     const command = "Implement Tiga Kolom";
     const result = await createPlan({
       command,

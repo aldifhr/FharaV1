@@ -1,7 +1,9 @@
 import type { PlanSubtask } from "./subtask";
 import type { Requirement } from "@/api/convex/lib/requirements";
+import type { ArchitectureFlag } from "@/api/convex/lib/architectureFlag";
 
 export type { Requirement } from "@/api/convex/lib/requirements";
+export type { ArchitectureFlag, ArchitectureReason } from "@/api/convex/lib/architectureFlag";
 
 export const CAPABILITY = {
   COORDINATION: "project-coordination",
@@ -48,6 +50,12 @@ export interface ExecutionPlan {
    * `requirementIds`; the coverage check before "done" reads them.
    */
   requirements?: Requirement[];
+  /**
+   * O1: architecture-level decision flagged by the planner (or the
+   * deterministic backstop). When set, an `arch-decision` node routed to
+   * the CTO gates the dependent subtasks. Absent = no CTO call.
+   */
+  architecture?: ArchitectureFlag;
 }
 
 export interface Classification {

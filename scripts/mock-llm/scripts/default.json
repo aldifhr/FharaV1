@@ -31,7 +31,7 @@
       "id": "planner-research",
       "role": "planner",
       "match": [
-        "You are the CTO decision-maker",
+        "You plan work for a team of specialist roles",
         "READ-ONLY TASK"
       ],
       "reply": "{\"goal\": \"Answer the question (mock research)\", \"strategy\": \"dag\", \"requiresApproval\": false, \"maxConcurrency\": 3, \"requirements\": [{\"id\": \"r1\", \"text\": \"Answer the question\", \"quote\": \"mock\"}], \"subtasks\": [{\"key\": \"research\", \"requirementIds\": [\"r1\"], \"title\": \"Research (mock)\", \"description\": \"Research the question.\", \"kind\": \"research\", \"capability\": \"research\", \"dependencies\": [], \"order\": 0, \"acceptance\": [{\"id\": \"answer\", \"criterion\": \"Answer cites sources\", \"check\": \"review\", \"target\": \"output:sources\"}]}]}"
@@ -40,7 +40,7 @@
       "id": "planner",
       "role": "planner",
       "match": [
-        "You are the CTO decision-maker"
+        "You plan work for a team of specialist roles"
       ],
       "reasoning": "One small docs change is enough; a single subtask.",
       "reply": "{\"goal\": \"Make the requested change (mock plan)\", \"strategy\": \"single\", \"requiresApproval\": true, \"maxConcurrency\": 1, \"requirements\": [{\"id\": \"r1\", \"text\": \"Make the requested change\", \"quote\": \"mock\"}], \"subtasks\": [{\"key\": \"implement\", \"requirementIds\": [\"r1\"], \"title\": \"Implement the change (mock)\", \"description\": \"Write docs/MOCK_LLM.md. Scripted by the mock LLM.\", \"kind\": \"code_change\", \"capability\": \"frontend-development\", \"dependencies\": [], \"order\": 0, \"allowedPaths\": [\"docs\"], \"objective\": \"docs/MOCK_LLM.md exists\", \"constraints\": [\"Touch only docs/\"], \"deliverable\": \"A new file\", \"acceptance\": [{\"id\": \"file\", \"criterion\": \"docs/MOCK_LLM.md exists\", \"check\": \"file_exists\", \"target\": \"docs/MOCK_LLM.md\"}]}]}"

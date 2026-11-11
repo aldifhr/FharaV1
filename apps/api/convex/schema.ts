@@ -27,6 +27,7 @@ import { diffCommentsTable, reviewEvidenceValidator, reviewFixValidator } from "
 import { invokedSkillsField } from "./lib/invokedSkillsSchema";
 import { scheduledTaskTables } from "./lib/scheduledTaskSchema";
 import { threadIndexTable, titleSetByValidator } from "./lib/threadIndexSchema";
+import { projectScriptsValidator } from "./lib/projectScriptsSchema";
 
 export const taskStatus = v.union(
   v.literal("queued"),
@@ -354,11 +355,11 @@ export default defineSchema({
     // check passed, the size/sensitive-path gate passed and the head is the
     // commit the user approved. Unset = off.
     autoMerge: v.optional(v.boolean()),
-    // Role memory (additive): true = roles stop writing their own notes in
-    // this project. Absent = on. Existing notes are still recalled.
+    // Role memory (additive): true = roles stop writing notes here. Absent = on.
     roleMemoryDisabled: v.optional(v.boolean()),
-    // O4 issue intake (additive): issues the connected GitHub user opened
-    // with this label become DRAFT tasks (never started). Unset = off.
+    // GOAT G9 / T6: setup + host check scripts, exact argv (lib/projectScriptsSchema.ts).
+    scripts: v.optional(projectScriptsValidator),
+    // O4 issue intake (additive): the connected user's issues with this label become DRAFT tasks.
     issueIntake: v.optional(v.object({ enabled: v.boolean(), label: v.optional(v.string()) })),
     commandAllowRules: v.optional(
       v.array(
@@ -389,8 +390,7 @@ export default defineSchema({
     // backfilled by key when the member is created; legacy rows keep only `role`).
     roleId: v.optional(v.id("roleDefinitions")),
     systemPrompt: v.optional(v.string()),
-    // Legacy fields from pre-global-LLM era. Kept optional so old docs
-    // (e.g. llmProvider) still pass validation. New code does not write these.
+    // Legacy pre-global-LLM fields, optional so old docs validate. Never written now.
     llmProvider: v.optional(v.string()),
     llmModel: v.optional(v.string()),
     llmBaseUrl: v.optional(v.string()),

@@ -20,6 +20,10 @@ import type { RunnerDeps, RunState } from "./types";
 import { contentFingerprint } from "./applyLedger";
 import { pickResponseOwner, responseOwnerAgent } from "@/orchestrator/responseOwner";
 import { planSystemLine, postSystemLine } from "./systemLines";
+import { runHostCheckAfterDone } from "./projectScriptHooks";
+import * as path from "node:path";
+import { resolveProjectPath } from "@fhara/config";
+import { WORKER_DIR } from "@/utils/rootEnv";
 
 /** The commands the user declined, from the subtask rows ("Declined by user: npm run typecheck"). */
 export function declinedCommandsOf(subtasks: Array<{ status: string; error?: string }>): string[] {
@@ -251,6 +255,23 @@ export async function finalize(input: {
       ? `QA blocked: ${blockedDetail ?? "the QA environment could not run browser checks"}`.slice(0, 500)
       : undefined;
   await deps.api.completeTask({ taskId: task._id, status: "done", ...(qaWarning ? { completionWarning: qaWarning } : {}) });
+  // GOAT G9: the host's own check, after Done, beside what the run reported.
+  // Never throws into the finished task; "No check configured" is not a pass.
+  if (hasCodeChange) {
+    try {
+      await runHostCheckAfterDone(deps.api, {
+        taskId: task._id,
+        projectId: project._id,
+        scripts: project.scripts,
+        projectRoot: resolveProjectPath(project.workspacePath, deps.workspaceRoot, WORKER_DIR, path),
+        worktreePath: input.workspacePath,
+        signal: input.signal,
+        agentOutcome: evaluation.verdict,
+      });
+    } catch (error) {
+      deps.log("[host-check] failed", error instanceof Error ? error.message : String(error));
+    }
+  }
   return evaluation;
 }
 

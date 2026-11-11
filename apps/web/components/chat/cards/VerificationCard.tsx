@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight, ShieldCheck } from "lucide-react";
 import type { VerificationCardData } from "@/api/convex/cardTypes";
 import { CARD_DIVIDER, CardHeader, CardShell, IconTile, MUTED, Pill, StatusWord, formatDuration } from "./primitives";
+import VerificationSources from "./VerificationSources";
 
 const OUTCOME = {
   passed: { tone: "green", label: "Passed" },
@@ -17,6 +18,7 @@ const OUTCOME = {
  * re-verification after QA reads "after QA fix", not "after fix 2" again.
  */
 function verificationTitle(data: VerificationCardData): string {
+  if (data.hostCheck) return "Verification after Done";
   const phase = typeof data.phase === "number" ? data.phase : 0;
   const base = phase > 0 ? `Verification after QA fix${phase > 1 ? ` ${phase}` : ""}` : "Verification";
   if (data.iteration > 0) return phase > 0 ? `${base} · fix ${data.iteration}` : `Verification after fix ${data.iteration}`;
@@ -39,11 +41,12 @@ export default function VerificationCard({ data }: { data: VerificationCardData 
             </IconTile>
           }
           title={verificationTitle(data)}
-          subtitle={[duration && `took ${duration}`, checks.length === 0 && "no checks reported"].filter(Boolean).join(" · ") || undefined}
+          subtitle={[duration && `took ${duration}`, checks.length === 0 && !data.hostCheck && "no checks reported"].filter(Boolean).join(" · ") || undefined}
           pill={<Pill tone={outcome.tone}>{outcome.label}</Pill>}
         />
       }
     >
+      {data.hostCheck && <VerificationSources agentOutcome={data.agentOutcome} hostCheck={data.hostCheck} />}
       {checks.length > 0 && (
         <ul className={`border-t px-4 py-2 ${CARD_DIVIDER}`}>
           {checks.map((check, index) => (

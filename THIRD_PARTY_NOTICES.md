@@ -57,7 +57,11 @@ SOFTWARE.
   (copy of `apps/server/src/scheduledTasks/webhookTemplate.ts`: webhook placeholders, untrusted-data
   framing, credential redaction) and `apps/api/convex/lib/webhookVerification.ts` (`constantTimeEquals`
   from `webhookVerification.ts` on Web Crypto; the hashed bearer token, the hold-before-dispatch answer
-  of `webhookAutomationHold.ts` and the per-delivery dedupe of `webhookDedupe.ts` are patterns only).
+  of `webhookAutomationHold.ts` and the per-delivery dedupe of `webhookDedupe.ts` are patterns only);
+  `packages/worker/src/vendor/goat/projectScripts.ts` (port of `packages/shared/src/projectScripts.ts`:
+  `projectScriptCwd`, `projectScriptRuntimeEnv`, `setupProjectScript`, `checkProjectScript`, reshaped for
+  Fhara's exact-argv `projects.scripts`; the run-on-worktree-create and check-after-settle wiring in
+  `execution/projectScriptRun.ts` and `services/runner/projectScriptHooks.ts` is a pattern only).
   Modified by Fhara.
   GOAT's Pen, office, PDF, native and asset sub-paths carry other licences; nothing is taken from them.
 

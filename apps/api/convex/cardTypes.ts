@@ -56,6 +56,24 @@ export interface VerificationCardData {
   /** Bounded tail of the failing step's output (already truncated). */
   logTail?: string;
   idempotencyKey?: string;
+  /**
+   * GOAT G9: the card posted after Done. `agentOutcome` is what the run's
+   * own verification reported; `hostCheck` is the project's check script
+   * run by the host. Both absent on the in-run verification cards.
+   */
+  agentOutcome?: "passed" | "failed" | "inconclusive";
+  hostCheck?: HostCheckCardData;
+}
+
+/** The project's check script as the host ran it. `not_configured` is never a pass. */
+export interface HostCheckCardData {
+  status: "passed" | "failed" | "timed_out" | "not_configured" | "blocked" | "error";
+  command?: string;
+  exitCode?: number | null;
+  durationMs?: number;
+  /** Last 40 lines, at most 4,000 characters, redacted. */
+  tail?: string;
+  detail?: string;
 }
 
 /** One line of the QA checklist (a viewport in visual mode). */

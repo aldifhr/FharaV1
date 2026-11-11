@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import Modal from "../Modal";
 import GithubRepoSettings from "../GithubRepoSettings";
+import ProjectScriptsSettings from "./ProjectScriptsSettings";
 import { useToast } from "../Toasts";
 import { agentName, agentRoleText } from "@/lib/agentRoles";
 import {
@@ -43,6 +44,7 @@ type ProjectDoc = {
   prFeedbackReactions?: boolean;
   commandAllowRules?: { prefix: string; createdAt: number; createdBy: string }[];
   commandAllowExact?: { command: string; args: string[]; createdAt: number; createdBy: string }[];
+  scripts?: unknown;
 };
 
 const field = "rounded-lg border border-line bg-panel px-3 py-2 text-ink outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/15";
@@ -281,6 +283,7 @@ export default function ManageProjectModal({
             className={field}
           />
         </label>
+        <ProjectScriptsSettings projectId={projectId} scripts={project.scripts} />
         <label className="grid gap-1">
           Plan review
           <select value={planReview} onChange={(e) => setPlanReview(e.target.value as PlanReviewSetting)} className={field}>

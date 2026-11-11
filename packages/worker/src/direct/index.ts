@@ -54,6 +54,7 @@ import { buildDirectMcpSet, EMPTY_MCP_SET, mcpRestartDue, type DirectMcpSet } fr
 import type { McpServerConfig } from "@/mcp/types";
 import { ThreadRunner, type DirectStore } from "./threadRunner";
 import type { DirectEngine } from "./types";
+import { runSetupOnWorktreeCreate } from "@/services/runner/projectScriptHooks";
 
 /** Read at module load; the entrypoint loads the root .env before this module is evaluated. */
 export const DIRECT_POLL_MS = wenv("DIRECT_POLL_MS"); // ≥ 250
@@ -286,12 +287,23 @@ export class DirectThreads {
     // Absolute paths only (live test 4): a relative project path resolves
     // under the worker's absolute WORKSPACE_ROOT.
     const root = path.resolve(this.deps.workspaceRoot);
-    let cwd = path.resolve(resolveWorkspacePath(root, project.workspacePath));
+    const projectCwd = path.resolve(resolveWorkspacePath(root, project.workspacePath));
+    let cwd = projectCwd;
     let isolated = false;
     if (this.deps.policy.worktreeIsolation) {
       const created = await api.createBranch({ taskId: claimed.taskId, projectId: claimed.projectId, workspaceRoot: root });
       cwd = path.resolve(resolveWorkspacePath(root, created.worktreePath));
       isolated = true;
+      await fs.mkdir(cwd, { recursive: true });
+      // GOAT G9 / T6: the same project setup script as task worktrees, once per new worktree.
+      await runSetupOnWorktreeCreate(api, {
+        taskId,
+        projectId: String(claimed.projectId),
+        scripts: project.scripts,
+        projectRoot: projectCwd,
+        worktreePath: cwd,
+        created: (created as { created?: boolean }).created === true,
+      }).catch((error) => this.deps.log("[direct] setup script failed", error instanceof Error ? error.message : String(error)));
     }
     await fs.mkdir(cwd, { recursive: true });
 

@@ -127,7 +127,9 @@ export const createBranch = internalAction({
       worktreePath,
     });
 
-    return { branchName, worktreePath };
+    // GOAT G9: `created` tells the worker this worktree is new, so the
+    // project's setup script runs once (never on a reused worktree).
+    return { branchName, worktreePath, created: true as const };
   },
 });
 

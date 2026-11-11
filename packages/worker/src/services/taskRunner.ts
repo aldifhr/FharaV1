@@ -44,6 +44,7 @@ import {
   summaryHasBudgetFailure,
 } from "./runner/terminal";
 import { finalize } from "./runner/finalize";
+import { runSetupOnWorktreeCreate } from "./runner/projectScriptHooks";
 import { executePlan } from "./runner/executePlan";
 import { createInitialPlan, type PlanningContext } from "./runner/planning";
 import { replanOnce, type ReplanLoopState } from "./runner/replan";
@@ -148,6 +149,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
 
   let branchName: string | undefined;
   let worktreePath: string | undefined;
+  const workspacePathBefore = workspacePath;
   if (deps.policy.worktreeIsolation) {
     try {
       const created = await deps.api.createBranch({
@@ -161,6 +163,15 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
       worktreePath = resolveWorkspacePath(deps.workspaceRoot, created.worktreePath);
       workspacePath = worktreePath;
       await fs.mkdir(workspacePath, { recursive: true });
+      // GOAT G9 / T6: the project's setup script, once per new worktree.
+      await runSetupOnWorktreeCreate(deps.api, {
+        taskId: task._id,
+        projectId: project._id,
+        scripts: project.scripts,
+        projectRoot: workspacePathBefore,
+        worktreePath,
+        created: (created as { created?: boolean }).created === true,
+      }).catch((error) => deps.log("[setup-script] failed", error instanceof Error ? error.message : String(error)));
     } catch (error) {
       await deps.api.completeTask({
         taskId: task._id,

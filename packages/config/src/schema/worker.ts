@@ -235,6 +235,17 @@ export const DIRECT_VARS = [
     max: 1440,
     runtimes: ["worker"],
     group: "direct",
-    doc: "Turn watchdog: a turn waiting on an approval card is exempt for up to this many minutes (0 = no cap).",
+    doc: "Turn watchdog: a turn waiting on an approval card is exempt for up to this many minutes (0 = no cap). Kept at least DIRECT_APPROVAL_MAX_MIN + 1, so the card expires first; this is only the backstop.",
+  },
+  {
+    name: "DIRECT_APPROVAL_MAX_MIN",
+    type: "int",
+    parse: "clampBlank",
+    default: 30,
+    min: 1,
+    max: 1440,
+    runtimes: ["worker"],
+    group: "direct",
+    doc: "Minutes an approval card in a direct thread waits for an answer. Unanswered past this, the card expires (reason expired), the agent is told no and the turn goes on.",
   },
 ] as const satisfies readonly EnvVar[];

@@ -18,6 +18,7 @@
  * and polls the row), like run_command cards. They never go through
  * `orchestration.requestApproval`, which drops the lease and re-queues.
  */
+import { v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { appendTaskEvent } from "./taskEvents";
@@ -69,10 +70,83 @@ export function isDirectCard(row: Doc<"approvals">): boolean {
 }
 
 /**
- * Close every pending card of a direct thread (Stop, worker death,
- * archive). The waiting worker answers the agent `cancelled`.
+ * Why a direct card was closed without an answer (Nuphos N5). Every close
+ * writes `approval.resolved {decision: "cancelled", reason, message}`, so
+ * an empty turn is always attributable. The worker names the first four
+ * (packages/worker/src/direct/toolGate.ts CANCEL_REASONS, same list):
+ *   interrupt     Stop, or the turn watchdog stopping the turn
+ *   gate_error    the request couldn't be shaped or recorded
+ *   no_option     the agent offered no plain allow/reject for the answer
+ *   expired       nobody answered within DIRECT_APPROVAL_MAX_MIN; the agent
+ *                 is told no and the turn goes on
+ *   closed        the thread was closed (archived)
+ *   session_ended the worker released the session
+ *   worker_lost   the worker died while the card waited (lease recovery)
  */
-export async function expireDirectCards(ctx: MutationCtx, taskId: Id<"tasks">, reason: string): Promise<number> {
+export const DIRECT_CANCEL_REASONS = ["interrupt", "gate_error", "no_option", "expired", "closed", "session_ended", "worker_lost"] as const;
+export type DirectCancelReason = (typeof DIRECT_CANCEL_REASONS)[number];
+export const directCancelReasonValidator = v.union(
+  v.literal("interrupt"),
+  v.literal("gate_error"),
+  v.literal("no_option"),
+  v.literal("expired"),
+  v.literal("closed"),
+  v.literal("session_ended"),
+  v.literal("worker_lost")
+);
+
+export function isDirectCancelReason(value: unknown): value is DirectCancelReason {
+  return typeof value === "string" && (DIRECT_CANCEL_REASONS as readonly string[]).includes(value);
+}
+
+/** What the worker polls for one card (directThreads.approvalState). */
+export type DirectApprovalState = {
+  status: string;
+  decision: string | null;
+  note: string | null;
+  taskStatus: string | null;
+  /** Why the card was closed, when it was closed without an answer. */
+  reason: DirectCancelReason | null;
+};
+
+/** The reason a closed card carries (its last history entry), if any. */
+export function directCancelReasonOf(row: Pick<Doc<"approvals">, "history">): DirectCancelReason | null {
+  const last = (row.history ?? [])[(row.history ?? []).length - 1] as { code?: unknown } | undefined;
+  return isDirectCancelReason(last?.code) ? last.code : null;
+}
+
+/** Close one pending direct card with a reason (idempotent: false when it wasn't pending). */
+export async function cancelDirectCard(
+  ctx: MutationCtx,
+  row: Doc<"approvals">,
+  code: DirectCancelReason,
+  message: string,
+  now = Date.now()
+): Promise<boolean> {
+  if (row.status !== "pending" || !isDirectCard(row)) return false;
+  const text = message.slice(0, 500);
+  await ctx.db.patch(row._id, {
+    status: "cancelled",
+    resolvedAt: now,
+    note: text,
+    history: [...(row.history ?? []), { at: now, status: "cancelled", reason: text, code }],
+  });
+  await appendTaskEvent(ctx, {
+    taskId: row.taskId,
+    projectId: row.projectId,
+    type: "approval.resolved",
+    payload: { approvalId: row._id, itemId: (row.payload as { itemId?: string } | undefined)?.itemId, decision: "cancelled", reason: code, message: text },
+    level: code === "expired" || code === "gate_error" || code === "no_option" ? "warn" : "info",
+  });
+  return true;
+}
+
+/**
+ * Close every pending card of a direct thread (Stop, worker death,
+ * archive, release) with the reason. The waiting worker answers the agent
+ * `cancelled`.
+ */
+export async function expireDirectCards(ctx: MutationCtx, taskId: Id<"tasks">, code: DirectCancelReason, message: string): Promise<number> {
   const rows = await ctx.db
     .query("approvals")
     .withIndex("by_task", (q) => q.eq("taskId", taskId))
@@ -80,23 +154,7 @@ export async function expireDirectCards(ctx: MutationCtx, taskId: Id<"tasks">, r
     .take(200);
   const now = Date.now();
   let closed = 0;
-  for (const row of rows) {
-    if (row.status !== "pending" || !isDirectCard(row)) continue;
-    await ctx.db.patch(row._id, {
-      status: "cancelled",
-      resolvedAt: now,
-      note: reason.slice(0, 500),
-      history: [...(row.history ?? []), { at: now, status: "cancelled", reason }],
-    });
-    await appendTaskEvent(ctx, {
-      taskId: row.taskId,
-      projectId: row.projectId,
-      type: "approval.resolved",
-      payload: { approvalId: row._id, decision: "expired", message: reason },
-      level: "info",
-    });
-    closed += 1;
-  }
+  for (const row of rows) if (await cancelDirectCard(ctx, row, code, message, now)) closed += 1;
   return closed;
 }
 
@@ -123,7 +181,7 @@ export async function userMessagesAfter(
  */
 export async function recoverDirectThread(ctx: MutationCtx, task: Doc<"tasks">, now: number): Promise<void> {
   const direct = task.direct;
-  await expireDirectCards(ctx, task._id, "The worker stopped while this waited for an answer.");
+  await expireDirectCards(ctx, task._id, "worker_lost", "The worker stopped while this waited for an answer.");
   const turnId = direct?.turnId;
   let closedTurn = false;
   if (turnId) {

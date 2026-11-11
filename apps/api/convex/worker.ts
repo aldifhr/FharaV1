@@ -23,6 +23,7 @@ import {
   executionStatus,
   sideEffectKind,
 } from "./schema";
+import { directCancelReasonValidator, type DirectApprovalState } from "./lib/directThreads";
 
 const tokenArg = { workerToken: v.string() };
 
@@ -1648,16 +1649,13 @@ export const requestDirectApproval = action({
 
 export const getDirectApproval = action({
   args: { ...tokenArg, approvalId: v.id("approvals") },
-  handler: async (
-    ctx,
-    args
-  ): Promise<{ status: string; decision: string | null; note: string | null; taskStatus: string | null } | null> => {
+  handler: async (ctx, args): Promise<DirectApprovalState | null> => {
     return await ctx.runQuery(internal.directThreads.approvalState, withoutToken(args));
   },
 });
 
 export const cancelDirectApproval = action({
-  args: { ...tokenArg, approvalId: v.id("approvals"), reason: v.string() },
+  args: { ...tokenArg, approvalId: v.id("approvals"), reason: v.string(), code: v.optional(directCancelReasonValidator) },
   handler: async (ctx, args): Promise<{ applied: boolean }> => {
     return await ctx.runMutation(internal.directThreads.cancelApproval, withoutToken(args));
   },

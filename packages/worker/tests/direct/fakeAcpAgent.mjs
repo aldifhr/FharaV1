@@ -7,6 +7,8 @@
 // What it does is chosen by the prompt's last text block:
 //   "edit <file>"  asks to write <file>; on allow writes it and reports a diff
 //   "run <cmd>"    asks to run a command
+//   "run-noopt <cmd>" the same, but offers only the "always" kinds (no plain
+//                  allow_once/reject_once), so Fhara must answer cancelled
 //   "slow"         answers after 400 ms
 //   "wait-cancel"  holds the turn until session/cancel, then stopReason cancelled
 //   "hang"         holds the turn forever and ignores session/cancel
@@ -78,17 +80,23 @@ async function prompt(id, params) {
     notify(sessionId, { sessionUpdate: "agent_message_chunk", messageId: `m${n}`, content: { type: "text", text: allowed ? " editing." : " allowed." } });
     return send({ id, result: { stopReason: "end_turn", usage } });
   }
-  if (text.startsWith("run ")) {
-    const command = text.slice(4).trim();
+  if (text.startsWith("run ") || text.startsWith("run-noopt ")) {
+    const noopt = text.startsWith("run-noopt ");
+    const command = text.slice(noopt ? 10 : 4).trim();
     const callId = `call-${++n}`;
     notify(sessionId, { sessionUpdate: "tool_call", toolCallId: callId, title: "bash", kind: "execute", status: "pending", locations: [], rawInput: {} });
     const answer = await ask("session/request_permission", {
       sessionId,
       toolCall: { toolCallId: callId, title: command, kind: "execute", status: "pending", locations: [], rawInput: { command } },
-      options: [
-        { optionId: "once", kind: "allow_once", name: "Allow once" },
-        { optionId: "reject", kind: "reject_once", name: "Reject" },
-      ],
+      options: noopt
+        ? [
+            { optionId: "always", kind: "allow_always", name: "Always allow" },
+            { optionId: "never", kind: "reject_always", name: "Always reject" },
+          ]
+        : [
+            { optionId: "once", kind: "allow_once", name: "Allow once" },
+            { optionId: "reject", kind: "reject_once", name: "Reject" },
+          ],
     });
     const allowed = answer?.outcome?.outcome === "selected" && answer.outcome.optionId === "once";
     notify(sessionId, {
@@ -99,7 +107,7 @@ async function prompt(id, params) {
       rawInput: { command },
       content: [{ type: "content", content: { type: "text", text: allowed ? `ran ${command}` : "rejected" } }],
     });
-    notify(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: allowed ? "ran it" : "did not run" } });
+    notify(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: allowed ? "ran it" : `did not run (${answer?.outcome?.outcome}${answer?.outcome?.optionId ? `:${answer.outcome.optionId}` : ""})` } });
     return send({ id, result: { stopReason: answer?.outcome?.outcome === "cancelled" ? "cancelled" : "end_turn", usage } });
   }
   if (text === "slow") {

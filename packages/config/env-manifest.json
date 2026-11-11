@@ -633,10 +633,23 @@
       "runtimes": [
         "worker"
       ],
-      "doc": "Turn watchdog: a turn waiting on an approval card is exempt for up to this many minutes (0 = no cap).",
+      "doc": "Turn watchdog: a turn waiting on an approval card is exempt for up to this many minutes (0 = no cap). Kept at least DIRECT_APPROVAL_MAX_MIN + 1, so the card expires first; this is only the backstop.",
       "default": "60",
       "parse": "clampBlank",
       "min": 0,
+      "max": 1440
+    },
+    {
+      "name": "DIRECT_APPROVAL_MAX_MIN",
+      "type": "int",
+      "group": "direct",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Minutes an approval card in a direct thread waits for an answer. Unanswered past this, the card expires (reason expired), the agent is told no and the turn goes on.",
+      "default": "30",
+      "parse": "clampBlank",
+      "min": 1,
       "max": 1440
     },
     {

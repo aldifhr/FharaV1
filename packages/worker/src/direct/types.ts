@@ -6,7 +6,9 @@
  */
 import type { AcpOutput, NormalizedEvent } from "@/vendor/threadbear/acp/normalize";
 import type { RestoreRecord } from "./restore";
-import type { ToolGateAnswer, ToolGateCall } from "./toolGate";
+import type { ApprovalCancelReason, ToolGateAnswer, ToolGateCall } from "./toolGate";
+
+export type { ApprovalCancelReason };
 
 export type { NormalizedEvent };
 
@@ -38,6 +40,16 @@ export interface UserInput {
   text: string;
 }
 
+/** One cancelled permission request, as the engine reports it. */
+export interface PermissionCancel {
+  itemId: string;
+  reason: ApprovalCancelReason;
+  message?: string;
+  approvalId?: string;
+  /** The store already wrote approval.resolved for it (a card it closed). */
+  recorded?: boolean;
+}
+
 /** What an engine reports to its runner. */
 export interface SessionSink {
   output(out: AcpOutput | { kind: "session"; sessionId: string; model?: string } | { kind: "result"; result: TurnResult }): void;
@@ -49,6 +61,8 @@ export interface SessionSink {
    * a heartbeat or usage broadcast.
    */
   activity?(progress: boolean): void;
+  /** A permission request was answered "cancelled" (or expired): the reason, for approval.resolved. */
+  permissionCancelled?(cancel: PermissionCancel): void;
   /** A session start (new, resume or load) ended: its phases, no content (Nuphos N4). */
   restore?(record: RestoreRecord): void;
   /** The engine ended (error: it crashed or could not start). */

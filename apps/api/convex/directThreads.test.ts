@@ -186,6 +186,57 @@ describe("directThreads approvals", () => {
   });
 });
 
+describe("directThreads card cancel reasons (Nuphos N5)", () => {
+  const exec = (command: string) => ({ acpKind: "execute", title: command, command, argv: command.split(" "), cwd: "/ws/p", workspaceRoot: "/ws/p" });
+  const resolved = async (t: Awaited<ReturnType<typeof setup>>["t"], taskId: any) =>
+    (await eventsOf(t, taskId)).filter((e) => e.type === "approval.resolved").map((e) => e.payload);
+
+  test.each(["interrupt", "gate_error", "no_option", "expired"] as const)("worker cancel %s: approval.resolved {decision: cancelled, reason}", async (code) => {
+    const { t, taskId } = await claimed();
+    const card = await t.mutation(internal.directThreads.requestApproval, { taskId, workerId: "w1", itemId: "k1", request: exec("npm test"), input: "{}" });
+    const r = await t.mutation(internal.directThreads.cancelApproval, { approvalId: card.approvalId, reason: `why: ${code}`, code });
+    expect(r.applied).toBe(true);
+    expect(await resolved(t, taskId)).toEqual([{ approvalId: card.approvalId, itemId: "k1", decision: "cancelled", reason: code, message: `why: ${code}` }]);
+    expect(await t.query(internal.directThreads.approvalState, { approvalId: card.approvalId })).toMatchObject({ status: "cancelled", reason: code, note: `why: ${code}` });
+    // Idempotent: a second close writes nothing.
+    expect((await t.mutation(internal.directThreads.cancelApproval, { approvalId: card.approvalId, reason: "again", code: "expired" })).applied).toBe(false);
+    expect(await resolved(t, taskId)).toHaveLength(1);
+  });
+
+  test("an expired card: the reason is expired and an answer after it is refused", async () => {
+    const { t, taskId } = await claimed();
+    const card = await t.mutation(internal.directThreads.requestApproval, { taskId, workerId: "w1", itemId: "k1", request: exec("npm test"), input: "{}" });
+    await t.mutation(internal.directThreads.cancelApproval, { approvalId: card.approvalId, reason: "No one answered this approval within 30 min.", code: "expired" });
+    await expect(t.mutation(api.directThreads.respond, { approvalId: card.approvalId, decision: "allow" })).rejects.toThrow(/already cancelled/);
+    const row = await t.run((ctx) => ctx.db.get(card.approvalId));
+    expect(row?.history?.at(-1)).toMatchObject({ status: "cancelled", code: "expired" });
+  });
+
+  test("an older worker that sends no code: interrupt", async () => {
+    const { t, taskId } = await claimed();
+    const card = await t.mutation(internal.directThreads.requestApproval, { taskId, workerId: "w1", itemId: "k1", request: exec("npm test"), input: "{}" });
+    await t.mutation(internal.directThreads.cancelApproval, { approvalId: card.approvalId, reason: "Stopped" });
+    expect((await resolved(t, taskId))[0]).toMatchObject({ decision: "cancelled", reason: "interrupt" });
+  });
+
+  test("Stop, release and close name their reasons", async () => {
+    const { t, taskId } = await claimed();
+    const a = await t.mutation(internal.directThreads.requestApproval, { taskId, workerId: "w1", itemId: "k1", request: exec("npm test"), input: "{}" });
+    await t.mutation(api.directThreads.interrupt, { taskId });
+    const b = await t.mutation(internal.directThreads.requestApproval, { taskId, workerId: "w1", itemId: "k2", request: exec("npm run lint"), input: "{}" });
+    await t.mutation(internal.directThreads.release, { taskId, workerId: "w1", reason: "idle" });
+    const events = await resolved(t, taskId);
+    expect(events).toEqual([
+      expect.objectContaining({ approvalId: a.approvalId, decision: "cancelled", reason: "interrupt" }),
+      expect.objectContaining({ approvalId: b.approvalId, decision: "cancelled", reason: "session_ended" }),
+    ]);
+    const s2 = await claimed();
+    const c = await s2.t.mutation(internal.directThreads.requestApproval, { taskId: s2.taskId, workerId: "w1", itemId: "k3", request: exec("npm test"), input: "{}" });
+    await s2.t.mutation(api.directThreads.close, { taskId: s2.taskId });
+    expect(await resolved(s2.t, s2.taskId)).toEqual([expect.objectContaining({ approvalId: c.approvalId, decision: "cancelled", reason: "closed" })]);
+  });
+});
+
 describe("directThreads recovery", () => {
   test("a worker that died mid-turn: turn.completed interrupted, expired cards, queued messages listed, turn continued (G4)", async () => {
     const { t, taskId } = await claimed();
@@ -220,7 +271,7 @@ describe("directThreads recovery", () => {
     expect(task?.direct?.status).toBe("stopped");
     expect(task?.direct?.stoppedMidTurn).toBe(true);
     expect(await t.query(internal.directThreads.approvalState, { approvalId: card.approvalId })).toMatchObject({ status: "rejected" });
-    expect(await t.query(internal.directThreads.approvalState, { approvalId: card2.approvalId })).toMatchObject({ status: "cancelled" });
+    expect(await t.query(internal.directThreads.approvalState, { approvalId: card2.approvalId })).toMatchObject({ status: "cancelled", reason: "worker_lost" });
     const events = await eventsOf(t, taskId);
     const done = events.filter((e) => e.type === "turn.completed");
     expect(done).toHaveLength(1);

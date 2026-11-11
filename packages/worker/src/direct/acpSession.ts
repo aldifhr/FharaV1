@@ -16,6 +16,11 @@
 // ready) and reported as a restore record with no content (Nuphos N4,
 // direct/restore.ts); a resume that times out or loses the agent is a
 // SessionResumeTransientError (the id is kept), not-found stays permanent.
+// Every "cancelled" answer to a permission request carries a named reason
+// (Nuphos N5): interrupt, gate_error, no_option, or expired (a card nobody
+// answered within the runner's bound; the agent is told no with reject_once
+// so the turn goes on). Reported through sink.permissionCancelled, which the
+// runner writes as approval.resolved {decision: "cancelled", reason}.
 
 // Threads on OpenCode over ACP: one process per live thread, and everything
 // it wants to do comes through here first. The agent is set to ask before
@@ -43,11 +48,13 @@ import {
   type RestoreFailure,
   type RestorePhaseName,
 } from "./restore";
-import { describeToolCall, gateToolCall } from "./toolGate";
+import { cancelReasonOf, describeToolCall, gateToolCall } from "./toolGate";
 import {
   SessionNotFoundError,
   type DirectEngine,
+  type ApprovalCancelReason,
   type DirectSession,
+  type PermissionCancel,
   type SessionSink,
   type StartSessionOptions,
   type TurnResult,
@@ -95,7 +102,7 @@ export class AcpEngine implements DirectEngine {
 
 type State = "starting" | "ready" | "turn" | "closing" | "closed";
 type PermissionOption = { optionId?: string; kind?: string };
-type Pending = { abort: AbortController; options: PermissionOption[] };
+type Pending = { abort: AbortController; options: PermissionOption[]; itemId: string };
 
 export class AcpSession implements DirectSession {
   private opts: StartSessionOptions;
@@ -110,6 +117,8 @@ export class AcpSession implements DirectSession {
   private held: UserInput[] = [];
   private turn?: { startedAt: number; interrupted: boolean };
   private pending = new Map<RequestId, Pending>();
+  /** Permission requests already answered this turn (a late throw must not answer twice). */
+  private answered = new Set<RequestId>();
   private configOptions: NonNullable<SessionResult["configOptions"]> = [];
   private preamble?: string;
   private replaying = false;
@@ -271,10 +280,20 @@ export class AcpSession implements DirectSession {
   private request(id: RequestId, method: string, params: unknown): void {
     if (method === "session/request_permission" && !this.replaying) {
       // Never left unanswered: the turn would hang with session/prompt open.
-      this.permission(id, (params ?? {}) as { toolCall?: AcpToolCall; options?: PermissionOption[] }).catch((e: unknown) => {
+      const p = (params ?? {}) as { toolCall?: AcpToolCall; options?: PermissionOption[] };
+      this.permission(id, p).catch((e: unknown) => {
         this.deps.log.error("acp permission handler threw", { taskId: this.opts.taskId, error: String(e) });
+        const open = this.pending.get(id);
         this.pending.delete(id);
+        // Already answered (an interrupt, or after the gate): that answer had its reason.
+        if (this.answered.has(id)) return;
+        this.answered.add(id);
         this.proc.respond(id, { outcome: { outcome: "cancelled" } });
+        this.cancelled({
+          itemId: open?.itemId ?? (typeof p.toolCall?.toolCallId === "string" ? p.toolCall.toolCallId : String(id)),
+          reason: "gate_error",
+          message: "The tool call was refused: Fhara could not handle its approval.",
+        });
       });
       return;
     }
@@ -285,11 +304,19 @@ export class AcpSession implements DirectSession {
 
   // Only the once kinds: "always" would be remembered by the agent, past
   // this thread. "Always allow" is kept by Fhara (tasks.direct.allowRules).
-  private answer(id: RequestId, options: PermissionOption[], allow: boolean): void {
+  // False when neither was on offer and the answer had to be "cancelled".
+  private answer(id: RequestId, options: PermissionOption[], allow: boolean): boolean {
     const kind = allow ? "allow_once" : "reject_once";
     const optionId = options.find((o) => o?.kind === kind)?.optionId;
+    this.answered.add(id);
     // No plain allow or reject on offer: nothing ever goes ahead by default.
     this.proc.respond(id, optionId ? { outcome: { outcome: "selected", optionId } } : { outcome: { outcome: "cancelled" } });
+    return Boolean(optionId);
+  }
+
+  private cancelled(c: PermissionCancel): void {
+    this.deps.log.info("acp permission request cancelled", { taskId: this.opts.taskId, itemId: c.itemId, reason: c.reason });
+    this.sink.permissionCancelled?.(c);
   }
 
   private async permission(id: RequestId, p: { toolCall?: AcpToolCall; options?: PermissionOption[] }): Promise<void> {
@@ -306,7 +333,7 @@ export class AcpSession implements DirectSession {
       title: seen.title,
       workspaceRoot: this.deps.workspaceRoot ?? this.opts.cwd,
     });
-    const pending: Pending = { abort: new AbortController(), options };
+    const pending: Pending = { abort: new AbortController(), options, itemId: seen.id };
     this.pending.set(id, pending);
     const gate = await gateToolCall(
       {
@@ -315,18 +342,48 @@ export class AcpSession implements DirectSession {
       },
       { itemId: seen.id, description, signal: pending.abort.signal }
     );
+    const ids = gate.approvalId ? { approvalId: gate.approvalId } : {};
     // Already answered as cancelled: an interrupt, or the session ending.
-    if (!this.pending.delete(id)) return;
-    if (!gate.allowed && pending.abort.signal.aborted) return void this.proc.respond(id, { outcome: { outcome: "cancelled" } });
-    this.answer(id, options, gate.allowed);
+    if (!this.pending.delete(id)) {
+      const reason = cancelReasonOf(pending.abort.signal);
+      // The session ending is the backend's to record (release/close).
+      if (reason === "interrupt") this.cancelled({ itemId: seen.id, reason, ...ids, ...(gate.allowed ? {} : { recorded: gate.recorded }) });
+      return;
+    }
+    if (!gate.allowed && pending.abort.signal.aborted) {
+      this.answered.add(id);
+      this.proc.respond(id, { outcome: { outcome: "cancelled" } });
+      return this.cancelled({ itemId: seen.id, reason: cancelReasonOf(pending.abort.signal), ...ids, ...(gate.recorded ? { recorded: true } : {}) });
+    }
+    if (!gate.allowed && gate.reason === "gate_error") {
+      this.answered.add(id);
+      this.proc.respond(id, { outcome: { outcome: "cancelled" } });
+      return this.cancelled({ itemId: seen.id, reason: "gate_error", message: gate.message, ...ids });
+    }
+    const offered = this.answer(id, options, gate.allowed);
+    if (!gate.allowed && gate.expired) {
+      // Nobody answered in time: the agent is told no (reject_once) and the
+      // turn goes on. The card was closed by the runner with the reason.
+      this.cancelled({ itemId: seen.id, reason: gate.reason ?? "expired", message: gate.message, ...ids, ...(gate.recorded ? { recorded: true } : {}) });
+    } else if (!offered) {
+      this.cancelled({
+        itemId: seen.id,
+        reason: "no_option",
+        message: `The agent offered no plain ${gate.allowed ? "allow" : "reject"} option, so the call was answered cancelled.`,
+        ...ids,
+      });
+    }
   }
 
   // Every open request answered as cancelled, which ACP requires of a
   // client cancelling a turn. Cards close with it.
-  private cancelPending(respond: boolean): void {
+  private cancelPending(respond: boolean, reason: ApprovalCancelReason): void {
     for (const [id, p] of this.pending) {
-      p.abort.abort();
-      if (respond) this.proc.respond(id, { outcome: { outcome: "cancelled" } });
+      p.abort.abort(reason);
+      if (respond) {
+        this.answered.add(id);
+        this.proc.respond(id, { outcome: { outcome: "cancelled" } });
+      }
     }
     this.pending.clear();
   }
@@ -385,6 +442,7 @@ export class AcpSession implements DirectSession {
     }
     if (this.turn !== turn) return;
     this.turn = undefined;
+    if (!this.pending.size) this.answered.clear();
     if (this.state === "turn") this.state = "ready";
     this.sink.output({ kind: "result", result: { ...result, queuedTurns: this.held.length } });
     this.next();
@@ -416,7 +474,7 @@ export class AcpSession implements DirectSession {
     const turn = this.turn;
     if (!turn) return;
     turn.interrupted = true;
-    this.cancelPending(true);
+    this.cancelPending(true, "interrupt");
     this.proc.notify("session/cancel", { sessionId: this.sessionId });
   }
 
@@ -451,7 +509,7 @@ export class AcpSession implements DirectSession {
       this.reportRestore("failed", this.restoreFailure(error));
     }
     this.state = "closed";
-    this.cancelPending(false);
+    this.cancelPending(false, "session_ended");
     this.proc.onRequest = null;
     this.emit(this.normalizer.closeOpen("Interrupted"));
     this.turn = undefined;

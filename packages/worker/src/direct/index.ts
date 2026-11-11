@@ -55,12 +55,31 @@ export function directMaxLive(env?: Record<string, string | undefined>): number 
   return wenv("DIRECT_MAX_LIVE", env); // 1–8
 }
 
-/** The ACP turn watchdog's windows (Nuphos N3), in ms; 0 turns one off. */
+/** Longest an approval card waits before it expires and the agent is told no (Nuphos N5), in ms. */
+export function directApprovalMaxMs(env?: Record<string, string | undefined>): number {
+  return wenv("DIRECT_APPROVAL_MAX_MIN", env) * 60_000; // minutes, 1–1440
+}
+
+/** How far the watchdog's approval exemption stays above the card's own bound. */
+export const WATCHDOG_APPROVAL_MARGIN_MS = 60_000;
+
+/**
+ * The ACP turn watchdog's windows (Nuphos N3), in ms; 0 turns one off.
+ *
+ * Which fires first on a turn parked on a card (Nuphos N5): the card's own
+ * bound, DIRECT_APPROVAL_MAX_MIN (default 30). The card expires, the agent
+ * is told no and the turn goes on with fresh windows. The watchdog's
+ * exemption, DIRECT_WATCHDOG_APPROVAL_MIN (default 60), is the backstop for
+ * a wait that outlives that bound (a store that stopped answering); it is
+ * raised to the approval max plus a minute when set lower, so a turn is
+ * never timed out while its card still has time left. 0 keeps "no cap".
+ */
 export function directWatchdog(env?: Record<string, string | undefined>): { inactivityMs: number; progressMs: number; approvalCapMs: number } {
+  const cap = wenv("DIRECT_WATCHDOG_APPROVAL_MIN", env) * 60_000;
   return {
     inactivityMs: wenv("DIRECT_INACTIVITY_MIN", env) * 60_000,
     progressMs: wenv("DIRECT_PROGRESS_MIN", env) * 60_000,
-    approvalCapMs: wenv("DIRECT_WATCHDOG_APPROVAL_MIN", env) * 60_000,
+    approvalCapMs: cap > 0 ? Math.max(cap, directApprovalMaxMs(env) + WATCHDOG_APPROVAL_MARGIN_MS) : 0,
   };
 }
 
@@ -318,8 +337,8 @@ export class DirectThreads {
         return { status: r.status, approvalId: String(r.approvalId), reason: r.reason };
       },
       approvalState: async (approvalId) => await api.getDirectApproval({ approvalId }),
-      cancelApproval: async (approvalId, reason) => {
-        await api.cancelDirectApproval({ approvalId, reason });
+      cancelApproval: async (approvalId, reason, message) => {
+        await api.cancelDirectApproval({ approvalId, reason: message, code: reason });
       },
       loadEvents: async () => await api.getDirectHistory({ taskId: claimed.taskId }),
       recordUsage: async (usage) => {
@@ -348,6 +367,7 @@ export class DirectThreads {
       sessionId: engine.name === "opencode-acp" && claimed.direct.engine === "opencode-acp" ? claimed.direct.sessionId : undefined,
       budgetGate,
       log: this.deps.log,
+      approvalMaxMs: directApprovalMaxMs(),
       // ACP turns only: session/prompt has no timeout of its own.
       ...(engine.name === "opencode-acp" ? { watchdog: directWatchdog() } : {}),
     });

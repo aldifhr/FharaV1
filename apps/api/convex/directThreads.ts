@@ -30,7 +30,10 @@ import { holdsTaskLease } from "./orchestration";
 import { normalizePermissionMode, projectDefaultPermissionMode, permissionModeValidator } from "./lib/permissionModes";
 import { isRoleKey, normalizeRoleKey, ROLE_KEYS } from "./lib/roles";
 import {
+  cancelDirectCard,
   directApprovalPolicy,
+  directCancelReasonOf,
+  directCancelReasonValidator,
   directCommandHead,
   EVENT_BODY_MAX,
   EVENT_BODY_PREVIEW,
@@ -285,7 +288,7 @@ export const interrupt = mutation({
     await assertProjectAccess(ctx, task.projectId);
     if (TERMINAL.has(task.status)) return { requested: false };
     const now = Date.now();
-    await expireDirectCards(ctx, task._id, "Stopped by the user.");
+    await expireDirectCards(ctx, task._id, "interrupt", "Stopped by the user.");
     if (task.status === "queued" && !task.workerId) {
       // Nothing runs yet: the queued messages are dropped here.
       const queued = await userMessagesAfter(ctx, task._id, task.direct!.deliveredSeq ?? 0);
@@ -317,7 +320,7 @@ export const close = mutation({
     await assertProjectAccess(ctx, task.projectId);
     if (TERMINAL.has(task.status)) return { closed: false };
     const now = Date.now();
-    await expireDirectCards(ctx, task._id, "The thread was closed.");
+    await expireDirectCards(ctx, task._id, "closed", "The thread was closed.");
     await ctx.db.patch(task._id, {
       status: "cancelled",
       completedAt: now,
@@ -768,31 +771,22 @@ export const approvalState = internalQuery({
       decision: row.decision ?? null,
       note: row.note ?? null,
       taskStatus: task?.status ?? null,
+      reason: row.status === "cancelled" ? directCancelReasonOf(row) : null,
     };
   },
 });
 
-/** Worker: close a card it stopped waiting on (interrupt, exit). Idempotent. */
+/**
+ * Worker: close a card it stopped waiting on (interrupt, expiry, exit) with
+ * a reason (Nuphos N5). Idempotent. `reason` is the text shown; `code` the
+ * named reason (older workers send none: `interrupt`).
+ */
 export const cancelApproval = internalMutation({
-  args: { approvalId: v.id("approvals"), reason: v.string() },
+  args: { approvalId: v.id("approvals"), reason: v.string(), code: v.optional(directCancelReasonValidator) },
   handler: async (ctx, args): Promise<{ applied: boolean }> => {
     const row = await ctx.db.get(args.approvalId);
-    if (!row || row.status !== "pending" || !isDirectCard(row)) return { applied: false };
-    const now = Date.now();
-    await ctx.db.patch(row._id, {
-      status: "cancelled",
-      resolvedAt: now,
-      note: args.reason.slice(0, 500),
-      history: [...(row.history ?? []), { at: now, status: "cancelled", reason: args.reason }],
-    });
-    await appendTaskEvent(ctx, {
-      taskId: row.taskId,
-      projectId: row.projectId,
-      type: "approval.resolved",
-      payload: { approvalId: row._id, decision: "expired", message: args.reason.slice(0, 500) },
-      level: "info",
-    });
-    return { applied: true };
+    if (!row) return { applied: false };
+    return { applied: await cancelDirectCard(ctx, row, args.code ?? "interrupt", args.reason) };
   },
 });
 
@@ -817,7 +811,7 @@ export const release = internalMutation({
       .withIndex("by_task", (q) => q.eq("taskId", task._id))
       .take(100);
     for (const row of rows) await ctx.db.delete(row._id);
-    await expireDirectCards(ctx, task._id, "The agent session ended.");
+    await expireDirectCards(ctx, task._id, "session_ended", "The agent session ended.");
     if (TERMINAL.has(task.status)) {
       await ctx.db.patch(task._id, { workerId: undefined, leaseExpiresAt: undefined, updatedAt: now });
       return { status: task.status };

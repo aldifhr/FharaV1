@@ -202,7 +202,39 @@ export function tooLongForCard(chars: number): string {
   return `A tool call was refused: its input (${chars} characters) is too long to show on an approval card, and Fhara never approves what it can't show. Ask the agent to do it in smaller steps.`;
 }
 
-export type ToolGateAnswer = { decision: 'allow' | 'deny' | 'expired'; message?: string };
+/**
+ * Why a permission request ended 'cancelled' for the agent (Nuphos N5): an
+ * empty turn is always attributable. The worker names the first four; the
+ * backend also closes cards for the thread closing, the session ending or
+ * the worker dying (apps/api/convex/lib/directThreads.ts).
+ *   interrupt   Stop, or the turn watchdog stopping the turn
+ *   gate_error  the request couldn't be shaped or recorded
+ *   no_option   the agent offered no plain allow/reject for the answer
+ *   expired     nobody answered within DIRECT_APPROVAL_MAX_MIN
+ */
+export type ApprovalCancelReason = 'interrupt' | 'gate_error' | 'no_option' | 'expired' | 'closed' | 'session_ended' | 'worker_lost';
+
+
+/** Names the abort of a pending request (AbortController.abort(reason)). */
+export function cancelReasonOf(signal: AbortSignal, fallback: ApprovalCancelReason = 'interrupt'): ApprovalCancelReason {
+  const r = signal.reason as unknown;
+  return typeof r === 'string' && (CANCEL_REASONS as readonly string[]).includes(r) ? (r as ApprovalCancelReason) : fallback;
+}
+
+export const CANCEL_REASONS = ['interrupt', 'gate_error', 'no_option', 'expired', 'closed', 'session_ended', 'worker_lost'] as const;
+
+/**
+ * The runner's answer. `reason` says why a non-answer ended (expired,
+ * interrupt); `recorded` means the store already wrote approval.resolved
+ * for the card, so the engine's report is not written twice.
+ */
+export type ToolGateAnswer = {
+  decision: 'allow' | 'deny' | 'expired';
+  message?: string;
+  approvalId?: string;
+  reason?: ApprovalCancelReason;
+  recorded?: boolean;
+};
 
 /** One request for a decision, as the session asks it of the runner. */
 export type ToolGateCall = {
@@ -221,7 +253,11 @@ export type ToolGateDeps = {
  * Whether a tool call may run (threadbear gateThreadbearTool, ported).
  * All of it or nothing: a card cut short would approve words nobody saw.
  */
-export async function gateToolCall(deps: ToolGateDeps, call: ToolGateCall): Promise<{ allowed: true } | { allowed: false; message: string }> {
+export type GateResult =
+  | { allowed: true; approvalId?: string }
+  | { allowed: false; message: string; approvalId?: string; reason?: ApprovalCancelReason; recorded?: boolean; expired?: boolean };
+
+export async function gateToolCall(deps: ToolGateDeps, call: ToolGateCall): Promise<GateResult> {
   const { description } = call;
   if (description.tooLong !== undefined) {
     const message = tooLongForCard(description.tooLong);
@@ -233,12 +269,20 @@ export async function gateToolCall(deps: ToolGateDeps, call: ToolGateCall): Prom
   try {
     answer = await deps.requestApproval(call);
   } catch (error) {
-    return { allowed: false, message: `The approval could not be recorded (${error instanceof Error ? error.message : String(error)}).` };
-  }
-  if (answer.decision !== 'allow') {
     return {
       allowed: false,
-      message: answer.message || (answer.decision === 'expired' ? 'The request expired before the user answered.' : 'The user denied this. Ask them how to proceed.'),
+      reason: 'gate_error',
+      message: `The approval could not be recorded (${error instanceof Error ? error.message : String(error)}).`,
+    };
+  }
+  const ids = answer.approvalId ? { approvalId: answer.approvalId } : {};
+  if (answer.decision !== 'allow') {
+    const expired = answer.decision === 'expired';
+    return {
+      allowed: false,
+      ...ids,
+      message: answer.message || (expired ? 'The request expired before the user answered.' : 'The user denied this. Ask them how to proceed.'),
+      ...(expired ? { expired: true, reason: answer.reason ?? 'expired', ...(answer.recorded ? { recorded: true } : {}) } : {}),
     };
   }
   // A link pointed somewhere else while the card waited: what was allowed
@@ -246,9 +290,9 @@ export async function gateToolCall(deps: ToolGateDeps, call: ToolGateCall): Prom
   if (description.folders() !== before) {
     const message = `The folder for "${description.request.title}" changed while it waited for an answer, so it wasn't run. The agent can ask again.`;
     deps.note(message);
-    return { allowed: false, message };
+    return { allowed: false, message, ...ids };
   }
-  return { allowed: true };
+  return { allowed: true, ...ids };
 }
 
 export { isPlainObject };

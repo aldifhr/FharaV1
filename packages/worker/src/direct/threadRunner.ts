@@ -37,15 +37,26 @@
  *   agent pid registry), and completes as `timed_out` with that reason. A
  *   turn parked on an approval card is exempt up to a cap. The thread stays
  *   usable: the next message resumes the session.
+ * - Bounded approval wait (Nuphos N5): a card nobody answers within
+ *   `approvalMaxMs` (DIRECT_APPROVAL_MAX_MIN, default 30) is closed with
+ *   reason `expired`, the agent is told no (reject_once) and the turn goes
+ *   on. The watchdog's approval exemption (DIRECT_WATCHDOG_APPROVAL_MIN,
+ *   default 60) is kept above it (direct/index.ts directWatchdog), so on a
+ *   parked turn the card expiry always fires first; the watchdog cap is only
+ *   the backstop for a wait that outlives its own bound. Every cancelled
+ *   permission request becomes `approval.resolved {decision: "cancelled",
+ *   reason}`: written by the store when it closed a card, here otherwise.
  */
 import type { AcpOutput, NormalizedEvent } from "@/vendor/threadbear/acp/normalize";
 import { TurnWatchdog, type TurnTimeoutReason } from "@/vendor/nuphos/turnTimers";
 import { handoffNote, type HandoffEvent } from "./handoff";
 import { PERMANENT_RESTORE_NOTE, SessionResumeTransientError, TRANSIENT_RESTORE_NOTE, type RestoreRecord } from "./restore";
 import { DirectStreamRedactor, redactErrorText, redactPayload } from "./streamRedactor";
-import type { ToolGateAnswer, ToolGateCall } from "./toolGate";
+import { cancelReasonOf, type ToolGateAnswer, type ToolGateCall } from "./toolGate";
 import {
   SessionNotFoundError,
+  type ApprovalCancelReason,
+  type PermissionCancel,
   type DirectEngine,
   type DirectSession,
   type TurnResult,
@@ -56,6 +67,8 @@ import {
 export const INTERRUPT_GRACE_MS = 10_000;
 export const STREAM_FLUSH_MS = 300;
 export const APPROVAL_POLL_MS = 750;
+/** Longest a card waits for an answer before it expires (DIRECT_APPROVAL_MAX_MIN default). */
+export const APPROVAL_MAX_MS = 30 * 60_000;
 
 export type DirectStatePatch = {
   status?: "idle" | "starting" | "running" | "waiting" | "stopped" | "error";
@@ -80,8 +93,16 @@ export interface DirectStore {
     request: ToolGateCall["description"]["request"];
     input: string;
   }): Promise<{ status: "auto" | "pending"; approvalId: string; reason: string }>;
-  approvalState(approvalId: string): Promise<{ status: string; decision: string | null; note: string | null; taskStatus: string | null } | null>;
-  cancelApproval(approvalId: string, reason: string): Promise<void>;
+  approvalState(approvalId: string): Promise<{
+    status: string;
+    decision: string | null;
+    note: string | null;
+    taskStatus: string | null;
+    /** Why the card was closed, when the store closed it (Stop, close, release). */
+    reason?: ApprovalCancelReason | null;
+  } | null>;
+  /** Closes a card; the store writes approval.resolved {decision: "cancelled", reason, message}. */
+  cancelApproval(approvalId: string, reason: ApprovalCancelReason, message: string): Promise<void>;
   /** The thread's events so far (for a handoff note). */
   loadEvents(): Promise<HandoffEvent[]>;
   recordUsage(usage: TurnUsage): Promise<void>;
@@ -102,6 +123,8 @@ export interface ThreadRunnerOptions {
   interruptGraceMs?: number;
   streamFlushMs?: number;
   approvalPollMs?: number;
+  /** Longest a card waits before it expires and the agent is told no (ms; 0: no bound). */
+  approvalMaxMs?: number;
   now?: () => number;
   newTurnId?: () => string;
   log?: (...args: unknown[]) => void;
@@ -276,6 +299,10 @@ export class ThreadRunner {
         activity: (progress) => {
           if (gen !== this.generation) return;
           this.turn?.watchdog?.frame(progress);
+        },
+        permissionCancelled: (cancel) => {
+          if (gen !== this.generation) return;
+          this.onPermissionCancelled(cancel);
         },
         restore: (record) => {
           if (gen !== this.generation) return;
@@ -506,29 +533,43 @@ export class ThreadRunner {
       request: call.description.request,
       input: call.description.input,
     });
-    if (asked.status === "auto") return { decision: "allow" };
+    const approvalId = asked.approvalId;
+    if (asked.status === "auto") return { decision: "allow", approvalId };
     // Waiting on the person is not a hung agent (exempt up to the cap).
     const watched = this.turn?.watchdog;
     watched?.pause();
     if (this.turn) await this.persist([], { status: "waiting" });
+    const maxMs = this.opts.approvalMaxMs ?? APPROVAL_MAX_MS;
+    const since = this.now();
+    const close = async (reason: ApprovalCancelReason, message: string): Promise<ToolGateAnswer> => {
+      await this.opts.store.cancelApproval(approvalId, reason, message).catch(() => undefined);
+      return { decision: "expired", approvalId, reason, recorded: true, message };
+    };
     try {
       for (;;) {
         if (call.signal.aborted) {
-          await this.opts.store.cancelApproval(asked.approvalId, "Stopped").catch(() => undefined);
-          return { decision: "expired" };
+          const reason = cancelReasonOf(call.signal);
+          return await close(reason, reason === "session_ended" ? "The agent session ended." : "Stopped.");
         }
-        const state = await this.opts.store.approvalState(asked.approvalId).catch(() => null);
+        const state = await this.opts.store.approvalState(approvalId).catch(() => null);
         if (state && state.status !== "pending") {
-          if (state.status === "approved") return { decision: "allow" };
-          if (state.status === "rejected") return { decision: "deny", ...(state.note ? { message: `The user denied this: ${state.note}` } : {}) };
-          return { decision: "expired", ...(state.note ? { message: state.note } : {}) };
+          if (state.status === "approved") return { decision: "allow", approvalId };
+          if (state.status === "rejected") return { decision: "deny", approvalId, ...(state.note ? { message: `The user denied this: ${state.note}` } : {}) };
+          // Closed by the store (Stop, close, release): it wrote the event.
+          return { decision: "expired", approvalId, reason: state.reason ?? "interrupt", recorded: true, ...(state.note ? { message: state.note } : {}) };
         }
-        if (state?.taskStatus === "cancelled") {
-          await this.opts.store.cancelApproval(asked.approvalId, "The thread was closed").catch(() => undefined);
-          return { decision: "expired" };
+        if (state?.taskStatus === "cancelled") return await close("closed", "The thread was closed.");
+        const waited = this.now() - since;
+        if (maxMs > 0 && waited >= maxMs) {
+          const message = expiredMessage(maxMs);
+          this.opts.log?.("approval card expired", this.opts.taskId, approvalId, maxMs);
+          const answer = await close("expired", message);
+          await this.persist([{ type: "system.note", eventKey: `approval.expired:${approvalId}`, payload: { text: message } }]);
+          return answer;
         }
+        const poll = this.opts.approvalPollMs ?? APPROVAL_POLL_MS;
         await Promise.race([
-          sleep(this.opts.approvalPollMs ?? APPROVAL_POLL_MS),
+          sleep(maxMs > 0 ? Math.max(1, Math.min(poll, maxMs - waited)) : poll),
           new Promise<void>((resolve) => call.signal.addEventListener("abort", () => resolve(), { once: true })),
         ]);
       }
@@ -536,6 +577,23 @@ export class ThreadRunner {
       watched?.resume();
       if (this.turn) await this.persist([], { status: "running" }).catch(() => undefined);
     }
+  }
+
+  /** A cancelled permission request the store didn't record: approval.resolved here. */
+  private onPermissionCancelled(c: PermissionCancel): void {
+    if (c.recorded) return;
+    const turnId = this.turn?.turnId ?? "none";
+    this.queue({
+      type: "approval.resolved",
+      eventKey: `approval.cancelled:${turnId}:${c.itemId}:${c.reason}`,
+      payload: {
+        ...(c.approvalId ? { approvalId: c.approvalId } : {}),
+        itemId: c.itemId,
+        decision: "cancelled",
+        reason: c.reason,
+        ...(c.message ? { message: c.message } : {}),
+      },
+    });
   }
 
   // ── Persistence ───────────────────────────────────────────────────────
@@ -613,6 +671,11 @@ export class ThreadRunner {
     await session?.end().catch(() => session.kill());
     await this.drain();
   }
+}
+
+/** What the person (and the card) read when a card expires unanswered. */
+export function expiredMessage(maxMs: number): string {
+  return `No one answered this approval within ${span(maxMs)}, so it expired and the agent was told no. The turn goes on.`;
 }
 
 function addUsage(a: TurnUsage | undefined, b: TurnUsage): TurnUsage {

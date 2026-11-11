@@ -364,10 +364,16 @@ describe("watchdog config (@fhara/config)", () => {
     expect(directWatchdog({})).toEqual({ inactivityMs: 20 * 60_000, progressMs: 30 * 60_000, approvalCapMs: 60 * 60_000 });
   });
   it("0 turns a window off; blank keeps the default", () => {
-    expect(directWatchdog({ DIRECT_INACTIVITY_MIN: "0", DIRECT_PROGRESS_MIN: "", DIRECT_WATCHDOG_APPROVAL_MIN: "5" })).toEqual({
+    expect(directWatchdog({ DIRECT_INACTIVITY_MIN: "0", DIRECT_PROGRESS_MIN: "", DIRECT_WATCHDOG_APPROVAL_MIN: "0" })).toEqual({
       inactivityMs: 0,
       progressMs: 30 * 60_000,
-      approvalCapMs: 5 * 60_000,
+      approvalCapMs: 0,
     });
+  });
+  it("the approval exemption stays above the card's own bound (Nuphos N5: the card expires first)", () => {
+    // 5 < 30 + 1: raised, so a turn is never timed out while its card has time left.
+    expect(directWatchdog({ DIRECT_WATCHDOG_APPROVAL_MIN: "5" }).approvalCapMs).toBe(31 * 60_000);
+    expect(directWatchdog({ DIRECT_WATCHDOG_APPROVAL_MIN: "5", DIRECT_APPROVAL_MAX_MIN: "2" }).approvalCapMs).toBe(5 * 60_000);
+    expect(directWatchdog({ DIRECT_WATCHDOG_APPROVAL_MIN: "90", DIRECT_APPROVAL_MAX_MIN: "120" }).approvalCapMs).toBe(121 * 60_000);
   });
 });

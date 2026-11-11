@@ -24,6 +24,7 @@ import { diffCommentsTable, reviewEvidenceValidator, reviewFixValidator } from "
 import { invokedSkillsField } from "./lib/invokedSkillsSchema";
 import { scheduledTaskTables } from "./lib/scheduledTaskSchema";
 import { mcpWriteTables } from "./lib/mcpWriteSchema";
+import { decisionTurnTables } from "./lib/decisionTurnSchema";
 import { threadIndexTable, titleSetByValidator } from "./lib/threadIndexSchema";
 import { projectScriptsValidator } from "./lib/projectScriptsSchema";
 
@@ -985,31 +986,6 @@ export default defineSchema({
     .index("by_task", ["taskId"])
     .index("by_project", ["projectId"])
     .index("by_project_and_status", ["projectId", "status"]),
-
-  // Durable approval signals (idea from convex-orchestrator's `signals`
-  // inbox, re-implemented). Approve / reject writes one row in the same
-  // mutation that resolves the approval. "approval" rows wake a task parked
-  // in needs_approval (the worker's resumable scan reads them, the resume
-  // claim consumes them); "command" rows record a run_command decision the
-  // in-process waiter reads, and let a replayed subtask reuse an allow the
-  // user already gave when its first worker died mid-wait.
-  taskSignals: defineTable({
-    taskId: v.id("tasks"),
-    projectId: v.id("projects"),
-    name: v.union(v.literal("approval"), v.literal("command")),
-    approvalId: v.id("approvals"),
-    approvalKind: v.string(),
-    decision: v.union(v.literal("approved"), v.literal("rejected")),
-    subtaskKey: v.optional(v.string()),
-    command: v.optional(v.string()),
-    createdAt: v.number(),
-    consumedAt: v.optional(v.number()),
-    consumedBy: v.optional(v.string()),
-  })
-    .index("by_name_and_consumed", ["name", "consumedAt"])
-    .index("by_task_and_consumed", ["taskId", "consumedAt"])
-    .index("by_approval", ["approvalId"])
-    .index("by_project", ["projectId"]),
 
   fileChanges: defineTable({
     taskId: v.id("tasks"),
@@ -2305,4 +2281,5 @@ export default defineSchema({
   diffComments: diffCommentsTable, threadIndex: threadIndexTable, // threadIndex: Paradev B1 thread list (lib/threadIndex.ts)
   ...scheduledTaskTables, // GOAT G7 scheduled tasks + their runs
   ...mcpWriteTables, // GOAT G12b MCP write dedupe + task drafts
+  ...decisionTurnTables, // taskSignals (durable signal outbox) + GOAT G13 decision turns
 });

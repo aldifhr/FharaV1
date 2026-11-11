@@ -40,4 +40,8 @@ crons.interval("sweep stale chat replies", { minutes: 2 }, internal.cronJobs.swe
 // (scheduledTasks.ts). Honours the G3 automation hold per task.
 crons.interval("run scheduled tasks", { minutes: 1 }, internal.cronJobs.runScheduledTasks, {});
 
+// GOAT G13: expire CTO decision turns past their deadline (never auto-picking)
+// and retry answers committed to the outbox but not yet delivered.
+crons.interval("sweep decision turns", { minutes: 1 }, internal.cronJobs.sweepDecisionTurns, {});
+
 export default crons;

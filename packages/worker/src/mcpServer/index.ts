@@ -16,7 +16,7 @@ export type { FharaMcpServer } from "./httpServer";
 export type { McpReadSource, McpSource, McpWriteSource } from "./types";
 export { verifyWebhookSignature, WEBHOOK_SIGNATURE_HEADER, WEBHOOK_TIMESTAMP_HEADER } from "./webhook";
 
-export async function startFharaMcpFromEnv(workerApi: WorkerApi): Promise<FharaMcpServer | null> {
+export async function startFharaMcpFromEnv(workerApi: WorkerApi, ctoFirst?: { enabled: boolean; ttlMs: number }): Promise<FharaMcpServer | null> {
   const port = wenv("FHARA_MCP_PORT");
   if (!port) return null;
   const token = wenv("FHARA_MCP_TOKEN");
@@ -27,7 +27,7 @@ export async function startFharaMcpFromEnv(workerApi: WorkerApi): Promise<FharaM
   try {
     const webhook = webhookConfigFrom(wenv("FHARA_MCP_WEBHOOK_URL"), wenv("FHARA_MCP_WEBHOOK_SECRET"));
     if (webhook.problem) console.warn(`[mcp-server] completion webhook off: ${webhook.problem}`);
-    const base = convexMcpSource(workerApi);
+    const base = convexMcpSource(workerApi, ctoFirst?.enabled ? { ttlMs: ctoFirst.ttlMs } : undefined);
     const source = webhook.config ? withCompletionWebhook(base, webhook.config) : base;
     const server = await startMcpHttpServer({ port, token, source });
     console.log(`[mcp-server] listening on ${server.url} (bearer token required${webhook.config ? ", completion webhook on" : ""})`);

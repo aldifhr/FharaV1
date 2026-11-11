@@ -125,7 +125,8 @@ export const request = internalMutation({
     // command for this subtask and no waiter consumed the signal (the old
     // worker died mid-wait). Reuse that decision instead of asking twice.
     const reused = unconfined ? null : await reusableAllow(ctx, args.taskId, args.subtaskKey, line);
-    if (reused) {
+    // Command signals always carry their approval (only G13 answer rows have none).
+    if (reused?.approvalId) {
       await ctx.db.patch(reused._id, { consumedAt: now, consumedBy: args.workerId ?? "replay" });
       await appendTaskEvent(ctx, {
         taskId: args.taskId,

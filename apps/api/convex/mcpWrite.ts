@@ -34,6 +34,7 @@ import { appendTaskEvent } from "./lib/taskEvents";
 import { patchTask } from "./lib/threadIndex";
 import { touchBriefQuestion } from "./briefs";
 import { insertQueuedTask } from "./taskDrafts";
+import { openDecisionTurn } from "./decisionTurns";
 
 export const MCP_TEXT_MAX = 4000;
 export const MCP_QUESTION_MAX = 2000;
@@ -253,8 +254,13 @@ export const questionAsk = mutation({
     taskId: v.string(),
     question: v.string(),
     options: v.optional(v.array(v.string())),
+    // GOAT G13: the worker's CTO-first setting; a question inside the CTO's ceiling goes to its decision turn.
+    ctoFirst: v.optional(v.object({ ttlMs: v.number() })),
   },
-  returns: v.union(v.object({ kind: v.literal("asked"), taskId: v.string(), question: v.string(), ...deduped }), refused),
+  returns: v.union(
+    v.object({ kind: v.literal("asked"), taskId: v.string(), question: v.string(), routedTo: v.optional(v.literal("cto")), ...deduped }),
+    refused
+  ),
   handler: async (ctx, args) => {
     assertServiceToken(args.workerToken);
     const clientRequestId = requestId(args.clientRequestId);
@@ -268,6 +274,25 @@ export const questionAsk = mutation({
     if (task.workerId && (task.leaseExpiresAt ?? 0) > Date.now()) return { kind: "refused" as const, reason: "task_owned_by_worker" };
     const question = cleanText(args.question, MCP_QUESTION_MAX, "question");
     const options = [...new Set((args.options ?? []).map((o) => o.trim()).filter(Boolean))].slice(0, 6);
+    if (args.ctoFirst) {
+      const routed = await openDecisionTurn(ctx, {
+        task,
+        source: task.mode === "direct" ? "direct" : "mcp",
+        delivery: "task_input",
+        question,
+        options,
+        dedupeKey: `mcp:${clientRequestId}`,
+        ttlMs: args.ctoFirst.ttlMs,
+      });
+      if (routed.route === "cto") {
+        return await remember(ctx, "question.ask", clientRequestId, {
+          kind: "asked" as const,
+          taskId: task._id as string,
+          question,
+          routedTo: "cto" as const,
+        });
+      }
+    }
     await patchTask(ctx, task._id, {
       status: "waiting_input",
       pendingQuestion: question,

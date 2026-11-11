@@ -23,6 +23,8 @@ import { REPO_TOOLS_CAPABILITY } from "@/api/convex/lib/chat/repoTools";
 import { DirectThreads } from "./direct";
 import { installConsoleRedaction, registerEnvSecrets } from "./utils/redact";
 import { startFharaMcpFromEnv } from "./mcpServer";
+import { convexDecisionTurnPort, ctoFirstFromEnv } from "./decisionTurn/port";
+import { processNextDecisionTurn } from "./decisionTurn/poller";
 import { claimUnlessPressured, createHostPressureMonitor, pressureCapability } from "./utils/hostPressure";
 
 // L2: the worker's own logs (stdout/stderr) never print a known secret.
@@ -51,6 +53,9 @@ const REPO_TOOL_HOT_WINDOW_MS = 30_000;
 // Plan 033: how often the worker checks whether the OpenCode model catalog
 // needs a refresh (the UI can request one at any time).
 const OPENCODE_CATALOG_POLL_MS = wenv("WORKER_OPENCODE_CATALOG_POLL_MS"); // ≥ 5000
+
+// GOAT G13: CTO-first questions (on by default; the turn's deadline).
+const CTO_FIRST = ctoFirstFromEnv();
 
 const workerId =
   wenv("WORKER_ID") ??
@@ -143,6 +148,9 @@ async function main() {
     workspaceRoot,
     log,
     shutdownSignal: shutdownController.signal,
+    // GOAT G13: CTO-first questions (FHARA_CTO_QUESTIONS, default on).
+    decisionTurns: convexDecisionTurnPort(api),
+    ctoFirst: CTO_FIRST,
   };
 
   // Direct threads (threadbear T2): their own claim loop and live sessions,
@@ -160,7 +168,7 @@ async function main() {
   // first direct claim waits for this.
   void direct.sweepLeftovers();
   // GOAT G12a: the localhost Fhara MCP server (read tools); off unless configured.
-  const mcpServer = await startFharaMcpFromEnv(api);
+  const mcpServer = await startFharaMcpFromEnv(api, CTO_FIRST);
   // D3: spill files of large tool output, past their retention (default 72 h).
   const sweepSpills = () => {
     try {
@@ -442,10 +450,28 @@ async function main() {
       });
   };
 
+  // GOAT G13: CTO decision turns for questions a direct thread asked through question.ask.
+  let decisionInFlight: Promise<void> | null = null;
+  let lastDecisionPoll = 0;
+  const pollDecisionTurns = () => {
+    const now = Date.now();
+    if (!CTO_FIRST.enabled || decisionInFlight || stopping || now - lastDecisionPoll < MCP_TEST_POLL_MS) return;
+    lastDecisionPoll = now;
+    decisionInFlight = processNextDecisionTurn({ api, port: deps.decisionTurns!, workerId, policy, workspaceRoot: deps.workspaceRoot, log })
+      .then((ran) => {
+        if (ran) lastDecisionPoll = 0;
+      })
+      .catch((error) => log("decision turn poll error", error instanceof Error ? error.message : String(error)))
+      .finally(() => {
+        decisionInFlight = null;
+      });
+  };
+
   while (!stopping) {
     pollPushes();
     pollDirect();
     pollMcpTests();
+    pollDecisionTurns();
     pollOpencodeCatalogs();
     try {
       if (inFlight.size >= CONCURRENCY) {

@@ -49,6 +49,7 @@ export const FIXTURE_PROJECT_TABLES = [
   "agentEvents",
   "approvals",
   "taskSignals",
+  "decisionTurns",
   "fileChanges",
   "taskBriefs",
   "taskPushes",

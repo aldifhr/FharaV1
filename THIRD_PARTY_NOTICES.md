@@ -77,7 +77,12 @@ SOFTWARE.
   cap, becomes a text attachment; a pattern from `docs/user/composer.md`) and the handoff compaction
   rules in `packages/worker/src/direct/handoff.ts` (240-character items; commands, file changes,
   checkpoints and earlier handoffs; recent turns plus the original request; the new request never cut;
-  a pattern from `docs/internals/context-handoffs.md`), no code copied.
+  a pattern from `docs/internals/context-handoffs.md`), no code copied;
+  `apps/api/convex/decisionTurns.ts`, `apps/api/convex/lib/questionPolicy.ts` and
+  `packages/worker/src/decisionTurn/` (CTO-first questions: a question inside the CTO's ceiling goes to a
+  decision turn first, only questions above it reach the person, the answer is committed to an outbox
+  before delivery, expiry never picks an option; a pattern from
+  `apps/server/src/goatclaw/{DecisionInbox.ts, DecisionService.ts, DecisionAuthority.ts}`, no code copied).
   Modified by Fhara.
   GOAT's Pen, office, PDF, native and asset sub-paths carry other licences; nothing is taken from them.
 

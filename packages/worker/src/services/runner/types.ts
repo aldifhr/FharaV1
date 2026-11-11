@@ -32,6 +32,7 @@ import type { McpRunConfig } from "@/mcp/registry";
 import type { WebReachConfig } from "@/execution/webReachTools";
 import type { SchedulerResult } from "@/scheduler/dagScheduler";
 import type { RecordedStep } from "@/api/convex/lib/restartContinuation";
+import type { CtoFirstConfig, DecisionTurnPort } from "@/decisionTurn/port";
 
 /**
  * Runtime dependencies the runner needs. One sink per concern: every
@@ -48,6 +49,12 @@ export interface RunnerDeps {
    * aborts promptly and is left for lease-expiry recovery (not failed).
    */
   shutdownSignal?: AbortSignal;
+  /** GOAT G13: the decision-turn backend (decisionTurns.ts); absent = no CTO-first routing. */
+  decisionTurns?: DecisionTurnPort;
+  /** GOAT G13: FHARA_CTO_QUESTIONS / FHARA_CTO_QUESTION_TTL_MS. */
+  ctoFirst?: CtoFirstConfig;
+  /** GOAT G13 test seam: replaces the decision turn's provider call. */
+  decisionTurnAsk?: (prompt: string, signal: AbortSignal) => Promise<string>;
 }
 
 /**

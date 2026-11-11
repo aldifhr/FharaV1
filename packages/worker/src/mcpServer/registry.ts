@@ -144,7 +144,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
     path: "question.ask",
     access: "write",
     summary:
-      "Park a task no worker is running on a question for the user (Needs you). Refused while a worker runs it, an approval or a question is open, or it has ended.",
+      "Park a task no worker is running on a question for the user (Needs you). A technical question inside the CTO's ceiling goes to the CTO first (routedTo: cto); secrets, push and destructive questions always reach the user. Refused while a worker runs it, an approval or a question is open, or it has ended.",
     input: z
       .object({
         clientRequestId,

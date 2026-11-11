@@ -62,6 +62,12 @@ export const CRON_JOBS = [
     description: "Fires your scheduled tasks that are due; while automation is held each one records held.",
     kind: "mutation",
   },
+  {
+    name: "sweep decision turns",
+    schedule: "Every minute",
+    description: "Expires CTO questions past their deadline without picking an answer, and retries undelivered answers.",
+    kind: "mutation",
+  },
 ] as const;
 
 export type CronJobName = (typeof CRON_JOBS)[number]["name"];
@@ -226,6 +232,14 @@ export const runScheduledTasks = internalMutation({
   },
 });
 
+// G13: expiry never picks an answer, and an answer already decided is only delivered; not held.
+export const sweepDecisionTurns = internalMutation({
+  args: triggerArg,
+  handler: async (ctx, args) => {
+    await runMutationJob(ctx, "sweep decision turns", args.trigger, () => ctx.runMutation(internal.decisionTurns.sweep, {}));
+  },
+});
+
 export const refreshTaskPullRequests = internalAction({
   args: triggerArg,
   handler: async (ctx, args) => {
@@ -333,6 +347,9 @@ export const runNow = mutation({
         break;
       case "run scheduled tasks":
         await ctx.scheduler.runAfter(0, internal.cronJobs.runScheduledTasks, trigger);
+        break;
+      case "sweep decision turns":
+        await ctx.scheduler.runAfter(0, internal.cronJobs.sweepDecisionTurns, trigger);
         break;
       default:
         throw new Error(`Unknown scheduled task: ${args.name}`);

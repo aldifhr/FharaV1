@@ -1,11 +1,14 @@
 import { routeEscalation, type Escalation } from "@/api/convex/lib/subtaskContract";
 import { normalizePermissionMode } from "@/api/convex/lib/permissionModes";
 import type { RunContext, RunState } from "./types";
+import { askCtoFirst, ESCALATION_CHOICES, escalationNeedsUser, escalationQuestion, type CtoEscalationResult } from "@/decisionTurn/escalationCto";
 
 /**
  * Plan 022: route one executor escalation. The executor already stopped
- * (nothing staged); a deterministic policy decides (`routeEscalation`,
- * system code, not the CTO):
+ * (nothing staged). GOAT G13: a question above the user-only ceiling goes
+ * to the user; a technical one inside the CTO's ceiling goes to the CTO's
+ * decision turn first (decisionTurn/escalationCto.ts). Otherwise a
+ * deterministic policy decides (`routeEscalation`, system code):
  *
  *  - replan: the note becomes this invocation's replan feedback (the
  *    planner replans with the widened scope / the allowed dependency recorded);
@@ -35,6 +38,21 @@ export async function handleEscalation(
     replansLeft: ctx.input.replansLeft ?? 0,
     repeated,
   });
+  // GOAT G13: the user-only ceiling first (secrets, push, destructive, ...),
+  // then the CTO's decision turn for technical questions inside its ceiling.
+  const userOnly = escalationNeedsUser(ctx, subtaskKey, escalation);
+  let cto: CtoEscalationResult = { kind: "skip", reason: userOnly ?? "repeated, stage loop or no replans left" };
+  if (userOnly) {
+    route = { route: "ask_user", question: `${escalationQuestion(subtaskKey, escalation)} How should the team proceed?`, ...(escalation.options ? { options: escalation.options } : {}) };
+  } else if (!repeated && !ctx.inStageLoop && (ctx.input.replansLeft ?? 0) > 0) {
+    cto = await askCtoFirst(ctx, subtaskKey, escalation);
+    if (cto.kind === "answered") {
+      route = { route: "replan", note: `Escalation from subtask ${subtaskKey}: ${escalationQuestion(subtaskKey, escalation)} CTO decision: ${cto.answer}` };
+    } else if (cto.kind === "user") {
+      const choices = ESCALATION_CHOICES[escalation.kind];
+      route = { route: "ask_user", question: `${escalationQuestion(subtaskKey, escalation)} ${cto.reason}. How should the team proceed?`, ...(choices ? { options: [...choices] } : {}) };
+    }
+  }
   if (route.route === "replan" && ctx.inStageLoop) {
     route = {
       route: "ask_user",
@@ -67,6 +85,7 @@ export async function handleEscalation(
         route: route.route,
         permissionMode,
         repeated,
+        decidedBy: cto.kind === "answered" ? "cto" : userOnly ? "user_only" : cto.kind === "user" ? "cto_escalated" : "policy",
       },
       executionId,
       subtaskKey,
@@ -77,9 +96,12 @@ export async function handleEscalation(
   if (route.route === "replan") {
     // The policy's allowance (dependency / schema file) is recorded so the
     // deterministic guard does not stop the replanned subtask on it again.
-    if (escalation.kind === "new_dependency" || escalation.kind === "schema_change") {
+    const allowed = cto.kind === "answered" ? cto.allow : true;
+    if (allowed && (escalation.kind === "new_dependency" || escalation.kind === "schema_change")) {
       (state.allowedEscalations ??= []).push({ kind: escalation.kind, detail: escalation.detail });
     }
+    // The answer is applied (the replan note above): consume its outbox signal.
+    if (cto.kind === "answered") await deps.decisionTurns?.consume({ turnId: cto.turnId, workerId: deps.workerId }).catch(() => undefined);
     ctx.decisionTerminal = true;
     if (ctx.replanFeedback === null) ctx.replanFeedback = route.note;
     return;

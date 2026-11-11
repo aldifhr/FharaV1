@@ -191,7 +191,7 @@ export const DIRECT_VARS = [
     max: 8,
     runtimes: ["worker"],
     group: "direct",
-    doc: "Max live direct threads per worker (1–8).",
+    doc: "Max live direct threads (agent sessions) per worker (1–8). At the cap, a new thread releases the oldest idle session, which resumes on its next message; a thread with a turn running or waiting on an approval is never released.",
     quirk: "\"\" reads as 0, then clamps to 1",
   },
   {

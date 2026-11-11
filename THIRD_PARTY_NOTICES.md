@@ -932,6 +932,9 @@ SOFTWARE.
     (`reapLeftovers`: reap a dead launcher's groups only once verified as its own). Modified by Fhara: a per-worker
     registry of ACP agent process groups, a boot sweep for dead workers' groups, start-time and command-line checks
     before any signal, and group membership read from /proc.
+  - `packages/worker/src/direct/restore.ts`: the idea of per-attempt session restore diagnostics (op, pid, timed
+    phases, outcome, no content) from the runtime README's "Session restoration diagnostics" (pattern only, no code
+    copied; Fhara stores each attempt as a `session.restore` task event).
 - Copyright 2026 Zeabur Inc. Licensed under the Apache License, Version 2.0 (full text in the Aider entry above).
   "Nuphos" and its logo are trademarks of Zeabur Inc.; Fhara uses the name only to describe where this code came from.
   The upstream NOTICE file reads:
@@ -954,10 +957,15 @@ apps/runtime/openab/LICENSE.
 ## openab
 
 - Source: https://github.com/openabdev/openab, as vendored in Nuphos at `apps/runtime/openab` (commit `a210a05`)
-- Used in: `packages/worker/src/vendor/nuphos/stderrTail.ts`: the `ERROR_LIKE`, `CREDENTIAL_LIKE` and `OPAQUE_RUN`
-  patterns copied from `crates/openab-core/src/acp/connection.rs` (the errno branch split into its own regex), and
-  `redact_stderr_line`, the bounded tail (20 lines / 2 KB / 500 chars a line), `with_recent_stderr` and
-  `redact_session_ids` (`src/redact.rs`) ported from Rust to TypeScript.
+- Used in:
+  - `packages/worker/src/vendor/nuphos/stderrTail.ts`: the `ERROR_LIKE`, `CREDENTIAL_LIKE` and `OPAQUE_RUN`
+    patterns copied from `crates/openab-core/src/acp/connection.rs` (the errno branch split into its own regex), and
+    `redact_stderr_line`, the bounded tail (20 lines / 2 KB / 500 chars a line), `with_recent_stderr` and
+    `redact_session_ids` (`src/redact.rs`) ported from Rust to TypeScript.
+  - `packages/worker/src/direct/restore.ts` and `packages/worker/src/direct/index.ts` (pattern only, no code copied):
+    the transient/permanent split for session loads (`pool.rs` `TRANSIENT_LOAD_ERRORS`: keep the id and retry, versus
+    a fresh session) and live-session admission (`reserve_admission`, `candidate_in_flight`: at the cap, release the
+    oldest idle session, never one with a turn in flight or waiting on a permission).
 
 ```
 MIT License

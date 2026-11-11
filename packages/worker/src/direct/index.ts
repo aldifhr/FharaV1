@@ -11,6 +11,12 @@
  * DIRECT_IDLE_MIN without a turn the session is released (the thread waits
  * for the user; the next message re-queues it and the session resumes).
  *
+ * Admission (Nuphos N4, idea #9): at DIRECT_MAX_LIVE a claim is still
+ * made when some live session is idle; the oldest idle one is then
+ * released (it resumes on its next message) to make room. A session with a
+ * turn in flight, or one parked on an approval card (a card only exists
+ * inside a turn), is never chosen; with none idle, no claim is made.
+ *
  * Agent processes (Nuphos N2): every ACP agent's process group is recorded
  * (agentPids.ts). Before the first claim, groups left by a worker that died
  * are verified and reaped; shutdown stops whatever this worker still has.
@@ -89,6 +95,23 @@ export function directPreamble(input: { role: string; agentName?: string; system
   ].join("\n");
 }
 
+/** What admission needs to know about one live session. */
+export type AdmissionCandidate = { taskId: string; lastActivity: number; busy: boolean; closing: boolean };
+
+/**
+ * The session to release so a new claim fits: the oldest idle one. Never a
+ * session with a turn in flight or waiting on an approval (both `busy`),
+ * never one already closing. Undefined when none qualifies.
+ */
+export function pickEvictable(live: Iterable<AdmissionCandidate>): AdmissionCandidate | undefined {
+  let best: AdmissionCandidate | undefined;
+  for (const c of live) {
+    if (c.busy || c.closing) continue;
+    if (!best || c.lastActivity < best.lastActivity) best = c;
+  }
+  return best;
+}
+
 type Claimed = NonNullable<Awaited<ReturnType<WorkerApi["claimDirectThread"]>>>;
 
 type Live = {
@@ -155,14 +178,38 @@ export class DirectThreads {
     return this.live.size;
   }
 
+  private candidates(): AdmissionCandidate[] {
+    return [...this.live.values()].map((l) => ({ taskId: l.taskId, lastActivity: l.lastActivity, busy: l.runner.busy, closing: l.closing }));
+  }
+
+  /** At the cap: release the oldest idle session(s) until one more fits. */
+  private async makeRoom(max: number): Promise<void> {
+    while (this.live.size >= max) {
+      const victim = pickEvictable(this.candidates());
+      const live = victim && this.live.get(victim.taskId);
+      if (!live) {
+        // It became busy while the claim was in flight: run one over the cap
+        // rather than fail the claim; the next idle release evens it out.
+        this.deps.log(`[direct] at the live cap (${max}) with no idle session; starting one over it`);
+        return;
+      }
+      this.deps.log(`[direct] at the live cap (${max}): releasing idle thread ${live.taskId} to admit a new one`);
+      await this.stop(live, "released for another thread (live cap)", true);
+    }
+  }
+
   /** One claim attempt; returns true when a thread was started. */
   async tick(): Promise<boolean> {
-    if (this.claiming || this.deps.shutdownSignal.aborted || this.live.size >= directMaxLive()) return false;
+    if (this.claiming || this.deps.shutdownSignal.aborted) return false;
+    const max = directMaxLive();
+    // At the cap a claim is only worth making when an idle session can go.
+    if (this.live.size >= max && !pickEvictable(this.candidates())) return false;
     this.claiming = true;
     try {
       await this.sweepLeftovers();
       const claimed = await this.deps.api.claimDirectThread({ workerId: this.deps.workerId, leaseMs: this.deps.leaseMs });
       if (!claimed) return false;
+      await this.makeRoom(max);
       await this.start(claimed).catch(async (error) => {
         this.deps.log("direct thread failed to start", claimed.taskId, error);
         this.live.delete(String(claimed.taskId));

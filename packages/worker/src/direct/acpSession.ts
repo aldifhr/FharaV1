@@ -12,6 +12,10 @@
 // the end/kill/exited order. Usage comes from the session/prompt answer.
 // session/prompt still has no timeout of its own: each session/update is
 // reported to the runner's turn watchdog (Nuphos N3, threadRunner.ts).
+// Each boot is timed phase by phase (initialize, identify, open, model,
+// ready) and reported as a restore record with no content (Nuphos N4,
+// direct/restore.ts); a resume that times out or loses the agent is a
+// SessionResumeTransientError (the id is kept), not-found stays permanent.
 
 // Threads on OpenCode over ACP: one process per live thread, and everything
 // it wants to do comes through here first. The agent is set to ask before
@@ -32,6 +36,13 @@ import {
 import { identifiesOpencode } from "@/vendor/threadbear/acp/agents";
 import { AcpNormalizer, isPlainObject, requestPaths, type AcpOutput, type AcpToolCall } from "@/vendor/threadbear/acp/normalize";
 import { isTurnProgressUpdate } from "@/vendor/nuphos/turnTimers";
+import {
+  isTransientRestoreError,
+  RestoreRecorder,
+  SessionResumeTransientError,
+  type RestoreFailure,
+  type RestorePhaseName,
+} from "./restore";
 import { describeToolCall, gateToolCall } from "./toolGate";
 import {
   SessionNotFoundError,
@@ -103,6 +114,9 @@ export class AcpSession implements DirectSession {
   private preamble?: string;
   private replaying = false;
   private exitedCalled = false;
+  private restore: RestoreRecorder;
+  private restoreStep: RestorePhaseName = "initialize";
+  private authFailed = false;
 
   constructor(opts: StartSessionOptions, sink: SessionSink, deps: AcpEngineDeps) {
     this.opts = opts;
@@ -111,6 +125,7 @@ export class AcpSession implements DirectSession {
     this.now = deps.now ?? Date.now;
     this.preamble = opts.sessionId ? undefined : opts.preamble;
     this.normalizer = new AcpNormalizer({ cwd: opts.cwd }, deps.newId);
+    this.restore = new RestoreRecorder(opts.sessionId ? "resume" : "new", this.now);
     this.proc = new AcpProcess({ binary: deps.binary, args: deps.args, env: deps.env, cwd: opts.cwd, log: deps.log, label: opts.taskId, agentName: "OpenCode", timings: deps.timings, processHooks: deps.processHooks });
     this.proc.onNotification = (method, params) => this.notification(method, params);
     this.proc.onRequest = (id, method, params) => this.request(id, method, params);
@@ -121,23 +136,29 @@ export class AcpSession implements DirectSession {
     void this.boot().catch((e: unknown) => {
       if (this.state === "closing" || this.state === "closed") return void this.finish();
       this.deps.log.warn("acp session did not start", { taskId: this.opts.taskId, error: String(e) });
+      this.restore.phase(this.restoreStep, false);
+      this.reportRestore("failed", this.restoreFailure(e));
       void this.finish(e instanceof Error ? e : new Error(String(e)));
     });
   }
 
   private async boot(): Promise<void> {
     this.init = await this.proc.start();
+    this.restore.pid = this.proc.processId;
+    this.step("identify");
     if (this.state !== "starting") return void (await this.proc.close());
     const identifies = this.deps.identifies ?? identifiesOpencode;
     if (!identifies(this.init)) {
       const said = this.init.agentInfo?.name ? ` (it says it's ${this.init.agentInfo.name})` : "";
       throw new Error(`The program found for OpenCode isn't OpenCode${said}, so this thread wasn't started.`);
     }
+    this.step("open");
     let res: SessionResult;
     try {
       res = await this.openSession();
     } catch (e) {
       if (e instanceof AcpRpcError && e.code === AUTH_REQUIRED) {
+        this.authFailed = true;
         throw new Error("OpenCode needs a sign-in. Run `opencode auth login` in a terminal on the worker, then send this again.");
       }
       throw e;
@@ -146,11 +167,37 @@ export class AcpSession implements DirectSession {
     this.sessionId = this.sessionId ?? res.sessionId;
     if (typeof this.sessionId !== "string" || !this.sessionId) throw new Error("OpenCode started a session without an id");
     if (Array.isArray(res.configOptions)) this.configOptions = res.configOptions;
-    if (this.opts.model) await this.applyModel(this.opts.model);
+    if (this.opts.model) {
+      this.step("model");
+      await this.applyModel(this.opts.model);
+    }
+    this.step("ready");
     const model = this.modelNow();
     this.sink.output({ kind: "session", sessionId: this.sessionId, ...(model ? { model } : {}) });
     this.state = "ready";
+    this.restore.phase("ready");
+    this.reportRestore("completed");
     this.next();
+  }
+
+  // ---- Restore diagnostics (phases only)
+
+  /** The step before `next` finished: record it, and `next` is now in progress. */
+  private step(next: RestorePhaseName): void {
+    this.restore.phase(this.restoreStep);
+    this.restoreStep = next;
+  }
+
+  private restoreFailure(e: unknown): RestoreFailure {
+    if (e instanceof SessionNotFoundError) return "not_found";
+    if (e instanceof SessionResumeTransientError) return "transient";
+    if (this.authFailed) return "auth";
+    return "failed";
+  }
+
+  private reportRestore(outcome: "completed" | "failed", failure?: RestoreFailure): void {
+    const record = this.restore.finish(outcome, failure);
+    if (record) this.sink.restore?.(record);
   }
 
   private openSession(): Promise<SessionResult> {
@@ -159,6 +206,7 @@ export class AcpSession implements DirectSession {
     if (!opts.sessionId) return this.proc.request<SessionResult>("session/new", { cwd: opts.cwd, mcpServers: [] });
     this.sessionId = opts.sessionId;
     const common = { sessionId: opts.sessionId, cwd: opts.cwd, mcpServers: [] };
+    this.restore.op = caps?.sessionCapabilities?.resume === undefined && caps?.loadSession ? "load" : "resume";
     const opened =
       caps?.sessionCapabilities?.resume !== undefined
         ? this.proc.request<SessionResult>("session/resume", common)
@@ -168,6 +216,11 @@ export class AcpSession implements DirectSession {
     return opened.catch((e: unknown) => {
       if (e instanceof SessionNotFoundError || notFound(e)) {
         throw new SessionNotFoundError(`The session to resume wasn't found (${(e as Error).message}).`);
+      }
+      // Not reached in time, or the agent went away mid-load: the session
+      // may well still exist, so the id is kept and tried again.
+      if (isTransientRestoreError(e)) {
+        throw new SessionResumeTransientError(`The saved session couldn't be reached (${(e as Error).message}).`);
       }
       throw e;
     });
@@ -392,6 +445,11 @@ export class AcpSession implements DirectSession {
   private exited(error?: Error): void {
     if (this.exitedCalled) return;
     this.exitedCalled = true;
+    // The agent died while booting (not an end() we asked for).
+    if (this.state === "starting" && !this.restore.finished) {
+      this.restore.phase(this.restoreStep, false);
+      this.reportRestore("failed", this.restoreFailure(error));
+    }
     this.state = "closed";
     this.cancelPending(false);
     this.proc.onRequest = null;

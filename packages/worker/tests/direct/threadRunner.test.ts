@@ -125,7 +125,9 @@ describe("direct thread runner over a fake ACP agent", () => {
     await runner.deliver(store.userMessage("hello again"));
     await runner.idle();
     await runner.drain();
-    const types = store.types();
+    // The session start is recorded once (Nuphos N4); the turn order is the rest.
+    expect(store.events.filter((e) => e.type === "session.restore").map((e) => e.payload)).toEqual([expect.objectContaining({ op: "new", outcome: "completed" })]);
+    const types = store.types().filter((t) => t !== "session.restore");
     expect(types.slice(0, 7)).toEqual(["user.message", "turn.started", "tool.call", "edit.diff", "tool.result", "assistant.text", "turn.completed"]);
     expect(types.slice(7)).toEqual(["user.message", "turn.started", "reasoning", "assistant.text", "turn.completed"]);
     expect(store.events.map((e) => e.seq)).toEqual(store.events.map((_, i) => i + 1));

@@ -48,6 +48,8 @@ export const DIRECT_EVENT_TYPES = [
   "turn.completed",
   "system.note",
   "plan.updated",
+  // Nuphos N4: one per session start (op, pid, phases, outcome; no content).
+  "session.restore",
 ] as const;
 export type DirectEventType = (typeof DIRECT_EVENT_TYPES)[number];
 

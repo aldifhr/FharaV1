@@ -580,7 +580,7 @@
       "runtimes": [
         "worker"
       ],
-      "doc": "Max live direct threads per worker (1–8).",
+      "doc": "Max live direct threads (agent sessions) per worker (1–8). At the cap, a new thread releases the oldest idle session, which resumes on its next message; a thread with a turn running or waiting on an approval is never released.",
       "default": "4",
       "parse": "nullishNumber",
       "min": 1,

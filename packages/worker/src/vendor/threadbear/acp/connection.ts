@@ -13,7 +13,8 @@
 // and, once its leader exits, any member left behind is signalled. kill()
 // stops the group through the registry when it can (processHooks.stop:
 // verified, TERM, grace, KILL), so the turn watchdog's last step (Nuphos N3)
-// never signals a reused pid.
+// never signals a reused pid. processId exposes the pid for restore
+// diagnostics (Nuphos N4).
 // Everything else (the JSON-RPC framing, pending map, timeouts, close/kill
 // order) is unchanged.
 
@@ -213,6 +214,11 @@ export class AcpProcess {
 
   get alive(): boolean {
     return !this.exited;
+  }
+
+  /** The agent's pid once spawned (restore diagnostics, direct/restore.ts). */
+  get processId(): number | undefined {
+    return this.pid;
   }
 
   /** The agent's recent stderr, redacted: error-like lines only, credentials withheld. */

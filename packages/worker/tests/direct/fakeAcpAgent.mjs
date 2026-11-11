@@ -17,6 +17,7 @@
 //   "heartbeat-hang" heartbeats forever and ignores session/cancel
 //   anything else  echoes the whole prompt text
 // FAKE_ACP_KNOWN_SESSION: the only id session/resume accepts.
+// FAKE_ACP_RESUME_HANG: a file path; while it exists, session/resume never answers.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -163,6 +164,7 @@ function onMessage(msg) {
         return send({ id, result: { sessionId, configOptions: [{ id: "model", category: "model", currentValue: "opencode/fake" }] } });
       }
       case "session/resume":
+        if (process.env.FAKE_ACP_RESUME_HANG && fs.existsSync(process.env.FAKE_ACP_RESUME_HANG)) return;
         if (!sessions.has(params.sessionId)) return send({ id, error: { code: -32002, message: `Session not found: ${params.sessionId}` } });
         return send({ id, result: { configOptions: [] } });
       case "session/set_config_option":

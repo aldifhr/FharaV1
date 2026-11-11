@@ -21,6 +21,11 @@
  *   killed.
  * - A session that can't be resumed is retried once, fresh, with a handoff
  *   note built from the thread's own events.
+ * - Restore (Nuphos N4, restore.ts): every session start is stored as a
+ *   `session.restore` event (op, pid, phases, outcome; no content). The
+ *   wording tells a permanent failure (the session is gone: fresh plus
+ *   handoff) from a transient one (it didn't answer in time: the id is
+ *   kept, the turn fails, and the next message tries it again).
  * - Deltas are transient: coalesced per item and written to hot stream rows
  *   at most every ~300 ms; the persisted event replaces the hot row.
  * - The budget gate (rule 6) runs before every prompt, before any process
@@ -36,6 +41,7 @@
 import type { AcpOutput, NormalizedEvent } from "@/vendor/threadbear/acp/normalize";
 import { TurnWatchdog, type TurnTimeoutReason } from "@/vendor/nuphos/turnTimers";
 import { handoffNote, type HandoffEvent } from "./handoff";
+import { PERMANENT_RESTORE_NOTE, SessionResumeTransientError, TRANSIENT_RESTORE_NOTE, type RestoreRecord } from "./restore";
 import { DirectStreamRedactor, redactErrorText, redactPayload } from "./streamRedactor";
 import type { ToolGateAnswer, ToolGateCall } from "./toolGate";
 import {
@@ -271,6 +277,10 @@ export class ThreadRunner {
           if (gen !== this.generation) return;
           this.turn?.watchdog?.frame(progress);
         },
+        restore: (record) => {
+          if (gen !== this.generation) return;
+          this.onRestore(record);
+        },
         exited: (error) => {
           if (gen !== this.generation) return;
           void this.onExited(error);
@@ -383,17 +393,30 @@ export class ThreadRunner {
     await this.completeTurn(turn, outcome, message);
   }
 
+  /** Phases only: the record carries no prompt, agent text or error message. */
+  private onRestore(record: RestoreRecord): void {
+    this.queue({ type: "session.restore", eventKey: `session.restore:${record.attemptId}`, payload: { ...record } });
+  }
+
   private async onExited(error?: Error): Promise<void> {
     this.session = undefined;
     const turn = this.turn;
     if (!turn) return;
+    if (error instanceof SessionResumeTransientError) {
+      // The session may still exist: keep its id (no sessionId patch), say
+      // so, and let the next message try it again.
+      this.opts.log?.("saved session unreachable, kept for the next message", this.opts.taskId);
+      await this.persist([{ type: "system.note", payload: { text: TRANSIENT_RESTORE_NOTE, restore: "transient" } }]);
+      await this.failTurn(TRANSIENT_RESTORE_NOTE, turn.interruptRequested ? "interrupted" : "failed");
+      return;
+    }
     if (error instanceof SessionNotFoundError && !this.retriedFresh) {
       // Once: a fresh session that is told the story so far, and the turn's
       // messages again.
       this.retriedFresh = true;
       this.sessionId = undefined;
       await this.persist(
-        [{ type: "system.note", payload: { text: "The earlier agent session couldn't be resumed, so a new one carries on with a summary of this thread." } }],
+        [{ type: "system.note", payload: { text: PERMANENT_RESTORE_NOTE, restore: "not_found" } }],
         { sessionId: null }
       );
       let note = "";

@@ -5,6 +5,7 @@
  * runner (threadRunner.ts) owns everything else).
  */
 import type { AcpOutput, NormalizedEvent } from "@/vendor/threadbear/acp/normalize";
+import type { RestoreRecord } from "./restore";
 import type { ToolGateAnswer, ToolGateCall } from "./toolGate";
 
 export type { NormalizedEvent };
@@ -48,6 +49,8 @@ export interface SessionSink {
    * a heartbeat or usage broadcast.
    */
   activity?(progress: boolean): void;
+  /** A session start (new, resume or load) ended: its phases, no content (Nuphos N4). */
+  restore?(record: RestoreRecord): void;
   /** The engine ended (error: it crashed or could not start). */
   exited(error?: Error): void;
 }

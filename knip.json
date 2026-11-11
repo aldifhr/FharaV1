@@ -10,7 +10,8 @@
     },
     "apps/web": {
       "entry": [
-        "app/**/{page,layout,route,loading,error,global-error,not-found,template,default}.{ts,tsx}"
+        "app/**/{page,layout,route,loading,error,global-error,not-found,template,default}.{ts,tsx}",
+        "tests/bench/*.bench.ts"
       ],
       "project": ["**/*.{ts,tsx,mjs}"],
       "ignoreDependencies": ["tailwindcss", "tw-animate-css"]

@@ -31,7 +31,8 @@ import ReplyInterrupted, { ReplyCutOff } from "./ReplyInterrupted";
 import { CheckedFilesLine, checkedFilesLabel, delegationParts, messageKindOf } from "./messageKinds";
 import SystemLineRow from "./SystemLineRow";
 import { systemLineText } from "@/lib/systemLine";
-
+import HistoryBar from "./HistoryBar";
+import type { MessageHistory } from "@/lib/useMessageHistory";
 
 /** References the reply cites that no repo check in it showed: one quiet line, never hidden. */
 const UNVERIFIED_SHOWN = 6;
@@ -90,6 +91,8 @@ type Props = {
   formatTime: (createdAt: number) => string;
   taskTitle: (taskId: string) => string;
   blockKey: (m: any) => string;
+  /** D12: "Load earlier" and the turn outline for a long thread. */
+  history?: MessageHistory;
 };
 
 export default function MessageList(props: Props) {
@@ -97,7 +100,7 @@ export default function MessageList(props: Props) {
     timeline, firstNewIndex, agents, tasks = [], subtasksOf, pendingItems, projectEvents = [],
     projectApprovalMode, loading = false, chatSending,
     conversationTyping, typingAgent, scrollRef, scrollToMessageRef,
-    onSelectTask, approve, reject, hold, respond, togglePin, onPickProposal, onCreateTaskFrom, onReply, formatTime, taskTitle, blockKey,
+    onSelectTask, approve, reject, hold, respond, togglePin, onPickProposal, onCreateTaskFrom, onReply, formatTime, taskTitle, blockKey, history,
   } = props;
 
   const listRef = useRef<HTMLDivElement>(null);
@@ -200,9 +203,7 @@ export default function MessageList(props: Props) {
   // The message a jump landed on gets a brief highlight.
   const [flashId, setFlashId] = useState<string | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (flashTimer.current) clearTimeout(flashTimer.current);
-  }, []);
+  useEffect(() => () => void (flashTimer.current && clearTimeout(flashTimer.current)), []);
   const scrollToMessage = (messageId: string) => {
     const index = timeline.findIndex((m: any) => m._id === messageId);
     if (index < 0) return false;
@@ -231,6 +232,10 @@ export default function MessageList(props: Props) {
       if (scrollToMessageRef) scrollToMessageRef.current = null;
     };
   }, [scrollToMessageRef]);
+  // An outline jump lands once its page is in the timeline.
+  useEffect(() => {
+    if (history?.pendingJump && scrollToMessageLatest.current(history.pendingJump)) history.clearJump();
+  }, [history, timeline]);
 
   const renderItem = (m: any, index: number, animate: boolean) => {
     const previous = timeline[index - 1];
@@ -612,6 +617,7 @@ export default function MessageList(props: Props) {
     <CardSurfaceProvider value={cardSurface}>
       {inspectId && <ContextDrawer messageId={inspectId} onClose={() => setInspectId(null)} />}
       {loading && <SectionLoading rows={2} />}
+      {history && !loading && <HistoryBar history={history} />}
       {virtualized ? (
         <div ref={listRef} style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
           {virtualizer.getVirtualItems().map((vi) => {
@@ -621,13 +627,7 @@ export default function MessageList(props: Props) {
                 key={vi.key}
                 ref={virtualizer.measureElement}
                 data-index={vi.index}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  transform: `translateY(${vi.start - virtualizer.options.scrollMargin}px)`,
-                }}
+                style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${vi.start - virtualizer.options.scrollMargin}px)` }}
               >
                 {renderItem(m, vi.index, false)}
               </div>

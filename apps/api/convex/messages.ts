@@ -1,4 +1,4 @@
-import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { declineWaitingCommands } from "./commandApprovals";
 import { ensureChatConversation } from "./conversations";
@@ -17,6 +17,7 @@ import { invokedSkillsField } from "./lib/invokedSkillsSchema";
 import { assertInvokedSkills } from "./lib/chat/invokedSkills";
 import { projectTeamIds } from "./lib/projectTeam";
 import { syncConversationThread } from "./lib/threadIndex";
+import { pageSize, turnPreview, TURN_OUTLINE_SCAN_MAX } from "./lib/historyPaging";
 
 export const listByProject = query({
   args: { projectId: v.id("projects"), limit: v.optional(v.number()) },
@@ -529,5 +530,87 @@ export const sendInConversation = mutation({
       userMessageId: messageId,
     });
     return { messageId: messageId as string, conversationId: conversation._id as string, deduped: false };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// History paging (D12): cursor pages behind the newest window, and the turn
+// outline. The cursor is the oldest `_creationTime` the client holds.
+// ---------------------------------------------------------------------------
+
+const historyScope = v.union(
+  v.object({ kind: v.literal("task"), taskId: v.id("tasks") }),
+  v.object({ kind: v.literal("conversation"), conversationId: v.id("conversations") }),
+  v.object({ kind: v.literal("project"), projectId: v.id("projects") })
+);
+type HistoryScope = typeof historyScope.type;
+
+/** The scope's message range on its index, or null when the caller may not see it (task gone). */
+async function scopedMessages(ctx: QueryCtx, scope: HistoryScope) {
+  if (scope.kind === "task") {
+    if (!(await getVisibleTask(ctx, scope.taskId))) return null;
+    return (range?: (q: any) => any) =>
+      ctx.db.query("messages").withIndex("by_task", (q) => (range ? range(q.eq("taskId", scope.taskId)) : q.eq("taskId", scope.taskId)));
+  }
+  if (scope.kind === "conversation") {
+    const conversation = await ctx.db.get(scope.conversationId);
+    if (!conversation) return null;
+    await assertConversationAccess(ctx, conversation);
+    return (range?: (q: any) => any) =>
+      ctx.db
+        .query("messages")
+        .withIndex("by_conversation", (q) =>
+          range ? range(q.eq("conversationId", scope.conversationId)) : q.eq("conversationId", scope.conversationId)
+        );
+  }
+  await assertProjectAccess(ctx, scope.projectId);
+  return (range?: (q: any) => any) =>
+    ctx.db.query("messages").withIndex("by_project", (q) => (range ? range(q.eq("projectId", scope.projectId)) : q.eq("projectId", scope.projectId)));
+}
+
+/**
+ * One page of messages older than `before`, oldest first. With `floor`, the
+ * page covers [floor, before) (an outline jump); `reachedFloor` is false when
+ * more than one page lies in that range.
+ */
+export const pageEarlier = query({
+  args: { scope: historyScope, before: v.number(), floor: v.optional(v.number()), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const scoped = await scopedMessages(ctx, args.scope);
+    if (!scoped) return { rows: [], hasMore: false, reachedFloor: true };
+    const size = pageSize(args.limit);
+    const floor = args.floor;
+    const taken = await scoped((q) =>
+      floor === undefined ? q.lt("_creationTime", args.before) : q.gte("_creationTime", floor).lt("_creationTime", args.before)
+    )
+      .order("desc")
+      .take(size + 1);
+    const overflow = taken.length > size;
+    const rows = taken.slice(0, size).reverse();
+    if (floor === undefined) return { rows, hasMore: overflow, reachedFloor: true };
+    if (overflow) return { rows, hasMore: true, reachedFloor: false };
+    const below = await scoped((q) => q.lt("_creationTime", floor)).order("desc").first();
+    return { rows, hasMore: below !== null, reachedFloor: true };
+  },
+});
+
+/**
+ * The thread's turns (user messages), oldest first, for the outline. Scans
+ * the newest TURN_OUTLINE_SCAN_MAX rows; `truncated` says older turns exist
+ * beyond the scan. Project scope lists the chat's turns, not task threads.
+ */
+export const turnOutline = query({
+  args: { scope: historyScope },
+  handler: async (ctx, args) => {
+    const scoped = await scopedMessages(ctx, args.scope);
+    if (!scoped) return { turns: [], truncated: false };
+    const rows = await scoped().order("desc").take(TURN_OUTLINE_SCAN_MAX + 1);
+    const truncated = rows.length > TURN_OUTLINE_SCAN_MAX;
+    const turns = rows
+      .slice(0, TURN_OUTLINE_SCAN_MAX)
+      .filter((m) => m.authorType === "user" && (args.scope.kind !== "project" || !m.taskId))
+      .reverse()
+      .map((m, index) => ({ _id: m._id, _creationTime: m._creationTime, turn: index + 1, preview: turnPreview(m.content) }));
+    return { turns, truncated };
   },
 });

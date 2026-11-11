@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "node scripts/next.mjs start",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"tests/unit/*.test.mjs\""
+    "test": "node --import tsx --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"tests/unit/*.test.mjs\"",
+    "bench": "node --import tsx --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"tests/bench/*.bench.ts\"",
+    "test:stress": "FHARA_STRESS=1 playwright test tests/e2e/historyStress.spec.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

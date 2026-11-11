@@ -32,6 +32,8 @@ import { clockTime } from "@/lib/format";
 import { groupActivity, groupByIndex } from "@/lib/activityGroups";
 import ActivityGroupRow from "./chat/ActivityGroupRow";
 import { refusalCopy } from "@/lib/taskInput";
+import { useMessageHistory } from "@/lib/useMessageHistory";
+import HistoryBar from "./chat/HistoryBar";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 const timeOf = (ms?: number) => (ms ? clockTime(ms) : "");
@@ -62,7 +64,9 @@ export default function TaskThreadPanel({
   const task = useQuery(api.tasks.get, taskId ? { taskId: taskId as any } : "skip");
   const taskExists = Boolean(task);
   const project = useQuery(api.projects.get, task?.projectId ? { projectId: task.projectId } : "skip");
-  const messages = useQuery(api.messages.listByTask, taskExists ? { taskId: taskId as any } : "skip");
+  const liveMessages = useQuery(api.messages.listByTask, taskExists ? { taskId: taskId as any } : "skip");
+  // D12: older pages behind the newest window, and the turn outline.
+  const { rows: messages, history } = useMessageHistory(taskExists && taskId ? { kind: "task", taskId } : null, liveMessages);
   // Canonical event stream (plan 016): the UI reads this instead of the raw
   // worker/provider vocabulary.
   // Newest window, merged by sequence; a reconnect gap replays or re-snapshots.
@@ -113,6 +117,14 @@ export default function TaskThreadPanel({
     if (flashTimer.current) clearTimeout(flashTimer.current);
     flashTimer.current = setTimeout(() => setFlashId(null), 1600);
   };
+  // An outline jump lands once its page renders.
+  const pendingJump = history.pendingJump;
+  useEffect(() => {
+    if (!pendingJump || !document.getElementById(`thread-message-${pendingJump}`)) return;
+    history.clearJump();
+    jumpTo(pendingJump);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- jumpTo and history are fresh each render; the trigger is the target and the rows
+  }, [pendingJump, messages]);
   const [sendingReply, setSendingReply] = useState(false);
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
@@ -517,6 +529,7 @@ export default function TaskThreadPanel({
               <span className="h-px flex-1 bg-line" />
             </div>
           )}
+          <HistoryBar history={history} />
           {threadReplies.map((m: any, index: number) => {
             const isUser = m.authorType === "user";
             const msgAgent = isUser ? null : agentById(m.agentId);

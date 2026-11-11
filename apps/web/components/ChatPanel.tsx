@@ -33,6 +33,7 @@ import { composeOfferedTask } from "@/api/convex/lib/chat/intent";
 import { parseOptions } from "@/lib/options";
 import DecisionsTray, { trayPlaceholder, useDecisionTray } from "./chat/DecisionsTray";
 import HeldTasksLine, { AutomationHoldLine } from "./chat/HeldTasksLine";
+import { useMessageHistory } from "@/lib/useMessageHistory";
 
 type Props = {
   projectId: string;
@@ -68,7 +69,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const { openSidebar } = useWorkspace();
   const toast = useToast();
   const project = useQuery(api.projects.get, { projectId: projectId as any });
-  const messages = useQuery(api.messages.listByProject, { projectId: projectId as any });
+  const { rows: messages, history } = useMessageHistory({ kind: "project", projectId }, useQuery(api.messages.listByProject, { projectId: projectId as any }));
   const tasks = useQuery(api.tasks.listByProject, { projectId: projectId as any });
   // Project-scoped (index-backed); listPendingAll read every pending row.
   const approvals = useQuery(api.approvals.listPendingForProject, { projectId: projectId as any });
@@ -230,9 +231,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     dividerAt === null ? -1 : timeline.findIndex((m: any) => m._creationTime > dividerAt && m.authorType !== "user");
 
   // ── Scrolling ───────────────────────────────────────────────────────────
-  useEffect(() => {
-    nearBottomRef.current = true;
-  }, [projectId]);
+  useEffect(() => void (nearBottomRef.current = true), [projectId]);
   const scrollToBottom = () => {
     const apply = () => {
       const el = scrollRef.current;
@@ -702,6 +701,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             projectEvents={projectEvents}
             projectApprovalMode={(project as any)?.approvalMode ?? "ask"}
             loading={messages === undefined}
+            history={history}
             scrollToMessageRef={scrollToMessageRef}
             chatSending={chatSending}
             conversationTyping={conversationTyping}

@@ -20,6 +20,7 @@ import MessageList from "./MessageList";
 import { quoteOf, type ChatQuote } from "./QuoteBlock";
 import { useChatQueue } from "./useChatQueue";
 import AttachProjectDialog from "./AttachProjectDialog";
+import { useMessageHistory } from "@/lib/useMessageHistory";
 
 const NO_SUBTASKS = new Map<string, any[]>();
 const NONE: any[] = [];
@@ -46,7 +47,8 @@ export default function PersonalChatPanel({
   const toast = useToast();
   const router = useRouter();
   const conversation = useQuery(api.conversations.get, { conversationId: conversationId as never });
-  const messages = useQuery(api.messages.listByConversation, { conversationId: conversationId as never });
+  const live = useQuery(api.messages.listByConversation, { conversationId: conversationId as never });
+  const { rows: messages, history } = useMessageHistory({ kind: "conversation", conversationId }, live);
   const project = conversation?.project ?? null;
   const tasks = useQuery(api.tasks.listByProject, project ? { projectId: project._id } : "skip");
   const togglePin = useMutation(api.messages.togglePin);
@@ -457,6 +459,7 @@ export default function PersonalChatPanel({
             pendingItems={NONE}
             projectApprovalMode="ask"
             loading={messages === undefined}
+            history={history}
             scrollToMessageRef={scrollToMessageRef}
             chatSending={chatSending}
             conversationTyping={conversationTyping}

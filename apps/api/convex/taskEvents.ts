@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { decideResume, replayEncodedBytes, RESUME_MAX_REPLAY_EVENTS } from "./lib/eventResume";
 import { assertProjectAccess, getVisibleTask, visibleProjectIds } from "./lib/authz";
+import { pageSize } from "./lib/historyPaging";
 
 export const listAll = query({
   args: { limit: v.optional(v.number()) },
@@ -110,5 +111,27 @@ export const sinceByTask = query({
       .order("desc")
       .take(windowSize(args.limit));
     return { mode: "snapshot" as const, events: rows.reverse(), highWater: high };
+  },
+});
+
+/**
+ * Cursor page for "load earlier" on long tasks (D12): events with a
+ * sequence below `beforeSequence`, oldest first. The cursor is the oldest
+ * sequence the client holds; `hasMore` says older rows remain. Legacy rows
+ * without a sequence sort before every numbered row on this index, so they
+ * arrive on the last page.
+ */
+export const pageEarlier = query({
+  args: { taskId: v.id("tasks"), beforeSequence: v.number(), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const task = await getVisibleTask(ctx, args.taskId);
+    if (!task) return { rows: [], hasMore: false };
+    const size = pageSize(args.limit);
+    const taken = await ctx.db
+      .query("taskEvents")
+      .withIndex("by_task_and_sequence", (q) => q.eq("taskId", args.taskId).lt("sequence", args.beforeSequence))
+      .order("desc")
+      .take(size + 1);
+    return { rows: taken.slice(0, size).reverse(), hasMore: taken.length > size };
   },
 });

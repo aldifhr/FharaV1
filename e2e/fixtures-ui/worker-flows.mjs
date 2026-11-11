@@ -401,12 +401,23 @@ const flows = {
     await open(`/chats/personal/${cto._id}`);
     const box = page.getByPlaceholder(/Message/).or(page.locator("main [contenteditable=true]")).first();
     await box.waitFor({ timeout: 60_000 });
+    // The personal chat with the CTO persists across runs: a reply from an
+    // earlier run already matches, so wait for one MORE reply than before
+    // (round 2 read the mock's calls while this turn was still Thinking).
+    const reply = page.getByText(/Mock reply from your personal chat/);
+    await page.waitForTimeout(1500);
+    const before = await reply.count();
+    await box.evaluate((el) => new Promise((ok) => {
+      const t0 = Date.now();
+      const tick = () => (Object.keys(el).some((k) => k.startsWith("__reactProps")) || Date.now() - t0 > 60_000 ? ok() : setTimeout(tick, 250));
+      tick();
+    })).catch(() => {});
     await box.fill("Quick question: what should I work on first?");
     await box.press("Enter");
-    const reply = page.getByText(/Mock reply from your personal chat/);
-    await reply.first().waitFor({ timeout: 60_000 }).catch(() => {});
+    const t0 = Date.now();
+    while (Date.now() - t0 < 60_000 && (await reply.count()) <= before) await page.waitForTimeout(500);
     await shot("personal-chat");
-    check("mock reply shown in the personal chat", await visible(reply));
+    check("a new mock reply shown in the personal chat", (await reply.count()) > before, `replies before ${before}, after ${await reply.count()}`);
     const calls = await mockCalls();
     check("mock matched the personal chat rule", calls.some((c) => c.rule === "chat-reply-personal"), calls.map((c) => c.rule).join(","));
     await closeBrowser();

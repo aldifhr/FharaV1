@@ -11,6 +11,7 @@ import { loadMemorySection, loadRecalledSection } from "./memories";
 import { extractAgentMentions } from "./lib/chat/team";
 import { stripLeakedToolCallTags } from "./lib/chat/strip";
 import { chatScopeOf, type ChatScope } from "./lib/conversationShape";
+import { effectiveTeamIds, projectTeamIds } from "./lib/projectTeam";
 
 /** Drop the `--- File: <path> ---` blocks `attachMentionedFiles` appends so
  *  repeated file context does not accumulate in the chat prompt. */
@@ -131,7 +132,7 @@ export const getQuoteForReply = internalQuery({
     if (!quoted || !sameQuoteScope(quoted, message)) return null;
     // A personal chat message has no project, so no team (plan 039).
     const project = message.projectId ? await ctx.db.get(message.projectId) : null;
-    const teamIds = project?.agentIds ?? [];
+    const teamIds = await projectTeamIds(ctx, project);
     const team = (await Promise.all(teamIds.map((id) => ctx.db.get(id)))).filter(
       (a): a is Doc<"agents"> => a !== null && a.isEnabled !== false
     );
@@ -313,7 +314,7 @@ export const getContext = internalQuery({
     if (args.conversationId) {
       const rows = await activeParticipantRows(ctx, args.conversationId);
       const agents = await Promise.all(rows.map((row) => ctx.db.get(row.agentId)));
-      const team = project.agentIds ?? [];
+      const team = await projectTeamIds(ctx, project);
       selected = agents.filter((agent): agent is Doc<"agents"> => {
         if (!agent) return false;
         if (agent.isEnabled === false) return false;
@@ -327,7 +328,7 @@ export const getContext = internalQuery({
       selected =
         mentioned.length > 0
           ? mentioned
-          : selectDefaultChatAgents(project.agentIds, all, args.preferredAgentIds);
+          : selectDefaultChatAgents(effectiveTeamIds(project.agentIds, all), all, args.preferredAgentIds);
     }
 
     const rows = await ctx.db
@@ -420,7 +421,7 @@ export const getContext = internalQuery({
     // The whole project team — the conversational agent is picked from here,
     // not from the (possibly mention-stale) participant set.
     const teamAgents = await Promise.all(
-      (project.agentIds ?? []).map((id) => ctx.db.get(id))
+      (await projectTeamIds(ctx, project)).map((id) => ctx.db.get(id))
     );
     const team = teamAgents.filter(
       (a): a is Doc<"agents"> => a !== null && a.isEnabled !== false

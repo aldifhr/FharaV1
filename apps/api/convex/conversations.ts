@@ -10,6 +10,7 @@ import {
 } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
 import { conversationKind, conversationShapeError, isPersonalConversation } from "./lib/conversationShape";
+import { projectTeamIds } from "./lib/projectTeam";
 
 /**
  * Plan 007 (addendum §2): conversation participation as a persisted concept,
@@ -82,18 +83,18 @@ export async function activeParticipantRows(
 /** Point-read the project team; deleted agents drop out silently. */
 async function loadTeamAgents(ctx: Ctx, project: Doc<"projects">): Promise<AgentDoc[]> {
   const docs = await Promise.all(
-    (project.agentIds ?? []).map((id) => ctx.db.get(id))
+    (await projectTeamIds(ctx, project)).map((id) => ctx.db.get(id))
   );
   return docs.filter((a): a is AgentDoc => a !== null);
 }
 
 /** Membership + enabled gate. Throws for explicit add/remove; the sync path filters instead. */
-function assertAssignable(agent: AgentDoc | null, project: Doc<"projects">): void {
+function assertAssignable(agent: AgentDoc | null, teamIds: readonly Id<"agents">[]): void {
   if (!agent) throw new Error("Agent not found");
   if (agent.isEnabled === false) {
     throw new Error(`Agent ${agent.name} is disabled`);
   }
-  if (!(project.agentIds ?? []).includes(agent._id)) {
+  if (!teamIds.includes(agent._id)) {
     throw new Error(`Agent ${agent.name} is not a member of this project's team`);
   }
 }
@@ -227,7 +228,7 @@ export async function ensureChatConversation(
       args.preferredAgentIds
     );
   } else if (active.length === 0) {
-    const seeded = selectDefaultChatAgents(project.agentIds, team);
+    const seeded = selectDefaultChatAgents(team.map((a) => a._id), team);
     await syncParticipants(
       ctx,
       conversation._id,
@@ -360,7 +361,7 @@ export const addParticipant = mutation({
     if (!conversation) throw new Error("Conversation not found");
     const project = await projectConversationProject(ctx, conversation);
     const agent = await ctx.db.get(args.agentId);
-    assertAssignable(agent, project);
+    assertAssignable(agent, await projectTeamIds(ctx, project));
 
     const rows = await ctx.db
       .query("conversationParticipants")
@@ -675,7 +676,7 @@ export const attachProject = mutation({
     const agent = conversation.agentId ? await ctx.db.get(conversation.agentId) : null;
     if (!agent) throw new Error("Agent not found");
     if (agent.isEnabled === false) throw new Error(`Agent ${agent.name} is disabled`);
-    if (!(project.agentIds ?? []).includes(agent._id)) {
+    if (!(await projectTeamIds(ctx, project)).includes(agent._id)) {
       throw new Error(`Add ${agent.name} to this project's team first`);
     }
     const now = Date.now();

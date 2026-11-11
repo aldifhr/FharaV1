@@ -405,3 +405,25 @@ describe("registry read models (addendum §1)", () => {
     expect(await t.query(api.conversations.getActive, { projectId })).toBeNull();
   });
 });
+
+describe("a project with no agentIds runs with the fixed team", () => {
+  test("ensureForChat seeds the CTO and chat context has agents (no 'No enabled agents')", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await t.run(async (ctx) => {
+      const cto = await ctx.db.insert("agents", { name: "CTO", role: "cto", status: "idle", isEnabled: true });
+      const fe = await ctx.db.insert("agents", { name: "Frontend", role: "frontend", status: "idle", isEnabled: true });
+      await ctx.db.insert("agents", { name: "Lead", role: "lead", status: "idle", isEnabled: false });
+      const projectId = await ctx.db.insert("projects", { name: "API made", workspacePath: "/tmp/api-made" });
+      return { cto, fe, projectId };
+    });
+    const conversationId = await t.mutation(internal.conversations.ensureForChat, { projectId: ids.projectId });
+    const participants = await t.query(api.conversations.getParticipants, { conversationId });
+    expect(participants.map((p) => p.agentId)).toEqual([ids.cto]);
+    const context = await t.query(internal.chatContext.getContext, { projectId: ids.projectId, conversationId });
+    expect(context.agents.map((a: { _id: string }) => a._id)).toEqual([ids.cto]);
+    expect((context.team ?? []).map((a: { _id: string }) => a._id).sort()).toEqual([ids.cto, ids.fe].sort());
+    // Without a conversation (legacy path) the same default answers.
+    const legacy = await t.query(internal.chatContext.getContext, { projectId: ids.projectId });
+    expect(legacy.agents.map((a: { _id: string }) => a._id)).toEqual([ids.cto]);
+  });
+});

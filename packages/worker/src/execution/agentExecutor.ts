@@ -103,7 +103,7 @@ import {
   WEB_REACH_TOOL_NAME,
   type WebReachConfig,
 } from "./webReachTools";
-import { turnUserContent } from "./turnContext";
+import { turnMessages } from "./turnContext";
 
 const execFileAsync = promisify(execFile);
 
@@ -1217,14 +1217,8 @@ export function priorContextFor(input: SubtaskExecutionInput): string {
 function baseMessages(input: SubtaskExecutionInput, userContent: string) {
   const { agent } = input;
   const prior = priorContextFor(input);
-  return [
-    ...(agent.systemPrompt ? [{ role: "system" as const, content: agent.systemPrompt }] : []),
-    {
-      role: "user" as const,
-      // D4: instruction chain first, the time line last (volatile tail).
-      content: turnUserContent(input.workspacePath, input.subtask.allowedPaths, [prior, userContent]),
-    },
-  ];
+  // D4/D5: persona, then the instruction chain and the call's content, the time line last.
+  return turnMessages(agent.systemPrompt, input.workspacePath, input.subtask.allowedPaths, [prior, userContent]);
 }
 
 /**

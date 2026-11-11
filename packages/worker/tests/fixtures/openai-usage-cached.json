@@ -1,0 +1,13 @@
+{
+  "_note": "Final streaming chunk in the OpenAI chat-completions wire shape (CompletionUsage per openai-node src/resources/completions.ts). Hand-written in that recorded shape, not captured from a live call.",
+  "id": "chatcmpl-d5",
+  "object": "chat.completion.chunk",
+  "choices": [],
+  "usage": {
+    "prompt_tokens": 12000,
+    "completion_tokens": 480,
+    "total_tokens": 12480,
+    "prompt_tokens_details": { "cached_tokens": 9840 },
+    "completion_tokens_details": { "reasoning_tokens": 0 }
+  }
+}

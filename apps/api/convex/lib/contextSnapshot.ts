@@ -365,6 +365,10 @@ export interface SnapshotInput {
   outputTokens?: number;
   usageEstimated?: boolean;
   durationMs?: number;
+  /** D5: prompt tokens the provider served from its cache (subset of inputTokens). */
+  cachedInputTokens?: number;
+  /** D5: time to first streamed token. */
+  ttftMs?: number;
   /** Extra tool definitions not present in the messages (native tools). */
   toolsText?: string;
   /** Extra redaction for the worker (its whole-value mask). */
@@ -380,6 +384,8 @@ export interface SnapshotMeta {
   outputTokens?: number;
   usageEstimated?: boolean;
   durationMs?: number;
+  cachedInputTokens?: number;
+  ttftMs?: number;
   error?: string;
   sectionStats: SectionStat[];
   promptTokens: number;
@@ -432,6 +438,8 @@ export function buildContextSnapshot(input: SnapshotInput): { meta: SnapshotMeta
       ...(typeof input.outputTokens === "number" ? { outputTokens: input.outputTokens } : {}),
       ...(input.usageEstimated ? { usageEstimated: true } : {}),
       ...(typeof input.durationMs === "number" ? { durationMs: Math.round(input.durationMs) } : {}),
+      ...(typeof input.cachedInputTokens === "number" ? { cachedInputTokens: input.cachedInputTokens } : {}),
+      ...(typeof input.ttftMs === "number" ? { ttftMs: Math.round(input.ttftMs) } : {}),
       ...(error ? { error } : {}),
       sectionStats,
       promptTokens: sectionStats.reduce((n, s) => n + s.tokens, 0),

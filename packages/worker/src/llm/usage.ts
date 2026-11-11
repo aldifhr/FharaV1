@@ -102,3 +102,20 @@ export function mergeRawUsage(
   }
   return out;
 }
+
+/**
+ * Time to first token (D5): start the clock just before the request, mark on
+ * the first text delta; `fields()` spreads `{ ttftMs }` only once marked.
+ */
+export function firstTokenClock(now: () => number = Date.now) {
+  const start = now();
+  let ttftMs: number | undefined;
+  return {
+    mark(): void {
+      if (ttftMs === undefined) ttftMs = Math.max(0, now() - start);
+    },
+    fields(): { ttftMs?: number } {
+      return ttftMs === undefined ? {} : { ttftMs };
+    },
+  };
+}

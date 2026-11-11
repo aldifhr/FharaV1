@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { permissionModeValidator } from "./lib/permissionModes";
 import { usageLedgerFields } from "./lib/usageLedger";
+import { sectionStatValidator, snapshotCallStatsFields } from "./lib/callStats";
 import { checkpointFields } from "./lib/checkpointValidators";
 import {
   decisionExpectedValidator,
@@ -2140,16 +2141,10 @@ export default defineSchema({
     outputTokens: v.optional(v.number()),
     usageEstimated: v.optional(v.boolean()),
     durationMs: v.optional(v.number()),
+    // D5: prompt-cache reads and time to first token (lib/callStats.ts).
+    ...snapshotCallStatsFields,
     error: v.optional(v.string()),
-    sectionStats: v.array(
-      v.object({
-        key: v.string(),
-        label: v.string(),
-        chars: v.number(),
-        tokens: v.number(),
-        truncated: v.optional(v.boolean()),
-      })
-    ),
+    sectionStats: v.array(sectionStatValidator),
     promptTokens: v.number(),
     toolNames: v.array(v.string()),
     skillNames: v.array(v.string()),

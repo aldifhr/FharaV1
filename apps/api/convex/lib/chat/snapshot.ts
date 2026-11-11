@@ -55,6 +55,8 @@ export async function recordChatSnapshot(
     response?: string;
     error?: unknown;
     durationMs: number;
+    /** D5: the answering call's reported usage and TTFT (absent → chars/4 estimate). */
+    result?: Pick<CompleteResult, "usage" | "ttftMs">;
   }
 ): Promise<void> {
   if (!contextSnapshotsEnabled()) return;
@@ -68,6 +70,8 @@ export async function recordChatSnapshot(
       ...call.msgs.map((m) => ({ role: m.role, content: m.content })),
     ];
     const promptText = messages.map((m) => m.content).join("\n");
+    const usage = call.result?.usage;
+    const reported = usage && typeof usage.inputTokens === "number" ? usage : undefined;
     const { meta, body } = buildContextSnapshot({
       callRole: scope.callRole,
       messages,
@@ -75,10 +79,20 @@ export async function recordChatSnapshot(
       error: call.error === undefined ? undefined : call.error instanceof Error ? call.error.message : String(call.error),
       model: call.config.model,
       provider: call.config.provider,
-      // The chat endpoints report no usage: chars/4 estimates, flagged.
-      inputTokens: estimateTokens(promptText),
-      outputTokens: call.response ? estimateTokens(call.response) : 0,
-      usageEstimated: true,
+      // Reported usage when the endpoint sent it (D5); otherwise chars/4
+      // estimates, flagged.
+      ...(reported
+        ? {
+            inputTokens: reported.inputTokens,
+            outputTokens: reported.outputTokens ?? (call.response ? estimateTokens(call.response) : 0),
+            cachedInputTokens: reported.cachedInputTokens,
+          }
+        : {
+            inputTokens: estimateTokens(promptText),
+            outputTokens: call.response ? estimateTokens(call.response) : 0,
+            usageEstimated: true,
+          }),
+      ttftMs: call.result?.ttftMs,
       durationMs: call.durationMs,
     });
     await ctx.runMutation(internal.contextSnapshots.record, {
@@ -109,7 +123,7 @@ export async function completeWithSnapshot(
   msgs = await chatTimeTail(ctx, scope, msgs, startedAt);
   try {
     const result = await completeWithAgent(system, msgs, config, onChunk);
-    await recordChatSnapshot(ctx, scope, { system, msgs, config, response: result.content, durationMs: Date.now() - startedAt });
+    await recordChatSnapshot(ctx, scope, { system, msgs, config, response: result.content, durationMs: Date.now() - startedAt, result });
     await recordChatUsage(ctx, scope, { system, msgs, result, fallbackModel: config.model });
     return result;
   } catch (error) {

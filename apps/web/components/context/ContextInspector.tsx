@@ -9,6 +9,7 @@ import { CALL_ROLE_LABELS, sectionShares, type CallRole } from "@/api/convex/lib
 import { roleLabel } from "@/lib/agentRoles";
 import { clockTime } from "@/lib/format";
 import { formatDuration, formatTokens } from "@/lib/runFormat";
+import CallStats from "./CallStats";
 
 export function callRoleLabel(role: string): string {
   return CALL_ROLE_LABELS[role as CallRole] ?? role;
@@ -147,6 +148,7 @@ export default function ContextInspector({ snapshotId }: { snapshotId: string })
         <Fact label="History">{snap.historyMessages} {snap.historyMessages === 1 ? "message" : "messages"}</Fact>
         <Fact label="Memory">{snap.memoryIncluded ? "included" : "none"}</Fact>
       </dl>
+      <CallStats stats={snap} />
 
       {snap.error && (
         <p className="rounded-lg border border-line px-3 py-2 font-mono text-[12px] text-red-600 dark:text-red-400">{snap.error}</p>

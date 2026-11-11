@@ -1432,6 +1432,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
               : undefined;
       const system = [
         ...buildChatPersonaLines(agent, projectName, queue, repoSnapshot, useRepoTools),
+        ...buildGroundingGuidance(useRepoTools, skillLoader !== undefined), // D5: stable lines first, per-turn after
         ...(intent.intent === "ask" ? buildAnswerGuidance(intent.subtype) : []),
         ...buildPlanningGuidance(agent, { isOrchestrator: isCto, hasRepoTools: useRepoTools, taskIntent, assigneeName: write.assignee?.name, codeInChat: write.codeInChat }),
         ...(isCto && !isOptionPick
@@ -1444,7 +1445,6 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           ? ["The user's last message is a button pick ('I choose …'), not their language: reply in the language of their earlier messages, in 2-3 sentences, and do not bring teammates in. Say which roles would do the work (as @Role) and that the Create task button under your reply starts it; never ask them to type a command."]
           : []),
         ...(isRouted ? [buildRoutedOwnerNotice(useRepoTools)] : []),
-        ...buildGroundingGuidance(useRepoTools, skillLoader !== undefined),
         selfReview
           ? buildSelfReviewGuidance(previousReplyOf(history, String(agent._id)), useRepoTools)
           : "",

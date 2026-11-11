@@ -49,6 +49,8 @@ export interface CompleteResult {
   usage?: UsageBreakdown;
   /** Wall time of the attempt that answered. */
   durationMs?: number;
+  /** D5: time to the first streamed token (content or reasoning); absent on a one-body answer. */
+  ttftMs?: number;
   /** The config (connection + model) that answered, for the usage ledger. */
   servedBy?: LlmEndpointConfig & ServedIdentity;
   /** The model stopped at its output limit (finish_reason "length" / stop_reason "max_tokens"). */
@@ -234,6 +236,10 @@ async function completeOnce(
   };
 
   const startedAt = Date.now();
+  let firstTokenAt: number | undefined;
+  const markFirst = (content: string, reasoning: string) => {
+    if (firstTokenAt === undefined && (content || reasoning)) firstTokenAt = Date.now();
+  };
   const finish = (content: string, reasoning: string, usage?: UsageBreakdown, truncated = false): CompleteResult => {
     onChunk?.({ content, reasoning });
     const reported = usage && (usage.inputTokens !== undefined || usage.outputTokens !== undefined) ? usage : undefined;
@@ -242,6 +248,7 @@ async function completeOnce(
       reasoning,
       reasoningDurationMs: reasoning ? Date.now() - startedAt : 0,
       durationMs: Date.now() - startedAt,
+      ...(firstTokenAt !== undefined ? { ttftMs: firstTokenAt - startedAt } : {}),
       ...(reported ? { usage: reported } : {}),
       ...(truncated ? { truncated: true } : {}),
     };
@@ -399,6 +406,7 @@ async function completeOnce(
       const delta = d.choices?.[0]?.delta ?? {};
       if (typeof delta.content === "string") content += delta.content;
       reasoning += reasoningDelta(delta);
+      markFirst(content, reasoning);
       onChunk?.({ content, reasoning });
     }, () => ({ content, reasoning }));
     if (!content && !reasoning && !badFrames) {
@@ -464,6 +472,7 @@ async function completeOnce(
     if (d.type === "content_block_delta" && d.delta?.type === "thinking_delta" && typeof d.delta.thinking === "string") {
       reasoning += d.delta.thinking;
     }
+    markFirst(content, reasoning);
     onChunk?.({ content, reasoning });
   }, () => ({ content, reasoning }));
   if (!content && !reasoning && !badFrames) {

@@ -102,6 +102,8 @@ export function recordLlmSnapshot(call: {
       inputTokens: call.result?.inputTokens,
       outputTokens: call.result?.outputTokens,
       usageEstimated: call.result?.usageEstimated,
+      cachedInputTokens: call.result?.cachedInputTokens,
+      ttftMs: call.result?.ttftMs,
       durationMs: call.durationMs,
       extraRedact: maskStringSecrets,
     });

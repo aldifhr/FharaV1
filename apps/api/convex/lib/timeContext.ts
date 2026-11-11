@@ -11,6 +11,8 @@
  * line is reused byte for byte, so it never churns the prompt cache.
  */
 
+import { assemblePrompt } from "./assemblePrompt";
+
 export const DEFAULT_USER_TIME_ZONE = "Asia/Jakarta";
 export const TIME_CONTEXT_PREFIX = "Current time:";
 export const TIME_CONTEXT_INTERVAL_MS = 10 * 60 * 1000;
@@ -87,5 +89,6 @@ export class TimeContextThrottle {
 export function withTimeTail<T extends { role: string; content: string }>(messages: T[], line: string): T[] {
   const last = messages[messages.length - 1];
   if (!line || !last || last.role !== "user") return messages;
-  return [...messages.slice(0, -1), { ...last, content: `${last.content}\n\n${line}` }];
+  // D5: the shared layout (stable → history → volatile) places the tail.
+  return assemblePrompt({ history: messages, volatile: line });
 }

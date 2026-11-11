@@ -5,7 +5,7 @@ import type { LLMMessage, LLMResult } from "@/types/llm";
 import { emitObservation } from "@/effects/observationContext";
 
 export type { LLMMessage, LLMResult } from "@/types/llm";
-import { mergeRawUsage, normalizeAnthropicUsage, normalizeOpenAiUsage } from "@/llm/usage";
+import { firstTokenClock, mergeRawUsage, normalizeAnthropicUsage, normalizeOpenAiUsage } from "@/llm/usage";
 import { contextLimitFromText, formatTimeoutLimit, isContextOverflowText } from "@/api/convex/lib/llmWireErrors";
 import { asDroppedConnection, LlmContextOverflowError, LlmIncompleteResponseError, LlmMalformedResponseError } from "@/llm/errors";
 
@@ -152,6 +152,7 @@ export class AnthropicProvider implements LLMProvider {
     const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
     const user = messages.filter((m) => m.role !== "system");
     const maxTokens = opts?.maxTokens ?? llmMaxTokens();
+    const clock = firstTokenClock();
     const stream = await this.client.messages.create({
       model: model ?? this.model,
       max_tokens: maxTokens,
@@ -164,6 +165,7 @@ export class AnthropicProvider implements LLMProvider {
     let finishReason: string | undefined;
     for await (const event of stream) {
       if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        if (event.delta.text) clock.mark();
         full += event.delta.text;
         onChunk(event.delta.text);
       } else if (event.type === "message_start") {
@@ -178,7 +180,7 @@ export class AnthropicProvider implements LLMProvider {
       }
     }
     return noteTruncation(
-      { content: full, ...normalizeAnthropicUsage(rawUsage), ...(finishReason ? { finishReason } : {}) },
+      { content: full, ...normalizeAnthropicUsage(rawUsage), ...clock.fields(), ...(finishReason ? { finishReason } : {}) },
       { model: model ?? this.model, maxTokens }
     );
   }
@@ -263,6 +265,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       if (opts.signal.aborted) controller.abort();
       else opts.signal.addEventListener("abort", onExternalAbort, { once: true });
     }
+    const clock = firstTokenClock();
     try {
       const response = await fetch(url, {
         method: "POST",
@@ -320,6 +323,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         if (payload.choices?.[0]?.finish_reason) finishReason = payload.choices[0].finish_reason;
         const delta = payload.choices?.[0]?.delta?.content ?? payload.choices?.[0]?.message?.content ?? "";
         if (delta) {
+          clock.mark();
           content += delta;
           onChunk(delta);
         }
@@ -349,7 +353,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         );
       }
       return noteTruncation(
-        { content, ...normalizeOpenAiUsage(usage), ...(finishReason ? { finishReason } : {}) },
+        { content, ...normalizeOpenAiUsage(usage), ...clock.fields(), ...(finishReason ? { finishReason } : {}) },
         { model: model ?? this.model, baseUrl: this.baseUrl, maxTokens }
       );
     } catch (error) {

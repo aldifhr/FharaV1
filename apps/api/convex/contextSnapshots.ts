@@ -28,6 +28,7 @@ import {
   type SectionKey,
 } from "./lib/contextSnapshot";
 import { buildReplaySteps, type RunSide } from "./lib/replay";
+import { sectionStatValidator, snapshotCallStatsFields } from "./lib/callStats";
 import { loadSettingValues } from "./appSettings";
 import { settingFrom } from "./lib/appSettings";
 
@@ -38,13 +39,7 @@ async function defaultRetentionDays(ctx: Parameters<typeof loadSettingValues>[0]
   return Number.isFinite(n) ? n : undefined;
 }
 
-const sectionStat = v.object({
-  key: v.string(),
-  label: v.string(),
-  chars: v.number(),
-  tokens: v.number(),
-  truncated: v.optional(v.boolean()),
-});
+const sectionStat = sectionStatValidator;
 const sectionBody = v.object({
   key: v.string(),
   label: v.string(),
@@ -74,6 +69,7 @@ export const snapshotRecordArgs = {
     outputTokens: v.optional(v.number()),
     usageEstimated: v.optional(v.boolean()),
     durationMs: v.optional(v.number()),
+    ...snapshotCallStatsFields,
     error: v.optional(v.string()),
     sectionStats: v.array(sectionStat),
     promptTokens: v.number(),
@@ -189,6 +185,8 @@ function lightRow(row: SnapshotRow, roles: Map<string, string>) {
     outputTokens: row.outputTokens,
     usageEstimated: row.usageEstimated,
     durationMs: row.durationMs,
+    cachedInputTokens: row.cachedInputTokens,
+    ttftMs: row.ttftMs,
     error: row.error,
     sectionStats: row.sectionStats,
     promptTokens: row.promptTokens,

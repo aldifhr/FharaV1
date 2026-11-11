@@ -24,6 +24,8 @@ export interface LLMResult {
   reasoningTokens?: number;
   /** Wall time of the call that served this result (set by runLlmCallWithFallback). */
   durationMs?: number;
+  /** Time to the first streamed text delta (D5); absent on non-streamed calls. */
+  ttftMs?: number;
   /**
    * Why the model stopped, as the provider reported it (OpenAI
    * `finish_reason`; Anthropic `stop_reason` "max_tokens" is mapped to

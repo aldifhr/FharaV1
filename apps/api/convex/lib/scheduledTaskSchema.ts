@@ -29,6 +29,9 @@ export const scheduledTargetValidator = v.union(
   v.object({ kind: v.literal("conversation"), conversationId: v.id("conversations"), content: v.string() }),
 );
 
+/** What fired an occurrence: the clock, a webhook delivery, or a person's "Run now". */
+export const scheduledRunTrigger = v.union(v.literal("clock"), v.literal("webhook"), v.literal("manual"));
+
 export const scheduledRunStatus = v.union(
   v.literal("dispatched"),
   v.literal("held"), // G3 automation hold: the occurrence is skipped
@@ -45,6 +48,9 @@ export const scheduledTasksTable = defineTable({
   nextRunAt: v.optional(v.number()), // unset when disabled or no next occurrence
   lastRunAt: v.optional(v.number()),
   lastStatus: v.optional(scheduledRunStatus),
+  // G8 webhook trigger: SHA-256 of the task's token (the token is shown once).
+  webhookTokenHash: v.optional(v.string()),
+  webhookTokenSetAt: v.optional(v.number()),
   createdBy: v.optional(v.string()),
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -52,7 +58,11 @@ export const scheduledTasksTable = defineTable({
   .index("by_project", ["projectId"])
   .index("by_enabled_next", ["enabled", "nextRunAt"]);
 
-/** One row per occurrence, keyed by `sched:<scheduledTaskId>:<dueAt>`. */
+/**
+ * One row per occurrence, keyed by `sched:<scheduledTaskId>:<dueAt>`; a
+ * webhook delivery by `hook:<scheduledTaskId>:<deliveryId>`, a "Run now" by
+ * `manual:<scheduledTaskId>:<at>`. `dueAt` is the fire time for those two.
+ */
 export const scheduledTaskRunsTable = defineTable({
   scheduledTaskId: v.id("scheduledTasks"),
   projectId: v.id("projects"),
@@ -60,6 +70,8 @@ export const scheduledTaskRunsTable = defineTable({
   dueAt: v.number(),
   firedAt: v.number(),
   status: scheduledRunStatus,
+  trigger: v.optional(scheduledRunTrigger), // unset = clock (G7 rows)
+  deliveryId: v.optional(v.string()), // webhook delivery id
   taskId: v.optional(v.id("tasks")),
   messageId: v.optional(v.id("messages")),
   error: v.optional(v.string()),

@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * Settings → Scheduled tasks: the automation hold (GOAT G3) and the
- * backend's timed jobs. The hold is `appSettings.automationHold`; while it
+ * Settings → Scheduled tasks: the automation hold (GOAT G3), the user's own
+ * scheduled tasks (G8, ScheduledTaskList.tsx) and the backend's maintenance
+ * jobs. The hold is `appSettings.automationHold`; while it
  * is on, auto-merge, issue intake, automatic PR-fix tasks and the jobs
  * marked below do nothing, and the user's own tasks still run.
  */
@@ -11,6 +12,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import { useToast } from "@/components/Toasts";
 import { BUTTON, errorText, relativeTime, Row, Section, Toggle } from "./controls";
+import { ScheduledTaskList } from "./ScheduledTaskList";
 
 type Job = NonNullable<ReturnType<typeof useQuery<typeof api.cronJobs.list>>>[number];
 
@@ -75,7 +77,8 @@ export function ScheduledTab() {
       <Section title="Automation" description="One switch for every path that acts without you. Releasing it resumes where things left off.">
         <AutomationHoldRow />
       </Section>
-      <Section title="Scheduled tasks" description="Background jobs the backend runs on a timer. Times are recorded from their first run after this update.">
+      <ScheduledTaskList />
+      <Section title="Maintenance jobs" description="Background jobs the backend runs on a timer. Times are recorded from their first run after this update.">
         {jobs === undefined && <Row label="Loading…" />}
         {(jobs ?? []).map((job) => (
           <Row

@@ -14,7 +14,7 @@ import { errorText, INPUT, Row, Section, useAppSettings } from "./controls";
 const DEFAULT_ZONE = "Asia/Jakarta";
 const FALLBACK_ZONES = ["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura", "Asia/Singapore", "Asia/Tokyo", "Europe/London", "America/New_York", "America/Los_Angeles", "UTC"];
 
-function supportedZones(current: string): string[] {
+export function supportedZones(current: string): string[] {
   let zones: string[] = FALLBACK_ZONES;
   try {
     const intl = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };

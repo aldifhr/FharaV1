@@ -53,7 +53,12 @@ SOFTWARE.
   worktree snapshot before cleanup; a pattern from `GitVcsDriver.ts` `restoreCheckpoint` and
   `apps/server/src/worktreeSnapshots/captureSnapshot.ts`); `apps/api/convex/lib/schedule.ts` (port of
   `apps/server/src/scheduledTasks/Schedule.ts`: next-run, missed fixed-time run, schedule equality;
-  epoch milliseconds and IANA time zones instead of Effect DateTime). Modified by Fhara.
+  epoch milliseconds and IANA time zones instead of Effect DateTime); `apps/api/convex/lib/webhookTemplate.ts`
+  (copy of `apps/server/src/scheduledTasks/webhookTemplate.ts`: webhook placeholders, untrusted-data
+  framing, credential redaction) and `apps/api/convex/lib/webhookVerification.ts` (`constantTimeEquals`
+  from `webhookVerification.ts` on Web Crypto; the hashed bearer token, the hold-before-dispatch answer
+  of `webhookAutomationHold.ts` and the per-delivery dedupe of `webhookDedupe.ts` are patterns only).
+  Modified by Fhara.
   GOAT's Pen, office, PDF, native and asset sub-paths carry other licences; nothing is taken from them.
 
 ```

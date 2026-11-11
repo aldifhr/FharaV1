@@ -1,5 +1,6 @@
 import { httpRouter } from "convex/server";
 import { handleOAuthCallback, handleWebhook } from "./integrations";
+import { handleScheduledHook } from "./scheduledTaskHooks";
 
 /**
  * Plan 019: HTTP routes for the GitHub integration. The Next app forwards
@@ -27,6 +28,15 @@ http.route({
   pathPrefix: "/integrations/github/webhook/",
   method: "POST",
   handler: handleWebhook,
+});
+
+// GOAT G8: fire one scheduled task by id. Authenticated with the task's own
+// token (hashed at rest); idempotent per delivery id; waits while automation
+// is held. See scheduledTaskHooks.ts.
+http.route({
+  pathPrefix: "/hooks/scheduled/",
+  method: "POST",
+  handler: handleScheduledHook,
 });
 
 export default http;

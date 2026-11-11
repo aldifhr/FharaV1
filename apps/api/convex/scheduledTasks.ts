@@ -18,20 +18,26 @@
  * - A fixed-time occurrence more than 10 minutes late records "missed" and is
  *   skipped; an interval fires once and moves on (no backlog).
  *
- * The Settings tab and the webhook trigger are G8.
+ * G8 adds the webhook trigger (scheduledTaskHooks.ts), a person's "Run now",
+ * `update`, and `listForViewer` for Settings → Scheduled tasks. A webhook or
+ * "Run now" fire is out of band: it records its own run row and leaves
+ * `nextRunAt` (the clock) alone.
  */
 import { internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { assertProjectAccess, getViewerId } from "./lib/authz";
+import { cenvRaw } from "@fhara/config/convex";
+import { assertProjectAccess, getViewerId, visibleProjects } from "./lib/authz";
 import { loadAutomationHold } from "./lib/automationHold";
 import { isPersonalConversation } from "./lib/conversationShape";
 import { projectDefaultPermissionMode } from "./lib/permissionModes";
 import { recordAudit } from "./lib/recordAudit";
 import { insertChatUserMessage } from "./chatContext";
+import { effectiveTimeZone } from "./lib/timeContext";
 import {
   isMissedFixedTimeRun,
+  isSameSchedule,
   isValidTimeZone,
   nextRunAt,
   parseTimeOfDay,
@@ -44,7 +50,9 @@ import { scheduleValidator, scheduledTargetValidator } from "./lib/scheduledTask
 export const SCHEDULED_TICK_BATCH = 25;
 
 type RunStatus = "dispatched" | "held" | "missed" | "failed";
+type RunTrigger = "clock" | "webhook" | "manual";
 type FireResult = { status: RunStatus | "stale"; taskId?: Id<"tasks">; messageId?: Id<"messages">; error?: string };
+type Dispatched = { taskId?: Id<"tasks">; messageId?: Id<"messages"> };
 
 function assertSchedule(schedule: ScheduledTaskSchedule): void {
   if (schedule.type === "interval") {
@@ -54,6 +62,13 @@ function assertSchedule(schedule: ScheduledTaskSchedule): void {
   if (parseTimeOfDay(schedule.timeOfDay) === null) throw new Error("Time of day must be HH:MM");
   if (schedule.weekdays?.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) throw new Error("Weekdays are 0 (Sunday) to 6");
   if (schedule.timeZone !== undefined && !isValidTimeZone(schedule.timeZone)) throw new Error(`Unknown time zone: ${schedule.timeZone}`);
+}
+
+/** A time-of-day schedule without a zone takes the user's zone (Settings → General). */
+async function withDefaultZone(ctx: MutationCtx, schedule: ScheduledTaskSchedule): Promise<ScheduledTaskSchedule> {
+  if (schedule.type !== "fixed_time" || schedule.timeZone) return schedule;
+  const row = await ctx.db.query("appSettings").first();
+  return { ...schedule, timeZone: effectiveTimeZone(row?.userTimeZone) };
 }
 
 async function assertTarget(ctx: MutationCtx, projectId: Id<"projects">, target: Doc<"scheduledTasks">["target"]): Promise<void> {
@@ -68,14 +83,15 @@ async function assertTarget(ctx: MutationCtx, projectId: Id<"projects">, target:
   if (!conversation || conversation.projectId !== projectId) throw new Error("Conversation does not belong to this project");
 }
 
-async function createScheduledTaskRow(ctx: MutationCtx, project: Doc<"projects">, task: Doc<"scheduledTasks">, fireKey: string) {
+async function createScheduledTaskRow(ctx: MutationCtx, project: Doc<"projects">, task: Doc<"scheduledTasks">, fireKey: string, text?: string) {
   if (task.target.kind !== "task") throw new Error("Not a task target");
   const existing = await ctx.db
     .query("tasks")
     .withIndex("by_idempotency", (q) => q.eq("idempotencyKey", fireKey))
     .first();
   if (existing) return existing._id;
-  const command = task.target.command.trim();
+  const command = (text ?? task.target.command).trim();
+  if (!command) throw new Error("The rendered command is empty");
   const title = (task.target.title?.trim() || task.name.trim() || command).slice(0, 200);
   const taskId = await ctx.db.insert("tasks", {
     projectId: task.projectId,
@@ -91,7 +107,7 @@ async function createScheduledTaskRow(ctx: MutationCtx, project: Doc<"projects">
   return taskId;
 }
 
-async function sendScheduledMessage(ctx: MutationCtx, task: Doc<"scheduledTasks">, fireKey: string) {
+async function sendScheduledMessage(ctx: MutationCtx, task: Doc<"scheduledTasks">, fireKey: string, text?: string) {
   if (task.target.kind !== "conversation") throw new Error("Not a conversation target");
   const conversation = await ctx.db.get(task.target.conversationId);
   if (!conversation || conversation.projectId !== task.projectId) throw new Error("The bound conversation is gone");
@@ -101,11 +117,13 @@ async function sendScheduledMessage(ctx: MutationCtx, task: Doc<"scheduledTasks"
     .withIndex("by_conversation_and_client_id", (q) => q.eq("conversationId", conversation._id).eq("clientId", fireKey))
     .first();
   if (existing) return existing._id;
+  const content = text ?? task.target.content;
+  if (!content.trim()) throw new Error("The rendered message is empty");
   // A personal chat's messages carry no projectId (plan 039 D1).
   const personal = isPersonalConversation(conversation);
   const messageId = await insertChatUserMessage(ctx, {
     ...(personal ? {} : { projectId: task.projectId }),
-    content: task.target.content,
+    content,
     conversationId: conversation._id,
     clientId: fireKey,
   });
@@ -117,6 +135,52 @@ async function sendScheduledMessage(ctx: MutationCtx, task: Doc<"scheduledTasks"
     userMessageId: messageId,
   });
   return messageId;
+}
+
+/** Creates the task or sends the message; `text` replaces the stored one (a rendered webhook template). */
+export async function dispatchScheduledTarget(
+  ctx: MutationCtx,
+  task: Doc<"scheduledTasks">,
+  fireKey: string,
+  text?: string,
+): Promise<Dispatched> {
+  if (task.target.kind === "conversation") return { messageId: await sendScheduledMessage(ctx, task, fireKey, text) };
+  const project = await ctx.db.get(task.projectId);
+  if (!project) throw new Error("Project not found");
+  return { taskId: await createScheduledTaskRow(ctx, project, task, fireKey, text) };
+}
+
+/** A webhook or "Run now" occurrence: its own run row; the clock (`nextRunAt`) is untouched. */
+export async function recordOutOfBandRun(
+  ctx: MutationCtx,
+  task: Doc<"scheduledTasks">,
+  run: { fireKey: string; trigger: Exclude<RunTrigger, "clock">; status: RunStatus; deliveryId?: string; error?: string } & Dispatched,
+): Promise<void> {
+  const now = Date.now();
+  await ctx.db.insert("scheduledTaskRuns", {
+    scheduledTaskId: task._id,
+    projectId: task.projectId,
+    fireKey: run.fireKey,
+    dueAt: now,
+    firedAt: now,
+    status: run.status,
+    trigger: run.trigger,
+    ...(run.deliveryId ? { deliveryId: run.deliveryId } : {}),
+    ...(run.taskId ? { taskId: run.taskId } : {}),
+    ...(run.messageId ? { messageId: run.messageId } : {}),
+    ...(run.error ? { error: run.error.slice(0, 500) } : {}),
+  });
+  await ctx.db.patch(task._id, { lastRunAt: now, lastStatus: run.status, updatedAt: now });
+  if (run.status === "dispatched") {
+    await recordAudit(ctx, {
+      tool: "scheduler",
+      action: "scheduled_task.fire",
+      target: task.name,
+      projectId: task.projectId,
+      ...(run.taskId ? { taskId: run.taskId } : {}),
+      details: { scheduledTaskId: task._id, trigger: run.trigger, kind: task.target.kind },
+    });
+  }
 }
 
 async function recordRun(
@@ -133,6 +197,7 @@ async function recordRun(
     dueAt,
     firedAt: now,
     status: result.status,
+    trigger: "clock",
     ...(result.taskId ? { taskId: result.taskId } : {}),
     ...(result.messageId ? { messageId: result.messageId } : {}),
     ...(result.error ? { error: result.error.slice(0, 500) } : {}),
@@ -168,12 +233,7 @@ export async function fireScheduledTask(
     await recordRun(ctx, task, dueAt, now, { status: "missed" });
     return { status: "missed" };
   }
-  const project = await ctx.db.get(task.projectId);
-  if (!project) throw new Error("Project not found");
-  const result: FireResult =
-    task.target.kind === "task"
-      ? { status: "dispatched", taskId: await createScheduledTaskRow(ctx, project, task, fireKey) }
-      : { status: "dispatched", messageId: await sendScheduledMessage(ctx, task, fireKey) };
+  const result: FireResult = { status: "dispatched", ...(await dispatchScheduledTarget(ctx, task, fireKey)) };
   await recordRun(ctx, task, dueAt, now, { ...result, status: "dispatched" });
   await recordAudit(ctx, {
     tool: "scheduler",
@@ -241,15 +301,16 @@ export const create = mutation({
     if (!name) throw new Error("Name is required");
     assertSchedule(args.schedule);
     await assertTarget(ctx, args.projectId, args.target);
+    const schedule = await withDefaultZone(ctx, args.schedule);
     const now = Date.now();
     const enabled = args.enabled ?? true;
-    const next = nextRunAt({ enabled, schedule: args.schedule }, now);
+    const next = nextRunAt({ enabled, schedule }, now);
     const viewerId = await getViewerId(ctx);
     const id = await ctx.db.insert("scheduledTasks", {
       projectId: args.projectId,
       name: name.slice(0, 120),
       enabled,
-      schedule: args.schedule,
+      schedule,
       target: args.target,
       ...(next !== null ? { nextRunAt: next } : {}),
       ...(viewerId ? { createdBy: viewerId } : {}),
@@ -291,14 +352,86 @@ export const remove = mutation({
   },
 });
 
+export const update = mutation({
+  args: {
+    scheduledTaskId: v.id("scheduledTasks"),
+    name: v.string(),
+    schedule: scheduleValidator,
+    target: scheduledTargetValidator,
+  },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.scheduledTaskId);
+    if (!task) throw new Error("Scheduled task not found");
+    await assertProjectAccess(ctx, task.projectId);
+    const name = args.name.trim();
+    if (!name) throw new Error("Name is required");
+    assertSchedule(args.schedule);
+    await assertTarget(ctx, task.projectId, args.target);
+    const schedule = await withDefaultZone(ctx, args.schedule);
+    const now = Date.now();
+    // An unchanged schedule keeps its pending occurrence; a new one starts from now.
+    const next = isSameSchedule(task.schedule, schedule) ? (task.nextRunAt ?? null) : nextRunAt({ enabled: task.enabled, schedule }, now);
+    await ctx.db.patch(task._id, { name: name.slice(0, 120), schedule, target: args.target, nextRunAt: next ?? undefined, updatedAt: now });
+    await recordAudit(ctx, { tool: "scheduler", action: "scheduled_task.update", target: name, projectId: task.projectId });
+    return { nextRunAt: next };
+  },
+});
+
+/**
+ * A person's "Run now": fires once outside the clock. It is the user's own
+ * request, so the automation hold does not stop it (like a cron "Run now").
+ */
+export const runNow = mutation({
+  args: { scheduledTaskId: v.id("scheduledTasks") },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.scheduledTaskId);
+    if (!task) throw new Error("Scheduled task not found");
+    await assertProjectAccess(ctx, task.projectId);
+    const fireKey = `manual:${task._id}:${Date.now()}`;
+    const dispatched = await dispatchScheduledTarget(ctx, task, fireKey);
+    await recordOutOfBandRun(ctx, task, { fireKey, trigger: "manual", status: "dispatched", ...dispatched });
+    return dispatched;
+  },
+});
+
+/** What the UI reads: never the token hash, only whether a token is set and the hook URL. */
+export function scheduledTaskView(task: Doc<"scheduledTasks">, projectName?: string) {
+  const { webhookTokenHash, ...rest } = task;
+  const site = cenvRaw("CONVEX_SITE_URL")?.replace(/\/$/, "");
+  return {
+    ...rest,
+    ...(projectName !== undefined ? { projectName } : {}),
+    hasWebhookToken: Boolean(webhookTokenHash),
+    webhookUrl: site ? `${site}/hooks/scheduled/${task._id}` : null,
+  };
+}
+
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
     await assertProjectAccess(ctx, args.projectId);
-    return await ctx.db
+    const rows = await ctx.db
       .query("scheduledTasks")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .take(100);
+    return rows.map((row) => scheduledTaskView(row));
+  },
+});
+
+/** Every scheduled task in the projects the viewer can see (Settings → Scheduled tasks). */
+export const listForViewer = query({
+  args: {},
+  handler: async (ctx) => {
+    const projects = await visibleProjects(ctx);
+    const out: ReturnType<typeof scheduledTaskView>[] = [];
+    for (const project of projects) {
+      const rows = await ctx.db
+        .query("scheduledTasks")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .take(100);
+      for (const row of rows) out.push(scheduledTaskView(row, project.name));
+    }
+    return out.sort((a, b) => a.createdAt - b.createdAt);
   },
 });
 

@@ -296,7 +296,17 @@ export function evaluateOpencodeRule(rules: OpencodeRuleMap, value: string): Ope
  */
 
 /** Tools OpenCode needs that carry no risk of their own (read-side, local). */
-export const OPENCODE_SAFE_TOOLS: readonly string[] = ["glob", "grep", "list", "lsp", "todowrite", "todoread", "skill"];
+export const OPENCODE_SAFE_TOOLS: readonly string[] = ["glob", "grep", "list", "lsp", "todowrite", "todoread"];
+
+/**
+ * Permissions denied in every run, whatever the policy says. `skill` is
+ * OpenCode's native skill loader: it surfaces `.claude/skills`,
+ * `.agents/skills` and global skill folders (from the target repo or the
+ * machine) that were never imported, validated or assigned in Fhara.
+ * Fhara's own skills reach OpenCode only through the prompt file
+ * (skills plan S1; opencode 1.19.5 listed 35 repo skills here before).
+ */
+export const OPENCODE_ALWAYS_DENIED: readonly string[] = ["skill"];
 
 export type OpencodePermissionBlock = Record<string, OpencodeAction | OpencodeRuleMap>;
 
@@ -311,6 +321,8 @@ export function opencodePermissionBlock(policy: OpencodePolicy): OpencodePermiss
   for (const tool of OPENCODE_SAFE_TOOLS) block[tool] = "allow";
   block.codesearch = policy.webfetch;
   for (const [key, value] of Object.entries(policy)) block[key] = value as OpencodeAction | OpencodeRuleMap;
+  // Last, so no policy key can loosen them.
+  for (const tool of OPENCODE_ALWAYS_DENIED) block[tool] = "deny";
   return block;
 }
 
@@ -386,6 +398,9 @@ export const POLICY_PROBES: ReadonlyArray<{ key: string; value: string }> = [
   { key: "question", value: "*" },
   { key: "doom_loop", value: "*" },
   { key: "some_future_tool", value: "*" },
+  { key: "skill", value: "*" },
+  { key: "skill", value: "customize-opencode" },
+  { key: "skill", value: "fhara-skill" },
 ];
 
 /**
@@ -396,7 +411,7 @@ export const POLICY_PROBES: ReadonlyArray<{ key: string; value: string }> = [
 export function rulesetPolicyViolation(policy: OpencodePolicy, loaded: readonly OpencodeRuleRow[]): string | null {
   const ours = flattenPermissionBlock(opencodePermissionBlock(policy));
   for (const probe of POLICY_PROBES) {
-    const want = evaluateOpencodeRuleset(ours, probe.key, probe.value);
+    const want = OPENCODE_ALWAYS_DENIED.includes(probe.key) ? "deny" : evaluateOpencodeRuleset(ours, probe.key, probe.value);
     const got = evaluateOpencodeRuleset(loaded, probe.key, probe.value);
     if (want === "deny" && got !== "deny") return `${probe.key} "${probe.value}" is "${got}" in the loaded rules, Fhara requires "deny"`;
   }

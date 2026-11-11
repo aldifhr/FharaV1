@@ -26,6 +26,9 @@ const ASK_FOR_EVERYTHING: Record<string, unknown> = {
   external_directory: 'deny',
   question: 'deny',
   bash: { '*': 'ask', 'git push*': 'deny', 'git remote*': 'deny', 'gh pr merge*': 'deny' },
+  // Fhara (skills plan S1): OpenCode's native skill loader would surface the
+  // folder's .claude/.agents skills, never imported or validated in Fhara.
+  skill: 'deny',
 };
 const DENY_EVERYTHING: Record<string, unknown> = { '*': 'deny' };
 
@@ -62,6 +65,11 @@ export function opencodeEnv(o: { base?: Record<string, unknown>; noTools?: boole
   return {
     OPENCODE_DISABLE_PROJECT_CONFIG: '1',
     OPENCODE_DISABLE_AUTOUPDATE: '1',
+    // Fhara (skills plan S1): no .claude/.agents skill discovery either.
+    OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
+    OPENCODE_DISABLE_CLAUDE_CODE: '1',
+    OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: '1',
+    OPENCODE_DISABLE_CLAUDE_CODE_PROMPT: '1',
     OPENCODE_CONFIG_CONTENT: JSON.stringify(opencodeConfig(o)),
     NO_PROXY: withLoopback(source.NO_PROXY),
     no_proxy: withLoopback(source.no_proxy),

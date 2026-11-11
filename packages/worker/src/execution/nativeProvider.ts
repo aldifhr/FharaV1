@@ -598,8 +598,28 @@ export function opencodeSafetyEnv(policy: OpencodePolicy, agentName: string): Re
     OPENCODE_PERMISSION: JSON.stringify(block),
     OPENCODE_DISABLE_PROJECT_CONFIG: "1",
     OPENCODE_PURE: "1",
+    ...OPENCODE_SKILL_LOCKDOWN_ENV,
   };
 }
+
+/**
+ * Skills plan S1: OpenCode's own skill discovery off, so a target repo's
+ * `.claude/skills` / `.agents/skills` (or `~/.claude`, `~/.agents`) never
+ * load in a run. Fhara's skills reach OpenCode only through the prompt
+ * file. Names from OpenCode's CLI env table (v1 docs cli.mdx) and
+ * packages/cli/src/server-process.ts. Measured on 1.19.5:
+ * OPENCODE_DISABLE_EXTERNAL_SKILLS alone took `opencode debug skill` in this
+ * repo from 36 skills to the one built-in; the CLAUDE_CODE flags also stop
+ * `.claude` prompt reading. The global `~/.config/opencode/skills` folder is
+ * not covered by these flags: the throwaway HOME keeps it empty, and the
+ * `skill: "deny"` permission hides and rejects whatever is left.
+ */
+export const OPENCODE_SKILL_LOCKDOWN_ENV: Readonly<Record<string, string>> = Object.freeze({
+  OPENCODE_DISABLE_EXTERNAL_SKILLS: "1",
+  OPENCODE_DISABLE_CLAUDE_CODE: "1",
+  OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: "1",
+  OPENCODE_DISABLE_CLAUDE_CODE_PROMPT: "1",
+});
 
 function shouldVerifyPolicy(input: NativeRunInput, command: string): boolean {
   if (input.verifyPolicy !== undefined) return input.verifyPolicy;
@@ -634,30 +654,79 @@ export async function verifyLoadedPolicy(input: {
   signal?: AbortSignal;
   spawnImpl?: SpawnImpl;
 }): Promise<string | null> {
-  let ran: { stdout: string; stderr: string; code: number | null };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30_000);
-  const onAbort = () => controller.abort();
-  input.signal?.addEventListener("abort", onAbort, { once: true });
-  try {
-    ran = await (input.spawnImpl ?? defaultSpawn)(input.command, ["debug", "agent", input.agent], {
-      cwd: input.cwd,
-      env: input.env,
-      signal: controller.signal,
-    });
-  } catch (error) {
-    return `could not read OpenCode's loaded config: ${error instanceof Error ? error.message : String(error)}`;
-  } finally {
-    clearTimeout(timer);
-    input.signal?.removeEventListener("abort", onAbort);
-  }
+  const debug = async (args: string[]): Promise<{ stdout: string; stderr: string; code: number | null } | string> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    const onAbort = () => controller.abort();
+    input.signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      return await (input.spawnImpl ?? defaultSpawn)(input.command, args, {
+        cwd: input.cwd,
+        env: input.env,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      return `could not read OpenCode's loaded config: ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      clearTimeout(timer);
+      input.signal?.removeEventListener("abort", onAbort);
+    }
+  };
+  const ran = await debug(["debug", "agent", input.agent]);
+  if (typeof ran === "string") return ran;
   if (ran.code !== 0) return `could not read OpenCode's loaded agent rules (exit ${ran.code ?? "signal"})`;
   const agent = parseDebugConfig(ran.stdout);
   if (!agent) return "could not parse OpenCode's loaded agent rules";
   if (agent.name !== input.agent) return `OpenCode resolved agent "${String(agent.name)}", expected "${input.agent}"`;
   const rows = parseRuleRows(agent.permission);
   if (!rows) return "OpenCode's loaded agent has no permission rules";
-  return rulesetPolicyViolation(input.policy, rows);
+  const violation = rulesetPolicyViolation(input.policy, rows);
+  if (violation) return violation;
+  // Skills plan S1: no skill from the repo, the machine or a plugin may be
+  // discoverable at all (the `skill` deny above is the second wall).
+  const skills = await debug(["debug", "skill"]);
+  if (typeof skills === "string") return skills;
+  if (skills.code !== 0) return `could not list OpenCode's skills (exit ${skills.code ?? "signal"})`;
+  const listed = parseDebugSkills(skills.stdout);
+  if (!listed) return "could not parse OpenCode's skill list";
+  return externalSkillViolation(listed);
+}
+
+/** One entry of `opencode debug skill` (1.19.5: a JSON array of {name, description, location, content}). */
+export interface OpencodeDebugSkill {
+  name: string;
+  location: string;
+}
+
+/** OpenCode's own bundled skills report this location; they are hidden by `skill: "deny"`. */
+export const OPENCODE_BUILTIN_SKILL_LOCATION = "<built-in>";
+
+/** Parse `opencode debug skill` stdout (JSON array, possibly after a banner); null when unreadable. */
+export function parseDebugSkills(stdout: string): OpencodeDebugSkill[] | null {
+  const start = stdout.indexOf("[");
+  if (start < 0) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout.slice(start));
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+  const out: OpencodeDebugSkill[] = [];
+  for (const item of parsed) {
+    if (!item || typeof item !== "object") return null;
+    const r = item as Record<string, unknown>;
+    out.push({ name: typeof r.name === "string" ? r.name : "?", location: typeof r.location === "string" ? r.location : "" });
+  }
+  return out;
+}
+
+/** Null when every listed skill is an OpenCode built-in, else the first outside skill (fail closed). */
+export function externalSkillViolation(skills: readonly OpencodeDebugSkill[]): string | null {
+  const outside = skills.filter((s) => s.location !== OPENCODE_BUILTIN_SKILL_LOCATION);
+  if (outside.length === 0) return null;
+  const first = outside[0]!;
+  return `OpenCode can see ${outside.length} skill(s) Fhara did not assign, e.g. "${first.name}" at ${first.location || "an unknown location"}`;
 }
 
 export class OpencodePolicyError extends Error {

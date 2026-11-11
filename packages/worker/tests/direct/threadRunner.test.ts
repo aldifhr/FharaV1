@@ -379,4 +379,14 @@ describe("opencode env for ACP", () => {
     expect(cfg.model).toBe("fhara/m");
     expect(opencodeConfig({ noTools: true }).permission).toEqual({ "*": "deny" });
   });
+
+  it("turns off OpenCode's own skill discovery and denies the skill tool on every agent (skills S1)", () => {
+    const env = opencodeEnv({ source: {} });
+    expect(env.OPENCODE_DISABLE_EXTERNAL_SKILLS).toBe("1");
+    expect(env.OPENCODE_DISABLE_CLAUDE_CODE).toBe("1");
+    expect(env.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS).toBe("1");
+    const cfg = JSON.parse(env.OPENCODE_CONFIG_CONTENT);
+    expect(cfg.permission.skill).toBe("deny");
+    for (const agent of ["build", "plan", "general", "explore"]) expect(cfg.agent[agent].permission.skill).toBe("deny");
+  });
 });

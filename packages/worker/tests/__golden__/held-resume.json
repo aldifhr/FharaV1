@@ -1,0 +1,50 @@
+{
+  "scenario": "held-resume",
+  "title": "Held by a provider rate limit (Resume)",
+  "streams": {
+    "taskEvents": {
+      "count": 6,
+      "highWater": 6,
+      "gapsSeen": [],
+      "types": [
+        "task.created",
+        "plan.created",
+        "subtask.started",
+        "llm.call_failed",
+        "llm.call_failed",
+        "task.held"
+      ]
+    },
+    "agentEvents": {
+      "count": 1,
+      "highWater": 1,
+      "gapsSeen": [],
+      "types": [
+        "task.updated"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "key": "tasks/main",
+      "status": "paused",
+      "mode": "orchestrated",
+      "replay": {
+        "failureIndex": -1,
+        "steps": [
+          "instruction Instruction",
+          "event task.created",
+          "plan plan.created",
+          "subtask subtask.started [toggle]",
+          "event llm.call_failed [toggle]",
+          "event llm.call_failed [toggle]",
+          "event task.held"
+        ]
+      },
+      "holdNotice": "On hold: The model provider is rate limiting requests (429).. Retrying automatically in 3 min."
+    }
+  ],
+  "tray": [],
+  "activity": [],
+  "messages": 2
+}

@@ -1,0 +1,152 @@
+{
+  "format": 1,
+  "id": "held-resume",
+  "title": "Held by a provider rate limit (Resume)",
+  "description": "The provider answered 429; the task is paused with pausedBy \"held\" and resumes on its own at resumeAt, or on the Resume button.",
+  "covers": [
+    "tasks",
+    "subtasks",
+    "taskEvents",
+    "agentEvents",
+    "messages",
+    "holds"
+  ],
+  "base": 1768467600000,
+  "anchor": 1768468020000,
+  "rows": {
+    "agents": [
+      {
+        "fixtureKey": "cto",
+        "name": "CTO",
+        "role": "cto",
+        "status": "idle",
+        "isEnabled": true,
+        "capabilities": []
+      },
+      {
+        "fixtureKey": "frontend",
+        "name": "Frontend",
+        "role": "frontend",
+        "status": "idle",
+        "isEnabled": true,
+        "capabilities": []
+      }
+    ],
+    "projects": [
+      {
+        "fixtureKey": "main",
+        "name": "[fixture] Held task",
+        "workspacePath": "/tmp/fhara-fixtures/held-resume",
+        "mainBranch": "main",
+        "createdAt": 1768467600000,
+        "agentIds": [
+          "$ref:agents/cto",
+          "$ref:agents/frontend"
+        ]
+      }
+    ],
+    "conversations": [
+      {
+        "fixtureKey": "main",
+        "projectId": "$ref:projects/main",
+        "kind": "project",
+        "title": "Dark mode toggle",
+        "status": "active",
+        "createdAt": 1768467600000,
+        "lastMessageAt": 1768467600000
+      }
+    ],
+    "conversationParticipants": [
+      {
+        "fixtureKey": "p0",
+        "conversationId": "$ref:conversations/main",
+        "projectId": "$ref:projects/main",
+        "agentId": "$ref:agents/cto",
+        "joinedAt": 1768467600000
+      },
+      {
+        "fixtureKey": "p1",
+        "conversationId": "$ref:conversations/main",
+        "projectId": "$ref:projects/main",
+        "agentId": "$ref:agents/frontend",
+        "joinedAt": 1768467600000
+      }
+    ],
+    "tasks": [
+      {
+        "fixtureKey": "main",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "title": "Dark mode toggle",
+        "command": "Add a dark mode toggle to the settings page.",
+        "status": "paused",
+        "pausedBy": "held",
+        "pausedAt": 1768467960000,
+        "planVersion": 1,
+        "strategy": "single",
+        "classification": "implementation",
+        "startedAt": 1768467606000,
+        "updatedAt": 1768467960000,
+        "assignedAgentIds": [
+          "$ref:agents/frontend"
+        ],
+        "permissionMode": "supervised",
+        "sprint": 1,
+        "phase": "implementation",
+        "eventSequence": 0,
+        "hold": {
+          "kind": "rate_limit",
+          "reason": "The model provider is rate limiting requests (429).",
+          "detail": "HTTP 429 from the fixture provider",
+          "attempts": 2,
+          "heldAt": 1768467960000,
+          "resumeAt": 1768468200000
+        }
+      }
+    ],
+    "subtasks": [
+      {
+        "fixtureKey": "toggle",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "key": "toggle",
+        "title": "Add the toggle",
+        "description": "Add a theme switch to Settings › Appearance.",
+        "kind": "code_change",
+        "capability": "frontend-development",
+        "dependencies": [],
+        "order": 0,
+        "allowedPaths": [
+          "src/settings"
+        ],
+        "status": "running",
+        "origin": "plan",
+        "assignedAgentId": "$ref:agents/frontend",
+        "assignedAgentName": "Frontend",
+        "attempts": 1,
+        "startedAt": 1768467612000,
+        "activity": "Waiting for the model",
+        "activityAt": 1768467960000
+      }
+    ],
+    "messages": [
+      {
+        "fixtureKey": "m9",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "authorType": "user",
+        "content": "Add a dark mode toggle to the settings page.",
+        "clientId": "fixture-held-1"
+      },
+      {
+        "fixtureKey": "m10",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "taskId": "$ref:tasks/main",
+        "agentId": "$ref:agents/cto",
+        "authorType": "agent",
+        "content": "Paused: the model provider is rate limiting requests. I will retry automatically, or press Resume."
+      }
+    ]
+  }
+}

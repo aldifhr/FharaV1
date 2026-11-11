@@ -1,0 +1,303 @@
+{
+  "format": 1,
+  "id": "research-fanout",
+  "title": "Research fan-out with one failed angle",
+  "description": "Three research assistants run in parallel; RA-2 times out; the synthesis answers from RA-1 and RA-3 and says which angle is missing.",
+  "covers": [
+    "tasks",
+    "plans",
+    "subtasks",
+    "taskEvents",
+    "agentEvents",
+    "messages",
+    "taskBriefs",
+    "memories"
+  ],
+  "base": 1768467600000,
+  "anchor": 1768468740000,
+  "rows": {
+    "agents": [
+      {
+        "fixtureKey": "cto",
+        "name": "CTO",
+        "role": "cto",
+        "status": "idle",
+        "isEnabled": true,
+        "capabilities": []
+      },
+      {
+        "fixtureKey": "researcher",
+        "name": "Researcher",
+        "role": "researcher",
+        "status": "idle",
+        "isEnabled": true,
+        "capabilities": []
+      }
+    ],
+    "projects": [
+      {
+        "fixtureKey": "main",
+        "name": "[fixture] Research fan-out",
+        "workspacePath": "/tmp/fhara-fixtures/research-fanout",
+        "mainBranch": "main",
+        "createdAt": 1768467600000,
+        "agentIds": [
+          "$ref:agents/cto",
+          "$ref:agents/researcher"
+        ]
+      }
+    ],
+    "conversations": [
+      {
+        "fixtureKey": "main",
+        "projectId": "$ref:projects/main",
+        "kind": "project",
+        "title": "Queue options",
+        "status": "active",
+        "createdAt": 1768467600000,
+        "lastMessageAt": 1768467600000
+      }
+    ],
+    "conversationParticipants": [
+      {
+        "fixtureKey": "p0",
+        "conversationId": "$ref:conversations/main",
+        "projectId": "$ref:projects/main",
+        "agentId": "$ref:agents/cto",
+        "joinedAt": 1768467600000
+      },
+      {
+        "fixtureKey": "p1",
+        "conversationId": "$ref:conversations/main",
+        "projectId": "$ref:projects/main",
+        "agentId": "$ref:agents/researcher",
+        "joinedAt": 1768467600000
+      }
+    ],
+    "tasks": [
+      {
+        "fixtureKey": "main",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "title": "Background job options",
+        "command": "Compare three ways to run background jobs for our app: a cron table, a Redis queue, and the database outbox pattern.",
+        "status": "done",
+        "planVersion": 1,
+        "strategy": "dag",
+        "classification": "research",
+        "startedAt": 1768467606000,
+        "completedAt": 1768468680000,
+        "updatedAt": 1768468680000,
+        "assignedAgentIds": [
+          "$ref:agents/researcher"
+        ],
+        "permissionMode": "supervised",
+        "sprint": 1,
+        "phase": "done",
+        "eventSequence": 0
+      }
+    ],
+    "plans": [
+      {
+        "fixtureKey": "v1",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "version": 1,
+        "strategy": "dag",
+        "createdBy": "orchestrator",
+        "goal": "A recommendation with evidence",
+        "payload": {
+          "goal": "A recommendation with evidence",
+          "strategy": "dag",
+          "requiresApproval": false,
+          "subtasks": [
+            {
+              "key": "ra-1",
+              "title": "Cron table",
+              "kind": "research",
+              "capability": "research",
+              "dependencies": [],
+              "order": 0
+            },
+            {
+              "key": "ra-2",
+              "title": "Redis queue",
+              "kind": "research",
+              "capability": "research",
+              "dependencies": [],
+              "order": 1
+            },
+            {
+              "key": "ra-3",
+              "title": "Outbox pattern",
+              "kind": "research",
+              "capability": "research",
+              "dependencies": [],
+              "order": 2
+            },
+            {
+              "key": "synth",
+              "title": "Synthesis",
+              "kind": "research",
+              "capability": "research",
+              "dependencies": [
+                "ra-1",
+                "ra-2",
+                "ra-3"
+              ],
+              "order": 3
+            }
+          ]
+        },
+        "createdAt": 1768467612000
+      }
+    ],
+    "subtasks": [
+      {
+        "fixtureKey": "ra-1",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "key": "ra-1",
+        "title": "RA-1: Cron table",
+        "description": "Research angle: Cron table",
+        "kind": "research",
+        "capability": "research",
+        "dependencies": [],
+        "order": 0,
+        "status": "completed",
+        "origin": "plan",
+        "assignedAgentId": "$ref:agents/researcher",
+        "assignedAgentName": "Researcher",
+        "attempts": 1,
+        "startedAt": 1768467660000,
+        "completedAt": 1768468080000,
+        "output": "Simplest; no new service. Weak on retries and fan-out. Sources: docs/jobs.md, example.com/cron-guide."
+      },
+      {
+        "fixtureKey": "ra-2",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "key": "ra-2",
+        "title": "RA-2: Redis queue",
+        "description": "Research angle: Redis queue",
+        "kind": "research",
+        "capability": "research",
+        "dependencies": [],
+        "order": 1,
+        "status": "failed",
+        "origin": "plan",
+        "assignedAgentId": "$ref:agents/researcher",
+        "assignedAgentName": "Researcher",
+        "attempts": 2,
+        "startedAt": 1768467660000,
+        "completedAt": 1768468260000,
+        "error": "Subtask timed out after 600 s"
+      },
+      {
+        "fixtureKey": "ra-3",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "key": "ra-3",
+        "title": "RA-3: Outbox pattern",
+        "description": "Research angle: Outbox pattern",
+        "kind": "research",
+        "capability": "research",
+        "dependencies": [],
+        "order": 2,
+        "status": "completed",
+        "origin": "plan",
+        "assignedAgentId": "$ref:agents/researcher",
+        "assignedAgentName": "Researcher",
+        "attempts": 1,
+        "startedAt": 1768467660000,
+        "completedAt": 1768468080000,
+        "output": "Exactly-once with the write; needs a relay. Sources: docs/db.md, example.com/outbox."
+      },
+      {
+        "fixtureKey": "synth",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "key": "synth",
+        "title": "Synthesis",
+        "description": "Merge the reports.",
+        "kind": "research",
+        "capability": "research",
+        "dependencies": [
+          "ra-1",
+          "ra-2",
+          "ra-3"
+        ],
+        "order": 3,
+        "status": "completed",
+        "origin": "plan",
+        "assignedAgentId": "$ref:agents/researcher",
+        "assignedAgentName": "Researcher",
+        "attempts": 1,
+        "startedAt": 1768468320000,
+        "completedAt": 1768468620000,
+        "output": "Use the outbox pattern for jobs that must follow a write, and a cron table for periodic work. The Redis queue angle did not finish (timed out), so it is not compared here; rerun it if you need high fan-out."
+      }
+    ],
+    "taskBriefs": [
+      {
+        "fixtureKey": "brief",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "objective": "Pick a background job approach",
+        "owner": "Researcher",
+        "latestResult": "Use the outbox pattern for jobs that must follow a write, and a cron table for periodic work. The Redis queue angle did not finish (timed out), so it is not compared here; rerun it if you need high fan-out.",
+        "openQuestions": [
+          "Rerun the Redis queue angle?"
+        ],
+        "nextStep": "Decide, or rerun RA-2.",
+        "updatedAt": 1768468680000,
+        "updatedBy": "worker"
+      }
+    ],
+    "memories": [
+      {
+        "fixtureKey": "m1",
+        "scope": "agent",
+        "projectId": "$ref:projects/main",
+        "agentId": "$ref:agents/researcher",
+        "title": "Research timeouts",
+        "content": "Queue-system research tends to run long; give it a narrower question.",
+        "tags": [
+          "fixture"
+        ],
+        "pinned": false,
+        "source": "agent",
+        "createdAt": 1768468680000,
+        "updatedAt": 1768468680000
+      }
+    ],
+    "messages": [
+      {
+        "fixtureKey": "m20",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "authorType": "user",
+        "content": "Compare three ways to run background jobs for our app: a cron table, a Redis queue, and the database outbox pattern.",
+        "clientId": "fixture-research-1"
+      },
+      {
+        "fixtureKey": "m21",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "taskId": "$ref:tasks/main",
+        "agentId": "$ref:agents/cto",
+        "authorType": "agent",
+        "content": "Delegation: CTO → Researcher (3 angles in parallel, then a synthesis)"
+      },
+      {
+        "fixtureKey": "m22",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "taskId": "$ref:tasks/main",
+        "agentId": "$ref:agents/researcher",
+        "authorType": "agent",
+        "content": "Use the outbox pattern for jobs that must follow a write, and a cron table for periodic work. The Redis queue angle did not finish (timed out), so it is not compared here; rerun it if you need high fan-out."
+      }
+    ]
+  }
+}

@@ -1,0 +1,336 @@
+{
+  "format": 1,
+  "id": "verify-loop-failed",
+  "title": "Failed verification loop",
+  "description": "Verification fails on the first run and on two fix rounds; the fix cap is reached and the task fails with the log tail.",
+  "covers": [
+    "tasks",
+    "subtasks",
+    "taskEvents",
+    "agentEvents",
+    "messages",
+    "fileChanges",
+    "approvals",
+    "taskBriefs"
+  ],
+  "base": 1768467600000,
+  "anchor": 1768468860000,
+  "rows": {
+    "agents": [
+      {
+        "fixtureKey": "cto",
+        "name": "CTO",
+        "role": "cto",
+        "status": "idle",
+        "isEnabled": true,
+        "capabilities": []
+      },
+      {
+        "fixtureKey": "backend",
+        "name": "Backend",
+        "role": "backend",
+        "status": "idle",
+        "isEnabled": true,
+        "capabilities": []
+      }
+    ],
+    "projects": [
+      {
+        "fixtureKey": "main",
+        "name": "[fixture] Failed verify loop",
+        "workspacePath": "/tmp/fhara-fixtures/verify-loop-failed",
+        "mainBranch": "main",
+        "createdAt": 1768467600000,
+        "agentIds": [
+          "$ref:agents/cto",
+          "$ref:agents/backend"
+        ]
+      }
+    ],
+    "conversations": [
+      {
+        "fixtureKey": "main",
+        "projectId": "$ref:projects/main",
+        "kind": "project",
+        "title": "CSV export",
+        "status": "active",
+        "createdAt": 1768467600000,
+        "lastMessageAt": 1768467600000
+      }
+    ],
+    "conversationParticipants": [
+      {
+        "fixtureKey": "p0",
+        "conversationId": "$ref:conversations/main",
+        "projectId": "$ref:projects/main",
+        "agentId": "$ref:agents/cto",
+        "joinedAt": 1768467600000
+      },
+      {
+        "fixtureKey": "p1",
+        "conversationId": "$ref:conversations/main",
+        "projectId": "$ref:projects/main",
+        "agentId": "$ref:agents/backend",
+        "joinedAt": 1768467600000
+      }
+    ],
+    "tasks": [
+      {
+        "fixtureKey": "main",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "title": "CSV export for invoices",
+        "command": "Add CSV export to the invoices API.",
+        "status": "failed",
+        "planVersion": 1,
+        "strategy": "single",
+        "classification": "implementation",
+        "startedAt": 1768467606000,
+        "completedAt": 1768468800000,
+        "updatedAt": 1768468800000,
+        "errorMessage": "Verification failed after 3 runs (typecheck): src/invoices/export.ts(14,7): error TS2322: Type 'string | undefined' is not assignable to type 'string'.",
+        "assignedAgentIds": [
+          "$ref:agents/backend"
+        ],
+        "permissionMode": "auto_edits",
+        "sprint": 1,
+        "phase": "verification",
+        "eventSequence": 0
+      }
+    ],
+    "subtasks": [
+      {
+        "fixtureKey": "export",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "key": "export",
+        "title": "CSV export endpoint",
+        "description": "GET /invoices/export.csv",
+        "kind": "code_change",
+        "capability": "backend-development",
+        "dependencies": [],
+        "order": 0,
+        "allowedPaths": [
+          "src/invoices"
+        ],
+        "status": "completed",
+        "origin": "plan",
+        "assignedAgentId": "$ref:agents/backend",
+        "assignedAgentName": "Backend",
+        "attempts": 1,
+        "startedAt": 1768467612000,
+        "completedAt": 1768467732000,
+        "acceptanceStatus": "rejected",
+        "acceptanceReason": "typecheck failed"
+      },
+      {
+        "fixtureKey": "fix-1",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "key": "verify-fix-1",
+        "title": "Fix verification (round 1)",
+        "description": "Fix the failing typecheck.",
+        "kind": "code_change",
+        "capability": "backend-development",
+        "dependencies": [
+          "export"
+        ],
+        "order": 1,
+        "allowedPaths": [
+          "src/invoices"
+        ],
+        "status": "completed",
+        "origin": "fix",
+        "assignedAgentId": "$ref:agents/backend",
+        "assignedAgentName": "Backend",
+        "attempts": 1,
+        "startedAt": 1768467738000,
+        "completedAt": 1768467828000
+      },
+      {
+        "fixtureKey": "fix-2",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "key": "verify-fix-2",
+        "title": "Fix verification (round 2)",
+        "description": "Fix the failing typecheck.",
+        "kind": "code_change",
+        "capability": "backend-development",
+        "dependencies": [
+          "export"
+        ],
+        "order": 2,
+        "allowedPaths": [
+          "src/invoices"
+        ],
+        "status": "failed",
+        "origin": "fix",
+        "assignedAgentId": "$ref:agents/backend",
+        "assignedAgentName": "Backend",
+        "attempts": 1,
+        "startedAt": 1768467834000,
+        "completedAt": 1768467924000,
+        "error": "Verification still failing"
+      }
+    ],
+    "fileChanges": [
+      {
+        "fixtureKey": "f1",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "filePath": "src/invoices/export.ts",
+        "changeType": "new",
+        "newContent": "export const toCsv = () => \"\"; // fixture\n",
+        "diff": "--- a/src/invoices/export.ts\n+++ b/src/invoices/export.ts\n@@ -1,1 +1,2 @@\n // fixture\n+export const toCsv = () => \"\"; // fixture\n",
+        "subtaskKey": "export",
+        "approvedAt": 1768467924000,
+        "appliedAt": 1768467924000,
+        "appliedByWorkerId": "fixture-worker"
+      }
+    ],
+    "approvals": [
+      {
+        "fixtureKey": "apply",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "kind": "apply_changes",
+        "summary": "Apply 1 file change",
+        "subtaskKey": "export",
+        "status": "approved",
+        "resolvedAt": 1768467924000,
+        "decidedBy": "auto"
+      }
+    ],
+    "taskBriefs": [
+      {
+        "fixtureKey": "brief",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "objective": "CSV export for invoices",
+        "owner": "Backend",
+        "latestResult": "Failed: typecheck still fails after 2 fix rounds.",
+        "openQuestions": [
+          "Should `customerName` be optional in the CSV?"
+        ],
+        "nextStep": "Retry with a note, or fix the type by hand.",
+        "updatedAt": 1768468800000,
+        "updatedBy": "worker"
+      }
+    ],
+    "messages": [
+      {
+        "fixtureKey": "m11",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "authorType": "user",
+        "content": "Add CSV export to the invoices API.",
+        "clientId": "fixture-verify-1"
+      },
+      {
+        "fixtureKey": "m12",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "taskId": "$ref:tasks/main",
+        "agentId": "$ref:agents/backend",
+        "authorType": "agent",
+        "content": "Verification failed (run 1)",
+        "card": {
+          "kind": "verification",
+          "data": {
+            "taskId": "$ref:tasks/main",
+            "iteration": 0,
+            "phase": 0,
+            "outcome": "failed",
+            "checks": [
+              {
+                "name": "typecheck",
+                "status": "failed",
+                "durationMs": 7000
+              },
+              {
+                "name": "test",
+                "status": "not_run",
+                "detail": "skipped after typecheck failed"
+              }
+            ],
+            "durationMs": 7000,
+            "logTail": "src/invoices/export.ts(14,7): error TS2322: Type 'string | undefined' is not assignable to type 'string'.\nFound 1 error in src/invoices/export.ts:14"
+          }
+        }
+      },
+      {
+        "fixtureKey": "m13",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "taskId": "$ref:tasks/main",
+        "agentId": "$ref:agents/backend",
+        "authorType": "agent",
+        "content": "Verification failed (run 2)",
+        "card": {
+          "kind": "verification",
+          "data": {
+            "taskId": "$ref:tasks/main",
+            "iteration": 1,
+            "phase": 0,
+            "outcome": "failed",
+            "checks": [
+              {
+                "name": "typecheck",
+                "status": "failed",
+                "durationMs": 7100
+              },
+              {
+                "name": "test",
+                "status": "not_run",
+                "detail": "skipped after typecheck failed"
+              }
+            ],
+            "durationMs": 7000,
+            "logTail": "src/invoices/export.ts(14,7): error TS2322: Type 'string | undefined' is not assignable to type 'string'.\nFound 1 error in src/invoices/export.ts:14"
+          }
+        }
+      },
+      {
+        "fixtureKey": "m14",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "taskId": "$ref:tasks/main",
+        "agentId": "$ref:agents/backend",
+        "authorType": "agent",
+        "content": "Verification failed (run 3)",
+        "card": {
+          "kind": "verification",
+          "data": {
+            "taskId": "$ref:tasks/main",
+            "iteration": 2,
+            "phase": 0,
+            "outcome": "failed",
+            "checks": [
+              {
+                "name": "typecheck",
+                "status": "failed",
+                "durationMs": 7200
+              },
+              {
+                "name": "test",
+                "status": "not_run",
+                "detail": "skipped after typecheck failed"
+              }
+            ],
+            "durationMs": 7000,
+            "logTail": "src/invoices/export.ts(14,7): error TS2322: Type 'string | undefined' is not assignable to type 'string'.\nFound 1 error in src/invoices/export.ts:14"
+          }
+        }
+      },
+      {
+        "fixtureKey": "m15",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "taskId": "$ref:tasks/main",
+        "agentId": "$ref:agents/cto",
+        "authorType": "agent",
+        "content": "The task failed: Verification failed after 3 runs (typecheck): src/invoices/export.ts(14,7): error TS2322: Type 'string | undefined' is not assignable to type 'string'."
+      }
+    ]
+  }
+}

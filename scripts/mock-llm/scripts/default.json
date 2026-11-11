@@ -1,0 +1,123 @@
+{
+  "$comment": "Mock LLM rules (scripts/mock-llm/server.ts). First match wins; `scenario` limits a rule to model mock/<scenario>. Regexes are case-insensitive and must all match the request text.",
+  "rules": [
+    {
+      "id": "held-429",
+      "role": "any",
+      "scenario": "held-resume",
+      "times": 2,
+      "status": 429,
+      "reply": "Rate limit reached for requests (mock)"
+    },
+    {
+      "id": "research-ra2-fails",
+      "role": "research-assistant",
+      "scenario": "research-fanout",
+      "match": [
+        "You are research assistant RA-2 "
+      ],
+      "status": 500,
+      "reply": "upstream timeout (mock)"
+    },
+    {
+      "id": "classifier",
+      "role": "classifier",
+      "match": [
+        "You are an intent classifier"
+      ],
+      "reply": "{\"intent\": \"task\", \"subtype\": \"implementation\", \"requiresWorkspace\": true, \"requiresExecution\": true, \"target\": \"?\", \"confidence\": 0.9, \"reasoning\": \"mock classifier\"}"
+    },
+    {
+      "id": "planner-research",
+      "role": "planner",
+      "match": [
+        "You are the CTO decision-maker",
+        "READ-ONLY TASK"
+      ],
+      "reply": "{\"goal\": \"Answer the question (mock research)\", \"strategy\": \"dag\", \"requiresApproval\": false, \"maxConcurrency\": 3, \"requirements\": [{\"id\": \"r1\", \"text\": \"Answer the question\", \"quote\": \"mock\"}], \"subtasks\": [{\"key\": \"research\", \"requirementIds\": [\"r1\"], \"title\": \"Research (mock)\", \"description\": \"Research the question.\", \"kind\": \"research\", \"capability\": \"research\", \"dependencies\": [], \"order\": 0, \"acceptance\": [{\"id\": \"answer\", \"criterion\": \"Answer cites sources\", \"check\": \"review\", \"target\": \"output:sources\"}]}]}"
+    },
+    {
+      "id": "planner",
+      "role": "planner",
+      "match": [
+        "You are the CTO decision-maker"
+      ],
+      "reasoning": "One small docs change is enough; a single subtask.",
+      "reply": "{\"goal\": \"Make the requested change (mock plan)\", \"strategy\": \"single\", \"requiresApproval\": true, \"maxConcurrency\": 1, \"requirements\": [{\"id\": \"r1\", \"text\": \"Make the requested change\", \"quote\": \"mock\"}], \"subtasks\": [{\"key\": \"implement\", \"requirementIds\": [\"r1\"], \"title\": \"Implement the change (mock)\", \"description\": \"Write docs/MOCK_LLM.md. Scripted by the mock LLM.\", \"kind\": \"code_change\", \"capability\": \"frontend-development\", \"dependencies\": [], \"order\": 0, \"allowedPaths\": [\"docs\"], \"objective\": \"docs/MOCK_LLM.md exists\", \"constraints\": [\"Touch only docs/\"], \"deliverable\": \"A new file\", \"acceptance\": [{\"id\": \"file\", \"criterion\": \"docs/MOCK_LLM.md exists\", \"check\": \"file_exists\", \"target\": \"docs/MOCK_LLM.md\"}]}]}"
+    },
+    {
+      "id": "decision",
+      "role": "decision",
+      "match": [
+        "You are the decision advisor"
+      ],
+      "reply": "{\"action\": \"complete\", \"reasoning\": \"mock: the plan's evidence is in\", \"expectedOutcome\": \"The change is done\"}"
+    },
+    {
+      "id": "research-assistant",
+      "role": "research-assistant",
+      "match": [
+        "You are research assistant RA-"
+      ],
+      "reply": "Findings (mock): the simplest option fits a small team; the robust option needs one more service.\n\nSources: docs/README.md, https://example.com/mock-source"
+    },
+    {
+      "id": "research-synthesis",
+      "role": "research-synthesis",
+      "match": [
+        "You are a senior analyst"
+      ],
+      "reply": "Recommendation (mock): start simple, move to the robust option when load needs it.\n\nSources: docs/README.md, https://example.com/mock-source"
+    },
+    {
+      "id": "review",
+      "role": "reviewer",
+      "match": [
+        "Return JSON only:",
+        "\"verdict\""
+      ],
+      "reply": "{\"verdict\": \"approved\", \"findings\": []}"
+    },
+    {
+      "id": "commit",
+      "role": "commit",
+      "match": [
+        "generates concise"
+      ],
+      "reply": "docs: add MOCK_LLM.md (mock)"
+    },
+    {
+      "id": "memory-reconcile",
+      "role": "memory",
+      "match": [
+        "post-task memory reviewer"
+      ],
+      "reply": "{\"should_update\": false, \"reason\": \"mock: nothing durable\", \"suggestions\": []}"
+    },
+    {
+      "id": "role-learnings",
+      "role": "role-learnings",
+      "match": [
+        "Write down what YOU should remember"
+      ],
+      "reply": "{\"learnings\": []}"
+    },
+    {
+      "id": "code-change",
+      "role": "executor",
+      "match": [
+        "Return your change in ONE of these formats"
+      ],
+      "reply": "FILE: docs/MOCK_LLM.md\n````\n# Written by the mock LLM\n\nThis file was produced by `npm run mock:llm` (scripts/mock-llm). It proves the worker ran end to end without a real model.\n````\n"
+    },
+    {
+      "id": "repair",
+      "role": "repair",
+      "match": [
+        "You reformat answers into the requested file-block format"
+      ],
+      "reply": "FILE: docs/MOCK_LLM.md\n````\n# Written by the mock LLM\n\nThis file was produced by `npm run mock:llm` (scripts/mock-llm). It proves the worker ran end to end without a real model.\n````\n"
+    }
+  ],
+  "fallback": "Mock reply: no rule matched this request. Add one to scripts/mock-llm/scripts/default.json."
+}

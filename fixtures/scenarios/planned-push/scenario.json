@@ -1,0 +1,603 @@
+{
+  "format": 1,
+  "id": "planned-push",
+  "title": "Planned task completed with diff and push",
+  "description": "CTO plans two subtasks; Frontend edits two files; Reviewer approves; verification passes; the user approved apply and push; a PR is open.",
+  "covers": [
+    "tasks",
+    "plans",
+    "subtasks",
+    "taskEvents",
+    "agentEvents",
+    "messages",
+    "approvals",
+    "fileChanges",
+    "taskPushes",
+    "sideEffects",
+    "taskBriefs",
+    "memories"
+  ],
+  "base": 1768467600000,
+  "anchor": 1768468560000,
+  "rows": {
+    "agents": [
+      {
+        "fixtureKey": "cto",
+        "name": "CTO",
+        "role": "cto",
+        "status": "idle",
+        "isEnabled": true,
+        "capabilities": []
+      },
+      {
+        "fixtureKey": "frontend",
+        "name": "Frontend",
+        "role": "frontend",
+        "status": "idle",
+        "isEnabled": true,
+        "capabilities": []
+      },
+      {
+        "fixtureKey": "reviewer",
+        "name": "Reviewer",
+        "role": "reviewer",
+        "status": "idle",
+        "isEnabled": true,
+        "capabilities": []
+      }
+    ],
+    "projects": [
+      {
+        "fixtureKey": "main",
+        "name": "[fixture] Planned task with push",
+        "workspacePath": "/tmp/fhara-fixtures/planned-push",
+        "mainBranch": "main",
+        "createdAt": 1768467600000,
+        "agentIds": [
+          "$ref:agents/cto",
+          "$ref:agents/frontend",
+          "$ref:agents/reviewer"
+        ]
+      }
+    ],
+    "conversations": [
+      {
+        "fixtureKey": "main",
+        "projectId": "$ref:projects/main",
+        "kind": "project",
+        "title": "Empty state for the orders list",
+        "status": "active",
+        "createdAt": 1768467600000,
+        "lastMessageAt": 1768467600000
+      }
+    ],
+    "conversationParticipants": [
+      {
+        "fixtureKey": "p0",
+        "conversationId": "$ref:conversations/main",
+        "projectId": "$ref:projects/main",
+        "agentId": "$ref:agents/cto",
+        "joinedAt": 1768467600000
+      },
+      {
+        "fixtureKey": "p1",
+        "conversationId": "$ref:conversations/main",
+        "projectId": "$ref:projects/main",
+        "agentId": "$ref:agents/frontend",
+        "joinedAt": 1768467600000
+      },
+      {
+        "fixtureKey": "p2",
+        "conversationId": "$ref:conversations/main",
+        "projectId": "$ref:projects/main",
+        "agentId": "$ref:agents/reviewer",
+        "joinedAt": 1768467600000
+      }
+    ],
+    "tasks": [
+      {
+        "fixtureKey": "main",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "title": "Empty state for the orders list",
+        "command": "Add an empty state to the orders list: an icon, one line of copy, and a \"Create order\" button.",
+        "status": "done",
+        "planVersion": 1,
+        "strategy": "dag",
+        "classification": "implementation",
+        "replanCount": 0,
+        "startedAt": 1768467606000,
+        "completedAt": 1768468500000,
+        "updatedAt": 1768468500000,
+        "branchName": "fhara/t/orders-empty-state",
+        "worktreePath": "/tmp/fhara-fixtures/planned-push/.worktrees/orders-empty-state",
+        "assignedAgentIds": [
+          "$ref:agents/frontend",
+          "$ref:agents/reviewer"
+        ],
+        "permissionMode": "supervised",
+        "sprint": 1,
+        "phase": "done",
+        "eventSequence": 0,
+        "requirements": [
+          {
+            "id": "r1",
+            "text": "Show an icon and one line of copy when there are no orders",
+            "source": "llm"
+          },
+          {
+            "id": "r2",
+            "text": "Offer a \"Create order\" button",
+            "source": "llm"
+          }
+        ],
+        "requirementCoverage": {
+          "checkedAt": 1768468440000,
+          "outcome": "covered",
+          "covered": [
+            "r1",
+            "r2"
+          ],
+          "missingEvidence": [],
+          "uncovered": []
+        }
+      }
+    ],
+    "plans": [
+      {
+        "fixtureKey": "v1",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "version": 1,
+        "strategy": "dag",
+        "createdBy": "orchestrator",
+        "goal": "Orders list shows a helpful empty state",
+        "payload": {
+          "goal": "Orders list shows a helpful empty state",
+          "strategy": "dag",
+          "requiresApproval": true,
+          "maxConcurrency": 1,
+          "subtasks": [
+            {
+              "key": "implement",
+              "title": "Build the empty state",
+              "kind": "code_change",
+              "capability": "frontend-development",
+              "dependencies": [],
+              "order": 0,
+              "allowedPaths": [
+                "src/orders"
+              ],
+              "requirementIds": [
+                "r1",
+                "r2"
+              ]
+            },
+            {
+              "key": "review",
+              "title": "Review the diff",
+              "kind": "review",
+              "capability": "code-review",
+              "dependencies": [
+                "implement"
+              ],
+              "order": 1,
+              "requirementIds": [
+                "r1",
+                "r2"
+              ]
+            }
+          ]
+        },
+        "estimate": {
+          "minutes": {
+            "low": 6,
+            "high": 14
+          },
+          "confidence": "medium"
+        },
+        "createdAt": 1768467612000
+      }
+    ],
+    "subtasks": [
+      {
+        "fixtureKey": "implement",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "key": "implement",
+        "title": "Build the empty state",
+        "description": "Add OrdersEmptyState and render it from OrdersList when the list is empty.",
+        "kind": "code_change",
+        "capability": "frontend-development",
+        "dependencies": [],
+        "order": 0,
+        "allowedPaths": [
+          "src/orders"
+        ],
+        "status": "completed",
+        "origin": "plan",
+        "assignedAgentId": "$ref:agents/frontend",
+        "assignedAgentName": "Frontend",
+        "attempts": 1,
+        "startedAt": 1768467618000,
+        "completedAt": 1768467858000,
+        "output": "Added OrdersEmptyState (icon, copy, Create order button) and rendered it from OrdersList.",
+        "objective": "An empty orders list shows the empty state",
+        "deliverable": "Diff of src/orders",
+        "requirementIds": [
+          "r1",
+          "r2"
+        ],
+        "acceptance": [
+          {
+            "id": "typecheck",
+            "criterion": "Typecheck passes",
+            "check": "typecheck"
+          },
+          {
+            "id": "tests",
+            "criterion": "Relevant tests pass",
+            "check": "test"
+          }
+        ],
+        "acceptanceStatus": "accepted"
+      },
+      {
+        "fixtureKey": "review",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "key": "review",
+        "title": "Review the diff",
+        "description": "Review the empty-state diff.",
+        "kind": "review",
+        "capability": "code-review",
+        "dependencies": [
+          "implement"
+        ],
+        "order": 1,
+        "status": "completed",
+        "origin": "plan",
+        "assignedAgentId": "$ref:agents/reviewer",
+        "assignedAgentName": "Reviewer",
+        "attempts": 1,
+        "startedAt": 1768467864000,
+        "completedAt": 1768467924000,
+        "output": "Approved. Copy and button match the design tokens; no regressions found.",
+        "requirementIds": [
+          "r1",
+          "r2"
+        ]
+      }
+    ],
+    "fileChanges": [
+      {
+        "fixtureKey": "f1",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "filePath": "src/orders/OrdersEmptyState.tsx",
+        "changeType": "new",
+        "newContent": "export function OrdersEmptyState() {\n  return null; // fixture\n}\n",
+        "diff": "--- a/src/orders/OrdersEmptyState.tsx\n+++ b/src/orders/OrdersEmptyState.tsx\n@@ -1,1 +1,4 @@\n // fixture\n+export function OrdersEmptyState() {\n+  return null; // fixture\n+}\n",
+        "subtaskKey": "implement",
+        "approvedAt": 1768468260000,
+        "appliedAt": 1768468260000,
+        "appliedByWorkerId": "fixture-worker"
+      },
+      {
+        "fixtureKey": "f2",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "filePath": "src/orders/OrdersList.tsx",
+        "changeType": "modified",
+        "oldContent": "return <Table rows={orders} />;\n",
+        "newContent": "if (orders.length === 0) return <OrdersEmptyState />;\nreturn <Table rows={orders} />;\n",
+        "diff": "--- a/src/orders/OrdersList.tsx\n+++ b/src/orders/OrdersList.tsx\n@@ -1,2 +1,3 @@\n // fixture\n-return <Table rows={orders} />;\n+if (orders.length === 0) return <OrdersEmptyState />;\n+return <Table rows={orders} />;\n",
+        "subtaskKey": "implement",
+        "approvedAt": 1768468260000,
+        "appliedAt": 1768468260000,
+        "appliedByWorkerId": "fixture-worker"
+      }
+    ],
+    "approvals": [
+      {
+        "fixtureKey": "plan",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "kind": "plan",
+        "summary": "Review the plan (2 subtasks)",
+        "planVersion": 1,
+        "status": "approved",
+        "resolvedAt": 1768467930000,
+        "decidedBy": "user"
+      },
+      {
+        "fixtureKey": "apply",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "kind": "apply_changes",
+        "summary": "Apply 2 file changes",
+        "subtaskKey": "implement",
+        "status": "approved",
+        "resolvedAt": 1768468260000,
+        "decidedBy": "user",
+        "requestedByAgentId": "$ref:agents/frontend",
+        "toolName": "apply_changes"
+      },
+      {
+        "fixtureKey": "push",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "kind": "git_push",
+        "summary": "Push fhara/t/orders-empty-state and open a PR",
+        "status": "approved",
+        "resolvedAt": 1768468380000,
+        "decidedBy": "user",
+        "toolName": "git_push"
+      }
+    ],
+    "taskPushes": [
+      {
+        "fixtureKey": "push",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "messageId": "$ref:messages/push-card",
+        "branchName": "fhara/t/orders-empty-state",
+        "commitSha": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c",
+        "commitMessage": "feat(orders): empty state with Create order button",
+        "filesChanged": 2,
+        "additions": 21,
+        "deletions": 1,
+        "ahead": 1,
+        "behind": 0,
+        "comparedTo": "main",
+        "status": "pushed",
+        "openPr": true,
+        "approvalId": "$ref:approvals/push",
+        "requestedAt": 1768468380000,
+        "attempts": 1,
+        "pushedAt": 1768468440000,
+        "baseBranch": "main",
+        "repoFullName": "example-org/acme-shop",
+        "prNumber": 42,
+        "prUrl": "https://github.com/example-org/acme-shop/pull/42",
+        "prTitle": "Empty state for the orders list",
+        "prState": "open",
+        "headSha": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c",
+        "ciState": "passed",
+        "ciChecks": [
+          {
+            "name": "ci / test",
+            "status": "passed",
+            "conclusion": "success"
+          }
+        ],
+        "reviewState": "none",
+        "mergeable": "mergeable",
+        "createdAt": 1768468320000,
+        "updatedAt": 1768468440000
+      }
+    ],
+    "sideEffects": [
+      {
+        "fixtureKey": "push",
+        "key": "push:fixture:planned-push:0f1e2d3",
+        "kind": "push",
+        "phase": "terminal",
+        "outcome": "done",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "pushId": "$ref:taskPushes/push",
+        "attempts": 1,
+        "evidence": {
+          "remoteSha": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c"
+        },
+        "armedAt": 1768468380000,
+        "acceptedAt": 1768468440000,
+        "settledAt": 1768468440000,
+        "createdAt": 1768468380000,
+        "updatedAt": 1768468440000
+      },
+      {
+        "fixtureKey": "pr",
+        "key": "pr_create:fixture:planned-push:42",
+        "kind": "pr_create",
+        "phase": "terminal",
+        "outcome": "done",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "pushId": "$ref:taskPushes/push",
+        "attempts": 1,
+        "evidence": {
+          "prNumber": 42
+        },
+        "armedAt": 1768468440000,
+        "acceptedAt": 1768468440000,
+        "settledAt": 1768468440000,
+        "createdAt": 1768468440000,
+        "updatedAt": 1768468440000
+      }
+    ],
+    "taskBriefs": [
+      {
+        "fixtureKey": "brief",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "objective": "Orders list shows a helpful empty state",
+        "owner": "Frontend",
+        "latestResult": "Pushed fhara/t/orders-empty-state; PR #42 is open and CI passed.",
+        "openQuestions": [],
+        "nextStep": "Merge PR #42 when ready.",
+        "updatedAt": 1768468440000,
+        "updatedBy": "worker"
+      }
+    ],
+    "memories": [
+      {
+        "fixtureKey": "m1",
+        "scope": "project",
+        "projectId": "$ref:projects/main",
+        "title": "Empty states",
+        "content": "Empty states use the muted icon, one sentence of copy and a single primary action.",
+        "tags": [
+          "ui",
+          "fixture"
+        ],
+        "pinned": true,
+        "source": "user",
+        "createdAt": 1768467600000,
+        "updatedAt": 1768467600000
+      }
+    ],
+    "messages": [
+      {
+        "fixtureKey": "m1",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "authorType": "user",
+        "content": "Add an empty state to the orders list: an icon, one line of copy, and a \"Create order\" button.",
+        "clientId": "fixture-planned-1"
+      },
+      {
+        "fixtureKey": "m2",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "taskId": "$ref:tasks/main",
+        "agentId": "$ref:agents/cto",
+        "authorType": "agent",
+        "content": "Planned 2 subtasks: Frontend builds the empty state, Reviewer checks the diff.",
+        "card": {
+          "kind": "assignment",
+          "data": {
+            "taskId": "$ref:tasks/main",
+            "title": "Empty state for the orders list",
+            "assignees": [
+              {
+                "agentId": "$ref:agents/frontend",
+                "name": "Frontend",
+                "role": "frontend"
+              },
+              {
+                "agentId": "$ref:agents/reviewer",
+                "name": "Reviewer",
+                "role": "reviewer"
+              }
+            ],
+            "assignedBy": "CTO"
+          }
+        }
+      },
+      {
+        "fixtureKey": "m3",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "taskId": "$ref:tasks/main",
+        "agentId": "$ref:agents/frontend",
+        "authorType": "agent",
+        "content": "Read 3 files",
+        "subtaskKey": "implement"
+      },
+      {
+        "fixtureKey": "m4",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "taskId": "$ref:tasks/main",
+        "agentId": "$ref:agents/frontend",
+        "authorType": "agent",
+        "content": "Changed 2 files",
+        "subtaskKey": "implement",
+        "card": {
+          "kind": "changes",
+          "data": {
+            "taskId": "$ref:tasks/main",
+            "subtaskKey": "implement",
+            "files": [
+              {
+                "path": "src/orders/OrdersEmptyState.tsx",
+                "changeType": "new",
+                "additions": 18,
+                "deletions": 0
+              },
+              {
+                "path": "src/orders/OrdersList.tsx",
+                "changeType": "modified",
+                "additions": 3,
+                "deletions": 1
+              }
+            ],
+            "additions": 21,
+            "deletions": 1
+          }
+        }
+      },
+      {
+        "fixtureKey": "m5",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "taskId": "$ref:tasks/main",
+        "agentId": "$ref:agents/frontend",
+        "authorType": "agent",
+        "content": "Verification passed",
+        "card": {
+          "kind": "verification",
+          "data": {
+            "taskId": "$ref:tasks/main",
+            "iteration": 0,
+            "phase": 0,
+            "outcome": "passed",
+            "checks": [
+              {
+                "name": "typecheck",
+                "status": "passed",
+                "durationMs": 8200
+              },
+              {
+                "name": "test",
+                "status": "passed",
+                "durationMs": 4100,
+                "counts": {
+                  "passed": 12,
+                  "total": 12
+                }
+              }
+            ],
+            "durationMs": 12300
+          }
+        }
+      },
+      {
+        "fixtureKey": "push-card",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "taskId": "$ref:tasks/main",
+        "agentId": "$ref:agents/cto",
+        "authorType": "agent",
+        "content": "Ready to push fhara/t/orders-empty-state.",
+        "card": {
+          "kind": "push",
+          "data": {
+            "taskId": "$ref:tasks/main",
+            "pushId": "$ref:taskPushes/push",
+            "branchName": "fhara/t/orders-empty-state",
+            "commitSha": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c",
+            "commitMessage": "feat(orders): empty state with Create order button",
+            "filesChanged": 2,
+            "additions": 21,
+            "deletions": 1,
+            "ahead": 1,
+            "behind": 0
+          }
+        }
+      },
+      {
+        "fixtureKey": "m6",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "taskId": "$ref:tasks/main",
+        "agentId": "$ref:agents/cto",
+        "authorType": "agent",
+        "content": "Done. The orders list now shows an empty state with a Create order button. Pushed and opened PR #42; CI passed."
+      }
+    ]
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "format": 1,
+  "id": "personal-chat",
+  "title": "Personal chat",
+  "description": "A personal conversation with the CTO: no project, a streamed reply with reasoning and a quoted follow-up.",
+  "covers": [
+    "conversations",
+    "conversationParticipants",
+    "messages"
+  ],
+  "base": 1768467600000,
+  "anchor": 1768467600000,
+  "rows": {
+    "agents": [
+      {
+        "fixtureKey": "cto",
+        "name": "CTO",
+        "role": "cto",
+        "status": "idle",
+        "isEnabled": true,
+        "capabilities": []
+      }
+    ],
+    "conversations": [
+      {
+        "fixtureKey": "main",
+        "kind": "personal",
+        "title": "CTO",
+        "status": "active",
+        "createdAt": 1768467600000,
+        "lastMessageAt": 1768467600000,
+        "agentId": "$ref:agents/cto"
+      }
+    ],
+    "conversationParticipants": [
+      {
+        "fixtureKey": "p0",
+        "conversationId": "$ref:conversations/main",
+        "agentId": "$ref:agents/cto",
+        "joinedAt": 1768467600000
+      }
+    ],
+    "messages": [
+      {
+        "fixtureKey": "m16",
+        "conversationId": "$ref:conversations/main",
+        "authorType": "user",
+        "content": "Should we keep the settings in SQLite or in JSON files?",
+        "clientId": "fixture-personal-1",
+        "replyStatus": "answered"
+      },
+      {
+        "fixtureKey": "m17",
+        "conversationId": "$ref:conversations/main",
+        "agentId": "$ref:agents/cto",
+        "authorType": "agent",
+        "replyToMessageId": "$ref:messages/m16",
+        "reasoning": "Settings are small, read at startup, edited rarely. Concurrency and migrations matter more than speed.",
+        "reasoningDurationMs": 2400,
+        "content": "JSON files, for now. Settings are small and edited rarely, so a file you can read and diff beats a database. Move to SQLite once two processes write them at the same time."
+      },
+      {
+        "fixtureKey": "m18",
+        "conversationId": "$ref:conversations/main",
+        "authorType": "user",
+        "content": "What breaks first if two processes write?",
+        "clientId": "fixture-personal-2",
+        "replyStatus": "answered",
+        "quotedMessageId": "$ref:messages/m17"
+      },
+      {
+        "fixtureKey": "m19",
+        "conversationId": "$ref:conversations/main",
+        "agentId": "$ref:agents/cto",
+        "authorType": "agent",
+        "replyToMessageId": "$ref:messages/m18",
+        "content": "Lost updates: both read, both write, the last write wins. Write to a temp file and rename it, and keep a version number to detect the conflict."
+      }
+    ]
+  }
+}

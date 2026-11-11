@@ -1877,6 +1877,87 @@
       "default": null,
       "parse": "nullish",
       "secret": true
+    },
+    {
+      "name": "FHARA_FIXTURES",
+      "type": "bool",
+      "group": "scripts",
+      "runtimes": [
+        "convex",
+        "scripts"
+      ],
+      "doc": "1 allows fixtures:seed / fixtures:wipe on a non-local Convex deployment (dev only; local and self-hosted need no flag).",
+      "default": "false",
+      "parse": "bool"
+    },
+    {
+      "name": "CONVEX_CLOUD_URL",
+      "type": "url",
+      "group": "core",
+      "runtimes": [
+        "convex"
+      ],
+      "doc": "The deployment's own URL; a Convex system var. The fixtures guard reads it to tell a local/self-hosted backend from Convex cloud.",
+      "default": null,
+      "parse": "nullish",
+      "convexSystem": true
+    },
+    {
+      "name": "CONVEX_SELF_HOSTED_URL",
+      "type": "url",
+      "group": "scripts",
+      "runtimes": [
+        "scripts"
+      ],
+      "doc": "Self-hosted Convex backend URL used by the Convex CLI (fixtures:seed targets it when set).",
+      "default": null,
+      "parse": "nullish"
+    },
+    {
+      "name": "CONVEX_DEPLOYMENT",
+      "type": "string",
+      "group": "scripts",
+      "runtimes": [
+        "scripts"
+      ],
+      "doc": "Convex CLI deployment selector (\"local:…\", \"anonymous:…\", \"dev:…\"); fixtures:seed refuses a cloud one without FHARA_FIXTURES=1.",
+      "default": null,
+      "parse": "nullish"
+    },
+    {
+      "name": "MOCK_LLM_PORT",
+      "type": "int",
+      "group": "scripts",
+      "runtimes": [
+        "scripts"
+      ],
+      "doc": "Port of npm run mock:llm (0 = any free port).",
+      "default": "3399",
+      "parse": "atLeast",
+      "min": 0
+    },
+    {
+      "name": "MOCK_LLM_SPEED",
+      "type": "int",
+      "group": "scripts",
+      "runtimes": [
+        "scripts"
+      ],
+      "doc": "Replay speed of the mock LLM stream: 1 = 30 Hz chunks, 10 = ten times faster, 0 = no delay.",
+      "default": "1",
+      "parse": "atLeast",
+      "min": 0
+    },
+    {
+      "name": "MOCK_LLM_SCRIPT",
+      "type": "string",
+      "group": "scripts",
+      "runtimes": [
+        "scripts"
+      ],
+      "doc": "Path of the mock LLM script (JSON rules); default scripts/mock-llm/scripts/default.json.",
+      "default": null,
+      "parse": "nullish"
     }
   ],
   "bool": {

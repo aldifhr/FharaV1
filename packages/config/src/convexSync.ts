@@ -42,4 +42,6 @@ export const CONVEX_NOT_SYNCED: Readonly<Record<string, string>> = {
   FHARA_AUTO_MERGE_METHOD: "a Settings knob read by Convex; the stored value is the normal path",
   FHARA_CHILD_ENV_PASSTHROUGH: "names worker-machine vars; a Convex node action has its own env",
   WORKSPACE_ROOT: "a path on the worker machine; the worker sends its absolute root with each Convex call that needs it",
+  CONVEX_CLOUD_URL: "a Convex system var, set by the deployment itself (the fixtures guard reads it)",
+  FHARA_FIXTURES: "dev-only opt-in for fixtures:seed / fixtures:wipe on a non-local deployment; set it by hand with npx convex env set",
 };

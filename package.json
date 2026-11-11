@@ -27,6 +27,10 @@
     "test": "npm run --workspace=@fhara/worker test",
     "test:scripts": "node --test scripts/*.test.mjs",
     "smoke:push": "node scripts/push-smoke.mjs",
+    "fixtures:make": "node scripts/fixtures/make-synthetic.mjs",
+    "fixtures:seed": "tsx scripts/fixtures/seed.ts",
+    "fixtures:wipe": "tsx scripts/fixtures/seed.ts --wipe",
+    "mock:llm": "tsx scripts/mock-llm/server.ts",
     "knip": "knip --include files,dependencies,devDependencies,unlisted,unresolved,binaries,duplicates",
     "knip:all": "knip"
   },

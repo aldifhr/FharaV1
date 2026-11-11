@@ -2297,4 +2297,14 @@ export default defineSchema({
     trigger: v.optional(v.string()),
     runCount: v.optional(v.number()),
   }).index("by_name", ["name"]),
+
+  // Mock fixtures (docs/mock-fixtures.md, dev only): every row
+  // devFixtures.seed inserted, so devFixtures.wipe deletes exactly those
+  // rows and nothing a real run wrote. Empty on a deployment never seeded.
+  devFixtureRows: defineTable({
+    fixture: v.string(),
+    table: v.string(),
+    rowId: v.string(),
+    createdAt: v.number(),
+  }).index("by_fixture", ["fixture"]),
 });

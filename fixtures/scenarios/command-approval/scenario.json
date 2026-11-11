@@ -1,0 +1,206 @@
+{
+  "format": 1,
+  "id": "command-approval",
+  "title": "Waiting for a command approval",
+  "description": "Backend wants to run `npm run test`; the card waits with Allow / Always allow / Deny. The task keeps running (in-process wait).",
+  "covers": [
+    "tasks",
+    "subtasks",
+    "approvals",
+    "taskEvents",
+    "agentEvents",
+    "messages",
+    "taskBriefs"
+  ],
+  "base": 1768467600000,
+  "anchor": 1768467960000,
+  "rows": {
+    "agents": [
+      {
+        "fixtureKey": "cto",
+        "name": "CTO",
+        "role": "cto",
+        "status": "idle",
+        "isEnabled": true,
+        "capabilities": []
+      },
+      {
+        "fixtureKey": "backend",
+        "name": "Backend",
+        "role": "backend",
+        "status": "idle",
+        "isEnabled": true,
+        "capabilities": []
+      }
+    ],
+    "projects": [
+      {
+        "fixtureKey": "main",
+        "name": "[fixture] Command approval",
+        "workspacePath": "/tmp/fhara-fixtures/command-approval",
+        "mainBranch": "main",
+        "createdAt": 1768467600000,
+        "agentIds": [
+          "$ref:agents/cto",
+          "$ref:agents/backend"
+        ]
+      }
+    ],
+    "conversations": [
+      {
+        "fixtureKey": "main",
+        "projectId": "$ref:projects/main",
+        "kind": "project",
+        "title": "Fix the price rounding test",
+        "status": "active",
+        "createdAt": 1768467600000,
+        "lastMessageAt": 1768467600000
+      }
+    ],
+    "conversationParticipants": [
+      {
+        "fixtureKey": "p0",
+        "conversationId": "$ref:conversations/main",
+        "projectId": "$ref:projects/main",
+        "agentId": "$ref:agents/cto",
+        "joinedAt": 1768467600000
+      },
+      {
+        "fixtureKey": "p1",
+        "conversationId": "$ref:conversations/main",
+        "projectId": "$ref:projects/main",
+        "agentId": "$ref:agents/backend",
+        "joinedAt": 1768467600000
+      }
+    ],
+    "tasks": [
+      {
+        "fixtureKey": "main",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "title": "Fix the price rounding test",
+        "command": "The price rounding test fails on 0.005. Fix it and run the tests.",
+        "status": "running",
+        "planVersion": 1,
+        "strategy": "single",
+        "classification": "debugging",
+        "startedAt": 1768467606000,
+        "updatedAt": 1768467900000,
+        "workerId": "fixture-worker",
+        "leaseExpiresAt": 1768471200000,
+        "assignedAgentIds": [
+          "$ref:agents/backend"
+        ],
+        "permissionMode": "supervised",
+        "sprint": 1,
+        "phase": "implementation",
+        "eventSequence": 0
+      }
+    ],
+    "subtasks": [
+      {
+        "fixtureKey": "fix",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "key": "fix",
+        "title": "Fix rounding and run tests",
+        "description": "Round half away from zero in formatPrice; run npm run test.",
+        "kind": "code_change",
+        "capability": "backend-development",
+        "dependencies": [],
+        "order": 0,
+        "allowedPaths": [
+          "src/pricing"
+        ],
+        "status": "waiting_approval",
+        "origin": "plan",
+        "assignedAgentId": "$ref:agents/backend",
+        "assignedAgentName": "Backend",
+        "attempts": 1,
+        "startedAt": 1768467612000,
+        "activity": "Waiting for your approval to run npm run test",
+        "activityAt": 1768467618000
+      }
+    ],
+    "approvals": [
+      {
+        "fixtureKey": "cmd",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "kind": "run_command",
+        "summary": "Run npm run test",
+        "subtaskKey": "fix",
+        "status": "pending",
+        "requestedByAgentId": "$ref:agents/backend",
+        "toolName": "run_command",
+        "payload": {
+          "command": "npm run test",
+          "head": "npm run test",
+          "argv": [
+            "npm",
+            "run",
+            "test"
+          ],
+          "cwd": "."
+        },
+        "arguments": {
+          "command": "npm",
+          "args": [
+            "run",
+            "test"
+          ]
+        },
+        "offerAlways": true,
+        "expiresAt": 1768471200000
+      }
+    ],
+    "taskBriefs": [
+      {
+        "fixtureKey": "brief",
+        "taskId": "$ref:tasks/main",
+        "projectId": "$ref:projects/main",
+        "objective": "Rounding test passes",
+        "owner": "Backend",
+        "latestResult": "Patched formatPrice; waiting to run the tests.",
+        "openQuestions": [],
+        "nextStep": "Approve `npm run test`.",
+        "updatedAt": 1768467618000,
+        "updatedBy": "worker"
+      }
+    ],
+    "messages": [
+      {
+        "fixtureKey": "m7",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "authorType": "user",
+        "content": "The price rounding test fails on 0.005. Fix it and run the tests.",
+        "clientId": "fixture-cmd-1"
+      },
+      {
+        "fixtureKey": "m8",
+        "projectId": "$ref:projects/main",
+        "conversationId": "$ref:conversations/main",
+        "taskId": "$ref:tasks/main",
+        "agentId": "$ref:agents/backend",
+        "authorType": "agent",
+        "content": "I changed formatPrice to round half away from zero. I need to run `npm run test` to confirm.",
+        "toolSteps": [
+          {
+            "tool": "read_file",
+            "target": "src/pricing/format.ts",
+            "ok": true,
+            "at": 1768467624000
+          },
+          {
+            "tool": "edit_file",
+            "target": "src/pricing/format.ts",
+            "ok": true,
+            "at": 1768467630000
+          }
+        ],
+        "intentLine": "Fix the rounding and run the tests"
+      }
+    ]
+  }
+}

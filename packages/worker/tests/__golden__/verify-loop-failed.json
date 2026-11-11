@@ -1,0 +1,72 @@
+{
+  "scenario": "verify-loop-failed",
+  "title": "Failed verification loop",
+  "streams": {
+    "taskEvents": {
+      "count": 14,
+      "highWater": 14,
+      "gapsSeen": [],
+      "types": [
+        "task.created",
+        "plan.created",
+        "subtask.started",
+        "subtask.completed",
+        "changes.applied",
+        "verification.failed",
+        "subtask.started",
+        "subtask.completed",
+        "verification.failed",
+        "subtask.started",
+        "subtask.failed",
+        "verification.failed",
+        "verification.exhausted",
+        "task.failed"
+      ]
+    },
+    "agentEvents": {
+      "count": 1,
+      "highWater": 1,
+      "gapsSeen": [],
+      "types": [
+        "task.failed"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "key": "tasks/main",
+      "status": "failed",
+      "mode": "orchestrated",
+      "replay": {
+        "failureIndex": 6,
+        "steps": [
+          "instruction Instruction",
+          "event task.created",
+          "plan plan.created",
+          "subtask subtask.started [export]",
+          "subtask subtask.completed [export]",
+          "event changes.applied",
+          "verification! verification.failed",
+          "subtask subtask.started [verify-fix-1]",
+          "subtask subtask.completed [verify-fix-1]",
+          "verification! verification.failed",
+          "subtask subtask.started [verify-fix-2]",
+          "subtask! subtask.failed [verify-fix-2]",
+          "verification! verification.failed",
+          "verification! verification.exhausted",
+          "result! task.failed"
+        ]
+      }
+    }
+  ],
+  "tray": [],
+  "activity": [
+    {
+      "messages": 3,
+      "summary": "backend · Ran 3 checks (failed typecheck)",
+      "failed": true,
+      "expanded": true
+    }
+  ],
+  "messages": 5
+}

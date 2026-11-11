@@ -1,0 +1,63 @@
+{
+  "scenario": "command-approval",
+  "title": "Waiting for a command approval",
+  "streams": {
+    "taskEvents": {
+      "count": 6,
+      "highWater": 6,
+      "gapsSeen": [],
+      "types": [
+        "task.created",
+        "task.classified",
+        "plan.created",
+        "subtask.started",
+        "tool.edit_file",
+        "approval.requested"
+      ]
+    },
+    "agentEvents": {
+      "count": 2,
+      "highWater": 2,
+      "gapsSeen": [],
+      "types": [
+        "agent.started",
+        "agent.waiting_approval"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "key": "tasks/main",
+      "status": "running",
+      "mode": "orchestrated",
+      "replay": {
+        "failureIndex": -1,
+        "steps": [
+          "instruction Instruction",
+          "event task.created",
+          "classification task.classified",
+          "plan plan.created",
+          "subtask subtask.started [fix]",
+          "tool tool.edit_file [fix]",
+          "approval approval.requested [fix]"
+        ]
+      }
+    }
+  ],
+  "tray": [
+    {
+      "kind": "command",
+      "title": "Agent ingin menjalankan perintah",
+      "code": "npm run test",
+      "actions": [
+        "allow",
+        "always",
+        "always_exact",
+        "deny"
+      ],
+      "composerMode": "deny_with_note"
+    }
+  ],
+  "activity": [],
+  "messages": 2
+}

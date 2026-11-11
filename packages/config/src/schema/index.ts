@@ -8,6 +8,7 @@ import { QA_VARS, SNAPSHOT_VARS, THREAD_VARS, WORKSPACE_VARS } from "./qa";
 import type { EnvVar, Runtime } from "./types";
 import { ELECTRON_VARS, SCRIPT_VARS, WEB_VARS } from "./web";
 import { DIRECT_VARS, WORKER_VARS } from "./worker";
+import { FIXTURE_VARS } from "./fixtures";
 
 export * from "./types";
 export { DEFAULT_SUBTASK_TIMEOUT_MS } from "./policy";
@@ -30,6 +31,7 @@ export const ENV_SCHEMA = [
   ...WORKSPACE_VARS,
   ...ELECTRON_VARS,
   ...SCRIPT_VARS,
+  ...FIXTURE_VARS,
 ] as const;
 
 export type EnvSchema = typeof ENV_SCHEMA;

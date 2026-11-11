@@ -90,6 +90,13 @@ SOFTWARE.
     - `runner/src/runner.ts` turn, steer, interrupt and recovery logic → ported (not copied) in
       `packages/worker/src/direct/threadRunner.ts` and `apps/api/convex/lib/directThreads.ts`
       (`recoverDirectThread`)
+  - Mock fixtures (docs/mock-fixtures.md; commit b697f32; each file carries a header naming its source):
+    - `app/Tools/mock-runner/make-synthetic.mjs` → `scripts/fixtures/make-synthetic.mjs` (adapted: the
+      commit-safe generator, one folder per scenario with `events.ndjson`, the sequenced `push` helper;
+      Fhara's records, scenarios and fixed clock)
+    - `app/Tools/mock-runner/server.mjs` → `scripts/mock-llm/server.ts` (adapted: fake turns, the 30 Hz
+      replay with 2-12 character deltas, the random 0600 token file, refusing real data; Fhara speaks the
+      OpenAI chat completions protocol with scripted rules instead of threadbear's runner protocol)
 
 ```
 MIT License

@@ -1,0 +1,56 @@
+{
+  "scenario": "direct-idle",
+  "title": "Direct OpenCode thread (idle)",
+  "streams": {
+    "taskEvents": {
+      "count": 13,
+      "highWater": 13,
+      "gapsSeen": [],
+      "types": [
+        "thread.created",
+        "user.message",
+        "turn.started",
+        "reasoning",
+        "tool.call",
+        "tool.result",
+        "tool.call",
+        "edit.diff",
+        "tool.result",
+        "tool.call",
+        "tool.result",
+        "assistant.text",
+        "turn.completed"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "key": "tasks/main",
+      "status": "waiting_input",
+      "mode": "direct",
+      "replay": {
+        "failureIndex": -1,
+        "steps": [
+          "instruction Instruction",
+          "event thread.created",
+          "event user.message",
+          "event turn.started",
+          "event reasoning",
+          "tool tool.call",
+          "tool tool.result",
+          "tool tool.call",
+          "event edit.diff",
+          "tool tool.result",
+          "tool tool.call",
+          "tool tool.result",
+          "event assistant.text",
+          "event turn.completed"
+        ]
+      },
+      "directTypesOk": true
+    }
+  ],
+  "tray": [],
+  "activity": [],
+  "messages": 0
+}

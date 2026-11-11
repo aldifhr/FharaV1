@@ -1,0 +1,63 @@
+{
+  "scenario": "research-fanout",
+  "title": "Research fan-out with one failed angle",
+  "streams": {
+    "taskEvents": {
+      "count": 13,
+      "highWater": 13,
+      "gapsSeen": [],
+      "types": [
+        "task.created",
+        "task.classified",
+        "plan.created",
+        "subtask.started",
+        "subtask.started",
+        "subtask.started",
+        "subtask.completed",
+        "subtask.timeout",
+        "subtask.failed",
+        "subtask.completed",
+        "subtask.started",
+        "subtask.completed",
+        "task.completed"
+      ]
+    },
+    "agentEvents": {
+      "count": 1,
+      "highWater": 1,
+      "gapsSeen": [],
+      "types": [
+        "task.completed"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "key": "tasks/main",
+      "status": "done",
+      "mode": "orchestrated",
+      "replay": {
+        "failureIndex": 8,
+        "steps": [
+          "instruction Instruction",
+          "event task.created",
+          "classification task.classified",
+          "plan plan.created",
+          "subtask subtask.started [ra-1]",
+          "subtask subtask.started [ra-2]",
+          "subtask subtask.started [ra-3]",
+          "subtask subtask.completed [ra-1]",
+          "subtask! subtask.timeout [ra-2]",
+          "subtask! subtask.failed [ra-2]",
+          "subtask subtask.completed [ra-3]",
+          "subtask subtask.started [synth]",
+          "subtask subtask.completed [synth]",
+          "result task.completed"
+        ]
+      }
+    }
+  ],
+  "tray": [],
+  "activity": [],
+  "messages": 3
+}

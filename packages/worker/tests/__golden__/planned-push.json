@@ -1,0 +1,99 @@
+{
+  "scenario": "planned-push",
+  "title": "Planned task completed with diff and push",
+  "streams": {
+    "taskEvents": {
+      "count": 24,
+      "highWater": 24,
+      "gapsSeen": [],
+      "types": [
+        "task.created",
+        "task.classified",
+        "plan.created",
+        "approval.requested",
+        "approval.resolved",
+        "subtask.routed",
+        "subtask.started",
+        "tool.read_file",
+        "tool.write_file",
+        "tool.edit_file",
+        "subtask.completed",
+        "subtask.routed",
+        "subtask.started",
+        "review.approved",
+        "subtask.completed",
+        "approval.requested",
+        "approval.resolved",
+        "changes.applied",
+        "verification.passed",
+        "approval.requested",
+        "approval.resolved",
+        "push.completed",
+        "requirements.covered",
+        "task.completed"
+      ]
+    },
+    "agentEvents": {
+      "count": 8,
+      "highWater": 8,
+      "gapsSeen": [],
+      "types": [
+        "message.created",
+        "agent.started",
+        "agent.thinking",
+        "agent.tool.started",
+        "agent.tool.completed",
+        "agent.completed",
+        "agent.waiting_approval",
+        "task.completed"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "key": "tasks/main",
+      "status": "done",
+      "mode": "orchestrated",
+      "replay": {
+        "failureIndex": -1,
+        "steps": [
+          "instruction Instruction",
+          "event task.created",
+          "classification task.classified",
+          "plan plan.created",
+          "approval approval.requested",
+          "approval approval.resolved",
+          "routing subtask.routed [implement]",
+          "subtask subtask.started [implement]",
+          "tool tool.read_file [implement]",
+          "tool tool.write_file [implement]",
+          "tool tool.edit_file [implement]",
+          "subtask subtask.completed [implement]",
+          "routing subtask.routed [review]",
+          "subtask subtask.started [review]",
+          "review review.approved [review]",
+          "subtask subtask.completed [review]",
+          "approval approval.requested",
+          "approval approval.resolved",
+          "event changes.applied",
+          "verification verification.passed",
+          "approval approval.requested",
+          "approval approval.resolved",
+          "event push.completed",
+          "event requirements.covered",
+          "result task.completed"
+        ]
+      }
+    }
+  ],
+  "tray": [],
+  "activity": [
+    {
+      "messages": 3,
+      "summary": "frontend · Edited 2 files, ran typecheck/test +1 more",
+      "failed": false,
+      "expanded": false
+    }
+  ],
+  "messages": 7
+}

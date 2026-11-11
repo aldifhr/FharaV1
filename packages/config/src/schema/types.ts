@@ -33,12 +33,12 @@ export type DefaultFn<T> = (get: EnvGet) => T;
 
 /**
  * Number dialects found in the code before E1 (D6). `raw` is the value
- * after alias resolution; `d` the default.
+ * after alias resolution; `d` the default. B3 moved the index.ts timers,
+ * WORKER_CONCURRENCY, DIRECT_POLL_MS and the LLM ints onto clampBlank
+ * (no NaN, "" reads as the default, "10s" is rejected with a warning).
  *
  * - clamp:           `!raw` → d; Number; not finite → d; floor; clamp(min,max).            (policy.ts intFromEnv)
  * - clampBlank:      undefined/blank → d; Number; not finite → d; [0 = off]; floor; clamp. (stallDetector intEnv)
- * - clampParseInt:   undefined/blank → d; parseInt(raw,10); not finite → d; clamp.         (llm.ts intEnv; "10s" reads as 10)
- * - legacyNumber:    Number(raw ?? d), then Math.max(min, …). NO NaN guard (B3).            (index.ts)
  * - nullishNumber:   Number(raw ?? d); [floor]; not finite → d; clamp. "" reads as 0.      (direct/index.ts)
  * - atLeast:         Number(raw); finite and ≥ min (or > 0 when `positive`) → [floor] value; else d.
  * - truthyNumber:    Number(raw) || d.                                                       (roundRobin)
@@ -47,8 +47,6 @@ export type DefaultFn<T> = (get: EnvGet) => T;
 export type NumberParse =
   | "clamp"
   | "clampBlank"
-  | "clampParseInt"
-  | "legacyNumber"
   | "nullishNumber"
   | "atLeast"
   | "truthyNumber"

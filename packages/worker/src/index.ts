@@ -26,8 +26,8 @@ dotenv.config({ path: ROOT_ENV_FILE });
 registerEnvSecrets();
 installConsoleRedaction();
 
-// Read once at startup, after dotenv. Parse rules: env schema (legacyNumber,
-// no NaN guard yet — B3).
+// Read once at startup, after dotenv. Parse rules: env schema (B3: a value
+// that is not a number falls back to the default with a warning, then clamps).
 const POLL_MS = wenv("WORKER_POLL_INTERVAL_MS");
 // With the pendingWork subscription live, the poll is only the correctness
 // fallback (a missed push, timers the subscription cannot see).

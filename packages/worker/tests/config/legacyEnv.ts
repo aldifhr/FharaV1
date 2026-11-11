@@ -6,10 +6,20 @@
  * Exception, B2 (one bool dialect): every boolean oracle below now calls
  * b2Bool, an independent copy of the unified rule. The five pre-B2
  * dialects are pinned (and contrasted) in behaviourFixes.test.ts.
+ * Exception, B3 (validated numbers): the index.ts constants, DIRECT_POLL_MS
+ * and the LLM ints call b3Int.
  */
 /* eslint-disable */
 type Env = Record<string, string | undefined>;
 type Get = (name: string) => string | undefined;
+
+/** B3 reference: unset/blank → d; Number; not finite → d; floor; clamp. */
+export function b3Int(raw: string | undefined, d: number, min = -Infinity, max = Infinity): number {
+  if (raw === undefined || raw.trim() === "") return d;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return d;
+  return Math.min(max, Math.max(min, Math.floor(n)));
+}
 
 /** B2 reference: unset/blank → d; 1|true|yes|on → true; 0|false|no|off → false; else d. */
 export function b2Bool(raw: string | undefined, d: boolean): boolean {
@@ -205,11 +215,7 @@ export function legacyGlobalLLMConfig(e: Env) {
 
 /** llm.ts intEnv */
 function llmIntEnv(name: string, fallback: number, min: number, max: number, env: Env): number {
-  const raw = env[name];
-  if (raw === undefined || raw.trim() === "") return fallback;
-  const value = Number.parseInt(raw, 10);
-  if (!Number.isFinite(value)) return fallback;
-  return Math.min(max, Math.max(min, value));
+  return b3Int(env[name], fallback, min, max);
 }
 export const legacyLlmMaxTokens = (env: Env) => llmIntEnv("ORCHESTRATOR_LLM_MAX_TOKENS", 8192, 256, 200_000, env);
 export const legacyLlmTimeoutMs = (env: Env) => llmIntEnv("ORCHESTRATOR_LLM_TIMEOUT_MS", 300_000, 1_000, 3_600_000, env);
@@ -233,18 +239,18 @@ export function legacyStallThresholds(env: Env, llmTimeoutMs = 300_000) {
 
 /** index.ts startup constants (module load, after dotenv) */
 export function legacyIndexConstants(env: Env) {
-  const POLL_MS = Number(env.WORKER_POLL_INTERVAL_MS ?? 1500);
+  const POLL_MS = b3Int(env.WORKER_POLL_INTERVAL_MS, 1500, 100);
   return {
     POLL_MS,
-    FALLBACK_POLL_MS: Math.max(POLL_MS, Number(env.WORKER_FALLBACK_POLL_MS ?? 10_000)),
-    HEARTBEAT_MS: Number(env.WORKER_HEARTBEAT_MS ?? 10_000),
-    LEASE_MS: Number(env.WORKER_LEASE_MS ?? 60_000),
-    CONCURRENCY: Math.max(1, Number(env.WORKER_CONCURRENCY ?? 1)),
-    STALE_GRACE_MS: Number(env.WORKER_STALE_GRACE_MS ?? 30_000),
-    PUSH_POLL_MS: Math.max(1000, Number(env.WORKER_PUSH_POLL_MS ?? 5000)),
-    MCP_TEST_POLL_MS: Math.max(1000, Number(env.WORKER_MCP_TEST_POLL_MS ?? 3000)),
-    REPO_TOOL_IDLE_POLL_MS: Math.max(250, Number(env.WORKER_REPO_TOOL_POLL_MS ?? 1000)),
-    OPENCODE_CATALOG_POLL_MS: Math.max(5_000, Number(env.WORKER_OPENCODE_CATALOG_POLL_MS ?? 15_000)),
+    FALLBACK_POLL_MS: Math.max(POLL_MS, b3Int(env.WORKER_FALLBACK_POLL_MS, 10_000, 100)),
+    HEARTBEAT_MS: b3Int(env.WORKER_HEARTBEAT_MS, 10_000, 1000),
+    LEASE_MS: b3Int(env.WORKER_LEASE_MS, 60_000, 1000),
+    CONCURRENCY: b3Int(env.WORKER_CONCURRENCY, 1, 1),
+    STALE_GRACE_MS: b3Int(env.WORKER_STALE_GRACE_MS, 30_000, 0),
+    PUSH_POLL_MS: b3Int(env.WORKER_PUSH_POLL_MS, 5000, 1000),
+    MCP_TEST_POLL_MS: b3Int(env.WORKER_MCP_TEST_POLL_MS, 3000, 1000),
+    REPO_TOOL_IDLE_POLL_MS: b3Int(env.WORKER_REPO_TOOL_POLL_MS, 1000, 250),
+    OPENCODE_CATALOG_POLL_MS: b3Int(env.WORKER_OPENCODE_CATALOG_POLL_MS, 15_000, 5_000),
     WORKER_ID: env.WORKER_ID,
     CONVEX_SERVICE_TOKEN: env.CONVEX_SERVICE_TOKEN,
     LOG_CONVEX_URL: env.NEXT_PUBLIC_CONVEX_URL,
@@ -256,7 +262,7 @@ export const legacyConvexUrl = (env: Env) => env.NEXT_PUBLIC_CONVEX_URL ?? env.C
 export const legacySubscribe = (env: Env) => b2Bool(env.WORKER_SUBSCRIBE, true);
 
 /** direct/index.ts */
-export const legacyDirectPollMs = (env: Env) => Math.max(250, Number(env.DIRECT_POLL_MS ?? 750));
+export const legacyDirectPollMs = (env: Env) => b3Int(env.DIRECT_POLL_MS, 750, 250);
 export function legacyDirectIdleMs(env: Env): number {
   const minutes = Number(env.DIRECT_IDLE_MIN ?? 10);
   return Math.max(1, Number.isFinite(minutes) ? minutes : 10) * 60_000;

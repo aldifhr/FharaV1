@@ -85,7 +85,7 @@ export const LLM_VARS = [
   {
     name: "ORCHESTRATOR_LLM_MAX_TOKENS",
     type: "int",
-    parse: "clampParseInt",
+    parse: "clampBlank",
     default: 8192,
     min: 256,
     max: 200_000,
@@ -96,7 +96,7 @@ export const LLM_VARS = [
   {
     name: "ORCHESTRATOR_LLM_TIMEOUT_MS",
     type: "int",
-    parse: "clampParseInt",
+    parse: "clampBlank",
     default: 300_000,
     min: 1_000,
     max: 3_600_000,

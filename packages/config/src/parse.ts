@@ -1,9 +1,8 @@
 /**
  * The parsers. One boolean parser (one dialect since B2) and one validated
- * number parser with the dialects the code used before E1 (see schema/types.ts). A value
- * that does not parse falls back to the default and reports an issue; only
- * the `legacyNumber` dialect (index.ts, kept for parity until B3) can still
- * return NaN, and it reports that too.
+ * number parser with the dialects the code used before E1 (see schema/types.ts).
+ * A value that does not parse falls back to the default and reports an
+ * issue; no dialect returns NaN (B3).
  */
 import type { EnumVar, NumberVar, StringParse } from "./schema/types";
 
@@ -88,20 +87,6 @@ export function parseNumber(def: NumberVar, raw: string | undefined, fallback: (
       if (def.zeroMeansOff && n === 0 && (min ?? 0) > 0) return 0;
       if (def.nonPositive && n <= 0) return def.nonPositive === "off" ? 0 : fallback();
       return clamp(Math.floor(n), min, max);
-    }
-    case "clampParseInt": {
-      if (blank(raw)) return fallback();
-      const n = Number.parseInt(raw, 10);
-      if (!Number.isFinite(n)) return invalid();
-      return clamp(n, min, max);
-    }
-    case "legacyNumber": {
-      const n = raw === undefined ? fallback() : Number(raw);
-      const value = min === undefined ? n : Math.max(min, n);
-      if (Number.isNaN(value) && raw !== undefined) {
-        report(name, raw, "not a number; kept as NaN for parity until B3");
-      }
-      return value;
     }
     case "nullishNumber": {
       let n = raw === undefined ? fallback() : Number(raw);

@@ -207,7 +207,7 @@
       ],
       "doc": "Max output tokens per LLM call.",
       "default": "8192",
-      "parse": "clampParseInt",
+      "parse": "clampBlank",
       "min": 256,
       "max": 200000
     },
@@ -220,7 +220,7 @@
       ],
       "doc": "Ceiling for one LLM request (ms).",
       "default": "300000",
-      "parse": "clampParseInt",
+      "parse": "clampBlank",
       "min": 1000,
       "max": 3600000
     },
@@ -380,7 +380,8 @@
       ],
       "doc": "Worker poll interval (ms).",
       "default": "1500",
-      "parse": "legacyNumber"
+      "parse": "clampBlank",
+      "min": 100
     },
     {
       "name": "WORKER_FALLBACK_POLL_MS",
@@ -391,7 +392,8 @@
       ],
       "doc": "Fallback poll while the pendingWork subscription is live (ms; never below the poll interval).",
       "default": "10000",
-      "parse": "legacyNumber"
+      "parse": "clampBlank",
+      "min": 100
     },
     {
       "name": "WORKER_HEARTBEAT_MS",
@@ -402,7 +404,8 @@
       ],
       "doc": "Worker heartbeat interval (ms).",
       "default": "10000",
-      "parse": "legacyNumber"
+      "parse": "clampBlank",
+      "min": 1000
     },
     {
       "name": "WORKER_LEASE_MS",
@@ -413,7 +416,8 @@
       ],
       "doc": "Task lease length (ms).",
       "default": "60000",
-      "parse": "legacyNumber"
+      "parse": "clampBlank",
+      "min": 1000
     },
     {
       "name": "WORKER_CONCURRENCY",
@@ -424,7 +428,7 @@
       ],
       "doc": "Tasks one worker runs at once.",
       "default": "1",
-      "parse": "legacyNumber",
+      "parse": "clampBlank",
       "min": 1
     },
     {
@@ -436,7 +440,8 @@
       ],
       "doc": "Grace before a lease-less running task counts as stale (ms).",
       "default": "30000",
-      "parse": "legacyNumber"
+      "parse": "clampBlank",
+      "min": 0
     },
     {
       "name": "WORKER_PUSH_POLL_MS",
@@ -447,7 +452,7 @@
       ],
       "doc": "How often an idle worker checks for approved push requests (ms).",
       "default": "5000",
-      "parse": "legacyNumber",
+      "parse": "clampBlank",
       "min": 1000
     },
     {
@@ -459,7 +464,7 @@
       ],
       "doc": "How often an idle worker checks for MCP Test connection requests (ms).",
       "default": "3000",
-      "parse": "legacyNumber",
+      "parse": "clampBlank",
       "min": 1000
     },
     {
@@ -471,7 +476,7 @@
       ],
       "doc": "Idle poll for grounded chat repo-tool requests (ms).",
       "default": "1000",
-      "parse": "legacyNumber",
+      "parse": "clampBlank",
       "min": 250
     },
     {
@@ -483,7 +488,7 @@
       ],
       "doc": "How often the worker checks whether the OpenCode model catalog needs a refresh (ms).",
       "default": "15000",
-      "parse": "legacyNumber",
+      "parse": "clampBlank",
       "min": 5000
     },
     {
@@ -550,7 +555,7 @@
       ],
       "doc": "Direct-thread poll interval (ms).",
       "default": "750",
-      "parse": "legacyNumber",
+      "parse": "clampBlank",
       "min": 250
     },
     {

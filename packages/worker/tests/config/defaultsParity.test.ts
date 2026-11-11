@@ -261,7 +261,7 @@ describe("worker reader parity (E1)", () => {
     }
   });
 
-  it("index.ts startup constants equal the pre-E1 values (NaN quirk included)", () => {
+  it("index.ts startup constants equal the oracle (B3 rules)", () => {
     silence();
     for (const name of INDEX_NAMES) {
       for (const raw of RAW) {
@@ -269,8 +269,9 @@ describe("worker reader parity (E1)", () => {
         expect({ name, raw, c: indexConstants(env) }).toEqual({ name, raw, c: L.legacyIndexConstants(env) });
       }
     }
-    expect(indexConstants({ WORKER_CONCURRENCY: "10s" }).CONCURRENCY).toBeNaN();
-    expect(indexConstants({ WORKER_HEARTBEAT_MS: "" }).HEARTBEAT_MS).toBe(0);
+    // B3: no NaN, "" is the default.
+    expect(indexConstants({ WORKER_CONCURRENCY: "10s" }).CONCURRENCY).toBe(1);
+    expect(indexConstants({ WORKER_HEARTBEAT_MS: "" }).HEARTBEAT_MS).toBe(10_000);
   });
 
   it("knob-aware readers equal the pre-E1 copies, with and without a UI override", () => {

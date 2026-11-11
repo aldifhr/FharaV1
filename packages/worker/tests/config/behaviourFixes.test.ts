@@ -78,3 +78,52 @@ describe("B2: one bool dialect for every bool var", () => {
     expect(readVar("ORCHESTRATOR_QA_REQUIRED", { QA_REQUIRED: "yes", ORCHESTRATOR_QA_REQUIRED: "0" })).toBe(false);
   });
 });
+
+describe("B3: numbers are validated (no NaN), \"\" reads as the default", () => {
+  const startup = [
+    "WORKER_POLL_INTERVAL_MS",
+    "WORKER_FALLBACK_POLL_MS",
+    "WORKER_HEARTBEAT_MS",
+    "WORKER_LEASE_MS",
+    "WORKER_CONCURRENCY",
+    "WORKER_STALE_GRACE_MS",
+    "WORKER_PUSH_POLL_MS",
+    "WORKER_MCP_TEST_POLL_MS",
+    "WORKER_REPO_TOOL_POLL_MS",
+    "WORKER_OPENCODE_CATALOG_POLL_MS",
+    "DIRECT_POLL_MS",
+    "ORCHESTRATOR_LLM_MAX_TOKENS",
+    "ORCHESTRATOR_LLM_TIMEOUT_MS",
+  ] as const;
+
+  it("a typo (10s, abc, NaN) falls back to the default with one warning; blank is the default", () => {
+    const issues: string[] = [];
+    const previous = setEnvIssueSink((issue) => issues.push(`${issue.name}=${issue.raw}`));
+    try {
+      for (const name of startup) {
+        const d = schemaDefault(name);
+        for (const raw of ["10s", "abc", "NaN"]) {
+          issues.length = 0;
+          const value = readVar(name, { [name]: raw });
+          expect(Number.isNaN(value), `${name}=${raw}`).toBe(false);
+          expect(value, `${name}=${raw}`).toBe(d);
+          expect(issues).toEqual([`${name}=${raw}`]);
+        }
+        expect(readVar(name, { [name]: "" })).toBe(d);
+        expect(readVar(name, { [name]: "  " })).toBe(d);
+      }
+    } finally {
+      setEnvIssueSink(previous);
+    }
+  });
+
+  it("valid values are floored and kept at or above the minimum", () => {
+    expect(readVar("WORKER_CONCURRENCY", { WORKER_CONCURRENCY: "0" })).toBe(1);
+    expect(readVar("WORKER_CONCURRENCY", { WORKER_CONCURRENCY: "2.7" })).toBe(2);
+    expect(readVar("WORKER_POLL_INTERVAL_MS", { WORKER_POLL_INTERVAL_MS: "0" })).toBe(100);
+    expect(readVar("WORKER_HEARTBEAT_MS", { WORKER_HEARTBEAT_MS: "-5" })).toBe(1000);
+    expect(readVar("WORKER_STALE_GRACE_MS", { WORKER_STALE_GRACE_MS: "0" })).toBe(0);
+    expect(readVar("ORCHESTRATOR_LLM_TIMEOUT_MS", { ORCHESTRATOR_LLM_TIMEOUT_MS: "45000.9" })).toBe(45000);
+    expect(readVar("ORCHESTRATOR_LLM_MAX_TOKENS", { ORCHESTRATOR_LLM_MAX_TOKENS: "1" })).toBe(256);
+  });
+});

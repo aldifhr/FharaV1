@@ -176,7 +176,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   );
   const lastMessage = timeline[timeline.length - 1];
 
-  // ── "Keputusan diperlukan" tray above the composer ─────────────────────
+  // ── "Decision needed" tray above the composer ─────────────────────
   const currentConversationId = ((activeConversation as any)?.conversation?._id as string | undefined) ?? null;
   const trayItems = useMemo(
     () =>
@@ -591,9 +591,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const runTrayAction = async (item: TrayItem, action: TrayAction, note?: string) => {
     if (action.confirm && !note) {
       setTrayConfirm({
-        title: item.kind === "plan" ? "Tolak rencana ini?" : "Tolak perubahan ini?",
-        message: item.kind === "plan" ? "Task ini akan berhenti sebagai ditolak." : "Perubahan yang menunggu tidak akan diterapkan.",
-        confirmLabel: "Tolak",
+        title: item.kind === "plan" ? "Reject this plan?" : "Reject these changes?",
+        message: item.kind === "plan" ? "This task will stop as rejected." : "The pending changes will not be applied.",
+        confirmLabel: "Reject",
         onOk: () => {
           setTrayConfirm(null);
           void runTrayAction(item, { ...action, confirm: false });
@@ -615,13 +615,13 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       } else if (action.id.startsWith("answer:")) {
         const answer = note ?? item.options?.[Number(action.id.slice("answer:".length))] ?? "";
         const res: any = await answerQuestion({ taskId: item.taskId as any, answer, question: questionOf(item.taskId) });
-        if (res && res.applied === false) toast("info", "Pertanyaan ini sudah berubah", "Buka task untuk melihat pertanyaan terbaru.");
+        if (res && res.applied === false) toast("info", "This question has changed", "Open the task to see the latest question.");
       } else if (action.id.startsWith("pick:")) {
         const id = action.id.slice("pick:".length);
         await handleChooseProposal(`I choose ${id}: ${action.label.replace(/^\S+\.\s*/, "")}`);
       }
     } catch (err) {
-      toast("error", "Keputusan tidak tersimpan", err instanceof Error ? err.message : undefined);
+      toast("error", "Decision not saved", err instanceof Error ? err.message : undefined);
     } finally {
       setTrayBusy(null);
     }
@@ -632,7 +632,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     const item = tray.active ? tray.current : null;
     if (!item || text.startsWith("/")) return false;
     if (item.composerMode === "deny_with_note") {
-      await runTrayAction(item, { id: "deny", label: "Tolak" }, text);
+      await runTrayAction(item, { id: "deny", label: "Deny" }, text);
       return true;
     }
     if (item.composerMode === "answer") {
@@ -844,7 +844,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
           />
           {decisions?.pickup && !decisions.pickup.workerOnline && decisions.pickup.queuedTasks + decisions.pickup.pendingMessages > 0 && (
             <p role="status" className="-mt-2 shrink-0 bg-panel px-4 pb-2 text-[12.5px] text-ink-3 sm:px-9 lg:px-11">
-              Menunggu worker mengambil… belum ada worker yang online.
+              Waiting for a worker to pick this up… no worker is online yet.
             </p>
           )}
         </>

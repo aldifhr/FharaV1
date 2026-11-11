@@ -47,7 +47,7 @@
   "tray": [
     {
       "kind": "command",
-      "title": "Agent ingin menjalankan perintah",
+      "title": "An agent wants to run a command",
       "code": "npm run test",
       "actions": [
         "allow",

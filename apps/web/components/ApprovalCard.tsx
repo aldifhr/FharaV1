@@ -98,7 +98,7 @@ function CommandApprovalCard({
     try {
       await onRespond(approval._id, decision);
     } catch (err) {
-      toast("error", "Keputusan tidak tersimpan", err instanceof Error ? err.message : undefined);
+      toast("error", "Decision not saved", err instanceof Error ? err.message : undefined);
     } finally {
       setActing(null);
     }
@@ -118,7 +118,7 @@ function CommandApprovalCard({
             onClick={() => void run(action.id as CommandDecision)}
             className={action.primary ? TRAY_BTN_PRIMARY : action.id === "deny" ? TRAY_BTN_TEXT : TRAY_BTN_SECONDARY}
           >
-            {acting === action.id ? "Menyimpan…" : action.label}
+            {acting === action.id ? "Saving…" : action.label}
           </button>
         ))}
       </div>

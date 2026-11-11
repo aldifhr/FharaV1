@@ -5,12 +5,12 @@ import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react"
 import { nextTrayIndex, type TrayAction, type TrayItem } from "@/api/convex/lib/decisionTray";
 
 /**
- * "Keputusan diperlukan": one box docked directly above the chat composer
+ * "Decision needed": one box docked directly above the chat composer
  * that pages through everything waiting on the user in this chat
  * (command approvals, file-change / push / plan approvals, task questions
  * and escalations, the CTO's open option prompt). One item at a time with
- * a "‹ 2 dari 3 ›" pager. The composer below doubles as free text for the
- * current item ("Tambahkan sesuatu…"). Enter in an empty composer runs the
+ * a "‹ 2 of 3 ›" pager. The composer below doubles as free text for the
+ * current item ("Add something…"). Enter in an empty composer runs the
  * primary action; Esc collapses.
  */
 
@@ -49,15 +49,15 @@ export type DecisionTrayState = ReturnType<typeof useDecisionTray>;
 /** Composer placeholder while the tray is open on `item`. */
 export function trayPlaceholder(item: TrayItem | null): string | undefined {
   if (!item) return undefined;
-  if (item.composerMode === "answer") return "Tulis jawabanmu…";
-  if (item.composerMode === "deny_with_note") return "Tambahkan sesuatu… (mengirim pesan menolak perintah ini)";
-  return "Tambahkan sesuatu…";
+  if (item.composerMode === "answer") return "Write your answer…";
+  if (item.composerMode === "deny_with_note") return "Add something… (sending denies this command)";
+  return "Add something…";
 }
 
 const COMPOSER_HINT: Record<TrayItem["composerMode"], string> = {
-  deny_with_note: "Membalas di chat menolak perintah ini dan meneruskan pesanmu ke agent.",
-  answer: "Ketik jawabanmu di bawah, atau pilih di atas.",
-  chat: "Ketik di bawah untuk menambahkan catatan.",
+  deny_with_note: "Replying in chat denies this command and passes your message to the agent.",
+  answer: "Type your answer below, or pick one above.",
+  chat: "Type below to add a note.",
 };
 
 export default function DecisionsTray({
@@ -75,21 +75,21 @@ export default function DecisionsTray({
   const disabled = Boolean(busy);
   return (
     <section
-      aria-label="Keputusan diperlukan"
+      aria-label="Decision needed"
       className="w-full shrink-0 bg-panel px-3 pb-1.5 sm:px-8 lg:px-10"
     >
       <div className="rounded-xl border border-line bg-panel">
         <header className="flex items-center gap-2 px-3.5 py-2">
-          <p className="text-[13px] font-semibold text-ink">Keputusan diperlukan</p>
+          <p className="text-[13px] font-semibold text-ink">Decision needed</p>
           {many && (
-            <div className="flex items-center gap-0.5 text-[12px] text-ink-3" role="group" aria-label="Pindah keputusan">
-              <button type="button" onClick={tray.prev} aria-label="Sebelumnya" className="rounded-md p-0.5 hover:bg-hover hover:text-ink">
+            <div className="flex items-center gap-0.5 text-[12px] text-ink-3" role="group" aria-label="Switch decision">
+              <button type="button" onClick={tray.prev} aria-label="Previous" className="rounded-md p-0.5 hover:bg-hover hover:text-ink">
                 <ChevronLeft size={14} />
               </button>
               <span className="tabular-nums">
-                {index + 1} dari {items.length}
+                {index + 1} of {items.length}
               </span>
-              <button type="button" onClick={tray.next} aria-label="Berikutnya" className="rounded-md p-0.5 hover:bg-hover hover:text-ink">
+              <button type="button" onClick={tray.next} aria-label="Next" className="rounded-md p-0.5 hover:bg-hover hover:text-ink">
                 <ChevronRight size={14} />
               </button>
             </div>
@@ -98,7 +98,7 @@ export default function DecisionsTray({
             type="button"
             onClick={() => tray.setCollapsed(!collapsed)}
             aria-expanded={!collapsed}
-            aria-label={collapsed ? "Buka" : "Tutup"}
+            aria-label={collapsed ? "Expand" : "Collapse"}
             className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-ink-3 hover:bg-hover hover:text-ink"
           >
             {collapsed ? (
@@ -136,7 +136,7 @@ export default function DecisionsTray({
                         : TRAY_BTN_SECONDARY
                   }
                 >
-                  {busy === `${current.key}:${action.id}` ? "Menyimpan…" : action.label}
+                  {busy === `${current.key}:${action.id}` ? "Saving…" : action.label}
                   {action.primary && <span className="ml-1.5 hidden text-[11px] opacity-70 sm:inline">↵</span>}
                 </button>
               ))}

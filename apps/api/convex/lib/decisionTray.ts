@@ -1,5 +1,5 @@
 /**
- * "Keputusan diperlukan" tray (chat UX, Feature 2): turns the project's
+ * "Decision needed" tray (chat UX, Feature 2): turns the project's
  * pending approvals, open task questions and the CTO's latest unanswered
  * option prompt into one ordered list the composer dock pages through.
  *
@@ -78,10 +78,10 @@ export interface TrayOptionPromptInput {
 }
 
 const KIND_TITLE: Record<string, string> = {
-  apply_changes: "Terapkan perubahan",
-  git_push: "Push ke remote",
+  apply_changes: "Apply changes",
+  git_push: "Push to remote",
   merge_pr: "Merge pull request",
-  run_command: "Jalankan perintah",
+  run_command: "Run command",
 };
 
 const roleName = (role?: string | null) => {
@@ -105,19 +105,19 @@ export function approvalTrayItem(a: TrayApprovalInput): TrayItem {
   if (a.kind === "run_command") {
     const command = String(a.payload?.command ?? a.summary.replace(/^Run\s+/, ""));
     const danger = typeof a.payload?.danger === "string" ? a.payload.danger : undefined;
-    const actions: TrayAction[] = [{ id: "allow", label: "Izinkan", primary: true }];
+    const actions: TrayAction[] = [{ id: "allow", label: "Allow", primary: true }];
     if (a.offerAlways === true && !danger) {
       const head = typeof a.payload?.head === "string" && a.payload.head ? a.payload.head : null;
-      actions.push({ id: "always", label: head ? `Selalu izinkan ${head}` : "Selalu izinkan" });
+      actions.push({ id: "always", label: head ? `Always allow ${head}` : "Always allow" });
       // Plan 041: narrower than the head rule — only this literal argv.
       actions.push({ id: "always_exact", label: "Always allow this exact command" });
     }
-    actions.push({ id: "deny", label: "Tolak" });
+    actions.push({ id: "deny", label: "Deny" });
     return {
       ...base,
       key: `approval:${a._id}`,
       kind: "command",
-      title: "Agent ingin menjalankan perintah",
+      title: "An agent wants to run a command",
       code: command,
       ...(danger ? { warning: danger } : {}),
       actions,
@@ -129,11 +129,11 @@ export function approvalTrayItem(a: TrayApprovalInput): TrayItem {
       ...base,
       key: `approval:${a._id}`,
       kind: "plan",
-      title: a.summary || "Tinjau rencana",
+      title: a.summary || "Review the plan",
       actions: [
-        { id: "approve", label: "Setujui rencana", primary: true },
-        { id: "open", label: "Buka rencana" },
-        { id: "reject", label: "Tolak", confirm: true },
+        { id: "approve", label: "Approve plan", primary: true },
+        { id: "open", label: "Open plan" },
+        { id: "reject", label: "Deny", confirm: true },
       ],
       composerMode: "chat",
     };
@@ -146,9 +146,9 @@ export function approvalTrayItem(a: TrayApprovalInput): TrayItem {
     title: a.summary || KIND_TITLE[a.kind] || a.kind,
     meta: [KIND_TITLE[a.kind], base.meta].filter(Boolean).join(" · ") || undefined,
     actions: [
-      { id: "approve", label: push ? "Setujui push" : "Setujui", primary: true },
-      { id: "open", label: a.kind === "apply_changes" ? "Lihat diff" : "Buka task" },
-      { id: "reject", label: "Tolak", confirm: true },
+      { id: "approve", label: push ? "Approve push" : "Approve", primary: true },
+      { id: "open", label: a.kind === "apply_changes" ? "View diff" : "Open task" },
+      { id: "reject", label: "Deny", confirm: true },
     ],
     composerMode: "chat",
   };
@@ -159,11 +159,11 @@ export function questionTrayItem(q: TrayQuestionInput): TrayItem {
   return {
     key: `question:${q.taskId}`,
     kind: "question",
-    title: q.question || `Jawab: ${q.title}`,
+    title: q.question || `Answer: ${q.title}`,
     meta: meta(q.agentRole, q.title),
     actions: [
       ...options.map((label, i) => ({ id: `answer:${i}` as const, label, ...(i === 0 ? { primary: true } : {}) })),
-      { id: "open" as const, label: "Buka task" },
+      { id: "open" as const, label: "Open task" },
     ],
     composerMode: "answer",
     taskId: q.taskId,
@@ -176,7 +176,7 @@ export function optionsTrayItem(p: TrayOptionPromptInput): TrayItem {
   return {
     key: `options:${p.messageId}`,
     kind: "options",
-    title: p.question?.trim() || "Pilih salah satu opsi",
+    title: p.question?.trim() || "Pick one option",
     meta: roleName(p.agentRole) || undefined,
     actions: p.options.slice(0, 6).map((o) => ({ id: `pick:${o.id}` as const, label: `${o.id}. ${o.title}` })),
     composerMode: "chat",

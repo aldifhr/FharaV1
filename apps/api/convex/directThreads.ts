@@ -187,10 +187,9 @@ export const create = mutation({
 });
 
 /**
- * Send a message. The worker steers it into a live turn, or starts a turn
- * with it; an open approval card is declined with this text first (the
- * agent continues with the user's words instead of blocking). The same
- * clientId twice writes once.
+ * Send a message. The worker steers it into a live turn, or starts a turn with it; an open approval
+ * card is declined with this text first (the agent continues with the user's words instead of
+ * blocking). The same clientId twice writes once.
  */
 export const send = mutation({
   args: { taskId: v.id("tasks"), text: v.string(), clientId: v.string() },
@@ -198,17 +197,18 @@ export const send = mutation({
     const task = await loadDirectTask(ctx, args.taskId);
     await assertProjectAccess(ctx, task.projectId);
     if (TERMINAL.has(task.status)) throw new Error(`This thread is ${task.status}`);
-    const text = cleanText(args.text);
-    const clientId = cleanClientId(args.clientId);
-    const written = await writeUserMessage(ctx, task, text, clientId);
-    if (written.deduped) return { eventId: written.eventId, deduped: true, declined: 0 };
-    const declined = await declineDirectCards(ctx, task, text);
-    if (task.status === "waiting_input" || task.status === "paused") {
-      await ctx.db.patch(task._id, { status: "queued", updatedAt: Date.now() });
-    }
-    return { eventId: written.eventId, deduped: false, declined };
+    return await sendDirectMessage(ctx, task, cleanText(args.text), cleanClientId(args.clientId));
   },
 });
+
+/** Write one user message and wake the thread; `send` and review rounds (diffComments.sendRound) share it. */
+export async function sendDirectMessage(ctx: MutationCtx, task: Doc<"tasks">, text: string, clientId: string) {
+  const written = await writeUserMessage(ctx, task, text, clientId);
+  if (written.deduped) return { eventId: written.eventId, deduped: true, declined: 0 };
+  const declined = await declineDirectCards(ctx, task, text);
+  if (task.status === "waiting_input" || task.status === "paused") await ctx.db.patch(task._id, { status: "queued", updatedAt: Date.now() });
+  return { eventId: written.eventId, deduped: false, declined };
+}
 
 async function declineDirectCards(ctx: MutationCtx, task: Doc<"tasks">, text: string): Promise<number> {
   const rows = await ctx.db

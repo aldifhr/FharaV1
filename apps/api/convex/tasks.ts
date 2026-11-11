@@ -370,7 +370,7 @@ export const cancel = mutation({
 
     // Post-push feedback loop: a cancelled PR fix frees the PR for the
     // next reaction and refreshes the owner's notifications.
-    if (task.prFix) {
+    if (task.prFix || task.reviewFix) {
       const cancelled = await ctx.db.get(task._id);
       if (cancelled) await onTaskSettled(ctx, cancelled);
       if (cancelled) await onIssueTaskChanged(ctx, cancelled);

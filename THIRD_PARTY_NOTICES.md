@@ -883,6 +883,10 @@ SOFTWARE.
     `keepCompleteSections`), copied from `packages/host-service/src/trpc/router/git/utils/diff-patch.ts` and used by
     `apps/api/convex/worktreeNode.ts` (`getDiff`). Changed by Fhara: no spawn, git runs through Fhara's `gitExec`
     with a maxBuffer, and a truncated patch ends with a marker line.
+  - `apps/api/convex/lib/prFeedback.ts` (`formatLineComment`, Paradev A3), copied from
+    `apps/desktop/src/renderer/hooks/host-service/useSendToTerminalAgent/useSendToTerminalAgent.ts`
+    (`formatAgentPromptWithFileContext`). Changed by Fhara: takes one flat comment object and trims the body;
+    used by `buildReviewRoundPrompt` for review rounds (`apps/api/convex/diffComments.ts`).
 - Other Paradev-inspired changes take the ideas only.
 
 ```

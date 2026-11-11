@@ -116,13 +116,14 @@ export async function latestPrRow(ctx: Ctx, ownerTaskId: Id<"tasks">): Promise<P
 }
 
 /**
- * Fhara is still working on this PR: a fix task is running, or its commit
- * waits for (or is in) the user's push. A new reaction waits until then.
+ * Fhara is still working on this PR: a fix task (PR reaction or review
+ * round) is running, or its commit waits for (or is in) the user's push.
+ * A new reaction or review round waits until then.
  */
 export async function fixInFlight(ctx: Ctx, ownerTaskId: Id<"tasks">): Promise<boolean> {
   const fixes = await ctx.db.query("tasks").withIndex("by_parent", (q) => q.eq("parentTaskId", ownerTaskId)).take(50);
   for (const fix of fixes) {
-    if (!fix.prFix) continue;
+    if (!fix.prFix && !fix.reviewFix) continue;
     if (!TERMINAL_TASK.has(fix.status)) return true;
     if (fix.status !== "done") continue;
     const pushes = await ctx.db.query("taskPushes").withIndex("by_task", (q) => q.eq("taskId", fix._id)).take(20);
@@ -533,7 +534,12 @@ export const createFixTask = internalMutation({
 
 /** completeTask: a fix task settled (or any task with a PR changed state). */
 export async function onTaskSettled(ctx: MutationCtx, task: Doc<"tasks">) {
-  const owner = task.parentTaskId && task.prFix ? task.parentTaskId : null;
+  const owner = task.parentTaskId && (task.prFix || task.reviewFix) ? task.parentTaskId : null;
+  // Paradev A3: a review round settles with its fix task; the owner's thread shows how it ended.
+  if (owner && task.reviewFix) {
+    const { round, commentIds } = task.reviewFix;
+    await logOwnerEvent(ctx, owner, task.projectId, "review.round_settled", { round, fixTaskId: task._id, status: task.status, comments: commentIds.length });
+  }
   if (owner) await activateDeferred(ctx, owner);
   await syncPrNotifications(ctx, owner ?? task._id);
 }
@@ -583,7 +589,7 @@ async function onPrClosed(ctx: MutationCtx, row: PushRow, ownerTaskId: Id<"tasks
   if (!owner?.worktreePath) return;
   // A fix still running keeps the worktree until it settles.
   const fixes = await ctx.db.query("tasks").withIndex("by_parent", (q) => q.eq("parentTaskId", ownerTaskId)).take(50);
-  if (fixes.some((f) => f.prFix && !TERMINAL_TASK.has(f.status))) return;
+  if (fixes.some((f) => (f.prFix || f.reviewFix) && !TERMINAL_TASK.has(f.status))) return;
   await ctx.scheduler.runAfter(0, internal.worktreeNode.releasePrWorktree, { taskId: ownerTaskId });
   await logOwnerEvent(ctx, ownerTaskId, row.projectId, "pr.worktree_release", { prNumber: row.prNumber, prState: row.prState });
 }

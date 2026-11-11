@@ -75,7 +75,7 @@ function prFacts(row: Doc<"taskPushes">): ChangesPr | null {
 }
 
 /** Newest push row of the task: its own commits and its fix tasks' commits on the same PR. */
-async function newestPush(ctx: QueryCtx, taskId: Id<"tasks">): Promise<Doc<"taskPushes"> | null> {
+export async function newestPush(ctx: QueryCtx, taskId: Id<"tasks">): Promise<Doc<"taskPushes"> | null> {
   const own = await ctx.db.query("taskPushes").withIndex("by_task", (q) => q.eq("taskId", taskId)).take(PUSH_LIMIT);
   const fixes = await ctx.db
     .query("taskPushes")

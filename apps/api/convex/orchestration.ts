@@ -1886,7 +1886,7 @@ export const completeTask = internalMutation({
       if (TERMINAL_TASK_STATUSES.has(args.status)) await scheduleDecisionEvaluation(ctx, task._id);
       // Post-push feedback loop: a settled PR fix re-arms deferred
       // reactions and refreshes the owner's notifications.
-      if (TERMINAL_TASK_STATUSES.has(args.status) && task.prFix) await onTaskSettled(ctx, task);
+      if (TERMINAL_TASK_STATUSES.has(args.status) && (task.prFix || task.reviewFix)) await onTaskSettled(ctx, { ...task, status: args.status });
       // O4: a task started from an issue moves the issue's status label.
       if (TERMINAL_TASK_STATUSES.has(args.status)) await onIssueTaskChanged(ctx, { ...task, status: args.status });
     }
@@ -2780,7 +2780,7 @@ export const getMergeContext = internalQuery({
       // Post-push feedback loop: the branch and worktree outlive the local
       // merge so a fix task can land on the same PR. Released when the PR
       // closes (prFeedback.onPrClosed).
-      keepWorktree: Boolean(project?.prFeedbackReactions) || Boolean(task.parentTaskId && task.prFix),
+      keepWorktree: Boolean(project?.prFeedbackReactions) || Boolean(task.parentTaskId && (task.prFix || task.reviewFix)),
     };
   },
 });
@@ -2896,7 +2896,7 @@ export const listStaleWorktreeTasks = internalQuery({
           .take(50);
         // Post-push feedback loop: an owner and its PR fixes share one
         // worktree, so the PR's rows (the owner's and its fixes') decide.
-        const ownerId = task.parentTaskId && task.prFix ? task.parentTaskId : task._id;
+        const ownerId = task.parentTaskId && (task.prFix || task.reviewFix) ? task.parentTaskId : task._id;
         pushes.push(
           ...(await ctx.db.query("taskPushes").withIndex("by_owner_task", (q) => q.eq("ownerTaskId", ownerId)).take(50)),
           ...(ownerId !== task._id

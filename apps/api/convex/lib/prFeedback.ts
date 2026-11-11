@@ -497,3 +497,72 @@ export function desiredNotifications(input: {
   if (input.latestFixFailed && !input.fixActive) out.push({ kind: "fix_failed", title: `The last fix for ${pr} failed` });
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Review rounds (Paradev A3): the user's line comments on a task's changes,
+// sent back as one message (direct thread) or one fix task (orchestrated).
+// ---------------------------------------------------------------------------
+
+export type LineCommentSide = "additions" | "deletions" | "mixed";
+
+export type LineComment = {
+  path: string;
+  startLine: number;
+  endLine: number;
+  /** Which side of the diff the range covers; unset renders no side note. */
+  side?: LineCommentSide;
+  body: string;
+};
+
+// Portions adapted from Paradev, formerly Superset (https://github.com/paradevai/paradev, cloned from github.com/superset-sh/superset @ ce98da26),
+// apps/desktop/src/renderer/hooks/host-service/useSendToTerminalAgent/useSendToTerminalAgent.ts (formatAgentPromptWithFileContext).
+// MIT License, Copyright (c) 2025-2026 Superset Inc.
+// See THIRD_PARTY_NOTICES.md.
+// Changed by Fhara: takes one flat comment object and trims the body.
+/** One comment as the agent reads it: `In a.ts:L3-L5 (deleted lines): <comment>`. */
+export function formatLineComment(comment: LineComment): string {
+  const range = comment.startLine === comment.endLine ? `L${comment.startLine}` : `L${comment.startLine}-L${comment.endLine}`;
+  const sideSuffix =
+    comment.side === "deletions" ? " (deleted lines)" : comment.side === "mixed" ? " (across deletions and additions)" : "";
+  return `In ${comment.path}:${range}${sideSuffix}: ${comment.body.trim()}`;
+}
+
+/** File order, then line order: the order a reader walks the diff. */
+export function sortLineComments<T extends LineComment>(comments: T[]): T[] {
+  return [...comments].sort((a, b) => a.path.localeCompare(b.path) || a.startLine - b.startLine || a.endLine - b.endLine);
+}
+
+export function reviewFixTitle(round: number, ownerTitle: string): string {
+  return `Review round ${round}: ${ownerTitle}`.slice(0, 200);
+}
+
+/**
+ * The review round as one prompt. A direct thread gets just the comments
+ * (the agent already holds the context); an orchestrated fix task also
+ * gets the branch and the rules a fix task works by.
+ */
+export function buildReviewRoundPrompt(input: {
+  round: number;
+  comments: LineComment[];
+  ownerTitle?: string;
+  branchName?: string;
+}): string {
+  const out: string[] = [];
+  const count = input.comments.length;
+  out.push(`Review round ${input.round}: ${count} comment${count === 1 ? "" : "s"} on your changes. Address each one.`);
+  if (input.ownerTitle && input.branchName) {
+    out.push(`The changes belong to the earlier task "${input.ownerTitle}". Its branch is ${input.branchName}, and this task works in that same worktree.`);
+  }
+  out.push("");
+  sortLineComments(input.comments).forEach((comment, index) => out.push(`${index + 1}. ${formatLineComment(comment)}`));
+  if (input.branchName) {
+    out.push(
+      "",
+      "Rules for this round:",
+      "- Stay on the existing branch and worktree. Do not create a branch or open a PR.",
+      "- Change only what the comments ask for, and leave unrelated code alone.",
+      "- Do not push. The user approves the push of the commit."
+    );
+  }
+  return out.join("\n");
+}

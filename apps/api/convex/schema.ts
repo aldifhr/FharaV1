@@ -22,13 +22,7 @@ import {
   requirementCoverageValidator,
   requirementValidator,
 } from "./lib/traceValidators";
-
-/** file:line evidence on a Reviewer opinion or shadow note. */
-const reviewEvidenceValidator = v.object({
-  file: v.string(),
-  line: v.optional(v.number()),
-  note: v.optional(v.string()),
-});
+import { diffCommentsTable, reviewEvidenceValidator, reviewFixValidator } from "./lib/diffCommentSchema";
 
 export const taskStatus = v.union(
   v.literal("queued"),
@@ -531,6 +525,9 @@ export default defineSchema({
         reactionId: v.id("prReactions"),
       })
     ),
+    // Paradev A3: a fix task made from a review round, and the owner's round count.
+    reviewFix: v.optional(reviewFixValidator),
+    reviewRounds: v.optional(v.number()),
     // Agile: the phase within the sprint. The board shows these as columns;
     // the DAG scheduler still owns the true ordering.
     phase: v.optional(
@@ -2310,4 +2307,5 @@ export default defineSchema({
     rowId: v.string(),
     createdAt: v.number(),
   }).index("by_fixture", ["fixture"]),
+  diffComments: diffCommentsTable,
 });

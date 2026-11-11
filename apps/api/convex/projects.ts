@@ -239,6 +239,7 @@ export const PROJECT_CASCADE = [
   { table: "executionObservations", index: "by_project" },
   { table: "executions", index: "by_project" },
   { table: "evaluations", index: "by_project" },
+  { table: "diffComments", index: "by_project" },
   { table: "fileChanges", index: "by_project" },
   { table: "taskInputs", index: "by_project" },
   { table: "taskContexts", index: "by_project" },

@@ -52,6 +52,10 @@ describe("projects.remove cascade", () => {
       await ctx.db.insert("messages", { projectId, authorType: "user", content: "hi" });
       for (let i = 0; i < events; i++) await ctx.db.insert("taskEvents", { taskId, projectId, type: `e${i}` });
       await ctx.db.insert("subtaskLive", { taskId, projectId, key: "k", text: "x", updatedAt: now });
+      await ctx.db.insert("diffComments", {
+        taskId, projectId, path: "a.ts", side: "additions", startLine: 1, endLine: 1, body: "b",
+        source: "proposed", status: "draft", createdAt: now, updatedAt: now,
+      });
       const imageStorageId = await ctx.storage.store(new Blob(["png"]));
       await ctx.db.insert("optionReviews", {
         taskId,

@@ -6,6 +6,9 @@
 import { envVar } from "./schema";
 import type { EnvVar } from "./schema/types";
 
+/** A tristate knob (QA_CHROMIUM_NO_SANDBOX) in Settings: auto, or forced on / off. */
+export const TRISTATE_OPTIONS = ["auto", "true", "false"] as const;
+
 export type SettingKnobType = "bool" | "int" | "enum" | "string";
 
 export interface SettingKnob {
@@ -75,9 +78,9 @@ function knobType(def: EnvVar): SettingKnobType {
     case "int":
       return "int";
     case "bool":
-    case "tristate":
       return "bool";
     case "enum":
+    case "tristate":
       return "enum";
     default:
       return "string";
@@ -103,6 +106,7 @@ export function knobFromDef(def: EnvVar): SettingKnob {
     if (max !== undefined) knob.max = max;
   }
   if (def.type === "enum") knob.options = def.options;
+  if (def.type === "tristate") knob.options = TRISTATE_OPTIONS;
   if (def.type !== "int" && def.type !== "bool" && def.type !== "tristate" && def.type !== "enum") {
     const maxLength = meta.maxLength ?? def.maxLength;
     if (maxLength !== undefined) knob.maxLength = maxLength;

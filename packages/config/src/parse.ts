@@ -53,11 +53,18 @@ export function parseBool(name: string, raw: string | undefined, fallback: () =>
   return fallback();
 }
 
-/** unset/blank → undefined (auto); 0/false → false; anything else → true. */
-export function parseTristate(raw: string | undefined): boolean | undefined {
+/**
+ * Tristate (QA_CHROMIUM_NO_SANDBOX): unset/blank/"auto" → undefined (auto);
+ * the bool words → true/false; anything else → auto plus an issue.
+ * Before this, any unknown word read as true.
+ */
+export function parseTristate(raw: string | undefined, name = "tristate"): boolean | undefined {
   const flag = (raw ?? "").trim().toLowerCase();
-  if (flag === "") return undefined;
-  return !(flag === "0" || flag === "false");
+  if (flag === "" || flag === "auto") return undefined;
+  if ((BOOL_TRUE as readonly string[]).includes(flag)) return true;
+  if ((BOOL_FALSE as readonly string[]).includes(flag)) return false;
+  report(name, raw ?? "", "not auto or a boolean; using auto");
+  return undefined;
 }
 
 function clamp(value: number, min: number | undefined, max: number | undefined): number {

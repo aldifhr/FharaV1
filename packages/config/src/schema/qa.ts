@@ -24,9 +24,8 @@ export const QA_VARS = [
     type: "tristate",
     runtimes: ["worker"],
     group: "qa",
-    doc: "Chromium --no-sandbox: unset = auto (root or container), 0/false = off, anything else = on.",
-    knob: { reader: "worker", defaultValue: "false" },
-    quirk: "the knob shows false but the code default is auto (D11)",
+    doc: "Chromium --no-sandbox: auto (default: on for root or in a container), 1/true = on, 0/false = off.",
+    knob: { reader: "worker", defaultValue: "auto" },
   },
   {
     name: "QA_STARTUP_TIMEOUT_MS",

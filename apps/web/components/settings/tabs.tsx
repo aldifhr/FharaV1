@@ -468,10 +468,15 @@ export function BrowserTab() {
         placeholder="Playwright's bundled Chromium"
         description="A Chrome or Chromium binary to use instead of Playwright's."
       />
-      <KnobToggle
+      <KnobSelect
         knob="QA_CHROMIUM_NO_SANDBOX"
         label="Disable the Chromium sandbox"
-        description="Needed in some containers. Root and container runs turn it off on their own."
+        description="Needed in some containers. Auto turns it off for root and container runs."
+        options={[
+          { value: "auto", label: "Auto" },
+          { value: "true", label: "Always disable" },
+          { value: "false", label: "Keep the sandbox" },
+        ]}
       />
       <KnobNumber
         knob="QA_STARTUP_TIMEOUT_MS"

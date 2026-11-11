@@ -73,7 +73,7 @@ export type StringParse = "nullish" | "trimOr" | "or" | "lower";
 /** Settings-modal knob metadata (apps/api/convex/lib/appSettings.ts SETTING_KNOBS). */
 export interface KnobMeta {
   reader: "worker" | "api" | "both";
-  /** Only where the UI default differs from the code default (e.g. QA_CHROMIUM_NO_SANDBOX, D11). */
+  /** Only where the UI default is not the code default as a string (derived or tristate defaults). */
   defaultValue?: string;
   /** Only where the UI bounds differ from the code's parse bounds. */
   min?: number;
@@ -125,7 +125,7 @@ export interface BoolVar extends VarBase {
   default: boolean | DefaultFn<boolean>;
 }
 
-/** QA_CHROMIUM_NO_SANDBOX: unset/blank = auto (undefined), 0/false = off, anything else = on. */
+/** QA_CHROMIUM_NO_SANDBOX: unset/blank/auto = auto (undefined), bool words = on/off. Settings shows it as auto / true / false. */
 export interface TristateVar extends VarBase {
   type: "tristate";
 }

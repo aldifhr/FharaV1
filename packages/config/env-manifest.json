@@ -1670,11 +1670,11 @@
       "runtimes": [
         "worker"
       ],
-      "doc": "Chromium --no-sandbox: unset = auto (root or container), 0/false = off, anything else = on.",
+      "doc": "Chromium --no-sandbox: auto (default: on for root or in a container), 1/true = on, 0/false = off.",
       "default": null,
       "knob": {
         "reader": "worker",
-        "defaultValue": "false"
+        "defaultValue": "auto"
       }
     },
     {

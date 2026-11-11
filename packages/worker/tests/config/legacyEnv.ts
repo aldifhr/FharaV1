@@ -312,9 +312,12 @@ export function legacyQaStartupTimeoutMs(get: Get): number {
 }
 export const legacyQaChromiumPath = (get: Get) => get("QA_CHROMIUM_PATH")?.trim() || undefined;
 /** noSandbox for (isRoot || inContainer) = auto */
+// Since the knob became auto/true/false: "auto" and unknown words mean auto, the bool words force it.
 export function legacyNoSandbox(get: Get, auto: boolean): boolean {
   const flag = (get("QA_CHROMIUM_NO_SANDBOX") ?? "").trim().toLowerCase();
-  return flag === "0" || flag === "false" ? false : flag !== "" || auto;
+  if (["0", "false", "no", "off"].includes(flag)) return false;
+  if (["1", "true", "yes", "on"].includes(flag)) return true;
+  return auto;
 }
 export const legacyQaBaseUrl = (env: Env) => env.QA_BASE_URL;
 

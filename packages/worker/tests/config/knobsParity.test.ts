@@ -39,7 +39,8 @@ const OLD_SETTING_KNOBS = {
   ORCHESTRATOR_QA_MODE: { type: "enum", defaultValue: "auto", reader: "worker", options: ["always", "auto", "never"] },
   ORCHESTRATOR_QA_REQUIRED: { type: "bool", defaultValue: "false", reader: "worker" },
   QA_CHROMIUM_PATH: { type: "string", defaultValue: "", reader: "worker", maxLength: 500 },
-  QA_CHROMIUM_NO_SANDBOX: { type: "bool", defaultValue: "false", reader: "worker" },
+  // Was { type: "bool", defaultValue: "false" }, which hid the code default (auto).
+  QA_CHROMIUM_NO_SANDBOX: { type: "enum", defaultValue: "auto", reader: "worker", options: ["auto", "true", "false"] },
   QA_STARTUP_TIMEOUT_MS: { type: "int", defaultValue: "90000", reader: "worker", min: 5_000, max: 600_000 },
   // Sharing & access (what agents may do)
   ORCHESTRATOR_APPROVAL_TIMEOUT_MS: { type: "int", defaultValue: String(30 * 60_000), reader: "worker", min: 60_000, max: 24 * 60 * 60_000 },

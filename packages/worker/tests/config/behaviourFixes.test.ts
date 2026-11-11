@@ -269,3 +269,21 @@ describe("startup: .env is loaded before any module-load read; the log shows the
     expect(index).toContain('listening: convex=${wenv("NEXT_PUBLIC_CONVEX_URL")}');
   });
 });
+
+describe("QA_CHROMIUM_NO_SANDBOX: the Settings knob shows the real default (auto)", () => {
+  it("is an auto / true / false knob defaulting to auto, and auto reads as auto", async () => {
+    const { SETTING_KNOBS, normalizeSettingValue } = await import("@/api/convex/lib/appSettings");
+    expect(SETTING_KNOBS.QA_CHROMIUM_NO_SANDBOX).toEqual({ type: "enum", defaultValue: "auto", reader: "worker", options: ["auto", "true", "false"] });
+    expect(normalizeSettingValue("QA_CHROMIUM_NO_SANDBOX", "Auto")).toBe("auto");
+    expect(readVar("QA_CHROMIUM_NO_SANDBOX", { QA_CHROMIUM_NO_SANDBOX: "auto" })).toBeUndefined();
+    expect(readVar("QA_CHROMIUM_NO_SANDBOX", {})).toBeUndefined();
+    expect(readVar("QA_CHROMIUM_NO_SANDBOX", { QA_CHROMIUM_NO_SANDBOX: "true" })).toBe(true);
+    expect(readVar("QA_CHROMIUM_NO_SANDBOX", { QA_CHROMIUM_NO_SANDBOX: "off" })).toBe(false);
+    const previous = setEnvIssueSink(() => {});
+    try {
+      expect(readVar("QA_CHROMIUM_NO_SANDBOX", { QA_CHROMIUM_NO_SANDBOX: "maybe" })).toBeUndefined();
+    } finally {
+      setEnvIssueSink(previous);
+    }
+  });
+});

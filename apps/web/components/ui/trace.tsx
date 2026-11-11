@@ -3,6 +3,7 @@
 import * as React from "react"
 import { CircleCheckIcon, LoaderCircleIcon } from "lucide-react"
 import { cn } from "cn"
+import { reasoningForDisplay } from "@/api/convex/lib/chat/reasoningDisplay"
 import {
   Collapsible,
   CollapsibleContent,
@@ -140,7 +141,7 @@ export function ReasoningLine({
   seconds?: number;
 }) {
   const [userOpen, setUserOpen] = React.useState<boolean | undefined>(undefined)
-  const hasText = Boolean(text?.trim())
+  const hasText = Boolean(reasoningForDisplay(text))
   const line = (
     <TraceLine status={running ? "running" : undefined}>
       <TraceIcon>
@@ -163,7 +164,7 @@ export function ReasoningLine({
     <Trace>
       <TraceCollapsible open={userOpen ?? running} onOpenChange={setUserOpen}>
         <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
-        <TraceCollapsibleContent>{text}</TraceCollapsibleContent>
+        <TraceCollapsibleContent>{reasoningForDisplay(text)}</TraceCollapsibleContent>
       </TraceCollapsible>
     </Trace>
   )

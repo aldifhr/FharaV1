@@ -13,6 +13,7 @@
  *
  * Pure: no Convex APIs, so it is unit-tested and importable from the web.
  */
+import { isPromptEchoLine } from "./reasoningDisplay";
 import type { IntentSubtype } from "./intent";
 import { looksIndonesian, normalizeRepoToolArgs } from "./toolCallText";
 
@@ -83,7 +84,7 @@ export function firstReasoningSentence(reasoning: string | undefined, userText: 
   const match = text.match(/^(.{12,180}?[.!?])(\s|$)/);
   if (!match) return null;
   const sentence = match[1].trim();
-  if (UNSAFE_REASONING.test(sentence)) return null;
+  if (UNSAFE_REASONING.test(sentence) || isPromptEchoLine(sentence)) return null;
   if (looksIndonesian(sentence) !== looksIndonesian(userText)) return null;
   return stripInternalPhrasing(sentence) || null;
 }

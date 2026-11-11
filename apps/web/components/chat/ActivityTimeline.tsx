@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { roleLabel } from "@/lib/agentRoles";
-import { looksIndonesian } from "@/api/convex/lib/chat/toolCallText";
+import { reasoningForDisplay } from "@/api/convex/lib/chat/reasoningDisplay";
 import type { ChatToolStep } from "@/api/convex/lib/chat/activity";
 import { activityTitleKind, isHandoffStep, reasoningRowHasLabel } from "@/lib/activityHeading";
 
@@ -11,25 +11,13 @@ import { activityTitleKind, isHandoffStep, reasoningRowHasLabel } from "@/lib/ac
  * Activity timeline above an agent's chat reply (à la "Working" /
  * "N tools used"): "Berpikir…" → "Bekerja" with a one-line intent →
  * one row per tool call (streamed from `messages.toolSteps`) →
- * "Menyusun jawaban". Expanded while the reply streams, collapsed once it
+ * "Writing the answer". Expanded while the reply streams, collapsed once it
  * is done. "Checked:" / "Unverified:" live inside it.
  */
 
+// UI copy is English whatever language the reply is in (the reply text
+// itself stays in the user's language). "Penalaran"/"Selesai" leaked here.
 const COPY = {
-  id: {
-    thinking: "Berpikir…",
-    working: "Bekerja",
-    composing: "Menyusun jawaban",
-    tools: (n: number) => `${n} tool dipakai`,
-    worked: "Selesai",
-    failed: "gagal",
-    reasoning: "Penalaran",
-    list: (t: string) => `Melihat struktur ${t}`,
-    grep: (t: string) => `Mencari ${t}`,
-    read: (t: string, lines?: string) => `Membaca ${t}${lines ? ` (baris ${lines})` : ""}`,
-    skill: (t: string) => `Memuat skill ${t}`,
-    handoff: (t: string) => `Meminta bantuan ${t}`,
-  },
   en: {
     thinking: "Thinking…",
     working: "Working",
@@ -46,9 +34,9 @@ const COPY = {
   },
 };
 
-type Copy = (typeof COPY)["id"];
+type Copy = (typeof COPY)["en"];
 
-export function toolStepLabel(step: ChatToolStep, copy: Copy = COPY.id): string {
+export function toolStepLabel(step: ChatToolStep, copy: Copy = COPY.en): string {
   const target = step.target ?? "";
   switch (step.tool) {
     case "list_files":
@@ -101,7 +89,7 @@ export default function ActivityTimeline({
   const toolSteps = steps.filter((s) => !isHandoffStep(s));
   const handoffSteps = steps.filter(isHandoffStep);
   const content: string = message.content ?? "";
-  const copy = looksIndonesian(content || message.intentLine || "") ? COPY.id : COPY.en;
+  const copy = COPY.en;
   const hasContent = Boolean(content.trim());
   const phase: "thinking" | "working" | "composing" | "done" = !live
     ? "done"
@@ -112,7 +100,8 @@ export default function ActivityTimeline({
         : "thinking";
   const open = userOpen ?? live;
   const extras = [checkedLabel, unverifiedLabel].filter(Boolean) as string[];
-  const reasoning: string = (message.reasoning ?? "").trim();
+  // Prompt echoes and repeats removed, capped (lib/chat/reasoningDisplay.ts).
+  const reasoning: string = reasoningForDisplay(message.reasoning);
 
   // A finished reply with no tool, nothing to verify and no reasoning needs no timeline.
   if (phase === "done" && steps.length === 0 && extras.length === 0 && !reasoning) return null;

@@ -50,6 +50,7 @@ import { applyDirectPatch, directPatchValidator, type DirectPatch } from "./lib/
 import { applyGoalCommand, clearGoalHandler, goalCommandOf, goalTaskArgs, GOAL_USAGE, pauseGoalHandler, setGoalArgs, setGoalHandler } from "./lib/directGoal";
 import { goalWantsWorker } from "./lib/directGoalSchema";
 import { isAutomationHeld } from "./lib/automationHold";
+import { resolveDirectQuestion } from "./lib/directQuestions";
 
 const TERMINAL = new Set(["done", "failed", "rejected", "cancelled"]);
 const LEASE_LOST = "Lease lost: this task is no longer owned by this worker";
@@ -213,6 +214,7 @@ export const clearGoal = mutation({ args: goalTaskArgs, handler: clearGoalHandle
 export async function sendDirectMessage(ctx: MutationCtx, task: Doc<"tasks">, text: string, clientId: string) {
   const written = await writeUserMessage(ctx, task, text, clientId);
   if (written.deduped) return { eventId: written.eventId, deduped: true, declined: 0 };
+  await resolveDirectQuestion(ctx, task, { text, by: "user" }); // N7: the message answers an open question card
   const declined = await declineDirectCards(ctx, task, text);
   if (task.status === "waiting_input" || task.status === "paused") await patchTask(ctx, task._id, { status: "queued", updatedAt: Date.now() });
   return { eventId: written.eventId, deduped: false, declined };

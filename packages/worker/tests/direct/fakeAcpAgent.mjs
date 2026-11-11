@@ -19,6 +19,8 @@
 //   "heartbeat-hang" heartbeats forever and ignores session/cancel
 //   "fail-loop <cmd>|<cmd>|…" one failing bash call per command (no permission
 //                  ask), then ends the turn
+//   "ask <question>|<opt>|<opt>" asks with OpenCode's question tool (N7); on a
+//                  cancelled answer it ends the turn the way the preamble asks
 //   anything else  echoes the whole prompt text
 // FAKE_ACP_KNOWN_SESSION: the only id session/resume accepts.
 // FAKE_ACP_RESUME_HANG: a file path; while it exists, session/resume never answers.
@@ -129,6 +131,31 @@ async function prompt(id, params) {
     });
     notify(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: allowed ? "ran it" : `did not run (${answer?.outcome?.outcome}${answer?.outcome?.optionId ? `:${answer.outcome.optionId}` : ""})` } });
     return send({ id, result: { stopReason: answer?.outcome?.outcome === "cancelled" ? "cancelled" : "end_turn", usage } });
+  }
+  if (text.startsWith("ask ")) {
+    const [question, ...labels] = text.slice(4).split("|").map((x) => x.trim());
+    const callId = `call-${++n}`;
+    const rawInput = { questions: [{ question, header: "Choice", options: labels.map((label) => ({ label, description: `Pick ${label}` })) }] };
+    notify(sessionId, { sessionUpdate: "tool_call", toolCallId: callId, title: "question", kind: "other", status: "pending", locations: [], rawInput: {} });
+    const answer = await ask("session/request_permission", {
+      sessionId,
+      toolCall: { toolCallId: callId, title: "question", kind: "other", status: "pending", locations: [], rawInput },
+      options: [
+        { optionId: "once", kind: "allow_once", name: "Allow once" },
+        { optionId: "reject", kind: "reject_once", name: "Reject" },
+      ],
+    });
+    const outcome = answer?.outcome?.outcome;
+    notify(sessionId, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: callId,
+      status: "failed",
+      kind: "other",
+      rawInput,
+      content: [{ type: "content", content: { type: "text", text: `question ${outcome}` } }],
+    });
+    notify(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: outcome === "cancelled" ? "Asked; waiting for the answer." : `unexpected ${outcome}` } });
+    return send({ id, result: { stopReason: "end_turn", usage } });
   }
   if (text.startsWith("fail-loop ")) {
     for (const command of text.slice(10).split("|")) {

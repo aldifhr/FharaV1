@@ -28,6 +28,10 @@
 // turns is applied before the next prompt, never mid-turn. Effort option
 // matching (category thought_level, or id effort/reasoning_effort/thinking)
 // follows Nuphos session-config-options.ts (pattern only).
+// Plan N7: a permission request for OpenCode's question tool is never
+// gated as a tool: it becomes a question card through sink.askQuestion
+// (direct/nativeQuestion.ts), is answered "cancelled" with an "answered in
+// chat" note, and the answer arrives as the next prompt.
 
 // Threads on OpenCode over ACP: one process per live thread, and everything
 // it wants to do comes through here first. The agent is set to ask before
@@ -58,6 +62,7 @@ import {
 import { cancelReasonOf, describeToolCall, gateToolCall } from "./toolGate";
 import { RunawayDetector, runawayNoteText } from "./runaway";
 import { declarableServers } from "./mcpDeclare";
+import { answeredInChatNote, questionFromToolCall, type NativeQuestion, type QuestionRouted } from "./nativeQuestion";
 import {
   SessionNotFoundError,
   type DirectEngine,
@@ -417,6 +422,8 @@ export class AcpSession implements DirectSession {
     this.emit(this.normalizer.flush());
     this.emit(seen.events);
     const rawInput = isPlainObject(p.toolCall?.rawInput) && Object.keys(p.toolCall!.rawInput as object).length ? (p.toolCall!.rawInput as Record<string, unknown>) : seen.input;
+    const question = questionFromToolCall({ title: p.toolCall?.title, name: seen.title, rawInput });
+    if (question) return this.question(id, seen.id, question);
     const description = describeToolCall({
       cwd: this.opts.cwd,
       kind: seen.kind,
@@ -465,6 +472,31 @@ export class AcpSession implements DirectSession {
         ...ids,
       });
     }
+  }
+
+  /**
+   * N7: the question tool's request. The card is written first, then the
+   * request is answered "cancelled" (the tool never runs) with a note that
+   * it was answered in chat; the agent ends its turn and the answer is the
+   * next prompt. No card could be written: refused with gate_error.
+   */
+  private async question(id: RequestId, itemId: string, q: NativeQuestion): Promise<void> {
+    const pending: Pending = { abort: new AbortController(), options: [], itemId };
+    this.pending.set(id, pending);
+    let routed: QuestionRouted | undefined;
+    let failure: string | undefined;
+    try {
+      if (this.sink.askQuestion) routed = await this.sink.askQuestion({ itemId, ...q });
+      else failure = "this thread can't show questions";
+    } catch (e) {
+      failure = e instanceof Error ? e.message : String(e);
+    }
+    // Already answered as cancelled (an interrupt, or the session ending).
+    if (!this.pending.delete(id)) return;
+    this.answered.add(id);
+    this.proc.respond(id, { outcome: { outcome: "cancelled" } });
+    if (!routed) return this.cancelled({ itemId, reason: "gate_error", message: `The question could not be shown (${failure ?? "unknown error"}).` });
+    this.emit([{ kind: "event", event: { type: "system.note", text: answeredInChatNote(routed.route) } }]);
   }
 
   // Every open request answered as cancelled, which ACP requires of a

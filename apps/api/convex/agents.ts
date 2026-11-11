@@ -13,7 +13,8 @@ import {
 } from "./lib/roles";
 import { defaultAvatarParams } from "./lib/avatar";
 import { changedFields, recordAudit, setFields } from "./lib/recordAudit";
-import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT, PREVIOUS_SEED_PROMPTS } from "./lib/prompts/agents";
+import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT } from "./lib/prompts/agents";
+import { isUneditedSeed } from "./lib/prompts/roleTemplate";
 import { applyAgentSkills, applyBuiltinSkills, seedBuiltinSkills } from "./skills";
 import { effectiveTeamIds } from "./lib/projectTeam";
 
@@ -566,8 +567,9 @@ export function syncedTools(current: readonly string[] | undefined, role: string
  * Sync the fixed team: seed missing roles, union new default capabilities
  * into existing rows, and retire removed roles exactly once.
  *
- * - Prompts/descriptions are only filled when empty, so edits made in the
- *   UI are never overwritten.
+ * - Prompts/descriptions are filled when empty; a prompt that is still an
+ *   unedited seed follows the current role template (lib/prompts/roles/);
+ *   edits made in the UI are never overwritten.
  * - Retired agents are disabled once and stamped with `retiredAt`; a later
  *   manual re-enable sticks.
  */
@@ -618,10 +620,7 @@ export async function syncFixedTeam(ctx: MutationCtx, projectId?: Id<"projects">
     if (!match.systemPrompt?.trim()) patch.systemPrompt = def.systemPrompt;
     // Plan 040 (D10): a prompt still EXACTLY equal to an earlier seed was
     // never edited, so it follows the new seed. Edited prompts never change.
-    else if (
-      match.systemPrompt !== def.systemPrompt &&
-      (PREVIOUS_SEED_PROMPTS[def.role] ?? []).includes(match.systemPrompt)
-    ) {
+    else if (match.systemPrompt !== def.systemPrompt && isUneditedSeed(def.role, match.systemPrompt)) {
       patch.systemPrompt = def.systemPrompt;
     }
     // Plan 040: tools. Only the listed new defaults are added and only the

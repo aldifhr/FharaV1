@@ -134,6 +134,14 @@ export function buildRequestSubjectGuard(projectName: string): string {
   ].join(" ");
 }
 
+/**
+ * Role prompt templates (lib/prompts/roles/) carry task-delivery formats
+ * (DESIGNER's Output Format, FRONTEND's Completion Report). In chat the
+ * short-reply and Create-task rules below win (8426134).
+ */
+export const ROLE_PROMPT_CHAT_SCOPE =
+  "Your role instructions above describe how you work on tasks. In this chat the reply rules below win: keep to their length and format, and do not use task-delivery sections (output formats, completion reports, final status) unless the user asks for one.";
+
 /** Opening lines of a chat-loop reply: identity, persona, repo grounding. */
 export function buildChatPersonaLines(
   agent: Persona,
@@ -147,6 +155,7 @@ export function buildChatPersonaLines(
     buildSeparateSpeakersLine(agent, participants),
     NOT_THE_MODEL,
     agent.systemPrompt ?? "",
+    agent.systemPrompt?.trim() ? ROLE_PROMPT_CHAT_SCOPE : "",
     // Library skills right after the static persona prompt.
     agent.skillsSection ?? "",
     // Pinned memories after the skills (still ahead of per-turn context).

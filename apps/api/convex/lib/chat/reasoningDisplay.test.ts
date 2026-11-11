@@ -17,6 +17,16 @@ describe("reasoningForDisplay", () => {
     expect(out).toContain("Plan: a single HTML file");
     expect(out).not.toMatch(/system prompt|lazy senior|tool calls|JSON object|grounding rule/i);
   });
+  test("drops role template lines quoted back (lib/prompts/roles)", () => {
+    const raw = [
+      "You are the Frontend Developer. Own frontend implementation.",
+      "## Boundaries",
+      "When you are the Response Owner for the task, report the final result.",
+      "The header needs a search box and a filter menu.",
+    ].join("\n");
+    expect(reasoningForDisplay(raw)).toBe("The header needs a search box and a filter menu.");
+    expect(isPromptEchoLine("Boundaries between the cards need 12px gaps.")).toBe(false);
+  });
   test("drops repeated lines and caps the length", () => {
     const dup = "Plan: header, list, detail.\nPlan: header, list, detail.\nPlan: header, list, detail.";
     expect(reasoningForDisplay(dup)).toBe("Plan: header, list, detail.");

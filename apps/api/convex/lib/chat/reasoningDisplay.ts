@@ -18,6 +18,11 @@ const PROMPT_ECHO: RegExp[] = [
   /\b(?:the|these)\s+(?:instructions|guidelines|rules)\s+(?:say|tell|require|ask|state|mention)/i,
   /\b(?:my|the agent|this) persona\b|\brole prompt\b/i,
   /\blazy\s+senior\b/i,
+  // Role prompt templates (lib/prompts/roles/*.md) quoted back: their
+  // section headings and the "You are the <Role>" opening.
+  /^#{1,4}\s*(?:responsibilities|boundaries|collaboration(?: rules)?|engineering standards|testing standards|completion report|output format|design principles|review principles|research principles|operational principles|communication rules|decision principles)\b/i,
+  /^you are the (?:cto|ui\/ux designer|designer|frontend developer|backend developer|qa engineer|reviewer|devops engineer|researcher|support specialist)\b/i,
+  /\bresponse owner\b/i,
   /\bat most\s+\d+\s+(?:repo\s+)?tool\s*calls?\b/i,
   /\btool[- ]?call(?:s)?\s+(?:protocol|format|budget|limit)\b/i,
   /\b(?:only|exactly)\s+one\s+json\s+object\b/i,

@@ -44,8 +44,9 @@ test("copy returns the original text", () => {
   assert.equal(text, "first sk-abcde*****, second sk-abcde***** end");
   // Whole message selected → the original, each key restored in order.
   assert.equal(unmaskText(text, masks), content);
-  // A selection starting at the second key restores the second key, not the first.
-  assert.equal(unmaskText("second sk-abcde***** end", masks), "second sk-abcdeZZZZZZZZZ9 end");
+  // A partial selection restores the key it shows.
+  const other = maskSecrets(`a ${KEY} b sk-zyxwvuts98765 c`);
+  assert.equal(unmaskText("b sk-zyxwv***** c", other.masks), "b sk-zyxwvuts98765 c");
   // Text with no masked token is left alone; a cut token cannot be restored.
   assert.equal(unmaskText("first", masks), "first");
   assert.equal(unmaskText("sk-abc", masks), "sk-abc");

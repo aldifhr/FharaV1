@@ -20,6 +20,11 @@
  * tool-result messages instead of session parts), and the loop stops when
  * the stuck detector (`utils/stuckDetector.ts`, from the OpenHands SDK)
  * sees a repeating pattern.
+ *
+ * D3: a result over TOOL_RESULT_MAX_TOKENS is spilled to a task-scoped file
+ * (`context/toolOutputSpill.ts`); the conversation gets head + tail + a notice, and the
+ * loop itself answers `read_tool_output` range reads. A pruned spilled
+ * result keeps its notice, so the locator survives pruning.
  */
 
 import type { LLMMessage } from "@/llm";
@@ -28,6 +33,8 @@ import { genericToolLoopPrompt, type ToolLoopPromptSet } from "@/prompts/toolLoo
 import { StuckDetector, type StuckDetectionThresholds, type StuckEvent, type StuckPattern } from "@/utils/stuckDetector";
 import { redactText } from "@/utils/redact";
 import { callWithOverflowRecovery } from "@/context/overflowRecovery";
+import { currentSnapshotScope } from "@/llm/snapshots";
+import { readSpill, spillIfLarge, spillNoticeOf, SPILL_READ_TOOL, type SpillConfig } from "@/context/toolOutputSpill";
 
 /** opencode PRUNE_PROTECT: newest tool output (tokens) that is never pruned. */
 export const PRUNE_PROTECT_TOKENS = 40_000;
@@ -115,6 +122,11 @@ export interface ToolLoopOptions {
    * like `runLlm`.
    */
   summarize?: (prompt: string) => Promise<string>;
+  /**
+   * D3 tool-output spill scope. Default: the task of the current snapshot
+   * scope (the runner sets it per subtask); `false` or no task = no spill.
+   */
+  spill?: { taskId: string; callPrefix?: string; config?: SpillConfig; log?: (message: string) => void } | false;
 }
 
 export interface ToolLoopResult {
@@ -167,6 +179,9 @@ export async function runToolLoop(options: ToolLoopOptions): Promise<ToolLoopRes
   // Tool-result messages in the conversation, for budget pruning.
   const outputs: Array<{ messageIndex: number; tool: string; text: string; isError: boolean; pruned?: boolean }> = [];
   let prunedResults = 0;
+  const scopeTask = currentSnapshotScope().taskId;
+  const spill = options.spill === false ? undefined : (options.spill ?? (scopeTask ? { taskId: scopeTask, callPrefix: currentSnapshotScope().subtaskKey } : undefined));
+  const spillRun = Date.now().toString(36);
   let stuck: ToolLoopResult["stuck"];
   const checkStuck = (): boolean => {
     if (!detector) return false;
@@ -182,7 +197,9 @@ export async function runToolLoop(options: ToolLoopOptions): Promise<ToolLoopRes
     for (const index of prune) {
       const output = outputs[index];
       output.pruned = true;
-      messages[output.messageIndex] = { role: "user", content: prompt.result(output.tool, PRUNED_TOOL_OUTPUT, output.isError) };
+      // A spilled result keeps its locator notice: the full text is one read away.
+      const notice = spillNoticeOf(output.text);
+      messages[output.messageIndex] = { role: "user", content: prompt.result(output.tool, notice ? `${PRUNED_TOOL_OUTPUT} ${notice}` : PRUNED_TOOL_OUTPUT, output.isError) };
     }
     prunedResults += prune.length;
     options.onEvent?.("tool.loop_pruned", { results: prune.length, tokens: pruned });
@@ -237,7 +254,9 @@ export async function runToolLoop(options: ToolLoopOptions): Promise<ToolLoopRes
       continue;
     }
 
-    if (!options.tools.some((t) => t.name === toolName)) {
+    // D3: range reads of a spilled result are answered by the loop itself.
+    const isSpillRead = Boolean(spill) && toolName === SPILL_READ_TOOL && !options.tools.some((t) => t.name === toolName);
+    if (!isSpillRead && !options.tools.some((t) => t.name === toolName)) {
       // The model hallucinated a filtered-out tool: treat as a denial, not
       // a crash, and let it pick a listed tool.
       events.push({ kind: "action", tool: toolName, args: JSON.stringify(toolArgs) });
@@ -253,8 +272,19 @@ export async function runToolLoop(options: ToolLoopOptions): Promise<ToolLoopRes
     toolCalls += 1;
     // L2: a tool result goes back to the LLM, into events and the final
     // findings: mask secrets (known values + shapes) before any of them.
-    const rawResult = await options.callTool({ tool: toolName, args: toolArgs });
+    const rawResult = isSpillRead && spill
+      ? readSpill(toolArgs.id, { taskId: spill.taskId, offset: toolArgs.offset, limit: toolArgs.limit, config: spill.config })
+      : await options.callTool({ tool: toolName, args: toolArgs });
     const result = { ...rawResult, text: redactText(rawResult.text) };
+    // Masked before it is written (spillIfLarge masks again; idempotent).
+    if (spill && !isSpillRead) {
+      const callId = `${spill.callPrefix ? `${spill.callPrefix}-` : ""}${spillRun}-${toolCalls}-${toolName}`;
+      const spilled = spillIfLarge(result.text, { taskId: spill.taskId, callId, config: spill.config, log: spill.log ?? ((m) => console.warn(m)) });
+      if (spilled.spilled) {
+        result.text = spilled.text;
+        options.onEvent?.("tool.output_spilled", { tool: toolName, locator: spilled.spilled.locator, chars: spilled.spilled.chars, bytes: spilled.spilled.bytes });
+      }
+    }
     toolResults.push({ tool: toolName, text: result.text });
     outputs.push({ messageIndex: messages.length, tool: toolName, text: result.text, isError: result.isError });
     messages.push({

@@ -1,6 +1,7 @@
 // Must stay the first import: loads the root .env before any other module is evaluated.
 import "./utils/loadEnv";
 import { wenv } from "@fhara/config/worker";
+import { sweepSpill } from "@/context/toolOutputSpill";
 import os from "node:os";
 import { createConvexClient, createConvexSubscriber } from "./convexClient";
 import { WorkerApi, type WorkerTask } from "./workerApi";
@@ -145,6 +146,17 @@ async function main() {
   // Agent process groups a crashed worker left behind (Nuphos N2); the
   // first direct claim waits for this.
   void direct.sweepLeftovers();
+  // D3: spill files of large tool output, past their retention (default 72 h).
+  const sweepSpills = () => {
+    try {
+      const removed = sweepSpill();
+      if (removed) log(`spill sweep: removed ${removed} task dir(s)`);
+    } catch (error) {
+      log("spill sweep failed", error);
+    }
+  };
+  sweepSpills();
+  setInterval(sweepSpills, 3_600_000).unref();
 
   log(
     `listening: convex=${wenv("NEXT_PUBLIC_CONVEX_URL")} root=${workspaceRoot} concurrency=${CONCURRENCY}`

@@ -1539,6 +1539,43 @@
       "parse": "nullish"
     },
     {
+      "name": "TOOL_RESULT_MAX_TOKENS",
+      "type": "int",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Tool output over this many tokens (chars/4) is saved to a spill file; the model sees head + tail and reads the rest by range (0 = off).",
+      "default": "4096",
+      "parse": "clampBlank",
+      "min": 1024,
+      "max": 1000000
+    },
+    {
+      "name": "FHARA_SPILL_DIR",
+      "type": "path",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Spill files for large tool output, outside every worktree (default ~/.fhara/spill).",
+      "default": null,
+      "parse": "nullish"
+    },
+    {
+      "name": "FHARA_SPILL_RETENTION_HOURS",
+      "type": "int",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Hours a task's spill files are kept (swept at worker start and hourly).",
+      "default": "72",
+      "parse": "clampBlank",
+      "min": 1,
+      "max": 720
+    },
+    {
       "name": "FHARA_GIT_AUTHOR_NAME",
       "type": "string",
       "group": "git",

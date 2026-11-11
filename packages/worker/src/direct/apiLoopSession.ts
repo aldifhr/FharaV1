@@ -14,6 +14,7 @@ import crypto from "node:crypto";
 import type { LLMMessage, LLMProvider, LLMResult } from "@/llm";
 import { callWithOverflowRecovery } from "@/context/overflowRecovery";
 import { RunawayDetector, RUNAWAY_FAILURE_THRESHOLD, canonicalToolInputKey, runawayNoteText } from "./runaway";
+import { spillIfLarge, type SpillConfig } from "@/context/toolOutputSpill";
 import type { DirectEngine, DirectSession, SessionSink, StartSessionOptions, TurnResult, UserInput } from "./types";
 
 export const API_LOOP_NOTE =
@@ -28,6 +29,8 @@ export type ApiLoopDeps = {
   newId?: () => string;
   /** Turns of history kept (user + assistant pairs). */
   maxHistory?: number;
+  /** D3 spill settings (default: env); `false` keeps history verbatim. */
+  spill?: SpillConfig | false;
 };
 
 export class ApiLoopEngine implements DirectEngine {
@@ -130,7 +133,9 @@ class ApiLoopSession implements DirectSession {
       if (run.interrupted) throw new Error("Stopped");
       const text = answer.content ?? "";
       if (text) this.sink.output({ kind: "event", event: { type: "assistant.text", itemId, text } });
-      this.history.push({ role: "user", content: input.text }, { role: "assistant", content: text });
+      // D3: this turn saw the full text; history keeps a head + tail preview of an
+      // oversized message (saved to the task's spill dir), so it is not re-sent each turn.
+      this.history.push({ role: "user", content: this.forHistory(input.text, "user") }, { role: "assistant", content: this.forHistory(text, "assistant") });
       const keep = (this.deps.maxHistory ?? 20) * 2;
       if (this.history.length > keep) this.history = this.history.slice(-keep);
       this.runaway.result(itemId, true);
@@ -160,6 +165,13 @@ class ApiLoopSession implements DirectSession {
     if (this.closed) return;
     this.sink.output({ kind: "result", result: { ...result, queuedTurns: this.held.length } });
     this.next();
+  }
+
+  private turnCount = 0;
+  private forHistory(text: string, role: string): string {
+    if (this.deps.spill === false) return text;
+    const callId = `${this.sessionId}-${this.turnCount++}-${role}`;
+    return spillIfLarge(text, { taskId: this.opts.taskId, callId, config: this.deps.spill, readable: false, log: (m) => console.warn(m) }).text;
   }
 
   async interrupt(): Promise<void> {

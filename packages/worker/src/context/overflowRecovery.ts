@@ -23,6 +23,7 @@ import type { LLMMessage } from "@/llm";
 import { contextLimitOf, isContextOverflowError, LlmContextOverflowError } from "@/llm/errors";
 import { codePointLength, PRUNE_MARKER, resolveConfig, type ToolResultPruneConfig } from "@/vendor/deepseek-harness/prunerConfig";
 import { buildSummaryPrompt } from "@/prompts/compaction";
+import { isSpillPreview, spillNoticeOf } from "@/context/toolOutputSpill";
 
 export const MAX_OVERFLOW_RETRIES = 2;
 /** Re-check headroom: after pruning, the request must fit in this share of the named limit. */
@@ -75,6 +76,8 @@ function bounds(messages: readonly LLMMessage[], protectFirst: number, protectLa
 function pruneMiddle(messages: LLMMessage[], from: number, to: number, config?: ToolResultPruneConfig): number {
   let cut = 0;
   for (let index = from; index < to; index++) {
+    // D3: a spill preview is already head + tail + locator; pruning it again would cut the locator.
+    if (isSpillPreview(messages[index].content)) continue;
     const content = pruneHeadTail(messages[index].content, config);
     if (content !== messages[index].content) {
       messages[index] = { ...messages[index], content };
@@ -103,6 +106,9 @@ async function compactMiddle(
       summarized = true;
     }
   }
+  // D3: spilled outputs stay readable after compaction; keep their locators.
+  const saved = middle.map((m) => spillNoticeOf(m.content)).filter((n): n is string => Boolean(n));
+  if (saved.length) note += `\nSaved tool outputs still readable:\n${saved.join("\n")}`;
   messages.splice(from, middle.length, { role: "user", content: note });
   return { summarized, dropped: middle.length };
 }

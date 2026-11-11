@@ -1022,6 +1022,10 @@ SOFTWARE.
     `packages/worker/src/context/overflowRecovery.ts` (D2): typed wire faults and the context-overflow request-error
     path (prune, re-check, summarize only if still over, retry, `compaction.start`/`compaction.end`) after
     `packages/compaction/compaction-basic` and `docs/subsystems/compaction.md`; pattern only.
+  - `packages/worker/src/context/toolOutputSpill.ts` (D3): tool-output spill (head + tail preview, a saved-output notice with a
+    task-scoped locator, range reads, surrogate-safe cuts, temp-file + rename writes) after
+    `packages/spill/spill-policy` (`retention.ts`, `notice.ts`) and `packages/util/atomic-write`; pattern only, no code
+    copied.
 - Copied (MIT, header in the file): `packages/worker/src/vendor/deepseek-harness/prunerConfig.ts` from
   `packages/compaction/compaction-tool-result-pruner/src/config.ts` (head 4096 + marker + tail 1024, at most 8192;
   `deepFreeze` and the types inlined).

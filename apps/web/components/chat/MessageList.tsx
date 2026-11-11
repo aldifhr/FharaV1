@@ -27,7 +27,7 @@ import { useToast } from "../Toasts";
 import { QuotedSnippet, quoteOf } from "./QuoteBlock";
 import { ChatOpinionLine, useChatOpinions, useRequestMessageOpinion } from "../review/Reviewer";
 import ContextDrawer from "../context/ContextDrawer";
-import ReplyInterrupted from "./ReplyInterrupted";
+import ReplyInterrupted, { ReplyCutOff } from "./ReplyInterrupted";
 
 export type MessageKind = "evaluation" | "planning" | "delegation" | "design" | null;
 
@@ -551,9 +551,8 @@ export default function MessageList(props: Props) {
             </>
           );
         })()}
-        {m.interrupted && m.replyToMessageId && (
-          <ReplyInterrupted userMessageId={String(m.replyToMessageId)} />
-        )}
+        {m.interrupted && m.replyToMessageId && <ReplyInterrupted userMessageId={String(m.replyToMessageId)} />}
+        {m.cutOff && !m.streaming && <ReplyCutOff messageId={String(m._id)} reason={m.cutOff.reason} />}
         {m.card && (
           <div className="mt-2 max-w-3xl">
             <ChatCard card={m.card} />

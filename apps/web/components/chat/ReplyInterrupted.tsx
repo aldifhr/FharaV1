@@ -52,3 +52,39 @@ export default function ReplyInterrupted({
     </div>
   );
 }
+
+/**
+ * Quiet line under a reply that was kept with its partial text (cut
+ * mid-stream or at the model's output limit): why it stopped, and Continue,
+ * which appends the rest to this same message. Plain text button, theme
+ * tokens only.
+ */
+export function ReplyCutOff({ messageId, reason }: { messageId: string; reason?: string }) {
+  const resume = useMutation(api.chatReplies.continueReply);
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  return (
+    <div role="status" className="mt-1 flex items-center gap-2 pl-1 text-[12px] text-ink-3">
+      <span>{reason || "Reply stopped before it finished"}</span>
+      <span aria-hidden>·</span>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            const res = await resume({ messageId: messageId as any });
+            if (!res.continued) toast("info", "This reply can no longer be continued.");
+          } catch (err) {
+            toast("error", "Couldn't continue", err instanceof Error ? err.message : undefined);
+          } finally {
+            setBusy(false);
+          }
+        }}
+        className="font-medium text-ink-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+      >
+        {busy ? "Continuing…" : "Continue"}
+      </button>
+    </div>
+  );
+}

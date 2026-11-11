@@ -14,6 +14,8 @@
  * user to confirm Start.
  */
 
+import { fenceUntrusted, UNTRUSTED_REQUEST_NOTE } from "./untrustedContent";
+
 export const DEFAULT_INTAKE_LABEL = "fhara";
 export const LABEL_PREFIX = "fhara:";
 export type IssueStatusLabel = "fhara:draft" | "fhara:running" | "fhara:ready-for-review" | "fhara:failed" | "fhara:done";
@@ -21,6 +23,7 @@ export const STATUS_LABELS: readonly IssueStatusLabel[] = ["fhara:draft", "fhara
 
 const TITLE_LIMIT = 200;
 const BODY_LIMIT = 3_000;
+const COMMAND_LIMIT = 4_000;
 
 export type IssueSignal = {
   action: string;
@@ -91,13 +94,23 @@ export function intakeLabel(raw: string | undefined): string {
   return label && label.length <= 50 && !label.startsWith(LABEL_PREFIX) ? label : DEFAULT_INTAKE_LABEL;
 }
 
-/** The draft task's command: the issue as the request, plus where it came from. */
+/**
+ * The draft task's command: the issue as the request, plus where it came
+ * from. The body is third-party text (anyone with write access can edit
+ * it), so it is fenced (N6): a `</untrusted>` inside it cannot close the
+ * block. The draft keeps the raw body; only the command is fenced.
+ */
 export function draftCommand(issue: { repoFullName: string; number: number; title: string; body: string }): string {
-  const body = issue.body.trim();
-  const out = [issue.title.trim() || `Issue #${issue.number}`];
-  if (body) out.push("", body);
-  out.push("", `(From GitHub issue ${issue.repoFullName}#${issue.number}. The pull request should close it.)`);
-  return out.join("\n").slice(0, 4000);
+  const title = (issue.title.trim() || `Issue #${issue.number}`).slice(0, TITLE_LIMIT);
+  const from = `(From GitHub issue ${issue.repoFullName}#${issue.number}. The pull request should close it.)`;
+  let body = issue.body.trim().slice(0, BODY_LIMIT);
+  if (!body) return [title, "", from].join("\n").slice(0, COMMAND_LIMIT);
+  // Clip the raw body (never the fenced text), so the closing tag always fits.
+  for (;;) {
+    const command = [title, "", fenceUntrusted("github-issue", body, UNTRUSTED_REQUEST_NOTE), "", from].join("\n");
+    if (command.length <= COMMAND_LIMIT || !body) return command;
+    body = body.slice(0, Math.max(0, body.length - Math.max(64, command.length - COMMAND_LIMIT)));
+  }
 }
 
 // ── Preflight: "already done?" ──────────────────────────────────────────

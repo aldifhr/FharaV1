@@ -39,7 +39,7 @@ import {
   type RequestId,
 } from "@/vendor/threadbear/acp/connection";
 import { identifiesOpencode } from "@/vendor/threadbear/acp/agents";
-import { AcpNormalizer, isPlainObject, requestPaths, type AcpOutput, type AcpToolCall } from "@/vendor/threadbear/acp/normalize";
+import { AcpNormalizer, isPlainObject, requestPaths, type AcpOutput, type AcpToolCall, type NormalizedEvent } from "@/vendor/threadbear/acp/normalize";
 import { isTurnProgressUpdate } from "@/vendor/nuphos/turnTimers";
 import {
   isTransientRestoreError,
@@ -49,6 +49,7 @@ import {
   type RestorePhaseName,
 } from "./restore";
 import { cancelReasonOf, describeToolCall, gateToolCall } from "./toolGate";
+import { RunawayDetector, runawayNoteText } from "./runaway";
 import {
   SessionNotFoundError,
   type DirectEngine,
@@ -116,6 +117,8 @@ export class AcpSession implements DirectSession {
   private init: InitializeResult = {};
   private held: UserInput[] = [];
   private turn?: { startedAt: number; interrupted: boolean };
+  /** N6: the same failing tool call over and over in one turn → a note. */
+  private readonly runaway = new RunawayDetector();
   private pending = new Map<RequestId, Pending>();
   /** Permission requests already answered this turn (a late throw must not answer twice). */
   private answered = new Set<RequestId>();
@@ -273,8 +276,23 @@ export class AcpSession implements DirectSession {
     this.emit(this.normalizer.handle(params.update));
   }
 
-  private emit(outs: AcpOutput[]): void {
-    for (const o of outs) this.sink.output(o);
+  // `closing`: rows closed by Fhara at a turn's end (Stopped, Failed,
+  // Interrupted) are not the agent's failures and never feed the detector.
+  private emit(outs: AcpOutput[], closing = false): void {
+    for (const o of outs) {
+      this.sink.output(o);
+      if (!closing && this.turn && o.kind === "event") this.watchRunaway(o.event);
+    }
+  }
+
+  private watchRunaway(event: NormalizedEvent): void {
+    if (event.type === "tool.call") this.runaway.call(event.itemId, event.name, event.input);
+    else if (event.type === "tool.result") {
+      const hit = this.runaway.result(event.itemId, event.ok);
+      if (!hit) return;
+      this.deps.log.warn("direct thread runaway: same failing tool call", { taskId: this.opts.taskId, tool: hit.toolName, count: hit.count });
+      this.sink.output({ kind: "event", event: { type: "system.note", text: runawayNoteText(hit) } });
+    }
   }
 
   private request(id: RequestId, method: string, params: unknown): void {
@@ -419,6 +437,8 @@ export class AcpSession implements DirectSession {
   private async runTurn(input: UserInput): Promise<void> {
     const turn = { startedAt: this.now(), interrupted: false };
     this.turn = turn;
+    // A new user message: earlier failures are stale (the user may have fixed the cause).
+    this.runaway.reset();
     this.state = "turn";
     let result: Omit<TurnResult, "queuedTurns">;
     try {
@@ -427,11 +447,11 @@ export class AcpSession implements DirectSession {
         { sessionId: this.sessionId, prompt: this.promptBlocks(input) },
         null
       );
-      this.emit(this.normalizer.closeOpen("Stopped"));
+      this.emit(this.normalizer.closeOpen("Stopped"), true);
       result = { ...this.resultFor(turn, r?.stopReason), ...(usageOf(r?.usage, this.normalizer.costUsd, this.modelNow()) ?? {}) };
     } catch (e) {
       if (e instanceof AcpExitedError) return; // the exit handler reports it
-      this.emit(this.normalizer.closeOpen("Failed"));
+      this.emit(this.normalizer.closeOpen("Failed"), true);
       const auth = e instanceof AcpRpcError && e.code === AUTH_REQUIRED;
       result = {
         outcome: turn.interrupted ? "interrupted" : "failed",
@@ -511,7 +531,7 @@ export class AcpSession implements DirectSession {
     this.state = "closed";
     this.cancelPending(false, "session_ended");
     this.proc.onRequest = null;
-    this.emit(this.normalizer.closeOpen("Interrupted"));
+    this.emit(this.normalizer.closeOpen("Interrupted"), true);
     this.turn = undefined;
     this.sink.exited(error);
   }

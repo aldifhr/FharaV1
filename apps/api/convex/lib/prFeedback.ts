@@ -13,6 +13,7 @@
  * taken from it; this is an independent TypeScript implementation.
  */
 import { cenvParse, cenvRaw } from "@fhara/config/convex";
+import { fenceUntrusted, UNTRUSTED_NOTE, UNTRUSTED_REQUEST_NOTE } from "./untrustedContent";
 
 export type CiState = "pending" | "passed" | "failed";
 export type ReviewState = "none" | "approved" | "changes_requested" | "commented";
@@ -399,23 +400,26 @@ export function buildFixPrompt(input: {
     if (checks.length === 0) out.push("- (the check list could not be read; run the project's tests and build to find the failure)");
     checks.forEach((check, index) => {
       out.push(`${index + 1}. ${check.name}${check.conclusion ? ` (${check.conclusion})` : ""}${check.url ? ` ${check.url}` : ""}`);
-      if (check.logTail) out.push("   Log tail:", fenced(check.logTail));
-      else if (check.summary) out.push("   Check output:", fenced(check.summary));
+      if (check.logTail) out.push("   Log tail:", fenceUntrusted("ci-log", fenced(check.logTail), ""));
+      else if (check.summary) out.push("   Check output:", fenceUntrusted("ci-log", fenced(check.summary), ""));
       else out.push("   No log was available. Reproduce it locally.");
     });
+    if (checks.some((check) => check.logTail || check.summary)) out.push(UNTRUSTED_NOTE);
   } else if (input.kind === "changes_requested" || input.kind === "review_comments") {
     const review = input.details.review;
     if (review?.body) {
-      out.push(`Review${review.author ? ` by ${review.author}` : ""}${review.url ? ` (${review.url})` : ""}:`, fenced(review.body, "markdown"));
+      out.push(`Review${review.author ? ` by ${review.author}` : ""}${review.url ? ` (${review.url})` : ""}:`, fenceUntrusted("pr-review", fenced(review.body, "markdown"), ""));
     }
     const comments = input.details.comments ?? [];
     if (comments.length > 0) {
       out.push("Review comments, each tied to a file and line:");
       comments.forEach((comment, index) => {
         const where = `${comment.path}${comment.line !== undefined ? `:${comment.line}` : ""}`;
-        out.push(`${index + 1}. ${where}${comment.author ? ` (${comment.author})` : ""}`, fenced(comment.body, "markdown"));
+        out.push(`${index + 1}. ${where}${comment.author ? ` (${comment.author})` : ""}`, fenceUntrusted("pr-review-comment", fenced(comment.body, "markdown"), ""));
       });
     }
+    // N6: review text is third-party (any reviewer), fenced and read as the request only.
+    if (review?.body || comments.length > 0) out.push(UNTRUSTED_REQUEST_NOTE);
     if (!review?.body && comments.length === 0) out.push("The reviewer asked for changes without details. Read the PR conversation before editing.");
   } else {
     out.push(
@@ -554,7 +558,9 @@ export function buildReviewRoundPrompt(input: {
     out.push(`The changes belong to the earlier task "${input.ownerTitle}". Its branch is ${input.branchName}, and this task works in that same worktree.`);
   }
   out.push("");
-  sortLineComments(input.comments).forEach((comment, index) => out.push(`${index + 1}. ${formatLineComment(comment)}`));
+  // N6: the comment text is fenced, so it states what to change but cannot pose as rules.
+  const list = sortLineComments(input.comments).map((comment, index) => `${index + 1}. ${formatLineComment(comment)}`);
+  out.push(fenceUntrusted("review-round", list.join("\n"), UNTRUSTED_REQUEST_NOTE));
   if (input.branchName) {
     out.push(
       "",

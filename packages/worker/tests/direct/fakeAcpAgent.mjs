@@ -17,6 +17,8 @@
 //   "heartbeat"    only usage_update frames (every FAKE_ACP_HEARTBEAT_MS, default
 //                  50 ms) until session/cancel, then stopReason cancelled
 //   "heartbeat-hang" heartbeats forever and ignores session/cancel
+//   "fail-loop <cmd>|<cmd>|…" one failing bash call per command (no permission
+//                  ask), then ends the turn
 //   anything else  echoes the whole prompt text
 // FAKE_ACP_KNOWN_SESSION: the only id session/resume accepts.
 // FAKE_ACP_RESUME_HANG: a file path; while it exists, session/resume never answers.
@@ -109,6 +111,22 @@ async function prompt(id, params) {
     });
     notify(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: allowed ? "ran it" : `did not run (${answer?.outcome?.outcome}${answer?.outcome?.optionId ? `:${answer.outcome.optionId}` : ""})` } });
     return send({ id, result: { stopReason: answer?.outcome?.outcome === "cancelled" ? "cancelled" : "end_turn", usage } });
+  }
+  if (text.startsWith("fail-loop ")) {
+    for (const command of text.slice(10).split("|")) {
+      const callId = `call-${++n}`;
+      notify(sessionId, { sessionUpdate: "tool_call", toolCallId: callId, title: "bash", kind: "execute", status: "pending", locations: [], rawInput: { command } });
+      notify(sessionId, {
+        sessionUpdate: "tool_call_update",
+        toolCallId: callId,
+        status: "failed",
+        kind: "execute",
+        rawInput: { command },
+        content: [{ type: "content", content: { type: "text", text: "exit 1" } }],
+      });
+    }
+    notify(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "gave up" } });
+    return send({ id, result: { stopReason: "end_turn", usage } });
   }
   if (text === "slow") {
     await sleep(400);

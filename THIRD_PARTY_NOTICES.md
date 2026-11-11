@@ -945,6 +945,14 @@ SOFTWARE.
   - `packages/worker/src/direct/restore.ts`: the idea of per-attempt session restore diagnostics (op, pid, timed
     phases, outcome, no content) from the runtime README's "Session restoration diagnostics" (pattern only, no code
     copied; Fhara stores each attempt as a `session.restore` task event).
+  - `apps/api/convex/lib/untrustedContent.ts`: copy of `apps/backend/src/lib/agent/untrusted-content.ts`
+    (`fenceUntrusted`: every `<` escaped so nothing inside can close the block). Modified by Fhara: always an
+    `<untrusted source="…">` block, Fhara's notes (evidence and request variants). Used for GitHub issue bodies
+    (`lib/issueIntake.ts`), PR reviews, CI logs and review-round comments (`lib/prFeedback.ts`) and the direct-thread
+    handoff history (`packages/worker/src/direct/handoff.ts`).
+  - `packages/worker/src/direct/runaway.ts`: adapted from `apps/backend/src/lib/agent/stop-gate-runaway.ts`
+    (`RUNAWAY_FAILURE_THRESHOLD`, `canonicalToolInputKey`). Modified by Fhara: a streaming detector fed by direct-thread
+    tool events and api-loop model calls instead of a scan over step messages.
 - Copyright 2026 Zeabur Inc. Licensed under the Apache License, Version 2.0 (full text in the Aider entry above).
   "Nuphos" and its logo are trademarks of Zeabur Inc.; Fhara uses the name only to describe where this code came from.
   The upstream NOTICE file reads:

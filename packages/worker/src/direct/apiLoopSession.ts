@@ -13,6 +13,7 @@
 import crypto from "node:crypto";
 import type { LLMMessage, LLMProvider, LLMResult } from "@/llm";
 import { callWithOverflowRecovery } from "@/context/overflowRecovery";
+import { RunawayDetector, RUNAWAY_FAILURE_THRESHOLD, canonicalToolInputKey, runawayNoteText } from "./runaway";
 import type { DirectEngine, DirectSession, SessionSink, StartSessionOptions, TurnResult, UserInput } from "./types";
 
 export const API_LOOP_NOTE =
@@ -47,6 +48,9 @@ class ApiLoopSession implements DirectSession {
   private readonly now: () => number;
   private readonly newId: () => string;
   private readonly system: string;
+  /** N6: the same request failing over and over → a note, then the loop stops sending it. */
+  private readonly runaway = new RunawayDetector();
+  private stoppedKey?: string;
 
   constructor(
     private readonly opts: StartSessionOptions,
@@ -88,6 +92,19 @@ class ApiLoopSession implements DirectSession {
       { role: "user", content: input.text },
     ];
     let result: Omit<TurnResult, "queuedTurns">;
+    // The model call is this engine's only call: its signature is the request.
+    const callInput = { text: input.text, model: this.deps.model ?? null };
+    const callKey = canonicalToolInputKey(callInput);
+    if (this.stoppedKey === callKey) {
+      this.finish(run, {
+        outcome: "failed",
+        durationMs: 0,
+        error: `Not sent: this same message already failed ${RUNAWAY_FAILURE_THRESHOLD} times in a row. Change it to try again.`,
+      });
+      return;
+    }
+    this.stoppedKey = undefined;
+    this.runaway.call(itemId, "model", callInput);
     try {
       const call = (current: LLMMessage[]) => () =>
         this.deps.provider.stream
@@ -116,6 +133,7 @@ class ApiLoopSession implements DirectSession {
       this.history.push({ role: "user", content: input.text }, { role: "assistant", content: text });
       const keep = (this.deps.maxHistory ?? 20) * 2;
       if (this.history.length > keep) this.history = this.history.slice(-keep);
+      this.runaway.result(itemId, true);
       result = {
         outcome: "completed",
         durationMs: Math.max(0, this.now() - startedAt),
@@ -127,7 +145,16 @@ class ApiLoopSession implements DirectSession {
       result = run.interrupted
         ? { outcome: "interrupted", durationMs: Math.max(0, this.now() - startedAt) }
         : { outcome: "failed", durationMs: Math.max(0, this.now() - startedAt), error: error instanceof Error ? error.message : String(error) };
+      const hit = run.interrupted ? null : this.runaway.result(itemId, false);
+      if (hit && this.running === run && !this.closed) {
+        this.stoppedKey = callKey;
+        this.sink.output({ kind: "event", event: { type: "system.note", text: runawayNoteText(hit, true) } });
+      }
     }
+    this.finish(run, result);
+  }
+
+  private finish(run: { abort: AbortController; interrupted: boolean }, result: Omit<TurnResult, "queuedTurns">): void {
     if (this.running !== run) return;
     this.running = undefined;
     if (this.closed) return;

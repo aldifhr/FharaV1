@@ -3,7 +3,8 @@
 //
 // Changes for Fhara: events are Fhara taskEvents rows ({type, sequence,
 // payload}); the agent-message and end_turn special cases are dropped;
-// findLast is a loop (ES2022 target).
+// findLast is a loop (ES2022 target). The history in the note is fenced as
+// untrusted (apps/api/convex/lib/untrustedContent.ts, from Nuphos).
 
 // The "Recent messages" part of a handoff note: what a fresh session is
 // told about the thread so far when the old one can't be resumed. Messages
@@ -12,6 +13,8 @@
 // what was already tried. The last user message, the last reply and the
 // thread's first message go in first; the rest fill the budget from newest
 // to oldest. Shown in the order they happened.
+
+import { fenceUntrusted, UNTRUSTED_NOTE } from "@/api/convex/lib/untrustedContent";
 
 export const HANDOFF_BUDGET = 16000;
 const MESSAGE_CHARS = 2000;
@@ -103,13 +106,17 @@ export function selectHistory(items: Item[], budget = HANDOFF_BUDGET): { lines: 
   return { lines, omitted: items.length - picked.size };
 }
 
-/** The whole handoff note a fresh session opens with, or "" when there is no history. */
+/**
+ * The whole handoff note a fresh session opens with, or "" when there is no
+ * history. The history is fenced (N6): it carries tool output and earlier
+ * messages, so nothing in it may close the block or pose as instruction.
+ */
 export function handoffNote(events: HandoffEvent[], skipFromSeq?: number): string {
   const { lines, omitted } = selectHistory(historyItems(events, skipFromSeq));
   if (!lines.length) return "";
   return [
     "This conversation continues in a new agent session; the earlier one could not be resumed.",
     `Recent messages and work${omitted ? ` (${omitted} older item(s) left out)` : ""}:`,
-    ...lines,
+    fenceUntrusted("earlier-session", lines.join("\n"), UNTRUSTED_NOTE),
   ].join("\n");
 }

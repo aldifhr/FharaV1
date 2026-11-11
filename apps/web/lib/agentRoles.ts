@@ -6,7 +6,6 @@
  */
 import { FIXED_TEAM_SEED_ORDER, RETIRED_ROLE_KEYS, ROLES, ROLE_KEYS, roleKeyForMention, type RoleKey } from "@/api/convex/lib/roles";
 import { fixedAgentIds as fixedAgentIdsFor, type AgentLike, type AgentRow } from "./agentIdentity";
-import { AGENT_SEED_PROMPTS } from "@/api/convex/lib/prompts/agents";
 
 export { roleKeyForMention, roleLabel } from "@/api/convex/lib/roles";
 import { agentDisplayName, agentRoleCaption } from "./agentIdentity";
@@ -45,13 +44,11 @@ export const NEUTRAL_MENTION_COLOR =
   "bg-gray-500/10 text-gray-700 ring-gray-500/20 dark:bg-gray-500/20 dark:text-gray-200";
 
 /**
- * Seed system prompt per role — the same text the backend seeds the fixed
- * team with and applies when agents.create gets no prompt. Prefills the
- * create-agent form; the prompt stays editable via agents.update.
+ * Role prompt templates (apps/api/convex/lib/prompts/roles/*.md) — the same
+ * text the backend seeds the fixed team with and applies when agents.create
+ * gets no prompt. The create form prefills it; it stays editable.
  */
-export const ROLE_DEFAULT_PROMPTS: Record<string, string> = Object.fromEntries(
-  ROLE_KEYS.map((key) => [key, AGENT_SEED_PROMPTS[ROLES[key].defaultPromptKey]])
-);
+export { prefillPromptForRole, roleTemplateFor } from "@/api/convex/lib/prompts/roleTemplate";
 
 /** Ids of the fixed-team agents in `agents` (they can't be removed). */
 export function fixedAgentIds(agents: readonly AgentRow[] | null | undefined): Set<string> {

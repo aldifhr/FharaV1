@@ -10,7 +10,7 @@ import AgentAvatar from "@/components/AgentAvatar";
 import { deserializeAvatartion } from "@/components/ui/avatartion";
 import { useToast } from "@/components/Toasts";
 import type { TemplateView } from "@/components/sidebar/AgentForms";
-import { AGENT_ROLES, ROLE_DEFAULT_PROMPTS, roleLabel } from "@/lib/agentRoles";
+import { AGENT_ROLES, prefillPromptForRole, roleLabel, roleTemplateFor } from "@/lib/agentRoles";
 import {
   TEMPLATE_DESCRIPTION_MAX,
   TEMPLATE_NAME_MAX,
@@ -151,7 +151,7 @@ function TemplateModal({
   const [role, setRole] = useState(template?.role ?? "frontend");
   const [description, setDescription] = useState(template?.description ?? "");
   const [tags, setTags] = useState((template?.tags ?? []).join(", "));
-  const [prompt, setPrompt] = useState(template?.systemPrompt ?? ROLE_DEFAULT_PROMPTS.frontend ?? "");
+  const [prompt, setPrompt] = useState(template?.systemPrompt ?? roleTemplateFor("frontend") ?? "");
   const [skillIds, setSkillIds] = useState<string[]>(template?.skillIds ?? []);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -224,7 +224,7 @@ function TemplateModal({
               onChange={(e) => {
                 const next = e.target.value;
                 // Swap in the new role's default only while the prompt is untouched.
-                if (prompt.trim() === (ROLE_DEFAULT_PROMPTS[role] ?? "").trim()) setPrompt(ROLE_DEFAULT_PROMPTS[next] ?? "");
+                setPrompt((current) => prefillPromptForRole(current, next));
                 setRole(next);
               }}
               className={`${field} bg-canvas`}

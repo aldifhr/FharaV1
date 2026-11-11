@@ -12,8 +12,9 @@ import { deserializeAvatartion, randomAvatartion, type AvatartionAvatar } from "
 import type { AvatarParams } from "@/api/convex/lib/avatar";
 import { nextAgentName } from "@/api/convex/lib/agentTemplates";
 import { AGENT_TOOL_OPTIONS } from "@/api/convex/lib/toolNames";
-import { AGENT_ROLES, ROLE_DEFAULT_PROMPTS, roleDefaultTools, roleLabel } from "@/lib/agentRoles";
+import { AGENT_ROLES, prefillPromptForRole, roleDefaultTools, roleLabel, roleTemplateFor } from "@/lib/agentRoles";
 import { useToast } from "../Toasts";
+import ConfirmDialog from "../ConfirmDialog";
 
 type AgentDoc = {
   _id: string;
@@ -149,8 +150,9 @@ export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onCl
   const handleRandomizeAvatar = () => setAvatarSeed(randomAvatartion());
   const handleSelectRole = (value: string | null) => {
     setAgentRole(value ?? "");
-    // Prefill the role's default prompt; the backend applies the same default when empty.
-    setAgentPrompt(value ? (ROLE_DEFAULT_PROMPTS[value] ?? "") : "");
+    // Prefill the role's template; text the user typed is kept. The backend
+    // applies the same template when the prompt is empty.
+    setAgentPrompt((current) => prefillPromptForRole(current, value));
     if (value) setAgentError("");
   };
   const handlePickTemplate = (next: TemplateView | null) => {
@@ -263,7 +265,7 @@ export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onCl
         <details className="group rounded-lg border border-line">
           <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[13px] text-ink-2 [&::-webkit-details-marker]:hidden">
             Instructions
-            <span className="text-[12.5px] text-ink-3">{template ? `From ${template.name}` : "Prefilled from the role"}</span>
+            <span className="text-[12.5px] text-ink-3">{template ? `From ${template.name}` : "Prefilled from the role template"}</span>
           </summary>
           <div className="border-t border-line p-3">
             <textarea
@@ -309,6 +311,10 @@ export function EditAgentModal({ agent, onClose, inline = false }: { agent: Agen
   const updateAgent = useMutation(api.agents.update);
   const setAgentSkills = useMutation(api.agents.setSkills);
   const setSkillPin = useMutation(api.skills.setPin);
+  const resetPrompt = useMutation(api.agentPrompts.resetToRoleTemplate);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const hasRoleTemplate = roleTemplateFor(agent.role) !== null;
   const saveAsTemplate = useMutation(api.agentTemplates.saveFromAgent);
   const toast = useToast();
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -341,6 +347,20 @@ export function EditAgentModal({ agent, onClose, inline = false }: { agent: Agen
     setAgentRole(value ?? "");
     if (value) setAgentError("");
   };
+
+  async function handleResetPrompt() {
+    setResetting(true);
+    try {
+      const res = await resetPrompt({ agentId: agent._id as never });
+      setAgentPrompt(res.systemPrompt);
+      toast("success", "Instructions reset", `${roleLabel(agent.role)} role template applied`);
+      setConfirmReset(false);
+    } catch (err) {
+      toast("error", "Reset failed", err instanceof Error ? err.message : "Could not reset the instructions");
+    } finally {
+      setResetting(false);
+    }
+  }
 
   async function handleUpdateAgent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -444,16 +464,43 @@ export function EditAgentModal({ agent, onClose, inline = false }: { agent: Agen
           </div>
         </div>
 
-        <label className={label}>
-          Instructions
+        <div className="grid gap-1.5">
+          <div className="flex items-center justify-between text-[12.5px] text-ink-3">
+            <label htmlFor="agent-instructions">Instructions</label>
+            {hasRoleTemplate ? (
+              <button
+                type="button"
+                onClick={() => setConfirmReset(true)}
+                className="text-ink-3 underline-offset-2 hover:text-ink hover:underline"
+              >
+                Reset to role template
+              </button>
+            ) : null}
+          </div>
           <textarea
+            id="agent-instructions"
             value={agentPrompt}
             onChange={(event) => setAgentPrompt(event.target.value)}
             rows={6}
             placeholder="Leave empty to use the role's default instructions."
             className={`${field} resize-y leading-relaxed`}
           />
-        </label>
+        </div>
+        <ConfirmDialog
+          request={
+            confirmReset
+              ? {
+                  title: "Reset to role template?",
+                  message: `This replaces ${agent.name}'s instructions with the ${roleLabel(agent.role)} role template and saves it now. Your current instructions are lost.`,
+                  confirmLabel: "Reset",
+                  icon: "restore",
+                }
+              : null
+          }
+          pending={resetting}
+          onCancel={() => setConfirmReset(false)}
+          onConfirm={() => void handleResetPrompt()}
+        />
 
         <fieldset className="grid gap-2">
           <legend className="mb-1.5 flex w-full justify-between text-[12.5px] text-ink-3">

@@ -132,7 +132,7 @@
     "tint": 22
   },
   "apps/web/components/TaskThreadPanel.tsx": {
-    "lines": 826,
+    "lines": 808,
     "tint": 22
   },
   "apps/web/components/Toasts.tsx": {
@@ -155,7 +155,7 @@
     "tint": 1
   },
   "apps/web/components/chat/MessageList.tsx": {
-    "lines": 894
+    "lines": 870
   },
   "apps/web/components/chat/OptionCards.tsx": {
     "tint": 4,

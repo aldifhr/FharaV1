@@ -323,7 +323,12 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
           deps,
           task: context.task,
           project: context.project,
-          workspacePath,
+          // Like processTask: verify where the files landed. With worktree
+          // isolation executePlan has merged the task branch into the main
+          // workspace and removed the worktree by now, so finalizing in the
+          // worktree failed every approved task with "disk-verification:
+          // ENOENT" after its change had already been merged.
+          workspacePath: resolveWorkspacePath(deps.workspaceRoot, context.project.workspacePath),
           plan,
           planVersion,
           agents: context.agents,

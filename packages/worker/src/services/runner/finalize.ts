@@ -16,6 +16,7 @@ import type {
 } from "@/workerApi";
 import type { OutstandingIssue } from "@/orchestrator/taskContext";
 import type { RunnerDeps, RunState } from "./types";
+import { contentFingerprint } from "./applyLedger";
 
 /** The commands the user declined, from the subtask rows ("Declined by user: npm run typecheck"). */
 export function declinedCommandsOf(subtasks: Array<{ status: string; error?: string }>): string[] {
@@ -67,18 +68,13 @@ export async function finalize(input: {
     // If the content hashes match the last verification, reuse the result
     // instead of re-running the full suite — this avoids double-verification
     // when the verification loop already validated the same changes.
+    const fingerprint = contentFingerprint(appliedChanges);
     const lastVerification = state.verification;
-    const hashesChanged = appliedChanges.some(
-      (change) => !lastVerification || change.newContentHash !== lastVerification.lastContentHash
-    );
 
-    if (!hashesChanged && lastVerification) {
+    if (lastVerification?.checks && state.lastContentHash === fingerprint) {
       // Reuse last verification result: same files, same content hashes.
+      // state.verification already holds its status.
       verificationChecks = lastVerification.checks;
-      // Ensure state.verification is consistent even though we skipped re-run.
-      if (!state.verification) {
-        state.verification = lastVerification.status;
-      }
     } else {
       // Run verification for these changes.
       await deps.api.logEvent({
@@ -109,9 +105,9 @@ export async function finalize(input: {
       });
 
       verificationChecks = verification.checks;
-      // Record the content hashes for future reuse.
-      state.verification = verificationStatus(verification.checks);
-      state.lastContentHash = appliedChanges.map((change) => change.newContentHash).join("|");
+      // Record the result and the content it ran against for future reuse.
+      state.verification = { ...verificationStatus(verification.checks), checks: verification.checks };
+      state.lastContentHash = fingerprint;
     }
   } else if (deps.policy.verificationEnabled && hasCodeChange && appliedChanges.length === 0) {
     // No applied changes but verification is enabled: record skipped status.

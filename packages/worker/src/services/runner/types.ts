@@ -12,6 +12,7 @@ import type {
 import type { ExecutionPolicy } from "@/orchestrator/policy";
 import type { ReviewResult } from "@/utils/json";
 import type { FileDiff } from "@/tools/gitDiff";
+import type { EvaluationCheck } from "@/types/execution";
 import type { BudgetTracker } from "@/orchestrator/budget";
 import type { SharedTaskContext } from "@/orchestrator/taskContext";
 import type {
@@ -63,10 +64,22 @@ export interface RunState {
   fileChanges: Map<string, FileDiff>;
   /** Applied file paths per producing subtask key (Phase 5 Step 5.1). */
   appliedFilesBySubtask: Map<string, string[]>;
-  /** Last static verification result, once it has run (Phase 5 Step 5.1). */
-  verification?: { status: "passed" | "failed" | "skipped" | "skipped_env"; details?: string; lastContentHash?: string };
-  /** Cached content hashes of the last verification run, for reuse when files don't change. */
-  verificationContentHashes?: Map<string, string>;
+  /**
+   * Last static verification result, once it has run (Phase 5 Step 5.1).
+   * `checks` are the individual checks of that run, so finalize can reuse
+   * them when the verified content has not changed since.
+   */
+  verification?: {
+    status: "passed" | "failed" | "skipped" | "skipped_env";
+    details?: string;
+    checks?: EvaluationCheck[];
+  };
+  /**
+   * Content fingerprint (path + change type + new content hash of every
+   * change) the last static verification ran against. Finalize reuses
+   * `verification` instead of re-running the suite when it still matches.
+   */
+  lastContentHash?: string;
   /**
    * Set when the run must end failed WITHOUT a replan (a verify-fix loop
    * that could not change anything, or that repeated itself): a replan

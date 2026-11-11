@@ -383,7 +383,15 @@ export async function runResponsiveQa(
   };
   const block = async (reason: string) => {
     blockedReason = reason;
-    await record({ label: "qa-environment", status: "inconclusive", details: reason });
+    await record({
+      label: "qa-environment",
+      objective: "Verify the QA environment can run browser checks for this project",
+      steps: ["Check the project is browser-runnable, Chromium is installed and a server can be started"],
+      expected: "A runnable app, an installed browser and a reachable server",
+      actual: reason,
+      status: "inconclusive",
+      details: reason,
+    });
   };
 
   // On abort, tear down immediately: close the browser and kill the
@@ -412,6 +420,10 @@ export async function runResponsiveQa(
     if (signal?.aborted) {
       await record({
         label: "qa-run",
+        objective: "QA run was cancelled by the task abort signal",
+        steps: [],
+        expected: "QA to proceed normally",
+        actual: "QA cancelled before it could run",
         status: "failed",
         details: "QA cancelled before it could run",
       });
@@ -496,16 +508,19 @@ export async function runResponsiveQa(
             details: `Could not start the dev server: ${exitInfo.error}`,
           });
         } else if (!up) {
+          const notUp = exitInfo
+            ? `Development server exited (code ${exitInfo.code ?? "?"}) before it served ${baseUrl}`
+            : `Development server did not start at ${baseUrl} within ${Math.round(
+                startupTimeoutMs(options) / 1000
+              )}s`;
           await record({
             label: "application reachable",
+            objective: "Verify development server is reachable at the task URL",
+            steps: ["Attempt to connect to the base URL after dev server start"],
+            expected: "HTTP response from the server (any status)",
+            actual: notUp,
             status: "failed",
-            details: `${
-              exitInfo
-                ? `Development server exited (code ${exitInfo.code ?? "?"}) before it served ${baseUrl}`
-                : `Development server did not start at ${baseUrl} within ${Math.round(
-                    startupTimeoutMs(options) / 1000
-                  )}s`
-            }${logTail()}`,
+            details: `${notUp}${logTail()}`,
           });
         } else {
           await record({
@@ -520,7 +535,15 @@ export async function runResponsiveQa(
         }
       }
     } else {
-      await record({ label: "application reachable", objective: "Verify development server is reachable at the task URL", status: "passed", details: baseUrl });
+      await record({
+        label: "application reachable",
+        objective: "Verify development server is reachable at the task URL",
+        steps: ["Attempt to connect to the base URL"],
+        expected: "HTTP response from the server (any status)",
+        actual: `Server already responding at ${baseUrl}`,
+        status: "passed",
+        details: baseUrl,
+      });
     }
 
     if (failures.length === 0 && !blockedReason) {
@@ -542,6 +565,10 @@ export async function runResponsiveQa(
           if (signal?.aborted) {
             await record({
               label: "qa-run",
+              objective: "QA run was cancelled by the task abort signal",
+              steps: [`Check abort signal before the ${viewport.label} pass`],
+              expected: "QA to proceed normally",
+              actual: "QA cancelled between viewport checks",
               status: "failed",
               details: "QA cancelled",
             });
@@ -606,6 +633,10 @@ export async function runResponsiveQa(
             if (status >= 400) {
               await record({
                 label,
+                objective: `Check ${label}: page loads successfully`,
+                steps: [`Load page at ${baseUrl}`],
+                expected: "Page responds with a non-error HTTP status (< 400)",
+                actual: `Page returned HTTP ${status}`,
                 status: "failed",
                 details: `Page returned HTTP ${status}`,
               });
@@ -615,7 +646,15 @@ export async function runResponsiveQa(
             await page.locator("body").waitFor({ state: "visible", timeout: 10_000 });
             const bodyText = (await page.locator("body").innerText()).trim();
             if (bodyText.length === 0) {
-              await record({ label, status: "failed", details: "Page body is empty" });
+              await record({
+                label,
+                objective: `Check ${label}: page renders content`,
+                steps: [`Load page at ${baseUrl}`, "Wait for a visible body and read its text"],
+                expected: "Page body renders visible text",
+                actual: "Page body is empty",
+                status: "failed",
+                details: "Page body is empty",
+              });
               continue;
             }
 
@@ -696,6 +735,7 @@ export async function runResponsiveQa(
                 actual: `${baseline.details}${preExistingNote}`,
                 status: baseline.status,
                 details: `${baseline.details}${preExistingNote}`,
+                ...(preExisting ? { preExisting } : {}),
               });
             } else {
               await record({
@@ -710,10 +750,15 @@ export async function runResponsiveQa(
               });
             }
           } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
             await record({
               label,
+              objective: `Check ${label}: page loads and renders without errors`,
+              steps: [`Load page at ${baseUrl}`],
+              expected: "Page loads and its checks complete without throwing",
+              actual: `Check threw: ${message}`,
               status: "failed",
-              details: error instanceof Error ? error.message : String(error),
+              details: message,
             });
           } finally {
             await page.close();
@@ -728,10 +773,15 @@ export async function runResponsiveQa(
     if (error instanceof QaEnvironmentError) {
       await block(error.message);
     } else {
+      const message = error instanceof Error ? error.message : String(error);
       await record({
         label: "qa-run",
+        objective: "Run the browser QA checks for this change",
+        steps: ["Start the app, launch the browser and run each check"],
+        expected: "QA run completes without an unexpected error",
+        actual: `QA run threw: ${message}`,
         status: "failed",
-        details: error instanceof Error ? error.message : String(error),
+        details: message,
       });
     }
   } finally {

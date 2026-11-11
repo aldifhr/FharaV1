@@ -52,6 +52,21 @@ export function applyEffectKey(taskId: string, changes: readonly FileDiff[]): st
   return `apply:${taskId}:${digest}`;
 }
 
+/**
+ * Content fingerprint of a set of changes (path, change type, new content
+ * hash), order-independent. Static verification records it on the run
+ * state so finalize can skip re-verifying content that was already
+ * verified (Phase 5 Step 5.1).
+ */
+export function contentFingerprint(
+  changes: ReadonlyArray<Pick<FileDiff, "filePath" | "changeType" | "newContentHash" | "newContent">>
+): string {
+  const parts = changes
+    .map((c) => `${c.filePath}\u0000${c.changeType}\u0000${c.changeType === "deleted" ? "" : c.newContentHash ?? hashContent(c.newContent ?? "")}`)
+    .sort();
+  return createHash("sha256").update(parts.join("\u0001")).digest("hex");
+}
+
 /** The ledger half of an API double, when present. */
 export function ledgerOf(api: unknown): SideEffectApi | null {
   const a = api as Partial<SideEffectApi> | null | undefined;

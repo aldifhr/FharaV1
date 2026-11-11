@@ -8,6 +8,7 @@ import { applyOrRequestFixApproval } from "./fixApply";
 import { buildFixSubtask } from "@/orchestrator/reviewLoop";
 import { runVerification } from "@/execution/verification";
 import { verificationStatus } from "@/execution/verifyEnv";
+import { contentFingerprint } from "./applyLedger";
 
 export { verificationStatus };
 import type { ReviewFinding } from "@/utils/json";
@@ -93,7 +94,10 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
     // Environment failures (missing node_modules / type packages / binaries)
     // are never handed to a fixer: no code change can make them pass.
     const envChecks = verification.checks.filter((c) => c.environment);
-    state.verification = verificationStatus(verification.checks);
+    state.verification = { ...verificationStatus(verification.checks), checks: verification.checks };
+    // Fingerprint of the content just verified: finalize reuses this result
+    // instead of re-running the suite when nothing changed since.
+    state.lastContentHash = contentFingerprint(Array.from(state.fileChanges.values()));
     if (failedChecks.length === 0 && envChecks.length > 0) {
       await deps.api
         .logEvent({

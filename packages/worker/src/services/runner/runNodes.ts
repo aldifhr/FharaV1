@@ -21,6 +21,7 @@ import { applyQaCheck, buildChangesCard, buildQaCard, postStageCard } from "./ca
 import { ACTIVITY_STARTING, ACTIVITY_THINKING, createActivityReporter, describeActivity } from "./activity";
 import { LiveOutputCoalescer } from "./liveOutput";
 import { waitForCommandApproval } from "./commandApproval";
+import { commandReviewerFor } from "@/decisionTurn/autoReview";
 import { runShowOptions } from "@/review/showOptions";
 import { runWithObservationScope } from "@/effects/observationContext";
 import { stallEventType, stallThresholdsFromEnv, type StallObservation } from "@/utils/stallDetector";
@@ -278,10 +279,9 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         runtime: opencodeSelection.runtime,
         nativeModel: opencodeSelection.model,
         qaMode: deps.policy.qaMode,
-        // Agent-initiated commands wait for approval in-process: the lease
-        // and heartbeat stay, the node shows "waiting for approval", stop or
-        // the approval timeout end the wait as a denial, and a pause does
-        // not end it (the node finishes on the decision, then drains).
+        // Agent commands wait for approval in-process: lease and heartbeat stay, the node shows
+        // "waiting for approval", stop or the approval timeout end the wait as a denial, and a
+        // pause does not end it (the node finishes on the decision, then drains).
         requestCommandApproval: (cmd) => cont.gate(cmd, () =>
           waitForCommandApproval(
             deps.api,
@@ -296,10 +296,10 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
             },
             {
               signal: combineSignals(signal, input.taskAbort?.signal),
+              review: commandReviewerFor(ctx), // D7: Full access asks the Reviewer first
               onPending: () => reportActivity(describeActivity("command.waiting_approval", cmd)),
               onWaiting: beat,
-              // A human wait: the subtask timeout and stall clocks stop.
-              holdClock: runInfo?.holdClock,
+              holdClock: runInfo?.holdClock, // a human wait: the subtask timeout and stall clocks stop
             }
           )),
         // Options review: the subtask waits in-process for the user's pick

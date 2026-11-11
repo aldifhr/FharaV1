@@ -225,6 +225,11 @@ function overlapsFiles(row: Doc<"approvals">, targets: string[]): boolean {
   return targets.some((target) => files.has(target));
 }
 
+/** An in-process command approval: one command, one time (no file list, so it would otherwise cover all). */
+function isInlineCommandApproval(row: Doc<"approvals">): boolean {
+  return (row.payload as { inline?: unknown } | undefined)?.inline === true;
+}
+
 function decidedAt(row: Doc<"approvals">): number {
   return row.resolvedAt ?? row._creationTime;
 }
@@ -313,11 +318,15 @@ export async function decidePermissionCore(
   );
 
   // An approval covers only its own plan version and the files it listed:
-  // a later fix loop / replan touching new files must ask again.
+  // a later fix loop / replan touching new files must ask again. An inline
+  // command approval (commandApprovals.ts: a user allow, a rule, or a D7
+  // Reviewer allow in Full access) covers that one command only, never a
+  // broker check.
   const approved = live
     .filter(
       (row) =>
         row.status === "approved" &&
+        !isInlineCommandApproval(row) &&
         versionMatches(row, currentVersion) &&
         coversFiles(row, targets)
     )

@@ -12,16 +12,22 @@
  * Policy (lib/commandRules.ts): dangerous / push-like commands always ask
  * and never offer "Always allow"; a project rule, an exact entry (plan 041)
  * or Full access approves (recorded as decidedBy "auto"); everything else asks.
+ * D7: in Full access the project's Reviewer judges the command first
+ * (lib/autoReview.ts, `review` below); with no Reviewer in the team the
+ * pre-D7 behaviour stands.
  */
 import { internalMutation, internalQuery, mutation, type MutationCtx } from "./_generated/server";
 import { checkShown } from "./lib/approvalFingerprint";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { assertProjectAccess, getViewerId } from "./lib/authz";
+import { assertProjectAccess, assertServiceToken, getViewerId } from "./lib/authz";
+import { projectTeamIds } from "./lib/projectTeam";
+import { normalizeRoleKey } from "./lib/roles";
+import { AUTO_REVIEW_TTL_MS, autoReviewFloor, describeReviewVerdict, parseAutoReviewOutput, type AutoReviewRequest } from "./lib/autoReview";
 import { recordAudit } from "./lib/recordAudit";
 import { holdsTaskLease } from "./orchestration";
 import { signalApprovalDecision, supersedePendingCommandApprovals } from "./taskSignals";
-import { normalizePermissionMode } from "./lib/permissionModes";
+import { autoReviewApplies, normalizePermissionMode } from "./lib/permissionModes";
 import {
   addCommandAllowExact,
   addCommandAllowRule,
@@ -33,7 +39,7 @@ import {
   type CommandDecision,
 } from "./lib/commandRules";
 import { appendTaskEvent } from "./lib/taskEvents";
-import { commandRequestArgs, isCommandApprovalKind, UNCONFINED_WARNING } from "./lib/commandApprovalKinds";
+import { commandRequestArgs, isCommandApprovalKind, UNCONFINED_WARNING, type CommandRequestResult } from "./lib/commandApprovalKinds";
 
 const TERMINAL = new Set(["done", "failed", "rejected", "cancelled"]);
 const LEASE_LOST = "Lease lost: this task is no longer owned by this worker";
@@ -44,16 +50,17 @@ export const decisionValidator = v.union(v.literal("allow"), v.literal("always")
 
 /**
  * Worker → backend: ask for one command. Returns `auto` (approved row
- * already written, run it), or `pending` with the row id to wait on.
+ * already written, run it), `pending` with the row id to wait on, or
+ * `review` (D7, Full access): the row is pending while the project's
+ * Reviewer judges it; the worker runs that decision turn and reports it
+ * through `review`, then waits on the same row like any card.
  * D6: kind `run_unconfined` (a rerun without the bwrap sandbox) always
- * asks, in every mode, offers no "Always allow" and reuses no earlier allow.
+ * asks, in every mode, offers no "Always allow", reuses no earlier allow
+ * and is never sent to the Reviewer.
  */
 export const request = internalMutation({
   args: commandRequestArgs,
-  handler: async (
-    ctx,
-    args
-  ): Promise<{ status: "auto" | "pending"; approvalId: Id<"approvals">; reason: string; offerAlways: boolean }> => {
+  handler: async (ctx, args): Promise<CommandRequestResult> => {
     const task = await ctx.db.get(args.taskId);
     if (!task || task.projectId !== args.projectId) throw new Error("Task not found");
     if (TERMINAL.has(task.status)) throw new Error(`Task is already ${task.status}`);
@@ -72,7 +79,7 @@ export const request = internalMutation({
     const now = Date.now();
     const unconfined = args.kind === "run_unconfined";
     const danger = unconfined ? UNCONFINED_WARNING : policy.danger;
-    const base = {
+    const base: CommandApprovalBase = {
       taskId: args.taskId,
       projectId: args.projectId,
       kind: unconfined ? ("run_unconfined" as const) : ("run_command" as const),
@@ -86,38 +93,16 @@ export const request = internalMutation({
       ...(args.subtaskKey ? { subtaskKey: args.subtaskKey } : {}),
       offerAlways: unconfined ? false : policy.offerAlways,
     };
-    if (policy.action === "auto" && !unconfined) {
-      const approvalId = await ctx.db.insert("approvals", {
-        ...base,
-        status: "approved",
-        resolvedAt: now,
-        decidedBy: "auto",
-        decision: "allow",
-        history: [{ at: now, status: "approved", by: "auto", mode, reason: policy.reason }],
-      });
-      await appendTaskEvent(ctx, {
-        taskId: args.taskId,
-        projectId: args.projectId,
-        type: "approval.auto_approved",
-        payload: { kind: "run_command", summary: base.summary, subtaskKey: args.subtaskKey, mode, reason: policy.reason },
-        subtaskKey: args.subtaskKey,
-        level: "info",
-      });
-      await recordAudit(ctx, {
+    // D7: Full access asks the Reviewer before it auto-approves (never for a
+    // project rule or exact entry the user set, never for run_unconfined).
+    const reviewed = !unconfined && autoReviewApplies(mode, "run_command") && !policy.rule && !policy.exact;
+    const reviewer = reviewed && project ? await projectRoleAgent(ctx, project, "reviewer") : null;
+    if (policy.action === "auto" && !unconfined && !reviewer) {
+      const approvalId = await insertAutoApproved(ctx, base, {
+        mode,
+        reason: reviewed ? `${policy.reason} (no Reviewer in the team)` : policy.reason,
         actor: policy.exact ? "command-exact" : policy.rule ? "command-rule" : "permission-mode",
-        tool: "run_command",
-        action: "approval.auto_approve",
-        decision: "allowed",
-        target: line,
-        projectId: args.projectId,
-        taskId: args.taskId,
-        details: {
-          mode,
-          reason: policy.reason,
-          approvalId,
-          ...(policy.rule ? { rule: policy.rule.prefix } : {}),
-          ...(policy.exact ? { exact: true } : {}),
-        },
+        details: { ...(policy.rule ? { rule: policy.rule.prefix } : {}), ...(policy.exact ? { exact: true } : {}) },
       });
       return { status: "auto", approvalId, reason: policy.reason, offerAlways: policy.offerAlways };
     }
@@ -162,21 +147,313 @@ export const request = internalMutation({
     await supersedePendingCommandApprovals(ctx, args.taskId, "superseded: the subtask re-ran and asked again", {
       subtaskKey: args.subtaskKey ?? null,
     });
-    const approvalId = await ctx.db.insert("approvals", {
-      ...base,
-      status: "pending",
-      history: [{ at: now, status: "pending", mode, reason: policy.reason }],
-    });
-    await appendTaskEvent(ctx, {
-      taskId: args.taskId,
-      projectId: args.projectId,
-      type: "approval.requested",
-      payload: { kind: base.kind, summary: base.summary, subtaskKey: args.subtaskKey, inline: true },
-      executionId: args.executionId,
-      subtaskKey: args.subtaskKey,
-      level: "warn",
-    });
+    if (reviewer && project) {
+      const floor = autoReviewFloor(args.command, args.args, args.workspaceRoot);
+      if (floor.kind === "rule") {
+        // Decided by rule, before any model: audited, then the card.
+        const review = { state: "done", by: "rule", risk: floor.risk, decision: "deny", reason: floor.reason };
+        const approvalId = await insertPendingCard(ctx, base, { mode, reason: floor.reason, review });
+        await auditReviewVerdict(ctx, base, line, {
+          action: "auto_review.deny",
+          decision: "denied",
+          actor: "auto-review:rule",
+          approvalId,
+          mode,
+          by: "rule",
+          risk: floor.risk,
+          reason: floor.reason,
+        });
+        return { status: "pending", approvalId, reason: floor.reason, offerAlways: base.offerAlways };
+      }
+      const request = await reviewRequestFor(ctx, task, project, args, line, policy.danger, mode);
+      const approvalId = await insertPendingCard(ctx, base, { mode, reason: "The Reviewer checks this command", review: { state: "reviewing" }, quiet: true });
+      const expiresAt = now + AUTO_REVIEW_TTL_MS;
+      const turnId = await ctx.db.insert("decisionTurns", {
+        taskId: args.taskId,
+        projectId: args.projectId,
+        ...(args.subtaskKey ? { subtaskKey: args.subtaskKey } : {}),
+        role: "reviewer",
+        purpose: "auto_review",
+        source: "command",
+        delivery: "inline",
+        kind: "run_command",
+        category: "command",
+        question: line.slice(0, 2000),
+        dedupeKey: `review:${approvalId}`,
+        status: "open",
+        expiresAt,
+        ...(args.workerId ? { claimedBy: args.workerId, claimedUntil: expiresAt } : {}),
+        agentId: reviewer._id,
+        approvalId,
+        createdAt: now,
+      });
+      await ctx.db.patch(approvalId, { payload: { ...base.payload, review: { state: "reviewing", turnId } } });
+      await appendTaskEvent(ctx, {
+        taskId: args.taskId,
+        projectId: args.projectId,
+        type: "decision.routed",
+        payload: { turnId, to: "reviewer", source: "command", category: "command", question: line.slice(0, 500), approvalId },
+        ...(args.subtaskKey ? { subtaskKey: args.subtaskKey } : {}),
+        level: "info",
+      });
+      return { status: "review", approvalId, reason: "The Reviewer checks this command first", offerAlways: base.offerAlways, review: { turnId, expiresAt, request } };
+    }
+    const approvalId = await insertPendingCard(ctx, base, { mode, reason: policy.reason });
     return { status: "pending", approvalId, reason: unconfined ? "The command sandbox refused this command" : policy.reason, offerAlways: base.offerAlways };
+  },
+});
+
+type CommandApprovalBase = Omit<Doc<"approvals">, "_id" | "_creationTime" | "status" | "offerAlways"> & {
+  payload: Record<string, unknown>;
+  subtaskKey?: string;
+  offerAlways: boolean;
+};
+
+/** An approved row decided without the user (mode, rule or exact entry), with its event and audit row. */
+async function insertAutoApproved(
+  ctx: MutationCtx,
+  base: CommandApprovalBase,
+  how: { mode: string; reason: string; actor: string; details?: Record<string, unknown> }
+): Promise<Id<"approvals">> {
+  const now = Date.now();
+  const approvalId = await ctx.db.insert("approvals", {
+    ...base,
+    status: "approved",
+    resolvedAt: now,
+    decidedBy: "auto",
+    decision: "allow",
+    history: [{ at: now, status: "approved", by: "auto", mode: how.mode, reason: how.reason }],
+  });
+  await appendTaskEvent(ctx, {
+    taskId: base.taskId,
+    projectId: base.projectId,
+    type: "approval.auto_approved",
+    payload: { kind: "run_command", summary: base.summary, subtaskKey: base.subtaskKey, mode: how.mode, reason: how.reason },
+    subtaskKey: base.subtaskKey,
+    level: "info",
+  });
+  await recordAudit(ctx, {
+    actor: how.actor,
+    tool: "run_command",
+    action: "approval.auto_approve",
+    decision: "allowed",
+    target: String(base.payload.command ?? base.summary),
+    projectId: base.projectId,
+    taskId: base.taskId,
+    details: { mode: how.mode, reason: how.reason, approvalId, ...(how.details ?? {}) },
+  });
+  return approvalId;
+}
+
+/** A pending card. `quiet` (D7, under review) holds the "approval requested" event until the Reviewer hands it over. */
+async function insertPendingCard(
+  ctx: MutationCtx,
+  base: CommandApprovalBase,
+  how: { mode: string; reason: string; review?: Record<string, unknown>; quiet?: boolean }
+): Promise<Id<"approvals">> {
+  const now = Date.now();
+  const approvalId = await ctx.db.insert("approvals", {
+    ...base,
+    ...(how.review ? { payload: { ...base.payload, review: how.review } } : {}),
+    status: "pending",
+    history: [{ at: now, status: "pending", mode: how.mode, reason: how.reason }],
+  });
+  if (!how.quiet) await announceCard(ctx, base, approvalId);
+  return approvalId;
+}
+
+async function announceCard(
+  ctx: MutationCtx,
+  row: Pick<Doc<"approvals">, "taskId" | "projectId" | "kind" | "summary" | "subtaskKey" | "executionId">,
+  approvalId: Id<"approvals">
+) {
+  await appendTaskEvent(ctx, {
+    taskId: row.taskId,
+    projectId: row.projectId,
+    type: "approval.requested",
+    payload: { kind: row.kind, summary: row.summary, subtaskKey: row.subtaskKey, inline: true, approvalId },
+    executionId: row.executionId,
+    subtaskKey: row.subtaskKey,
+    level: "warn",
+  });
+}
+
+/** The project's enabled agent playing `role` (D7: the Reviewer), or null. */
+async function projectRoleAgent(ctx: MutationCtx, project: Doc<"projects">, role: string): Promise<Doc<"agents"> | null> {
+  for (const id of await projectTeamIds(ctx, project)) {
+    const agent = await ctx.db.get(id);
+    if (agent && agent.isEnabled !== false && normalizeRoleKey(agent.role) === role) return agent;
+  }
+  return null;
+}
+
+const INSTRUCTION_MAX = 2000;
+const MAX_STEERS = 5;
+const MAX_FACT_COMMANDS = 20;
+
+/**
+ * What the Reviewer judges against: the user's own words for the task (its
+ * request, then steers) as instructions, and the task title plus earlier
+ * commands of the task as facts (they can prove a task-created object,
+ * never authorize).
+ */
+async function reviewRequestFor(
+  ctx: MutationCtx,
+  task: Doc<"tasks">,
+  project: Doc<"projects">,
+  args: { command: string; args: string[]; workspaceRoot?: string },
+  line: string,
+  danger: string | null,
+  mode: string
+): Promise<AutoReviewRequest> {
+  const steers = (
+    await ctx.db
+      .query("taskInputs")
+      .withIndex("by_task_and_delivered", (q) => q.eq("taskId", task._id))
+      .take(200)
+  )
+    .filter((input) => input.kind === "steer")
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .slice(-MAX_STEERS)
+    .map((input) => input.text.slice(0, INSTRUCTION_MAX));
+  const earlier = (
+    await ctx.db
+      .query("approvals")
+      .withIndex("by_task", (q) => q.eq("taskId", task._id))
+      .take(200)
+  )
+    .filter((row) => row.kind === "run_command" && row.status === "approved")
+    .sort((a, b) => (a.resolvedAt ?? a._creationTime) - (b.resolvedAt ?? b._creationTime))
+    .slice(-MAX_FACT_COMMANDS)
+    .map((row) => `Ran earlier in this task: ${String((row.payload as { command?: unknown } | undefined)?.command ?? row.summary)}`);
+  return {
+    environment: { workspaceRoot: args.workspaceRoot ?? project.workspacePath ?? null, permissionMode: mode },
+    instructions: [task.command.slice(0, INSTRUCTION_MAX), ...steers].filter((text) => text.trim().length > 0),
+    facts: [`Task title: ${task.title.slice(0, 300)}`, ...earlier],
+    pending: { command: args.command, args: [...args.args], line, danger },
+  };
+}
+
+/** One audit row per auto-review verdict (allow, deny, unparsable, unavailable, expired). */
+async function auditReviewVerdict(
+  ctx: MutationCtx,
+  row: Pick<Doc<"approvals">, "taskId" | "projectId">,
+  line: string,
+  entry: {
+    action: string;
+    decision: "allowed" | "denied" | "pending";
+    actor: string;
+    approvalId: Id<"approvals">;
+    by: string;
+    mode?: string;
+    risk?: string;
+    reason?: string;
+    turnId?: Id<"decisionTurns">;
+  }
+) {
+  const { action, decision, actor, ...details } = entry;
+  await recordAudit(ctx, {
+    actor,
+    tool: "auto_review",
+    action,
+    decision,
+    target: line,
+    projectId: row.projectId,
+    taskId: row.taskId,
+    details: Object.fromEntries(Object.entries(details).filter(([, value]) => value !== undefined)),
+  });
+}
+
+/**
+ * Worker (D7): the Reviewer's turn for one command finished. One mutation
+ * parses the output strictly, writes the audit row, closes the decision
+ * turn and resolves the card: allow → approved ("auto"); deny, unparsable,
+ * unavailable or expired → the card stays for the user. A card the user
+ * (or a chat reply) already decided is left alone.
+ */
+export const review = mutation({
+  args: {
+    workerToken: v.string(),
+    turnId: v.id("decisionTurns"),
+    workerId: v.string(),
+    output: v.optional(v.string()),
+    failure: v.optional(v.object({ kind: v.union(v.literal("unavailable"), v.literal("expired")), reason: v.string() })),
+  },
+  handler: async (ctx, args): Promise<{ allowed: boolean; approvalId: Id<"approvals"> | null; reason: string }> => {
+    assertServiceToken(args.workerToken);
+    const turn = await ctx.db.get(args.turnId);
+    if (!turn || turn.purpose !== "auto_review" || !turn.approvalId) return { allowed: false, approvalId: null, reason: "Not an auto-review turn" };
+    const approval = await ctx.db.get(turn.approvalId);
+    if (!approval) return { allowed: false, approvalId: null, reason: "Approval not found" };
+    const line = String((approval.payload as { command?: unknown } | undefined)?.command ?? approval.summary);
+    const now = Date.now();
+    const closeTurn = (status: "answered" | "escalated" | "expired", extra: { answer?: string; chosenOption?: string; rationale?: string } = {}) =>
+      ctx.db.patch(turn._id, { status, decidedAt: now, claimedBy: undefined, claimedUntil: undefined, ...extra });
+    if (approval.status !== "pending" || turn.status !== "open") {
+      if (turn.status === "open") await closeTurn("expired", { rationale: `The card was ${approval.status} before the review finished` });
+      return { allowed: false, approvalId: approval._id, reason: `Already ${approval.status}` };
+    }
+    if (!(await holdsTaskLease(ctx, turn.taskId, args.workerId))) throw new Error(LEASE_LOST);
+    const agent = turn.agentId ? await ctx.db.get(turn.agentId) : null;
+    const actor = agent?.name ? `reviewer:${agent.name}` : "reviewer";
+    const failure = turn.expiresAt <= now ? { kind: "expired" as const, reason: "The review ran past its deadline" } : args.failure;
+    const mode = normalizePermissionMode((await ctx.db.get(turn.taskId))?.permissionMode);
+    const audit = { approvalId: approval._id, turnId: turn._id, mode, by: "reviewer" };
+    const handOver = async (note: string, review: Record<string, unknown>) => {
+      await ctx.db.patch(approval._id, {
+        payload: { ...(approval.payload as Record<string, unknown>), review: { ...review, turnId: turn._id } },
+        history: [...(approval.history ?? []), { at: now, status: "pending", by: "auto_review", reason: note }],
+      });
+      await announceCard(ctx, approval, approval._id);
+      return { allowed: false, approvalId: approval._id, reason: note };
+    };
+    if (failure) {
+      const reason = failure.reason.slice(0, 500);
+      await closeTurn("expired", { rationale: reason });
+      await auditReviewVerdict(ctx, approval, line, { action: `auto_review.${failure.kind}`, decision: "pending", actor, ...audit, reason });
+      return await handOver(`The Reviewer could not decide: ${reason}`.slice(0, 500), { state: failure.kind, reason });
+    }
+    const parsed = parseAutoReviewOutput(args.output ?? "");
+    if (!parsed.ok) {
+      await closeTurn("escalated", { rationale: parsed.error });
+      await auditReviewVerdict(ctx, approval, line, { action: "auto_review.unparsable", decision: "pending", actor, ...audit, reason: parsed.error });
+      return await handOver(parsed.error, { state: "unparsable", reason: parsed.error });
+    }
+    const verdict = parsed.verdict;
+    const label = describeReviewVerdict(verdict);
+    if (verdict.decision === "deny") {
+      await closeTurn("escalated", { answer: JSON.stringify(verdict), rationale: label });
+      await auditReviewVerdict(ctx, approval, line, { action: "auto_review.deny", decision: "denied", actor, ...audit, risk: verdict.risk, reason: verdict.reason });
+      return await handOver(`Reviewer: ${label}`.slice(0, 500), {
+        state: "done",
+        by: "reviewer",
+        risk: verdict.risk,
+        decision: "deny",
+        ...(verdict.reason ? { reason: verdict.reason } : {}),
+      });
+    }
+    await closeTurn("answered", { answer: JSON.stringify(verdict), chosenOption: "allow", rationale: label });
+    await ctx.db.patch(approval._id, {
+      status: "approved",
+      resolvedAt: now,
+      decidedBy: "auto",
+      decision: "allow",
+      payload: {
+        ...(approval.payload as Record<string, unknown>),
+        review: { state: "done", by: "reviewer", risk: verdict.risk, decision: "allow", turnId: turn._id },
+      },
+      history: [...(approval.history ?? []), { at: now, status: "approved", by: "auto_review", mode, reason: `Reviewer: ${label}` }],
+    });
+    await auditReviewVerdict(ctx, approval, line, { action: "auto_review.allow", decision: "allowed", actor, ...audit, risk: verdict.risk });
+    await appendTaskEvent(ctx, {
+      taskId: approval.taskId,
+      projectId: approval.projectId,
+      type: "approval.auto_approved",
+      payload: { kind: approval.kind, summary: approval.summary, subtaskKey: approval.subtaskKey, mode, reason: `Reviewer: ${label}`, risk: verdict.risk },
+      subtaskKey: approval.subtaskKey,
+      level: "info",
+    });
+    return { allowed: true, approvalId: approval._id, reason: `Reviewer: ${label}` };
   },
 });
 

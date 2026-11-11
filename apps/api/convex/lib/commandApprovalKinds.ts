@@ -8,6 +8,8 @@
  * never reuses an earlier run_command allow.
  */
 import { v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
+import type { AutoReviewRequest } from "./autoReview";
 
 export type CommandApprovalKind = "run_command" | "run_unconfined";
 
@@ -31,3 +33,17 @@ export const commandRequestArgs = {
 
 /** Card copy for a run_unconfined approval. */
 export const UNCONFINED_WARNING = "Runs again without the command sandbox: it can write anywhere this worker's user can";
+
+/**
+ * What `commandApprovals.request` answers. `review` (D7, Full access): the
+ * row is pending while the Reviewer judges it; the worker runs the turn
+ * (`review.request` is the Reviewer's input), reports it through
+ * `commandApprovals.review`, then waits on `approvalId` like any card.
+ */
+export interface CommandRequestResult {
+  status: "auto" | "pending" | "review";
+  approvalId: Id<"approvals">;
+  reason: string;
+  offerAlways: boolean;
+  review?: { turnId: Id<"decisionTurns">; expiresAt: number; request: AutoReviewRequest };
+}

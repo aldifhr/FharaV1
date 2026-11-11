@@ -20,6 +20,8 @@ export interface DecisionTurnPort {
   expire(input: Relaxed<Args<typeof api.decisionTurns.expire>>): Promise<unknown>;
   consume(input: Relaxed<Args<typeof api.decisionTurns.consume>>): Promise<unknown>;
   claimNext(input: Args<typeof api.decisionTurns.claimNext>): Promise<ClaimedTurn | null>;
+  /** D7: report the Reviewer's turn for one Full access command (commandApprovals.review). Optional for fakes. */
+  reviewCommand?(input: Relaxed<Args<typeof api.commandApprovals.review>>): Promise<FunctionReturnType<typeof api.commandApprovals.review>>;
 }
 
 export function convexDecisionTurnPort(workerApi: WorkerApi): DecisionTurnPort {
@@ -31,6 +33,7 @@ export function convexDecisionTurnPort(workerApi: WorkerApi): DecisionTurnPort {
     expire: (input) => call(api.decisionTurns.expire, input),
     consume: (input) => call(api.decisionTurns.consume, input),
     claimNext: (input) => call(api.decisionTurns.claimNext, input),
+    reviewCommand: (input) => call(api.commandApprovals.review, input),
   };
 }
 

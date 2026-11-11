@@ -10,7 +10,9 @@ import { v } from "convex/values";
  * - auto_edits: file-change approvals (apply_changes, incl. verification
  *   and QA fixes) are approved automatically; risky ones still ask.
  * - full_access: every approval is approved automatically except
- *   push / PR, which always asks.
+ *   push / PR, which always asks. D7: an agent command is first judged by
+ *   the project's Reviewer (lib/autoReview.ts); a deny or an unreadable
+ *   verdict shows the normal card. `run_unconfined` (D6) always asks.
  *
  * An automatic approval is still an approval row (status "approved",
  * decidedBy "auto") plus an audit row: the gate is recorded, not skipped.
@@ -33,7 +35,7 @@ export const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
 export const PERMISSION_MODE_HINTS: Record<PermissionMode, string> = {
   supervised: "Asks before applying any change",
   auto_edits: "Applies file edits; risky actions and push still ask",
-  full_access: "Approves everything except push / PR",
+  full_access: "Approves everything except push / PR; the Reviewer checks commands first",
 };
 
 /** Anything missing or unknown (pre-020 tasks) is supervised. */
@@ -56,6 +58,17 @@ export function projectDefaultPermissionMode(
 }
 
 export type ApprovalKind = "apply_changes" | "git_push" | "run_command" | "merge_pr";
+
+/**
+ * D7: whether an approval in this mode goes to the Reviewer before it is
+ * auto-approved. Full access commands only: file changes keep the policy
+ * dry-run gate, push / PR never auto-approve, and `run_unconfined` (D6) is
+ * always a user card, never reviewed. With no Reviewer in the team the
+ * pre-D7 behaviour stands (commandApprovals.ts).
+ */
+export function autoReviewApplies(mode: PermissionMode, kind: ApprovalKind | "run_unconfined"): boolean {
+  return mode === "full_access" && kind === "run_command";
+}
 
 /**
  * Auto-accept edits asks again when a batch deletes more files than this.

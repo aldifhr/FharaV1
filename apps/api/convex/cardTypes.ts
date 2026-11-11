@@ -7,7 +7,13 @@
  * every field optional-safe on the reader side (old rows predate fields).
  */
 
-export type CardKind = "assignment" | "push" | "qa" | "verification" | "changes" | "plan" | "side_effect";
+export type CardKind = "assignment" | "push" | "qa" | "verification" | "changes" | "plan" | "side_effect" | "options";
+
+/** Options review card (show_options): the card reads the review row live. */
+export interface OptionsCardData {
+  taskId: string;
+  reviewId: string;
+}
 
 export interface AssignmentCardData {
   taskId: string;

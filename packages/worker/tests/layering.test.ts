@@ -37,6 +37,9 @@ const LAYERS: Record<string, number> = {
   tools: 2,
   mcp: 2,
   execution: 3,
+  // Generic options review (validator, sanitizer, sandboxed render): uses
+  // execution/qa for Chromium launch; called by execution and services.
+  review: 3,
   orchestrator: 4,
   scheduler: 4,
   router: 4,

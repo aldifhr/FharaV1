@@ -41,6 +41,8 @@ export function describeActivity(type: string, payload: unknown): string | null 
       const cmd = [p.command, ...(Array.isArray(p.args) ? p.args : [])].filter(Boolean).join(" ");
       return clip(`Waiting for approval: ${cmd || "a command"}`);
     }
+    case "options.waiting":
+      return clip(`Waiting for your pick: ${typeof p.title === "string" ? p.title : "options"}`);
     case "task.check":
       return p.label ? clip(`Checking ${p.label}${p.status && p.status !== "running" ? `: ${p.status}` : ""}`) : null;
     case "agent.web_context":

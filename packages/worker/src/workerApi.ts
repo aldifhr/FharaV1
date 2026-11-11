@@ -245,6 +245,61 @@ export class WorkerApi {
     return await this.client.action(api.worker.cancelCommandApproval, this.args(input));
   }
 
+  // ─── Options review (show_options) ──────────────────────────────────────
+
+  async optionReviewUploadUrl(): Promise<string> {
+    return await this.client.action(api.worker.optionReviewUploadUrl, this.args({}));
+  }
+
+  /**
+   * Text fields are masked; html bodies are not (they are already
+   * sanitized and carry data: URIs that secret shapes could mangle).
+   */
+  async createOptionReview(
+    input: ActionInput<typeof api.worker.createOptionReview>
+  ): Promise<FunctionReturnType<typeof api.worker.createOptionReview>> {
+    const options = input.options.map((o) => ({
+      ...o,
+      title: this.masked(o.title),
+      ...(o.note !== undefined ? { note: this.masked(o.note) } : {}),
+      ...(o.markdown !== undefined ? { markdown: this.masked(o.markdown) } : {}),
+    }));
+    return await this.client.action(
+      api.worker.createOptionReview,
+      this.args({
+        workerId: this.workerId,
+        ...input,
+        title: this.masked(input.title),
+        ...(input.note !== undefined ? { note: this.masked(input.note) } : {}),
+        options,
+      })
+    );
+  }
+
+  async getOptionReview(
+    input: ActionInput<typeof api.worker.getOptionReview>
+  ): Promise<FunctionReturnType<typeof api.worker.getOptionReview>> {
+    return await this.client.action(api.worker.getOptionReview, this.args(input));
+  }
+
+  async cancelOptionReview(
+    input: ActionInput<typeof api.worker.cancelOptionReview>
+  ): Promise<FunctionReturnType<typeof api.worker.cancelOptionReview>> {
+    return await this.client.action(api.worker.cancelOptionReview, this.args(input));
+  }
+
+  async pickedDesignForTask(
+    input: ActionInput<typeof api.worker.pickedDesignForTask>
+  ): Promise<FunctionReturnType<typeof api.worker.pickedDesignForTask>> {
+    return await this.client.action(api.worker.pickedDesignForTask, this.args(input));
+  }
+
+  async attachOptionReviewBuildCheck(
+    input: ActionInput<typeof api.worker.attachOptionReviewBuildCheck>
+  ): Promise<FunctionReturnType<typeof api.worker.attachOptionReviewBuildCheck>> {
+    return await this.client.action(api.worker.attachOptionReviewBuildCheck, this.args({ ...input, note: this.masked(input.note) }));
+  }
+
   /** The waiter saw the decision: consume its durable signal (one-time allow). */
   async ackCommandApproval(
     input: ActionInput<typeof api.worker.ackCommandApproval>

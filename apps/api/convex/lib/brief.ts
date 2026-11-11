@@ -30,6 +30,8 @@ export type TaskBrief = {
   latestResult?: string;
   openQuestions: string[];
   nextStep?: string;
+  /** Decisions the user made during the run (options reviews), newest last. */
+  decisions?: string[];
   updatedAt?: number;
   updatedBy?: "user" | "worker";
 };
@@ -40,7 +42,11 @@ export type TaskBrief = {
  */
 export type BriefPatch = {
   [K in BriefTextField]?: string | null;
-} & { openQuestions?: string[] | null };
+} & { openQuestions?: string[] | null; decisions?: string[] | null };
+
+/** Caps for brief decisions (options review answers). */
+export const BRIEF_DECISIONS_MAX = 6;
+export const BRIEF_DECISION_MAX = 1200;
 
 export const EMPTY_BRIEF: TaskBrief = { openQuestions: [] };
 
@@ -75,7 +81,27 @@ export function applyBriefPatch(current: TaskBrief | null | undefined, patch: Br
   if ("openQuestions" in patch && patch.openQuestions !== undefined) {
     next.openQuestions = cleanBriefQuestions(patch.openQuestions);
   }
+  if ("decisions" in patch && patch.decisions !== undefined) {
+    const decisions = cleanBriefDecisions(patch.decisions);
+    if (decisions.length) next.decisions = decisions;
+    else delete next.decisions;
+  }
   return next;
+}
+
+export function cleanBriefDecisions(items: readonly unknown[] | null | undefined): string[] {
+  const out = (items ?? [])
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim().slice(0, BRIEF_DECISION_MAX))
+    .filter(Boolean);
+  return out.slice(-BRIEF_DECISIONS_MAX);
+}
+
+/** Append one decision (deduped; the oldest drop off past the cap). */
+export function addDecision(decisions: readonly string[] | undefined, decision: string): string[] {
+  const clean = decision.trim().slice(0, BRIEF_DECISION_MAX);
+  const rest = (decisions ?? []).filter((d) => d !== clean);
+  return clean ? [...rest, clean].slice(-BRIEF_DECISIONS_MAX) : rest;
 }
 
 /** Add one open question (deduped, capped; the oldest drop off past the cap). */
@@ -95,7 +121,7 @@ export function removeOpenQuestion(questions: readonly string[], question: strin
 
 export function isBriefEmpty(brief: TaskBrief | null | undefined): boolean {
   if (!brief) return true;
-  return BRIEF_TEXT_FIELDS.every((field) => !brief[field]) && brief.openQuestions.length === 0;
+  return BRIEF_TEXT_FIELDS.every((field) => !brief[field]) && brief.openQuestions.length === 0 && !brief.decisions?.length;
 }
 
 /** Characters the "Task brief" prompt section may use. */
@@ -119,6 +145,10 @@ export function formatBriefSection(brief: TaskBrief | null | undefined, budget: 
     if (used + line.length + 1 <= budget) lines.push(line);
   };
   if (b.objective) push(`- Objective: ${clip(b.objective, 600)}`);
+  if (b.decisions?.length) {
+    push("- Decisions the user made (build to these):");
+    for (const d of b.decisions.slice(-BRIEF_DECISIONS_MAX)) push(`  - ${clip(d, 400)}`);
+  }
   if (b.owner) push(`- Owner: ${clip(b.owner, 80)}`);
   if (b.latestResult) push(`- Latest result: ${clip(b.latestResult, 500)}`);
   if (b.nextStep) push(`- Next step: ${clip(b.nextStep, 500)}`);

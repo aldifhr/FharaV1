@@ -21,6 +21,7 @@ import { applyQaCheck, buildChangesCard, buildQaCard, postStageCard } from "./ca
 import { ACTIVITY_STARTING, ACTIVITY_THINKING, createActivityReporter, describeActivity } from "./activity";
 import { LiveOutputCoalescer } from "./liveOutput";
 import { waitForCommandApproval } from "./commandApproval";
+import { runShowOptions } from "@/review/showOptions";
 import { runWithObservationScope } from "@/effects/observationContext";
 import { stallEventType, stallThresholdsFromEnv, type StallObservation } from "@/utils/stallDetector";
 import { llmTimeoutMs } from "@/llm";
@@ -302,6 +303,24 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
               holdClock: runInfo?.holdClock,
             }
           ),
+        // Options review: the subtask waits in-process for the user's pick
+        // (lease kept, clocks held), like a command approval.
+        showOptions: (args) =>
+          runShowOptions(args, {
+            api: deps.api,
+            taskId: String(taskId),
+            projectId: String(project._id),
+            subtaskKey: node.id,
+            ...(executionId ? { executionId: String(executionId) } : {}),
+            agentId: String(agent._id),
+            role: agent.role,
+            workspaceRoot: input.workspacePath,
+            ...(input.qaBaseUrl ? { qaBaseUrl: input.qaBaseUrl } : {}),
+            signal: combineSignals(signal, input.taskAbort?.signal),
+            onPending: () => reportActivity(describeActivity("options.waiting", { title: typeof args.title === "string" ? args.title : undefined })),
+            onWaiting: beat,
+            holdClock: runInfo?.holdClock,
+          }),
         nativeProviderCommand: wenvRaw("ORCHESTRATOR_NATIVE_PROVIDER_COMMAND"),
         taskContext: input.sharedContext,
         onUserInputsRendered: ackInputs,

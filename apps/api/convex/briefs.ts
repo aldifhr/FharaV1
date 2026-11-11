@@ -35,6 +35,7 @@ function toBrief(row: Doc<"taskBriefs"> | null): TaskBrief | null {
     ...(row.latestResult ? { latestResult: row.latestResult } : {}),
     ...(row.nextStep ? { nextStep: row.nextStep } : {}),
     openQuestions: row.openQuestions,
+    ...(row.decisions?.length ? { decisions: row.decisions } : {}),
     updatedAt: row.updatedAt,
     updatedBy: row.updatedBy,
   };
@@ -69,6 +70,7 @@ export async function writeBrief(
     latestResult: next.latestResult,
     nextStep: next.nextStep,
     openQuestions: next.openQuestions,
+    decisions: next.decisions,
     updatedAt: now,
     updatedBy,
   };

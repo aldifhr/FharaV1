@@ -241,7 +241,7 @@ export function buildOpencodePolicy(input: BuildOpencodePolicyInput): OpencodePo
 
 /** Policy for calls with no role context (detection probe, tests). Read-only, no shell, no web. */
 export const READ_ONLY_OPENCODE_POLICY: OpencodePolicy = buildOpencodePolicy({
-  permissions: { read: true, write: false, shell: "none", web: false, push: false },
+  permissions: { read: true, write: false, shell: "none", web: false, push: false, options: false },
   mutating: false,
 });
 

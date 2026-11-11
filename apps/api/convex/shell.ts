@@ -46,6 +46,7 @@ export type NeedsYouKind =
   | "merge"
   | "question"
   | "review"
+  | "options"
   | "pr";
 
 export type NeedsYouItem = {
@@ -257,8 +258,38 @@ const prNotifications: NeedsYouSource = async ({ ctx, visible }) => {
  * here; a "review" item whose task is already covered by an earlier source
  * is dropped.
  */
+/** Options reviews (show_options) waiting for the user's pick. */
+const pendingOptionReviews: NeedsYouSource = async ({ ctx, visible, agentRole }) => {
+  const rows = await ctx.db
+    .query("optionReviews")
+    .withIndex("by_status", (q) => q.eq("status", "pending"))
+    .order("desc")
+    .take(APPROVAL_LIMIT);
+  const items: NeedsYouItem[] = [];
+  for (const r of rows) {
+    const project = visible.get(r.projectId as string);
+    if (!project) continue;
+    const task = await ctx.db.get(r.taskId);
+    if (task && TERMINAL.has(task.status)) continue;
+    items.push({
+      key: `options:${r._id}`,
+      kind: "options",
+      title: truncate(`Pick: ${r.title}`, 90),
+      agentRole: (await agentRole(r.agentId)) ?? r.role,
+      note: "options",
+      projectId: r.projectId,
+      projectName: project.name,
+      taskId: r.taskId,
+      approvalId: null,
+      at: r.createdAt,
+    });
+  }
+  return items;
+};
+
 export const NEEDS_YOU_SOURCES: NeedsYouSource[] = [
   pendingApprovals,
+  pendingOptionReviews,
   pendingPushes,
   prNotifications,
   openQuestions,

@@ -1349,6 +1349,18 @@
       "min": 10000
     },
     {
+      "name": "ORCHESTRATOR_OPTIONS_REVIEW_TIMEOUT_MS",
+      "type": "int",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "How long a show_options review waits for the user's pick before the agent continues without it (ms, ≥ 60000).",
+      "default": "7200000",
+      "parse": "atLeast",
+      "min": 60000
+    },
+    {
       "name": "ORCHESTRATOR_STALL_TIMEOUT_MS",
       "type": "int",
       "group": "exec",

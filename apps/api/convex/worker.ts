@@ -15,6 +15,7 @@ import { briefPatchArgs } from "./briefs";
 import { suggestionInput } from "./memorySuggestions";
 import { learningInput } from "./roleMemories";
 import type { TaskBrief } from "./lib/brief";
+import { createArgs as optionReviewCreateArgs } from "./optionReviews";
 import {
   taskStatus,
   subtaskKind,
@@ -478,6 +479,64 @@ export const cancelCommandApproval = action({
   args: { ...tokenArg, approvalId: v.id("approvals"), reason: v.string() },
   handler: async (ctx, args): Promise<{ applied: boolean }> => {
     return await ctx.runMutation(internal.commandApprovals.cancel, withoutToken(args));
+  },
+});
+
+// ─── Options review (show_options, optionReviews.ts) ──────────────────────
+
+/** A one-time Convex file-storage upload URL for an option image / render. */
+export const optionReviewUploadUrl = action({
+  args: { ...tokenArg },
+  handler: async (ctx, args): Promise<string> => {
+    withoutToken(args);
+    return await ctx.runMutation(internal.optionReviews.generateUploadUrl, {});
+  },
+});
+
+export const createOptionReview = action({
+  args: { ...tokenArg, ...optionReviewCreateArgs },
+  handler: async (ctx, args): Promise<{ reviewId: string; status: "pending" | "auto"; replyText: string | null }> => {
+    return await ctx.runMutation(internal.optionReviews.create, withoutToken(args));
+  },
+});
+
+export const getOptionReview = action({
+  args: { ...tokenArg, reviewId: v.id("optionReviews") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ status: string; replyText: string | null; cancelReason: string | null; taskStatus: string | null } | null> => {
+    const row = await ctx.runQuery(internal.optionReviews.getForWorker, withoutToken(args));
+    return row ? { status: row.status, replyText: row.replyText, cancelReason: row.cancelReason, taskStatus: row.taskStatus } : null;
+  },
+});
+
+export const cancelOptionReview = action({
+  args: { ...tokenArg, reviewId: v.id("optionReviews"), reason: v.string() },
+  handler: async (ctx, args): Promise<{ applied: boolean }> => {
+    return await ctx.runMutation(internal.optionReviews.cancel, withoutToken(args));
+  },
+});
+
+/** QA build-vs-mockup: the answered design review to compare against. */
+export const pickedDesignForTask = action({
+  args: { ...tokenArg, taskId: v.id("tasks") },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runQuery(internal.optionReviews.pickedForBuildCheck, withoutToken(args));
+  },
+});
+
+export const attachOptionReviewBuildCheck = action({
+  args: {
+    ...tokenArg,
+    reviewId: v.id("optionReviews"),
+    route: v.string(),
+    imageStorageId: v.optional(v.id("_storage")),
+    verdict: v.union(v.literal("matches"), v.literal("differs"), v.literal("unknown")),
+    note: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ applied: boolean }> => {
+    return await ctx.runMutation(internal.optionReviews.attachBuildCheck, withoutToken(args));
   },
 });
 

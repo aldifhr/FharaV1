@@ -63,6 +63,17 @@ export const EXEC_VARS = [
     readAt: "startup",
   },
   {
+    name: "ORCHESTRATOR_OPTIONS_REVIEW_TIMEOUT_MS",
+    type: "int",
+    parse: "atLeast",
+    min: 60_000,
+    default: 2 * 60 * 60_000,
+    runtimes: ["worker"],
+    group: "exec",
+    doc: "How long a show_options review waits for the user's pick before the agent continues without it (ms, ≥ 60000).",
+    readAt: "startup",
+  },
+  {
     name: "ORCHESTRATOR_STALL_TIMEOUT_MS",
     type: "int",
     parse: "clampBlank",

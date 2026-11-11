@@ -93,6 +93,9 @@ import { runMcpToolLoop } from "@/mcp/toolLoop";
 import type { McpToolDefinition } from "@/mcp/types";
 import { runToolLoop } from "@/tools/toolLoop";
 import { webReachToolLoopPromptSet } from "@/prompts/webReach";
+import { SHOW_OPTIONS_TOOL, SHOW_OPTIONS_TOOL_NAME } from "@/review/showOptions";
+import { DESIGN_LOOKUP_TOOL, DESIGN_LOOKUP_TOOL_NAME, designLookup } from "@/design/designLookup";
+import { optionsInstruction } from "@/prompts/options";
 import {
   agentAllowsWebReach,
   runWebReachTool,
@@ -227,6 +230,12 @@ export interface SubtaskExecutionInput {
    * allowlisted command without asking.
    */
   requestCommandApproval?: (command: { command: string; args: string[] }) => Promise<CommandApprovalOutcome>;
+  /**
+   * Options review (show_options): store the options, wait for the user's
+   * picks and return them as the tool result. Offered only to roles whose
+   * permissions allow `options`. Absent: no tool.
+   */
+  showOptions?: (args: Record<string, unknown>) => Promise<{ ok: boolean; text: string; isError: boolean }>;
 }
 
 /**
@@ -404,6 +413,75 @@ async function runWebReachExploration(
   });
 
   return { answer: result.answer, toolCalls: result.toolCalls };
+}
+
+/** Most tool-loop steps a show_options subtask may take. */
+const OPTIONS_LOOP_MAX_ITERATIONS = 8;
+
+/** Whether this subtask gets the show_options tool. */
+export function optionsToolAvailable(input: Pick<SubtaskExecutionInput, "showOptions" | "agent">): boolean {
+  return Boolean(input.showOptions) && permissionsForAgent(input.agent).options === true;
+}
+
+/** design_lookup goes with the Designer (and any agent with the ui-ux-design capability). */
+function designLookupAvailable(agent: SubtaskExecutionInput["agent"]): boolean {
+  return resolveRoleKey(agent.role ?? "") === "designer" || (agent.capabilities ?? []).includes("ui-ux-design");
+}
+
+/**
+ * Options review: a bounded tool loop with show_options (and design_lookup
+ * for design work). show_options waits for the user's answer inside the
+ * tool call, so the agent's next step reads the picks and writes the
+ * final result for them. One review per subtask.
+ */
+async function runOptionsExploration(
+  input: SubtaskExecutionInput,
+  instruction: string,
+  context: string
+): Promise<{ answer: string; toolCalls: number; reviewed: boolean } | null> {
+  if (!optionsToolAvailable(input)) return null;
+  const handles = handlesFor(input);
+  const health = healthFor(input);
+  const tools = [SHOW_OPTIONS_TOOL, ...(designLookupAvailable(input.agent) ? [DESIGN_LOOKUP_TOOL] : [])];
+  const required = /\bshow_options\b/i.test(`${input.subtask.title}\n${input.subtask.description}\n${input.subtask.deliverable ?? ""}`);
+  const messages = baseMessages(
+    input,
+    readOnlyUserContent({ instruction: `${instruction}\n\n${optionsInstruction({ required, designLookup: tools.length > 1 })}`, context, command: input.command })
+  );
+  let reviewed = false;
+  const result = await runToolLoop({
+    tools,
+    maxIterations: OPTIONS_LOOP_MAX_ITERATIONS,
+    signal: input.signal,
+    messages,
+    runLlm: async (loopMessages) => {
+      input.assertBudgetForCall?.();
+      const { result: llmResult, servedBy } = await runLlmCallWithFallback(handles, loopMessages, {
+        health,
+        signal: input.signal,
+        timeoutMs: llmCallTimeoutMs(input),
+        taskGate: input.llmTaskGate,
+      });
+      if (input.onTokenUsage) {
+        await input.onTokenUsage(llmResult.inputTokens ?? 0, llmResult.outputTokens ?? 0, servedBy.config.model, usageMetaFor(servedBy, llmResult));
+      }
+      return llmResult.content;
+    },
+    callTool: async ({ tool, args }) => {
+      if (tool === DESIGN_LOOKUP_TOOL_NAME && tools.length > 1) return designLookup(args);
+      if (tool !== SHOW_OPTIONS_TOOL_NAME) return { ok: false, text: `Unknown tool "${tool}"`, isError: true };
+      if (reviewed) return { ok: false, isError: true, text: "This subtask already had its review; write your result from the answer you got." };
+      const outcome = await input.showOptions!(args);
+      if (outcome.ok) reviewed = true;
+      await input.onEvent(
+        "tool.show_options",
+        { capability: input.subtask.capability, ok: outcome.ok, role: input.agent.role },
+        outcome.ok ? "info" : "warn"
+      );
+      return outcome;
+    },
+  });
+  return { answer: result.answer, toolCalls: result.toolCalls, reviewed };
 }
 
 export type SubtaskExecutionResult =
@@ -2091,6 +2169,33 @@ async function executeReadOnly(
 
   let instruction = readOnlyInstruction(mode, { webTool: webReachAvailable });
   if (toolLoopSection) instruction += toolLoopSection;
+
+  // Options review: roles allowed to ask the user to pick (Designer now)
+  // get show_options in a bounded tool loop; the answer arrives inside the
+  // tool call and the final result is written for the picked option(s).
+  if (optionsToolAvailable(input)) {
+    const optionsResult = await runOptionsExploration(input, instruction, context);
+    if (optionsResult) {
+      const content = optionsResult.answer.trim() || "No result after the options review.";
+      await input.onChunk(content);
+      await input.onMessage(sanitizeForChat(stripToolCallMarkup(content)));
+      await input.onEvent("agent.options_review", {
+        capability: subtask.capability,
+        toolCalls: optionsResult.toolCalls,
+        reviewed: optionsResult.reviewed,
+      });
+      const delegation = parseDelegation(content);
+      return {
+        status: "completed",
+        output: content,
+        meta: {
+          optionsReviewed: optionsResult.reviewed,
+          ...(delegation?.delegationRecommendation ? { delegationRecommendation: delegation.delegationRecommendation } : {}),
+          ...(delegation?.findings ? { findings: delegation.findings } : {}),
+        },
+      };
+    }
+  }
 
   // Plan 036: the Agent Reach web tool. When the policy enabled it and the
   // agent declared `web_reach`, the agent can search the public web and

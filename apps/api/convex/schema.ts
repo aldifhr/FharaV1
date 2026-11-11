@@ -140,6 +140,14 @@ export const directThreadValidator = v.object({
   error: v.optional(v.string()),
 });
 
+/** Options review draft / response (lib/optionsReview.ts ReviewDraft). */
+export const reviewDraftValidator = v.object({
+  pickedIds: v.array(v.string()),
+  notes: v.array(v.object({ optionId: v.string(), note: v.string() })),
+  reply: v.optional(v.string()),
+  none: v.optional(v.boolean()),
+});
+
 /** Plan Inspector project setting (lib/planReviewPolicy.ts). Unset = off. */
 export const planReviewSetting = v.union(
   v.literal("off"),
@@ -312,6 +320,9 @@ export default defineSchema({
     // Plan Inspector (additive): pause after plan.created for the user's
     // review. Unset = off.
     planReview: v.optional(planReviewSetting),
+    // Options review: roles whose show_options reviews are auto-picked
+    // (recommended option) instead of asking. Unset/empty = reviews ask.
+    optionsReviewSkipRoles: v.optional(v.array(v.string())),
     // Plan 022 (additive): model tier per role (llmModels ids). Explicit
     // agent assignment > tier > default.
     modelTiers: v.optional(modelTiersValidator),
@@ -840,7 +851,9 @@ export default defineSchema({
           // Plan Inspector: the plan waiting for review (reads live state).
           v.literal("plan"),
           // L6: a side effect Fhara could not confirm (Check / Mark done / Retry).
-          v.literal("side_effect")
+          v.literal("side_effect"),
+          // Options review (show_options): reads the review row live.
+          v.literal("options")
         ),
         data: v.any(),
       })
@@ -1208,6 +1221,8 @@ export default defineSchema({
     latestResult: v.optional(v.string()),
     openQuestions: v.array(v.string()),
     nextStep: v.optional(v.string()),
+    // Options review answers (lib/brief.ts decisions), newest last.
+    decisions: v.optional(v.array(v.string())),
     updatedAt: v.number(),
     updatedBy: v.union(v.literal("user"), v.literal("worker")),
   })
@@ -1888,6 +1903,72 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_name", ["name"]),
+
+  // Options review (show_options, lib/optionsReview.ts): an agent asks the
+  // user to pick between options (html mockups, images, markdown). The
+  // subtask waits in-process like a run_command approval. `draft` is saved
+  // apart from `response`: closing the card never sends anything.
+  optionReviews: defineTable({
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    subtaskKey: v.optional(v.string()),
+    executionId: v.optional(v.id("executions")),
+    agentId: v.optional(v.id("agents")),
+    role: v.string(),
+    purpose: v.union(
+      v.literal("design"),
+      v.literal("architecture"),
+      v.literal("schema"),
+      v.literal("research"),
+      v.literal("deploy"),
+      v.literal("other")
+    ),
+    title: v.string(),
+    note: v.optional(v.string()),
+    // App route the options are for (design reviews), used by QA's
+    // build-vs-mockup screenshot.
+    route: v.optional(v.string()),
+    recommended: v.optional(v.string()),
+    options: v.array(
+      v.object({
+        id: v.string(),
+        title: v.string(),
+        note: v.optional(v.string()),
+        reference: v.optional(v.boolean()),
+        kind: v.union(v.literal("html"), v.literal("image"), v.literal("markdown")),
+        // Sanitized HTML only (the worker's validator + sanitizer ran).
+        html: v.optional(v.string()),
+        markdown: v.optional(v.string()),
+        imageStorageId: v.optional(v.id("_storage")),
+        findings: v.optional(v.array(v.string())),
+      })
+    ),
+    status: v.union(v.literal("pending"), v.literal("answered"), v.literal("auto"), v.literal("cancelled")),
+    draft: v.optional(reviewDraftValidator),
+    response: v.optional(reviewDraftValidator),
+    // The text the agent received (and the task brief carries).
+    replyText: v.optional(v.string()),
+    decidedBy: v.optional(v.union(v.literal("user"), v.literal("auto"))),
+    revision: v.number(),
+    cancelReason: v.optional(v.string()),
+    // Build-vs-mockup check (QA): screenshot of the built route next to the
+    // picked option, and an LLM layout note. A warning, never a gate.
+    buildCheck: v.optional(
+      v.object({
+        route: v.string(),
+        imageStorageId: v.optional(v.id("_storage")),
+        verdict: v.union(v.literal("matches"), v.literal("differs"), v.literal("unknown")),
+        note: v.string(),
+        checkedAt: v.number(),
+      })
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    answeredAt: v.optional(v.number()),
+  })
+    .index("by_task", ["taskId"])
+    .index("by_status", ["status"])
+    .index("by_project_and_status", ["projectId", "status"]),
 
   // Built-in skills already seeded into the Library, one row per key, so a
   // built-in the user deleted is never inserted again.

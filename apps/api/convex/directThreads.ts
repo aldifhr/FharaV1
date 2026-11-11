@@ -558,7 +558,7 @@ export const appendEvents = internalMutation({
         type: event.type,
         ...(event.eventKey ? { eventKey: event.eventKey.slice(0, 200) } : {}),
         payload,
-        level: event.type === "turn.completed" && payload.outcome === "failed" ? "warn" : "info",
+        level: event.type === "turn.completed" && (payload.outcome === "failed" || payload.outcome === "timed_out") ? "warn" : "info",
       });
       const row = await ctx.db.get(eventId);
       const seq = row?.sequence ?? 0;

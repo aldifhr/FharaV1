@@ -9,7 +9,8 @@ import type { ToolGateAnswer, ToolGateCall } from "./toolGate";
 
 export type { NormalizedEvent };
 
-export type TurnOutcome = "completed" | "interrupted" | "failed";
+/** timed_out: the turn watchdog stopped it (threadRunner.ts; never an engine's own result). */
+export type TurnOutcome = "completed" | "interrupted" | "failed" | "timed_out";
 
 export interface TurnUsage {
   inputTokens: number;
@@ -41,6 +42,12 @@ export interface SessionSink {
   output(out: AcpOutput | { kind: "session"; sessionId: string; model?: string } | { kind: "result"; result: TurnResult }): void;
   /** A tool call wants a decision; resolves once answered or cancelled. */
   requestApproval(call: ToolGateCall): Promise<ToolGateAnswer>;
+  /**
+   * A frame from the agent arrived mid-turn (the turn watchdog's liveness
+   * signal); progress when it advanced the turn (text, a tool, a plan), not
+   * a heartbeat or usage broadcast.
+   */
+  activity?(progress: boolean): void;
   /** The engine ended (error: it crashed or could not start). */
   exited(error?: Error): void;
 }

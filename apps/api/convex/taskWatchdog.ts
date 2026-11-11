@@ -112,7 +112,9 @@ export const run = internalMutation({
       for (const task of candidates) {
         // A direct thread holds its lease while idle or waiting on a card
         // (threadbear T2): the worker releases it after DIRECT_IDLE_MIN, and
-        // a dead worker is handled by recoverDirect. Never "stuck" here.
+        // a dead worker is handled by recoverDirect. Never "stuck" here: a
+        // hung ACP turn is stopped by the worker's turn watchdog (Nuphos N3,
+        // packages/worker/src/direct/threadRunner.ts) as `timed_out`.
         if (task.mode === "direct") continue;
         // O3 + L7: a task on a provider hold waits for its backoff resume;
         // never "stuck" (defensive: a held task is `paused`, not running).

@@ -340,6 +340,21 @@ export class AgentPidRegistry {
     return results;
   }
 
+  /**
+   * Stops one recorded agent group now (the turn watchdog's kill, through
+   * AcpProcess.kill): verified first, SIGTERM, grace, SIGKILL. False when
+   * the pid isn't recorded here (the caller signals it itself).
+   */
+  async stop(pid: number): Promise<boolean> {
+    const rec = this.agents.get(pid);
+    if (!rec || !this.proc) return false;
+    const r = await this.stopGroup(rec);
+    if (r.outcome === "skipped") return false;
+    this.agents.delete(pid);
+    this.write();
+    return true;
+  }
+
   /** Graceful shutdown: stops what this worker still has recorded and removes its file. */
   async reapOwn(): Promise<ReapResult[]> {
     if (!this.proc) return [];

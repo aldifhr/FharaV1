@@ -60,7 +60,7 @@ export function historyItems(events: HandoffEvent[], skipFromSeq?: number): Item
       if (edited.has(key)) continue;
       edited.add(key);
       items.push({ seq, role: "work", text: `Edited: ${str(p.path)}` });
-    } else if (e.type === "turn.completed" && p.outcome === "failed" && str(p.error)) {
+    } else if (e.type === "turn.completed" && (p.outcome === "failed" || p.outcome === "timed_out") && str(p.error)) {
       items.push({ seq, role: "work", text: `Error: ${clip(str(p.error), 500)}` });
     }
   }

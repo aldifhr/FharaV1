@@ -25,8 +25,16 @@
  *   at most every ~300 ms; the persisted event replaces the hot row.
  * - The budget gate (rule 6) runs before every prompt, before any process
  *   is spawned for a new turn.
+ * - Turn watchdog (Nuphos N3, vendor/nuphos/turnTimers.ts): a turn with no
+ *   frame from the agent for the inactivity window, or no real progress
+ *   (only heartbeats) for the progress window, gets a system.note naming
+ *   the window, then the Stop path (session/cancel, grace, kill through the
+ *   agent pid registry), and completes as `timed_out` with that reason. A
+ *   turn parked on an approval card is exempt up to a cap. The thread stays
+ *   usable: the next message resumes the session.
  */
 import type { AcpOutput, NormalizedEvent } from "@/vendor/threadbear/acp/normalize";
+import { TurnWatchdog, type TurnTimeoutReason } from "@/vendor/nuphos/turnTimers";
 import { handoffNote, type HandoffEvent } from "./handoff";
 import { DirectStreamRedactor, redactErrorText, redactPayload } from "./streamRedactor";
 import type { ToolGateAnswer, ToolGateCall } from "./toolGate";
@@ -91,6 +99,28 @@ export interface ThreadRunnerOptions {
   now?: () => number;
   newTurnId?: () => string;
   log?: (...args: unknown[]) => void;
+  /** The turn watchdog's windows (ms; 0 turns one off). Left out: no watchdog. */
+  watchdog?: TurnWatchdogConfig;
+}
+
+export type TurnWatchdogConfig = { inactivityMs: number; progressMs: number; approvalCapMs?: number };
+
+export type TurnTimeout = { reason: TurnTimeoutReason; windowMs: number; waitingOnApproval: boolean };
+
+function span(ms: number): string {
+  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))} s`;
+  const min = Math.round(ms / 60_000);
+  return `${min} min`;
+}
+
+/** What the person reads when the watchdog stops a turn. */
+export function timeoutMessage(t: TurnTimeout): string {
+  const why = t.waitingOnApproval
+    ? `This turn waited on an approval for ${span(t.windowMs)}`
+    : t.reason === "no_output"
+      ? `The agent sent nothing for ${span(t.windowMs)}`
+      : `The agent stayed connected but made no progress (no text, tool or plan updates) for ${span(t.windowMs)}`;
+  return `${why}, so the turn was stopped. Send a message to continue.`;
 }
 
 type Turn = {
@@ -100,6 +130,8 @@ type Turn = {
   interruptRequested: boolean;
   grace?: NodeJS.Timeout;
   usage?: TurnUsage;
+  watchdog?: TurnWatchdog;
+  timedOut?: TurnTimeout;
 };
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -210,6 +242,7 @@ export class ThreadRunner {
     }
     const turn: Turn = { turnId, startedAt: this.now(), messages: [input.seq], interruptRequested: false };
     this.turn = turn;
+    this.armWatchdog(turn);
     await this.persist(
       [{ type: "turn.started", eventKey: `turn.started:${turnId}`, payload: { turnId, messageSeq: input.seq } }],
       { deliveredSeq: input.seq, status: this.session ? "running" : "starting", turnId, idleSince: null, stoppedMidTurn: false, error: null }
@@ -234,6 +267,10 @@ export class ThreadRunner {
           if (gen !== this.generation) return Promise.resolve({ decision: "expired" as const });
           return this.requestApproval(call);
         },
+        activity: (progress) => {
+          if (gen !== this.generation) return;
+          this.turn?.watchdog?.frame(progress);
+        },
         exited: (error) => {
           if (gen !== this.generation) return;
           void this.onExited(error);
@@ -243,6 +280,9 @@ export class ThreadRunner {
   }
 
   private onOutput(out: AcpOutput | { kind: "session"; sessionId: string; model?: string } | { kind: "result"; result: TurnResult }): void {
+    // Engines that don't report frames (the API loop) still feed the
+    // watchdog through what they output.
+    if (out.kind === "event" || out.kind === "delta") this.turn?.watchdog?.frame(true);
     switch (out.kind) {
       case "event": {
         const stored = eventPayload(out.event);
@@ -295,6 +335,13 @@ export class ThreadRunner {
     if (this.turn !== turn) return;
     this.turn = undefined;
     if (turn.grace) clearTimeout(turn.grace);
+    turn.watchdog?.stop();
+    // However the stop ended (cancel honoured, the agent killed or exiting),
+    // a turn the watchdog stopped is reported as timed out, with its reason.
+    if (turn.timedOut) {
+      outcome = "timed_out";
+      error = timeoutMessage(turn.timedOut);
+    }
     // What the redactor still held is released (masked) with the turn's last flush.
     for (const [itemId, rest] of this.redactor.endAll()) {
       const cur = this.streamText.get(itemId);
@@ -317,6 +364,7 @@ export class ThreadRunner {
             durationMs,
             answered: turn.messages,
             ...(error ? { error: redactErrorText(error).slice(0, 2000) } : {}),
+            ...(turn.timedOut ? { reason: turn.timedOut.reason, windowMs: turn.timedOut.windowMs } : {}),
             ...(turn.usage ? { usage: turn.usage } : {}),
           },
         },
@@ -367,6 +415,32 @@ export class ThreadRunner {
     await this.failTurn(error?.message ?? "The agent exited.", turn.interruptRequested ? "interrupted" : "failed");
   }
 
+  // ── Turn watchdog ─────────────────────────────────────────────────────
+
+  private armWatchdog(turn: Turn): void {
+    const cfg = this.opts.watchdog;
+    if (!cfg) return;
+    const w = new TurnWatchdog({ ...cfg, now: this.now }, (reason, windowMs) => void this.onTurnTimeout(turn, { reason, windowMs, waitingOnApproval: w.paused }));
+    if (!w.enabled) return;
+    turn.watchdog = w;
+    w.start();
+  }
+
+  /** A window ran out: say so, then stop the turn the way Stop does. */
+  private async onTurnTimeout(turn: Turn, timeout: TurnTimeout): Promise<void> {
+    if (this.turn !== turn || turn.interruptRequested) return;
+    turn.timedOut = timeout;
+    this.opts.log?.("turn watchdog stopped a turn", this.opts.taskId, timeout.reason, timeout.windowMs);
+    await this.persist([
+      {
+        type: "system.note",
+        eventKey: `turn.watchdog:${turn.turnId}`,
+        payload: { text: timeoutMessage(timeout), watchdog: { turnId: turn.turnId, ...timeout } },
+      },
+    ]);
+    await this.interrupt();
+  }
+
   // ── Stop ──────────────────────────────────────────────────────────────
 
   /**
@@ -410,6 +484,9 @@ export class ThreadRunner {
       input: call.description.input,
     });
     if (asked.status === "auto") return { decision: "allow" };
+    // Waiting on the person is not a hung agent (exempt up to the cap).
+    const watched = this.turn?.watchdog;
+    watched?.pause();
     if (this.turn) await this.persist([], { status: "waiting" });
     try {
       for (;;) {
@@ -433,6 +510,7 @@ export class ThreadRunner {
         ]);
       }
     } finally {
+      watched?.resume();
       if (this.turn) await this.persist([], { status: "running" }).catch(() => undefined);
     }
   }

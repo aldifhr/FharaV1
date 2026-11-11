@@ -49,6 +49,15 @@ export function directMaxLive(env?: Record<string, string | undefined>): number 
   return wenv("DIRECT_MAX_LIVE", env); // 1–8
 }
 
+/** The ACP turn watchdog's windows (Nuphos N3), in ms; 0 turns one off. */
+export function directWatchdog(env?: Record<string, string | undefined>): { inactivityMs: number; progressMs: number; approvalCapMs: number } {
+  return {
+    inactivityMs: wenv("DIRECT_INACTIVITY_MIN", env) * 60_000,
+    progressMs: wenv("DIRECT_PROGRESS_MIN", env) * 60_000,
+    approvalCapMs: wenv("DIRECT_WATCHDOG_APPROVAL_MIN", env) * 60_000,
+  };
+}
+
 /** Which engine a thread gets: ACP when OpenCode is installed and may run there. */
 export function chooseDirectEngine(input: {
   binary: string | undefined;
@@ -292,6 +301,8 @@ export class DirectThreads {
       sessionId: engine.name === "opencode-acp" && claimed.direct.engine === "opencode-acp" ? claimed.direct.sessionId : undefined,
       budgetGate,
       log: this.deps.log,
+      // ACP turns only: session/prompt has no timeout of its own.
+      ...(engine.name === "opencode-acp" ? { watchdog: directWatchdog() } : {}),
     });
     const live: Live = {
       taskId,

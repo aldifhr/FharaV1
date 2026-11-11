@@ -601,6 +601,45 @@
       ]
     },
     {
+      "name": "DIRECT_INACTIVITY_MIN",
+      "type": "int",
+      "group": "direct",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Turn watchdog: minutes with no frame at all from the ACP agent before the turn is stopped as timed out (0 = off). Generous: a slow model can think for several minutes between frames.",
+      "default": "20",
+      "parse": "clampBlank",
+      "min": 0,
+      "max": 1440
+    },
+    {
+      "name": "DIRECT_PROGRESS_MIN",
+      "type": "int",
+      "group": "direct",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Turn watchdog: minutes with no real progress (text, tool or plan updates; heartbeats don't count) before the turn is stopped as timed out (0 = off).",
+      "default": "30",
+      "parse": "clampBlank",
+      "min": 0,
+      "max": 1440
+    },
+    {
+      "name": "DIRECT_WATCHDOG_APPROVAL_MIN",
+      "type": "int",
+      "group": "direct",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Turn watchdog: a turn waiting on an approval card is exempt for up to this many minutes (0 = no cap).",
+      "default": "60",
+      "parse": "clampBlank",
+      "min": 0,
+      "max": 1440
+    },
+    {
       "name": "ORCHESTRATOR_MAX_REPLANS",
       "type": "int",
       "group": "policy",

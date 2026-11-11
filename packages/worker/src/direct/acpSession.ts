@@ -10,6 +10,8 @@
 // session/prompt and no timeout, interrupt() via session/cancel with every
 // open request answered "cancelled", resultFor's stop-reason mapping, and
 // the end/kill/exited order. Usage comes from the session/prompt answer.
+// session/prompt still has no timeout of its own: each session/update is
+// reported to the runner's turn watchdog (Nuphos N3, threadRunner.ts).
 
 // Threads on OpenCode over ACP: one process per live thread, and everything
 // it wants to do comes through here first. The agent is set to ask before
@@ -29,6 +31,7 @@ import {
 } from "@/vendor/threadbear/acp/connection";
 import { identifiesOpencode } from "@/vendor/threadbear/acp/agents";
 import { AcpNormalizer, isPlainObject, requestPaths, type AcpOutput, type AcpToolCall } from "@/vendor/threadbear/acp/normalize";
+import { isTurnProgressUpdate } from "@/vendor/nuphos/turnTimers";
 import { describeToolCall, gateToolCall } from "./toolGate";
 import {
   SessionNotFoundError,
@@ -203,6 +206,8 @@ export class AcpSession implements DirectSession {
   private notification(method: string, params: unknown): void {
     if (this.replaying || method !== "session/update" || !isPlainObject(params)) return;
     if (this.sessionId && params.sessionId !== undefined && params.sessionId !== this.sessionId) return;
+    // Every frame is liveness for the turn watchdog; only some are progress.
+    if (this.turn) this.sink.activity?.(isTurnProgressUpdate(params));
     this.emit(this.normalizer.handle(params.update));
   }
 

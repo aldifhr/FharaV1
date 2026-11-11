@@ -10,7 +10,10 @@
 // message names the cause of death (vendor/nuphos/processDeath.ts, from
 // Nuphos); a bare internal error gets the redacted tail as its detail. The
 // agent's process group is reported to processHooks (direct/agentPids.ts)
-// and, once its leader exits, any member left behind is signalled.
+// and, once its leader exits, any member left behind is signalled. kill()
+// stops the group through the registry when it can (processHooks.stop:
+// verified, TERM, grace, KILL), so the turn watchdog's last step (Nuphos N3)
+// never signals a reused pid.
 // Everything else (the JSON-RPC framing, pending map, timeouts, close/kill
 // order) is unchanged.
 
@@ -112,6 +115,11 @@ export type AcpProcessOptions = {
 export type AcpProcessHooks = {
   spawned(pid: number, cmd: { binary: string; args: string[]; label: string }): void;
   exited(pid: number): void;
+  /**
+   * Stop the group now, verified against the record (agentPids.ts).
+   * Resolves false when it isn't recorded there; kill() then signals it itself.
+   */
+  stop?(pid: number): Promise<boolean>;
 };
 
 // The ACP version this client speaks; initialize's answer must match it.
@@ -485,6 +493,20 @@ export class AcpProcess {
     if (this.exited) return;
     if (!this.pid) return void this.child?.kill('SIGKILL');
     const pid = this.pid;
+    const stop = this.opts.processHooks?.stop;
+    if (stop && process.platform !== 'win32') {
+      void stop
+        .call(this.opts.processHooks, pid)
+        .catch(() => false)
+        .then((done) => {
+          if (!done && !this.exited) this.signalKill(pid);
+        });
+      return;
+    }
+    this.signalKill(pid);
+  }
+
+  private signalKill(pid: number): void {
     killGroup(pid, 'SIGTERM');
     setTimeout(() => {
       if (groupAlive(pid)) killGroup(pid, 'SIGKILL');

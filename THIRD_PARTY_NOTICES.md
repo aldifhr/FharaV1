@@ -901,6 +901,11 @@ SOFTWARE.
     agent's death in words; a SIGKILL while the cgroup's `oom_kill` count rose names the memory limit). Modified by
     Fhara: TypeScript, identifiers renamed, cgroup root and reader as parameters, reason built from the exit
     code/signal, described in the worker instead of announced on stderr.
+  - `packages/worker/src/vendor/nuphos/turnTimers.ts`: copy of `apps/backend/src/lib/claude-code-preview/openab-acp-timers.ts`
+    (`TURN_PROGRESS_UPDATES`, `isTurnProgressUpdate`; `createCallTimer`'s two windows, inactivity and progress, as one
+    timer). Modified by Fhara: a per-turn `TurnWatchdog` class with an approval-wait pause and cap and a callback naming
+    the window that ran out, instead of a per-call timer and OpenAbTimeoutError; `refreshSessionTimers` dropped. Used
+    by the direct-thread turn watchdog (`packages/worker/src/direct/threadRunner.ts`).
   - `packages/worker/src/direct/streamRedactor.ts`: the idea of holding back a possible secret across stream chunks
     from `apps/backend/src/lib/claude-code-preview/streamed-token-redaction.ts` (pattern only, no code copied; the
     redaction is Fhara's L2).

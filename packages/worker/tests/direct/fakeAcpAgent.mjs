@@ -11,6 +11,10 @@
 //   "wait-cancel"  holds the turn until session/cancel, then stopReason cancelled
 //   "hang"         holds the turn forever and ignores session/cancel
 //   "die-secret"   streams a key split over chunks, writes it to stderr, exits 3
+//   "silent"       sends nothing until session/cancel, then stopReason cancelled
+//   "heartbeat"    only usage_update frames (every FAKE_ACP_HEARTBEAT_MS, default
+//                  50 ms) until session/cancel, then stopReason cancelled
+//   "heartbeat-hang" heartbeats forever and ignores session/cancel
 //   anything else  echoes the whole prompt text
 // FAKE_ACP_KNOWN_SESSION: the only id session/resume accepts.
 import fs from "node:fs";
@@ -107,6 +111,18 @@ async function prompt(id, params) {
     return send({ id, result: { stopReason: "cancelled" } });
   }
   if (text === "hang") return; // never answers, ignores session/cancel
+  if (text === "silent") {
+    await new Promise((resolve) => (cancelWaiter = resolve));
+    return send({ id, result: { stopReason: "cancelled" } });
+  }
+  if (text === "heartbeat" || text === "heartbeat-hang") {
+    const every = Number(process.env.FAKE_ACP_HEARTBEAT_MS ?? 50);
+    const beat = setInterval(() => notify(sessionId, { sessionUpdate: "usage_update", used: 1, size: 100 }), every);
+    if (text === "heartbeat-hang") return; // beats until killed
+    await new Promise((resolve) => (cancelWaiter = resolve));
+    clearInterval(beat);
+    return send({ id, result: { stopReason: "cancelled" } });
+  }
   if (text === "die-secret") {
     // Streams a key split over three chunks, then dies with secrets on stderr.
     const key = process.env.FAKE_ACP_SECRET ?? "sk-proj-FAKEsecretKEY0123456789abcdef";

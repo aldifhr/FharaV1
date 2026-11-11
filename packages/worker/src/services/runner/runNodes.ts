@@ -291,8 +291,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
               subtaskKey: node.id,
               ...(executionId ? { executionId: String(executionId) } : {}),
               requestedByAgentId: String(agent._id),
-              command: cmd.command,
-              args: cmd.args,
+              ...cmd, // command, args, and kind "run_unconfined" for a sandbox rerun (D6)
               workspaceRoot: input.workspacePath,
             },
             {

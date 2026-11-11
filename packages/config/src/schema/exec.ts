@@ -206,4 +206,22 @@ export const EXEC_VARS = [
     group: "exec",
     doc: "Hours a task's spill files are kept (swept at worker start and hourly).",
   },
+  {
+    name: "SANDBOX_MODE",
+    type: "enum",
+    options: ["workspace-write", "read-only", "off"],
+    default: "workspace-write",
+    runtimes: ["worker"],
+    group: "exec",
+    doc: "Agent commands run in a bwrap sandbox (Linux): workspace-write (default; the worktree and extra roots are writable, /tmp is private), read-only, or off (explicit opt-out). A non-off mode without a usable bwrap reports SANDBOX_UNAVAILABLE and asks before running a command unconfined. Unset on macOS/Windows means off.",
+  },
+  {
+    name: "SANDBOX_EXTRA_WRITE_ROOTS",
+    type: "csv",
+    parse: "nullish",
+    default: "",
+    runtimes: ["worker"],
+    group: "exec",
+    doc: "Extra absolute directories a sandboxed command may write (comma-separated), e.g. a shared build cache.",
+  },
 ] as const satisfies readonly EnvVar[];

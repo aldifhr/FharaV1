@@ -37,6 +37,7 @@ const KIND_LABEL: Record<string, string> = {
   apply_changes: "Apply changes",
   git_push: "Git push",
   run_command: "Run command",
+  run_unconfined: "Run without the sandbox",
   merge_pr: "Merge PR",
   plan: "Review plan",
 };
@@ -68,7 +69,7 @@ export default function ApprovalCard(
   props: Parameters<typeof GenericApprovalCard>[0] & { onRespond?: (approvalId: string, decision: CommandDecision) => unknown }
 ) {
   if (props.approval.kind === "plan") return <PlanCard data={{ taskId: props.approval.taskId }} />;
-  if (props.approval.kind === "run_command" && props.onRespond) {
+  if ((props.approval.kind === "run_command" || props.approval.kind === "run_unconfined") && props.onRespond) {
     return <CommandApprovalCard approval={props.approval} taskTitle={props.taskTitle} agentRole={props.agent?.role} onRespond={props.onRespond} />;
   }
   return <GenericApprovalCard {...props} />;

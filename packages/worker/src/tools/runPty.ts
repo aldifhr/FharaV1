@@ -3,6 +3,7 @@ import type { IPty } from "@lydell/node-pty";
 import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import { isCommandAllowed } from "@/utils/commandAllowlist";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
+import { isSandboxDenial, SandboxUnavailableError, sandboxStatus, wrapCommand } from "@/tools/osSandbox";
 import { shouldUseShell } from "@/tools/runCommand";
 import { redactText } from "@/utils/redact";
 import { shellGuardDecisionForArgv } from "@/utils/shellGuard";
@@ -41,6 +42,8 @@ export interface RunPtyOptions {
   /** History caps (GOAT G11 defaults: 5,000 lines / 1 MiB of UTF-8). */
   maxLines?: number;
   maxBytes?: number;
+  /** D6: run without the bwrap sandbox (only after a `run_unconfined` approval). */
+  unconfined?: boolean;
 }
 
 export interface RunPtyResult {
@@ -49,6 +52,8 @@ export interface RunPtyResult {
   code: number | null;
   timedOut: boolean;
   truncated: boolean;
+  /** D6: the sandbox refused a write (output carries a denial signature). */
+  sandbox?: "denied";
 }
 
 export class PtyUnavailableError extends Error {
@@ -127,15 +132,22 @@ function killPtyTree(handle: PtyHandle): void {
 }
 
 /**
- * The one place a PTY process is started. D6 (bwrap sandbox) wraps this
- * call; keep it small and keep every spawn going through it.
+ * The one place a PTY process is started. D6: the argv goes through the
+ * bwrap sandbox (tools/osSandbox.ts) unless the mode is off or the user
+ * approved an unconfined rerun; without bwrap it throws
+ * SandboxUnavailableError instead of running unconfined.
  */
 export async function spawnPtyProcess(
   command: string,
   args: string[],
   options: PtySpawnOptions,
-  spawnImpl?: PtySpawnImpl
+  spawnImpl?: PtySpawnImpl,
+  sandbox: { unconfined?: boolean } = {}
 ): Promise<PtyHandle> {
+  const wrapped = wrapCommand(command, args, options.cwd, { unconfined: sandbox.unconfined });
+  if (wrapped.kind === "unavailable") throw new SandboxUnavailableError(wrapped.message);
+  const sandboxed = wrapped.kind === "sandboxed";
+  if (sandboxed) [command, args] = [wrapped.command, wrapped.args];
   if (spawnImpl) return spawnImpl(command, args, options);
   let spawnFn: typeof import("@lydell/node-pty").spawn;
   try {
@@ -144,7 +156,7 @@ export async function spawnPtyProcess(
     throw new PtyUnavailableError(error);
   }
   try {
-    if (process.platform === "win32" && shouldUseShell(command)) {
+    if (!sandboxed && process.platform === "win32" && shouldUseShell(command)) {
       return spawnFn("cmd.exe", ["/c", command, ...args], options);
     }
     return spawnFn(command, args, options);
@@ -182,7 +194,8 @@ export async function runPty(
     rows: clamp(options.rows ?? 24, 10, 60, 24),
     name: "xterm-256color",
   };
-  const handle = await spawnPtyProcess(command, args, spawnOptions, options.spawnImpl);
+  const confined = !options.unconfined && sandboxStatus().active;
+  const handle = await spawnPtyProcess(command, args, spawnOptions, options.spawnImpl, { unconfined: options.unconfined });
 
   return new Promise<RunPtyResult>((resolve) => {
     // GOAT G11: bounded history (line + UTF-8 byte cap, surrogate-safe
@@ -223,6 +236,7 @@ export async function runPty(
       dataSub?.dispose();
       exitSub?.dispose();
       const output = history.value();
+      const denied = confined && code !== 0 && isSandboxDenial(output);
       resolve({
         // L2: masked after the ANSI strip (escapes can hide a key=value).
         stdout: redactText(stripAnsi(output)),
@@ -230,6 +244,7 @@ export async function runPty(
         code,
         timedOut,
         truncated: history.position > output.length,
+        ...(denied ? { sandbox: "denied" as const } : {}),
       });
     };
 

@@ -5,6 +5,7 @@ import { recordAudit } from "./lib/recordAudit";
 import { onPlanApproved, onPlanRejected } from "./planReview";
 import { scheduleDecisionEvaluation } from "./lib/calibration/store";
 import { resolveCommandApproval } from "./commandApprovals";
+import { isCommandApprovalKind } from "./lib/commandApprovalKinds";
 import { signalApprovalDecision } from "./taskSignals";
 import { appendTaskEvent } from "./lib/taskEvents";
 import { approvalFingerprint, checkShown } from "./lib/approvalFingerprint";
@@ -57,7 +58,7 @@ export const approve = mutation({
     const shown = await checkShown(approval, args);
     if (!shown.ok) throw new Error(shown.reason);
     // In-process command waits record a decision the worker reads (one-time allow).
-    if (approval.kind === "run_command") {
+    if (isCommandApprovalKind(approval.kind)) {
       await resolveCommandApproval(ctx, approval, "allow");
       return true;
     }
@@ -100,7 +101,7 @@ export const reject = mutation({
     }
     const shown = await checkShown(approval, args);
     if (!shown.ok) throw new Error(shown.reason);
-    if (approval.kind === "run_command") {
+    if (isCommandApprovalKind(approval.kind)) {
       await resolveCommandApproval(ctx, approval, "deny");
       return true;
     }

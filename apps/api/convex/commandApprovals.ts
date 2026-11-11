@@ -33,6 +33,7 @@ import {
   type CommandDecision,
 } from "./lib/commandRules";
 import { appendTaskEvent } from "./lib/taskEvents";
+import { commandRequestArgs, isCommandApprovalKind, UNCONFINED_WARNING } from "./lib/commandApprovalKinds";
 
 const TERMINAL = new Set(["done", "failed", "rejected", "cancelled"]);
 const LEASE_LOST = "Lease lost: this task is no longer owned by this worker";
@@ -44,19 +45,11 @@ export const decisionValidator = v.union(v.literal("allow"), v.literal("always")
 /**
  * Worker → backend: ask for one command. Returns `auto` (approved row
  * already written, run it), or `pending` with the row id to wait on.
+ * D6: kind `run_unconfined` (a rerun without the bwrap sandbox) always
+ * asks, in every mode, offers no "Always allow" and reuses no earlier allow.
  */
 export const request = internalMutation({
-  args: {
-    taskId: v.id("tasks"),
-    projectId: v.id("projects"),
-    subtaskKey: v.optional(v.string()),
-    executionId: v.optional(v.id("executions")),
-    requestedByAgentId: v.optional(v.id("agents")),
-    command: v.string(),
-    args: v.array(v.string()),
-    workspaceRoot: v.optional(v.string()),
-    workerId: v.optional(v.string()),
-  },
+  args: commandRequestArgs,
   handler: async (
     ctx,
     args
@@ -77,21 +70,23 @@ export const request = internalMutation({
     });
     const line = formatCommand(args.command, args.args);
     const now = Date.now();
+    const unconfined = args.kind === "run_unconfined";
+    const danger = unconfined ? UNCONFINED_WARNING : policy.danger;
     const base = {
       taskId: args.taskId,
       projectId: args.projectId,
-      kind: "run_command" as const,
-      summary: `Run ${line}`.slice(0, 300),
-      payload: { command: line, head: policy.head, inline: true, ...(policy.danger ? { danger: policy.danger } : {}) },
+      kind: unconfined ? ("run_unconfined" as const) : ("run_command" as const),
+      summary: `${unconfined ? "Run without the sandbox:" : "Run"} ${line}`.slice(0, 300),
+      payload: { command: line, head: policy.head, inline: true, ...(danger ? { danger } : {}), ...(unconfined ? { unconfined: true } : {}) },
       toolName: "run_command",
       arguments: { command: args.command, args: args.args },
       ...(args.workspaceRoot ? { workspacePath: args.workspaceRoot } : {}),
       ...(args.requestedByAgentId ? { requestedByAgentId: args.requestedByAgentId } : {}),
       ...(args.executionId ? { executionId: args.executionId } : {}),
       ...(args.subtaskKey ? { subtaskKey: args.subtaskKey } : {}),
-      offerAlways: policy.offerAlways,
+      offerAlways: unconfined ? false : policy.offerAlways,
     };
-    if (policy.action === "auto") {
+    if (policy.action === "auto" && !unconfined) {
       const approvalId = await ctx.db.insert("approvals", {
         ...base,
         status: "approved",
@@ -129,7 +124,7 @@ export const request = internalMutation({
     // Replay after a lost worker: the user already allowed this exact
     // command for this subtask and no waiter consumed the signal (the old
     // worker died mid-wait). Reuse that decision instead of asking twice.
-    const reused = await reusableAllow(ctx, args.taskId, args.subtaskKey, line);
+    const reused = unconfined ? null : await reusableAllow(ctx, args.taskId, args.subtaskKey, line);
     if (reused) {
       await ctx.db.patch(reused._id, { consumedAt: now, consumedBy: args.workerId ?? "replay" });
       await appendTaskEvent(ctx, {
@@ -152,12 +147,12 @@ export const request = internalMutation({
     ).find(
       (row) =>
         row.status === "pending" &&
-        row.kind === "run_command" &&
+        row.kind === base.kind &&
         (row.subtaskKey ?? null) === (args.subtaskKey ?? null) &&
         (row.payload as { command?: unknown } | undefined)?.command === line
     );
     if (orphan) {
-      return { status: "pending", approvalId: orphan._id, reason: policy.reason, offerAlways: orphan.offerAlways ?? policy.offerAlways };
+      return { status: "pending", approvalId: orphan._id, reason: policy.reason, offerAlways: orphan.offerAlways ?? base.offerAlways };
     }
     // Idempotent per (task, subtask): one subtask waits on one command at
     // a time, so an older pending card for this subtask belongs to a run
@@ -175,12 +170,12 @@ export const request = internalMutation({
       taskId: args.taskId,
       projectId: args.projectId,
       type: "approval.requested",
-      payload: { kind: "run_command", summary: base.summary, subtaskKey: args.subtaskKey, inline: true },
+      payload: { kind: base.kind, summary: base.summary, subtaskKey: args.subtaskKey, inline: true },
       executionId: args.executionId,
       subtaskKey: args.subtaskKey,
       level: "warn",
     });
-    return { status: "pending", approvalId, reason: policy.reason, offerAlways: policy.offerAlways };
+    return { status: "pending", approvalId, reason: unconfined ? "The command sandbox refused this command" : policy.reason, offerAlways: base.offerAlways };
   },
 });
 
@@ -379,7 +374,7 @@ export const respond = mutation({
     const approval = await ctx.db.get(args.approvalId);
     if (!approval) throw new Error("Approval not found");
     await assertProjectAccess(ctx, approval.projectId);
-    if (approval.kind !== "run_command") throw new Error("Only command approvals take Allow / Always allow / Deny");
+    if (!isCommandApprovalKind(approval.kind)) throw new Error("Only command approvals take Allow / Always allow / Deny");
     // git_push / merge_pr never reach this point (other kinds); a push-like
     // run_command was never offered "always", so always_exact is downgraded.
     const shown = await checkShown(approval, args);
@@ -407,7 +402,7 @@ export async function declineWaitingCommands(
   const note = snippet ? `${USER_REPLIED_NOTE}: ${snippet}` : USER_REPLIED_NOTE;
   let declined = 0;
   for (const approval of pending) {
-    if (approval.kind !== "run_command" || (approval.payload as { inline?: unknown } | undefined)?.inline !== true) continue;
+    if (!isCommandApprovalKind(approval.kind) || (approval.payload as { inline?: unknown } | undefined)?.inline !== true) continue;
     if (scope.taskId) {
       if (approval.taskId !== scope.taskId) continue;
     } else {

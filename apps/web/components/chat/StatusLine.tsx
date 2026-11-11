@@ -4,7 +4,21 @@ import { roleLabel } from "@/lib/agentRoles";
 import type { StatusMap, TeamStatusEntry } from "@/lib/teamStatus";
 import type { AgentRef as Agent } from "@/lib/types";
 
-type CheckEvent = { taskId?: string; type: string; payload?: { label?: string }; _creationTime: number };
+type CheckEvent = { taskId?: string; type: string; payload?: { label?: string; sandbox?: string }; _creationTime: number };
+
+/** D6: how the task's newest shell command ran (from its `shell.command` event). */
+const SANDBOX_NOTE: Record<string, string> = {
+  sandboxed: "sandboxed",
+  off: "sandbox off",
+  unconfined: "running unconfined",
+  unavailable: "sandbox unavailable",
+};
+
+export function sandboxNote(events: CheckEvent[] | undefined, taskId: string | null | undefined): string | null {
+  if (!taskId) return null;
+  const last = (events ?? []).find((e) => e.taskId === taskId && e.type === "shell.command" && typeof e.payload?.sandbox === "string");
+  return last ? (SANDBOX_NOTE[last.payload!.sandbox!] ?? null) : null;
+}
 
 const ORDER = { testing: 0, reviewing: 1, working: 2 } as const;
 
@@ -62,6 +76,8 @@ export default function StatusLine({
     } else {
       text = `${who} is ${entry.status === "reviewing" ? "reviewing" : "working on"} ${entry.taskTitle ?? "a task"}`;
     }
+    const note = sandboxNote(events, entry.taskId);
+    if (note) text = <>{text} <span className="text-ink-3">· {note}</span></>;
     if (busy.length > 1) text = <>{text} · {busy.length - 1} more busy</>;
   } else if (drafting.length > 0) {
     const [a, b] = drafting;

@@ -4,6 +4,7 @@ import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import { isCommandAllowed } from "@/utils/commandAllowlist";
 import { redactText } from "@/utils/redact";
 import { shellGuardDecisionForArgv } from "@/utils/shellGuard";
+import { isSandboxDenial, SandboxUnavailableError, sandboxStatus, wrapCommand } from "@/tools/osSandbox";
 
 const execFileAsync = promisify(execFile);
 
@@ -24,20 +25,26 @@ export function shouldUseShell(command: string): boolean {
 }
 
 /**
- * The one place a non-PTY command process is started. D6 (bwrap sandbox)
- * wraps this call; keep it small and keep every spawn going through it.
+ * The one place a non-PTY command process is started. D6: the argv goes
+ * through the bwrap sandbox (tools/osSandbox.ts) unless the mode is off or
+ * the user approved an unconfined rerun; a non-off mode without bwrap
+ * rejects with SandboxUnavailableError instead of running unconfined.
  */
 export function execCommandProcess(
   command: string,
   args: string[],
   cwd: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options: { unconfined?: boolean } = {}
 ): Promise<{ stdout: string; stderr: string }> {
-  return execFileAsync(command, args, {
+  const wrapped = wrapCommand(command, args, cwd, { unconfined: options.unconfined });
+  if (wrapped.kind === "unavailable") return Promise.reject(new SandboxUnavailableError(wrapped.message));
+  return execFileAsync(wrapped.command, wrapped.args, {
     cwd,
     timeout: 120_000,
     maxBuffer: 10 * 1024 * 1024,
-    shell: shouldUseShell(command),
+    // bwrap execs the real binary itself; a shell would re-split the argv.
+    shell: wrapped.kind === "sandboxed" ? false : shouldUseShell(command),
     windowsHide: true,
     env: buildChildEnv(),
     // Task cancellation (Phase 4): execFile kills the child when the
@@ -47,12 +54,15 @@ export function execCommandProcess(
   });
 }
 
+/** Set when the sandbox refused the command: a denied write, or no usable bwrap. */
+export type SandboxRefusal = "denied" | "unavailable";
+
 export async function runCommand(
   workspaceRoot: string,
   command: string,
   args: string[] = [],
-  options: { signal?: AbortSignal } = {}
-): Promise<{ stdout: string; stderr: string }> {
+  options: { signal?: AbortSignal; unconfined?: boolean } = {}
+): Promise<{ stdout: string; stderr: string; sandbox?: SandboxRefusal }> {
   if (!isCommandAllowed(command, args)) {
     throw new Error(`Command blocked (not allowlisted): ${command} ${args.join(" ")}`);
   }
@@ -62,13 +72,18 @@ export async function runCommand(
     throw new Error(`Command blocked by rule ${guard.rule} (${guard.reason}): ${command} ${args.join(" ")}`);
   }
   try {
-    const { stdout, stderr } = await execCommandProcess(command, args, workspaceRoot, options.signal);
+    const { stdout, stderr } = await execCommandProcess(command, args, workspaceRoot, options.signal, { unconfined: options.unconfined });
     // L2: output leaves the worker (chat, events): mask secrets first.
     return { stdout: redactText(stdout), stderr: redactText(stderr) };
   } catch (err: any) {
-    return {
-      stdout: redactText(String(err?.stdout ?? "")),
-      stderr: redactText(String(err?.stderr ?? err?.message ?? String(err))),
-    };
+    const stdout = String(err?.stdout ?? "");
+    const stderr = String(err?.stderr ?? err?.message ?? String(err));
+    const sandbox: SandboxRefusal | undefined =
+      err instanceof SandboxUnavailableError
+        ? "unavailable"
+        : !options.unconfined && sandboxStatus().active && isSandboxDenial(`${stdout}\n${stderr}`)
+          ? "denied"
+          : undefined;
+    return { stdout: redactText(stdout), stderr: redactText(stderr), ...(sandbox ? { sandbox } : {}) };
   }
 }

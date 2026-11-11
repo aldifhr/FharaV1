@@ -82,7 +82,11 @@ const KIND_TITLE: Record<string, string> = {
   git_push: "Push to remote",
   merge_pr: "Merge pull request",
   run_command: "Run command",
+  run_unconfined: "Run without the sandbox",
 };
+
+/** In-process command approvals: run_command, and D6's run_unconfined rerun. */
+const isCommandKind = (kind: string) => kind === "run_command" || kind === "run_unconfined";
 
 const roleName = (role?: string | null) => {
   const r = (role ?? "").trim();
@@ -102,6 +106,23 @@ function inScope(conversationId: string | null | undefined, current: string | nu
 
 export function approvalTrayItem(a: TrayApprovalInput): TrayItem {
   const base = { approvalId: a._id, taskId: a.taskId, at: a._creationTime, meta: meta(a.agentRole, a.taskTitle) };
+  if (a.kind === "run_unconfined") {
+    // D6: the sandbox refused the command; the user decides on a rerun without it.
+    const command = String(a.payload?.command ?? a.summary.replace(/^Run without the sandbox:\s+/, ""));
+    return {
+      ...base,
+      key: `approval:${a._id}`,
+      kind: "command",
+      title: "The command sandbox blocked a command",
+      code: command,
+      warning: typeof a.payload?.danger === "string" ? a.payload.danger : "Runs again without the command sandbox",
+      actions: [
+        { id: "allow", label: "Run unconfined", primary: true },
+        { id: "deny", label: "Keep blocked" },
+      ],
+      composerMode: "deny_with_note",
+    };
+  }
   if (a.kind === "run_command") {
     const command = String(a.payload?.command ?? a.summary.replace(/^Run\s+/, ""));
     const danger = typeof a.payload?.danger === "string" ? a.payload.danger : undefined;
@@ -193,8 +214,8 @@ export function buildDecisionTray(input: {
   conversationId?: string | null;
 }): TrayItem[] {
   const approvals = (input.approvals ?? []).filter((a) => inScope(a.conversationId, input.conversationId));
-  const commands = approvals.filter((a) => a.kind === "run_command").map(approvalTrayItem);
-  const others = approvals.filter((a) => a.kind !== "run_command").map(approvalTrayItem);
+  const commands = approvals.filter((a) => isCommandKind(a.kind)).map(approvalTrayItem);
+  const others = approvals.filter((a) => !isCommandKind(a.kind)).map(approvalTrayItem);
   const byTime = (a: TrayItem, b: TrayItem) => a.at - b.at;
   const questions = (input.questions ?? [])
     .filter((q) => inScope(q.conversationId, input.conversationId))

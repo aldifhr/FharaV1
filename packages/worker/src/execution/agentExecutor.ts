@@ -68,7 +68,8 @@ import {
   type FileDiff,
 } from "@/tools/gitDiff";
 import { isCommandAllowed, runCommand } from "@/tools/runCommand";
-import { runShellCommand } from "@/execution/shellRun";
+import { runSandboxedShell } from "@/execution/shellRun";
+import { sandboxStatus } from "@/tools/osSandbox";
 import { canWriteAny, permissionsForAgent, resolveRoleKey, shellDenial, writeDenial } from "@/utils/rolePolicy";
 import { buildOpencodePolicy } from "./opencodePolicy";
 import { toolLoopEnabled } from "./toolLoopFlag";
@@ -231,7 +232,7 @@ export interface SubtaskExecutionInput {
    * waits in-process (lease kept). Absent: legacy callers run the
    * allowlisted command without asking.
    */
-  requestCommandApproval?: (command: { command: string; args: string[] }) => Promise<CommandApprovalOutcome>;
+  requestCommandApproval?: (command: { command: string; args: string[]; kind?: "run_unconfined" }) => Promise<CommandApprovalOutcome>;
   /**
    * Options review (show_options): store the options, wait for the user's
    * picks and return them as the tool result. Offered only to roles whose
@@ -2506,17 +2507,13 @@ async function executeShell(
       return { status: "completed", output, meta: { commandDeclined: outcome.via, declinedCommand: line } };
     }
   }
-  await onEvent("shell.command", {
-    command: parsed.command,
-    args: parsed.args,
-    cwd: workspacePath,
-  }, "info");
-  // GOAT G11: tests/builds/type checks run in a PTY and stream into the
-  // live tail; other allowlisted commands stay on runCommand.
-  const result = await runShellCommand(workspacePath, parsed.command, parsed.args, {
-    signal,
-    onChunk: input.onChunk,
-  });
+  // GOAT G11: tests/builds/type checks stream through a PTY. D6: inside the
+  // bwrap sandbox; a refusal asks for a `run_unconfined` rerun (never silent).
+  const askCommand = input.requestCommandApproval;
+  const result = await runSandboxedShell(workspacePath, parsed.command, parsed.args, {
+    signal, onChunk: input.onChunk, onEvent: (type, payload, level) => onEvent(type, payload, level),
+    ...(askCommand ? { requestUnconfined: (cmd: { command: string; args: string[] }) => askCommand({ ...cmd, kind: "run_unconfined" }) } : {}),
+  }, sandboxStatus().active);
   const summary = [
     `$ ${parsed.command} ${parsed.args.join(" ")}`,
     result.stdout ? `\n${result.stdout.trimEnd()}` : "",

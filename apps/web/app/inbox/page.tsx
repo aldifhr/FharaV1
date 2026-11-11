@@ -13,6 +13,7 @@ const KIND_LABEL: Record<string, string> = {
   apply_changes: "Apply changes",
   git_push: "Git push",
   run_command: "Run command",
+  run_unconfined: "Run without the sandbox",
   plan: "Review plan",
 };
 
@@ -164,13 +165,13 @@ export default function InboxPage() {
                           {a.taskTitle ? ` · ${a.taskTitle}` : ""}
                           {a.requestedByAgentName ? ` · ${roleLabel(a.requestedByAgentName)}` : ""}
                         </p>
-                        {a.kind === "run_command" && typeof (a.payload as any)?.command === "string" && (
+                        {(a.kind === "run_command" || a.kind === "run_unconfined") && typeof (a.payload as any)?.command === "string" && (
                           <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-line bg-canvas px-3 py-1.5 font-mono text-[12.5px] text-ink">
                             {(a.payload as any).command}
                           </pre>
                         )}
                       </div>
-                      {a.kind === "run_command" ? (
+                      {a.kind === "run_command" || a.kind === "run_unconfined" ? (
                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                           <button
                             type="button"

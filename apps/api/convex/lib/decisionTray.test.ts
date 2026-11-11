@@ -31,6 +31,16 @@ describe("buildDecisionTray", () => {
     const [plain] = buildDecisionTray({ approvals: [approval({ kind: "run_command", payload: { command: "npm test" }, offerAlways: false })] });
     expect(plain.actions.map((a) => a.id)).toEqual(["allow", "deny"]);
   });
+  test("D6: a run_unconfined card offers a rerun without the sandbox, never Always allow", () => {
+    const [item] = buildDecisionTray({
+      approvals: [
+        approval({ kind: "run_unconfined", summary: "Run without the sandbox: npm run test", payload: { command: "npm run test", danger: "Runs again without the command sandbox" }, offerAlways: true }),
+      ],
+    });
+    expect(item).toMatchObject({ kind: "command", code: "npm run test", title: "The command sandbox blocked a command", composerMode: "deny_with_note" });
+    expect(item.actions.map((a) => [a.id, a.label])).toEqual([["allow", "Run unconfined"], ["deny", "Keep blocked"]]);
+    expect(item.warning).toBe("Runs again without the command sandbox");
+  });
   test("reject of a file change confirms", () => {
     const [item] = buildDecisionTray({ approvals: [approval({})] });
     expect(item.actions.find((a) => a.id === "reject")?.confirm).toBe(true);

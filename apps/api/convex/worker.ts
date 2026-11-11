@@ -2,6 +2,7 @@ import { action, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { usageLedgerFields } from "./lib/usageLedger";
+import { commandRequestArgs } from "./lib/commandApprovalKinds";
 import {
   acceptanceStatusValidator,
   escalationValidator,
@@ -447,18 +448,7 @@ export const requestApproval = action({
  * change. Lease-fenced like requestApproval.
  */
 export const requestCommandApproval = action({
-  args: {
-    ...tokenArg,
-    taskId: v.id("tasks"),
-    projectId: v.id("projects"),
-    subtaskKey: v.optional(v.string()),
-    executionId: v.optional(v.id("executions")),
-    requestedByAgentId: v.optional(v.id("agents")),
-    command: v.string(),
-    args: v.array(v.string()),
-    workspaceRoot: v.optional(v.string()),
-    workerId: v.optional(v.string()),
-  },
+  args: { ...tokenArg, ...commandRequestArgs },
   handler: async (
     ctx,
     args

@@ -2,6 +2,7 @@
 import "./utils/loadEnv";
 import { wenv } from "@fhara/config/worker";
 import { sweepSpill } from "@/context/toolOutputSpill";
+import { sandboxCapability, sandboxStatus } from "@/tools/osSandbox";
 import os from "node:os";
 import { createConvexClient, createConvexSubscriber } from "./convexClient";
 import { WorkerApi, type WorkerTask } from "./workerApi";
@@ -63,6 +64,12 @@ function log(...args: unknown[]) {
 
 async function main() {
   const client = createConvexClient();
+  // D6: probe the command sandbox once. A non-off mode without bwrap is
+  // reported loudly (SANDBOX_UNAVAILABLE); commands then ask before running
+  // unconfined instead of running unconfined silently.
+  const sandbox = sandboxStatus();
+  (sandbox.code ? console.warn : console.log)(`[worker:${workerId}] ${sandbox.note}`);
+  const sandboxTag = sandboxCapability(sandbox);
   const api = new WorkerApi(client, wenv("CONVEX_SERVICE_TOKEN")!, workerId);
   // O5: git/gh commands without their own recorder (network git from
   // safeGit) still leave one sanitized `cmd` audit row.
@@ -199,7 +206,7 @@ async function main() {
         activeTaskIds: [...Array.from(inFlight.keys()), ...direct.activeTaskIds()],
         // Grounded chat only queues repo tool calls when an online worker
         // advertises that it polls for them (an older build does not).
-        capabilities: [REPO_TOOLS_CAPABILITY],
+        capabilities: [REPO_TOOLS_CAPABILITY, sandboxTag],
       })
       .then((result) => {
         // Stop runs this worker no longer owns (recovery requeued them or

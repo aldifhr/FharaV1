@@ -38,6 +38,8 @@ export interface CommandApprovalRequest {
   command: string;
   args: string[];
   workspaceRoot?: string;
+  /** D6: a rerun without the bwrap sandbox after it refused the command (always asks). */
+  kind?: "run_unconfined";
 }
 
 export interface CommandApprovalWaitOptions {
@@ -93,6 +95,7 @@ export async function waitForCommandApproval(
       ...(request.executionId ? { executionId: request.executionId } : {}),
       ...(request.requestedByAgentId ? { requestedByAgentId: request.requestedByAgentId } : {}),
       ...(request.workspaceRoot ? { workspaceRoot: request.workspaceRoot } : {}),
+      ...(request.kind ? { kind: request.kind } : {}),
     });
   } catch (error) {
     // Fail closed: no recorded approval, no command.

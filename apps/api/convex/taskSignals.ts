@@ -20,6 +20,7 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { appendTaskEvent } from "./lib/taskEvents";
+import { isCommandApprovalKind } from "./lib/commandApprovalKinds";
 
 export type SignalDecision = "approved" | "rejected";
 
@@ -41,7 +42,7 @@ export async function signalApprovalDecision(
   decision: SignalDecision
 ): Promise<{ signalId: Id<"taskSignals">; woke: boolean }> {
   const now = Date.now();
-  const isCommand = approval.kind === "run_command";
+  const isCommand = isCommandApprovalKind(approval.kind);
   const signalId = await ctx.db.insert("taskSignals", {
     taskId: approval.taskId,
     projectId: approval.projectId,
@@ -92,7 +93,7 @@ export async function supersedePendingCommandApprovals(
   const now = Date.now();
   let closed = 0;
   for (const row of pending) {
-    if (row.status !== "pending" || row.kind !== "run_command") continue;
+    if (row.status !== "pending" || !isCommandApprovalKind(row.kind)) continue;
     if (scope.subtaskKey !== undefined && (row.subtaskKey ?? null) !== (scope.subtaskKey ?? null)) continue;
     await ctx.db.patch(row._id, {
       status: "cancelled",

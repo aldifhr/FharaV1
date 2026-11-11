@@ -1054,6 +1054,11 @@ SOFTWARE.
     task-scoped locator, range reads, surrogate-safe cuts, temp-file + rename writes) after
     `packages/spill/spill-policy` (`retention.ts`, `notice.ts`) and `packages/util/atomic-write`; pattern only, no code
     copied.
+  - `packages/worker/src/tools/osSandbox.ts` (D6): the command sandbox. `bwrapProfileArgs` is adapted from
+    `packages/sandbox/sandbox-local/src/profiles.ts` (read-only root, `/dev`, private PID namespace and `/proc`,
+    `--die-with-parent`, private `/tmp` and bound writable roots in workspace-write), and the one-time functional probe
+    and the bwrap denial dialect (`read-only file system`) follow `src/index.ts`; MIT, header in the file. Fhara adds a
+    `partial` profile without the PID namespace, `--chdir`, and a linked worktree's git common dir as a writable root.
 - Copied (MIT, header in the file): `packages/worker/src/vendor/deepseek-harness/prunerConfig.ts` from
   `packages/compaction/compaction-tool-result-pruner/src/config.ts` (head 4096 + marker + tail 1024, at most 8192;
   `deepFreeze` and the types inlined).

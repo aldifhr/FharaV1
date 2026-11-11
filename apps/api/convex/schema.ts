@@ -96,6 +96,8 @@ export const approvalKind = v.union(
   v.literal("apply_changes"),
   v.literal("git_push"),
   v.literal("run_command"),
+  // D6: rerun a command the bwrap sandbox refused, without it (always asks).
+  v.literal("run_unconfined"),
   v.literal("merge_pr"),
   // Plan Inspector: the plan waits for the user's review before execution.
   v.literal("plan"),

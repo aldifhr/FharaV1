@@ -45,6 +45,19 @@ describe("commandApprovals.request", () => {
     expect(push.status).toBe("pending");
     expect(push.offerAlways).toBe(false);
   });
+  test("D6: run_unconfined always asks, even in full access, and never reuses a run_command allow", async () => {
+    const { t, request, projectId, taskId } = await setup("full_access");
+    expect((await request("npm", ["run", "test"])).status).toBe("auto");
+    const res = await t.mutation(internal.commandApprovals.request, {
+      projectId, taskId, command: "npm", args: ["run", "test"], workspaceRoot: "/ws/p", workerId: "w1", subtaskKey: "s1", kind: "run_unconfined",
+    });
+    expect(res.status).toBe("pending");
+    expect(res.offerAlways).toBe(false);
+    const row = await t.run((ctx) => ctx.db.get(res.approvalId));
+    expect(row).toMatchObject({ kind: "run_unconfined", status: "pending", summary: "Run without the sandbox: npm run test" });
+    const decided = await t.mutation(api.commandApprovals.respond, { approvalId: res.approvalId as any, decision: "always" });
+    expect(decided.decision).toBe("allow");
+  });
   test("auto-accept edits still asks for commands", async () => {
     const { request } = await setup("auto_edits");
     expect((await request("npm", ["run", "test"])).status).toBe("pending");

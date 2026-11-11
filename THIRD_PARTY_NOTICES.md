@@ -72,7 +72,12 @@ SOFTWARE.
   registry of `resource.verb` tools with access declarations driving the read-only/destructive hints,
   the two-tool `describe` + `call` core listing, and the bearer-token HTTP transport on 127.0.0.1; a
   pattern from `apps/server/src/mcp/{McpHttpServer.ts, OrchestratorMcpService.ts, McpToolAccess.ts,
-  ToolDispatch.ts}` and `packages/contracts/src/agentSurface/registry.ts`, no code copied).
+  ToolDispatch.ts}` and `packages/contracts/src/agentSurface/registry.ts`, no code copied);
+  `apps/web/lib/composerPaste.ts` (a paste of 32 KiB or more, or one past the 120k-character composer
+  cap, becomes a text attachment; a pattern from `docs/user/composer.md`) and the handoff compaction
+  rules in `packages/worker/src/direct/handoff.ts` (240-character items; commands, file changes,
+  checkpoints and earlier handoffs; recent turns plus the original request; the new request never cut;
+  a pattern from `docs/internals/context-handoffs.md`), no code copied.
   Modified by Fhara.
   GOAT's Pen, office, PDF, native and asset sub-paths carry other licences; nothing is taken from them.
 

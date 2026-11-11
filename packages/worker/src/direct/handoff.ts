@@ -13,19 +13,35 @@
 // what was already tried. The last user message, the last reply and the
 // thread's first message go in first; the rest fill the budget from newest
 // to oldest. Shown in the order they happened.
+//
+// Compaction rules (GOAT G14, idea #12; pattern from GOAT docs/internals/
+// context-handoffs.md, https://github.com/goat-si/goat, MIT, Copyright (c)
+// 2026 T3 Tools Inc. and goat-si contributors; no code copied):
+// - every history item is compacted to ITEM_CHARS: whitespace collapsed to
+//   one line, then cut with "…";
+// - commands (with a little output), file changes, checkpoints and earlier
+//   handoffs are items of their own, so they compete for the budget like
+//   messages do;
+// - recent turns and the original request are favoured (above);
+// - the new request is never in the note and never cut: the turn's messages
+//   are re-sent whole after it (`resendTexts`).
 
 import { fenceUntrusted, UNTRUSTED_NOTE } from "@/api/convex/lib/untrustedContent";
 
 export const HANDOFF_BUDGET = 16000;
-const MESSAGE_CHARS = 2000;
-const OUTPUT_CHARS = 300;
+/** The most characters one history item keeps. */
+export const ITEM_CHARS = 240;
+const OUTPUT_CHARS = 120;
 
 /** The part of a taskEvents row the handoff reads. */
 export type HandoffEvent = { type: string; sequence?: number; payload?: unknown };
 
-type Item = { seq: number; text: string; role: "user" | "assistant" | "work" };
+export type HandoffItem = { seq: number; text: string; role: "user" | "assistant" | "work" };
+type Item = HandoffItem;
 
-const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + "…" : s);
+const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+/** One line of at most `n` characters ("…" marks a cut). */
+export const compact = (s: string, n = ITEM_CHARS) => clip(s.replace(/\s+/g, " ").trim(), n);
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 
 // One item per message, tool call (with its result folded in) and edited
@@ -45,18 +61,18 @@ export function historyItems(events: HandoffEvent[], skipFromSeq?: number): Item
     const p = (e.payload ?? {}) as Record<string, unknown>;
     if (e.type === "user.message") {
       if (skipFromSeq !== undefined && seq >= skipFromSeq) continue;
-      items.push({ seq, role: "user", text: `User: ${clip(str(p.text), MESSAGE_CHARS)}` });
+      items.push({ seq, role: "user", text: `User: ${str(p.text)}` });
     } else if (e.type === "assistant.text") {
-      if (str(p.text).trim() && lastText.get(str(p.itemId)) === seq) items.push({ seq, role: "assistant", text: `Assistant: ${clip(str(p.text), MESSAGE_CHARS)}` });
+      if (str(p.text).trim() && lastText.get(str(p.itemId)) === seq) items.push({ seq, role: "assistant", text: `Assistant: ${str(p.text)}` });
     } else if (e.type === "tool.call") {
-      const item: Item = { seq, role: "work", text: `Tool: ${clip(str(p.title) || str(p.name), 200)}` };
+      const item: Item = { seq, role: "work", text: `Tool: ${compact(str(p.title) || str(p.name), ITEM_CHARS - OUTPUT_CHARS)}` };
       calls.set(str(p.itemId), item);
       items.push(item);
     } else if (e.type === "tool.result") {
       const call = calls.get(str(p.itemId));
       const out = str(p.text).trim();
       const ok = p.ok !== false;
-      if (call && (out || !ok)) call.text += `\n  ${ok ? "→" : "failed:"} ${clip(out, OUTPUT_CHARS).replace(/\n/g, "\n    ")}`;
+      if (call && (out || !ok)) call.text += ` ${ok ? "→" : "failed:"} ${compact(out, OUTPUT_CHARS)}`;
     } else if (e.type === "edit.diff") {
       // Once per file per edit: the same file edited again later shows again.
       const key = `${str(p.itemId)}:${str(p.path)}`;
@@ -64,10 +80,29 @@ export function historyItems(events: HandoffEvent[], skipFromSeq?: number): Item
       edited.add(key);
       items.push({ seq, role: "work", text: `Edited: ${str(p.path)}` });
     } else if (e.type === "turn.completed" && (p.outcome === "failed" || p.outcome === "timed_out") && str(p.error)) {
-      items.push({ seq, role: "work", text: `Error: ${clip(str(p.error), 500)}` });
+      items.push({ seq, role: "work", text: `Error: ${str(p.error)}` });
+    } else if (e.type.startsWith("checkpoint.") && typeof p.n === "number") {
+      const what = e.type === "checkpoint.restored" ? "restored" : e.type === "checkpoint.revert_committed" ? "reverted in a new commit" : e.type.slice("checkpoint.".length).replace(/_/g, " ");
+      items.push({ seq, role: "work", text: `Checkpoint ${p.n} ${what}${p.undoApply ? " (undo last apply)" : ""}` });
+    } else if (e.type === "system.note" && p.restore === "not_found") {
+      items.push({ seq, role: "work", text: "Handoff: an earlier session could not be resumed; a new one took over here." });
     }
   }
+  for (const item of items) item.text = compact(item.text);
   return items;
+}
+
+/**
+ * The turn's own messages, re-sent after the note: the new request, whole.
+ * Never compacted or cut, whatever the handoff budget.
+ */
+export function resendTexts(events: HandoffEvent[], seqs: readonly number[]): { seq: number; text: string }[] {
+  const out: { seq: number; text: string }[] = [];
+  for (const seq of seqs) {
+    const text = str(((events.find((e) => e.sequence === seq)?.payload ?? {}) as { text?: unknown }).text);
+    if (text) out.push({ seq, text });
+  }
+  return out;
 }
 
 // The items that fit in `budget` characters, in the order they happened,

@@ -243,9 +243,10 @@ export default function PersonalChatPanel({
     return true;
   };
 
-  const sendImmediately = async () => {
-    const text = draft.trim();
-    if (!text || closed) return;
+  // `composed`: the whole message from the composer when it carries text attachments.
+  const sendImmediately = async (composed?: string) => {
+    const text = (composed ?? draft).trim();
+    if (!text || closed) return false;
     setChatError("");
     setChatSending(true);
     try {
@@ -256,17 +257,20 @@ export default function PersonalChatPanel({
       }
       setQuote(null);
       setDraft("");
+      return true;
     } catch (err) {
       setChatError(err instanceof Error ? err.message : "Failed to send");
+      return false;
     } finally {
       setChatSending(false);
     }
   };
-  const addToQueue = () => {
-    const text = draft.trim();
-    if (!text) return;
+  const addToQueue = (composed?: string) => {
+    const text = (composed ?? draft).trim();
+    if (!text) return false;
     queue.add(text);
     setDraft("");
+    return true;
   };
   const sendAllQueued = async () => {
     setChatError("");
@@ -479,7 +483,7 @@ export default function PersonalChatPanel({
           placeholder={`Message ${agentName}`}
           draft={draft}
           onDraftChange={setDraft}
-          onSend={() => void sendImmediately()}
+          onSend={sendImmediately}
           onQueue={addToQueue}
           sending={chatSending}
           error={chatError}

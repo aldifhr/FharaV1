@@ -342,12 +342,12 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     (message) => setChatError(message),
   );
 
-  const addToQueue = async () => {
-    const text = draft.trim();
-    if (!text) return;
+  const clearDraft = () => { setDraft(""); mentions.setMention(null); return true; };
+  const addToQueue = async (composed?: string) => {
+    const text = (composed ?? draft).trim();
+    if (!text) return false;
     queue.add(await mentions.attachMentionedFiles(text));
-    setDraft("");
-    mentions.setMention(null);
+    return clearDraft();
   };
 
   const handleChooseProposal = async (choice: string) => {
@@ -413,17 +413,14 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     onSelectTask,
   });
 
-  const sendImmediately = async () => {
-    const text = draft.trim();
-    if (!text) return;
+  // `composed`: the whole message from the composer when it carries text attachments.
+  const sendImmediately = async (composed?: string) => {
+    const text = (composed ?? draft).trim();
+    if (!text) return false;
     setChatError("");
     setChatSending(true);
     try {
-      if (await sendToTray(text)) {
-        setDraft("");
-        mentions.setMention(null);
-        return;
-      }
+      if (await sendToTray(text)) return clearDraft();
       if (!(await runSlash(text))) {
         const content = await mentions.attachMentionedFiles(text);
         await sendMessage({
@@ -435,11 +432,11 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         });
       }
       setQuote(null);
-      setDraft("");
-      mentions.setMention(null);
       setDividerAt(Number.POSITIVE_INFINITY);
+      return clearDraft();
     } catch (err) {
       setChatError(err instanceof Error ? err.message : "Failed to send");
+      return false;
     } finally {
       setChatSending(false);
     }
@@ -783,8 +780,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             }}
             draft={draft}
             onDraftChange={mentions.handleInput}
-            onSend={() => void sendImmediately()}
-            onQueue={() => void addToQueue()}
+            onSend={sendImmediately}
+            onQueue={addToQueue}
             sending={chatSending}
             error={chatError}
             mention={mentions.mention}

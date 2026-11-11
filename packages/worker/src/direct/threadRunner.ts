@@ -49,7 +49,7 @@
  */
 import type { AcpOutput, NormalizedEvent } from "@/vendor/threadbear/acp/normalize";
 import { TurnWatchdog, type TurnTimeoutReason } from "@/vendor/nuphos/turnTimers";
-import { handoffNote, type HandoffEvent } from "./handoff";
+import { handoffNote, resendTexts, type HandoffEvent } from "./handoff";
 import { PERMANENT_RESTORE_NOTE, SessionResumeTransientError, TRANSIENT_RESTORE_NOTE, type RestoreRecord } from "./restore";
 import { DirectStreamRedactor, redactErrorText, redactPayload } from "./streamRedactor";
 import { cancelReasonOf, type ToolGateAnswer, type ToolGateCall } from "./toolGate";
@@ -485,10 +485,8 @@ export class ThreadRunner {
       if (this.turn !== turn) return;
       this.startSession([this.opts.preamble, note].filter(Boolean).join("\n\n") || undefined);
       const events = await this.opts.store.loadEvents().catch(() => [] as HandoffEvent[]);
-      for (const seq of turn.messages) {
-        const text = String(((events.find((e) => e.sequence === seq)?.payload ?? {}) as { text?: unknown }).text ?? "");
-        if (text) this.session!.send({ seq, text });
-      }
+      // The new request goes whole, after the note (never cut).
+      for (const message of resendTexts(events, turn.messages)) this.session!.send(message);
       return;
     }
     await this.failTurn(error?.message ?? "The agent exited.", turn.interruptRequested ? "interrupted" : "failed");

@@ -8,6 +8,7 @@ import {
   ChevronUp,
   Code,
   Edit2,
+  FileText,
   Italic,
   List,
   Loader2,
@@ -35,6 +36,7 @@ import {
   type PermissionMode,
 } from "@/api/convex/lib/permissionModes";
 import SlashMenu from "./SlashMenu";
+import { ATTACH_MAX_BYTES, COMPOSER_MAX_CHARS, composeMessage, formatBytes, looksBinary, pasteAction, pastedName, utf8Bytes, type TextAttachment } from "@/lib/composerPaste";
 import { committedUsage, completeSlash, filterSlashEntries, runsOnEnter, slashMenuEntries, type SlashMenuEntry } from "@/lib/slashMenu";
 
 type MentionAgent = { _id: string; name: string; role: string; avatarParams?: unknown };
@@ -47,8 +49,6 @@ const tool =
   "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40";
 const rowBtn =
   "flex h-7 w-7 items-center justify-center rounded-md text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:cursor-not-allowed disabled:opacity-30";
-
-const ATTACH_MAX_BYTES = 200_000;
 
 type SpeechRecognitionLike = {
   lang: string;
@@ -102,8 +102,9 @@ export default function ChatComposer({
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
-  onSend: () => void;
-  onQueue: () => void;
+  /** `content` is the whole message when text attachments ride along; resolve false to keep them. */
+  onSend: (content?: string) => unknown;
+  onQueue: (content?: string) => unknown;
   sending: boolean;
   error: string;
   mention: string | null;
@@ -155,6 +156,37 @@ export default function ChatComposer({
   const narrow = useMediaQuery("(max-width: 639px)", false);
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  const [attachments, setAttachments] = useState<TextAttachment[]>([]);
+  const attachSeq = useRef(0);
+  const canSend = Boolean(draft.trim()) || attachments.length > 0;
+
+  const addAttachment = (name: string, text: string) => {
+    attachSeq.current += 1;
+    setAttachments((list) => [...list, { id: `att-${attachSeq.current}`, name, text, bytes: utf8Bytes(text) }]);
+  };
+  // With attachments the parent gets the whole message; they clear once it's taken.
+  const submit = async (queue: boolean) => {
+    const handler = queue ? onQueue : onSend;
+    if (!attachments.length) return void handler();
+    const sent = attachments;
+    const ok = await handler(composeMessage(draftRef.current, sent));
+    if (ok !== false) setAttachments((list) => list.filter((a) => !sent.includes(a)));
+  };
+  const send = () => void submit(false);
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const text = e.clipboardData.getData("text/plain");
+    if (!text) return;
+    const el = e.currentTarget;
+    const action = pasteAction(text, draft.length, Math.abs((el.selectionEnd ?? 0) - (el.selectionStart ?? 0)));
+    if (action === "inline") return;
+    e.preventDefault();
+    if (action === "too_large") {
+      toast("error", "Paste too large", `Paste up to ${Math.round(ATTACH_MAX_BYTES / 1000)} KB at a time.`);
+      return;
+    }
+    addAttachment(pastedName(attachments), text);
+  };
 
   // Reply: focus the input so the user can type right away.
   const quoteId = quote?.messageId;
@@ -252,12 +284,11 @@ export default function ChatComposer({
     }
     const text = await file.text();
     // Binary files decode with replacement characters; refuse them.
-    if (text.includes("\u0000") || (text.match(/\uFFFD/g)?.length ?? 0) > 8) {
+    if (looksBinary(text)) {
       toast("error", "Only text files can be attached", file.name);
       return;
     }
-    const ext = file.name.split(".").pop() ?? "";
-    onDraftChange(`${draft}${draft ? "\n\n" : ""}\`${file.name}\`:\n\`\`\`${ext}\n${text.trimEnd()}\n\`\`\`\n`);
+    addAttachment(file.name, text);
   };
 
   const toggleMic = () => {
@@ -334,13 +365,13 @@ export default function ChatComposer({
         if (slashOpen) {
           const entry = slashOptions[activeIndex];
           // Enter on an exact no-argument command ("/push") runs it.
-          if (e.key === "Enter" && runsOnEnter(slashState, entry)) onSend();
+          if (e.key === "Enter" && runsOnEnter(slashState, entry)) send();
           else chooseSlash(entry);
         } else chooseMention(mentionOptions[activeIndex]);
         return;
       }
     }
-    if (!slashOpen && !mentionOpen && onKeyIntercept?.(e)) return;
+    if (!slashOpen && !mentionOpen && !attachments.length && onKeyIntercept?.(e)) return;
     if (e.key === "Escape" && quote && onCancelQuote) {
       e.preventDefault();
       onCancelQuote();
@@ -359,7 +390,7 @@ export default function ChatComposer({
     if (e.key !== "Enter") return;
     if (e.altKey) {
       e.preventDefault();
-      onQueue();
+      void submit(true);
       return;
     }
     if (e.shiftKey) return;
@@ -367,7 +398,7 @@ export default function ChatComposer({
     const touch = typeof window !== "undefined" && window.matchMedia?.("(hover: none) and (pointer: coarse)").matches;
     if (touch) return;
     e.preventDefault();
-    onSend();
+    send();
   };
 
   const target = targets.find((a) => a._id === targetId) ?? null;
@@ -503,6 +534,20 @@ export default function ChatComposer({
               </button>
             </div>
           )}
+          {attachments.length > 0 && (
+            <ul aria-label="Attachments" className="divide-y divide-line border-b border-line">
+              {attachments.map((a) => (
+                <li key={a.id} className="flex items-center gap-2 px-3 py-1.5 text-[13px]">
+                  <FileText size={14} className="shrink-0 text-ink-3" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink">{a.name}</span>
+                  <span className="shrink-0 tabular-nums text-[12px] text-ink-3">{formatBytes(a.bytes)}</span>
+                  <button type="button" onClick={() => setAttachments((list) => list.filter((x) => x.id !== a.id))} aria-label={`Remove ${a.name}`} className={rowBtn}>
+                    <X size={14} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           {usage && (
             <p id="composer-slash-usage" className="truncate px-4 pt-2 font-mono text-[12px] text-ink-3">
               {usage}
@@ -516,6 +561,8 @@ export default function ChatComposer({
               onDraftChange(e.target.value);
             }}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            maxLength={COMPOSER_MAX_CHARS}
             rows={1}
             aria-label={`Message ${projectName}`}
             aria-autocomplete="list"
@@ -652,8 +699,8 @@ export default function ChatComposer({
             )}
             <button
               type="button"
-              onClick={onSend}
-              disabled={sending || !draft.trim()}
+              onClick={send}
+              disabled={sending || !canSend}
               aria-label="Send message"
               className={`${queue.length > 0 || (permissionMode && onPermissionModeChange) ? "" : "ml-auto md:ml-0"} flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink text-canvas shadow-sm outline-none transition hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-40`}
             >

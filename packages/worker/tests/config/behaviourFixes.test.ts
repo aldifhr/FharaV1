@@ -202,3 +202,38 @@ describe("B6: the worker decrypts with PROVIDER_ENCRYPTION_KEY_OLD during a rota
     expect(await decryptApiKey(await seal("ok", keyB64(2)), "p")).toBe("ok");
   });
 });
+
+describe("B7: one workspace-path resolver", () => {
+  it("worker, web and Convex node resolve a project the same way from the same root and anchor", async () => {
+    const nodePath = await import("node:path");
+    const { resolveWorkspacePath } = await import("@/services/runner/setup");
+    const { WORKER_DIR } = await import("@/utils/rootEnv");
+    const { resolveWorkspaceBase } = await import("../../../../apps/web/lib/projectFilesPolicy");
+    const { resolveRepoPath } = await import("@/api/convex/lib/workspacePath");
+    for (const root of ["./workspaces", "ws", "/abs/ws"]) {
+      for (const project of ["p1", "nested/p2", "/abs/proj"]) {
+        const expected = nodePath.isAbsolute(project) ? nodePath.resolve(project) : nodePath.resolve(WORKER_DIR, root, project);
+        expect(resolveWorkspacePath(root, project), `worker ${root} ${project}`).toBe(expected);
+        expect(resolveWorkspaceBase(project, { WORKSPACE_ROOT: root }, WORKER_DIR), `web ${root} ${project}`).toBe(expected);
+        expect(resolveRepoPath(project, { env: { WORKSPACE_ROOT: root }, cwd: WORKER_DIR }), `convex ${root} ${project}`).toBe(expected);
+      }
+    }
+  });
+
+  it("the worker's root no longer depends on its cwd", async () => {
+    const nodePath = await import("node:path");
+    const { effectiveWorkspaceRoot } = await import("@/services/appSettings");
+    const { WORKER_DIR } = await import("@/utils/rootEnv");
+    const cwd = process.cwd();
+    const saved = process.env.WORKSPACE_ROOT;
+    try {
+      process.env.WORKSPACE_ROOT = "./workspaces";
+      process.chdir(nodePath.resolve(WORKER_DIR, "../.."));
+      expect(effectiveWorkspaceRoot()).toBe(nodePath.resolve(WORKER_DIR, "workspaces"));
+    } finally {
+      process.chdir(cwd);
+      if (saved === undefined) delete process.env.WORKSPACE_ROOT;
+      else process.env.WORKSPACE_ROOT = saved;
+    }
+  });
+});

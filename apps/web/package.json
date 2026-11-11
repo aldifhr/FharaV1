@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "node scripts/next.mjs start",
     "typecheck": "tsc --noEmit",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"tests/unit/*.test.mjs\""
+    "test": "node --import tsx --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"tests/unit/*.test.mjs\""
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

@@ -1775,7 +1775,7 @@
         "webServer",
         "convexNode"
       ],
-      "doc": "Where project workspaces live (relative to the worker's cwd).",
+      "doc": "Where project workspaces live; a relative path is measured from packages/worker.",
       "default": "./workspaces",
       "parse": "trimOr",
       "knob": {

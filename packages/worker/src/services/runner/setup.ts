@@ -1,4 +1,6 @@
+import { resolveProjectPath } from "@fhara/config";
 import { wenv } from "@fhara/config/worker";
+import { WORKER_DIR } from "@/utils/rootEnv";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import {
@@ -260,8 +262,9 @@ export function toAgentDefinition(agent: WorkerRunAgent): AgentDefinition {
   };
 }
 
+/** B7: the shared rule (@fhara/config resolveProjectPath); a relative root is measured from packages/worker. */
 export function resolveWorkspacePath(workspaceRoot: string, configured: string): string {
-  return path.isAbsolute(configured) ? configured : path.resolve(workspaceRoot, configured);
+  return resolveProjectPath(configured, workspaceRoot, WORKER_DIR, path);
 }
 
 type McpConfigRow = {

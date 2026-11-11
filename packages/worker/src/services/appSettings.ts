@@ -1,4 +1,6 @@
-import { schemaDefault } from "@fhara/config";
+import { schemaDefault, workspaceRootDir } from "@fhara/config";
+import * as path from "node:path";
+import { WORKER_DIR } from "@/utils/rootEnv";
 import { wenv } from "@fhara/config/worker";
 import type { WorkerApi } from "@/workerApi";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
@@ -26,8 +28,9 @@ export interface AppSettingsTarget {
 
 export const DEFAULT_WORKSPACE_ROOT = schemaDefault("WORKSPACE_ROOT") as string;
 
+/** The absolute workspace root (B7: Settings override, then env, measured from packages/worker). */
 export function effectiveWorkspaceRoot(): string {
-  return wenv("WORKSPACE_ROOT", settingEnv);
+  return workspaceRootDir(wenv("WORKSPACE_ROOT", settingEnv), WORKER_DIR, path);
 }
 
 let lastUpdatedAt = -1;

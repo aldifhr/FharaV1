@@ -1,5 +1,6 @@
 "use node";
 
+import { resolveProjectPath } from "@fhara/config";
 import { cenvRaw } from "@fhara/config/convex";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -28,14 +29,16 @@ export function resolveRepoPath(
   if (!raw) throw new Error("The project has no workspace path; set one in the project settings");
   if (path.isAbsolute(raw)) return path.normalize(raw);
   const cwd = options.cwd ?? process.cwd();
+  // B7: the shared rule (@fhara/config resolveProjectPath). This process
+  // cannot see packages/worker, so a relative root is measured from its cwd;
+  // the worker sends its absolute root, which wins.
   if (options.workspaceRoot && options.workspaceRoot.trim()) {
-    return path.resolve(cwd, options.workspaceRoot.trim(), raw);
+    return resolveProjectPath(raw, options.workspaceRoot.trim(), cwd, path);
   }
   const fromWorktree = options.worktreePath ? mainCheckoutOfWorktree(options.worktreePath) : null;
   if (fromWorktree) return fromWorktree;
   const envRoot = cenvRaw("WORKSPACE_ROOT", options.env);
-  if (envRoot && envRoot.trim()) return path.resolve(cwd, envRoot.trim(), raw);
-  return path.resolve(cwd, raw);
+  return resolveProjectPath(raw, envRoot?.trim() || ".", cwd, path);
 }
 
 /** Throws a clear error when the resolved repository path does not exist. */

@@ -11,6 +11,8 @@
  * unified LLM fallback (b5GlobalLLMConfig).
  */
 /* eslint-disable */
+import * as nodePath from "node:path";
+import { WORKER_DIR } from "../../src/utils/rootEnv";
 type Env = Record<string, string | undefined>;
 type Get = (name: string) => string | undefined;
 
@@ -348,7 +350,8 @@ export const legacyStagehandModel = (env: Env) => env.STAGEHAND_MODEL ?? "anthro
 export const legacyStagehandKey = (env: Env) => env.STAGEHAND_API_KEY ?? "";
 
 /** services/appSettings.ts */
-export const legacyWorkspaceRoot = (get: Get) => get("WORKSPACE_ROOT")?.trim() || "./workspaces";
+// B7: the root is absolute, measured from packages/worker (file-relative).
+export const legacyWorkspaceRoot = (get: Get) => nodePath.resolve(WORKER_DIR, get("WORKSPACE_ROOT")?.trim() || "./workspaces");
 
 /** llm/crypto.ts */
 export const legacyEncryptionKey = (env: Env) => env.PROVIDER_ENCRYPTION_KEY;

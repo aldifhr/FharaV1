@@ -41,5 +41,5 @@ export const CONVEX_NOT_SYNCED: Readonly<Record<string, string>> = {
   FHARA_AUTO_MERGE_SENSITIVE: "a Settings knob read by Convex; the stored value is the normal path",
   FHARA_AUTO_MERGE_METHOD: "a Settings knob read by Convex; the stored value is the normal path",
   FHARA_CHILD_ENV_PASSTHROUGH: "names worker-machine vars; a Convex node action has its own env",
-  WORKSPACE_ROOT: "a path on the worker machine; the Convex node action resolves it against its own cwd (D8)",
+  WORKSPACE_ROOT: "a path on the worker machine; the worker sends its absolute root with each Convex call that needs it",
 };

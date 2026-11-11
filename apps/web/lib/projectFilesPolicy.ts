@@ -1,5 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { resolveProjectPath } from "@fhara/config";
+import { serverEnv } from "@fhara/config/web-server";
 
 /**
  * Path policy for /api/project-files (release audit P0-2). Pure node code,
@@ -57,7 +59,11 @@ export function isDeniedPath(relativePath: string): boolean {
   return DENIED_EXT.has(path.extname(name));
 }
 
-/** Resolve the project's base directory the way the worker does. */
+/**
+ * Resolve the project's base directory the way the worker does (B7: the
+ * shared @fhara/config rule; a relative WORKSPACE_ROOT is measured from
+ * packages/worker, which Next reaches as cwd/../../packages/worker).
+ */
 export function resolveWorkspaceBase(
   workspacePath: string,
   env: Record<string, string | undefined> = process.env,
@@ -65,12 +71,8 @@ export function resolveWorkspaceBase(
 ): string {
   const trimmed = workspacePath.trim();
   if (!trimmed || trimmed.includes("\0")) throw new Error("Project has no usable workspace path");
-  if (path.isAbsolute(trimmed)) return path.resolve(trimmed);
-  // packages/worker resolves relative paths against WORKSPACE_ROOT, itself
-  // relative to the worker's cwd (packages/worker).
-  const root = env.WORKSPACE_ROOT?.trim() || "./workspaces";
-  const base = workerDir ?? path.resolve(process.cwd(), "../../packages/worker");
-  return path.resolve(base, root, trimmed);
+  const anchor = workerDir ?? path.resolve(process.cwd(), "../../packages/worker");
+  return resolveProjectPath(trimmed, serverEnv("WORKSPACE_ROOT", env), anchor, path);
 }
 
 export class PathPolicyError extends Error {}

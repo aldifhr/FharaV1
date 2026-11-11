@@ -25,7 +25,7 @@ const ALLOWED: Record<string, string> = {
   "apps/web/lib/requestGuard.ts:export function checkApiRequest(input: GuardInput, env: Record<string, string | undefined> = process.env): GuardResult {":
     "pure module unit-tested by plain node; the env source is injectable",
   "apps/web/lib/projectFilesPolicy.ts:env: Record<string, string | undefined> = process.env,":
-    "pure module unit-tested by plain node; WORKSPACE_ROOT parity is pinned in webParity (B8 unifies the resolver)",
+    "injectable env for tests; WORKSPACE_ROOT is read through serverEnv and the shared resolver (B7)",
   "apps/web/next.config.mjs:nextEnv.loadEnvConfig(repoRoot, process.env.NODE_ENV !== \"production\");": "NODE_ENV (platform var)",
   "apps/web/playwright.config.ts:forbidOnly: !!process.env.CI,": "CI (platform var, Playwright)",
   "apps/web/playwright.config.ts:retries: process.env.CI ? 2 : 0,": "CI (platform var, Playwright)",

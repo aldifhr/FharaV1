@@ -113,8 +113,7 @@ export const WORKSPACE_VARS = [
     maxLength: 500,
     runtimes: ["worker", "webServer", "convexNode"],
     group: "workspace",
-    doc: "Where project workspaces live (relative to the worker's cwd).",
+    doc: "Where project workspaces live; a relative path is measured from packages/worker.",
     knob: { reader: "worker" },
-    quirk: "resolved against three different bases in worker, web and Convex node (D8, fixed by B8)",
   },
 ] as const satisfies readonly EnvVar[];

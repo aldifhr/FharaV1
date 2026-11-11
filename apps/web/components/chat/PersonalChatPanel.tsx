@@ -130,6 +130,9 @@ export default function PersonalChatPanel({
   const [newConfirm, setNewConfirm] = useState<ConfirmRequest | null>(null);
   const [newPending, setNewPending] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<ConfirmRequest | null>(null);
+  // Set while a deleted chat hands off to a fresh one, so the reactive
+  // "conversation === null" read never shows the dead-end in between.
+  const [leaving, setLeaving] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
 
   const queue = useChatQueue(
@@ -302,6 +305,10 @@ export default function PersonalChatPanel({
 
   const confirmDeleteChat = async () => {
     setDeletePending(true);
+    // Captured first: the agent row comes from the conversation, which is
+    // gone once the delete lands.
+    const agentId = agent?.agentId;
+    setLeaving(true);
     try {
       await deleteChat({ conversationId: conversationId as never });
       try {
@@ -311,9 +318,21 @@ export default function PersonalChatPanel({
       }
       queue.clear();
       setDeleteConfirm(null);
+      setDeletePending(false);
       toast("success", "Chat deleted");
-      router.push("/chats");
+      // Land on a new chat with the same agent; if that can't start (agent
+      // disabled), on the personal messages index instead of a dead end.
+      try {
+        if (!agentId) throw new Error("no agent");
+        const nextId = await startNew({ agentId: agentId as never });
+        setQuote(null);
+        onNewChat(nextId as string);
+      } catch {
+        router.replace("/chats/personal");
+      }
+      setLeaving(false);
     } catch (err) {
+      setLeaving(false);
       toast("error", "Couldn't delete the chat", err instanceof Error ? err.message : undefined);
       setDeletePending(false);
     }
@@ -324,11 +343,19 @@ export default function PersonalChatPanel({
     [attached],
   );
 
+  if (leaving && (conversation === null || conversation === undefined)) {
+    return (
+      <p className="mx-auto w-full max-w-3xl px-6 py-10 text-[13px] text-ink-3" role="status">
+        Opening a new chat…
+      </p>
+    );
+  }
+
   if (conversation === null) {
     return (
       <div className="mx-auto w-full max-w-3xl px-6 py-10">
         <p className="text-[14px] text-ink-2">This chat no longer exists.</p>
-        <Link href="/chats" className="mt-3 inline-block text-[13px] text-ink-3 hover:text-ink">
+        <Link href="/chats/personal" className="mt-3 inline-block text-[13px] text-ink-3 hover:text-ink">
           Back to chats
         </Link>
       </div>

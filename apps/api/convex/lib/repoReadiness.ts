@@ -70,7 +70,7 @@ export function plainServerError(message: string): string {
   let text = String(message ?? "");
   text = text.replace(/\[Request ID: [^\]]*\]\s*/gi, "");
   text = text.replace(/^\s*(?:Server Error\s*)?(?:Uncaught\s+)?(?:\w*Error:\s*)?/i, "");
-  text = text.replace(/\s+at\s+(?:async\s+)?[^\s()]+\s+\([^)]*\)[\s\S]*$/, "");
+  text = text.replace(/\s+at\s+(?:async\s+)?[^\s()]+\s+\([^)]*:\d+:\d+\)[\s\S]*$/, "");
   text = text.replace(/\n\s*at\s[\s\S]*$/, "");
   text = text.replace(/\n?\s*Called by client\s*$/i, "");
   return text.trim() || "Something went wrong";

@@ -1,0 +1,5 @@
+{
+  "$comment": "g. A personal chat (no project): the default chat-reply-personal rule answers.",
+  "extends": "default.json",
+  "rules": []
+}

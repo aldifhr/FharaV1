@@ -1,0 +1,15 @@
+{
+  "$comment": "h. /research 3: RA-2 always answers 500; RA-1, RA-3 and the synthesis answer.",
+  "extends": "default.json",
+  "rules": [
+    {
+      "id": "research-ra2-fails",
+      "role": "research-assistant",
+      "match": [
+        "You are research assistant RA-2 "
+      ],
+      "status": 500,
+      "reply": "upstream timeout (mock 500)"
+    }
+  ]
+}

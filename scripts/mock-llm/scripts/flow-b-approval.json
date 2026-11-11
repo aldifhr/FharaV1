@@ -1,0 +1,14 @@
+{
+  "$comment": "b. Command approval: the shell agent picks `npm run test`; Supervised mode asks the user.",
+  "extends": "default.json",
+  "rules": [
+    {
+      "id": "shell-npm-test",
+      "role": "shell",
+      "match": [
+        "You choose ONE allowlisted command"
+      ],
+      "reply": "{\"command\":\"npm\",\"args\":[\"run\",\"test\"]}"
+    }
+  ]
+}

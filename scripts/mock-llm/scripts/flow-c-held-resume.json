@@ -1,0 +1,29 @@
+{
+  "$comment": "c. Every request answers 429 until the test disables rule hold-429 (POST /__mock/disable?rule=hold-429), then presses Resume.",
+  "extends": "default.json",
+  "rules": [
+    {
+      "id": "hold-429",
+      "role": "any",
+      "status": 429,
+      "reply": "Rate limit reached for requests (mock 429)"
+    },
+    {
+      "id": "planner-hold",
+      "role": "planner",
+      "match": [
+        "You are the CTO decision-maker",
+        "HOLD\\.md"
+      ],
+      "reply": "{\"goal\": \"Add docs/HOLD.md\", \"strategy\": \"single\", \"requiresApproval\": true, \"maxConcurrency\": 1, \"requirements\": [{\"id\": \"r1\", \"text\": \"Add docs/HOLD.md\", \"quote\": \"mock\"}], \"subtasks\": [{\"key\": \"implement\", \"requirementIds\": [\"r1\"], \"title\": \"Write docs/HOLD.md (mock)\", \"description\": \"Write docs/HOLD.md.\", \"kind\": \"code_change\", \"capability\": \"frontend-development\", \"dependencies\": [], \"order\": 0, \"allowedPaths\": [\"docs\"], \"objective\": \"docs/HOLD.md exists\", \"constraints\": [\"Touch only docs/\"], \"deliverable\": \"A new file\", \"acceptance\": [{\"id\": \"file\", \"criterion\": \"docs/HOLD.md exists\", \"check\": \"file_exists\", \"target\": \"docs/HOLD.md\"}]}]}"
+    },
+    {
+      "id": "code-change-hold",
+      "role": "executor",
+      "match": [
+        "Return your change in ONE of these formats"
+      ],
+      "reply": "FILE: docs/HOLD.md\n````\n# Hold test\n\nThe hold test passed (mock).\n````\n"
+    }
+  ]
+}

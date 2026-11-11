@@ -1,0 +1,5 @@
+{
+  "$comment": "a. A normal task to Done: the default script (planner \u2192 code change \u2192 review \u2192 apply \u2192 verify \u2192 QA).",
+  "extends": "default.json",
+  "rules": []
+}

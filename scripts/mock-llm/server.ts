@@ -6,7 +6,8 @@
  *   POST /v1/chat/completions   scripted reply; `stream: true` → SSE replayed at 30 Hz × speed
  *   GET  /v1/models             mock/default plus one model per scenario in the script
  *   GET  /__mock/calls          the recent requests (role, rule, scenario) for tests
- *   POST /__mock/reset          clear the call log and the per-rule counters
+ *   POST /__mock/reset          clear the call log, the per-rule counters and disabled rules
+ *   POST /__mock/disable?rule=  switch one rule off (…/enable to switch it back on)
  *
  * Replies come from a JSON script (scripts/mock-llm/scripts/default.json):
  * rules matched in order on the request's text (a role is recognised from
@@ -46,13 +47,18 @@ export interface MockRule {
   status?: number;
   /** Only the first N matches use this rule; later ones fall through. */
   times?: number;
-  /** Extra latency before answering (ms, divided by the speed). */
+  /** Extra latency before answering (ms, divided by the speed; as given at --speed 0). */
   delayMs?: number;
 }
 
 export interface MockScript {
   rules: MockRule[];
   fallback: string;
+}
+
+/** On disk a script may extend another: its rules go first, then the base's (`"extends": "default.json"`). */
+interface MockScriptFile extends Partial<MockScript> {
+  extends?: string;
 }
 
 export interface MockCall {
@@ -64,6 +70,8 @@ export interface MockCall {
   role: string;
   stream: boolean;
   status: number;
+  /** First characters of the request text (to write rules for unmatched prompts). */
+  head?: string;
 }
 
 export interface MockLlmOptions {
@@ -81,14 +89,18 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_SCRIPT_PATH = path.join(HERE, "scripts/default.json");
 const STREAM_HZ = 30;
 
-export function loadScript(file: string = DEFAULT_SCRIPT_PATH): MockScript {
-  const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<MockScript>;
+export function loadScript(file: string = DEFAULT_SCRIPT_PATH, seen: string[] = []): MockScript {
+  const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as MockScriptFile;
   if (!Array.isArray(parsed.rules)) throw new Error(`mock-llm: ${file} has no "rules" array`);
   for (const rule of parsed.rules) {
     if (!rule.id) throw new Error(`mock-llm: a rule in ${file} has no id`);
     for (const re of rule.match ?? []) new RegExp(re, "i");
   }
-  return { rules: parsed.rules, fallback: parsed.fallback ?? "Mock reply." };
+  if (!parsed.extends) return { rules: parsed.rules, fallback: parsed.fallback ?? "Mock reply." };
+  const basePath = path.resolve(path.dirname(file), parsed.extends);
+  if (seen.includes(basePath)) throw new Error(`mock-llm: ${file} extends itself through ${basePath}`);
+  const base = loadScript(basePath, [...seen, path.resolve(file)]);
+  return { rules: [...parsed.rules, ...base.rules], fallback: parsed.fallback ?? base.fallback };
 }
 
 type ChatMessage = { role?: string; content?: unknown };
@@ -100,8 +112,15 @@ function textOf(messages: ChatMessage[]): string {
 }
 
 /** Pick the rule for one request; counts uses per rule for `times` / `replies`. */
-export function pickRule(script: MockScript, text: string, scenario: string, used: Map<string, number>): { rule: MockRule | null; reply: string } {
+export function pickRule(
+  script: MockScript,
+  text: string,
+  scenario: string,
+  used: Map<string, number>,
+  disabled: ReadonlySet<string> = new Set(),
+): { rule: MockRule | null; reply: string } {
   for (const rule of script.rules) {
+    if (disabled.has(rule.id)) continue;
     if (rule.scenario && rule.scenario !== scenario) continue;
     if (!(rule.match ?? []).every((re) => new RegExp(re, "i").test(text))) continue;
     const count = used.get(rule.id) ?? 0;
@@ -138,6 +157,7 @@ export async function startMockLlm(options: MockLlmOptions = {}): Promise<{
   const speed = options.speed ?? 1;
   const tickMs = speed > 0 ? 1000 / STREAM_HZ / speed : 0;
   const used = new Map<string, number>();
+  const disabled = new Set<string>();
   const calls: MockCall[] = [];
   const log = (line: string) => {
     if (!options.quiet) console.log(`[mock-llm] ${line}`);
@@ -156,11 +176,23 @@ export async function startMockLlm(options: MockLlmOptions = {}): Promise<{
       const scenarios = Array.from(new Set(script.rules.map((r) => r.scenario).filter(Boolean)));
       return json(200, { object: "list", data: ["default", ...scenarios].map((id) => ({ id: `mock/${id}`, object: "model", owned_by: "fhara-mock" })) });
     }
-    if (req.method === "GET" && url.pathname === "/__mock/calls") return json(200, calls);
+    if (req.method === "GET" && url.pathname === "/__mock/calls") {
+      // ?head=1 keeps the request text heads (rule writing); default omits them.
+      return json(200, url.searchParams.get("head") ? calls : calls.map(({ head: _head, ...rest }) => rest));
+    }
     if (req.method === "POST" && url.pathname === "/__mock/reset") {
       calls.length = 0;
       used.clear();
+      disabled.clear();
       return json(200, { ok: true });
+    }
+    // Switch one rule off / on mid-run (a test lifts a scripted 429 before pressing Resume).
+    if (req.method === "POST" && (url.pathname === "/__mock/disable" || url.pathname === "/__mock/enable")) {
+      const id = url.searchParams.get("rule") ?? "";
+      if (!script.rules.some((r) => r.id === id)) return json(404, { error: { message: `mock-llm: no rule ${id}` } });
+      if (url.pathname.endsWith("disable")) disabled.add(id);
+      else disabled.delete(id);
+      return json(200, { ok: true, disabled: Array.from(disabled) });
     }
     if (req.method !== "POST" || !url.pathname.endsWith("/chat/completions")) return json(404, { error: { message: `mock-llm: no route ${req.method} ${url.pathname}` } });
 
@@ -180,13 +212,14 @@ export async function startMockLlm(options: MockLlmOptions = {}): Promise<{
     const header = req.headers["x-mock-scenario"];
     const scenario = (typeof header === "string" && header) || (model.startsWith("mock/") ? model.slice(5) : "") || options.scenario || "default";
     const text = textOf(body.messages ?? []);
-    const { rule, reply } = pickRule(script, text, scenario, used);
+    const { rule, reply } = pickRule(script, text, scenario, used, disabled);
     const status = rule?.status ?? 200;
-    const call: MockCall = { n: calls.length + 1, at: Date.now(), model, scenario, rule: rule?.id ?? "fallback", role: rule?.role ?? "unknown", stream: Boolean(body.stream), status };
+    const call: MockCall = { n: calls.length + 1, at: Date.now(), model, scenario, rule: rule?.id ?? "fallback", role: rule?.role ?? "unknown", stream: Boolean(body.stream), status, head: text.slice(0, 400) };
     calls.push(call);
     if (calls.length > 500) calls.shift();
     log(`#${call.n} ${call.role} (${call.rule}) scenario=${scenario}${call.stream ? " stream" : ""}${status !== 200 ? ` → ${status}` : ""}`);
-    await sleep(speed > 0 ? (rule?.delayMs ?? 0) / speed : 0);
+    // A scripted latency holds at --speed 0 too (a test needs the call in flight); speed only scales it.
+    await sleep(speed > 0 ? (rule?.delayMs ?? 0) / speed : rule?.delayMs ?? 0);
 
     if (status !== 200) {
       return json(status, { error: { message: reply || `mock-llm: scripted ${status}`, type: status === 429 ? "rate_limit_exceeded" : "mock_error" } });

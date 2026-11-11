@@ -1,0 +1,33 @@
+{
+  "$comment": "d. The code-change call answers 500 twice, then succeeds: the worker retries without a hold or a failure.",
+  "extends": "default.json",
+  "rules": [
+    {
+      "id": "code-change-500",
+      "role": "executor",
+      "match": [
+        "Return your change in ONE of these formats"
+      ],
+      "times": 2,
+      "status": 500,
+      "reply": "upstream error (mock 500)"
+    },
+    {
+      "id": "planner-retry",
+      "role": "planner",
+      "match": [
+        "You are the CTO decision-maker",
+        "RETRY\\.md"
+      ],
+      "reply": "{\"goal\": \"Add docs/RETRY.md\", \"strategy\": \"single\", \"requiresApproval\": true, \"maxConcurrency\": 1, \"requirements\": [{\"id\": \"r1\", \"text\": \"Add docs/RETRY.md\", \"quote\": \"mock\"}], \"subtasks\": [{\"key\": \"implement\", \"requirementIds\": [\"r1\"], \"title\": \"Write docs/RETRY.md (mock)\", \"description\": \"Write docs/RETRY.md.\", \"kind\": \"code_change\", \"capability\": \"frontend-development\", \"dependencies\": [], \"order\": 0, \"allowedPaths\": [\"docs\"], \"objective\": \"docs/RETRY.md exists\", \"constraints\": [\"Touch only docs/\"], \"deliverable\": \"A new file\", \"acceptance\": [{\"id\": \"file\", \"criterion\": \"docs/RETRY.md exists\", \"check\": \"file_exists\", \"target\": \"docs/RETRY.md\"}]}]}"
+    },
+    {
+      "id": "code-change-retry",
+      "role": "executor",
+      "match": [
+        "Return your change in ONE of these formats"
+      ],
+      "reply": "FILE: docs/RETRY.md\n````\n# Retry test\n\nThe retry test passed (mock).\n````\n"
+    }
+  ]
+}

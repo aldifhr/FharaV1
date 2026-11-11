@@ -1,0 +1,24 @@
+{
+  "$comment": "f. The code-change call takes 90 s, so the task is still running when the test stops it.",
+  "extends": "default.json",
+  "rules": [
+    {
+      "id": "planner-slow",
+      "role": "planner",
+      "match": [
+        "You are the CTO decision-maker",
+        "SLOW\\.md"
+      ],
+      "reply": "{\"goal\": \"Add docs/SLOW.md\", \"strategy\": \"single\", \"requiresApproval\": true, \"maxConcurrency\": 1, \"requirements\": [{\"id\": \"r1\", \"text\": \"Add docs/SLOW.md\", \"quote\": \"mock\"}], \"subtasks\": [{\"key\": \"implement\", \"requirementIds\": [\"r1\"], \"title\": \"Write docs/SLOW.md (mock)\", \"description\": \"Write docs/SLOW.md.\", \"kind\": \"code_change\", \"capability\": \"frontend-development\", \"dependencies\": [], \"order\": 0, \"allowedPaths\": [\"docs\"], \"objective\": \"docs/SLOW.md exists\", \"constraints\": [\"Touch only docs/\"], \"deliverable\": \"A new file\", \"acceptance\": [{\"id\": \"file\", \"criterion\": \"docs/SLOW.md exists\", \"check\": \"file_exists\", \"target\": \"docs/SLOW.md\"}]}]}"
+    },
+    {
+      "id": "slow-code-change",
+      "role": "executor",
+      "match": [
+        "Return your change in ONE of these formats"
+      ],
+      "delayMs": 90000,
+      "reply": "FILE: docs/SLOW.md\n````\n# Slow\n\nThis should never be written: the task was cancelled.\n````\n"
+    }
+  ]
+}

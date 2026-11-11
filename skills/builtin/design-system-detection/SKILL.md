@@ -14,6 +14,7 @@ Do this before any mockup or UI change in an existing repository.
 3. **Write a short inventory** before designing: colour tokens by role (surface, text, muted, border, brand, danger), radius, spacing scale, type families and sizes, dark-mode strategy, the primitives you will reuse.
 4. **Design within it.** Use only those tokens and primitives. A new token is allowed only when no existing one fits; name it in the same scheme and say why. Never add a new palette, font or icon set to an existing app, and never hard-code hex values in components.
 5. **Mockups too.** HTML mockups copy the real token values into one inline `<style>` (`:root { --surface: …; }`) so the picture matches what Frontend can build.
-6. **Greenfield only.** When the repo has no UI yet, say so and propose a token plan (frontend-design) instead.
+6. **Keep the request's subject.** The tokens and parts are the base, not the subject. When the request names a product or domain different from the app's (a task manager inside a cover-letter app), design that subject as asked, as a new area built on the app's tokens and components, and say so in one line. Never recast it into the app's own domain (its personas, routes, features or copy). Ask one short question only when it is truly ambiguous. For a concept or spec ("do not implement"), read only the tokens, shared parts and stack, not feature files.
+7. **Greenfield only.** When the repo has no UI yet, say so and propose a token plan (frontend-design) instead.
 
 Report the inventory with your result so Frontend and the Reviewer can check against it.

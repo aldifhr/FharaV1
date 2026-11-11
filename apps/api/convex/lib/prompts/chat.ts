@@ -117,6 +117,23 @@ export function buildSeparateSpeakersLine(
   ].join(" ");
 }
 
+/**
+ * Keep the request's own subject. Live transcript 2026-11-11: in project
+ * "Genlatter" (a cover-letter generator) the Designer was asked for a UI/UX
+ * concept for a task management app and recast it as cover letters
+ * (job-seeker personas, /surat-lamaran routes, A4 print) after six
+ * read_file calls. The selected project stays the base (stack, tokens,
+ * components); only the subject must not be swapped.
+ */
+export function buildRequestSubjectGuard(projectName: string): string {
+  return [
+    `The selected project "${projectName}" is the base: build on its stack, design tokens and shared components.`,
+    "Keep the subject of the user's request exactly as asked. Never recast it into the project's own product or domain: no personas, routes, features or copy borrowed from the project unless the request is about them.",
+    `When the subject does not fit the project's product, state your assumption in one line (e.g. "Designing <subject> as a new area inside ${projectName}, using its tokens and components.") or, only if it is truly ambiguous, ask one short question instead of answering.`,
+    "For a concept or spec request (\"concept\", \"do not implement\", \"no code\"), read only what the base needs (tokens, shared components, stack); do not read feature files to map the request onto existing features.",
+  ].join(" ");
+}
+
 /** Opening lines of a chat-loop reply: identity, persona, repo grounding. */
 export function buildChatPersonaLines(
   agent: Persona,
@@ -139,6 +156,8 @@ export function buildChatPersonaLines(
         ? `Repo snapshot (read-only, provided by the host):\n${repoSnapshot}\nRead deeper with the repo tools described below.`
         : `Your chat replies are grounded in this repo snapshot (read-only, provided by the host):\n${repoSnapshot}\nYou still cannot run commands or read other files; for anything deeper, ask the user to Create a task.`
       : "",
+
+    buildRequestSubjectGuard(projectName),
   ];
 }
 
@@ -577,6 +596,7 @@ export function buildPersonalChatSystem(
               : `Repo snapshot (read-only, provided by the host):\n${opts.repoSnapshot}`
             : "",
           "You cannot write files or run commands in this chat. For work on the code, the user can create a task (the Create task button or /task).",
+          buildRequestSubjectGuard(opts.projectName ?? ""),
         ]
           .filter(Boolean)
           .join("\n")

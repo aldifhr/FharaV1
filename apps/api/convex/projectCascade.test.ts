@@ -34,7 +34,7 @@ describe("project cascade covers the schema", () => {
   test("children are emptied before tasks", () => {
     const order = PROJECT_CASCADE.map((entry) => entry.table as string);
     const tasksAt = order.indexOf("tasks");
-    for (const child of ["subtasks", "plans", "executions", "taskEvents", "messages", "approvals", "subtaskLive"]) {
+    for (const child of ["subtasks", "plans", "executions", "taskEvents", "messages", "approvals", "subtaskLive", "optionReviews"]) {
       expect(order.indexOf(child)).toBeLessThan(tasksAt);
     }
   });
@@ -52,6 +52,19 @@ describe("projects.remove cascade", () => {
       await ctx.db.insert("messages", { projectId, authorType: "user", content: "hi" });
       for (let i = 0; i < events; i++) await ctx.db.insert("taskEvents", { taskId, projectId, type: `e${i}` });
       await ctx.db.insert("subtaskLive", { taskId, projectId, key: "k", text: "x", updatedAt: now });
+      const imageStorageId = await ctx.storage.store(new Blob(["png"]));
+      await ctx.db.insert("optionReviews", {
+        taskId,
+        projectId,
+        role: "designer",
+        purpose: "design",
+        title: "Pick one",
+        options: [{ id: "a", title: "A", kind: "image", imageStorageId }],
+        status: "pending",
+        revision: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
       await ctx.db.insert("repoToolCalls", { projectId, tool: "read", args: "{}", status: "done", createdAt: now });
       const snapshotId = await ctx.db.insert("contextSnapshots", {
         projectId,
@@ -113,6 +126,7 @@ describe("projects.remove cascade", () => {
     expect(await countFor(t, kept.projectId)).toBe(keptBefore);
     const leftovers = await t.run(async (ctx) => ({
       bodies: (await ctx.db.query("contextSnapshotBodies").collect()).length,
+      files: (await ctx.db.system.query("_storage").collect()).length,
       snapshots: (await ctx.db.query("contextSnapshots").collect()).length,
       detachedAudit: (await ctx.db.query("audit").collect()).filter((row) => row.action === "a" && row.projectId === undefined).length,
       removeAudit: (await ctx.db.query("audit").collect()).filter((row) => row.action === "project.remove").length,
@@ -120,6 +134,8 @@ describe("projects.remove cascade", () => {
     // Only the kept project's snapshot (and its body) survive.
     expect(leftovers.snapshots).toBe(1);
     expect(leftovers.bodies).toBe(1);
+    // Only the kept project's option image is still stored.
+    expect(leftovers.files).toBe(1);
     // The doomed project's audit trail stays, detached from the project.
     expect(leftovers.detachedAudit).toBe(1);
     expect(leftovers.removeAudit).toBe(1);

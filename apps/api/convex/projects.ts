@@ -263,6 +263,7 @@ export const PROJECT_CASCADE = [
   { table: "taskEvents", index: "by_project" },
   { table: "taskSignals", index: "by_project" },
   { table: "approvals", index: "by_project" },
+  { table: "optionReviews", index: "by_project_and_status" },
   { table: "messages", index: "by_project" },
   { table: "conversationParticipants", index: "by_project" },
   { table: "conversations", index: "by_project" },
@@ -355,6 +356,21 @@ export const cascadeDelete = internalMutation({
         } else if (table === "conversationParticipants" && (await isPersonalParticipant(ctx, row))) {
           await ctx.db.patch(row._id, { projectId: undefined });
         } else {
+          if (table === "optionReviews") {
+            // The option images and the QA build screenshot are stored files
+            // only this review points at: remove them with it.
+            const ids = [
+              ...(row.options ?? []).map((option: { imageStorageId?: string }) => option.imageStorageId),
+              row.buildCheck?.imageStorageId,
+            ].filter((id): id is string => typeof id === "string");
+            for (const id of ids) {
+              try {
+                await ctx.storage.delete(id as any);
+              } catch {
+                // Already gone: nothing to remove.
+              }
+            }
+          }
           if (table === "contextSnapshots") {
             const bodies = await ctx.db
               .query("contextSnapshotBodies")

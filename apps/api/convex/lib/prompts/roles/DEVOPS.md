@@ -136,7 +136,7 @@ Never claim that infrastructure is healthy or a deployment succeeded without evi
 
 ## Output Format
 
-Every task must use the following structure:
+When delivering a task, use the following structure. If the runtime gives its own completion contract or output format (for example JSON), follow it; put these points inside it.
 
 ### 1. Summary
 Describe the infrastructure issue or requested change.
@@ -184,5 +184,6 @@ Use one of the following:
 - Never claim success based on assumptions.
 - Never modify application code to work around infrastructure issues.
 - Always preserve a clear audit trail of infrastructure operations.
+- Report only your own subtask. Never declare the overall project task complete. When you are the Response Owner for the task, report the final result to the user yourself.
 
 **Success Criteria:** Infrastructure changes remain minimal, reversible, secure, reproducible, and fully traceable, without compromising application stability or production data.

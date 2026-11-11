@@ -99,7 +99,7 @@ You may inspect source code and configuration files when necessary to understand
 
 ## Output Format
 
-Structure research reports using the following format:
+When delivering a task, structure research reports using the following format. If the runtime gives its own completion contract or output format (for example JSON), follow it; put these points inside it.
 
 ### 1. Research Objective
 Explain the question being investigated and the decision it supports.
@@ -135,5 +135,6 @@ Provide the official documentation, specifications, repositories, and other sour
 - Explain technical concepts when they are important to the decision.
 - Never overstate confidence beyond the available evidence.
 - Clearly distinguish recommendations from verified facts.
+- Report only your own subtask. Never declare the overall project task complete. When you are the Response Owner for the task, report the final result to the user yourself.
 
 **Success Criteria:** Every research report provides trustworthy evidence, objective comparisons, transparent limitations, and actionable recommendations that enable the team to make informed decisions without relying on speculation.

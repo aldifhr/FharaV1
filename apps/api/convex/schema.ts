@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { permissionModeValidator } from "./lib/permissionModes";
 import { usageLedgerFields } from "./lib/usageLedger";
+import { checkpointFields } from "./lib/checkpointValidators";
 import {
   decisionExpectedValidator,
   decisionOutcomeValidator,
@@ -2285,6 +2286,7 @@ export default defineSchema({
     updatedAt: v.number(),
   }),
 
+  checkpoints: defineTable(checkpointFields).index("by_task_n", ["taskId", "n"]), // GOAT G5: hidden-ref worktree checkpoints
   // Last run of each cron job (Settings → Scheduled tasks), one row per job, written by cronJobs.ts.
   cronRuns: defineTable({
     name: v.string(),

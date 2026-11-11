@@ -44,7 +44,7 @@ type ActionInput<T extends FunctionReference<any, any, any, any>> = {
 
 export class WorkerApi {
   constructor(
-    private readonly client: ConvexHttpClient,
+    readonly client: ConvexHttpClient,
     private readonly token: string,
     /**
      * Lease owner identity. Fenced writes (completeTask, updateSubtask,
@@ -64,7 +64,7 @@ export class WorkerApi {
     return redactDeep(input);
   }
 
-  private args<T extends Record<string, unknown>>(value: T): any {
+  args<T extends Record<string, unknown>>(value: T): any {
     return { ...value, workerToken: this.token };
   }
 

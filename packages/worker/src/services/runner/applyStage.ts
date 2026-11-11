@@ -9,6 +9,7 @@ import { implementerAgent, resolveWorkspacePath } from "./setup";
 import { mayAutoApproveEdits, tryAutoApprove } from "./autoApprove";
 import { newFilesOnlyFixWarning } from "./noTargetGuard";
 import { generateCommitMessage } from "./commitMessage";
+import { captureRunCheckpoint } from "./checkpoints";
 import { scanStagedChanges, secretFlag, secretWarning } from "@/utils/secretScan";
 import { checkDependencyChanges, dependencyWarning, type DepCheckResult } from "@/execution/depHardening";
 
@@ -279,6 +280,8 @@ export async function brokerCheckAndApply(
   if ("stop" in applied) {
     return applied.stop;
   }
+  // GOAT G5: checkpoint the worktree as applied (best effort).
+  if (applied.applied.length > 0) await captureRunCheckpoint(ctx, "apply");
   if (input.approvalResolved && applied.applied.length > 0) {
     await deps.api.appendAgentMessage({
       projectId: project._id,

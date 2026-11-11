@@ -1,6 +1,6 @@
 "use node";
 
-import { internalAction } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { execFileSync } from "node:child_process";
 import * as path from "node:path";
@@ -8,10 +8,11 @@ import { internal } from "./_generated/api";
 import { buildChildEnv } from "./lib/childEnv";
 import { gitIdentity, gitIdentityArgs } from "./lib/gitIdentity";
 import { settingFrom } from "./lib/appSettings";
-import { makeTaskBranchName, resolveMainBranch, taskWorktreesFromPorcelain } from "./lib/taskBranch";
+import { makeTaskBranchName, resolveMainBranch } from "./lib/taskBranch";
 import { worktreeRetentionMs } from "./lib/worktreeRetention";
 import { assertRepoPathExists, resolveRepoPath } from "./lib/workspacePath";
 import { buildBranchPatch, type GitRun } from "./lib/diffPatch";
+import { deleteTaskCheckpointRefs, removeTaskGitState } from "./lib/checkpointRefs";
 import type { Id } from "./_generated/dataModel";
 
 // execFile, not a shell string: branch names, paths and the identity
@@ -191,6 +192,7 @@ export const mergeBranch = internalAction({
       } catch {
         // cleanup failures are non-fatal
       }
+      await dropCheckpointRefs(ctx, repo, args.taskId);
     }
 
     return await ctx.runMutation(internal.orchestration.mergeBranchCompleted, {
@@ -224,6 +226,7 @@ export const discardBranch = internalAction({
         gitExec(repo, ["branch", "-D", data.branchName]);
       } catch {}
     }
+    await dropCheckpointRefs(ctx, repo, args.taskId);
 
     await ctx.runMutation(internal.orchestration.discardBranchDone, {
       taskId: args.taskId,
@@ -234,30 +237,30 @@ export const discardBranch = internalAction({
 });
 
 /**
+ * GOAT G5: delete the task's hidden checkpoint refs (lib/checkpointRefs.ts)
+ * and mark its rows, when its worktree goes for good. Best effort.
+ */
+async function dropCheckpointRefs(ctx: ActionCtx, repo: string, taskId: Id<"tasks">): Promise<void> {
+  try {
+    if (deleteTaskCheckpointRefs((args) => gitExec(repo, args), taskId).length > 0) {
+      await ctx.runMutation(internal.checkpoints.refsDeleted, { taskId });
+    }
+  } catch {}
+}
+
+/**
  * Remove every worktree of this task (fhara/<id>/ and legacy moagent/<id>/
  * branches, read from `worktree list --porcelain`), never the main
- * checkout. Branches are kept. Returns the removed paths.
+ * checkout, and (GOAT G5) its checkpoint refs. Branches are kept.
  */
-function removeTaskWorktrees(workspacePath: string, taskId: string): string[] {
-  const removed: string[] = [];
+function removeTaskWorktrees(workspacePath: string, taskId: string): { removed: string[]; refsDeleted: string[] } {
+  let main: string;
   try {
-    // Porcelain output, matched on the branch: the human `worktree list`
-    // lines start with the path followed by sha and branch, so they never
-    // named a removable path.
-    const porcelain = gitExec(workspacePath, ["worktree", "list", "--porcelain"]);
-    const main = resolveRepoPath(workspacePath);
-    for (const wtPath of taskWorktreesFromPorcelain(porcelain, taskId)) {
-      if (path.resolve(wtPath) === main) continue;
-      try {
-        gitExec(workspacePath, ["worktree", "remove", "--force", wtPath]);
-        removed.push(wtPath);
-      } catch {}
-    }
-    try {
-      gitExec(workspacePath, ["worktree", "prune"]);
-    } catch {}
-  } catch {}
-  return removed;
+    main = resolveRepoPath(workspacePath);
+  } catch {
+    return { removed: [], refsDeleted: [] };
+  }
+  return removeTaskGitState((args) => gitExec(workspacePath, args), taskId, (wtPath) => path.resolve(wtPath) === main);
 }
 
 export const cleanupStaleWorktrees = internalAction({
@@ -268,7 +271,9 @@ export const cleanupStaleWorktrees = internalAction({
       branchPrefixes: string[];
     } | null;
     if (!data) return [];
-    return removeTaskWorktrees(data.workspacePath, args.taskId);
+    const { removed, refsDeleted } = removeTaskWorktrees(data.workspacePath, args.taskId);
+    if (refsDeleted.length > 0) await ctx.runMutation(internal.checkpoints.refsDeleted, { taskId: args.taskId });
+    return removed;
   },
 });
 
@@ -292,8 +297,9 @@ export const sweepStaleWorktrees = internalAction({
         workspacePath: string;
       } | null;
       if (!data) continue;
-      const removed = removeTaskWorktrees(data.workspacePath, taskId);
+      const { removed, refsDeleted } = removeTaskWorktrees(data.workspacePath, taskId);
       await ctx.runMutation(internal.orchestration.worktreeCleaned, { taskId, removed });
+      if (refsDeleted.length > 0) await ctx.runMutation(internal.checkpoints.refsDeleted, { taskId });
       cleaned += 1;
     }
     return { cleaned };
@@ -316,6 +322,29 @@ export const releasePrWorktree = internalAction({
     try {
       gitExec(repo, ["branch", "-D", data.branchName]);
     } catch {}
+    await dropCheckpointRefs(ctx, repo, args.taskId);
     await ctx.runMutation(internal.prFeedback.worktreeReleased, args);
+  },
+});
+
+/**
+ * GOAT G5: patch and file list between two checkpoint commits (or a
+ * checkpoint and the HEAD it was captured on), with the Paradev A1 safe
+ * config and byte budget (lib/diffPatch.ts). The commits live in the
+ * shared object store, so the main checkout reads them after the worktree
+ * is gone. `ok: false` when either commit is missing.
+ */
+export const checkpointDiff = internalAction({
+  args: { repoPath: v.string(), worktreePath: v.optional(v.string()), fromSha: v.string(), toSha: v.string() },
+  handler: async (_ctx, args) => {
+    const empty = { ok: false, patch: "", truncated: false, files: [] };
+    if (!/^[0-9a-f]{40,64}$/.test(args.fromSha) || !/^[0-9a-f]{40,64}$/.test(args.toSha)) return empty;
+    try {
+      const repo = resolveRepoPath(args.repoPath, { worktreePath: args.worktreePath });
+      for (const sha of [args.fromSha, args.toSha]) gitExec(repo, ["cat-file", "-e", `${sha}^{commit}`]);
+      return { ok: true, ...buildBranchPatch(gitRunBounded(repo), args.fromSha, args.toSha) };
+    } catch {
+      return empty;
+    }
   },
 });

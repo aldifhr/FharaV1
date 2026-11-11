@@ -45,7 +45,10 @@ SOFTWARE.
   from `apps/server/src/automationHold.ts`); `apps/api/convex/lib/restartContinuation.ts` (restart
   continuation: `CONTINUE_PROMPT` text and the 3-in-5-minutes loop window, adapted from
   `apps/server/src/orchestration-v2/RestartContinuation.ts`; the subtask and direct-thread wiring is a
-  pattern only). Modified by Fhara.
+  pattern only); `packages/worker/src/vendor/goat/diffs.ts` (copy of
+  `apps/server/src/checkpointing/Diffs.ts`, numstat parser) with `packages/worker/src/tools/gitCheckpoint.ts`
+  and `apps/api/convex/lib/checkpointRefs.ts` (hidden-ref checkpoint capture: temp index, write-tree,
+  commit-tree, update-ref; a pattern from `apps/server/src/vcs/GitVcsDriver.ts`). Modified by Fhara.
   GOAT's Pen, office, PDF, native and asset sub-paths carry other licences; nothing is taken from them.
 
 ```

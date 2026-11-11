@@ -13,6 +13,7 @@ import { resolveIssuesForApproval, resolveIssuesForQaPass } from "@/orchestrator
 import type { Escalation } from "@/api/convex/lib/subtaskContract";
 import { handleEscalation } from "./escalation";
 import { handleArchDecision } from "./archDecision";
+import { captureRunCheckpoint } from "./checkpoints";
 import { feedsResearchSynthesis } from "@/prompts/research";
 
 export async function handleNodeOutcome(
@@ -44,6 +45,9 @@ export async function handleNodeOutcome(
       Math.max(0, (activeByAgent.get(agent._id) ?? 1) - 1)
     );
   }
+  // GOAT G5: a hidden-ref checkpoint of the worktree after each finished
+  // subtask (best effort; a node settled by an earlier run was captured then).
+  if (outcome.status === "completed" && !settledEarlier) await captureRunCheckpoint(ctx, "subtask", node.id);
   let dynamicNodes: SchedulerNode[] | undefined;
   // Plan 022: an escalated executor stopped for a decision. Its meta is
   // kept on the execution row (the decision engine never judges it).

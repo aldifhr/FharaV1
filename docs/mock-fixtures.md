@@ -92,60 +92,32 @@ real `OpenAICompatibleProvider` and checks the default replies against the
 worker's own parsers (plan validator, intent, file blocks, review), so a prompt
 change that would break the scripted run fails there first.
 
-## Playwright screenshots
+## UI checks and screenshots (`npm run test:fixtures-ui`)
 
-Seed, start the web app against the same backend, and screenshot the seeded
-pages. A spec outside the default suite (it needs the stack):
-
-```ts
-// apps/web/tests/e2e/fixtures.spec.ts (opt-in: FHARA_FIXTURES_E2E=1)
-import { expect, test } from "@playwright/test";
-
-test.skip(!process.env.FHARA_FIXTURES_E2E, "needs npm run fixtures:seed and the web app");
-
-test("held task shows the hold notice", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("link", { name: /\[fixture\] Held task/ }).click();
-  await page.getByText("Dark mode toggle").click();
-  await expect(page.getByText(/On hold: .*Retrying automatically/)).toBeVisible();
-  await page.screenshot({ path: "test-results/fixtures/held-resume.png", fullPage: true });
-});
-```
+`e2e/fixtures-ui/run.mjs` drives the seeded screens the way threadbear's
+`Tools/tour-e2e.mjs` does: one plain Node script (playwright-core, no test
+runner), a `check()` per visible state, a numbered PNG per screen, and exit 1
+on any failed check. Per scenario it opens the run page, the project chat or
+board, the Inbox, Home or the personal chat and asserts what should be there
+(Allow/Deny on the command card, Resume now on the held task, Failed with the
+TS2322 tail, RA-2 failed with the synthesis done, the direct thread kept out of
+Needs you, a working Delete on the personal chat). It writes `results.json`
+next to the shots.
 
 ```bash
-npm run fixtures:seed
-npm run dev:web   # in another terminal, NEXT_PUBLIC_CONVEX_URL pointing at the seeded backend
-FHARA_FIXTURES_E2E=1 npx --workspace=@fhara/web playwright test tests/e2e/fixtures.spec.ts
+npm run fixtures:seed                       # CONVEX_SELF_HOSTED_URL + _ADMIN_KEY set
+NEXT_PUBLIC_CONVEX_URL=$CONVEX_SELF_HOSTED_URL npm run dev:web -- -p 3010
+FHARA_CHROMIUM=/path/to/chromium npm run test:fixtures-ui -- --base http://127.0.0.1:3010 --shots ./shots
+npm run test:fixtures-ui -- --only held-resume,direct-idle
 ```
 
-The spec above is an example; it is not committed and has not been run. Select
-by role and accessible name (no `data-testid`), as the smoke skill asks.
+The personal-chat check deletes the seeded chat; seed again before rerunning it.
 
-## Golden replay tests
-
-`packages/worker/tests/fixturesReplay.test.ts` replays every scenario's event
-stream through the UI's pure selectors: the sequence merge behind
-`useSequencedEvents` (fed out of order, with duplicates), the run replay
-timeline, the decisions tray, the compact activity log and the hold notice. The
-derived state is snapshotted in `packages/worker/tests/__golden__/<id>.json`.
-Accept an intended change with
-`npx --workspace=@fhara/worker vitest run tests/fixturesReplay.test.ts -u` and
-review the diff.
-
-Other checks: `apps/api/convex/devFixtures.test.ts` seeds every fixture through
-the real schema (convex-test validates each insert), and covers re-seed, wipe
-and the guard; `packages/worker/tests/fixturesDrift.test.ts` fails when the
-committed fixtures differ from what the generator writes.
-
-## Adding a scenario
-
-1. Add a function to `scripts/fixtures/make-synthetic.mjs` and list it in
-   `buildAll()`. Use the builder: `s.row(table, key, fields)` returns a
-   `$ref:<table>/<key>` string for other rows; `s.taskEvent` / `s.agentEvent`
-   number the streams; `s.anchorAt(ms)` sets the moment that becomes "now".
-2. Write made-up content only: no real transcripts, repositories, tokens or
-   home paths (the drift test rejects the obvious ones).
-3. `npm run fixtures:make`, then run the three tests above with `-u` once for
-   the new golden file.
-4. A table the seeder does not know yet goes in `FIXTURE_TABLES`
-   (`apps/api/convex/lib/devFixtures.ts`), in insert order.
+`e2e/fixtures-ui/worker-flow.mjs --project <id>` runs one live flow: it sends
+an instruction in that project's chat (pressing **Create task** when the chat
+reply only offers it), polls the task's status until done/failed/paused, and
+shoots the chat and run page. Point the worker at the mock LLM (an
+`openai-compatible` provider row with the mock's base URL and token) and the
+project at a throwaway local git repo with no remote. The default mock script
+has no rule for the Convex chat reply, so the chat answers with the fallback
+text and the task starts from the button.

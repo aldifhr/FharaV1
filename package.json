@@ -31,6 +31,7 @@
     "fixtures:seed": "tsx scripts/fixtures/seed.ts",
     "fixtures:wipe": "tsx scripts/fixtures/seed.ts --wipe",
     "mock:llm": "tsx scripts/mock-llm/server.ts",
+    "test:fixtures-ui": "node e2e/fixtures-ui/run.mjs",
     "knip": "knip --include files,dependencies,devDependencies,unlisted,unresolved,binaries,duplicates",
     "knip:all": "knip"
   },

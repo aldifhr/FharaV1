@@ -49,6 +49,8 @@ export interface ChangesForTask {
     behind?: number;
     comparedTo?: string;
   } | null;
+  /** Newest taskPushes row: Open PR (`githubPush.requestPush`) and Refresh act on it. */
+  pushId?: Id<"taskPushes">;
   push: ChangesPush | null;
   pr: ChangesPr | null;
   flow: ChangesFlowState;
@@ -132,6 +134,7 @@ export const forTask = query({
             comparedTo: row.comparedTo,
           }
         : null,
+      ...(row ? { pushId: row._id } : {}),
       push,
       pr,
       flow,

@@ -76,6 +76,8 @@ describe("changes.forTask", () => {
     expect(view?.commit).toMatchObject({ sha: SHA, filesChanged: 2, additions: 3, deletions: 1 });
     expect(view?.flow.kind).toBe("committed");
     expect(view?.push).toEqual({ status: "ready", pr: null });
+    // Open PR / Refresh act on the newest push row.
+    expect(view?.pushId).toBeTruthy();
   });
 
   test("worktree-gone once the worktree is released", async () => {

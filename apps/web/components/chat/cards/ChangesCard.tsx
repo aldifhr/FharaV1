@@ -8,6 +8,8 @@ import type { ChangesCardData } from "@/api/convex/cardTypes";
 import DiffCard from "../../DiffCard";
 import { CARD_SURFACE, MUTED } from "./primitives";
 import { useUiPref } from "@/lib/uiPrefs";
+import { requestOpenChanges } from "@/lib/changesView";
+import { useOptionalWorkspace } from "@/app/WorkspaceContext";
 
 /** Files beyond this start collapsed so a big change set stays scannable. */
 const EXPANDED_FILES = 3;
@@ -32,6 +34,15 @@ export default function ChangesCard({ data }: { data: ChangesCardData }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   // Settings → Diffs & pull requests: collapsed by default when turned off.
   const [diffExpanded] = useUiPref("diffExpanded");
+  // "Open changes": the task thread's Changes tab (inside a project only).
+  const workspace = useOptionalWorkspace();
+  const openChanges =
+    workspace && data.taskId
+      ? () => {
+          requestOpenChanges(String(data.taskId));
+          workspace.selectTask(String(data.taskId));
+        }
+      : null;
 
   return (
     <div className={CARD_SURFACE}>
@@ -44,6 +55,15 @@ export default function ChangesCard({ data }: { data: ChangesCardData }) {
           <span className="text-[#1f9d55] dark:text-emerald-400">+{data.additions ?? 0}</span>
           <span className="text-[#d83a3a] dark:text-rose-400">−{data.deletions ?? 0}</span>
         </span>
+        {openChanges && (
+          <button
+            type="button"
+            onClick={openChanges}
+            className="shrink-0 rounded-md px-2 py-1 text-[12.5px] font-medium text-ink-2 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+          >
+            Open changes
+          </button>
+        )}
       </div>
       {files.map((file, index) => {
         const change = byPath.get(file.path);

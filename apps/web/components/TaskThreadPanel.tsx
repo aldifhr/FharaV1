@@ -9,7 +9,7 @@ import MessageText from "./chat/MessageText";
 import { agentName, roleLabel } from "@/lib/agentRoles";
 import { subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
 import ApprovalCard from "./ApprovalCard";
-import DiffCard from "./DiffCard";
+import ChangesPane, { ThreadTabs, useThreadView } from "./changes/ChangesPane";
 import InitialAvatar from "./InitialAvatar";
 import SubtaskActivity from "./SubtaskActivity";
 import SubtaskLiveOutput from "./SubtaskLiveOutput";
@@ -122,6 +122,7 @@ export default function TaskThreadPanel({
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
   const fileRef = useRef<HTMLInputElement>(null);
+  const [threadView, setThreadView] = useThreadView(taskId);
   const replyRef = useRef<HTMLTextAreaElement>(null);
 
   const startResize = useCallback((e: React.PointerEvent) => {
@@ -504,8 +505,9 @@ export default function TaskThreadPanel({
           )}
           {xButton}
         </header>
-
-        <div className="shell-scroll h-0 min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-5">
+        <ThreadTabs view={threadView} onChange={setThreadView} />
+        {threadView === "changes" && <ChangesPane taskId={(task as any)._id} />}
+        <div className={`${threadView === "changes" ? "hidden" : ""} shell-scroll h-0 min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-5`}>
           {(taskStatus === "failed" || taskStatus === "rejected" || taskStatus === "cancelled") && (
             <div
               className={
@@ -615,14 +617,9 @@ export default function TaskThreadPanel({
           )}
           {taskId && subtasks.length > 0 && <Requirements taskId={taskId} variant="thread" />}
           {ctoMessages.length === 0 && fileChanges && fileChanges.length > 0 && (
-            <section className="space-y-2">
-              <p className="text-[13px] text-ink-3">
-                {fileChanges.length} file{fileChanges.length > 1 ? "s" : ""} changed
-              </p>
-              {fileChanges.map((fc: any) => (
-                <DiffCard key={fc._id} filePath={fc.filePath} diff={fc.diff} changeType={fc.changeType} oldContent={fc.oldContent} newContent={fc.newContent} />
-              ))}
-            </section>
+            <button type="button" onClick={() => setThreadView("changes")} className="text-[13px] text-ink-3 underline-offset-2 hover:text-ink hover:underline">
+              {fileChanges.length} file{fileChanges.length > 1 ? "s" : ""} changed · Open changes
+            </button>
           )}
           {ctoMessages.map((m: any, index: number) => {
             const msgAgent = agentById(m.agentId);
@@ -731,7 +728,7 @@ export default function TaskThreadPanel({
         </div>
 
         <form
-          className="shrink-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2"
+          className={`${threadView === "changes" ? "hidden" : ""} shrink-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2`}
           onSubmit={(event) => {
             event.preventDefault();
             void submit();

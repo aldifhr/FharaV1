@@ -18,6 +18,9 @@ export const KEYBINDING_ACTIONS = [
   { id: "composerItalic", label: "Italic", scope: "Composer", defaultChord: "Mod+I" },
   { id: "composerCode", label: "Inline code", scope: "Composer", defaultChord: "Mod+E" },
   { id: "composerQueue", label: "Queue message", scope: "Composer", defaultChord: "Alt+Enter" },
+  { id: "toggleChanges", label: "Open or close the task's changes", scope: "Task thread", defaultChord: "Mod+Shift+G" },
+  { id: "nextFile", label: "Next changed file", scope: "Changes", defaultChord: "Alt+ArrowDown" },
+  { id: "prevFile", label: "Previous changed file", scope: "Changes", defaultChord: "Alt+ArrowUp" },
 ] as const;
 
 export type KeybindingId = (typeof KEYBINDING_ACTIONS)[number]["id"];
@@ -128,13 +131,15 @@ export function writeKeybindings(bindings: Keybindings): void {
   window.dispatchEvent(new Event(KEYBINDINGS_EVENT));
 }
 
+const ARROWS: Record<string, string> = { ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→" };
+
 /** Display form: "Mod+K" → "⌘K" on macOS, "Ctrl+K" elsewhere. */
 export function formatChord(chord: string, mac: boolean): string {
   const normalized = normalizeChord(chord) ?? chord;
   if (!mac) return normalized.replace(/^Mod\b/, "Ctrl").replace(/\+Mod\b/, "+Ctrl");
   return normalized
     .split("+")
-    .map((p) => (p === "Mod" ? "⌘" : p === "Alt" ? "⌥" : p === "Shift" ? "⇧" : p === "Ctrl" ? "⌃" : p))
+    .map((p) => (p === "Mod" ? "⌘" : p === "Alt" ? "⌥" : p === "Shift" ? "⇧" : p === "Ctrl" ? "⌃" : (ARROWS[p] ?? p)))
     .join("");
 }
 

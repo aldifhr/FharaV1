@@ -4,20 +4,22 @@ import { useState } from "react";
 import { useQuery } from "convex/react";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
-import { bytesText, toolInputText, toolStatus, toolSubject } from "@/lib/threadbear/toolBody";
+import { bytesText, toolInputText, toolInterruption, toolStatus, toolSubject } from "@/lib/threadbear/toolBody";
 import type { ToolRow as ToolRowData } from "@/lib/threadbear/types";
 
-const STATUS_WORD = { running: "Running", done: "Done", failed: "Failed", interrupted: "Never finished" } as const;
+const STATUS_WORD = { running: "Running", done: "Done", failed: "Failed", interrupted: "Interrupted" } as const;
 const PRE = "max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-field bg-inset px-3 py-2 font-mono text-[12px] leading-5 text-ink-2";
 
 /**
  * One tool call. Closed: the subject and a status word. Open: the input, the
  * output preview, and the whole body of a big result read lazily
- * (`directThreads.body`, only while open).
+ * (`directThreads.body`, only while open). A call left without a result when
+ * its turn ended says why: stopped, interrupted, or never fully written.
  */
-export default function ToolRow({ row, taskId, turnOpen }: { row: ToolRowData; taskId: string; turnOpen: boolean }) {
+export default function ToolRow({ row, taskId, turnOpen, turnOutcome }: { row: ToolRowData; taskId: string; turnOpen: boolean; turnOutcome?: string }) {
   const [open, setOpen] = useState(false);
   const status = toolStatus(row, turnOpen);
+  const interruption = toolInterruption(row, turnOpen, turnOutcome);
   const wantsBody = open && Boolean(row.result?.hasBody);
   const body = useQuery(api.directThreads.body, wantsBody ? { taskId: taskId as any, seq: row.result!.seq } : "skip");
   const input = toolInputText(row.input);
@@ -37,11 +39,12 @@ export default function ToolRow({ row, taskId, turnOpen }: { row: ToolRowData; t
         {status === "running" ? (
           <Loader2 size={13} className="shrink-0 animate-spin text-ink-3" aria-label="Running" />
         ) : (
-          <span className={`shrink-0 text-[12px] ${status === "failed" ? "text-danger" : "text-ink-3"}`}>{STATUS_WORD[status]}</span>
+          <span className={`shrink-0 text-[12px] ${status === "failed" ? "text-danger" : "text-ink-3"}`}>{interruption?.word ?? STATUS_WORD[status]}</span>
         )}
       </button>
       {open && (
         <div className="mt-1 grid gap-2 pl-6">
+          {interruption && <p className="text-[12px] text-ink-3">{interruption.text}</p>}
           {input && <pre className={PRE}>{input}</pre>}
           {output ? <pre className={PRE}>{output}</pre> : <p className="text-[12px] text-ink-3">{status === "running" ? "No output yet." : "No output."}</p>}
           {wantsBody && body === undefined && <p className="text-[12px] text-ink-3">Loading the full output…</p>}

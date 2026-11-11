@@ -105,6 +105,8 @@ export type TurnFooterRow = RowBase & {
   durationMs: number;
   error?: string;
   tokens?: number;
+  /** N8: how many identical failure-only turns this footer stands for (2 or more). */
+  repeats?: number;
 };
 
 export type TranscriptRow =

@@ -5,13 +5,29 @@ import { useMutation } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import { Skeleton } from "@/app/WorkspaceContext";
 import { useToast } from "@/components/Toasts";
-import type { OptimisticMessage } from "@/lib/threadbear/types";
+import { decisionKey, focusedBoxHasText, useKeybindings } from "@/lib/keybindings";
+import type { ApprovalRow, OptimisticMessage, QuestionRow, TranscriptRow } from "@/lib/threadbear/types";
 import { useDirectTranscript } from "./useDirectTranscript";
 import TranscriptRows from "./TranscriptRows";
 import DirectComposer from "./DirectComposer";
 
 const TERMINAL = new Set(["done", "failed", "rejected", "cancelled"]);
 const errorText = (err: unknown) => (err instanceof Error ? err.message.replace(/^.*Uncaught Error:\s*/s, "").split("\n")[0] : "Please try again.");
+const isMacPlatform = () => {
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+  return /mac|iphone|ipad/i.test(nav.userAgentData?.platform ?? nav.platform ?? "");
+};
+
+/** The newest card still waiting on the user, and the newest open question. */
+function waitingOn(rows: readonly TranscriptRow[]): { card?: ApprovalRow; question?: QuestionRow } {
+  let card: ApprovalRow | undefined;
+  let question: QuestionRow | undefined;
+  for (const row of rows) {
+    if (row.kind === "approval" && row.state === "pending") card = row;
+    else if (row.kind === "question" && row.state === "open") question = row;
+  }
+  return { card, question };
+}
 const newClientId = () => `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 /**
@@ -80,6 +96,30 @@ export default function DirectThread({ taskId, projectId }: { taskId: string; pr
     },
     [setEffort, taskId, toast],
   );
+
+  // N8 hotkeys: allow / deny the waiting card, pick an option on the open question.
+  const bindings = useKeybindings();
+  const waiting = useMemo(() => waitingOn(rows), [rows]);
+  useEffect(() => {
+    if (closed) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      const decision = decisionKey(e, bindings, { typing: focusedBoxHasText(document.activeElement), mac: isMacPlatform() });
+      if (!decision) return;
+      if (decision.kind === "option") {
+        const option = waiting.question?.options[decision.index];
+        if (!option) return;
+        e.preventDefault();
+        void sendText(option);
+        return;
+      }
+      if (!waiting.card) return;
+      e.preventDefault();
+      void onRespond(waiting.card.approvalId, decision.kind === "approve" ? "allow" : "deny");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [bindings, closed, waiting, sendText, onRespond]);
 
   // Stay pinned to the newest row unless the user scrolled up.
   const scrollRef = useRef<HTMLDivElement>(null);

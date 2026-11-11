@@ -85,9 +85,10 @@
       "type": "base64key32",
       "group": "core",
       "runtimes": [
+        "worker",
         "convex"
       ],
-      "doc": "Previous encryption key, tried during a key rotation (Convex only today).",
+      "doc": "Previous encryption key during a rotation: the Convex migration re-encrypts with it, the worker decrypts not-yet-migrated rows with it.",
       "default": null,
       "parse": "nullish",
       "secret": true

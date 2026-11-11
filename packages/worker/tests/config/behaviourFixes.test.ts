@@ -154,3 +154,51 @@ describe("B5: one LLM fallback for the worker and Convex", () => {
     }
   });
 });
+
+describe("B6: the worker decrypts with PROVIDER_ENCRYPTION_KEY_OLD during a rotation", () => {
+  const keyB64 = (fill: number) => Buffer.alloc(32, fill).toString("base64");
+  async function seal(plaintext: string, b64: string): Promise<string> {
+    const key = await crypto.subtle.importKey("raw", Buffer.from(b64, "base64"), { name: "AES-GCM" }, false, ["encrypt"]);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const sealed = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(plaintext)));
+    const b = (u: Uint8Array) => Buffer.from(u).toString("base64");
+    return ["v1", b(iv), b(sealed.slice(sealed.length - 16)), b(sealed.slice(0, sealed.length - 16))].join(":");
+  }
+  const saved = { cur: process.env.PROVIDER_ENCRYPTION_KEY, old: process.env.PROVIDER_ENCRYPTION_KEY_OLD };
+  afterEach(async () => {
+    const { resetEncryptionKeyCache } = await import("@/llm/crypto");
+    for (const [k, v] of [["PROVIDER_ENCRYPTION_KEY", saved.cur], ["PROVIDER_ENCRYPTION_KEY_OLD", saved.old]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    resetEncryptionKeyCache();
+  });
+
+  it("current key first, then the old key; a row neither opens stays a hard error", async () => {
+    const { decryptApiKey, resetEncryptionKeyCache } = await import("@/llm/crypto");
+    const fresh = await seal("new-row", keyB64(2));
+    const stale = await seal("old-row", keyB64(1));
+    const foreign = await seal("x", keyB64(9));
+
+    process.env.PROVIDER_ENCRYPTION_KEY = keyB64(2);
+    delete process.env.PROVIDER_ENCRYPTION_KEY_OLD;
+    resetEncryptionKeyCache();
+    expect(await decryptApiKey(fresh, "p")).toBe("new-row");
+    await expect(decryptApiKey(stale, "p")).rejects.toThrow(/cannot be decrypted/);
+
+    process.env.PROVIDER_ENCRYPTION_KEY_OLD = keyB64(1);
+    resetEncryptionKeyCache();
+    expect(await decryptApiKey(fresh, "p")).toBe("new-row");
+    expect(await decryptApiKey(stale, "p")).toBe("old-row");
+    await expect(decryptApiKey(foreign, "p")).rejects.toThrow(/Failed to decrypt API key for provider "p"/);
+  });
+
+  it("a malformed old key does not hide the current key's error", async () => {
+    const { decryptApiKey, resetEncryptionKeyCache } = await import("@/llm/crypto");
+    process.env.PROVIDER_ENCRYPTION_KEY = keyB64(2);
+    process.env.PROVIDER_ENCRYPTION_KEY_OLD = "c2hvcnQ=";
+    resetEncryptionKeyCache();
+    await expect(decryptApiKey(await seal("x", keyB64(9)), "p")).rejects.toThrow(/cannot be decrypted/);
+    expect(await decryptApiKey(await seal("ok", keyB64(2)), "p")).toBe("ok");
+  });
+});

@@ -52,10 +52,9 @@ export const CORE_VARS = [
     name: "PROVIDER_ENCRYPTION_KEY_OLD",
     type: "base64key32",
     parse: "nullish",
-    runtimes: ["convex"],
+    runtimes: ["worker", "convex"],
     group: "core",
-    doc: "Previous encryption key, tried during a key rotation (Convex only today).",
+    doc: "Previous encryption key during a rotation: the Convex migration re-encrypts with it, the worker decrypts not-yet-migrated rows with it.",
     secret: true,
-    quirk: "worker has no _OLD fallback (D7, fixed by B6)",
   },
 ] as const satisfies readonly EnvVar[];

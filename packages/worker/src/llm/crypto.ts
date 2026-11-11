@@ -8,6 +8,10 @@
  *
  * Decryption failure is a HARD error naming the provider — never a silent
  * fallback to another credential.
+ *
+ * Key rotation (B6, D7): when the current key cannot open a ciphertext and
+ * `PROVIDER_ENCRYPTION_KEY_OLD` is set, the worker tries the old key too,
+ * so rows the Convex rotation migration has not re-encrypted yet still work.
  */
 import { wenv } from "@fhara/config/worker";
 
@@ -18,38 +22,57 @@ function base64ToBytes(b64: string): Uint8Array {
   return new Uint8Array(Buffer.from(b64, "base64"));
 }
 
-let cachedKey: Promise<CryptoKey> | null = null;
+type KeyName = "PROVIDER_ENCRYPTION_KEY" | "PROVIDER_ENCRYPTION_KEY_OLD";
+const cachedKeys = new Map<KeyName, Promise<CryptoKey>>();
+
+function importDecryptKey(name: KeyName, raw: string): Promise<CryptoKey> {
+  return (async () => {
+    const keyBytes = base64ToBytes(raw.trim());
+    if (keyBytes.length !== 32) {
+      throw new Error(`${name} must decode to exactly 32 bytes (got ${keyBytes.length}).`);
+    }
+    return await globalThis.crypto.subtle.importKey("raw", keyBytes as Uint8Array, { name: "AES-GCM" }, false, ["decrypt"]);
+  })();
+}
 
 function encryptionKey(): Promise<CryptoKey> {
-  if (!cachedKey) {
-    cachedKey = (async () => {
-      const raw = wenv("PROVIDER_ENCRYPTION_KEY");
-      if (!raw) {
-        throw new Error(
-          "PROVIDER_ENCRYPTION_KEY is not set in the worker environment. Provider credentials stored encrypted cannot be decrypted until it matches the key set on the Convex deployment."
+  let key = cachedKeys.get("PROVIDER_ENCRYPTION_KEY");
+  if (!key) {
+    const raw = wenv("PROVIDER_ENCRYPTION_KEY");
+    key = raw
+      ? importDecryptKey("PROVIDER_ENCRYPTION_KEY", raw)
+      : Promise.reject(
+          new Error(
+            "PROVIDER_ENCRYPTION_KEY is not set in the worker environment. Provider credentials stored encrypted cannot be decrypted until it matches the key set on the Convex deployment."
+          )
         );
-      }
-      const keyBytes = base64ToBytes(raw.trim());
-      if (keyBytes.length !== 32) {
-        throw new Error(
-          `PROVIDER_ENCRYPTION_KEY must decode to exactly 32 bytes (got ${keyBytes.length}).`
-        );
-      }
-      return await globalThis.crypto.subtle.importKey(
-        "raw",
-        keyBytes as Uint8Array,
-        { name: "AES-GCM" },
-        false,
-        ["decrypt"]
-      );
-    })();
+    key.catch(() => {});
+    cachedKeys.set("PROVIDER_ENCRYPTION_KEY", key);
   }
-  return cachedKey;
+  return key;
+}
+
+/** The rotation key, or null when PROVIDER_ENCRYPTION_KEY_OLD is unset. */
+function oldEncryptionKey(): Promise<CryptoKey> | null {
+  const raw = wenv("PROVIDER_ENCRYPTION_KEY_OLD")?.trim();
+  if (!raw) return null;
+  let key = cachedKeys.get("PROVIDER_ENCRYPTION_KEY_OLD");
+  if (!key) {
+    key = importDecryptKey("PROVIDER_ENCRYPTION_KEY_OLD", raw);
+    key.catch(() => {});
+    cachedKeys.set("PROVIDER_ENCRYPTION_KEY_OLD", key);
+  }
+  return key;
+}
+
+async function openWith(key: CryptoKey, iv: Uint8Array, sealed: Uint8Array): Promise<string> {
+  const plain = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv as Uint8Array }, key, sealed as Uint8Array);
+  return new TextDecoder().decode(plain);
 }
 
 /** Test hook: forget the cached imported key (env may have changed). */
 export function resetEncryptionKeyCache(): void {
-  cachedKey = null;
+  cachedKeys.clear();
 }
 
 export async function decryptApiKey(
@@ -69,13 +92,22 @@ export async function decryptApiKey(
     const sealed = new Uint8Array(cipher.length + TAG_BYTES);
     sealed.set(cipher);
     sealed.set(tag, cipher.length);
-    const key = await encryptionKey();
-    const plain = await globalThis.crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: iv as Uint8Array },
-      key,
-      sealed as Uint8Array
-    );
-    return new TextDecoder().decode(plain);
+    let currentError: unknown;
+    try {
+      return await openWith(await encryptionKey(), iv, sealed);
+    } catch (error) {
+      currentError = error;
+    }
+    // B6: during a key rotation, rows not yet re-encrypted open with the old key.
+    const old = oldEncryptionKey();
+    if (old) {
+      try {
+        return await openWith(await old, iv, sealed);
+      } catch {
+        // fall through to the current key's error
+      }
+    }
+    throw currentError;
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("PROVIDER_ENCRYPTION_KEY")) {
       throw error;

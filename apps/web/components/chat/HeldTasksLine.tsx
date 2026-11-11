@@ -9,7 +9,7 @@ type HeldTask = {
   status: string;
   pausedBy?: string;
   conversationId?: string | null;
-  hold?: { kind: "offline" | "rate_limit" | "quota" | "auth"; reason: string; resumeAt: number };
+  hold?: { kind: "offline" | "rate_limit" | "quota" | "auth" | "repo"; reason: string; resumeAt: number };
 };
 
 /**

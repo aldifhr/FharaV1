@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import Modal from "../Modal";
 import GithubRepoSettings from "../GithubRepoSettings";
+import GitInitNote, { useRepoReadinessNote } from "../GitInitNote";
 import ProjectScriptsSettings from "./ProjectScriptsSettings";
 import { useToast } from "../Toasts";
 import { agentName, agentRoleText } from "@/lib/agentRoles";
@@ -110,6 +111,8 @@ export default function ManageProjectModal({
   }, [retention, retentionDays]);
   const [name, setName] = useState(project.name ?? "");
   const [path, setPath] = useState(project.workspacePath ?? "");
+  // Lane git-init: checked on the saved folder; Initialize git re-queues tasks it held.
+  const repoNote = useRepoReadinessNote({ projectId });
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(projectDefaultPermissionMode(project));
   const [agentIds, setAgentIds] = useState<string[]>(project.agentIds ?? []);
   const [instructions, setInstructions] = useState(project.instructions ?? "");
@@ -189,6 +192,7 @@ export default function ManageProjectModal({
           Folder path
           <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/path/to/your/repo" className={field} />
         </label>
+        {repoNote.message && <GitInitNote message={repoNote.message} target={{ projectId }} compact onDone={repoNote.refresh} />}
         <label className="grid gap-1">
           Default permission mode
           <select value={permissionMode} onChange={(e) => setPermissionMode(e.target.value as PermissionMode)} className={field}>

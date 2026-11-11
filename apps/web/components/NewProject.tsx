@@ -6,6 +6,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { api } from "@/api/convex/_generated/api";
 import Modal from "./Modal";
+import GitInitNote, { useRepoReadinessNote } from "./GitInitNote";
 import { agentName, agentRoleText } from "@/lib/agentRoles";
 import { suggestProjectPath, useUiPref } from "@/lib/uiPrefs";
 
@@ -44,6 +45,8 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
   const [step, setStep] = useState<Step>("project");
   const [name, setName] = useState("");
   const [workspacePath, setWorkspacePath] = useState("");
+  // Lane git-init: a folder that is not a repository (or has no commits) gets the note + Initialize git.
+  const repoNote = useRepoReadinessNote(workspacePath.trim() ? { workspacePath } : null);
   // Settings → Workspace: the folder path follows the name under the
   // projects folder until the user edits the path by hand.
   const [projectsFolder] = useUiPref("projectsFolder");
@@ -184,6 +187,9 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
                 )}
               </div>
             </label>
+            {repoNote.message && (
+              <GitInitNote message={repoNote.message} target={{ workspacePath }} compact onDone={repoNote.refresh} />
+            )}
           </>
         ) : (
           <>

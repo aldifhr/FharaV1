@@ -5,9 +5,11 @@ import { useMutation } from "convex/react";
 import { Play } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { holdNoticeText } from "@/api/convex/lib/providerHold";
+import { classifyRepoHold } from "@/api/convex/lib/repoReadiness";
+import GitInitNote from "./GitInitNote";
 import { useToast } from "./Toasts";
 
-type Hold = { kind: "offline" | "rate_limit" | "quota" | "auth"; reason: string; resumeAt: number; attempts: number };
+type Hold = { kind: "offline" | "rate_limit" | "quota" | "auth" | "repo"; reason: string; resumeAt: number; attempts: number };
 
 /**
  * O3 + L7: a task on a provider hold (LLM offline, 429, quota, auth).
@@ -18,7 +20,7 @@ export default function TaskHoldNotice({
   task,
   compact = false,
 }: {
-  task: { _id: string; status: string; pausedBy?: string; hold?: Hold };
+  task: { _id: string; status: string; pausedBy?: string; hold?: Hold; errorMessage?: string };
   compact?: boolean;
 }) {
   const resume = useMutation(api.taskControl.resume);
@@ -29,6 +31,11 @@ export default function TaskHoldNotice({
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
+  // Lane git-init: the project folder is not a repository (or has no
+  // commits): held, or failed before this lane with the raw error.
+  const repoHeld = task.status === "paused" && task.pausedBy === "held" && task.hold?.kind === "repo";
+  const repo = repoHeld ? { reason: task.hold!.reason } : task.status === "failed" ? classifyRepoHold(task.errorMessage) : null;
+  if (repo) return <GitInitNote message={repo.reason} target={{ taskId: task._id }} compact={compact} />;
   if (task.status !== "paused" || task.pausedBy !== "held" || !task.hold) return null;
   const run = async () => {
     setPending(true);

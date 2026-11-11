@@ -612,7 +612,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   };
 
   return (
-    <main className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-panel">
+    <main className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-dots">
       <QueryBoundary>
         <TeamStatusFeed projectId={projectId} onChange={setLiveStatus} />
       </QueryBoundary>

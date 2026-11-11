@@ -1,44 +1,38 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useConvex, useMutation, useQuery } from "convex/react";
 import { ReviewerSection, SecondOpinionButton } from "@/components/review/Reviewer";
-import Link from "next/link";
 import { motion } from "framer-motion";
 import { api } from "@/api/convex/_generated/api";
 import MessageText from "./chat/MessageText";
 import { agentName, roleLabel } from "@/lib/agentRoles";
 import { subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
 import ApprovalCard from "./ApprovalCard";
-import ChangesPane, { ThreadTabs, useThreadView } from "./changes/ChangesPane";
+import ChangesPane, { useThreadView } from "./changes/ChangesPane";
+import TaskThreadHeader from "./TaskThreadHeader";
+import { InspectorSurface, InspectorTabs } from "./ui/inspector";
+import { StatusTag } from "./ui/status-tag";
 import InitialAvatar from "./InitialAvatar";
 import SubtaskActivity from "./SubtaskActivity";
 import SubtaskLiveOutput from "./SubtaskLiveOutput";
 import ChatCard from "./chat/cards/ChatCard";
 import ReviewSnippet from "./chat/cards/ReviewSnippet";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
-import PauseResumeButton from "./PauseResumeButton";
 import TaskHoldNotice from "./TaskHoldNotice";
 import TaskQuestionCard from "./TaskQuestionCard";
 import SystemLineRow from "./chat/SystemLineRow";
 import { canReplyTo, systemLineText, threadBlockOf } from "@/lib/systemLine";
 import Requirements from "./runs/Requirements";
 import { useToast } from "./Toasts";
-import { EditableTitle } from "./ThreadRename";
 import { useSequencedEvents } from "@/lib/useSequencedEvents";
 import { Skeleton } from "@/app/WorkspaceContext";
-import { ArrowLeft, ArrowUpRight, AtSign, Check, ChevronLeft, Loader2 as SendLoader, Minimize2, Paperclip, Reply, RotateCcw, SendHorizontal, Square, X } from "lucide-react";
+import { AtSign, Check, ChevronLeft, Loader2 as SendLoader, Paperclip, Reply, RotateCcw, SendHorizontal, X } from "lucide-react";
 import { QuoteBar, QuotedSnippet, quoteOf, type ChatQuote } from "./chat/QuoteBlock";
 import { clockTime } from "@/lib/format";
 import { groupActivity, groupByIndex } from "@/lib/activityGroups";
 import ActivityGroupRow from "./chat/ActivityGroupRow";
-import { PERMISSION_MODE_LABELS, normalizePermissionMode } from "@/api/convex/lib/permissionModes";
 import { refusalCopy } from "@/lib/taskInput";
 
-const MIN_WIDTH = 280;
-const MAX_WIDTH = 720;
-const DEFAULT_WIDTH = 390;
-const WIDE_WIDTH = 640;
-const KEYBOARD_STEP = 16;
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 const timeOf = (ms?: number) => (ms ? clockTime(ms) : "");
 
@@ -64,8 +58,6 @@ export default function TaskThreadPanel({
   // Hooks). Returning before these crashed the panel when `collapsed` or
   // `taskId` changed on the same instance.
   const toast = useToast();
-  const [isResizing, setIsResizing] = useState(false);
-  const resizingRef = useRef(false);
 
   const task = useQuery(api.tasks.get, taskId ? { taskId: taskId as any } : "skip");
   const taskExists = Boolean(task);
@@ -128,37 +120,6 @@ export default function TaskThreadPanel({
   const [threadView, setThreadView] = useThreadView(taskId);
   const replyRef = useRef<HTMLTextAreaElement>(null);
 
-  const startResize = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    resizingRef.current = true;
-    setIsResizing(true);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  }, []);
-
-  useEffect(() => {
-    if (!isResizing) return;
-    const handleMove = (e: PointerEvent) => {
-      if (!resizingRef.current) return;
-      // Panel is right-docked: width shrinks as the handle moves right.
-      onPanelWidthChange(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, window.innerWidth - e.clientX)));
-    };
-    const handleUp = () => {
-      resizingRef.current = false;
-      setIsResizing(false);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    window.addEventListener("pointermove", handleMove);
-    window.addEventListener("pointerup", handleUp);
-    window.addEventListener("pointercancel", handleUp);
-    return () => {
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", handleUp);
-      window.removeEventListener("pointercancel", handleUp);
-    };
-  }, [isResizing, onPanelWidthChange]);
-
   // Escape closes the full-screen sheet on phones.
   useEffect(() => {
     if (!fullScreen) return;
@@ -194,80 +155,34 @@ export default function TaskThreadPanel({
     );
   }
 
-  const shellClass = fullScreen
-    ? "relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-panel text-ink"
-    : "relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-line bg-panel text-ink";
-
-  const closeButton = fullScreen ? (
-    <button type="button" onClick={onClose} aria-label="Back to chat" className="-ml-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30">
-      <ArrowLeft size={18} />
-    </button>
-  ) : null;
-  const wide = panelWidth >= WIDE_WIDTH - 20;
-  const headerBtn =
-    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30";
-  const xButton = !fullScreen ? (
-    <>
-      <button
-        type="button"
-        onClick={() => onPanelWidthChange(wide ? DEFAULT_WIDTH : WIDE_WIDTH)}
-        title={wide ? "Narrow the thread" : "Widen the thread"}
-        aria-label={wide ? "Narrow the thread" : "Widen the thread"}
-        className={headerBtn}
-      >
-        {wide ? <Minimize2 size={15} /> : <ArrowUpRight size={16} />}
-      </button>
-      <button type="button" onClick={onClose} title="Close task thread" aria-label="Close task thread" className={headerBtn}>
-        <X size={17} />
-      </button>
-    </>
-  ) : null;
-
-  const resizeHandle = !fullScreen ? (
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize task thread"
-      aria-valuemin={MIN_WIDTH}
-      aria-valuemax={MAX_WIDTH}
-      aria-valuenow={panelWidth}
-      tabIndex={0}
-      onPointerDown={startResize}
-      onKeyDown={(e) => {
-        if (e.key === "ArrowLeft") { e.preventDefault(); onPanelWidthChange(Math.min(MAX_WIDTH, panelWidth + KEYBOARD_STEP)); }
-        if (e.key === "ArrowRight") { e.preventDefault(); onPanelWidthChange(Math.max(MIN_WIDTH, panelWidth - KEYBOARD_STEP)); }
-      }}
-      className="group absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none outline-none hover:bg-ink/20 focus-visible:bg-ink/20 active:bg-ink/20"
-      title="Drag to resize"
-    >
-      <div className="absolute left-0 top-1/2 h-8 w-0.5 -translate-y-1/2 rounded-full bg-gray-300 opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-600" />
-    </div>
-  ) : null;
-
-  const asideStyle = fullScreen ? undefined : { width: panelWidth };
+  const surface = fullScreen ? "sheet" : "docked";
+  const header = (extra: { needsYou?: boolean; onStop?: () => void } = {}) => (
+    <TaskThreadHeader
+      task={task}
+      projectName={(project as any)?.name}
+      fullScreen={fullScreen}
+      width={panelWidth}
+      onWidthChange={onPanelWidthChange}
+      onClose={onClose}
+      {...extra}
+    />
+  );
 
   // Loading / deleted states (previously both read "Queued" forever).
   if (task === undefined || task === null) {
     return (
-      <div className={shellClass}>
-        {resizeHandle}
-        <aside style={asideStyle} className="flex h-full min-h-0 flex-col">
-          <header className="flex min-h-[64px] items-center gap-2 border-b border-line px-5 py-3">
-            {closeButton}
-            <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">{task === null ? "Task not found" : "Loading task…"}</h2>
-            {xButton}
-          </header>
-          {task === undefined ? (
-            <div className="space-y-3 p-4" role="status" aria-label="Loading task">
-              <Skeleton className="h-4 w-3/5" />
-              <Skeleton className="h-3 w-4/5" />
-              <Skeleton className="h-3 w-2/5" />
-            </div>
-          ) : (
-            <p className="p-5 text-[14px] text-ink-2">This task was deleted or is no longer available.</p>
-          )}
-        </aside>
-      </div>
+      <InspectorSurface variant={surface} width={panelWidth} onWidthChange={onPanelWidthChange} resizeLabel="Resize task thread">
+        {header()}
+        {task === undefined ? (
+          <div className="space-y-3 p-4" role="status" aria-label="Loading task">
+            <Skeleton className="h-4 w-3/5" />
+            <Skeleton className="h-3 w-4/5" />
+            <Skeleton className="h-3 w-2/5" />
+          </div>
+        ) : (
+          <p className="p-5 text-[14px] text-ink-2">This task was deleted or is no longer available.</p>
+        )}
+      </InspectorSurface>
     );
   }
 
@@ -415,17 +330,6 @@ export default function TaskThreadPanel({
   );
 
   const needsYou = taskStatus === "needs_approval" || taskStatus === "waiting_input" || pendingApprovals.length > 0;
-  const pill = needsYou
-    ? { label: "Needs you", cls: "bg-warn-soft text-warn" }
-    : taskStatus === "running"
-      ? { label: "In progress", cls: "bg-hover text-ink" }
-      : taskStatus === "paused"
-        ? { label: "Paused", cls: "bg-hover text-ink-2" }
-      : taskStatus === "done"
-        ? { label: "Done", cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" }
-        : taskStatus === "failed" || taskStatus === "rejected"
-          ? { label: taskStatusLabel(taskStatus), cls: "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300" }
-          : { label: taskStatusLabel(taskStatus), cls: "bg-hover text-ink-2" };
   const placeholder =
     taskStatus === "waiting_input"
       ? "Answer to continue the task"
@@ -458,64 +362,39 @@ export default function TaskThreadPanel({
   const nameRow = (role: string | undefined, at: number, tag?: string) => (
     <p className="flex items-center gap-2 text-[15px] font-semibold text-ink">
       {roleLabel(role)}
-      {tag && <span className="rounded-md border border-line px-1.5 py-px text-[12px] font-normal text-ink-2">{tag}</span>}
+      {tag && <StatusTag className="font-normal">{tag}</StatusTag>}
       <span className="text-[13px] font-normal text-ink-3">{timeOf(at)}</span>
     </p>
   );
 
   return (
-    <div className={shellClass}>
-      {resizeHandle}
+    <InspectorSurface variant={surface} width={panelWidth} onWidthChange={onPanelWidthChange} resizeLabel="Resize task thread">
       <ConfirmDialog request={confirmReq} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
-      <motion.aside
+      <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0, transition: { duration: 0.15 } }}
         transition={{ duration: 0.2, ease: "easeOut" }}
-        style={asideStyle}
         className="flex h-full min-h-0 flex-col overflow-hidden"
       >
-        <header className="flex min-h-[64px] items-center gap-2 border-b border-line px-5 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-          {closeButton}
-          <div className="min-w-0 flex-1">
-            <h2 className="min-w-0 text-[16px] font-semibold leading-tight text-ink"><EditableTitle title={(task as any).title} renameRef={{ taskId: String((task as any)._id) }} label="task" /></h2>
-            <p className="mt-0.5 truncate text-[13px] text-ink-3">
-              Task thread · {(project as any)?.name ?? "Workspace"}
-              {" · "}
-              <span title="Permission mode">{PERMISSION_MODE_LABELS[normalizePermissionMode((task as any).permissionMode)]}</span>
-              {" · "}
-              <Link href={`/runs/${(task as any)._id}`} className="underline-offset-2 hover:text-ink hover:underline">
-                View trace
-              </Link>
-            </p>
-          </div>
-          <span className={`shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-[13px] font-medium leading-none ${pill.cls}`}>{pill.label}</span>
-          {/* Plan 022: Pause / Resume beside Stop. Only Stop confirms. */}
-          {(taskStatus === "running" || taskStatus === "queued" || taskStatus === "paused") && (
-            <div className="flex shrink-0 items-center">
-              <PauseResumeButton task={{ _id: (task as any)._id, title: (task as any).title, status: taskStatus }} size={15} />
-              <button
-                type="button"
-                onClick={askCancel}
-                title="Stop task"
-                aria-label="Stop task"
-                className="rounded-md p-1.5 text-ink-3 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-400/50 dark:hover:bg-red-950/50"
-              >
-                <Square size={14} />
-              </button>
-            </div>
-          )}
-          {xButton}
-        </header>
-        <ThreadTabs view={threadView} onChange={setThreadView} />
+        {header({ needsYou, onStop: askCancel })}
+        <InspectorTabs
+          value={threadView}
+          onChange={setThreadView}
+          label="Task thread view"
+          options={[
+            { value: "thread", label: "Thread" },
+            { value: "changes", label: "Changes" },
+          ]}
+        />
         {threadView === "changes" && <ChangesPane taskId={(task as any)._id} />}
         <div className={`${threadView === "changes" ? "hidden" : ""} shell-scroll h-0 min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-5`}>
           {(taskStatus === "failed" || taskStatus === "rejected" || taskStatus === "cancelled") && (
             <div
               className={
                 taskStatus === "cancelled"
-                  ? "rounded-xl border border-line bg-hover p-3.5 text-[14px] text-ink-2"
-                  : "rounded-xl border border-red-200 bg-red-50 p-3.5 text-[14px] text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300"
+                  ? "rounded-card border border-line bg-hover p-3.5 text-[14px] text-ink-2"
+                  : "rounded-card border border-danger/40 bg-panel p-3.5 text-[14px] text-danger"
               }
             >
               <p className="font-medium">
@@ -693,9 +572,9 @@ export default function TaskThreadPanel({
                   return (
                     <li key={event._id} className="flex items-center gap-2.5 text-[14px]">
                       {passed ? (
-                        <Check size={15} className="shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                        <Check size={15} className="shrink-0 text-ok" aria-hidden="true" />
                       ) : failed ? (
-                        <X size={15} className="shrink-0 text-red-600 dark:text-red-400" aria-hidden="true" />
+                        <X size={15} className="shrink-0 text-danger" aria-hidden="true" />
                       ) : (
                         <SendLoader size={15} className="shrink-0 animate-spin text-warn" aria-hidden="true" />
                       )}
@@ -802,7 +681,7 @@ export default function TaskThreadPanel({
             </p>
           )}
         </form>
-      </motion.aside>
-    </div>
+      </motion.div>
+    </InspectorSurface>
   );
 }

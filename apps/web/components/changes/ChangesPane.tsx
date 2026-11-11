@@ -56,28 +56,6 @@ export function useThreadView(taskId: string | null): [ThreadView, (view: Thread
   return [view, setView];
 }
 
-export function ThreadTabs({ view, onChange }: { view: ThreadView; onChange: (view: ThreadView) => void }) {
-  const tab = (id: ThreadView, label: string) => (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={view === id}
-      onClick={() => onChange(id)}
-      className={`-mb-px border-b-2 px-1 py-2 text-[13px] font-medium outline-none focus-visible:text-ink ${
-        view === id ? "border-ink text-ink" : "border-transparent text-ink-3 hover:text-ink"
-      }`}
-    >
-      {label}
-    </button>
-  );
-  return (
-    <div role="tablist" aria-label="Task thread view" className="flex shrink-0 gap-4 border-b border-line px-5">
-      {tab("thread", "Thread")}
-      {tab("changes", "Changes")}
-    </div>
-  );
-}
-
 export default function ChangesPane({ taskId }: { taskId: string }) {
   const toast = useToast();
   const bindings = useKeybindings();

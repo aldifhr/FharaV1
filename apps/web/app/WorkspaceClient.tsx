@@ -138,7 +138,7 @@ function WorkspaceShell({
           ) : (
             // Child queries assert project access and would throw for a
             // deleted project; render them only once it is known to exist.
-            <main className="min-h-0 min-w-0 flex-1 bg-panel px-5 py-6" aria-busy="true">
+            <main className="min-h-0 min-w-0 flex-1 bg-dots px-5 py-6" aria-busy="true">
               <SectionLoading />
             </main>
           )}

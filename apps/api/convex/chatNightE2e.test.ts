@@ -182,7 +182,10 @@ describe("(1) a go reply starts the task the CTO offered", () => {
     expect(tasks[0].command).toBe("buat halaman login, register, logout");
     // O3: /task makes no CTO assignment call; System posts one status line with the card.
     expect(calls).toHaveLength(0);
-    const lines = await t.run(async (ctx) => ctx.db.query("messages").filter((q) => q.eq(q.field("taskId"), tasks[0]._id)).collect());
+    // The task thread holds the user's command and one System line; no agent (CTO) message.
+    const thread = await t.run(async (ctx) => ctx.db.query("messages").filter((q) => q.eq(q.field("taskId"), tasks[0]._id)).collect());
+    expect(thread.filter((m) => m.authorType === "user").map((m) => m.content)).toEqual(["buat halaman login, register, logout"]);
+    const lines = thread.filter((m) => m.authorType === "agent");
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ voice: "system", content: "Task created · planning", authorType: "agent" });
     expect(lines[0].agentId).toBeUndefined();

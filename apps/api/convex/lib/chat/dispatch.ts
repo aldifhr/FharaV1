@@ -92,7 +92,7 @@ const DOMAIN_RULES: Array<{ domain: DispatchDomain; pattern: RegExp }> = [
   {
     domain: "qa",
     pattern:
-      /\b(tests?|testing|tes|testnya|tesnya|unit[- ]?tests?|e2e|qa|coverage|cakupan (?:tes|test)|regression|regresi|verifikasi|verification|verify|pengujian|uji|test ?cases?|flaky|vitest|jest|playwright)\b/i,
+      /\b(tests?|testing|tes|dites|ditest|testnya|tesnya|unit[- ]?tests?|e2e|qa|coverage|cakupan (?:tes|test)|regression|regresi|verifikasi|verification|verify|pengujian|uji|diuji|teruji|test ?cases?|flaky|vitest|jest|playwright)\b/i,
   },
   {
     domain: "devops",

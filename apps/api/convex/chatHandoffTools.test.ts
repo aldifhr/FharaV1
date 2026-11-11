@@ -219,7 +219,8 @@ describe("tools off: no verification handoff", () => {
     const { t, projectId, ctoId } = await setup({ worker: "none" });
     reply = () =>
       "Daftar tabel belum saya cek. @QA tolong verifikasi daftar tabel secara literal. @Backend tolong cek nama fungsinya.";
-    const replies = await ask(t, projectId, "sebutkan tabel dan nama fungsi di schema");
+    // O3: typed @CTO (an un-mentioned question is routed to its owner, see "O3 routing" below).
+    const replies = await ask(t, projectId, "@CTO sebutkan tabel dan nama fungsi di schema");
     expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
     expect(calls).toHaveLength(1);
     expect(calls[0].system).toContain("do not @mention teammates to check, verify, or grep code");

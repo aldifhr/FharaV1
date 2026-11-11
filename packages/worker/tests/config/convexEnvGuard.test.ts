@@ -1,11 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { CONVEX_SYNC_KEYS, envVar } from "@fhara/config";
+import { CONVEX_NOT_SYNCED, CONVEX_SYNC_KEYS, ENV_SCHEMA, type EnvVar, envVar } from "@fhara/config";
 
 /**
  * Guards (E2): apps/api/convex reads Fhara config only through
- * @fhara/config/convex, and env:sync still pushes exactly today's 18 keys.
+ * @fhara/config/convex, and env:sync pushes every Convex-read var (B4).
  */
 const CONVEX = path.resolve(import.meta.dirname, "../../../../apps/api/convex");
 const ROOT = path.resolve(import.meta.dirname, "../../../..");
@@ -61,5 +61,29 @@ describe("env:sync keys", () => {
     const { CONVEX_KEYS } = (await import(envMjs)) as { CONVEX_KEYS: string[] };
     expect(CONVEX_KEYS).toEqual([...CONVEX_SYNC_KEYS]);
     for (const key of CONVEX_KEYS) expect(envVar(key)?.runtimes.some((r) => r === "convex" || r === "convexNode")).toBe(true);
+  });
+});
+
+describe("B4: env:sync covers every var Convex reads", () => {
+  it("each Convex-read var is synced or listed in CONVEX_NOT_SYNCED with a reason", () => {
+    const readByConvex = (ENV_SCHEMA as readonly EnvVar[])
+      .filter((d) => !d.deprecated && d.runtimes.some((r) => r === "convex" || r === "convexNode"))
+      .map((d) => d.name);
+    const synced = new Set<string>(CONVEX_SYNC_KEYS);
+    expect(readByConvex.filter((n) => !synced.has(n) && !(n in CONVEX_NOT_SYNCED))).toEqual([]);
+    expect(Object.keys(CONVEX_NOT_SYNCED).filter((n) => synced.has(n))).toEqual([]);
+  });
+
+  it("the seven keys D9 found missing are synced now", () => {
+    for (const key of [
+      "FHARA_WORKTREE_RETENTION_HOURS",
+      "FHARA_SNAPSHOT_RETENTION_DAYS",
+      "CHAT_REPLY_STALE_MS",
+      "TASK_WATCHDOG_STUCK_MS",
+      "CONTEXT_SNAPSHOTS",
+      "FHARA_GIT_AUTHOR_NAME",
+      "FHARA_GIT_AUTHOR_EMAIL",
+    ]) expect(CONVEX_SYNC_KEYS).toContain(key);
+    expect(CONVEX_SYNC_KEYS).toHaveLength(25);
   });
 });

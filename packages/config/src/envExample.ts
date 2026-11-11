@@ -4,7 +4,7 @@
  * Defaults, options, secret flags and the Convex sync list come from the
  * schema, so the docs cannot drift from the code again.
  */
-import { CONVEX_SYNC_KEYS } from "./convexSync";
+import { CONVEX_NOT_SYNCED, CONVEX_SYNC_KEYS } from "./convexSync";
 import { ENV_SCHEMA } from "./schema";
 import type { EnvGroup, EnvVar, Runtime } from "./schema/types";
 
@@ -122,7 +122,7 @@ function notes(def: EnvVar, sync: ReadonlySet<string>): string[] {
   if (def.knob) out.push("also set in Settings (overrides this file)");
   if (sync.has(def.name)) out.push("synced to Convex by npm run dev");
   else if (def.runtimes.some(isConvex) && !def.convexSystem) {
-    out.push(def.runtimes.includes("worker") ? "Convex reads its own copy: npx convex env set (not synced yet)" : "Convex env: npx convex env set (not synced yet)");
+    out.push(`not synced to Convex: ${CONVEX_NOT_SYNCED[def.name] ?? "set it with npx convex env set"}`);
   }
   if (def.convexSystem) out.push("set by Convex itself; on the web side derived from NEXT_PUBLIC_CONVEX_URL");
   if (def.aliases?.length) out.push(`legacy name${def.aliases.length > 1 ? "s" : ""} ${def.aliases.join(", ")} still read`);

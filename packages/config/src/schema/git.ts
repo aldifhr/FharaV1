@@ -106,6 +106,5 @@ export const GIT_VARS = [
     group: "git",
     doc: "Hours a finished task's worktree is kept.",
     knob: { reader: "api" },
-    quirk: "not in the env:sync list, so the root .env does not reach Convex (D9, fixed by B4)",
   },
 ] as const satisfies readonly EnvVar[];

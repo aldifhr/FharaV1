@@ -326,12 +326,22 @@ function stripRelayPrefix(text: string): string {
   return text.replace(/^(?:kata|katanya|dia bilang|doi bilang|mereka bilang|he said|she said|they said)\s*[:,-]?\s*/i, "").trim();
 }
 
+/** A slash command ("/research 3 …", "/task …") ran on its own; never the request an offer answers. */
+const SLASH_COMMAND = /^\/[a-z][\w-]*\b/i;
+
 /**
  * The user request a CTO offer (at `offerIndex`) answers. Walks back over
  * the user's messages before the offer (at most 6), skipping meta
- * follow-ups ("kok bikin task?"), and keeps the one whose words the offer
- * shares most (ties: the nearest). With no overlap anywhere, the nearest
- * real request. "" when there is none — the offer then stands alone.
+ * follow-ups ("kok bikin task?") and slash commands ("/research 3 …").
+ *
+ * The nearest real request wins when no agent has replied since it: the
+ * offer is the CTO's answer to it (the latest "Add a footer…" turn, never an
+ * earlier "/research …" that merely shares a word with the offer). Only when
+ * the nearest request was already answered (the offer follows a meta
+ * follow-up, as in "kok bikin task?") does word overlap pick the request:
+ * the one whose words the offer shares most (ties: the nearest). With no
+ * overlap anywhere, the nearest real request. "" when there is none — the
+ * offer then stands alone.
  */
 export function requestAnsweredByOffer(
   history: Array<{ authorType: string; content: string }>,
@@ -342,12 +352,18 @@ export function requestAnsweredByOffer(
   let bestScore = 0;
   let nearest = "";
   let seen = 0;
+  let agentSince = false;
   for (let j = offerIndex - 1; j >= 0 && seen < 6; j -= 1) {
     const m = history[j];
-    if (m.authorType !== "user") continue;
+    if (m.authorType !== "user") {
+      if (m.authorType === "agent" && m.content?.trim()) agentSince = true;
+      continue;
+    }
     seen += 1;
     const text = m.content.trim();
-    if (isMetaFollowUp(text)) continue;
+    if (isMetaFollowUp(text) || SLASH_COMMAND.test(text)) continue;
+    // The latest real request with no reply before the offer: the offer answers it.
+    if (!nearest && !agentSince) return text;
     if (!nearest) nearest = text;
     let score = 0;
     for (const w of contentWords(text)) if (offerWords.has(w)) score += 1;

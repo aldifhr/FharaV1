@@ -134,6 +134,8 @@ describe("pollOpencodeCatalog", () => {
         hostname: "alpha",
         log: () => undefined,
         listModels,
+        // Plan 038 detects before listing; inject it so the poll is deterministic.
+        detect: async () => ({ installed: true, checkedAt: 0 }),
       },
     };
   }

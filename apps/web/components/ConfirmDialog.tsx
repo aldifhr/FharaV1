@@ -27,6 +27,7 @@ export default function ConfirmDialog({
 }) {
   const [mounted, setMounted] = useState(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const open = request !== null;
 
   useEffect(() => {
@@ -40,10 +41,36 @@ export default function ConfirmDialog({
     const previous = document.activeElement as HTMLElement | null;
     const t = setTimeout(() => cancelRef.current?.focus(), 0);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      e.preventDefault();
-      if (!pending) onCancel();
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        e.preventDefault();
+        if (!pending) onCancel();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const panel = panelRef.current;
+      const items = Array.from(
+        panel?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+      if (items.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (!panel?.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", onKey, true);
     return () => {
@@ -76,6 +103,7 @@ export default function ConfirmDialog({
             transition={{ type: "spring", stiffness: 400, damping: 28 }}
             className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl dark:border-gray-800 dark:bg-gray-900"
             onMouseDown={(e) => e.stopPropagation()}
+            ref={panelRef}
           >
             <div className="flex items-center gap-3">
               <span

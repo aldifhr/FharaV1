@@ -18,10 +18,6 @@ Each item says where it lives and why it matters.
 
 ### Pipeline correctness
 
-- **Planning-interrupted tasks never recover on lease expiry.** A task whose
-  worker dies during planning stays stuck or fails when reclaimed; there is
-  no re-plan on reclaim (`services/runner/setup.ts`, `orchestration.recoverStale`).
-  *Why:* a worker restart (or sandbox reboot) mid-plan loses the task.
 - **Truncated model output (longcat).** Answers cut off at ~2 KB or returned
   empty when reasoning tokens eat `ORCHESTRATOR_LLM_MAX_TOKENS` (8192).
   Record `finish_reason` / `stop_reason` on every call (`llm.ts`), surface
@@ -33,25 +29,15 @@ Each item says where it lives and why it matters.
   `services/runner/finalize.ts` runs `runVerification` again on the same
   files. Reuse the loop's result unless files changed since. *Why:* a full
   typecheck + build on every task, twice.
-- **`answerQuestion` / `steerTask` can drop the user's text** (core audit
-  M9). They report success even when the text never reaches the running
-  task. *Why:* silent loss of user input.
 - **`ensureFixedTeam(projectId)` re-adds agents the user removed** from a
   project team (core audit M11). Respect an explicit removal (e.g. a
   `removedRoles` list on the project). *Why:* user edits are undone.
-- **Scheduler timeout does not wait for the timed-out attempt** before a
-  retry starts (`scheduler/dagScheduler.ts`, core audit M13). Await the
-  original promise with a grace cap. *Why:* two attempts can stage changes
-  to the same files.
 
 ### Small UI leftovers
 
 - **M23 — New Project saves in two mutations** (`components/NewProject.tsx`
   → `projects.create` + a second update). Fold into one backend mutation so a
   failure cannot leave a half-created project.
-- **M32 — Modal / ConfirmDialog have no focus trap.** Focus moves in and is
-  restored, but Tab can leave the dialog. Swap to the base-ui Dialog or add a
-  trap. *Why:* keyboard and screen-reader users.
 
 ---
 
@@ -86,10 +72,6 @@ Each item says where it lives and why it matters.
   serve, and local screenshot paths are never sent, so cards show no
   screenshots. Upload them to Convex storage and attach the URLs.
 - **Due date field on task cards** (schema + card + board sort).
-- **GitHub webhook signature verification**
-  (`apps/api/convex/integrations.ts`, TODO at the webhook handler). Store a
-  per-integration secret and check `X-Hub-Signature-256`. *Why:* the endpoint
-  accepts any POST today.
 
 ### Layout
 

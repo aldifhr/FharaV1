@@ -85,6 +85,12 @@ const SHARED_FOUNDATION = new Set([
   // DeepSeek Harness D4: instruction-chain budget rules and the time line (pure).
   "convex/lib/projectInstructions",
   "convex/lib/timeContext",
+  // DeepSeek Harness D5: one stable-prefix prompt layout (pure, no imports),
+  // shared by the planner, the executor and chat.
+  "convex/lib/assemblePrompt",
+  // Orchestrator/CTO split O2: System status line constants + guard (pure,
+  // no imports), read by compaction to keep System lines out of transcripts.
+  "convex/lib/systemLine",
 ]);
 
 const SRC = path.resolve(import.meta.dirname, "../src");

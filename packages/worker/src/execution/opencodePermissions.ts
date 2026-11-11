@@ -13,8 +13,10 @@
  * It is a second, independent statement of the role limits: CTO, Designer,
  * Reviewer, Support and Researcher get no shell through OpenCode, and only
  * the Researcher gets the network, even if a role row's permissions drift.
+ * Support writes since O2, but only inside ROLE_WRITE_SCOPE (Markdown and
+ * docs/), never code, even if its role row drifts to `write: true`.
  */
-import type { RoleKey } from "@/api/convex/lib/roles";
+import { SUPPORT_WRITE_PATHS, type RoleKey } from "@/api/convex/lib/roles";
 
 export type PolicyDecision = "allow" | "deny";
 
@@ -47,8 +49,17 @@ export const ROLE_OPERATION_POLICY: Readonly<Record<RoleKey, Readonly<Record<Pol
   qa: Object.freeze({ ...common, write: "deny", shell: "allow", network: "deny" }),
   reviewer: Object.freeze({ ...common, write: "deny", shell: "deny", network: "deny" }),
   devops: Object.freeze({ ...common, write: "allow", shell: "allow", network: "deny" }),
-  support: Object.freeze({ ...common, write: "deny", shell: "deny", network: "deny" }),
+  support: Object.freeze({ ...common, write: "allow", shell: "deny", network: "deny" }),
   researcher: Object.freeze({ ...common, write: "deny", shell: "deny", network: "allow" }),
+});
+
+/**
+ * Hard write ceilings for roles whose `write: "allow"` above is path-limited
+ * by the table itself, not only by the role row. A drifted row (`write: true`
+ * or wider globs) is clamped back to these globs.
+ */
+export const ROLE_WRITE_SCOPE: Readonly<Partial<Record<RoleKey, readonly string[]>>> = Object.freeze({
+  support: SUPPORT_WRITE_PATHS,
 });
 
 /** Default deny: an unknown role or operation is never allowed. */

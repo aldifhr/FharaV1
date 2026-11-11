@@ -61,6 +61,42 @@ describe("role × operation table (OAK shape)", () => {
     }
   });
 
+  it("CTO, Designer, Reviewer and Researcher stay read-only via OpenCode", () => {
+    for (const key of ["cto", "designer", "reviewer", "researcher"] as const) {
+      expect(decideToolAccess({ roleKey: key, operation: "write" })).toBe("deny");
+      const p = buildOpencodePolicy({ permissions: { ...ROLES[key].permissions, write: true }, mutating: true, roleKey: key });
+      expect(Object.entries(p.edit).filter(([, v]) => v === "allow")).toEqual([]);
+    }
+  });
+
+  it("Support (O2) writes only *.md and docs/**, never code, even if its row drifts", () => {
+    expect(ROLES.support.permissions.write).toEqual(["**/*.md", "docs/**"]);
+    expect(ROLES.support.permissions.shell).toBe("none");
+    expect(decideToolAccess({ roleKey: "support", operation: "write" })).toBe("allow");
+    expect(decideToolAccess({ roleKey: "support", operation: "network" })).toBe("deny");
+    const allowedEdits = (p: ReturnType<typeof buildOpencodePolicy>) =>
+      Object.entries(p.edit)
+        .filter(([, v]) => v === "allow")
+        .map(([glob]) => glob)
+        .sort();
+    const variants = [
+      { permissions: ROLES.support.permissions },
+      { permissions: { ...ROLES.support.permissions, write: true } },
+      { permissions: { ...ROLES.support.permissions, write: ["**/*.md", "docs/**", "src/**"] } },
+      { permissions: ROLES.support.permissions, allowedPaths: ["src", "packages/worker"] },
+    ];
+    for (const variant of variants) {
+      const p = buildOpencodePolicy({ ...variant, mutating: true, roleKey: "support" });
+      expect(p.edit["*"]).toBe("deny");
+      expect(allowedEdits(p)).toEqual(["*.md", "docs/*"]);
+      expect(Object.values(p.bash).every((v) => v === "deny")).toBe(true);
+      expect(p.webfetch).toBe("deny");
+    }
+    // A non-mutating Support run writes nothing.
+    const readOnly = buildOpencodePolicy({ permissions: ROLES.support.permissions, mutating: false, roleKey: "support" });
+    expect(allowedEdits(readOnly)).toEqual([]);
+  });
+
   it("default deny for an unknown role or operation", () => {
     expect(decideToolAccess({ roleKey: "lead", operation: "read" })).toBe("deny");
     expect(decideToolAccess({ roleKey: "backend", operation: "launch" })).toBe("deny");

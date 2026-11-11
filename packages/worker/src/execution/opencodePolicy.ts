@@ -23,8 +23,8 @@
  * Written from scratch for Fhara. The sensitive-path list restates
  * well-known credential locations; it is not copied from any source.
  */
-import type { RolePermissions } from "@/api/convex/lib/roles";
-import { decideToolAccess } from "./opencodePermissions";
+import type { RoleKey, RolePermissions } from "@/api/convex/lib/roles";
+import { decideToolAccess, ROLE_WRITE_SCOPE } from "./opencodePermissions";
 
 export type OpencodeAction = "allow" | "deny" | "ask";
 export type OpencodeRuleMap = Record<string, OpencodeAction>;
@@ -164,7 +164,8 @@ function scopeGlobs(scope: string): string[] {
   if (!clean) return ["*"];
   // A glob scope (DevOps "Dockerfile*", ".github/**") is passed through,
   // with `**` folded into OpenCode's `*` (which already crosses `/`).
-  if (/[*?]/.test(clean)) return [clean.replace(/\*\*\/?/g, "*")];
+  // `**/*.md` folds to `*.md`, not `**.md`.
+  if (/[*?]/.test(clean)) return [clean.replace(/\*\*\/?/g, "*").replace(/\*{2,}/g, "*")];
   return [clean, `${clean}/*`];
 }
 
@@ -209,6 +210,13 @@ function bashRules(permissions: RolePermissions): OpencodeRuleMap {
   return rules;
 }
 
+/** A role row's write, kept inside the table's ceiling when the role has one. */
+function clampWrite(write: RolePermissions["write"], scope: readonly string[] | undefined): RolePermissions["write"] {
+  if (!scope || write === false) return write;
+  if (Array.isArray(write) && write.every((glob) => scope.includes(glob))) return write;
+  return scope;
+}
+
 /**
  * The OpenCode `permission` block for one run. Pure; the same input always
  * gives the same rules (key order is part of the contract: last match wins).
@@ -219,7 +227,7 @@ export function buildOpencodePolicy(input: BuildOpencodePolicyInput): OpencodePo
     const allowed = (operation: string) => decideToolAccess({ roleKey: input.roleKey, operation }) === "allow";
     permissions = {
       ...permissions,
-      write: allowed("write") ? permissions.write : false,
+      write: allowed("write") ? clampWrite(permissions.write, ROLE_WRITE_SCOPE[input.roleKey as RoleKey]) : false,
       shell: allowed("shell") ? permissions.shell : "none",
       web: allowed("network") ? permissions.web : false,
     };
@@ -230,7 +238,9 @@ export function buildOpencodePolicy(input: BuildOpencodePolicyInput): OpencodePo
     question: "deny",
     doom_loop: "deny",
     read: readRules(),
-    edit: editRules({ ...input, permissions }),
+    // A table-scoped role (Support) is limited to its own globs even when the
+    // subtask's ownership is wider; the staging gate still applies ownership.
+    edit: editRules(input.roleKey && ROLE_WRITE_SCOPE[input.roleKey as RoleKey] ? { ...input, permissions, allowedPaths: undefined } : { ...input, permissions }),
     bash: bashRules(permissions),
     webfetch: web,
     websearch: web,

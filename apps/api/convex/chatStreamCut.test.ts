@@ -18,8 +18,8 @@ afterEach(async () => {
   resetChatRouting();
 });
 
-async function mock(speed: number) {
-  const server = await startMockLlm({ speed, quiet: true, token: "test-token", script: { rules: [], fallback: REPLY } });
+async function mock(speed: number, rules: any[] = []) {
+  const server = await startMockLlm({ speed, quiet: true, token: "test-token", script: { rules: rules.map((r, i) => ({ id: `r${i}`, ...r })), fallback: REPLY } });
   servers.push(server);
   return { provider: "openai-compatible", model: "mock/default", baseUrl: server.url, apiKey: "test-token" };
 }
@@ -44,6 +44,24 @@ describe("chat stream limits over the mock LLM", () => {
     expect(error.message).toMatch(/^Reply stopped: the model went silent for \d+s$/);
     expect(error.partial.content.length).toBeGreaterThan(0);
     expect(REPLY.startsWith(error.partial.content)).toBe(true);
+  });
+
+  it("mock fault stall: a stream that goes quiet mid-reply is cut by the idle window with its text", async () => {
+    const config = await mock(0, [{ fault: "stall", faultAfterChunks: 3, reply: REPLY }]);
+    const error = await completeWithAgent("system", ask, config, undefined, { limits: { idleMs: 300, totalMs: 60_000 } }).catch((e) => e);
+    expect(error).toBeInstanceOf(ChatStreamError);
+    expect(error.kind).toBe("idle");
+    expect(error.partial.content.length).toBeGreaterThan(0);
+    expect(REPLY.startsWith(error.partial.content)).toBe(true);
+  });
+
+  it("mock fault partial_disconnect: a dropped stream keeps the text it sent", async () => {
+    const config = await mock(0, [{ fault: "partial_disconnect", faultAfterChunks: 3, reply: REPLY }]);
+    const error = await completeWithAgent("system", ask, config, undefined, { limits: { idleMs: 5_000, totalMs: 60_000 } }).catch((e) => e);
+    expect(error).toBeInstanceOf(ChatStreamError);
+    expect(error.message).toMatch(/^Reply stopped: the connection to the model failed/);
+    expect(REPLY.startsWith(error.partial.content)).toBe(true);
+    expect(error.partial.content.length).toBeGreaterThan(0);
   });
 
   it("stops at the total cap with the text so far", async () => {

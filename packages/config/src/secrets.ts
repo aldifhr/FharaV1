@@ -23,7 +23,7 @@ export const EXTRA_PLATFORM_SECRETS = [
 /**
  * Never forwarded to a child, not even through passthrough (childEnv
  * WORKER_SECRET_ENV_KEYS). Same members and order as before E1, plus
- * FHARA_MCP_TOKEN (G12a) at the end.
+ * FHARA_MCP_TOKEN (G12a) and FHARA_MCP_WEBHOOK_SECRET (G12b) at the end.
  */
 export const PLATFORM_SECRET_ENV_NAMES: readonly string[] = [
   "CONVEX_SERVICE_TOKEN",
@@ -40,6 +40,8 @@ export const PLATFORM_SECRET_ENV_NAMES: readonly string[] = [
   // GOAT G12a: the Fhara MCP bearer token. A child agent never inherits it;
   // G12b hands it out on purpose where a run may call back.
   "FHARA_MCP_TOKEN",
+  // GOAT G12b: the completion webhook's signing key.
+  "FHARA_MCP_WEBHOOK_SECRET",
 ];
 
 /** Provider keys and tokens outside the schema that the child env drops by default. */

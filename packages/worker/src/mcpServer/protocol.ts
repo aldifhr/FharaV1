@@ -16,7 +16,7 @@
  * Fhara, 2026-11. See THIRD_PARTY_NOTICES.md (## GOAT).
  */
 import { describeTool, findTool, registryIsReadOnly, toolIndex } from "./registry";
-import type { McpReadSource } from "./types";
+import type { McpSource } from "./types";
 
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
 const SUPPORTED_VERSIONS = new Set(["2025-06-18", "2025-03-26", "2024-11-05"]);
@@ -78,7 +78,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-async function callTool(source: McpReadSource, name: unknown, args: unknown) {
+async function callTool(source: McpSource, name: unknown, args: unknown) {
   const input = isObject(args) ? args : {};
   if (name === "describe") {
     if (input.path === undefined) return toolResult({ tools: toolIndex() });
@@ -94,7 +94,9 @@ async function callTool(source: McpReadSource, name: unknown, args: unknown) {
       return toolError(`Invalid arguments for ${t.path}: ${issues}`);
     }
     try {
-      return toolResult(await t.run(source, parsed.data));
+      const value = await t.run(source, parsed.data);
+      // G12b: a write the backend refused (permission mode, settled task, …) is a tool error the agent can read.
+      return isObject(value) && value.kind === "refused" ? { ...toolResult(value), isError: true } : toolResult(value);
     } catch {
       // Never echo a stack or a backend message verbatim: it can carry ids or tokens.
       return toolError(`${t.path} failed: backend error`);
@@ -104,7 +106,7 @@ async function callTool(source: McpReadSource, name: unknown, args: unknown) {
 }
 
 /** One JSON-RPC message → its response, or null for a notification (no id). */
-export async function handleRpc(message: unknown, source: McpReadSource): Promise<JsonRpcResponse | null> {
+export async function handleRpc(message: unknown, source: McpSource): Promise<JsonRpcResponse | null> {
   if (Array.isArray(message)) return fail(null, RPC.INVALID_REQUEST, "Batch requests are not supported");
   if (!isObject(message) || message.jsonrpc !== "2.0" || typeof message.method !== "string") {
     return fail(null, RPC.INVALID_REQUEST, "Invalid JSON-RPC request");
@@ -120,7 +122,8 @@ export async function handleRpc(message: unknown, source: McpReadSource): Promis
         protocolVersion: SUPPORTED_VERSIONS.has(asked) ? asked : MCP_PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
-        instructions: "Fhara orchestrator. Call `describe` to list tools, then `call` with a path and args.",
+        instructions:
+          "Fhara orchestrator. Call `describe` to list tools, then `call` with a path and args. Write tools need a fresh clientRequestId per action; reuse it only to retry that same action.",
       });
     }
     case "ping":

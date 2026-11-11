@@ -25,6 +25,8 @@ const OLD_WORKER_SECRET_ENV_KEYS = [
   "JWT_PRIVATE_KEY",
   // GOAT G12a (deliberate addition after E1): the Fhara MCP bearer token.
   "FHARA_MCP_TOKEN",
+  // GOAT G12b (deliberate addition): the MCP completion webhook signing key.
+  "FHARA_MCP_WEBHOOK_SECRET",
 ];
 const OLD_DEFAULT_DENIED_SECRET_ENV_KEYS = [
   "LLM_API_KEY",
@@ -67,11 +69,12 @@ describe("secrets parity (E1)", () => {
     expect(missing).toEqual([]);
   });
 
-  it("the 13 schema secrets are the ones the inventory flags", () => {
+  it("the 14 schema secrets are the ones the inventory flags", () => {
     expect([...SCHEMA_SECRET_NAMES].sort()).toEqual(
       [
         "CONVEX_SERVICE_TOKEN",
         "FHARA_MCP_TOKEN",
+        "FHARA_MCP_WEBHOOK_SECRET",
         "FHARA_SMOKE_GITHUB_TOKEN",
         "GH_TOKEN",
         "GITHUB_CLIENT_SECRET",

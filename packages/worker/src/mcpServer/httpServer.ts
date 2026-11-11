@@ -21,7 +21,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { handleRpc, RPC } from "./protocol";
-import type { McpReadSource } from "./types";
+import type { McpSource } from "./types";
 
 export const MCP_LOOPBACK_HOST = "127.0.0.1";
 export const MCP_PATH = "/mcp";
@@ -78,7 +78,7 @@ function readBody(req: IncomingMessage): Promise<string | null> {
   });
 }
 
-export function createMcpRequestHandler(opts: { token: string; source: McpReadSource }) {
+export function createMcpRequestHandler(opts: { token: string; source: McpSource }) {
   return async (req: IncomingMessage, res: ServerResponse) => {
     if (!bearerMatches(req.headers.authorization, opts.token)) {
       send(res, 401, { error: "unauthorized" }, { "www-authenticate": 'Bearer realm="fhara-mcp"' });
@@ -120,7 +120,7 @@ export function createMcpRequestHandler(opts: { token: string; source: McpReadSo
  * Start the server on 127.0.0.1:`port` (0 = an ephemeral port, for tests).
  * Refuses a token shorter than MCP_MIN_TOKEN_LENGTH.
  */
-export async function startMcpHttpServer(opts: { port: number; token: string; source: McpReadSource }): Promise<FharaMcpServer> {
+export async function startMcpHttpServer(opts: { port: number; token: string; source: McpSource }): Promise<FharaMcpServer> {
   if (opts.token.length < MCP_MIN_TOKEN_LENGTH) {
     throw new Error(`Fhara MCP token must be at least ${MCP_MIN_TOKEN_LENGTH} characters`);
   }

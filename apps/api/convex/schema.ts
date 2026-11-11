@@ -19,14 +19,11 @@ import {
   modelTiersValidator,
   llmSelectionModeValidator,
 } from "./lib/contractValidators";
-import {
-  observationFields,
-  requirementCoverageValidator,
-  requirementValidator,
-} from "./lib/traceValidators";
+import { observationFields, requirementCoverageValidator, requirementValidator } from "./lib/traceValidators";
 import { diffCommentsTable, reviewEvidenceValidator, reviewFixValidator } from "./lib/diffCommentSchema";
 import { invokedSkillsField } from "./lib/invokedSkillsSchema";
 import { scheduledTaskTables } from "./lib/scheduledTaskSchema";
+import { mcpWriteTables } from "./lib/mcpWriteSchema";
 import { threadIndexTable, titleSetByValidator } from "./lib/threadIndexSchema";
 import { projectScriptsValidator } from "./lib/projectScriptsSchema";
 
@@ -2307,4 +2304,5 @@ export default defineSchema({
   }).index("by_fixture", ["fixture"]),
   diffComments: diffCommentsTable, threadIndex: threadIndexTable, // threadIndex: Paradev B1 thread list (lib/threadIndex.ts)
   ...scheduledTaskTables, // GOAT G7 scheduled tasks + their runs
+  ...mcpWriteTables, // GOAT G12b MCP write dedupe + task drafts
 });

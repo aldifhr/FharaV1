@@ -740,6 +740,29 @@
       "secret": true
     },
     {
+      "name": "FHARA_MCP_WEBHOOK_URL",
+      "type": "url",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Fhara MCP completion webhook (GOAT G12b): http(s) URL that gets a signed POST when a run.report_result is recorded. Blank = off; needs FHARA_MCP_WEBHOOK_SECRET.",
+      "default": "",
+      "parse": "trimOr"
+    },
+    {
+      "name": "FHARA_MCP_WEBHOOK_SECRET",
+      "type": "string",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "HMAC-SHA256 key for the completion webhook (X-Fhara-Signature: sha256=<hex> over \"<X-Fhara-Timestamp>.<body>\"); at least 16 characters, else the webhook stays off.",
+      "default": "",
+      "parse": "trimOr",
+      "secret": true
+    },
+    {
       "name": "ORCHESTRATOR_MAX_REPLANS",
       "type": "int",
       "group": "policy",
@@ -2243,6 +2266,7 @@
       "GITHUB_WEBHOOK_SECRET",
       "OAUTH_STATE_SECRET",
       "FHARA_MCP_TOKEN",
+      "FHARA_MCP_WEBHOOK_SECRET",
       "FHARA_SMOKE_GITHUB_TOKEN",
       "GITHUB_TOKEN",
       "GH_TOKEN"

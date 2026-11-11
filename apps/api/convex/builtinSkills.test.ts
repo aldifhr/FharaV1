@@ -34,7 +34,7 @@ describe("built-in skill metadata", () => {
       if (skill.upstream) expect(["MIT", "Apache-2.0"]).toContain(skill.upstream.license);
     }
     expect(builtinSkillKeysForRole("designer")).toEqual(
-      BUILTIN_SKILLS.filter((s) => s.key !== "fhara-discipline" && s.key !== "review-checklist").map((s) => s.key)
+      BUILTIN_SKILLS.filter((s) => s.key !== "fhara-discipline" && s.key !== "review-checklist" && s.key !== "fhara-mcp").map((s) => s.key)
     );
     expect(builtinSkillKeysForRole("backend")).toEqual(["fhara-discipline", "review-checklist"]);
     expect(builtinSkillKeysForRole("devops")).toEqual(["fhara-discipline"]);
@@ -72,7 +72,7 @@ describe("built-in skill seeding", () => {
 
     const designer = await agentByRole(t, "designer");
     expect(await skillNames(t, designer.skillIds)).toEqual(
-      BUILTIN_SKILLS.filter((s) => s.key !== "fhara-discipline" && s.key !== "review-checklist").map((s) => s.name)
+      BUILTIN_SKILLS.filter((s) => s.key !== "fhara-discipline" && s.key !== "review-checklist" && s.key !== "fhara-mcp").map((s) => s.name)
     );
     expect(await skillNames(t, (await agentByRole(t, "frontend")).skillIds)).toEqual([
       "design-system-detection",

@@ -105,6 +105,12 @@ export const BUILTIN_SKILL_META: readonly BuiltinSkillMeta[] = [
       sha: "e8f7b93",
     },
   },
+  {
+    // GOAT G12b: how to use the Fhara MCP server without bypassing approvals. Fhara-written.
+    key: "fhara-mcp",
+    roles: ["cto"],
+    tags: ["mcp", "orchestration", "builtin"],
+  },
 ];
 
 export type BuiltinSkill = BuiltinSkillSource & BuiltinSkillMeta;

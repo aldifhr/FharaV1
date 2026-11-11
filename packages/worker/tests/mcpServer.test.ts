@@ -1,7 +1,7 @@
 import { connect } from "node:net";
 import os from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MCP_LOOPBACK_HOST, startMcpHttpServer, type FharaMcpServer, type McpReadSource } from "@/mcpServer";
+import { MCP_LOOPBACK_HOST, startMcpHttpServer, type FharaMcpServer, type McpSource } from "@/mcpServer";
 import { bearerMatches } from "@/mcpServer/httpServer";
 import { convexMcpSource } from "@/mcpServer/convexSource";
 import { MCP_TOOLS } from "@/mcpServer/registry";
@@ -20,7 +20,7 @@ const TASK = {
   createdAt: 1,
 };
 
-function fakeSource(): McpReadSource & { calls: Array<[string, unknown]> } {
+function fakeSource(): McpSource & { calls: Array<[string, unknown]> } {
   const calls: Array<[string, unknown]> = [];
   return {
     calls,
@@ -40,6 +40,19 @@ function fakeSource(): McpReadSource & { calls: Array<[string, unknown]> } {
         ],
       } as unknown as McpMemorySearchResult;
     },
+    // G12b write tools have their own contract tests (mcpServerWrite.test.ts).
+    taskCreate: async () => {
+      throw new Error("unused");
+    },
+    threadSend: async () => {
+      throw new Error("unused");
+    },
+    runReportResult: async () => {
+      throw new Error("unused");
+    },
+    questionAsk: async () => {
+      throw new Error("unused");
+    },
   };
 }
 
@@ -49,7 +62,7 @@ afterEach(async () => {
   server = null;
 });
 
-async function start(source: McpReadSource = fakeSource()) {
+async function start(source: McpSource = fakeSource()) {
   server = await startMcpHttpServer({ port: 0, token: TOKEN, source });
   return server;
 }
@@ -150,11 +163,12 @@ describe("protocol", () => {
     expect((await post([{ jsonrpc: "2.0", id: 1, method: "ping" }])).json.error.code).toBe(-32600);
   });
 
-  it("tools/list is the core listing: describe and call only, both read-only while every tool reads", async () => {
+  it("tools/list is the core listing: describe (read-only) and call (writes since G12b)", async () => {
     await start();
     const tools = (await rpc("tools/list")).json.result.tools;
     expect(tools.map((t: { name: string }) => t.name)).toEqual(["describe", "call"]);
-    for (const t of tools) expect(t.annotations.readOnlyHint).toBe(true);
+    expect(tools[0].annotations.readOnlyHint).toBe(true);
+    expect(tools[1].annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
     expect(JSON.stringify(tools).length).toBeLessThan(2500);
   });
 
@@ -166,6 +180,10 @@ describe("protocol", () => {
       { path: "task.status", access: "read", summary: expect.any(String) },
       { path: "task.list", access: "read", summary: expect.any(String) },
       { path: "memory.search", access: "read", summary: expect.any(String) },
+      { path: "task.create", access: "write", summary: expect.any(String) },
+      { path: "thread.send", access: "write", summary: expect.any(String) },
+      { path: "run.report_result", access: "write", summary: expect.any(String) },
+      { path: "question.ask", access: "write", summary: expect.any(String) },
     ]);
   });
 
@@ -173,7 +191,7 @@ describe("protocol", () => {
     await start();
     for (const tool of MCP_TOOLS) {
       const res = (await rpc("tools/call", { name: "describe", arguments: { path: tool.path } })).json.result;
-      expect(res.structuredContent).toMatchObject({ path: tool.path, access: "read", inputSchema: { type: "object" } });
+      expect(res.structuredContent).toMatchObject({ path: tool.path, access: tool.access, inputSchema: { type: "object" } });
     }
     expect((await rpc("tools/call", { name: "describe", arguments: { path: "task.nope" } })).json.result.isError).toBe(true);
     expect((await rpc("tools/call", { name: "task.list", arguments: {} })).json.error.code).toBe(-32602);

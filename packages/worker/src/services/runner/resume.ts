@@ -29,6 +29,7 @@ import {
   failTaskWithError,
   finishBudgetExhaustedTask,
   finishCancelledTask,
+  findProviderHoldMessage,
   summaryHasBudgetFailure,
 } from "./terminal";
 import { finalize } from "./finalize";
@@ -273,11 +274,13 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
         // replans budget is processTask's — so the resumed run ends
         // failed with the missing list instead of a silent done.
         const missing = outcome.replanFeedback ?? "objective not satisfied";
+        // O3 (bug c): a provider hold behind the replan holds the task.
+        const held = findProviderHoldMessage([missing, ...state.feedback]);
         await failTaskWithError({
           deps,
           taskId,
           projectId: context.project._id,
-          message: `Objective not satisfied after resume: ${missing}`,
+          message: held ?? `Objective not satisfied after resume: ${missing}`,
         });
         return;
       }

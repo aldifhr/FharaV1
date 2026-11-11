@@ -36,6 +36,7 @@ import {
   failTaskWithError,
   finishBudgetExhaustedTask,
   finishCancelledTask,
+  findProviderHoldMessage,
   isTerminalTaskStatus,
   summaryHasBudgetFailure,
 } from "./runner/terminal";
@@ -456,6 +457,15 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
       // silent done. Cancellation still wins (checked above).
       if (outcome.status === "replan") {
         const missing = outcome.replanFeedback ?? "objective not satisfied";
+        // O3 (bug c): a provider hold (429, quota, offline, auth) behind
+        // the replan is not an unmet objective. Replanning would repeat the
+        // same node and be rejected; hold the task with the provider's
+        // own message instead (backend: paused, pausedBy "held").
+        const held = findProviderHoldMessage([missing, ...state.feedback]);
+        if (held) {
+          await fail(held);
+          return;
+        }
         if (canReplan()) {
           // Plan 022: escalation notes and failed acceptance gates are
           // their own reasons, not an unmet objective.

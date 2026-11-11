@@ -133,6 +133,25 @@ export async function finishCancelledTask(input: {
 }
 
 /**
+ * O3 bug c: the provider error behind a replan, when there is one. A 429
+ * (or an offline / out-of-quota / refused provider) on a subtask reaches
+ * the decision step as a failed node, the engine asks for a replan, and
+ * the replan is rejected as a repeat of the same node, so the task FAILED
+ * instead of being held. The replan feedback and the run's feedback list
+ * are checked here; the first provider failure found is returned as the
+ * original provider message (the `node:` / `node (attempt n):` prefix the
+ * runner adds is dropped) so the caller routes it to the hold path.
+ */
+export function findProviderHoldMessage(texts: ReadonlyArray<string | null | undefined>): string | null {
+  for (const text of texts) {
+    if (!text || !classifyProviderHold(text)) continue;
+    const stripped = text.replace(/^[\w.:-]+(?: \(attempt \d+\))?: /, "");
+    return classifyProviderHold(stripped) ? stripped : text;
+  }
+  return null;
+}
+
+/**
  * End a task run as FAILED with a visible error: a `task.error` event,
  * the FAILED lifecycle transition (unless `lifecycle: false`), then
  * completeTask("failed"). The event payload is capped at 2000 chars; the

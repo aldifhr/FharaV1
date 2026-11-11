@@ -23,6 +23,8 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { appendTaskEvent } from "./taskEvents";
 import { commandHead, dangerousCommandReason } from "./commandRules";
 import type { PermissionMode } from "./permissionModes";
+import { buildContinuationText, decideContinuation } from "./restartContinuation";
+import { directContinuationTimes, loadDirectTurnSteps } from "./restartSteps";
 
 /** Tool output above this many bytes is stored in eventBodies, read lazily. */
 export const EVENT_BODY_THRESHOLD = 2 * 1024;
@@ -157,8 +159,11 @@ export async function recoverDirectThread(ctx: MutationCtx, task: Doc<"tasks">, 
   // The cut-off messages are accounted for (the note), so they are not
   // delivered by the next claim either.
   const lastQueued = queued.length > 0 ? queued[queued.length - 1].sequence ?? 0 : 0;
+  // G4: the cut-off turn is continued (its recorded steps + CONTINUE_PROMPT
+  // as the next message) unless the loop guard refuses; then it waits.
+  const continued = closedTurn && turnId ? await continueCutOffTurn(ctx, task, turnId, now) : false;
   await ctx.db.patch(task._id, {
-    status: "waiting_input",
+    status: continued ? "queued" : "waiting_input",
     workerId: undefined,
     leaseExpiresAt: undefined,
     updatedAt: now,
@@ -179,9 +184,40 @@ export async function recoverDirectThread(ctx: MutationCtx, task: Doc<"tasks">, 
     taskId: task._id,
     projectId: task.projectId,
     type: "task.recovered",
-    payload: { action: "direct_stopped", reason: "stale_lease", workerId: task.workerId ?? null, closedTurn },
+    payload: { action: continued ? "direct_continued" : "direct_stopped", reason: "stale_lease", workerId: task.workerId ?? null, closedTurn },
     level: "warn",
+    createdAt: now,
   });
+}
+
+/**
+ * G4 recover-and-continue for a direct thread: queue one continuation
+ * message (CONTINUE_PROMPT plus the turn's recorded steps), or record why
+ * the loop guard refused it. Returns whether the thread was re-queued.
+ */
+async function continueCutOffTurn(ctx: MutationCtx, task: Doc<"tasks">, turnId: string, now: number): Promise<boolean> {
+  const decision = decideContinuation(await directContinuationTimes(ctx, task._id), now);
+  if (!decision.allowed) {
+    await appendTaskEvent(ctx, {
+      taskId: task._id,
+      projectId: task.projectId,
+      type: "system.note",
+      payload: { text: `${decision.reason} Send a message to continue.`, continuation: "refused" },
+      level: "warn",
+    });
+    return false;
+  }
+  const steps = await loadDirectTurnSteps(ctx, task._id, turnId);
+  await appendTaskEvent(ctx, {
+    taskId: task._id,
+    projectId: task.projectId,
+    type: "user.message",
+    eventKey: `user.message:continuation:${turnId}`,
+    payload: { text: buildContinuationText(steps), clientId: `continuation:${turnId}`, origin: "continuation", attempt: decision.attempt },
+    level: "info",
+    createdAt: now,
+  });
+  return true;
 }
 
 // ── Approval policy ────────────────────────────────────────────────────

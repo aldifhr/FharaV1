@@ -31,6 +31,7 @@ import type { LlmConcurrencyGate } from "@/effects/llmCall";
 import type { McpRunConfig } from "@/mcp/registry";
 import type { WebReachConfig } from "@/execution/webReachTools";
 import type { SchedulerResult } from "@/scheduler/dagScheduler";
+import type { RecordedStep } from "@/api/convex/lib/restartContinuation";
 
 /**
  * Runtime dependencies the runner needs. One sink per concern: every
@@ -104,7 +105,14 @@ export interface RunState {
    * executor's deterministic guard does not stop on them again.
    */
   allowedEscalations?: Array<{ kind: string; detail?: string }>;
+  /** G4: subtasks a dead worker cut off, continued instead of re-run (state.ts). */
+  continuations?: Map<string, SubtaskContinuation>;
 }
+
+/** G4: how a cut-off subtask restarts (resume.ts `prepareContinuation`). */
+export type SubtaskContinuation =
+  | { allowed: true; attempt: number; steps: RecordedStep[]; text: string; sideEffects: string[] }
+  | { allowed: false; reason: string };
 
 /**
  * Inputs to one `executePlan` run. Both `processTask` and `resumeTask`

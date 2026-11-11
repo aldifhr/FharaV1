@@ -8,7 +8,15 @@ import type {
 import { normalizeCapability } from "@/orchestrator/capabilities";
 import type { ReviewResult } from "@/utils/json";
 import type { FileDiff } from "@/tools/gitDiff";
-import type { RunState } from "./types";
+import type { RunState, SubtaskContinuation } from "./types";
+import {
+  SUBTASK_CONTINUED_EVENT,
+  buildContinuationText,
+  decideContinuation,
+  interruptedSubtaskKeys,
+  recordedSideEffects,
+  type RecordedStep,
+} from "@/api/convex/lib/restartContinuation";
 import type { QaVerdict } from "@/types/qa";
 
 /**
@@ -34,7 +42,14 @@ export function buildStateFromDb(input: {
     subtaskKey?: string;
     status?: string;
     meta?: unknown;
+    leaseLost?: boolean;
+    attempt?: number;
+    createdAt?: number;
   }>;
+  /** G4: recorded tool steps of cut-off subtasks (getRunContext.recordedSteps). */
+  recordedSteps?: RecordedStep[];
+  /** Clock for the continuation loop guard (tests). */
+  now?: number;
 }): { state: RunState; completedKeys: Set<string> } {
   // `waiting_approval` is a finished execution: requestApproval only moves
   // a subtask there after its work was produced. Counting it as done keeps
@@ -107,7 +122,35 @@ export function buildStateFromDb(input: {
     appliedFilesBySubtask,
     feedback: [],
   };
+  const continuations = planContinuations(input.subtasks, input.executions ?? [], input.recordedSteps ?? [], input.now ?? Date.now());
+  if (continuations.size > 0) state.continuations = continuations;
   return { state, completedKeys };
+}
+
+/**
+ * G4 restart continuation: every subtask a dead worker cut off gets a
+ * continuation (its recorded steps + CONTINUE_PROMPT) instead of a fresh
+ * start, unless the loop guard (3 in 5 minutes per subtask) refuses it.
+ */
+export function planContinuations(
+  subtasks: ReadonlyArray<{ key: string; status: string }>,
+  executions: Parameters<typeof interruptedSubtaskKeys>[1],
+  recordedSteps: readonly RecordedStep[],
+  now: number
+): Map<string, SubtaskContinuation> {
+  const out = new Map<string, SubtaskContinuation>();
+  for (const key of interruptedSubtaskKeys(subtasks, executions)) {
+    const own = recordedSteps.filter((step) => step.subtaskKey === key);
+    const previous = own.filter((step) => step.type === SUBTASK_CONTINUED_EVENT).map((step) => step.createdAt ?? 0);
+    const decision = decideContinuation(previous, now);
+    if (!decision.allowed) {
+      out.set(key, decision);
+      continue;
+    }
+    const steps = own.filter((step) => step.type !== SUBTASK_CONTINUED_EVENT);
+    out.set(key, { allowed: true, attempt: decision.attempt, steps, text: buildContinuationText(steps), sideEffects: recordedSideEffects(steps) });
+  }
+  return out;
 }
 
 /** Read a review verdict back from the output executeReview persisted. */

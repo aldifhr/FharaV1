@@ -350,6 +350,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
           subtasks: context.subtasks,
           executions: context.executions,
           fileChanges: await deps.api.getFileChanges({ taskId: task._id }),
+          recordedSteps: context.recordedSteps,
         })
       : null;
     const state: RunState = seeded?.state ?? {

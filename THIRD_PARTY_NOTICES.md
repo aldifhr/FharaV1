@@ -42,7 +42,10 @@ SOFTWARE.
   `scripts/code-budget.mjs` (line budget, suppression-reason and baseline-ratchet logic adapted from
   `oxlint-plugin-goat/codeBudget.ts`, `rules/code-budget.ts`, `rules/require-suppression-reason.ts`,
   `update-code-budgets.ts`); `apps/api/convex/lib/automationHold.ts` (global automation hold, adapted
-  from `apps/server/src/automationHold.ts`). Modified by Fhara.
+  from `apps/server/src/automationHold.ts`); `apps/api/convex/lib/restartContinuation.ts` (restart
+  continuation: `CONTINUE_PROMPT` text and the 3-in-5-minutes loop window, adapted from
+  `apps/server/src/orchestration-v2/RestartContinuation.ts`; the subtask and direct-thread wiring is a
+  pattern only). Modified by Fhara.
   GOAT's Pen, office, PDF, native and asset sub-paths carry other licences; nothing is taken from them.
 
 ```

@@ -29,6 +29,7 @@ import { handlesFromResolution, type AgentResolution, type ExecutionRoute, type 
 import { ensureOpencodeDetection, opencodeGateFor } from "@/execution/opencodeDetect";
 import type { PerformanceScore } from "@/api/convex/lib/agentPerformance";
 import { isResearchSynthesis } from "@/prompts/research";
+import { prepareContinuation } from "./continuation";
 
 /**
  * The DAG nodes runner (plan 012 step 2): run a set of subtasks through
@@ -160,10 +161,11 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
           .catch(() => undefined);
         return { status: "failed", error: `Blocked: ${reason}` };
       }
-      if (runCompleted.has(node.id)) {
-        return { status: "completed", output: "Previously completed" };
-      }
+      if (runCompleted.has(node.id)) return { status: "completed", output: "Previously completed" };
       const executionId = executionIds.get(node.id);
+      // G4: a subtask a dead worker cut off continues from its recorded steps (continuation.ts).
+      const cont = await prepareContinuation(deps, { taskId, projectId: project._id, executionId, nodeId: node.id, state, subtask });
+      if (cont.refused) return { status: "failed", error: cont.refused };
       // Progress: keeps both the task idle watchdog and this node's stall
       // watchdog (scheduler) alive.
       const beat = () => {
@@ -198,10 +200,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
               ? handlesFromResolution(prepared)
               : input.llmResolver?.handlesFor(agent, { callRole: "executor" });
       } catch (error) {
-        return {
-          status: "failed",
-          error: error instanceof Error ? error.message : String(error),
-        };
+        return { status: "failed", error: error instanceof Error ? error.message : String(error) };
       }
       // Plan 019: files this node staged, for the "Changed N files" card.
       const stagedByNode: FileDiff[] = [];
@@ -261,7 +260,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         command: task.command,
         allowedEscalations: state.allowedEscalations,
         plan,
-        subtask,
+        subtask: cont.subtask,
         agent,
         browser,
         siblings: siblingTracker.siblingsOf(node.id, plan.subtasks, runCompleted, (key) => assign(key)?.role),
@@ -282,7 +281,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         // and heartbeat stay, the node shows "waiting for approval", stop or
         // the approval timeout end the wait as a denial, and a pause does
         // not end it (the node finishes on the decision, then drains).
-        requestCommandApproval: (cmd) =>
+        requestCommandApproval: (cmd) => cont.gate(cmd, () =>
           waitForCommandApproval(
             deps.api,
             {
@@ -302,7 +301,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
               // A human wait: the subtask timeout and stall clocks stop.
               holdClock: runInfo?.holdClock,
             }
-          ),
+          )),
         // Options review: the subtask waits in-process for the user's pick
         // (lease kept, clocks held), like a command approval.
         showOptions: (args) =>

@@ -7,8 +7,8 @@
 
 export interface CommandApprovalOutcome {
   allowed: boolean;
-  /** "auto" (rule / Full access), "allow", "always", "deny", "paused", "cancelled", "timeout", "error". */
-  via: "auto" | "allow" | "always" | "deny" | "paused" | "cancelled" | "timeout" | "error";
+  /** "auto" (rule / Full access), "allow", "always", "deny", "paused", "cancelled", "timeout", "error", "recorded" (G4: already ran before a cut-off). */
+  via: "auto" | "allow" | "always" | "deny" | "paused" | "cancelled" | "timeout" | "error" | "recorded";
   reason: string;
   /** The user's note (typed with a decision, or "user replied instead: …"). */
   note?: string;

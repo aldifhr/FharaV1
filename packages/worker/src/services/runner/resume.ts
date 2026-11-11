@@ -162,6 +162,7 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
     subtasks: context.subtasks,
     executions: context.executions,
     fileChanges: changes,
+    recordedSteps: context.recordedSteps,
   });
   // Resumed runs must not redo finished nodes. Log what the DB reported so a
   // regression (completed rows read as pending) is visible in task events.

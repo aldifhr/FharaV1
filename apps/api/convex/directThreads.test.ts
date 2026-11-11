@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { directApprovalPolicy } from "./lib/directThreads";
+import { CONTINUE_PROMPT } from "./lib/restartContinuation";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -186,7 +187,7 @@ describe("directThreads approvals", () => {
 });
 
 describe("directThreads recovery", () => {
-  test("a worker that died mid-turn: turn.completed interrupted, expired cards, queued messages listed, thread waits", async () => {
+  test("a worker that died mid-turn: turn.completed interrupted, expired cards, queued messages listed, turn continued (G4)", async () => {
     const { t, taskId } = await claimed();
     await t.mutation(internal.directThreads.appendEvents, {
       taskId,
@@ -213,7 +214,8 @@ describe("directThreads recovery", () => {
     await t.run((ctx) => ctx.db.patch(taskId, { leaseExpiresAt: Date.now() - 1000 }));
     await t.mutation(internal.orchestration.recoverStale, {});
     const task = await t.run((ctx) => ctx.db.get(taskId));
-    expect(task?.status).toBe("waiting_input");
+    // G4: the cut-off turn gets one continuation message, so the thread is queued.
+    expect(task?.status).toBe("queued");
     expect(task?.workerId).toBeUndefined();
     expect(task?.direct?.status).toBe("stopped");
     expect(task?.direct?.stoppedMidTurn).toBe(true);
@@ -224,12 +226,44 @@ describe("directThreads recovery", () => {
     expect(done).toHaveLength(1);
     expect(done[0].payload).toMatchObject({ turnId: "T1", outcome: "interrupted" });
     expect(events.some((e) => e.type === "system.note" && String(e.payload.text).includes("queued one"))).toBe(true);
+    const continuation = events.filter((e) => e.type === "user.message" && e.payload.origin === "continuation");
+    expect(continuation).toHaveLength(1);
+    expect(String(continuation[0].payload.text).startsWith(CONTINUE_PROMPT)).toBe(true);
     // Running recovery again is a no-op (idempotent).
     await t.mutation(internal.orchestration.recoverStale, {});
     expect((await eventsOf(t, taskId)).filter((e) => e.type === "turn.completed")).toHaveLength(1);
-    // The next message re-queues the thread; nothing is re-sent on its own.
+    expect((await eventsOf(t, taskId)).filter((e) => e.payload?.origin === "continuation")).toHaveLength(1);
     await t.mutation(api.directThreads.send, { taskId, text: "go on", clientId: "q2" });
     expect((await t.run((ctx) => ctx.db.get(taskId)))?.status).toBe("queued");
+  });
+
+  test("G4: the continuation carries the turn's recorded tool steps; a 4th inside 5 minutes is refused and the thread waits", async () => {
+    const { t, taskId } = await setup();
+    const statuses: string[] = [];
+    for (let n = 1; n <= 4; n++) {
+      const claim = await t.mutation(internal.directThreads.claim, { workerId: "w1" });
+      expect(claim?.taskId).toBe(taskId);
+      await t.mutation(internal.directThreads.appendEvents, {
+        taskId,
+        workerId: "w1",
+        events: [
+          { type: "turn.started", eventKey: `turn.started:T${n}`, payload: { turnId: `T${n}`, messageSeq: 2 } },
+          { type: "tool.call", payload: { itemId: `i${n}`, title: `git push origin step-${n}` } },
+        ],
+        state: { status: "running", turnId: `T${n}` },
+      });
+      await t.run((ctx) => ctx.db.patch(taskId, { leaseExpiresAt: Date.now() - 1000 }));
+      await t.mutation(internal.orchestration.recoverStale, {});
+      statuses.push((await t.run((ctx) => ctx.db.get(taskId)))!.status);
+    }
+    expect(statuses).toEqual(["queued", "queued", "queued", "waiting_input"]);
+    const events = await eventsOf(t, taskId);
+    const continuations = events.filter((e) => e.type === "user.message" && e.payload.origin === "continuation");
+    expect(continuations.map((e) => e.payload.attempt)).toEqual([1, 2, 3]);
+    expect(String(continuations[0].payload.text)).toContain("- used git push origin step-1");
+    expect(String(continuations[0].payload.text)).not.toContain("step-2");
+    const refused = events.find((e) => e.type === "system.note" && e.payload.continuation === "refused");
+    expect(String(refused?.payload.text)).toMatch(/Continuation refused: this run was already continued 3 times in the last 5 minutes/);
   });
 
   test("release re-queues when a message arrived, otherwise the thread waits", async () => {

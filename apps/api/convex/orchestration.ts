@@ -55,6 +55,8 @@ import { isAutomaticTask, isAutomationHeld } from "./lib/automationHold";
 import { holdTaskForProvider } from "./taskControl";
 import { recoverDirectThread } from "./lib/directThreads";
 import { decideResume, replayEncodedBytes, RESUME_MAX_REPLAY_EVENTS } from "./lib/eventResume";
+import { loadRecordedSteps } from "./lib/restartSteps";
+import type { RecordedStep } from "./lib/restartContinuation";
 
 const DEFAULT_LEASE_MS = 60_000;
 
@@ -105,9 +107,8 @@ export function commandDeclinedReason(status: string, meta: unknown): string | n
   if (status !== "completed" || !meta || typeof meta !== "object") return null;
   const m = meta as { commandDeclined?: unknown; declinedCommand?: unknown };
   if (!m.commandDeclined) return null;
-  return typeof m.declinedCommand === "string" && m.declinedCommand.trim()
-    ? `Declined by user: ${m.declinedCommand.trim()}`
-    : "Declined by user";
+  const label = m.commandDeclined === "recorded" ? "Not run again (it ran before the worker was cut off)" : "Declined by user";
+  return typeof m.declinedCommand === "string" && m.declinedCommand.trim() ? `${label}: ${m.declinedCommand.trim()}` : label;
 }
 
 function monotonicSubtaskStatus(
@@ -195,6 +196,8 @@ export const getRunContext = internalQuery({
      * marks earlier writers as having produced nothing.
      */
     executions: Doc<"executions">[];
+    /** G4: tool steps + earlier continuations of subtasks a dead worker cut off (lib/restartSteps). */
+    recordedSteps: RecordedStep[];
     approvalMode: "ask" | "auto";
     llmProviders: PoolConnectionPayload[];
     /**
@@ -240,17 +243,8 @@ export const getRunContext = internalQuery({
       ? allAgents.filter((agent) => assigned.includes(agent._id) && agent.isEnabled !== false)
       : [];
     const fallback = resolvePlannerFallback(allAgents, agents, assigned ?? []);
-    const plans = await ctx.db
-      .query("plans")
-      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
-      .order("desc")
-      .take(1);
-    const subtasks = await ctx.db
-      .query("subtasks")
-      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
-      .order("asc")
-      .collect();
-
+    const plans = await ctx.db.query("plans").withIndex("by_task", (q) => q.eq("taskId", args.taskId)).order("desc").take(1);
+    const subtasks = await ctx.db.query("subtasks").withIndex("by_task", (q) => q.eq("taskId", args.taskId)).order("asc").collect();
     const executions = await ctx.db
       .query("executions")
       .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
@@ -305,6 +299,7 @@ export const getRunContext = internalQuery({
       plan: plans[0] ?? null,
       subtasks,
       executions,
+      recordedSteps: await loadRecordedSteps(ctx, args.taskId, subtasks, executions),
       approvalMode: project?.approvalMode === "auto" ? "auto" : "ask",
       llmProviders,
       mcpServers,

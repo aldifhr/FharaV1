@@ -908,6 +908,11 @@ SOFTWARE.
     targets; the canonical-rotation, baseline-compare and target-partition helpers are kept as in the original.
   - `scripts/guards/rules.mjs` (`unawaitedAsyncAssertions`): port of `eslint-rules/no-unawaited-async-assertion.js`
     to a TypeScript-AST scan. Modified by Fhara.
+  - `packages/worker/src/direct/agentPids.ts`: adapted from `scripts/dev-shutdown.ts` (`stopTree`/`waitGroupGone`:
+    SIGTERM a process group, wait for every member, SIGKILL the rest) and `scripts/dev-instance.ts`
+    (`reapLeftovers`: reap a dead launcher's groups only once verified as its own). Modified by Fhara: a per-worker
+    registry of ACP agent process groups, a boot sweep for dead workers' groups, start-time and command-line checks
+    before any signal, and group membership read from /proc.
 - Copyright 2026 Zeabur Inc. Licensed under the Apache License, Version 2.0 (full text in the Aider entry above).
   "Nuphos" and its logo are trademarks of Zeabur Inc.; Fhara uses the name only to describe where this code came from.
   The upstream NOTICE file reads:

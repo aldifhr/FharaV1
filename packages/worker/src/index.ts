@@ -142,6 +142,9 @@ async function main() {
     log,
     shutdownSignal: shutdownController.signal,
   });
+  // Agent process groups a crashed worker left behind (Nuphos N2); the
+  // first direct claim waits for this.
+  void direct.sweepLeftovers();
 
   log(
     `listening: convex=${wenv("NEXT_PUBLIC_CONVEX_URL")} root=${workspaceRoot} concurrency=${CONCURRENCY}`

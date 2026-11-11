@@ -22,6 +22,7 @@ import {
   AcpRpcError,
   AUTH_REQUIRED,
   type AcpLogger,
+  type AcpProcessHooks,
   type AcpTimings,
   type InitializeResult,
   type RequestId,
@@ -53,6 +54,8 @@ export type AcpEngineDeps = {
   /** Checks that the process is the agent we meant (default: OpenCode). */
   identifies?: (init: InitializeResult) => boolean;
   newId?: () => string;
+  /** The worker's agent pid registry (agentPids.ts), so a crash leaves nothing running. */
+  processHooks?: AcpProcessHooks;
 };
 
 type SessionResult = {
@@ -105,7 +108,7 @@ export class AcpSession implements DirectSession {
     this.now = deps.now ?? Date.now;
     this.preamble = opts.sessionId ? undefined : opts.preamble;
     this.normalizer = new AcpNormalizer({ cwd: opts.cwd }, deps.newId);
-    this.proc = new AcpProcess({ binary: deps.binary, args: deps.args, env: deps.env, cwd: opts.cwd, log: deps.log, label: opts.taskId, agentName: "OpenCode", timings: deps.timings });
+    this.proc = new AcpProcess({ binary: deps.binary, args: deps.args, env: deps.env, cwd: opts.cwd, log: deps.log, label: opts.taskId, agentName: "OpenCode", timings: deps.timings, processHooks: deps.processHooks });
     this.proc.onNotification = (method, params) => this.notification(method, params);
     this.proc.onRequest = (id, method, params) => this.request(id, method, params);
     this.proc.onExit = (err) => this.exited(err);

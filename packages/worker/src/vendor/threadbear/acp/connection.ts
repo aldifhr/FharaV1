@@ -8,7 +8,9 @@
 // worker secret never reaches the agent. clientInfo names Fhara. The stderr
 // tail is redacted (vendor/nuphos/stderrTail.ts, from openab) and the exit
 // message names the cause of death (vendor/nuphos/processDeath.ts, from
-// Nuphos); a bare internal error gets the redacted tail as its detail.
+// Nuphos); a bare internal error gets the redacted tail as its detail. The
+// agent's process group is reported to processHooks (direct/agentPids.ts)
+// and, once its leader exits, any member left behind is signalled.
 // Everything else (the JSON-RPC framing, pending map, timeouts, close/kill
 // order) is unchanged.
 
@@ -99,6 +101,17 @@ export type AcpProcessOptions = {
   maxLineBytes?: number;
   timings?: Partial<AcpTimings>;
   clientVersion?: string;
+  /**
+   * Told about the agent's process group (direct/agentPids.ts): when it was
+   * spawned, and when its leader exited (again once any leftover members
+   * were signalled), so a worker that dies can have them reaped later.
+   */
+  processHooks?: AcpProcessHooks;
+};
+
+export type AcpProcessHooks = {
+  spawned(pid: number, cmd: { binary: string; args: string[]; label: string }): void;
+  exited(pid: number): void;
 };
 
 // The ACP version this client speaks; initialize's answer must match it.
@@ -215,6 +228,7 @@ export class AcpProcess {
     });
     this.child = child;
     this.pid = child.pid;
+    if (this.pid && process.platform !== 'win32') this.hook((h, pid) => h.spawned(pid, { binary: opts.binary, args: opts.args, label: opts.label }));
     // The agent runs in the worker's cgroup: an OOM kill there while it ran
     // names the memory limit as its cause of death.
     this.cgroup = process.platform === 'linux' ? ownCgroup() : null;
@@ -257,6 +271,7 @@ export class AcpProcess {
         if (stderrBuf) this.stderr(stderrBuf);
         stderrBuf = '';
         this.markExited();
+        this.reapLeftovers();
         const what = this.exitMessage(code, signal);
         for (const p of this.pending.values()) {
           if (p.timer) clearTimeout(p.timer);
@@ -301,6 +316,31 @@ export class AcpProcess {
         });
     const tail = this.stderrTail.text(5);
     return tail ? `${death}\nIts last error output:\n${tail}` : death;
+  }
+
+  private hook(fn: (h: AcpProcessHooks, pid: number) => void): void {
+    const h = this.opts.processHooks;
+    if (!h || !this.pid) return;
+    try {
+      fn(h, this.pid);
+    } catch (error) {
+      this.opts.log.warn('acp process hook failed', { taskId: this.opts.label, error: String(error) });
+    }
+  }
+
+  // The leader is gone; its children (MCP servers) may not be. They're
+  // signalled like close() would, and the registry is told twice: now, and
+  // once they've had their grace.
+  private reapLeftovers(): void {
+    const pid = this.pid;
+    if (!pid || process.platform === 'win32') return;
+    this.hook((h) => h.exited(pid));
+    if (!groupAlive(pid)) return;
+    killGroup(pid, 'SIGTERM');
+    setTimeout(() => {
+      if (groupAlive(pid)) killGroup(pid, 'SIGKILL');
+      setTimeout(() => this.hook((h) => h.exited(pid)), 200).unref();
+    }, 2000).unref();
   }
 
   private markExited(): void {

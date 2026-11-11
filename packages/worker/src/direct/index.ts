@@ -10,6 +10,10 @@
  * (steered or started as a turn) and whether the thread was closed. After
  * DIRECT_IDLE_MIN without a turn the session is released (the thread waits
  * for the user; the next message re-queues it and the session resumes).
+ *
+ * Agent processes (Nuphos N2): every ACP agent's process group is recorded
+ * (agentPids.ts). Before the first claim, groups left by a worker that died
+ * are verified and reaped; shutdown stops whatever this worker still has.
  */
 import { wenv, wenvRaw } from "@fhara/config/worker";
 import * as fs from "node:fs/promises";
@@ -30,6 +34,7 @@ import type { AcpLogger } from "@/vendor/threadbear/acp/connection";
 import { COMPLETION_CONTRACT } from "@/prompts/completionContract";
 import { AcpEngine } from "./acpSession";
 import { ApiLoopEngine } from "./apiLoopSession";
+import { AgentPidRegistry } from "./agentPids";
 import { ThreadRunner, type DirectStore } from "./threadRunner";
 import type { DirectEngine } from "./types";
 
@@ -95,6 +100,8 @@ export interface DirectThreadsDeps {
   leaseMs: number;
   log: (...args: unknown[]) => void;
   shutdownSignal: AbortSignal;
+  /** Default: `~/.fhara/run/acp-pgids`, this process. */
+  agentPids?: AgentPidRegistry;
 }
 
 function acpLogger(log: (...args: unknown[]) => void): AcpLogger {
@@ -109,8 +116,26 @@ function acpLogger(log: (...args: unknown[]) => void): AcpLogger {
 export class DirectThreads {
   private live = new Map<string, Live>();
   private claiming = false;
+  private swept?: Promise<void>;
+  readonly agentPids: AgentPidRegistry;
 
-  constructor(private readonly deps: DirectThreadsDeps) {}
+  constructor(private readonly deps: DirectThreadsDeps) {
+    this.agentPids =
+      deps.agentPids ?? new AgentPidRegistry({ log: (m, d) => deps.log("[direct]", m, d ?? "") });
+    this.agentPids.installExitHook();
+  }
+
+  /** Reaps agent groups a dead worker left (once; every claim waits for it). */
+  sweepLeftovers(): Promise<void> {
+    this.swept ??= this.agentPids
+      .sweep()
+      .then((results) => {
+        const reaped = results.filter((r) => r.outcome === "reaped").length;
+        if (reaped) this.deps.log(`[direct] reaped ${reaped} leftover agent process group(s) from a previous worker`);
+      })
+      .catch((error) => this.deps.log("[direct] agent sweep failed", error));
+    return this.swept;
+  }
 
   /** Ids whose leases the heartbeat must renew. */
   activeTaskIds(): string[] {
@@ -126,6 +151,7 @@ export class DirectThreads {
     if (this.claiming || this.deps.shutdownSignal.aborted || this.live.size >= directMaxLive()) return false;
     this.claiming = true;
     try {
+      await this.sweepLeftovers();
       const claimed = await this.deps.api.claimDirectThread({ workerId: this.deps.workerId, leaseMs: this.deps.leaseMs });
       if (!claimed) return false;
       await this.start(claimed).catch(async (error) => {
@@ -151,6 +177,8 @@ export class DirectThreads {
 
   async shutdown(): Promise<void> {
     await Promise.all([...this.live.values()].map((live) => this.stop(live, "worker shutting down", true)));
+    // Anything close() didn't end (a leftover MCP child, a session still booting).
+    await this.agentPids.reapOwn().catch((error) => this.deps.log("[direct] agent reap failed", error));
   }
 
   private async start(claimed: Claimed): Promise<void> {
@@ -198,6 +226,7 @@ export class DirectThreads {
         env: { ...env, ...opencodeEnv({ base: built.config, source: env }) },
         log: acpLogger(this.deps.log),
         workspaceRoot: cwd,
+        processHooks: this.agentPids,
       });
       void OPENCODE_KEY_ENV;
     } else {

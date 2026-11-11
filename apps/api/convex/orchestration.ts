@@ -796,6 +796,7 @@ export const setPlanning = internalMutation({
     classification: v.string(),
     strategy: v.string(),
     planVersion: v.number(),
+    responseOwner: v.optional(v.string()),
     workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -806,6 +807,7 @@ export const setPlanning = internalMutation({
       classification: args.classification,
       strategy: args.strategy,
       planVersion: args.planVersion,
+      ...(args.responseOwner ? { responseOwner: args.responseOwner } : {}),
       updatedAt: Date.now(),
     });
   },

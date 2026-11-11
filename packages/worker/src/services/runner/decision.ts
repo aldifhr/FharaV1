@@ -13,6 +13,7 @@ import { resolveIssuesForApproval, resolveIssuesForQaPass } from "@/orchestrator
 import type { Escalation } from "@/api/convex/lib/subtaskContract";
 import { handleEscalation } from "./escalation";
 import { handleArchDecision } from "./archDecision";
+import { agentRoleLabel, postSystemLine } from "./systemLines";
 import { captureRunCheckpoint } from "./checkpoints";
 import { feedsResearchSynthesis } from "@/prompts/research";
 
@@ -424,8 +425,8 @@ export async function handleNodeOutcome(
             step: ctx.decisionStep,
           },
         ];
-        // Decision narration stays in events only: the chat gets
-        // ONE CTO summary at completion. A "Please handle X" /
+        // Decision narration stays in events only: the chat gets ONE
+        // report from the Response Owner at completion (O2). A "Please handle X" /
         // "Please revise" chat line per decision was the remaining
         // spam source (the delegation/revise itself, via applyDecision,
         // is unaffected).
@@ -627,16 +628,9 @@ export async function handleNodeOutcome(
                   allowFallback: deps.policy.allowFallback,
                 })
               : undefined;
-            await deps.api
-              .appendAgentMessage({
-                projectId: project._id,
-                taskId: task._id as any,
-                agentId: invoked?._id as any,
-                content: `[call_agent: ${invoked?.name ?? applied.capability}] ${applied.reasoning.slice(0, 300)}`,
-                subtaskKey: node.id,
-                executionId,
-              })
-              .catch(() => undefined);
+            // O2: the orchestrator's own note is a neutral System line (the
+            // reasoning stays in the decision events, not in the thread).
+            await postSystemLine(deps, { taskId, projectId: project._id, content: `Consulted ${invoked ? agentRoleLabel(invoked) : applied.capability}` });
             break;
           }
         }

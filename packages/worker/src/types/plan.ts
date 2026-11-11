@@ -56,6 +56,14 @@ export interface ExecutionPlan {
    * the CTO gates the dependent subtasks. Absent = no CTO call.
    */
   architecture?: ArchitectureFlag;
+  /**
+   * O2: the Response Owner role (orchestrator/responseOwner.ts), set by the
+   * planner and recomputed when a version is persisted. The final report is
+   * posted as this role's agent.
+   */
+  responseOwner?: string;
+  /** O2: review/qa nodes were dropped because the plan changes no code. */
+  gatesSkipped?: boolean;
 }
 
 export interface Classification {

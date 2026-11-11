@@ -15,6 +15,7 @@ import { stripLeakedToolCallTags } from "./lib/chat/strip";
 import { isContinueRequest } from "./lib/chat/continueReply";
 import { chatScopeOf, type ChatScope } from "./lib/conversationShape";
 import { effectiveTeamIds, projectTeamIds } from "./lib/projectTeam";
+import { isSystemLine, normalizeSystemLine, SYSTEM_VOICE } from "./lib/systemLine";
 
 /** Drop the `--- File: <path> ---` blocks `attachMentionedFiles` appends so
  *  repeated file context does not accumulate in the chat prompt. */
@@ -140,12 +141,12 @@ export const insertSystemLine = internalMutation({
     card: v.optional(v.object({ kind: v.literal("assignment"), data: v.any() })),
   },
   handler: async (ctx, args) => {
-    const content = args.content.trim();
+    const content = normalizeSystemLine(args.content);
     if (!content && !args.card) return null;
     return await ctx.db.insert("messages", {
       ...(args.projectId ? { projectId: args.projectId } : {}),
       authorType: "agent",
-      voice: "system",
+      voice: SYSTEM_VOICE,
       content,
       replyToMessageId: args.replyToMessageId,
       taskId: args.taskId,
@@ -309,7 +310,7 @@ export const getContinueTarget = internalQuery({
       .order("desc")
       .take(20);
     // System lines ("Sent to Backend", status lines) are never the reply to continue (O3).
-    const lastReply = earlier.find((m) => m._creationTime < message._creationTime && m.authorType === "agent" && m.voice !== "system" && !m.taskId);
+    const lastReply = earlier.find((m) => m._creationTime < message._creationTime && m.authorType === "agent" && !isSystemLine(m) && !m.taskId);
     return lastReply ? shape(lastReply) : null;
   },
 });

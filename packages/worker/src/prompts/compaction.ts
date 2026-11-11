@@ -1,3 +1,5 @@
+import { isSystemLine } from "@/api/convex/lib/systemLine";
+
 export const PROMPT_TAIL = 12;
 /** R10: the first messages (the task statement) are kept verbatim, never summarised. */
 export const KEEP_FIRST = 2;
@@ -5,9 +7,15 @@ export const KEEP_FIRST = 2;
 export interface HistoryMessage {
   authorType: "user" | "agent" | string;
   content: string;
+  /** "system" = a System status line (lib/systemLine.ts): never model input. */
+  voice?: string;
 }
 
-export function buildSummaryPrompt(messages: HistoryMessage[]): string {
+/** The one System-line rule, shared with the chat transcript (buildChatMessages). */
+const modelRows = (messages: HistoryMessage[]) => messages.filter((m) => !isSystemLine(m));
+
+export function buildSummaryPrompt(all: HistoryMessage[]): string {
+  const messages = modelRows(all);
   const head = messages.slice(0, Math.min(KEEP_FIRST, Math.max(0, messages.length - PROMPT_TAIL)));
   const tail = messages.slice(-PROMPT_TAIL);
   const older = messages.slice(head.length, -PROMPT_TAIL);
@@ -43,7 +51,7 @@ export function buildChatPrompt(input: {
   history: HistoryMessage[];
   summary?: string;
 }): string {
-  const tail = input.history.slice(-PROMPT_TAIL);
+  const tail = modelRows(input.history).slice(-PROMPT_TAIL);
   const parts: string[] = [];
   if (input.summary) parts.push(`Conversation summary: ${input.summary}`);
   parts.push("Recent conversation:");

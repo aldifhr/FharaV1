@@ -241,6 +241,7 @@ export const setPlanning = action({
     classification: v.string(),
     strategy: v.string(),
     planVersion: v.number(),
+    responseOwner: v.optional(v.string()),
     // Lease fencing: pass the worker id so a displaced worker is refused.
     workerId: v.optional(v.string()),
   },

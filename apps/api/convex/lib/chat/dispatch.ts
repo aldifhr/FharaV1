@@ -19,6 +19,8 @@
  * Pure: unit-tested in dispatch.test.ts.
  */
 
+import { isSystemLine } from "../systemLine";
+
 export type DispatchDomain =
   | "architecture"
   | "support"
@@ -278,7 +280,7 @@ function previousTurn(history: HistoryRow[]): { userText: string; agentIds: stri
     const row = history[i];
     if (row.authorType === "user") return { userText: row.content, agentIds, replies };
     // System lines and old CTO handoff lines are routing, not replies.
-    if (row.authorType === "agent" && row.voice !== "system" && row.content?.trim() && !isHandoffLine(row.content)) {
+    if (row.authorType === "agent" && !isSystemLine(row) && row.content?.trim() && !isHandoffLine(row.content)) {
       if (row.agentId) agentIds.push(String(row.agentId));
       replies.push(row.content);
     }

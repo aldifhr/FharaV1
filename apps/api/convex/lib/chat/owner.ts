@@ -15,6 +15,7 @@
  *
  * Pure apart from the injected chooser; unit-tested in owner.test.ts.
  */
+import { isSystemLine } from "../systemLine";
 import { routeQuestion, type DispatchDomain } from "./dispatch";
 import { codeRoleForRequest } from "./intent";
 import { normalizeRoleKey } from "../roles";
@@ -52,7 +53,7 @@ function offeringAgent<T extends Member>(history: Row[], team: T[]): T | null {
   for (let i = history.length - 2; i >= 0; i -= 1) {
     const row = history[i];
     if (row.authorType === "user") return null;
-    if (row.authorType !== "agent" || row.voice === "system" || !row.agentId) continue;
+    if (row.authorType !== "agent" || isSystemLine(row) || !row.agentId) continue;
     return team.find((a) => String(a._id) === String(row.agentId)) ?? null;
   }
   return null;

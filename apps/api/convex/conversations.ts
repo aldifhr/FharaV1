@@ -11,6 +11,7 @@ import {
 import { recordAudit } from "./lib/recordAudit";
 import { conversationKind, conversationShapeError, isPersonalConversation } from "./lib/conversationShape";
 import { projectTeamIds } from "./lib/projectTeam";
+import { isSystemLine } from "./lib/systemLine";
 
 /**
  * Plan 007 (addendum §2): conversation participation as a persisted concept,
@@ -561,11 +562,13 @@ export const listPersonal = query({
         const conversation = await findActivePersonal(ctx, agent._id, ownerId);
         let preview: string | null = null;
         if (conversation) {
-          const last = await ctx.db
+          // A System line ("Sent to Backend", "Nothing running") is routing/status, not the conversation's summary.
+          const recent = await ctx.db
             .query("messages")
             .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
             .order("desc")
-            .first();
+            .take(20);
+          const last = recent.find((m) => !isSystemLine(m));
           preview = last ? last.content.replace(/\s+/g, " ").trim().slice(0, 120) || null : null;
         }
         const project = conversation?.projectId ? await ctx.db.get(conversation.projectId) : null;

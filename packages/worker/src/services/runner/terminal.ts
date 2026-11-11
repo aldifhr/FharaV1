@@ -271,9 +271,10 @@ export function alreadyDoneFiles(state: {
 }
 
 /**
- * End a no-op run as DONE with a clear `task.no_change` event and a CTO
- * message ("No change needed: … already has the requested content"),
- * never a replan or a failure.
+ * End a no-op run as DONE with a clear `task.no_change` event and a
+ * message from the Response Owner (O2; callers pass its agent id): "No
+ * change needed: … already has the requested content", never a replan or
+ * a failure.
  */
 export async function finishAlreadyDone(input: {
   deps: RunnerDeps;

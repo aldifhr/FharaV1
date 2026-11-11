@@ -5,6 +5,7 @@
  */
 import type { IntentSubtype } from "../chat/intent";
 import { isHandoffLine } from "../chat/dispatch";
+import { isSystemLine } from "../systemLine";
 import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_TOOL } from "../skills";
 import { LOAD_SKILL_TOOL_LINE } from "../skillRuntime";
 import { LEGACY_ROLE_SUCCESSORS, isRoleKey, normalizeRoleKey, roleChatSummary } from "../roles";
@@ -289,8 +290,8 @@ export function buildChatMessages(
     else if (!seenUser) continue;
     // The CTO's fixed handoff line is routing, not content: as a transcript
     // line it got copied into the specialist's reply.
-    // System lines (routing, task created, status) never reach a model.
-    if (row.authorType === "agent" && (row.voice === "system" || isHandoffLine(text))) continue;
+    // System lines (routing, task created, status) never reach a model (lib/systemLine.ts, O2/O3).
+    if (isSystemLine(row) || (row.authorType === "agent" && isHandoffLine(text))) continue;
     let msg: ChatPromptMessage;
     if (row.authorType === "agent") {
       const self = opts.selfAgentId !== undefined && String(row.agentId ?? "") === String(opts.selfAgentId);

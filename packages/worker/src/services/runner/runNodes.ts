@@ -30,6 +30,7 @@ import { ensureOpencodeDetection, opencodeGateFor } from "@/execution/opencodeDe
 import type { PerformanceScore } from "@/api/convex/lib/agentPerformance";
 import { isResearchSynthesis } from "@/prompts/research";
 import { prepareContinuation } from "./continuation";
+import { dispatchSystemLine, postSystemLine } from "./systemLines";
 
 /**
  * The DAG nodes runner (plan 012 step 2): run a set of subtasks through
@@ -657,8 +658,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
             capability: subtask.capability,
             agent: agent.name,
             capabilities: capabilitiesOf(agent),
-            // Routing Inspector: role + whether the agent declares the
-            // capability or was the closest available fallback.
+            // Routing Inspector: role + whether the agent declares the capability or was the closest fallback.
             role: agent.role,
             match: capabilitiesOf(agent).includes(subtask.capability.trim().toLowerCase().replace(/\s+/g, "-"))
               ? "exact"
@@ -691,6 +691,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
           leaseMs: 60_000,
         });
         executionIds.set(node.id, executionId);
+        if (attempt <= 1) await postSystemLine(deps, { taskId, projectId: project._id, content: dispatchSystemLine(agent, subtask.title) });
       },
       onOutcome: async (node, outcome, attempt) => {
         siblingTracker.settled(node.id);

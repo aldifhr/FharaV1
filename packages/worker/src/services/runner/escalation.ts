@@ -4,10 +4,11 @@ import type { RunContext, RunState } from "./types";
 
 /**
  * Plan 022: route one executor escalation. The executor already stopped
- * (nothing staged); the CTO decides by policy (`routeEscalation`):
+ * (nothing staged); a deterministic policy decides (`routeEscalation`,
+ * system code, not the CTO):
  *
- *  - replan: the note becomes this invocation's replan feedback (the CTO
- *    replans with the widened scope / the allowed dependency recorded);
+ *  - replan: the note becomes this invocation's replan feedback (the
+ *    planner replans with the widened scope / the allowed dependency recorded);
  *  - ask_user: the task pauses in `waiting_input` through the existing
  *    ask_user path (pauseForInput), with the question and options.
  *
@@ -74,7 +75,7 @@ export async function handleEscalation(
     .catch(() => undefined);
 
   if (route.route === "replan") {
-    // The CTO's allowance (dependency / schema file) is recorded so the
+    // The policy's allowance (dependency / schema file) is recorded so the
     // deterministic guard does not stop the replanned subtask on it again.
     if (escalation.kind === "new_dependency" || escalation.kind === "schema_change") {
       (state.allowedEscalations ??= []).push({ kind: escalation.kind, detail: escalation.detail });

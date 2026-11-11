@@ -4,6 +4,7 @@
  * APIs — so it is unit-testable and safe to import from any runtime.
  */
 
+import { isSystemLine } from "../systemLine";
 import { detectChatRunCommands, explicitRunCommand } from "./runRequest";
 import { findBuiltinSlash } from "../slashCommands";
 
@@ -456,7 +457,7 @@ export function findOfferedTask(
     if (m.authorType === "user") return null;
     if (m.authorType !== "agent" || !m.content?.trim()) continue;
     // System lines (routing, task created) are not replies.
-    if (m.voice === "system" || !m.agentId) continue;
+    if (isSystemLine(m) || !m.agentId) continue;
     // O3: the nearest reply decides. It offers a task through its
     // server-stored offer (the owner System routed to, or an @mentioned
     // agent), as the answer to an option pick, or (pre-O3 CTO rows without

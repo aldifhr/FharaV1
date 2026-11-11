@@ -17,6 +17,7 @@ import { validatePlan } from "./planValidator";
 import { extractJson } from "@/utils/json";
 import { planningPrompt, PLAN_NODE_INSTRUCTIONS } from "@/prompts/planner";
 import { applyArchitectureGate } from "./architecture";
+import { finishPlanOwnership } from "./responseOwner";
 import { conversationReplyCapability, pickPlannerModelSource } from "./plannerAgent";
 import { researchFanoutPlan, researchFanoutRequest } from "@/prompts/research";
 import { wantsVisualQa } from "@/utils/qaIntent";
@@ -372,9 +373,8 @@ export function buildPlanningPrompt(input: PlannerInput): string {
  * default) adds the hint only on the risk/verification signals below.
  *
  * Hints never REMOVE plan nodes: an LLM plan that already carries a review
- * or QA node keeps it — EXCEPT under qaMode="never", which is enforced
- * here for every plan source (LLM, heuristic, fallback): qa nodes are
- * dropped and dependencies on them are removed.
+ * or QA node keeps it — EXCEPT under qaMode="never" (qa nodes dropped here for
+ * every plan source) and for plans with no code change (responseOwner.ts).
  */
 export function stripQaNodes(plan: ExecutionPlan): ExecutionPlan {
   const qaKeys = new Set(plan.subtasks.filter((s) => s.kind === "qa").map((s) => s.key));
@@ -579,9 +579,9 @@ function uniqueKey(base: string, subtasks: ExecutionPlan["subtasks"]): string {
   return `${base}_${index}`;
 }
 
-/** O1: the planner's architecture flag + backstop → CTO decision node (see architecture.ts). */
+/** O1 architecture flag + backstop → CTO decision node; O2 code-only gates + Response Owner. */
 function gateArchitecture(plan: ExecutionPlan, input: PlannerInput, notes: string[]): ExecutionPlan {
-  return applyArchitectureGate(plan, { command: input.request ?? input.command, agents: input.agents }, notes);
+  return finishPlanOwnership(applyArchitectureGate(plan, { command: input.request ?? input.command, agents: input.agents }, notes), input.agents, notes);
 }
 
 /**

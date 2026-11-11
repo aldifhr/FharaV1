@@ -18,6 +18,8 @@ import type {
 import type { OutstandingIssue } from "@/orchestrator/taskContext";
 import type { RunnerDeps, RunState } from "./types";
 import { contentFingerprint } from "./applyLedger";
+import { pickResponseOwner, responseOwnerAgent } from "@/orchestrator/responseOwner";
+import { planSystemLine, postSystemLine } from "./systemLines";
 
 /** The commands the user declined, from the subtask rows ("Declined by user: npm run typecheck"). */
 export function declinedCommandsOf(subtasks: Array<{ status: string; error?: string }>): string[] {
@@ -184,8 +186,9 @@ export async function finalize(input: {
     return evaluation;
   }
 
-  // The ONE CTO chat message for the whole task: the outcome summary
-  // (plan details live in events, not repeated here).
+  // O2: the ONE report message for the whole task, posted as the Response
+  // Owner (the plan's primary role, orchestrator/responseOwner.ts); the QA
+  // and review evidence is inside it. Plan details live in events.
   const reviewVerdicts = Object.values(state.reviewVerdicts);
   const reviewedFiles = reviewVerdicts.length > 0 ? state.fileChanges.size : 0;
   const reviewLine =
@@ -233,12 +236,12 @@ export async function finalize(input: {
   ]
     .filter(Boolean)
     .join("\n\n");
-  const ctoAgent = input.agents.find((candidate) => /^cto$/i.test(candidate.role));
+  const owner = responseOwnerAgent(pickResponseOwner(plan, input.agents), input.agents);
   await deps.api.appendAgentMessage({
     projectId: project._id,
     taskId: task._id,
     content: message,
-    agentId: ctoAgent?._id as any,
+    agentId: owner?._id as any,
   });
   // QA that could not run (no browser, no deps) does not fail the task
   // (policy.qaRequired decides that), but the Done it ends in carries a
@@ -263,13 +266,20 @@ export async function persistPlan(
     degradedReason?: string;
     /** Task Estimator result (apps/api/convex/lib/estimate.ts). */
     estimate?: unknown;
+    /** The run's agents: the Response Owner is routed against them (O2). */
+    agents?: AgentDefinition[];
   }
 ): Promise<void> {
+  // O2: the Response Owner is recomputed for every stored version (a
+  // replan or edit can move the primary role) and kept on the task row.
+  const responseOwner = pickResponseOwner(input.plan, input.agents) ?? undefined;
+  input = { ...input, plan: { ...input.plan, ...(responseOwner ? { responseOwner } : {}) } };
   await deps.api.setPlanning({
     taskId: input.taskId,
     classification: input.classification,
     strategy: input.plan.strategy,
     planVersion: input.version,
+    ...(responseOwner ? { responseOwner } : {}),
   });
   await deps.api.savePlan({
     taskId: input.taskId,
@@ -287,4 +297,5 @@ export async function persistPlan(
       : {}),
     ...(input.estimate ? { estimate: input.estimate } : {}),
   });
+  await postSystemLine(deps, { taskId: input.taskId, projectId: input.projectId, content: planSystemLine(input.plan, input.version) });
 }

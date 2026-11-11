@@ -396,12 +396,7 @@ export class WorkerApi {
     );
   }
 
-  /**
-   * Transition the task row without ending it. The resume path uses this to
-   * leave `needs_approval` once it starts executing again; otherwise the UI
-   * keeps saying "needs approval" while the approved run is in flight and
-   * there is no pending approval left to show a button for.
-   */
+  /** Transition the task row without ending it (resume leaves `needs_approval` so the UI stops asking). */
   async setTaskStatus(
     input: ActionInput<typeof api.worker.setTaskStatus>
   ): Promise<FunctionReturnType<typeof api.worker.setTaskStatus>> {
@@ -489,6 +484,11 @@ export class WorkerApi {
     input: ActionInput<typeof api.worker.appendAgentMessage>
   ): Promise<FunctionReturnType<typeof api.worker.appendAgentMessage>> {
     return await this.client.action(api.worker.appendAgentMessage, this.args(this.masked(input)));
+  }
+
+  /** O2: a neutral System status line in the task thread (deduped per task). */
+  async appendSystemLine(input: ActionInput<typeof api.systemLines.append>): Promise<unknown> {
+    return await this.client.action(api.systemLines.append, this.args(this.masked(input)));
   }
 
   async recordAudit(

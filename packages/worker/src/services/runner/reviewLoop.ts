@@ -36,7 +36,7 @@ export async function runReviewLoop(ctx: RunContext): Promise<boolean> {
   try {
     // Resume/recovery: a review that already approved before the
     // interruption has its verdict seeded into state by buildStateFromDb.
-    // Re-running it would re-post the same CTO messages and burn a whole
+    // Re-running it would re-post the same messages and burn a whole
     // extra review cycle, so the stage counts as satisfied without
     // running any review node.
     if (
@@ -84,8 +84,8 @@ export async function runReviewLoop(ctx: RunContext): Promise<boolean> {
           type: "review.approved",
           payload: { iteration },
         });
-        // No chat narration: the CTO's one consolidated summary at
-        // completion reports the review outcome. The approval itself is
+        // No chat narration: the Response Owner's one report at
+        // completion carries the review outcome (O2). The approval itself is
         // recorded in events.
         return true;
       }

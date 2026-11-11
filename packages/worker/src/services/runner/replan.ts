@@ -311,6 +311,7 @@ export async function replanOnce(
   loop.rejection = undefined;
   loop.planVersion += 1;
   await persistPlan(deps, {
+    agents: pctx.agents,
     taskId: task._id,
     projectId: project._id,
     plan: loop.plan,

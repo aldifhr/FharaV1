@@ -34,6 +34,7 @@ import {
   finishAlreadyDone,
   summaryHasBudgetFailure,
 } from "./terminal";
+import { postSystemLine } from "./systemLines";
 import { finalize } from "./finalize";
 import { executePlan } from "./executePlan";
 import { releaseAfterPause } from "./pause";
@@ -66,10 +67,10 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
   if (applyApprovals.length === 0) return;
 
   if (applyApprovals.some((approval) => approval.status === "rejected")) {
-    await deps.api.appendAgentMessage({
+    await postSystemLine(deps, {
       projectId: context.project._id,
       taskId,
-      content: "Changes were rejected by the user and were not applied to the workspace.",
+      content: "Changes rejected by the user: nothing was applied to the workspace",
     });
     await deps.api.recordAudit({
       taskId,

@@ -451,9 +451,7 @@ export default defineSchema({
     workerId: v.optional(v.string()),
     leaseExpiresAt: v.optional(v.number()),
     planVersion: v.optional(v.number()),
-    // Phase 4: how many times recoverStale has requeued this task after
-    // a stale lease. Past the recovery bound the task is failed instead
-    // of being requeued forever.
+    // Phase 4: how many times recoverStale has requeued this task after a stale lease (past the bound: failed).
     recoveryCount: v.optional(v.number()),
     // Idempotency (plan 016): a retried/duplicate dispatch with the same key
     // reuses the existing task instead of creating a duplicate.
@@ -470,10 +468,10 @@ export default defineSchema({
     branchName: v.optional(v.string()),
     worktreePath: v.optional(v.string()),
     assignedAgentIds: v.optional(v.array(v.id("agents"))),
-    // Plan 013 step 4 (additive): the question the orchestrator asked
-    // while the task is `waiting_input`. The user's answer travels
-    // separately (taskContext decision `user_answer`) — this field holds
-    // ONLY the pending question.
+    // O2 (additive): the Response Owner role key (e.g. "frontend") that reports the outcome; set per plan version.
+    responseOwner: v.optional(v.string()),
+    // Plan 013 step 4 (additive): the question asked while the task is `waiting_input`. The answer travels
+    // separately (taskContext decision `user_answer`); this field holds ONLY the pending question.
     pendingQuestion: v.optional(v.string()),
     // A done task's caveat, shown next to Done (e.g. "QA blocked: Chromium
     // is not installed on the worker"). Additive; set by completeTask.
@@ -785,7 +783,9 @@ export default defineSchema({
     // Reply kept with its partial text: cut mid-stream or at the output limit. "Continue" appends (lib/chat/continueReply.ts).
     cutOff: v.optional(v.object({ kind: v.union(v.literal("interrupted"), v.literal("truncated")), reason: v.string() })),
     toAgentId: v.optional(v.id("agents")),
-    voice: v.optional(v.literal("system")), // §2.5 System status line ("Sent to Backend"): no agentId, authorType "agent".
+    // O2/O3 (additive): the ONE System-line flag (lib/systemLine.ts) for chat and task threads: no agentId, authorType
+    // "agent", never in an LLM transcript or a conversation summary.
+    voice: v.optional(v.literal("system")),
     leasedBy: v.optional(v.string()),
     leaseExpiresAt: v.optional(v.number()),
     attempts: v.optional(v.number()),

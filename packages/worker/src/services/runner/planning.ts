@@ -368,9 +368,9 @@ export async function createInitialPlan(
       },
     });
     if (!storedPlan) {
-      // No chat message about the plan here: the CTO posts ONE
-      // consolidated summary when the task completes (see finalize).
-      // The plan itself is recorded via orchestrator.plan / plan.created.
+      // No agent chat message about the plan: persistPlan posts one System
+      // line ("Planned N subtasks") and the Response Owner reports once at
+      // completion (finalize). The plan is recorded via orchestrator.plan.
       if (authoritative.degradedReason) {
         await deps.api.logEvent({
           taskId: task._id,
@@ -381,6 +381,7 @@ export async function createInitialPlan(
         });
       }
       await persistPlan(deps, {
+        agents: pctx.agents,
         taskId: task._id,
         projectId: project._id,
         plan,
@@ -453,6 +454,7 @@ export async function createInitialPlan(
     });
   }
   await persistPlan(deps, {
+    agents: pctx.agents,
     taskId: task._id,
     projectId: project._id,
     plan,

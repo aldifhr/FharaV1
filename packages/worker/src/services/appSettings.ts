@@ -6,6 +6,7 @@ import type { WorkerApi } from "@/workerApi";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
 import { loadPolicy } from "@/orchestrator/policy";
 import { SETTING_KNOBS, setChildEnvOverrides, setSettingOverrides, settingEnv } from "@/api/convex/lib/appSettings";
+import { setUserTimeZone } from "@/context/timeContext";
 
 /**
  * Settings modal → worker. The worker fetches the appSettings row on every
@@ -37,13 +38,15 @@ let lastUpdatedAt = -1;
 
 /** Apply one fetched settings payload. Returns whether anything changed. */
 export function applyAppSettings(
-  settings: { values: Record<string, string>; childEnv: Record<string, string>; updatedAt: number },
+  settings: { values: Record<string, string>; childEnv: Record<string, string>; updatedAt: number; userTimeZone?: string },
   target: AppSettingsTarget
 ): boolean {
   if (settings.updatedAt === lastUpdatedAt) return false;
   lastUpdatedAt = settings.updatedAt;
   setSettingOverrides(settings.values);
   setChildEnvOverrides(settings.childEnv);
+  // D4: the zone of the time line (Settings → General; unset = Asia/Jakarta).
+  setUserTimeZone(settings.userTimeZone);
   const next = loadPolicy();
   // Keep the started concurrency bounds: WORKER_CONCURRENCY and the
   // worker-wide LLM gate were sized from them at boot.
@@ -98,4 +101,5 @@ export function resetAppSettingsForTest(): void {
   lastUpdatedAt = -1;
   setSettingOverrides({});
   setChildEnvOverrides({});
+  setUserTimeZone(undefined);
 }

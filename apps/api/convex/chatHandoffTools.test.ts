@@ -35,7 +35,7 @@ vi.mock("./lib/chat/llm", () => ({
     _config: unknown,
     onChunk?: (c: { content: string; reasoning: string }) => void
   ) => {
-    const call = { system, msgs: msgs.map((m) => ({ ...m })) };
+    const call = { system, msgs: msgs.map((m) => ({ ...m, content: m.content.replace(/\n\nCurrent time: [^\n]*$/, "") })) /* D4: drop the time tail */ };
     calls.push(call);
     const content = reply(call);
     onChunk?.({ content, reasoning: "" });

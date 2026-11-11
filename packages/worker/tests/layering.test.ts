@@ -82,6 +82,9 @@ const SHARED_FOUNDATION = new Set([
   // Orchestrator/CTO split O1: the architecture flag type, decision key and
   // parsers (pure, no imports), shared by the planner and the plan validator.
   "convex/lib/architectureFlag",
+  // DeepSeek Harness D4: instruction-chain budget rules and the time line (pure).
+  "convex/lib/projectInstructions",
+  "convex/lib/timeContext",
 ]);
 
 const SRC = path.resolve(import.meta.dirname, "../src");

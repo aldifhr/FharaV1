@@ -23,6 +23,10 @@ export interface PlanningPromptInput {
    * absent the planner extracts them itself in the same response.
    */
   requirements?: Array<{ id: string; text: string }>;
+  /** D4: the AGENTS.md chain (root + user-global), stable part of the prompt. */
+  projectInstructions?: string;
+  /** D4: the time line, appended last (the volatile tail). */
+  timeLine?: string;
 }
 
 /**
@@ -37,6 +41,7 @@ export function planningPrompt(input: PlanningPromptInput): string {
     ...(input.sharedInstructions
       ? [`Durable shared instructions for this project (must follow): ${input.sharedInstructions}`]
       : []),
+    ...(input.projectInstructions ? [input.projectInstructions] : []),
     "The team's roles: CTO (architecture decisions, only when flagged), Designer, Frontend, Backend, QA, Support, DevOps, Reviewer, Researcher.",
     "Analyze the user task, identify which agents are strictly relevant, and produce an execution plan as STRICT JSON.",
     ...(input.workspaceLayout && input.workspaceLayout.length > 0
@@ -175,6 +180,7 @@ export function planningPrompt(input: PlanningPromptInput): string {
     "- Keep the plan minimal; do not add decorative steps.",
     "",
     'Schema: {"goal":"...","strategy":"single"|"dag","requiresApproval":true,"maxConcurrency":1,"requirements":[{"id":"r1","text":"...","quote":"..."}],"architecture":{"needed":false,"reasons":[],"question":"","gatedKeys":[]},"subtasks":[{"key":"implement","requirementIds":["r1"],"title":"...","description":"...","kind":"code_change","capability":"frontend-development","dependencies":[],"order":0,"allowedPaths":["apps/web"],"objective":"...","constraints":["..."],"deliverable":"...","acceptance":[{"id":"typecheck","criterion":"Typecheck passes","check":"typecheck"},{"id":"tests","criterion":"Relevant tests pass","check":"test"}]}]}',
+    ...(input.timeLine ? ["", input.timeLine] : []),
   ]
     .filter((line) => line !== "")
     .join("\n");

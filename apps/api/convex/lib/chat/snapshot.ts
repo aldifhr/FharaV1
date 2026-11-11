@@ -10,6 +10,30 @@ import type { Id } from "../../_generated/dataModel";
 import { buildContextSnapshot, contextSnapshotsEnabled, estimateTokens, type CallRole } from "../contextSnapshot";
 import { completeWithAgent, type ChatLlmConfig, type CompleteResult } from "./llm";
 import { recordChatUsage } from "./usage";
+import { DEFAULT_USER_TIME_ZONE, TimeContextThrottle, withTimeTail } from "../timeContext";
+
+/** D4: one stamp per conversation at most every 10 minutes (per warm isolate). */
+const timeThrottle = new TimeContextThrottle();
+
+/**
+ * D4: the time line appended to the last user turn (after history, the
+ * volatile tail), in the Settings zone. A ctx without runQuery (tests) or a
+ * failed read uses Asia/Jakarta.
+ */
+export async function chatTimeTail(
+  ctx: Partial<Pick<ActionCtx, "runQuery">>,
+  scope: Pick<ChatSnapshotScope, "conversationId" | "agentId">,
+  msgs: { role: string; content: string }[],
+  now: number = Date.now()
+): Promise<{ role: string; content: string }[]> {
+  let zone = DEFAULT_USER_TIME_ZONE;
+  try {
+    if (ctx.runQuery) zone = await ctx.runQuery(internal.appSettings.userTimeZone, {});
+  } catch {
+    // Keep the default zone.
+  }
+  return withTimeTail(msgs, timeThrottle.line(String(scope.conversationId ?? scope.agentId), now, zone));
+}
 
 export interface ChatSnapshotScope {
   /** Absent in a personal chat with no project: no snapshot is recorded. */
@@ -74,7 +98,7 @@ export async function recordChatSnapshot(
 
 /** completeWithAgent + a snapshot of the call (success or failure). */
 export async function completeWithSnapshot(
-  ctx: Pick<ActionCtx, "runMutation">,
+  ctx: Pick<ActionCtx, "runMutation"> & Partial<Pick<ActionCtx, "runQuery">>,
   scope: ChatSnapshotScope,
   system: string,
   msgs: { role: string; content: string }[],
@@ -82,6 +106,7 @@ export async function completeWithSnapshot(
   onChunk?: Parameters<typeof completeWithAgent>[3]
 ): Promise<CompleteResult> {
   const startedAt = Date.now();
+  msgs = await chatTimeTail(ctx, scope, msgs, startedAt);
   try {
     const result = await completeWithAgent(system, msgs, config, onChunk);
     await recordChatSnapshot(ctx, scope, { system, msgs, config, response: result.content, durationMs: Date.now() - startedAt });

@@ -124,7 +124,7 @@ export const getAppSettings = action({
   handler: async (
     ctx,
     args
-  ): Promise<{ values: Record<string, string>; childEnv: Record<string, string>; updatedAt: number }> => {
+  ): Promise<{ values: Record<string, string>; childEnv: Record<string, string>; updatedAt: number; userTimeZone: string }> => {
     withoutToken(args);
     return await ctx.runQuery(internal.appSettings.forWorker, {});
   },

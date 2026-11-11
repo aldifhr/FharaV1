@@ -27,7 +27,7 @@ vi.mock("./lib/chat/llm", () => ({
   getGlobalLLMConfig: () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m" }),
   resolveConfigFromProviders: async (_p: unknown, global: unknown) => global,
   completeWithAgent: async (system: string, msgs: { role: string; content: string }[]) => {
-    const call = { system, msgs: msgs.map((m) => ({ ...m })) };
+    const call = { system, msgs: msgs.map((m) => ({ ...m, content: m.content.replace(/\n\nCurrent time: [^\n]*$/, "") })) /* D4: drop the time tail */ };
     calls.push(call);
     return { content: replyFor(call), reasoning: "", reasoningDurationMs: 0 };
   },

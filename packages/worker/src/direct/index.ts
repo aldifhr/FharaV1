@@ -293,6 +293,7 @@ export class DirectThreads {
     let isolated = false;
     if (this.deps.policy.worktreeIsolation) {
       const created = await api.createBranch({ taskId: claimed.taskId, projectId: claimed.projectId, workspaceRoot: root });
+      if ("held" in created) throw new Error(created.reason); // lane git-init: plain line, no stack
       cwd = path.resolve(resolveWorkspacePath(root, created.worktreePath));
       isolated = true;
       await fs.mkdir(cwd, { recursive: true });

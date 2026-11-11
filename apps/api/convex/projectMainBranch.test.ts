@@ -38,12 +38,18 @@ describe("task worktree base branch", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("auto-detect: origin/HEAD, then main, then master, then the current branch", () => {
+  test("auto-detect: the current branch, then origin/HEAD, then main, then master", () => {
     expect(resolveMainBranch(undefined, fakeGit({ branches: ["master", "trunk"], originHead: "trunk" }).git)).toBe("trunk");
     expect(resolveMainBranch(undefined, fakeGit({ branches: ["main", "master"] }).git)).toBe("main");
     expect(resolveMainBranch(undefined, fakeGit({ branches: ["master"] }).git)).toBe("master");
     expect(resolveMainBranch("  ", fakeGit({ branches: ["master"] }).git)).toBe("master");
     expect(resolveMainBranch(undefined, fakeGit({ branches: ["dev"], current: "dev" }).git)).toBe("dev");
+    // Lane git-init: the checked-out branch wins over a guessed main/master
+    // (live: "invalid reference: master"), but never a task branch (inside
+    // a task worktree) and never an unborn one.
+    expect(resolveMainBranch(undefined, fakeGit({ branches: ["main", "master"], current: "master" }).git)).toBe("master");
+    expect(resolveMainBranch(undefined, fakeGit({ branches: ["main", "fhara/t1/x"], current: "fhara/t1/x" }).git)).toBe("main");
+    expect(resolveMainBranch(undefined, fakeGit({ branches: ["main"], current: "master" }).git)).toBe("main");
     // origin/HEAD naming a branch with no local copy falls through.
     expect(resolveMainBranch(undefined, fakeGit({ branches: ["master"], originHead: "main" }).git)).toBe("master");
     expect(resolveMainBranch(undefined, () => { throw new Error("not a git repository"); })).toBe("main");

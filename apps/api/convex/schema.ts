@@ -495,7 +495,7 @@ export default defineSchema({
     pausedAt: v.optional(v.number()),
     hold: v.optional(
       v.object({
-        kind: v.union(v.literal("offline"), v.literal("rate_limit"), v.literal("quota"), v.literal("auth")),
+        kind: v.union(v.literal("offline"), v.literal("rate_limit"), v.literal("quota"), v.literal("auth"), v.literal("repo")),
         reason: v.string(),
         detail: v.optional(v.string()),
         attempts: v.number(),

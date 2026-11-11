@@ -59,6 +59,7 @@ import {
   mcpStatusReporter,
   threadUserAnswers,
 } from "./runner/session";
+import { plainServerError } from "@/api/convex/lib/repoReadiness";
 
 // Public surface of `@/services/taskRunner`: the task lifecycle entry
 // points (processTask / resumeTask) plus re-exports tests and
@@ -159,6 +160,12 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
         // like resolveWorkspacePath above (live test 4: git ENOENT).
         workspaceRoot: path.resolve(deps.workspaceRoot),
       });
+      // Lane git-init: not a repository / no commits → a plain line the
+      // backend turns into a "repo" hold (Initialize git), not a failure.
+      if ("held" in created) {
+        await deps.api.completeTask({ taskId: task._id, status: "failed", errorMessage: created.reason });
+        return;
+      }
       branchName = created.branchName;
       worktreePath = resolveWorkspacePath(deps.workspaceRoot, created.worktreePath);
       workspacePath = worktreePath;
@@ -176,9 +183,10 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
       await deps.api.completeTask({
         taskId: task._id,
         status: "failed",
-        errorMessage: `Worktree isolation requested but unavailable: ${
+        // No Request ID or stack on the task card (lane git-init).
+        errorMessage: `Worktree isolation requested but unavailable: ${plainServerError(
           error instanceof Error ? error.message : String(error)
-        }`,
+        )}`,
       });
       return;
     }

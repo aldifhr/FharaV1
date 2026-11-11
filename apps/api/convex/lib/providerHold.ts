@@ -10,9 +10,15 @@
  *
  * Pure: shared by the backend (completeTask) and the worker (its failure
  * path logs a hold instead of a failure). Written for Fhara.
+ *
+ * Lane git-init adds kind "repo": the project folder is not a git
+ * repository or has no commits. It never resumes on its own; the user's
+ * "Initialize git" (or Resume after fixing it) continues the task.
  */
 
-export type ProviderHoldKind = "offline" | "rate_limit" | "quota" | "auth";
+import { classifyRepoHold } from "./repoReadiness";
+
+export type ProviderHoldKind = "offline" | "rate_limit" | "quota" | "auth" | "repo";
 
 export interface ProviderHold {
   kind: ProviderHoldKind;
@@ -78,6 +84,11 @@ export function classifyProviderHold(message: string | undefined | null): Provid
   return null;
 }
 
+/** completeTask's hold for a failure: a repo-readiness hold first, else a provider hold, else null. */
+export function classifyTaskHold(message: string | undefined | null): ProviderHold | null {
+  return classifyRepoHold(message) ?? classifyProviderHold(message);
+}
+
 /** Hold state stored on the task (tasks.hold). */
 export interface TaskHoldState {
   kind: ProviderHoldKind;
@@ -111,6 +122,7 @@ export function watchdogMayFail(task: { status: string; pausedBy?: string; hold?
 
 /** The task card's line for a held task: "On hold: <reason>. Retrying automatically in 4 min." */
 export function holdNoticeText(hold: Pick<TaskHoldState, "reason" | "resumeAt" | "kind">, now: number): string {
+  if (hold.kind === "repo") return hold.reason;
   const ms = hold.resumeAt - now;
   const when =
     ms <= 30_000 ? "Retrying automatically now." : `Retrying automatically in ${ms < 90 * 60_000 ? `${Math.max(1, Math.round(ms / 60_000))} min` : `${Math.round(ms / 3_600_000)} h`}.`;

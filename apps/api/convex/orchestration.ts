@@ -46,7 +46,7 @@ import { taskStatus, subtaskKind, subtaskStatus, executionStatus } from "./schem
 import { taskBranchPrefixes } from "./lib/taskBranch";
 import { consumeTaskSignals, RESUMABLE_APPROVAL_KINDS, supersedePendingCommandApprovals } from "./taskSignals";
 import { appendAgentEvent as appendAgentEventRow, appendTaskEvent } from "./lib/taskEvents";
-import { classifyProviderHold } from "./lib/providerHold";
+import { classifyTaskHold } from "./lib/providerHold";
 import { isAutomaticTask, isAutomationHeld } from "./lib/automationHold";
 import { holdTaskForProvider } from "./taskControl";
 import { recoverDirectThread } from "./lib/directThreads";
@@ -1837,7 +1837,7 @@ export const completeTask = internalMutation({
     // on hold (paused, pausedBy "held") and resumes with backoff instead
     // of failing. No incident, no FAILED transition.
     if (args.status === "failed" && before) {
-      const hold = classifyProviderHold(args.errorMessage);
+      const hold = classifyTaskHold(args.errorMessage);
       if (hold) {
         const held = await holdTaskForProvider(ctx, before, hold, args.errorMessage);
         return { applied: true, status: "paused" as const, held: true, resumeAt: held.resumeAt };

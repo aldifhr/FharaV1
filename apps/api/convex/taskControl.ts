@@ -220,7 +220,8 @@ export async function holdTaskForProvider(
     prevState: task.status.toUpperCase(),
     createdAt: now,
   });
-  await ctx.scheduler.runAt(state.resumeAt, internal.taskControl.autoResumeHeld, { taskId: task._id, attempt: state.attempts });
+  // Lane git-init: a repo hold waits for the user's "Initialize git".
+  if (hold.kind !== "repo") await ctx.scheduler.runAt(state.resumeAt, internal.taskControl.autoResumeHeld, { taskId: task._id, attempt: state.attempts });
   return { resumeAt: state.resumeAt, attempts: state.attempts };
 }
 

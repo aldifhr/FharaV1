@@ -594,64 +594,9 @@ export function DevicesTab() {
   );
 }
 
-// ── Scheduled tasks ─────────────────────────────────────────────────────
+// ── Scheduled tasks (ScheduledTab.tsx: the jobs plus the G3 automation hold) ──
 
-export function ScheduledTab() {
-  const jobs = useQuery(api.cronJobs.list, {});
-  const runNow = useMutation(api.cronJobs.runNow);
-  const toast = useToast();
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => tick((n) => n + 1), 30_000);
-    return () => clearInterval(t);
-  }, []);
-  return (
-    <Section title="Scheduled tasks" description="Background jobs the backend runs on a timer. Times are recorded from their first run after this update.">
-      {jobs === undefined && <Row label="Loading…" />}
-      {(jobs ?? []).map((job) => {
-        const last =
-          job.lastStatus === null
-            ? "Not run yet"
-            : job.lastStatus === "running"
-              ? `Running since ${relativeTime(job.lastStartedAt)}`
-              : `${job.lastStatus === "ok" ? "Last run" : "Failed"} ${relativeTime(job.lastFinishedAt ?? job.lastStartedAt)}${job.trigger === "manual" ? " (manual)" : ""}`;
-        return (
-          <Row
-            key={job.name}
-            stacked
-            label={job.name.charAt(0).toUpperCase() + job.name.slice(1)}
-            description={
-              <>
-                {job.schedule} · {job.description}
-                <span className="block">
-                  {last}
-                  {job.lastStatus === "failed" && job.lastError ? `: ${job.lastError}` : ""}
-                  {job.lastStatus === "ok" && job.lastResult && job.lastResult !== "null" ? ` · ${job.lastResult}` : ""}
-                </span>
-              </>
-            }
-          >
-            <button
-              type="button"
-              className={BUTTON}
-              disabled={job.lastStatus === "running"}
-              onClick={async () => {
-                try {
-                  await runNow({ name: job.name });
-                  toast("success", "Started", job.name);
-                } catch (err) {
-                  toast("error", "Couldn't start the job", errorText(err));
-                }
-              }}
-            >
-              Run now
-            </button>
-          </Row>
-        );
-      })}
-    </Section>
-  );
-}
+export { ScheduledTab } from "./ScheduledTab";
 
 // ── Projects ────────────────────────────────────────────────────────────
 

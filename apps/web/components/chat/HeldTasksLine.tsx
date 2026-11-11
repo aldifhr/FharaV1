@@ -58,3 +58,4 @@ export default function HeldTasksLine({
     </div>
   );
 }
+export { default as AutomationHoldLine } from "./AutomationHoldLine";

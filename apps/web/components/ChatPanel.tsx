@@ -32,7 +32,7 @@ import { buildDecisionTray, latestOpenOptionPrompt, type TrayAction, type TrayIt
 import { composeOfferedTask } from "@/api/convex/lib/chat/intent";
 import { parseOptions } from "@/lib/options";
 import DecisionsTray, { trayPlaceholder, useDecisionTray } from "./chat/DecisionsTray";
-import HeldTasksLine from "./chat/HeldTasksLine";
+import HeldTasksLine, { AutomationHoldLine } from "./chat/HeldTasksLine";
 
 type Props = {
   projectId: string;
@@ -756,7 +756,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
 
       {tab === "chat" && (
         <>
-          <HeldTasksLine tasks={tasks as any} conversationId={currentConversationId} onOpenTask={onSelectTask} />
+          <AutomationHoldLine /><HeldTasksLine tasks={tasks as any} conversationId={currentConversationId} onOpenTask={onSelectTask} />
           <StatusLine
             agents={agents}
             status={status}

@@ -51,6 +51,7 @@ import { taskBranchPrefixes } from "./lib/taskBranch";
 import { consumeTaskSignals, RESUMABLE_APPROVAL_KINDS, supersedePendingCommandApprovals } from "./taskSignals";
 import { appendAgentEvent as appendAgentEventRow, appendTaskEvent } from "./lib/taskEvents";
 import { classifyProviderHold } from "./lib/providerHold";
+import { isAutomaticTask, isAutomationHeld } from "./lib/automationHold";
 import { holdTaskForProvider } from "./taskControl";
 import { recoverDirectThread } from "./lib/directThreads";
 import { decideResume, replayEncodedBytes, RESUME_MAX_REPLAY_EVENTS } from "./lib/eventResume";
@@ -359,9 +360,8 @@ export const claimNextTask = internalMutation({
       .withIndex("by_status", (q) => q.eq("status", "queued"))
       .order("asc")
       .take(25);
-    // Direct threads (threadbear T2) are claimed by directThreads.claim
-    // only: they never enter the planner / DAG path.
-    const task = candidates.find((candidate) => candidate.status === "queued" && candidate.mode !== "direct");
+    const held = await isAutomationHeld(ctx); // G3: while automation is held, automatic tasks stay queued.
+    const task = candidates.find((c) => c.status === "queued" && c.mode !== "direct" && !(held && isAutomaticTask(c))); // direct threads: directThreads.claim
     if (!task) return null;
     await ctx.db.patch(task._id, {
       status: "running",

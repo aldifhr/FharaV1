@@ -217,7 +217,7 @@
     "tint": 5
   },
   "apps/web/components/settings/tabs.tsx": {
-    "lines": 1316
+    "lines": 1261
   },
   "apps/web/components/shell/ProjectAvatar.tsx": {
     "tint": 28

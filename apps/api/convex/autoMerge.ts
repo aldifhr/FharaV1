@@ -21,6 +21,10 @@
  *     then the merge is requested with `sha` = the approved head, so GitHub
  *     refuses it if anything moved (never forced). `finishMerge` records
  *     the result and feeds the merged state through the normal PR path.
+ *
+ * G3: while automation is held, `evaluate` and `beginMerge` record a
+ * "held" wait instead of merging; resuming (appSettings.setAutomationHold)
+ * re-evaluates those PRs.
  */
 import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -35,6 +39,7 @@ import { taskCardConversationId } from "./lib/conversationScope";
 import { loadSettingValues } from "./appSettings";
 import { settingFrom } from "./lib/appSettings";
 import { fetchCommitChecks } from "./lib/prChecks";
+import { AUTOMATION_HELD_CODE, AUTOMATION_HELD_REASON, isAutomationHeld } from "./lib/automationHold";
 import {
   autoMergePolicy,
   humanGate,
@@ -97,6 +102,22 @@ function stateFor(verdict: Exclude<MergeVerdict, { kind: "ready" }>, headSha: st
 
 const mergeableStateOf = (m: PushRow["mergeable"]) => (m === "mergeable" ? "clean" : m === "conflict" ? "dirty" : "unknown");
 
+/** Park a PR's auto-merge as held (G3): a wait the push card and Inbox show. */
+async function writeHeld(ctx: MutationCtx, row: PushRow) {
+  const prev = row.autoMerge;
+  if (prev?.code === AUTOMATION_HELD_CODE && prev.headSha === row.headSha) return;
+  const now = Date.now();
+  await writeState(ctx, row, {
+    state: "waiting",
+    code: AUTOMATION_HELD_CODE,
+    reason: AUTOMATION_HELD_REASON,
+    ...(row.headSha ? { headSha: row.headSha } : {}),
+    ...(prev?.attemptedAt !== undefined ? { attemptedAt: prev.attemptedAt } : {}),
+    updatedAt: now,
+  });
+  await syncPrNotifications(ctx, row.ownerTaskId ?? row.taskId);
+}
+
 /** Re-evaluate one owner task's PR from the stored facts. */
 export const evaluate = internalMutation({
   args: { ownerTaskId: v.id("tasks") },
@@ -106,6 +127,10 @@ export const evaluate = internalMutation({
     const project = await ctx.db.get(latest.projectId);
     if (!project?.autoMerge) return { scheduled: false, reason: "disabled" };
     if (latest.prState === "merged" || latest.prState === "closed") return { scheduled: false, reason: "pr_not_open" };
+    if (await isAutomationHeld(ctx)) {
+      if (latest.autoMerge?.state !== "merging" && latest.autoMerge?.state !== "merged") await writeHeld(ctx, latest);
+      return { scheduled: false, reason: "held" };
+    }
     const prev = latest.autoMerge;
     const head = latest.headSha;
     // In flight or done for this head: nothing to do.
@@ -391,6 +416,10 @@ export const beginMerge = internalMutation({
     const latest = await latestPrRow(ctx, ownerTaskId);
     if (!latest || latest.prState === "merged" || latest.prState === "closed") return null;
     if (latest.autoMerge?.state !== "checking") return null;
+    if (await isAutomationHeld(ctx)) {
+      await writeHeld(ctx, latest);
+      return null;
+    }
     if ((await approvedSha(ctx, ownerTaskId)) !== args.headSha) return null;
     if (await fixInFlight(ctx, ownerTaskId)) return null;
     const now = Date.now();

@@ -7,7 +7,7 @@
  */
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
-import type { DataModel, Doc } from "./_generated/dataModel";
+import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { assertRegistryWriteAccess } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
@@ -21,6 +21,8 @@ import {
   SETTING_KNOBS,
   type SettingKey,
 } from "./lib/appSettings";
+import { AUTOMATION_HELD_CODE, loadAutomationHold } from "./lib/automationHold";
+import { internal } from "./_generated/api";
 
 type Ctx = GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>;
 
@@ -94,8 +96,53 @@ export const get = query({
         autoMerge: row?.newProjectAutoMerge ?? false,
         issueIntake: row?.newProjectIssueIntake ?? false,
       },
+      automationHold: row?.automationHold ?? null,
       updatedAt: row?.updatedAt ?? null,
     };
+  },
+});
+
+/** The global automation hold (G3), for the status line and Settings. Signed out: null, never a throw. */
+export const automationHold = query({
+  args: {},
+  handler: async (ctx) => {
+    try {
+      await assertRegistryWriteAccess(ctx);
+    } catch {
+      return null;
+    }
+    return await loadAutomationHold(ctx);
+  },
+});
+
+/**
+ * Hold or resume automation (Settings → Scheduled tasks). Resuming
+ * re-evaluates the PRs auto-merge parked as "held", so they continue
+ * without waiting for the next GitHub signal.
+ */
+export const setAutomationHold = mutation({
+  args: { held: v.boolean(), reason: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    await assertRegistryWriteAccess(ctx);
+    const current = await loadAutomationHold(ctx);
+    if (args.held === (current !== null)) return { held: args.held, resumed: 0 };
+    const reason = args.reason?.trim().slice(0, 200) || undefined;
+    await upsert(ctx, { automationHold: args.held ? { heldAt: Date.now(), ...(reason ? { reason } : {}) } : undefined });
+    let resumed = 0;
+    if (!args.held) {
+      const owners = new Set<Id<"tasks">>();
+      for (const row of await ctx.db.query("taskPushes").order("desc").take(300)) {
+        if (row.autoMerge?.code === AUTOMATION_HELD_CODE) owners.add(row.ownerTaskId ?? row.taskId);
+      }
+      for (const ownerTaskId of owners) await ctx.scheduler.runAfter(0, internal.autoMerge.evaluate, { ownerTaskId });
+      resumed = owners.size;
+    }
+    await recordAudit(ctx, {
+      action: args.held ? "automation.hold" : "automation.resume",
+      target: "automation",
+      details: { changed: ["automationHold"], ...(args.held ? {} : { resumedPrs: resumed }) },
+    });
+    return { held: args.held, resumed };
   },
 });
 

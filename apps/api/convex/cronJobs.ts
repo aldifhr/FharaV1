@@ -7,12 +7,17 @@
  * show when each job last ran. Mutation jobs run in a sub-transaction
  * (ctx.runMutation): a failing job rolls back its own writes and the
  * failure is still recorded. "Run now" schedules the same wrapper.
+ *
+ * G3: while automation is held (lib/automationHold.ts), the jobs in
+ * HELD_CRON_JOBS skip their work and record "held"; "Run now" is a
+ * person's request and still runs.
  */
 import { internalAction, internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertRegistryWriteAccess } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
+import { cronHeld, HELD_CRON_JOBS, loadAutomationHold } from "./lib/automationHold";
 
 export const CRON_JOBS = [
   {
@@ -76,7 +81,7 @@ async function writeRun(
   patch: {
     lastStartedAt?: number;
     lastFinishedAt?: number;
-    lastStatus: "running" | "ok" | "failed";
+    lastStatus: "running" | "ok" | "failed" | "held";
     lastError?: string;
     lastResult?: string;
     trigger?: string;
@@ -112,7 +117,7 @@ async function writeRun(
 export const recordRun = internalMutation({
   args: {
     name: v.string(),
-    lastStatus: v.union(v.literal("running"), v.literal("ok"), v.literal("failed")),
+    lastStatus: v.union(v.literal("running"), v.literal("ok"), v.literal("failed"), v.literal("held")),
     lastStartedAt: v.optional(v.number()),
     lastFinishedAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
@@ -125,6 +130,22 @@ export const recordRun = internalMutation({
   },
 });
 
+/** Record a skipped run: the job did nothing because automation is held. */
+async function writeHeld(ctx: MutationCtx, name: CronJobName, trigger: string | undefined) {
+  const now = Date.now();
+  await writeRun(ctx, name, { lastStartedAt: now, lastFinishedAt: now, lastStatus: "held", trigger: trigger ?? "cron", lastError: undefined, lastResult: undefined }, false);
+}
+
+/** For the action wrappers: true (and the "held" row written) when this run must skip. */
+export const holdRun = internalMutation({
+  args: { name: v.string(), trigger: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<boolean> => {
+    if (!cronHeld(args.name, args.trigger, await loadAutomationHold(ctx))) return false;
+    await writeHeld(ctx, args.name as CronJobName, args.trigger);
+    return true;
+  },
+});
+
 /** Run one mutation job in a sub-transaction and record the outcome. */
 async function runMutationJob(
   ctx: MutationCtx,
@@ -132,6 +153,7 @@ async function runMutationJob(
   trigger: string | undefined,
   job: () => Promise<unknown>
 ) {
+  if (cronHeld(name, trigger, await loadAutomationHold(ctx))) return await writeHeld(ctx, name, trigger);
   const startedAt = Date.now();
   try {
     const result = await job();
@@ -193,6 +215,7 @@ export const refreshTaskPullRequests = internalAction({
   args: triggerArg,
   handler: async (ctx, args) => {
     const name: CronJobName = "refresh task pull requests";
+    if (await ctx.runMutation(internal.cronJobs.holdRun, { name, trigger: args.trigger })) return;
     const startedAt = Date.now();
     const trigger = args.trigger ?? "cron";
     await ctx.runMutation(internal.cronJobs.recordRun, { name, lastStatus: "running", lastStartedAt: startedAt, trigger });
@@ -219,6 +242,7 @@ export const sweepStaleWorktrees = internalAction({
   args: triggerArg,
   handler: async (ctx, args) => {
     const name: CronJobName = "sweep stale task worktrees";
+    if (await ctx.runMutation(internal.cronJobs.holdRun, { name, trigger: args.trigger })) return;
     const startedAt = Date.now();
     const trigger = args.trigger ?? "cron";
     await ctx.runMutation(internal.cronJobs.recordRun, { name, lastStatus: "running", lastStartedAt: startedAt, trigger });
@@ -261,6 +285,7 @@ export const list = query({
         lastResult: run?.lastResult ?? null,
         trigger: run?.trigger ?? null,
         runCount: run?.runCount ?? 0,
+        heldByAutomationHold: HELD_CRON_JOBS.has(job.name),
       };
     });
   },

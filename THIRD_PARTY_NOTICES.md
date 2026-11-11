@@ -41,7 +41,8 @@ SOFTWARE.
   `packages/provider-core/src/server/builtinSkills/goatDiscipline.ts`); `scripts/guards/rules.mjs` and
   `scripts/code-budget.mjs` (line budget, suppression-reason and baseline-ratchet logic adapted from
   `oxlint-plugin-goat/codeBudget.ts`, `rules/code-budget.ts`, `rules/require-suppression-reason.ts`,
-  `update-code-budgets.ts`). Modified by Fhara.
+  `update-code-budgets.ts`); `apps/api/convex/lib/automationHold.ts` (global automation hold, adapted
+  from `apps/server/src/automationHold.ts`). Modified by Fhara.
   GOAT's Pen, office, PDF, native and asset sub-paths carry other licences; nothing is taken from them.
 
 ```

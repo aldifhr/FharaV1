@@ -2284,16 +2284,16 @@ export default defineSchema({
     // O2 / O4 new-project defaults (additive). Unset = off.
     newProjectAutoMerge: v.optional(v.boolean()),
     newProjectIssueIntake: v.optional(v.boolean()),
+    automationHold: v.optional(v.object({ heldAt: v.number(), reason: v.optional(v.string()) })), // G3; unset = automation may act
     updatedAt: v.number(),
   }),
 
-  // Last run of each cron job (Settings → Scheduled tasks, additive).
-  // Written by the cron wrappers in cronJobs.ts, one row per job name.
+  // Last run of each cron job (Settings → Scheduled tasks), one row per job, written by cronJobs.ts.
   cronRuns: defineTable({
     name: v.string(),
     lastStartedAt: v.number(),
     lastFinishedAt: v.optional(v.number()),
-    lastStatus: v.union(v.literal("running"), v.literal("ok"), v.literal("failed")),
+    lastStatus: v.union(v.literal("running"), v.literal("ok"), v.literal("failed"), v.literal("held")), // held = G3 hold
     lastError: v.optional(v.string()),
     lastResult: v.optional(v.string()),
     // "cron" or "manual" (Run now / Maintenance).

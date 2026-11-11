@@ -14,6 +14,10 @@
  *  4. Status labels follow the task (`fhara:running`, `fhara:ready-for-review`,
  *     `fhara:failed`) and the PR (`fhara:done` on merge); the PR body says
  *     `Closes #n` (githubPush.buildPrBody).
+ *
+ * G3: while automation is held, `receive` stores no draft and calls no
+ * GitHub API; it records an `issue.intake_held` audit row instead. GitHub
+ * redelivery or a new issue event is picked up once automation resumes.
  */
 import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
@@ -24,6 +28,7 @@ import { assertProjectAccess, visibleProjects } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
 import { globalGithubConnection, resolveGithubToken } from "./lib/githubAuth";
 import { projectDefaultPermissionMode } from "./lib/permissionModes";
+import { isAutomationHeld } from "./lib/automationHold";
 import {
   draftCommand,
   intakeDecision,
@@ -60,8 +65,10 @@ export const getIntakeContext = internalQuery({
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
     if (!project?.issueIntake?.enabled) return null;
+    if (await isAutomationHeld(ctx)) return { held: true as const };
     const connection = await globalGithubConnection(ctx);
     return {
+      held: false as const,
       label: intakeLabel(project.issueIntake.label),
       login: connection?.login ?? null,
       token: await safeToken(ctx, args.projectId),
@@ -76,6 +83,14 @@ export const receive = internalAction({
     const signal = args.signal as IssueSignal;
     const intake = await ctx.runQuery(internal.issueIntake.getIntakeContext, { projectId: args.projectId });
     if (!intake) return { draftId: null, reason: "disabled" };
+    if (intake.held) {
+      await ctx.runMutation(internal.issueIntake.recordIgnored, {
+        projectId: args.projectId,
+        target: `${signal.repoFullName}#${signal.number}`,
+        reason: "held",
+      });
+      return { draftId: null, reason: "held" };
+    }
     let login = intake.login;
     // A legacy connection stores no login: ask GitHub who the token is.
     if (!login && intake.token) {
@@ -124,7 +139,7 @@ export const recordIgnored = internalMutation({
     await recordAudit(ctx, {
       actor: "fhara",
       tool: "github",
-      action: "issue.intake_ignored",
+      action: args.reason === "held" ? "issue.intake_held" : "issue.intake_ignored",
       decision: "denied",
       target: args.target,
       projectId: args.projectId,

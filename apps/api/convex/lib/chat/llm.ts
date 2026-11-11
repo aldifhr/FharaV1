@@ -10,6 +10,7 @@ import { getGlobalLLMConfig, type LlmEndpointConfig } from "../llmConfig";
 import { applySelectionMode, orderPoolPairs } from "../llmOrder";
 import { cooldownForFailure, errorStatus, isEmptyCompletion, StickyRotationCursor } from "../llmRotation";
 import { describeEndpoint, endpointCandidates, llmHttpError, wireProtocolFor } from "./llmEndpoint";
+import { ChatStreamError, chatStreamLimits, readWithLimits, withPartial, type ChatStreamLimits, type PartialReply } from "./streamLimits";
 import { mergeRawUsage, normalizeAnthropicUsage, normalizeOpenAiUsage, type UsageBreakdown } from "../usageLedger";
 
 /**
@@ -31,6 +32,9 @@ export type ChatLlmConfig = LlmEndpointConfig & ServedIdentity & {
 };
 export { getGlobalLLMConfig };
 
+/** Per-call options: sampling temperature (unset = provider default) and stream limits (tests; default from config). */
+export type ChatCallOptions = { temperature?: number; limits?: ChatStreamLimits };
+
 interface StreamChunk {
   content: string;
   reasoning: string;
@@ -46,6 +50,8 @@ export interface CompleteResult {
   durationMs?: number;
   /** The config (connection + model) that answered, for the usage ledger. */
   servedBy?: LlmEndpointConfig & ServedIdentity;
+  /** The model stopped at its output limit (finish_reason "length" / stop_reason "max_tokens"). */
+  truncated?: boolean;
 }
 
 /** The served config without its key (never carried past the call). */
@@ -113,7 +119,7 @@ export async function completeWithAgent(
   history: { role: string; content: string }[],
   globalConfig: ChatLlmConfig,
   onChunk?: (partial: StreamChunk) => void,
-  opts?: { temperature?: number },
+  opts?: ChatCallOptions,
 ): Promise<CompleteResult> {
   const { fallbacks, ...first } = globalConfig;
   if (!fallbacks || fallbacks.length === 0) {
@@ -146,7 +152,10 @@ export async function completeWithAgent(
       if (streamed || isRequestScopedError(error) || index === ordered.length - 1) {
         if (errors.length === 0) throw error;
         const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`${errors[0]} — fallback also failed: ${[...errors.slice(1), message].join(" | ")}`);
+        const combined = `${errors[0]} — fallback also failed: ${[...errors.slice(1), message].join(" | ")}`;
+        // A cut stream keeps its partial text through the wrap.
+        if (error instanceof ChatStreamError) throw new ChatStreamError(error.kind, combined, error.partial);
+        throw new Error(combined);
       }
       errors.push(error instanceof Error ? error.message : String(error));
     }
@@ -160,7 +169,7 @@ async function completeOnce(
   globalConfig: LlmEndpointConfig,
   onChunk?: (partial: StreamChunk) => void,
   /** Optional sampling temperature; unset = provider default. */
-  opts?: { temperature?: number },
+  opts?: ChatCallOptions,
 ): Promise<CompleteResult> {
   const temperature =
     typeof opts?.temperature === "number" && Number.isFinite(opts.temperature)
@@ -174,7 +183,10 @@ async function completeOnce(
     content: m.content,
   }));
 
-  const doFetch = async (url: string, init: RequestInit, timeoutMs = 120_000): Promise<Response> => {
+  // Idle + total limits (lib/chat/streamLimits.ts). The wait for the
+  // response headers is bounded by the idle window too.
+  const limits = opts?.limits ?? chatStreamLimits();
+  const doFetch = async (url: string, init: RequestInit, timeoutMs = limits.idleMs): Promise<Response> => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
@@ -221,7 +233,7 @@ async function completeOnce(
   };
 
   const startedAt = Date.now();
-  const finish = (content: string, reasoning: string, usage?: UsageBreakdown): CompleteResult => {
+  const finish = (content: string, reasoning: string, usage?: UsageBreakdown, truncated = false): CompleteResult => {
     onChunk?.({ content, reasoning });
     const reported = usage && (usage.inputTokens !== undefined || usage.outputTokens !== undefined) ? usage : undefined;
     return {
@@ -230,6 +242,7 @@ async function completeOnce(
       reasoningDurationMs: reasoning ? Date.now() - startedAt : 0,
       durationMs: Date.now() - startedAt,
       ...(reported ? { usage: reported } : {}),
+      ...(truncated ? { truncated: true } : {}),
     };
   };
   // Stream the SSE body incrementally so the UI sees tokens as they arrive.
@@ -239,6 +252,7 @@ async function completeOnce(
   const consumeSse = async (
     res: Response,
     onDataLine: (payload: string) => void,
+    partialNow: () => PartialReply,
   ): Promise<string> => {
     let raw = "";
     const reader = res.body?.getReader();
@@ -255,12 +269,20 @@ async function completeOnce(
     }
     const decoder = new TextDecoder();
     let buffer = "";
-    // Bound the whole stream so a hung provider cannot stall the action
-    // past the Convex timeout (which leaves the bubble on "Thinking").
-    const deadline = Date.now() + 120_000;
+    // Idle timeout (no chunk for limits.idleMs) plus a generous total cap
+    // under the Convex action limit. The old fixed 120 s total cut slow
+    // models that were still streaming (live test 2026-11-11). A cut keeps
+    // the text so far on the error (ChatStreamError.partial).
+    const deadline = startedAt + limits.totalMs;
     for (;;) {
-      if (Date.now() > deadline) throw new Error("LLM stream timed out (120s)");
-      const { done, value } = await reader.read();
+      let next: ReadableStreamReadResult<Uint8Array>;
+      try {
+        next = await readWithLimits(() => reader.read(), limits, deadline);
+      } catch (error) {
+        reader.cancel().catch(() => undefined);
+        throw withPartial(error, partialNow());
+      }
+      const { done, value } = next;
       if (done) break;
       const chunk = decoder.decode(value, { stream: true });
       raw += chunk;
@@ -328,9 +350,10 @@ async function completeOnce(
         const data: any = JSON.parse(normalized);
         const c = data.choices?.[0]?.message?.content;
         const usage = normalizeOpenAiUsage(data.usage);
+        const cut = data.choices?.[0]?.finish_reason === "length";
         // Never use reasoning trace as user-facing answer.
-        if (typeof c === "string" && c.trim()) return finish(c, "", usage);
-        return finish(c ?? "", "", usage);
+        if (typeof c === "string" && c.trim()) return finish(c, "", usage, cut);
+        return finish(c ?? "", "", usage, cut);
       } catch {
         const parts: string[] = [];
         let reasoning = "";
@@ -354,25 +377,27 @@ async function completeOnce(
     let content = "";
     let reasoning = "";
     let streamUsage: unknown;
+    let truncated = false;
     const raw = await consumeSse(res, (payload) => {
       try {
         const d: any = JSON.parse(payload);
         // Usage rides on the last chunk when the server sends it
         // (stream_options is not sent: strict servers reject it).
         if (d.usage) streamUsage = d.usage;
+        if (d.choices?.[0]?.finish_reason === "length") truncated = true;
         const delta = d.choices?.[0]?.delta ?? {};
         if (typeof delta.content === "string") content += delta.content;
         reasoning += reasoningDelta(delta);
         onChunk?.({ content, reasoning });
       } catch {}
-    });
+    }, () => ({ content, reasoning }));
     if (!content && !reasoning) {
       const fallback = parseJsonFallback(raw);
       content = fallback.content;
       reasoning = fallback.reasoning;
       if (streamUsage === undefined) streamUsage = jsonUsage(raw);
     }
-    return finish(content, reasoning, normalizeOpenAiUsage(streamUsage));
+    return finish(content, reasoning, normalizeOpenAiUsage(streamUsage), truncated);
   }
 
   // anthropic
@@ -399,14 +424,17 @@ async function completeOnce(
       (data.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join(""),
       "",
       normalizeAnthropicUsage(data.usage),
+      data.stop_reason === "max_tokens",
     );
   }
   let content = "";
   let reasoning = "";
   let rawUsage: Record<string, unknown> | undefined;
+  let truncated = false;
   const raw = await consumeSse(res, (payload) => {
     try {
       const d: any = JSON.parse(payload);
+      if (d.type === "message_delta" && d.delta?.stop_reason === "max_tokens") truncated = true;
       // Usage: input + cache counts on message_start, cumulative output on message_delta.
       if (d.type === "message_start") rawUsage = mergeRawUsage(rawUsage, d.message?.usage);
       if (d.type === "message_delta") rawUsage = mergeRawUsage(rawUsage, d.usage);
@@ -418,13 +446,13 @@ async function completeOnce(
       }
       onChunk?.({ content, reasoning });
     } catch {}
-  });
+  }, () => ({ content, reasoning }));
   if (!content && !reasoning) {
     const fallback = parseJsonFallback(raw);
     content = fallback.content;
     reasoning = fallback.reasoning;
   }
-  return finish(content, reasoning, normalizeAnthropicUsage(rawUsage));
+  return finish(content, reasoning, normalizeAnthropicUsage(rawUsage), truncated);
 }
 
 /** `usage` of a plain JSON body served under an event-stream header, if any. */
@@ -601,7 +629,7 @@ export async function completeWithFallback(
   history: { role: string; content: string }[],
   configs: ChatLlmConfig[],
   onChunk?: (partial: StreamChunk) => void,
-  opts?: { temperature?: number }
+  opts?: ChatCallOptions
 ): Promise<CompleteResult & { config: ChatLlmConfig; fellBack: boolean; primaryError?: string }> {
   if (configs.length === 0) throw new Error("No LLM config to call");
   const errors: string[] = [];

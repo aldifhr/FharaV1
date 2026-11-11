@@ -401,7 +401,7 @@ describe("M10 retired roles and revoked capabilities", () => {
     expect(cto?.capabilities).not.toContain("code-review");
     expect(cto?.capabilities).toContain("my-custom");
     expect(cto?.capabilities).not.toContain("security-audit");
-    expect(cto?.capabilities).toContain("project-coordination");
+    expect(cto?.capabilities).not.toContain("project-coordination");
   });
 });
 

@@ -308,7 +308,8 @@ function classifyCommandBase(command: string): Classification {
       kind: "conversation",
       strategy: "direct",
       reasons: ["greeting"],
-      suggestedCapabilities: [CAPABILITY.COORDINATION],
+      // O1: greetings go to Support (topic owner), not the CTO.
+      suggestedCapabilities: [CAPABILITY.DOCUMENTATION],
     };
   }
 

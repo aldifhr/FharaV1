@@ -115,11 +115,12 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     category: "Leadership",
     description: "Technical architecture, technical decisions, risk evaluation.",
     registryDescription: "Technical architecture, technical decisions, risk evaluation.",
-    workerDescription: "Technical architecture, technical decisions, risk evaluation, project coordination.",
-    // Plan 040 (D3): security-audit moved to the Reviewer. project-coordination
-    // takes over conversation replies from Support's retired "general" (D2).
-    capabilities: ["architecture", "project-coordination"],
-    registryCapabilities: ["architecture", "project-coordination"],
+    workerDescription: "Technical architecture decisions, only when the planner flags one (new dependency, schema, auth boundary, API contract, infra split).",
+    // Plan 040 (D3): security-audit moved to the Reviewer. O1 (Orchestrator/CTO
+    // split): project-coordination is revoked; the planner is system code and
+    // conversation replies go to the topic owner (Support by default).
+    capabilities: ["architecture"],
+    registryCapabilities: ["architecture"],
     defaultTools: ["read_file"],
     permissions: { read: true, write: false, shell: "none", web: false, push: false, options: false },
     priority: 9,
@@ -314,7 +315,7 @@ export const LEGACY_ROLE_SUCCESSORS: Readonly<Record<string, RoleKey>> = {
  * Only these are removed; capabilities a user added by hand are kept.
  */
 export const REVOKED_DEFAULT_CAPABILITIES: Readonly<Record<string, readonly string[]>> = {
-  cto: ["code-review", "security-audit"],
+  cto: ["code-review", "security-audit", "project-coordination"],
   support: ["general"],
 };
 

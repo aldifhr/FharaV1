@@ -73,12 +73,12 @@ describe("capability routing: no fallback owner", () => {
     expect(routeCapability("frontend-development", team)?.role).toBe("frontend");
   });
 
-  it("D2/D3: no Support catch-all; security-audit is the Reviewer's; conversation is the CTO's", () => {
+  it("D2/D3: no Support catch-all; security-audit is the Reviewer's; conversation is Support's (O1)", () => {
     expect(ROLES.support.capabilities).not.toContain("general");
     expect(routeCapability("general", team)).toBeNull();
     expect(routeCapability("security-audit", team)?.role).toBe("reviewer");
-    expect(routeCapability("project-coordination", team)?.role).toBe("cto");
-    expect(classifyCommand("hi").suggestedCapabilities).toEqual(["project-coordination"]);
+    expect(ROLES.cto.capabilities).not.toContain("project-coordination");
+    expect(classifyCommand("hi").suggestedCapabilities).toEqual(["documentation-support"]);
   });
 
   it("a custom role with a frontend capability routes by capability", () => {
@@ -90,10 +90,10 @@ describe("capability routing: no fallback owner", () => {
 });
 
 describe("planner: nodes are never dropped silently", () => {
-  it("conversation reply goes to the CTO", () => {
+  it("conversation reply goes to the topic owner (Support by default), not the CTO (O1)", () => {
     const plan = heuristicPlan({ command: "hello", classification: classifyCommand("hello"), agents: team, policy });
-    expect(plan.subtasks[0].capability).toBe("project-coordination");
-    expect(routeCapability(plan.subtasks[0].capability, team)?.role).toBe("cto");
+    expect(plan.subtasks[0].capability).toBe("documentation-support");
+    expect(routeCapability(plan.subtasks[0].capability, team)?.role).toBe("support");
   });
 
   it("unroutable work stays (blocked), unroutable helpers drop visibly, a Designer code_change becomes analysis", async () => {

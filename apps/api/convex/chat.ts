@@ -60,6 +60,7 @@ import {
   type CompleteResult,
 } from "./lib/chat/llm";
 import { stripToolCallMarkup } from "./lib/chat/strip";
+import { planWriteOffer } from "./lib/chat/writeOffer";
 import { sanitizeWrapUp, wrapUpSkipReason } from "./lib/chat/wrapUp";
 import { firstReasoningSentence, intentLineFor, stripInternalPhrasing, toolStepFor } from "./lib/chat/activity";
 import { completeWithSnapshot, type ChatSnapshotScope } from "./lib/chat/snapshot";
@@ -587,7 +588,7 @@ async function startOfferedTask(
   ctx: ActionCtx,
   args: ReplyArgs,
   opts: {
-    offer: { command: string; title?: string; reply: string; messageId?: Id<"messages"> };
+    offer: { command: string; title?: string; reply: string; messageId?: Id<"messages">; assigneeAgentId?: string };
     team: ChatAgent[];
     orchestrator: ChatAgent | null;
     dispatcher: ChatAgent;
@@ -598,7 +599,8 @@ async function startOfferedTask(
   const { api } = (await import("./_generated/api.js")) as any;
   const existing = (await ctx.runQuery(api.tasks.listByProject, { projectId: args.projectId })) as any[];
   if (existing.some((t: any) => t.command === offer.command && !TERMINAL_TASK_STATUSES.includes(t.status))) return;
-  const assignees = extractAgentMentions(offer.reply, team, String(orchestrator?._id ?? ""));
+  const mentioned = extractAgentMentions(offer.reply, team, String(orchestrator?._id ?? ""));
+  const assignees = mentioned.length ? mentioned : team.filter((a) => String(a._id) === offer.assigneeAgentId);
   const title = offer.title ?? offer.command.split("\n")[0].slice(0, 80);
   try {
     const taskId = await ctx.runMutation(api.tasks.createFromCommand, {
@@ -1171,6 +1173,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         return;
       }
 
+      const personalWrite = planWriteOffer({ speaker: agent, isCto: ORCHESTRATOR_ROLE.test(agent.role.trim()), addressed: true, team: [agent], text: lastText, taskIntent: { kind: !hasAskShape(lastText) ? classifyChatIntent(lastText).kind : "chat", runCommands: detectChatRunCommands(lastText) ?? undefined }, optionPick });
       const repoTools = scopeProjectId ? await repoToolsAvailability(ctx, scopeProjectId) : null;
       const useRepoTools = repoTools?.available === true;
       const skillLoader = wantsLoadSkillTool(agent.onDemandSkills, "on_demand")
@@ -1188,6 +1191,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         // Repo grounding only with a project attached (snapshot/tools);
         // without one it made every answer open with "belum saya cek repo".
         ...(scopeProjectId ? buildGroundingGuidance(useRepoTools, skillLoader !== undefined) : []),
+        ...(scopeProjectId && personalWrite.offer ? buildPlanningGuidance(agent, { isOrchestrator: false, taskIntent: { ...classifyChatIntent(lastText), kind: "task" }, assigneeName: personalWrite.assignee?.name, codeInChat: personalWrite.codeInChat }) : []),
         wantsOptions(lastText) ? OPTIONS_GUIDANCE : "Answer in prose. Do not output an [options] block.",
         useRepoTools
           ? buildRepoToolProtocol(MAX_REPO_TOOL_CALLS, { loadSkill: skillLoader !== undefined })
@@ -1215,26 +1219,13 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
               ? { traceNote: offNote }
               : undefined,
         );
-        // Attached chat with the CTO: a work-shaped request gets the Create
-        // task button (explicit only: the user still presses it, D5).
-        if (
-          scopeProjectId &&
-          result.messageId &&
-          ORCHESTRATOR_ROLE.test(agent.role.trim()) &&
-          classifyChatIntent(lastText).kind === "task" &&
-          !hasAskShape(lastText)
-        ) {
-          const runCommands = detectChatRunCommands(lastText);
-          const taskOffer: ChatTaskOffer = {
-            kind: "implementation",
-            ...(runCommands?.length ? { commands: runCommands } : {}),
-          };
-          await ctx
-            .runMutation(internal.chatContext.updateStreamingAgentMessage, { messageId: result.messageId, taskOffer })
-            .catch(() => undefined);
+        // Attached chat: a work-shaped request gets the Create task button
+        // (explicit only: the user still presses it, D5), from the CTO or a code role.
+        if (scopeProjectId && result.messageId && personalWrite.offer) {
+          await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, { messageId: result.messageId, taskOffer: personalWrite.offer }).catch(() => undefined);
         }
-        if (scopeProjectId && result.messageId && result.content.trim()) {
-          const unverified = findUnverifiedRefs(result.content, result.evidence ?? EMPTY_EVIDENCE, repoSnapshot);
+        if (scopeProjectId && result.messageId && result.content.trim() && !personalWrite.offer) {
+          const unverified = findUnverifiedRefs(result.content, result.evidence ?? EMPTY_EVIDENCE, repoSnapshot, 8, lastText);
           if (unverified.length > 0) {
             await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
               messageId: result.messageId,
@@ -1495,6 +1486,8 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       if (answered.has(String(agent._id))) continue;
       answered.add(String(agent._id));
       const isCto = orchestrator !== null && agent._id === orchestrator._id;
+      // Write request: a short reply plus the Create task offer (lib/chat/writeOffer.ts).
+      const write = planWriteOffer({ speaker: agent, isCto, addressed: mentionedAgents.some((a) => String(a._id) === String(agent._id)), team, text: lastUserContent, taskIntent, optionPick: isOptionPick });
       const handoffBy = handoffFrom.get(String(agent._id));
       const callCap = toolBudget.capForNextReply();
       const useRepoTools = repoTools?.available === true && !workerGone && callCap > 0;
@@ -1521,7 +1514,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       const system = [
         ...buildChatPersonaLines(agent, projectName, queue, repoSnapshot, useRepoTools),
         ...(intent.intent === "ask" ? buildAnswerGuidance(intent.subtype) : []),
-        ...buildPlanningGuidance(agent, { isOrchestrator: isCto, hasRepoTools: useRepoTools, taskIntent }),
+        ...buildPlanningGuidance(agent, { isOrchestrator: isCto, hasRepoTools: useRepoTools, taskIntent, assigneeName: write.assignee?.name, codeInChat: write.codeInChat }),
         ...(isCto && !isOptionPick
           ? buildHandoffGuidance(team, String(agent._id), {
               hasRepoTools: useRepoTools,
@@ -1587,17 +1580,10 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         );
         toolBudget.spend(result.toolCalls ?? 0);
         content = result.content;
-        // Create task offer: the server's own reading of the request (intent
-        // "task"), stored on the CTO's reply so the web button and a "gas"
-        // reply never depend on the reply's wording.
-        if (isCto && !isOptionPick && taskIntent.kind === "task" && result.messageId) {
-          const taskOffer: ChatTaskOffer = {
-            kind: intent.subtype,
-            ...(taskIntent.runCommands?.length ? { commands: taskIntent.runCommands } : {}),
-          };
-          await ctx
-            .runMutation(internal.chatContext.updateStreamingAgentMessage, { messageId: result.messageId, taskOffer })
-            .catch(() => undefined);
+        // Create task offer: the server's own reading of the request, stored on
+        // the reply (CTO, or an @mentioned teammate) so the button and "gas" never depend on wording.
+        if (write.offer && result.messageId) {
+          await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, { messageId: result.messageId, taskOffer: write.offer }).catch(() => undefined);
         }
         // Collaboration graph: record that this reply was a CTO handoff.
         if (handoffBy !== undefined && orchestrator && result.messageId) {
@@ -1606,9 +1592,10 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
             .catch(() => undefined);
         }
         // Post-answer check: file paths and file:line references the
-        // answer cites but no tool result (or the snapshot) showed.
-        if (result.messageId && content.trim()) {
-          const unverified = findUnverifiedRefs(content, result.evidence ?? EMPTY_EVIDENCE, repoSnapshot);
+        // answer cites but no tool result (or the snapshot) showed. A file the
+        // reply only plans to create (write offer, or named by the user) is no claim.
+        if (result.messageId && content.trim() && !write.offer) {
+          const unverified = findUnverifiedRefs(content, result.evidence ?? EMPTY_EVIDENCE, repoSnapshot, 8, lastUserContent);
           if (unverified.length > 0) {
             await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
               messageId: result.messageId,

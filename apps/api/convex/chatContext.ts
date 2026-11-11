@@ -205,7 +205,7 @@ export const updateStreamingAgentMessage = internalMutation({
     checkedFiles: v.optional(v.array(v.string())),
     unverifiedRefs: v.optional(v.array(v.string())),
     intentLine: v.optional(v.string()),
-    taskOffer: v.optional(v.object({ kind: v.string(), commands: v.optional(v.array(v.string())) })),
+    taskOffer: v.optional(v.object({ kind: v.string(), commands: v.optional(v.array(v.string())), assigneeAgentId: v.optional(v.string()) })),
   },
   handler: async (ctx, args) => {
     const { messageId, ...patch } = args;

@@ -294,6 +294,8 @@ export interface OfferedTask {
   title?: string;
   /** The offering reply (its @mentions become the assignees). */
   reply: string;
+  /** Assignee stored on the offer (messages.taskOffer.assigneeAgentId). */
+  assigneeAgentId?: string;
 }
 
 /**
@@ -387,6 +389,8 @@ export interface ChatTaskOffer {
   /** The task created from this offer; a used offer offers nothing more. */
   usedTaskId?: string;
   usedAt?: number;
+  /** The agent the offered task goes to (an @mentioned code role, or the role the request's files belong to). */
+  assigneeAgentId?: string;
 }
 
 /** Whether a reply's Create task offer already produced a task. */
@@ -452,7 +456,11 @@ export function findOfferedTask(
     const m = history[i];
     if (m.authorType === "user") return null;
     if (m.authorType !== "agent" || !m.content?.trim()) continue;
-    if (String(roleOf(m.agentId) ?? "").trim().toLowerCase() !== "cto") continue;
+    // A teammate's reply offers a task only through the server-stored offer
+    // (an @mentioned Frontend asked to write a file); the wording rule and
+    // option picks stay the CTO's.
+    const isCto = String(roleOf(m.agentId) ?? "").trim().toLowerCase() === "cto";
+    if (!isCto && !m.taskOffer) continue;
     let prevUser: string | null = null;
     for (let j = i - 1; j >= 0; j -= 1) {
       if (history[j].authorType === "user") {
@@ -465,7 +473,8 @@ export function findOfferedTask(
     const pick = prevUser?.match(OPTION_PICK)?.[1];
     if (!pick && !m.taskOffer && !OFFERS_CREATE_TASK.test(m.content)) return null;
     const { command, title } = composeOfferedTask(history, i);
-    return { index: i, command, title, reply: m.content };
+    const assigneeAgentId = m.taskOffer?.assigneeAgentId ?? (isCto ? undefined : m.agentId);
+    return { index: i, command, title, reply: m.content, ...(assigneeAgentId ? { assigneeAgentId } : {}) };
   }
   return null;
 }
@@ -488,4 +497,36 @@ export function commandNeedsChatContext(command: string): boolean {
   // Long commands carry their own subject.
   if (t.length >= 60 || /\n/.test(t)) return false;
   return BACK_REFERENCE.test(t);
+}
+
+// ---------------------------------------------------------------------------
+// Write requests in chat (create or change files). Chat cannot write files:
+// the reply is a short "this will be a task" line plus the Create task offer,
+// never the whole file pasted into the bubble (live transcript 2026-11-11:
+// "@Frontend tolong buatkan bold.html …" got a full HTML dump).
+// ---------------------------------------------------------------------------
+
+/** The user explicitly wants the code shown in chat ("tampilkan kodenya", "show me the code", "contoh kode"). */
+const CODE_IN_CHAT =
+  /\b(?:show|paste|give|send|print)\s+(?:me\s+)?(?:the\s+)?(?:code|snippet|source)\b|\b(?:code|snippet)\s+(?:here|in (?:the )?chat)\b|\b(?:tampilkan|tunjukkan|tunjukin|kasih|kirim|tulis(?:kan)?)\s+(?:aja\s+)?(?:kode|kodenya|code|codenya|snippet)\b|\bcontoh\s+(?:kode|code)\b|\b(?:kode|code)(?:nya)?\s+(?:aja|saja|di\s*(?:sini|chat))\b|\bjust (?:the )?code\b/i;
+export function wantsCodeInChat(text: string): boolean {
+  return CODE_IN_CHAT.test(text);
+}
+
+const FRONTEND_FILE = /\.(?:html?|css|scss|sass|less|jsx|tsx|vue|svelte)\b/i;
+const FRONTEND_WORDS = /\b(?:html|css|tailwind|halaman|page|landing|ui|komponen|component|button|tombol|tampilan|layout|frontend|website|web\s*page|background|font|warna|color|style)\b/i;
+const BACKEND_FILE = /\.(?:sql|prisma|go|py|rs|java|rb|php)\b/i;
+const BACKEND_WORDS = /\b(?:api|endpoint|server|database|db|schema|migration|migrasi|backend|auth|query|mutation|convex|cron|webhook)\b/i;
+
+/**
+ * The role a write request's work belongs to, read from its files and words:
+ * "buatkan ultimate.html …" → frontend, "tambah endpoint /users" → backend.
+ * Null when it is not clear (the CTO assigns it in the task).
+ */
+export function codeRoleForRequest(text: string): "frontend" | "backend" | null {
+  const fe = FRONTEND_FILE.test(text) ? 2 : FRONTEND_WORDS.test(text) ? 1 : 0;
+  const be = BACKEND_FILE.test(text) ? 2 : BACKEND_WORDS.test(text) ? 1 : 0;
+  if (fe === 0 && be === 0) return null;
+  if (fe === be) return null;
+  return fe > be ? "frontend" : "backend";
 }

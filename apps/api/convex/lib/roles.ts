@@ -395,6 +395,16 @@ export function canWritePath(permissions: RolePermissions, filePath: string): bo
   return permissions.write.some((glob) => globToRegExp(glob).test(normalized));
 }
 
+/**
+ * Whether an agent of this role writes code in tasks (Frontend, Backend,
+ * DevOps; a custom role with write_file). Chat write requests addressed to
+ * such an agent are offered as a task routed to it.
+ */
+export function isCodeWritingRole(role: string | undefined, supportedTools?: readonly string[]): boolean {
+  const perms = rolePermissionsFor(role) ?? (supportedTools ? permissionsFromTools(supportedTools) : null);
+  return Boolean(perms && perms.write !== false);
+}
+
 /** "Product Analyst", "product_analyst", "UI/UX" → "product-analyst", "ui-ux". */
 export function normalizeRoleKey(role: string | undefined): string {
   return (role ?? "").trim().toLowerCase().replace(/[\s_\/]+/g, "-");

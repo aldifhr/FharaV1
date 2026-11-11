@@ -361,9 +361,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     }
   };
 
-  /** "Create task" under an agent's recommendation: the user's pick (if
-   *  any) plus the recommendation become the task; @Role mentions in the
-   *  recommendation become its assignees. */
+  /** "Create task" under a reply: the pick (if any) plus the reply become the task;
+   *  its @Role mentions (else the offer's assignee) become the assignees. */
   const createTaskFromMessage = async (messageId: string) => {
     const list = timeline as any[];
     const at = list.findIndex((m) => String(m._id) === messageId);
@@ -379,7 +378,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       })),
       at,
     );
-    const assignees = mentions.mentionedAgentIds(reply.content);
+    const mentioned = mentions.mentionedAgentIds(reply.content);
+    const assignees = mentioned.length ? mentioned : reply.taskOffer?.assigneeAgentId ? [reply.taskOffer.assigneeAgentId] : [];
     try {
       const taskId = await createTask({
         projectId: projectId as never,

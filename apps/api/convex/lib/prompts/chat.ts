@@ -364,7 +364,29 @@ export function buildTurnContextSection(opts: {
   return lines.join("\n");
 }
 
-export function buildPlanningGuidance(agent: { role: string }, opts: { isOrchestrator: boolean; hasRepoTools?: boolean; taskIntent: { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean; runCommands?: string[] } }): string[] {
+/**
+ * A write request in chat (create or change files): chat cannot write, so the
+ * reply is one short line that hands it to a task, and the Create task offer
+ * (messages.taskOffer) carries the request. Live transcripts 2026-11-11: the
+ * CTO answered "buatkan ultimate.html …" with an architecture lecture plus a
+ * fixed English "To execute this plan, klik Create task" line, and @Frontend
+ * pasted a whole bold.html.
+ */
+const WRITE_OFFER_OVERRIDE =
+  "These reply rules override any persona or skill instruction about reply length, style or showing code, for this reply only.";
+
+export function buildPlanningGuidance(
+  agent: { role: string },
+  opts: {
+    isOrchestrator: boolean;
+    hasRepoTools?: boolean;
+    taskIntent: { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean; runCommands?: string[] };
+    /** Who the offered task goes to (e.g. "Frontend"), when known. */
+    assigneeName?: string;
+    /** The user explicitly asked to see the code in chat. */
+    codeInChat?: boolean;
+  }
+): string[] {
   const run = opts.taskIntent.runCommands;
   if (opts.isOrchestrator && opts.taskIntent.kind === "task" && run && run.length > 0) {
     const lines = run.map((line) => `\`${line}\``).join(", ");
@@ -376,11 +398,13 @@ export function buildPlanningGuidance(agent: { role: string }, opts: { isOrchest
     ];
   }
   if (opts.isOrchestrator && opts.taskIntent.kind === "task") {
+    const who = opts.assigneeName?.trim() || "the right teammate";
     return [
-      "You are the orchestrator/planner (CTO).",
-      "Propose a brief plan in 2-3 plain-language sentences: what will be done first, who will do each part (delegation), and how you will check it. No bullets, no numbered plan, no terminal output, no headers.",
-      "End with one short sentence in plain words: 'To execute this plan, klik Create task — saya akan delegasikan ke agent yang sesuai.'",
-      "Do not pretend to have executed code. Detail (files, order, validation, technical steps) lives in the task the worker runs, not in chat.",
+      "You are the orchestrator (CTO).",
+      `The user asked the team to create or change files. Reply with ONE short sentence, entirely in the user's language: that you hand it to ${who} as a task, and that replying "gas" or pressing the Create task button under this reply starts it.`,
+      `Shape (Indonesian): "Saya serahkan ke ${who} sebagai task — balas gas atau tekan Create task." Shape (English): "I'll hand this to ${who} as a task — reply gas or press Create task."`,
+      "No plan, no architecture, design or styling advice, no code, no bullets, no headers. Never say you are read-only and never claim anything has run.",
+      WRITE_OFFER_OVERRIDE,
     ];
   }
   if (opts.isOrchestrator) {
@@ -391,6 +415,15 @@ export function buildPlanningGuidance(agent: { role: string }, opts: { isOrchest
       CTO_DELEGATION_GUIDANCE,
     ];
   }
+  if (opts.taskIntent.kind === "task" && !opts.codeInChat) {
+    return [
+      "The user asked you to create or change files. Chat replies cannot write files; a task does it, and the Create task button under this reply is already prepared with their request" +
+        (opts.assigneeName ? ` and assigned to ${opts.assigneeName}.` : "."),
+      "Reply in 1-2 short sentences, entirely in the user's language: say it will be done as a task and that replying \"gas\" or pressing Create task starts it. You may name the file and give one line on the approach.",
+      "Do not paste the file, its contents or any code block. Do not say you are read-only, and never tell the user to save or create the file themselves.",
+      WRITE_OFFER_OVERRIDE,
+    ];
+  }
   return [
     "Answer the user's chat message helpfully and completely from your perspective in the same language as the user.",
     opts.hasRepoTools
@@ -399,8 +432,11 @@ export function buildPlanningGuidance(agent: { role: string }, opts: { isOrchest
     opts.hasRepoTools
       ? "A read-only audit, review or code question is yours to answer here, now, by reading the code with the repo tools: never answer it with a plan or by telling the user to create a task. Only work that changes files or runs code needs a task."
       : "Only when the user asked for work that needs workspace access (audit, review, run code) say that it needs a task; for plain questions never mention creating a task.",
+    opts.codeInChat && opts.taskIntent.kind === "task"
+      ? "The user asked to see the code here: show it, then say in one line that the Create task button under this reply writes it into the project."
+      : "",
     "Do not pretend to have executed code. Respond in plain text.",
-  ];
+  ].filter(Boolean);
 }
 
 /** Answer Engine guidance per intent subtype (plan 016). */

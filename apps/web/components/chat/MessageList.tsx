@@ -158,10 +158,10 @@ export default function MessageList(props: Props) {
       let prevUser: any = null;
       for (let j = i - 1; j >= 0; j--) if (timeline[j].authorType === "user") { prevUser = timeline[j]; break; }
       const afterPick = /^i choose\b/i.test(prevUser?.content?.trim() ?? "");
-      // Only the CTO's own reply offers the button. A teammate it pulled in
-      // for a question (or that merely says "create task") never does.
+      // The CTO's reply offers the button; a teammate's only through the server-stored offer
+      // (an @mentioned Frontend asked to write a file), never by merely saying "create task".
       const role = String((agents as any[])?.find((a: any) => a._id === m.agentId)?.role ?? "").toLowerCase();
-      if (role !== "cto") continue;
+      if (role !== "cto" && !m.taskOffer) continue;
       // A used offer shows "Task created" instead (TaskCreatedLink).
       if (isOfferUsed(m.taskOffer)) return null;
       return afterPick || offersCreateTask(m) ? String(m._id) : null;

@@ -129,10 +129,14 @@ export function findUnverifiedRefs(
   answer: string,
   evidence: RepoEvidence,
   snapshot?: string | null,
-  max = 8
+  max = 8,
+  /** The user's message: a file it names is the request ("buatkan bold.html"), not a claim. */
+  request = ""
 ): string[] {
   const out: string[] = [];
+  const requested = new Set(extractFileRefs(request).map((r) => r.path.split("/").pop()?.toLowerCase()));
   for (const ref of extractFileRefs(answer)) {
+    if (ref.line === undefined && requested.has(ref.path.split("/").pop()?.toLowerCase())) continue;
     const ok = ref.line !== undefined ? lineSeen(ref.path, ref.line, evidence) : pathSeen(ref.path, evidence, snapshot);
     if (!ok) out.push(ref.ref);
     if (out.length >= max) break;

@@ -830,9 +830,9 @@ export default defineSchema({
       v.object({
         kind: v.string(),
         commands: v.optional(v.array(v.string())),
-        // Set once a task was created from this offer (button or go
-        // reply): the button turns into "Task created" with a link, and a
-        // second click / "gas" never makes a second task.
+        // Who the task goes to (an @mentioned code role, or the role the files belong to).
+        assigneeAgentId: v.optional(v.string()),
+        // Set once a task was created from it: "Task created" link, never a second task.
         usedTaskId: v.optional(v.id("tasks")),
         usedAt: v.optional(v.number()),
       })

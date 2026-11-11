@@ -311,7 +311,7 @@ export default function IconRail({
       <RailButton icon={BookOpen} label="Library" href="/library" active={pathname === "/library"} />
       <RailButton icon={Brain} label="Memory" href={projectId ? `/memory?scope=project&project=${projectId}` : "/memory"} active={pathname === "/memory"} />
       <RailButton icon={GitBranch} label="Runs" href={projectId ? `/runs?project=${projectId}` : "/runs"} active={pathname.startsWith("/runs")} />
-      <RailButton icon={TestTubes} label="Agent Sandbox" href="/sandbox" active={pathname === "/sandbox"} />
+      <RailButton icon={TestTubes} label="Agent Sandbox" href="/playground" active={pathname === "/playground"} />
       {projectId && (
         <>
           <RailButton icon={KanbanSquare} label="Board" href={`/chats/${projectId}?tab=tasks`} />

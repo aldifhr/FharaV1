@@ -9,7 +9,6 @@
  */
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { FlaskConical, Play, ShieldCheck } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
@@ -54,11 +53,11 @@ function coverageNote(outcome: string | undefined): string | null {
 
 export default function SandboxStudio() {
   const toast = useToast();
-  const router = useRouter();
   const projects = useQuery(api.projects.list, {}) as Array<{ _id: string; name: string }> | undefined;
   const createTask = useMutation(api.tasks.createFromCommand);
   const [config, setConfig] = useState<SandboxConfig>(() => defaultSandboxConfig());
   const [running, setRunning] = useState(false);
+  const [previewTaskId, setPreviewTaskId] = useState<string | null>(null);
 
   const projectId = config.projectId || projects?.[0]?._id || "";
   const tasks = useQuery(
@@ -91,7 +90,7 @@ export default function SandboxStudio() {
       });
       toast("success", "Sandbox experiment queued", config.name);
       setConfig((current) => ({ ...current, instruction: "", name: "" }));
-      router.push(`/runs/${String(taskId)}`);
+      setPreviewTaskId(String(taskId));
     } catch (err) {
       toast("error", "Couldn't queue", err instanceof Error ? err.message : "Please try again.");
     } finally {
@@ -269,12 +268,18 @@ export default function SandboxStudio() {
                 : "changes merge to the main branch only after the run passes its acceptance checks."}
             </li>
             <li>• Push / PR always ask.</li>
-            <li>• The task is visible under Runs — this page opens it after queuing.</li>
+            <li>• {running ? "The task is queued — waiting for the worker to pick it up." : "The task is visible under Runs — this page opens it after queuing."}</li>
           </ul>
           <p className="mt-3 text-[12px] font-semibold text-ink-2">Dispatched command</p>
           <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[11.5px] text-ink-2">
             {preview}
           </pre>
+          {running && (
+            <p className="mt-2 text-[12px] text-ink-2">Dispatching to the agent sandbox…</p>
+          )}
+          {previewTaskId && !running && (
+            <p className="mt-2 text-[12px] text-ink-2">Sandbox experiment {previewTaskId.slice(0, 8)} queued.</p>
+          )}
           <p className="mt-3 text-[11.5px] text-ink-3">
             Honest limits: no separate production database or network namespace — isolation here is the approval mode, worktree
             scoping, and the no-push guardrail. Use separate projects for fully separate data.

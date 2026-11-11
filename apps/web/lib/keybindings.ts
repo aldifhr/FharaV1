@@ -22,6 +22,8 @@ export const KEYBINDING_ACTIONS = [
   { id: "nextFile", label: "Next changed file", scope: "Changes", defaultChord: "Alt+ArrowDown" },
   { id: "prevFile", label: "Previous changed file", scope: "Changes", defaultChord: "Alt+ArrowUp" },
   { id: "sendRound", label: "Send draft comments as a review round", scope: "Changes", defaultChord: "Mod+Shift+Enter" },
+  { id: "nextThread", label: "Next thread in the sidebar", scope: "Sidebar", defaultChord: "Alt+Shift+ArrowDown" },
+  { id: "prevThread", label: "Previous thread in the sidebar", scope: "Sidebar", defaultChord: "Alt+Shift+ArrowUp" },
 ] as const;
 
 export type KeybindingId = (typeof KEYBINDING_ACTIONS)[number]["id"];

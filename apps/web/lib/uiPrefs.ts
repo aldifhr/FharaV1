@@ -55,6 +55,10 @@ export const UI_PREFS = {
   projectsFolder: text("fhara:projects-folder", "", 500),
   /** Devices: desktop notification when something needs your attention. */
   notifyAttention: bool("fhara:notify-attention", false),
+  /** Sidebar Threads: group rows by project, kind or status. */
+  threadGroupBy: oneOf("fhara:thread-group-by", "project", ["project", "kind", "status"] as const),
+  /** Sidebar Threads: show all rows, only ones that need you, or only unread ones. */
+  threadFilter: oneOf("fhara:thread-filter", "all", ["all", "needsYou", "unread"] as const),
 } as const;
 
 export type UiPrefKey = keyof typeof UI_PREFS;

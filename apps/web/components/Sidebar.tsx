@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { Home, Inbox, Moon, PanelLeftClose, Search, Settings, Sun, X } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
@@ -14,6 +14,7 @@ import { useToast } from "./Toasts";
 import { useTheme } from "./ui/use-theme";
 import QueryBoundary from "./shell/QueryBoundary";
 import NeedsYou from "./sidebar/NeedsYou";
+import ThreadList from "./sidebar/ThreadList";
 import ProjectList from "./sidebar/ProjectList";
 import PersonalList from "./sidebar/PersonalList";
 import TeamList, { type TeamAgent } from "./sidebar/TeamList";
@@ -21,7 +22,7 @@ import { CreateAgentModal } from "./sidebar/AgentForms";
 import { agentName, fixedAgentIds } from "@/lib/agentRoles";
 import { onFocusTeam } from "@/lib/shellEvents";
 
-type Sections = { needsYou: boolean; projects: boolean; personal: boolean; team: boolean };
+type Sections = { needsYou: boolean; threads: boolean; projects: boolean; personal: boolean; team: boolean };
 
 export default function Sidebar({
   projectId,
@@ -50,7 +51,7 @@ export default function Sidebar({
   const removeAgent = useMutation(api.agents.remove);
 
   const [q, setQ] = useState("");
-  const [open, setOpen] = useState<Sections>({ needsYou: true, projects: true, personal: true, team: true });
+  const [open, setOpen] = useState<Sections>({ needsYou: true, threads: true, projects: true, personal: true, team: true });
   const [createOpen, setCreateOpen] = useState(false);
   const [detail, setDetail] = useState<any>(null);
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
@@ -177,7 +178,7 @@ export default function Sidebar({
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search"
-              aria-label="Filter projects, messages and team"
+              aria-label="Filter threads, projects, messages and team"
               className="h-full w-full min-w-0 bg-transparent pl-8 pr-12 text-base text-ink outline-none placeholder:text-ink-3 sm:text-[14px]"
             />
             <kbd className="pointer-events-none absolute right-2 rounded border border-line px-1.5 py-px font-sans text-[10.5px] text-ink-3">⌘K</kbd>
@@ -193,6 +194,11 @@ export default function Sidebar({
             }
           >
             <NeedsYou open={open.needsYou} onToggle={() => toggleSection("needsYou")} onNavigate={onCloseDrawer} />
+          </QueryBoundary>
+          <QueryBoundary>
+            <Suspense fallback={null}>
+              <ThreadList filter={q} open={open.threads} onToggle={() => toggleSection("threads")} onNavigate={onCloseDrawer} />
+            </Suspense>
           </QueryBoundary>
           <ProjectList
             filter={q}

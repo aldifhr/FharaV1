@@ -77,6 +77,7 @@ this as an authorization boundary in UI copy.
 npm run --workspace=@fhara/web typecheck
 npm run --workspace=@fhara/web test      # node:test unit tests for lib/ guards
 npm run --workspace=@fhara/web build     # routing / bundling / server components
+npm run check:guards                      # UI rules, code budget, import cycles (repo root)
 ```
 
 Run `build` only when the change affects routing, data fetching, or bundling.

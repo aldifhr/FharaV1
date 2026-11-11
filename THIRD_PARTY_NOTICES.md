@@ -38,7 +38,10 @@ SOFTWARE.
 - Used in: `packages/worker/src/prompts/completionContract.ts` (adapted from
   `packages/provider-core/src/server/developmentInstructions.ts`) and
   `skills/builtin/fhara-discipline/SKILL.md` (adapted from
-  `packages/provider-core/src/server/builtinSkills/goatDiscipline.ts`). Modified by Fhara.
+  `packages/provider-core/src/server/builtinSkills/goatDiscipline.ts`); `scripts/guards/rules.mjs` and
+  `scripts/code-budget.mjs` (line budget, suppression-reason and baseline-ratchet logic adapted from
+  `oxlint-plugin-goat/codeBudget.ts`, `rules/code-budget.ts`, `rules/require-suppression-reason.ts`,
+  `update-code-budgets.ts`). Modified by Fhara.
   GOAT's Pen, office, PDF, native and asset sub-paths carry other licences; nothing is taken from them.
 
 ```
@@ -900,6 +903,11 @@ SOFTWARE.
   - `packages/worker/src/direct/streamRedactor.ts`: the idea of holding back a possible secret across stream chunks
     from `apps/backend/src/lib/claude-code-preview/streamed-token-redaction.ts` (pattern only, no code copied; the
     redaction is Fhara's L2).
+  - `scripts/check-import-cycles.mjs`: adapted from `scripts/check-import-cycles.mjs` (import-cycle ratchet with a
+    baseline). Modified by Fhara: the graph is built with the TypeScript compiler API instead of madge, Fhara's
+    targets; the canonical-rotation, baseline-compare and target-partition helpers are kept as in the original.
+  - `scripts/guards/rules.mjs` (`unawaitedAsyncAssertions`): port of `eslint-rules/no-unawaited-async-assertion.js`
+    to a TypeScript-AST scan. Modified by Fhara.
 - Copyright 2026 Zeabur Inc. Licensed under the Apache License, Version 2.0 (full text in the Aider entry above).
   "Nuphos" and its logo are trademarks of Zeabur Inc.; Fhara uses the name only to describe where this code came from.
   The upstream NOTICE file reads:

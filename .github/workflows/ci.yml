@@ -39,6 +39,9 @@ jobs:
       - name: Generate Convex _generated (offline, no deploy key)
         run: npm run codegen:offline
 
+      - name: Guards (code budget, UI rules, import cycles)
+        run: npm run check:guards
+
       - name: Typecheck web
         run: npm run --workspace=@fhara/web typecheck
 

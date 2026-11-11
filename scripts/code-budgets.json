@@ -1,0 +1,300 @@
+{
+  "apps/api/convex/chat.ts": {
+    "lines": 1673,
+    "suppressions": 5
+  },
+  "apps/api/convex/directThreads.ts": {
+    "lines": 863
+  },
+  "apps/api/convex/githubPush.ts": {
+    "lines": 875
+  },
+  "apps/api/convex/integrations.ts": {
+    "lines": 1066
+  },
+  "apps/api/convex/orchestration.ts": {
+    "lines": 3079
+  },
+  "apps/api/convex/schema.ts": {
+    "lines": 2313
+  },
+  "apps/api/convex/skills.ts": {
+    "lines": 1300
+  },
+  "apps/api/convex/worker.ts": {
+    "lines": 1678
+  },
+  "apps/web/app/WorkspaceContext.tsx": {
+    "pulse": 1
+  },
+  "apps/web/app/audit/page.tsx": {
+    "pulse": 1,
+    "pill": 1
+  },
+  "apps/web/app/chats/[id]/error.tsx": {
+    "hex": 8
+  },
+  "apps/web/app/improve/page.tsx": {
+    "pulse": 1
+  },
+  "apps/web/app/integrations/page.tsx": {
+    "lines": 801,
+    "pulse": 2,
+    "pill": 1,
+    "tint": 5
+  },
+  "apps/web/app/library/BrowseTab.tsx": {
+    "tint": 2
+  },
+  "apps/web/app/library/ImportFromGithub.tsx": {
+    "tint": 2
+  },
+  "apps/web/app/library/TemplatesTab.tsx": {
+    "pulse": 1,
+    "tint": 4
+  },
+  "apps/web/app/library/page.tsx": {
+    "tint": 4
+  },
+  "apps/web/app/memory/page.tsx": {
+    "tint": 6
+  },
+  "apps/web/app/page.tsx": {
+    "pulse": 1,
+    "tint": 2
+  },
+  "apps/web/app/runs/[taskId]/page.tsx": {
+    "pulse": 2,
+    "tint": 12
+  },
+  "apps/web/app/runs/page.tsx": {
+    "pulse": 1
+  },
+  "apps/web/app/search/page.tsx": {
+    "hex": 2
+  },
+  "apps/web/app/team/[agentId]/page.tsx": {
+    "pulse": 2
+  },
+  "apps/web/components/AgentAvatar.tsx": {
+    "tint": 7
+  },
+  "apps/web/components/AgentDetailPanel.tsx": {
+    "pill": 5,
+    "tint": 6
+  },
+  "apps/web/components/ApprovalCard.tsx": {
+    "hex": 3
+  },
+  "apps/web/components/ChatPanel.tsx": {
+    "lines": 856,
+    "suppressions": 3,
+    "tint": 8
+  },
+  "apps/web/components/ConfirmDialog.tsx": {
+    "tint": 6,
+    "hex": 1
+  },
+  "apps/web/components/DiffCard.tsx": {
+    "tint": 15,
+    "hex": 39
+  },
+  "apps/web/components/GithubAccount.tsx": {
+    "tint": 5
+  },
+  "apps/web/components/IconRail.tsx": {
+    "tint": 3
+  },
+  "apps/web/components/InitialAvatar.tsx": {
+    "tint": 63
+  },
+  "apps/web/components/LlmSettings.tsx": {
+    "lines": 985,
+    "tint": 4
+  },
+  "apps/web/components/Modal.tsx": {
+    "hex": 2
+  },
+  "apps/web/components/NewProject.tsx": {
+    "tint": 2,
+    "hex": 1
+  },
+  "apps/web/components/QaPanel.tsx": {
+    "pill": 1,
+    "tint": 9,
+    "hex": 4
+  },
+  "apps/web/components/SubtaskActivity.tsx": {
+    "tint": 2
+  },
+  "apps/web/components/TaskBoard.tsx": {
+    "pill": 4,
+    "tint": 22
+  },
+  "apps/web/components/TaskThreadPanel.tsx": {
+    "lines": 829,
+    "tint": 22
+  },
+  "apps/web/components/Toasts.tsx": {
+    "tint": 6
+  },
+  "apps/web/components/WorkloadSection.tsx": {
+    "pulse": 1
+  },
+  "apps/web/components/chat/ChatComposer.tsx": {
+    "tint": 14
+  },
+  "apps/web/components/chat/ChatHeader.tsx": {
+    "tint": 8
+  },
+  "apps/web/components/chat/FilesView.tsx": {
+    "suppressions": 1,
+    "tint": 2
+  },
+  "apps/web/components/chat/ManageProjectModal.tsx": {
+    "tint": 1
+  },
+  "apps/web/components/chat/MessageList.tsx": {
+    "lines": 894
+  },
+  "apps/web/components/chat/OptionCards.tsx": {
+    "tint": 4,
+    "hex": 3
+  },
+  "apps/web/components/chat/PersonalChatPanel.tsx": {
+    "suppressions": 1,
+    "tint": 6
+  },
+  "apps/web/components/chat/TaskCard.tsx": {
+    "tint": 5,
+    "hex": 7
+  },
+  "apps/web/components/chat/cards/ChangesCard.tsx": {
+    "tint": 2,
+    "hex": 2
+  },
+  "apps/web/components/chat/cards/PlanCard.tsx": {
+    "suppressions": 1,
+    "pulse": 1,
+    "tint": 2
+  },
+  "apps/web/components/chat/cards/PushCard.tsx": {
+    "tint": 3,
+    "hex": 4
+  },
+  "apps/web/components/chat/cards/QaCard.tsx": {
+    "tint": 5,
+    "hex": 5
+  },
+  "apps/web/components/chat/cards/ReviewSnippet.tsx": {
+    "tint": 5,
+    "hex": 8
+  },
+  "apps/web/components/chat/cards/primitives.tsx": {
+    "tint": 13,
+    "hex": 11
+  },
+  "apps/web/components/chat/useChatQueue.ts": {
+    "suppressions": 1
+  },
+  "apps/web/components/context/ContextInspector.tsx": {
+    "tint": 4
+  },
+  "apps/web/components/runs/Contracts.tsx": {
+    "tint": 11
+  },
+  "apps/web/components/runs/Observations.tsx": {
+    "pulse": 1
+  },
+  "apps/web/components/runs/ReplaySession.tsx": {
+    "tint": 9
+  },
+  "apps/web/components/runs/Requirements.tsx": {
+    "pulse": 1
+  },
+  "apps/web/components/sandbox/SandboxStudio.tsx": {
+    "pill": 1,
+    "tint": 5
+  },
+  "apps/web/components/settings/tabs.tsx": {
+    "lines": 1316
+  },
+  "apps/web/components/shell/ProjectAvatar.tsx": {
+    "tint": 28
+  },
+  "apps/web/components/sidebar/AgentForms.tsx": {
+    "tint": 4
+  },
+  "apps/web/components/sidebar/NeedsYou.tsx": {
+    "pulse": 1
+  },
+  "apps/web/components/sidebar/ProjectList.tsx": {
+    "pulse": 2,
+    "tint": 4
+  },
+  "apps/web/components/team/CollaborationSection.tsx": {
+    "pulse": 1
+  },
+  "apps/web/components/ui/avatartion.tsx": {
+    "suppressions": 1,
+    "hex": 7
+  },
+  "apps/web/components/ui/shimmer-button.tsx": {
+    "hex": 1
+  },
+  "apps/web/lib/runFormat.ts": {
+    "pulse": 1,
+    "tint": 2
+  },
+  "apps/web/lib/taskStatus.ts": {
+    "tint": 34
+  },
+  "apps/web/lib/teamStatus.ts": {
+    "tint": 6
+  },
+  "packages/worker/src/execution/agentExecutor.ts": {
+    "lines": 2607
+  },
+  "packages/worker/src/execution/nativeProvider.ts": {
+    "lines": 1099
+  },
+  "packages/worker/src/execution/qa.ts": {
+    "lines": 937
+  },
+  "packages/worker/src/execution/verifyBaseline.ts": {
+    "suppressions": 1
+  },
+  "packages/worker/src/orchestrator/decision.ts": {
+    "lines": 969
+  },
+  "packages/worker/src/orchestrator/planner.ts": {
+    "lines": 898
+  },
+  "packages/worker/src/review/htmlPreview.test.ts": {
+    "suppressions": 1
+  },
+  "packages/worker/src/review/htmlPreview.ts": {
+    "suppressions": 1
+  },
+  "packages/worker/src/scheduler/dagScheduler.ts": {
+    "suppressions": 1
+  },
+  "packages/worker/src/services/runner/runNodes.ts": {
+    "lines": 857
+  },
+  "packages/worker/src/services/taskRunner.ts": {
+    "suppressions": 1
+  },
+  "packages/worker/src/utils/redact.ts": {
+    "suppressions": 1
+  },
+  "packages/worker/src/workerApi.ts": {
+    "lines": 804
+  },
+  "packages/worker/tests/dagScheduler.test.ts": {
+    "lines": 820
+  },
+  "packages/worker/tests/phase4Hardening.test.ts": {
+    "lines": 1060
+  }
+}

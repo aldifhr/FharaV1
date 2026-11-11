@@ -1,0 +1,10 @@
+{
+  "web": [],
+  "api": [
+    "convex/orchestration.ts -> convex/subtaskLive.ts"
+  ],
+  "worker": [
+    "src/services/runner/planning.ts -> src/services/runner/setup.ts -> src/services/runner/replan.ts"
+  ],
+  "config": []
+}

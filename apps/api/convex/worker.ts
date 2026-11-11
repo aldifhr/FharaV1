@@ -2,7 +2,7 @@ import { action, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { usageLedgerFields } from "./lib/usageLedger";
-import { commandRequestArgs } from "./lib/commandApprovalKinds";
+import { commandRequestArgs, type CommandRequestResult } from "./lib/commandApprovalKinds";
 import {
   acceptanceStatusValidator,
   escalationValidator,
@@ -453,7 +453,7 @@ export const requestCommandApproval = action({
   handler: async (
     ctx,
     args
-  ): Promise<{ status: "auto" | "pending"; approvalId: string; reason: string; offerAlways: boolean }> => {
+  ): Promise<CommandRequestResult> => {
     return await ctx.runMutation(internal.commandApprovals.request, withoutToken(args));
   },
 });

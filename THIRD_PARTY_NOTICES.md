@@ -1084,7 +1084,14 @@ SOFTWARE.
     `packages/worker/src/direct/goal.ts` (D8, goal mode for direct threads): the goal state machine (objective, round
     limit, active/paused/blocked/complete, a `round-limit` block, a closing turn without tools) after
     `packages/goal/goal/src/{types,domain}.ts` and `packages/goal/goal-round-driver`; pattern only.
-- Copied (MIT, header in the file): `packages/worker/src/vendor/deepseek-harness/prunerConfig.ts` from
+  - `apps/api/convex/commandApprovals.ts` (`review`), `apps/api/convex/lib/permissionModes.ts` (`autoReviewApplies`) and
+    `packages/worker/src/decisionTurn/autoReview.ts` (D7, auto review in Full access): one LLM review of the pending
+    command before an auto-approval, a deny or unparsable verdict falling back to the approval card, after
+    `packages/experimental/auto-review/src/index.ts` and `interaction/permission-presets` (the `auto` preset); pattern
+    only. The deterministic floors (push, secret upload) are Fhara's.
+- Copied (MIT, header in the file): `apps/api/convex/lib/autoReview.ts` (D7): the review rubric (`REVIEW_POLICY`) and the
+  closed risk/decision protocol (`topLevelMemberCount`, `parseDecision`) from
+  `packages/experimental/auto-review/src/index.ts`, reworded for one shell command and Fhara's review request; `packages/worker/src/vendor/deepseek-harness/prunerConfig.ts` from
   `packages/compaction/compaction-tool-result-pruner/src/config.ts` (head 4096 + marker + tail 1024, at most 8192;
   `deepFreeze` and the types inlined); `packages/worker/src/vendor/deepseek-harness/goalPrompts.ts` (D8) from
   `packages/goal/goal-round-driver/src/prompt.ts` and `packages/goal/tool-goal/src/wrapup.ts` (plain strings; the

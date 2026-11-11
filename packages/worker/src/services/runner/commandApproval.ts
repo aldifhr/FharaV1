@@ -23,6 +23,7 @@
 import { wenv } from "@fhara/config/worker";
 import type { WorkerApi } from "@/workerApi";
 import type { CommandApprovalOutcome } from "@/execution/commandGate";
+import type { AutoReviewRequest } from "@/api/convex/lib/autoReview";
 
 export { commandDeniedOutput, type CommandApprovalOutcome } from "@/execution/commandGate";
 
@@ -42,8 +43,20 @@ export interface CommandApprovalRequest {
   kind?: "run_unconfined";
 }
 
+/**
+ * D7: run the Reviewer's turn for a command the backend sent to review and
+ * report it (decisionTurn/autoReview.ts). `allowed` means the backend
+ * approved the row; anything else leaves the card for the user.
+ */
+export type CommandReviewFn = (
+  review: { turnId: string; expiresAt: number; request: AutoReviewRequest },
+  signal?: AbortSignal
+) => Promise<{ allowed: boolean; reason: string }>;
+
 export interface CommandApprovalWaitOptions {
   signal?: AbortSignal;
+  /** D7: the Reviewer's turn (Full access). Absent: a command sent to review waits on its card. */
+  review?: CommandReviewFn;
   /** Called while waiting so idle/stall watchdogs see the wait as alive. */
   onWaiting?: () => void;
   /** First tick only: the row is pending (show "waiting for approval"). */
@@ -104,9 +117,18 @@ export async function waitForCommandApproval(
   if (started.status === "auto") return { allowed: true, via: "auto", reason: started.reason };
 
   const approvalId = started.approvalId;
-  options.onPending?.(approvalId);
   const release = options.holdClock?.();
   try {
+    // D7: Full access asks the Reviewer first; its allow approves the row,
+    // anything else (deny, unparsable, no turn) leaves the card for the user.
+    if (started.status === "review" && started.review && options.review) {
+      const reviewed = await options.review(started.review, options.signal).catch((error: unknown) => ({
+        allowed: false,
+        reason: error instanceof Error ? error.message : String(error),
+      }));
+      if (reviewed.allowed) return { allowed: true, via: "auto", reason: reviewed.reason };
+    }
+    options.onPending?.(approvalId);
     return await pollDecision(api, approvalId, options, { now, sleep, pollMs, timeoutMs });
   } finally {
     release?.();

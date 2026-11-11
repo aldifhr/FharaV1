@@ -26,7 +26,11 @@ export const decisionTurnStatusValidator = v.union(
 /** Where an answer goes: back to the live run that asked ("inline"), or into the task's input queue ("task_input"). */
 export const decisionDeliveryValidator = v.union(v.literal("inline"), v.literal("task_input"));
 
-export const decisionTurnSourceValidator = v.union(v.literal("escalation"), v.literal("mcp"), v.literal("direct"));
+/** D7 adds "command": a Full access command put to the Reviewer (lib/autoReview.ts). */
+export const decisionTurnSourceValidator = v.union(v.literal("escalation"), v.literal("mcp"), v.literal("direct"), v.literal("command"));
+
+/** What a turn is for: G13 questions to the CTO; D7 auto review of one command by the Reviewer. */
+export const decisionTurnPurposeValidator = v.union(v.literal("question"), v.literal("auto_review"));
 
 export const decisionTurnTables = {
   taskSignals: defineTable({
@@ -56,8 +60,8 @@ export const decisionTurnTables = {
     subtaskKey: v.optional(v.string()),
     /** The role key that decides (G13: "cto"). */
     role: v.string(),
-    /** What the turn is for (G13: "question"; D7/N7 add their own). */
-    purpose: v.literal("question"),
+    /** What the turn is for (G13: "question"; D7: "auto_review"; N7 adds its own). */
+    purpose: decisionTurnPurposeValidator,
     source: decisionTurnSourceValidator,
     delivery: decisionDeliveryValidator,
     kind: v.optional(v.string()),
@@ -74,6 +78,8 @@ export const decisionTurnTables = {
     rationale: v.optional(v.string()),
     agentId: v.optional(v.id("agents")),
     signalId: v.optional(v.id("taskSignals")),
+    /** D7: the command approval row this review resolves. */
+    approvalId: v.optional(v.id("approvals")),
     createdAt: v.number(),
     decidedAt: v.optional(v.number()),
   })

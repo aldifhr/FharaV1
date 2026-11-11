@@ -6,7 +6,9 @@
 // provider block from execution/nativeProvider.buildOpencodeConfig) and lays
 // the ask-for-everything permissions over it, at the top level and on every
 // built-in agent. Fhara keeps its stricter read rules (no .env files) and
-// denies external directories, questions and push/remote commands outright.
+// denies external directories and push/remote commands outright. The
+// question tool asks (plan N7): its request becomes a question card in the
+// thread and is answered in chat (direct/nativeQuestion.ts).
 // Loopback is added to NO_PROXY: `opencode acp` talks to its own local
 // server, and an inherited HTTP(S)_PROXY broke session/new with
 // "service failure: directory" (checked on 1.19.5, 11 Nov 2026).
@@ -24,7 +26,7 @@ const ASK_FOR_EVERYTHING: Record<string, unknown> = {
   grep: 'allow',
   list: 'allow',
   external_directory: 'deny',
-  question: 'deny',
+  question: 'ask',
   bash: { '*': 'ask', 'git push*': 'deny', 'git remote*': 'deny', 'gh pr merge*': 'deny' },
   // Fhara (skills plan S1): OpenCode's native skill loader would surface the
   // folder's .claude/.agents skills, never imported or validated in Fhara.

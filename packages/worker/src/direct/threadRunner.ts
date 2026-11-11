@@ -62,6 +62,7 @@ import { cancelReasonOf, type ToolGateAnswer, type ToolGateCall } from "./toolGa
 import { applyGoalPatch } from "@/api/convex/lib/directGoalSchema";
 import * as G from "./goal";
 import { addUsage, expiredMessage, timeoutMessage, type TurnTimeout } from "./turnMessages";
+import { askThroughStore, type QuestionAskCall, type QuestionStore } from "./nativeQuestion";
 
 export { expiredMessage, timeoutMessage, type TurnTimeout };
 import {
@@ -100,7 +101,7 @@ export type DirectStatePatch = {
 export type StoredEvent = { type: string; eventKey?: string; payload: Record<string, unknown> };
 
 /** Everything the runner reads and writes: Convex in production, memory in tests. */
-export interface DirectStore {
+export interface DirectStore extends QuestionStore {
   appendEvents(events: StoredEvent[], state?: DirectStatePatch): Promise<number[]>;
   flushStream(seq: number, items: { itemId: string; kind: "text" | "reasoning" | "output"; text: string }[]): Promise<void>;
   clearStreams(): Promise<void>;
@@ -154,8 +155,6 @@ export interface ThreadRunnerOptions {
 
 export type TurnWatchdogConfig = { inactivityMs: number; progressMs: number; approvalCapMs?: number };
 
-
-
 type TurnKind = "user" | "round" | "wrapup";
 
 type Turn = {
@@ -171,6 +170,7 @@ type Turn = {
   usage?: TurnUsage;
   watchdog?: TurnWatchdog;
   timedOut?: TurnTimeout;
+  asked?: boolean; // N7: a question was asked this turn (goal rounds wait for its answer)
 };
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -346,6 +346,7 @@ export class ThreadRunner {
       const u = G.roundOutcome(outcome, error && redactErrorText(error).slice(0, 1000), turn.lastText);
       if (u) await this.updateGoal(u);
     } else if (outcome === "interrupted" && this.goal.phase === "active") await this.updateGoal({ action: "paused", patch: { phase: "paused" } }); // Stop means stop
+    if (turn.asked && this.goal.phase === "active") await this.updateGoal({ action: "paused", patch: { phase: "paused" } }); // N7: wait for the answer
     await this.goalStep();
   }
 
@@ -417,6 +418,7 @@ export class ThreadRunner {
           if (gen !== this.generation) return Promise.resolve({ decision: "expired" as const });
           return this.requestApproval(call);
         },
+        askQuestion: (call) => (gen === this.generation ? this.askQuestion(call) : Promise.reject(new Error("the agent session was replaced"))),
         activity: (progress) => {
           if (gen !== this.generation) return;
           this.turn?.watchdog?.frame(progress);
@@ -701,6 +703,7 @@ export class ThreadRunner {
       if (this.turn) await this.persist([], { status: "running" }).catch(() => undefined);
     }
   }
+  private askQuestion = (call: QuestionAskCall) => askThroughStore(this.opts.store, call, () => { if (this.turn) this.turn.asked = true; return this.drain(); });
 
   /** A cancelled permission request the store didn't record: approval.resolved here. */
   private onPermissionCancelled(c: PermissionCancel): void {

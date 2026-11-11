@@ -53,6 +53,9 @@ import { AgentPidRegistry } from "./agentPids";
 import { buildDirectMcpSet, EMPTY_MCP_SET, mcpRestartDue, type DirectMcpSet } from "./mcpDeclare";
 import type { McpServerConfig } from "@/mcp/types";
 import { ThreadRunner, type DirectStore } from "./threadRunner";
+import { QUESTION_PREAMBLE } from "./nativeQuestion";
+import { api as convexApi } from "@/api/convex/_generated/api";
+import { ctoFirstFromEnv } from "@/decisionTurn/port";
 import type { DirectEngine } from "./types";
 import type { DirectGoal as GoalState } from "./goal";
 import { runSetupOnWorktreeCreate } from "@/services/runner/projectScriptHooks";
@@ -123,6 +126,7 @@ export function directPreamble(input: { role: string; agentName?: string; system
       ? "This folder is a git worktree on its own branch for this thread: commit your work there. Never push; the user pushes from Fhara."
       : "Never push; the user pushes from Fhara.",
     "Every edit and command asks the user first unless their permission mode allows it.",
+    QUESTION_PREAMBLE,
     COMPLETION_CONTRACT,
   ].join("\n");
 }
@@ -377,6 +381,15 @@ export class DirectThreads {
       approvalState: async (approvalId) => await api.getDirectApproval({ approvalId }),
       cancelApproval: async (approvalId, reason, message) => {
         await api.cancelDirectApproval({ approvalId, reason: message, code: reason });
+      },
+      // N7: the card and its route (CTO-first within policy) are decided by directQuestions.ask.
+      askQuestion: async ({ itemId, question, options, multiple }) => {
+        const ctoFirst = ctoFirstFromEnv();
+        const r = await api.client.mutation(
+          convexApi.directQuestions.ask,
+          api.args({ taskId: claimed.taskId, workerId, itemId, question, options, ...(multiple ? { multiple } : {}), ...(ctoFirst.enabled ? { ctoFirst: { ttlMs: ctoFirst.ttlMs } } : {}) })
+        );
+        return { route: r.route, questionId: r.questionId, reason: r.reason };
       },
       loadEvents: async () => await api.getDirectHistory({ taskId: claimed.taskId }),
       recordUsage: async (usage) => {

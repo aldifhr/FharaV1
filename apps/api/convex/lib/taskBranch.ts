@@ -86,9 +86,11 @@ export function normalizeMainBranch(raw: string | undefined): string | null {
 /**
  * The branch task worktrees start from and merge back into. The project's
  * configured `mainBranch` wins; otherwise detect it from the repository:
- * origin/HEAD, then a local `main`, then `master`, then the checked-out
- * branch. `git` runs one git command in the repository and throws on a
- * non-zero exit. Falls back to "main" when nothing answers.
+ * the checked-out branch (`symbolic-ref --short HEAD`, when it has a
+ * commit), then origin/HEAD, then a local `main`, then `master`. Never a
+ * hard-coded name that may not exist (live: "invalid reference: master"
+ * on a repo whose HEAD is `main`). `git` runs one git command in the
+ * repository and throws on a non-zero exit. "main" only when nothing answers.
  */
 export function resolveMainBranch(configured: string | undefined, git: (args: string[]) => string): string {
   const own = normalizeMainBranch(configured);
@@ -100,15 +102,17 @@ export function resolveMainBranch(configured: string | undefined, git: (args: st
       return null;
     }
   };
+  const exists = (name: string) => Boolean(attempt(["rev-parse", "--verify", "--quiet", `refs/heads/${name}`]));
+  const current = attempt(["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  // Inside a task worktree HEAD is the task branch itself: never its own base.
+  if (current && !isTaskBranch(current) && exists(current)) return current;
   const originHead = attempt(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
   if (originHead) {
     const name = originHead.replace(/^origin\//, "");
-    if (name && name !== "HEAD" && attempt(["rev-parse", "--verify", "--quiet", `refs/heads/${name}`])) return name;
+    if (name && name !== "HEAD" && exists(name)) return name;
   }
   for (const candidate of ["main", "master"]) {
-    if (attempt(["rev-parse", "--verify", "--quiet", `refs/heads/${candidate}`])) return candidate;
+    if (exists(candidate)) return candidate;
   }
-  const current = attempt(["symbolic-ref", "--quiet", "--short", "HEAD"]);
   return current ?? "main";
 }
-

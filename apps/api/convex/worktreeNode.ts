@@ -12,6 +12,8 @@ import { settingFrom } from "./lib/appSettings";
 import { makeTaskBranchName, resolveMainBranch } from "./lib/taskBranch";
 import { worktreeRetentionMs } from "./lib/worktreeRetention";
 import { assertRepoPathExists, resolveRepoPath } from "./lib/workspacePath";
+import { checkRepoReadiness, taskWorktreePath, worktreesBaseFor } from "./lib/repoReadiness";
+import { ensureWorktreesExcluded } from "./lib/gitInit";
 import { buildBranchPatch, type GitRun } from "./lib/diffPatch";
 import { deleteTaskCheckpointRefs, removeTaskGitState } from "./lib/checkpointRefs";
 import { captureWorktreeSnapshot, pruneWorktreeSnapshots, type WorktreeSnapshot } from "./lib/checkpointRestore";
@@ -92,14 +94,18 @@ export const createBranch = internalAction({
     const workspacePath = resolveRepoPath(data.workspacePath, { workspaceRoot: args.workspaceRoot });
     assertRepoPathExists(workspacePath, data.workspacePath);
     const branchName = data.existingBranchName ?? makeTaskBranchName(args.taskId, data.taskTitle);
-    const worktreesBase = data.worktreesPath
-      ? path.resolve(workspacePath, data.worktreesPath)
-      : path.join(workspacePath, ".moagent-worktrees");
-    const worktreePath =
-      data.existingWorktreePath ?? `${worktreesBase}/${data.projectName}/${branchName}`;
+    const worktreesBase = worktreesBaseFor(workspacePath, data.worktreesPath, path);
+    // path.join, not a template: on Windows the old one mixed `\` and `/`.
+    const worktreePath = data.existingWorktreePath ?? taskWorktreePath(worktreesBase, data.projectName, branchName, path);
+    const git = (gitArgs: string[]) => gitExec(workspacePath, gitArgs);
+    // Lane git-init: a plain folder or an unborn HEAD holds the task with a
+    // plain line (a value, not a throw: no Request ID or stack reaches the card).
+    const readiness = checkRepoReadiness(git);
+    if (readiness.state !== "ready") return { held: true as const, state: readiness.state, reason: readiness.message };
+    ensureWorktreesExcluded(workspacePath, worktreesBase, git);
     // Configured base branch, else detected (origin/HEAD → main → master):
     // a hard-coded "main" failed every task on a master repo.
-    const mainBranch = resolveMainBranch(data.mainBranch, (gitArgs) => gitExec(workspacePath, gitArgs));
+    const mainBranch = resolveMainBranch(data.mainBranch, git);
 
     try {
       // Create worktree directly on new branch from main (avoid checkout main in new wt)

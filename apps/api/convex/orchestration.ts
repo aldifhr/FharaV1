@@ -2121,6 +2121,7 @@ const CANONICAL_MAP: Record<string, string> = {
   "task.error": "task.failed",
   "task.cancelled": "task.failed",
   "task.recovered": "task.failed",
+  "task.no_change": "task.updated",
   "task.retried": "task.updated",
   "task.input_asked": "agent.waiting_approval",
   "task.input_answered": "message.created",

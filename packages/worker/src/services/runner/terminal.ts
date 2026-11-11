@@ -235,3 +235,71 @@ export async function failStepLimit(input: {
     errorMessage: "Decision step limit reached",
   });
 }
+
+const NO_EFFECTIVE_CHANGE = /No effective change: (.+?) would be identical to the current content/;
+const NO_FILE_CHANGES = /^The implementation produced no file changes$/;
+
+/**
+ * A run whose only failures are "No effective change" (every file the
+ * executor wrote already had that content) and that staged nothing: the
+ * requested change is already in the repository. Replanning would ask for
+ * the same edit again and be rejected as a repeat (e2e mock round 2), so
+ * the caller ends the task cleanly instead. Returns the files that were
+ * already up to date, or null when any other failure is present, a change
+ * is staged, or a verify-fix loop set its own terminal failure.
+ */
+export function alreadyDoneFiles(state: {
+  feedback: ReadonlyArray<string>;
+  fileChanges: { size: number };
+  terminalFailure?: string;
+}): string[] | null {
+  if (state.terminalFailure || state.fileChanges.size > 0) return null;
+  const entries = state.feedback.filter((line) => line && line.trim());
+  if (entries.length === 0) return null;
+  const files = new Set<string>();
+  for (const line of entries) {
+    const stripped = line.replace(/^[\w.:-]+(?: \(attempt \d+\))?: /, "");
+    const noop = NO_EFFECTIVE_CHANGE.exec(stripped);
+    if (noop) {
+      for (const file of noop[1].split(",")) if (file.trim()) files.add(file.trim());
+      continue;
+    }
+    if (NO_FILE_CHANGES.test(stripped.trim())) continue;
+    return null;
+  }
+  return files.size > 0 ? [...files] : null;
+}
+
+/**
+ * End a no-op run as DONE with a clear `task.no_change` event and a CTO
+ * message ("No change needed: … already has the requested content"),
+ * never a replan or a failure.
+ */
+export async function finishAlreadyDone(input: {
+  deps: RunnerDeps;
+  taskId: string;
+  projectId: string;
+  files: string[];
+  agentId?: string;
+  lifecycle?: boolean;
+}): Promise<void> {
+  const { deps, taskId, projectId, files } = input;
+  const list = files.slice(0, 10).join(", ") + (files.length > 10 ? ", …" : "");
+  const message = `No change needed: ${list} already ${files.length === 1 ? "has" : "have"} the requested content, so nothing was staged or applied.`;
+  await deps.api.logEvent({
+    taskId,
+    projectId,
+    type: "task.no_change",
+    payload: { files, message },
+    level: "info",
+  });
+  await deps.api
+    .appendAgentMessage({ projectId, taskId, content: message, agentId: input.agentId as any })
+    .catch(() => undefined);
+  if (input.lifecycle !== false) {
+    await deps.api
+      .recordLifecycle?.({ taskId, projectId, state: "COMPLETED", prevState: "RUNNING" })
+      ?.catch(() => undefined);
+  }
+  await deps.api.completeTask({ taskId, status: "done" });
+}

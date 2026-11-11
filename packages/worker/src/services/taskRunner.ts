@@ -33,7 +33,9 @@ import { armTaskAbort } from "./runner/abort";
 import {
   budgetReasonFromSummary,
   failStepLimit,
+  alreadyDoneFiles,
   failTaskWithError,
+  finishAlreadyDone,
   finishBudgetExhaustedTask,
   finishCancelledTask,
   findProviderHoldMessage,
@@ -466,6 +468,14 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
           await fail(held);
           return;
         }
+        // A no-op ("No effective change …", nothing staged): the change is
+        // already there. A replan would ask for the same edit and be
+        // rejected as a repeat; end as done with task.no_change instead.
+        const unchangedFiles = alreadyDoneFiles(state);
+        if (unchangedFiles) {
+          await finishAlreadyDone({ deps, taskId: task._id, projectId: project._id, files: unchangedFiles, agentId: ctoIdOf(runAgents) });
+          return;
+        }
         if (canReplan()) {
           // Plan 022: escalation notes and failed acceptance gates are
           // their own reasons, not an unmet objective.
@@ -615,6 +625,13 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
         await fail(heldFailure);
         return;
       }
+      // A no-op run (only "No effective change", nothing staged) is
+      // already done: never replanned into a repeat-rejection failure.
+      const unchangedFiles = alreadyDoneFiles(state);
+      if (unchangedFiles) {
+        await finishAlreadyDone({ deps, taskId: task._id, projectId: project._id, files: unchangedFiles, agentId: ctoIdOf(runAgents) });
+        return;
+      }
       // A verify-fix loop that could change nothing (or repeated itself)
       // ends here: a replan would rebuild the same loop (live test 4).
       if (state.terminalFailure) {
@@ -641,6 +658,11 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
   } finally {
     taskAbort.dispose();
   }
+}
+
+/** The CTO's agent id among the run's agents (the no-op message speaks as the CTO). */
+function ctoIdOf(agents: ReadonlyArray<{ _id: string; role: string }>): string | undefined {
+  return agents.find((candidate) => /^cto$/i.test(candidate.role))?._id;
 }
 
 export type { SubtaskKind };

@@ -30,6 +30,8 @@ const mock = vi.hoisted(() => ({
   verifyCalls: 0,
   /** Errors returned (in order) by fix_* code_change nodes instead of a change. */
   fixFailures: [] as string[],
+  /** Error every non-fix code_change node returns instead of a change (a no-op run). */
+  implFailure: null as string | null,
 }));
 
 vi.mock("../src/execution/agentExecutor", () => ({
@@ -47,6 +49,9 @@ vi.mock("../src/execution/agentExecutor", () => ({
     });
     if (input.subtask.kind === "code_change" && input.subtask.key.startsWith("fix_") && mock.fixFailures.length > 0) {
       return { status: "failed", error: mock.fixFailures.shift()! };
+    }
+    if (input.subtask.kind === "code_change" && mock.implFailure && !input.subtask.key.startsWith("fix_")) {
+      return { status: "failed", error: mock.implFailure };
     }
     if (input.subtask.kind === "code_change") {
       const file = input.subtask.key.startsWith("fix_") ? "check.txt" : `${input.subtask.key}.txt`;
@@ -171,6 +176,7 @@ beforeEach(async () => {
   mock.verifyResults = [];
   mock.verifyCalls = 0;
   mock.fixFailures = [];
+  mock.implFailure = null;
 });
 
 afterEach(async () => {
@@ -593,6 +599,23 @@ describe("live test 4: env-aware verify loop", () => {
     const last = captured.completions.at(-1);
     expect(last?.status).toBe("failed");
     expect(last?.errorMessage ?? "").toMatch(/no change|same|repeat/i);
+  });
+
+  it("a no-op implementation (No effective change, nothing staged) ends done with task.no_change, never a replan or failure", async () => {
+    mock.implFailure = "No effective change: index.html would be identical to the current content. Make the requested edit or report why none is needed.";
+    const { deps, captured, task } = createDeps({
+      plan: planOf([node("implement", "code_change", "frontend-development")]),
+      agents: [FRONTEND],
+      policy: { maxReplans: 2 },
+    });
+    await processTask(task, deps);
+    expect(captured.events.some((e) => e.type === "plan.replanned")).toBe(false);
+    expect(captured.events.some((e) => e.type === "plan.replan_rejected")).toBe(false);
+    expect(captured.events.some((e) => e.type === "task.error")).toBe(false);
+    const noChange = captured.events.find((e) => e.type === "task.no_change");
+    expect(noChange?.payload?.files).toEqual(["index.html"]);
+    expect(captured.completions.at(-1)?.status).toBe("done");
+    expect(captured.messages.some((m) => /^No change needed: index\.html already has the requested content/.test(m.content))).toBe(true);
   });
 
   it("the verify-fix subtask inherits the owner's allowedPaths", async () => {

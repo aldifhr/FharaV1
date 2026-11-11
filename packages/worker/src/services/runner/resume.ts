@@ -30,6 +30,8 @@ import {
   finishBudgetExhaustedTask,
   finishCancelledTask,
   findProviderHoldMessage,
+  alreadyDoneFiles,
+  finishAlreadyDone,
   summaryHasBudgetFailure,
 } from "./terminal";
 import { finalize } from "./finalize";
@@ -297,6 +299,18 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
             project: context.project,
             budget,
             reason: budgetReasonFromSummary(failureSummary),
+          });
+          return;
+        }
+        // A no-op (only "No effective change", nothing staged) is done.
+        const unchangedFiles = alreadyDoneFiles(state);
+        if (unchangedFiles) {
+          await finishAlreadyDone({
+            deps,
+            taskId,
+            projectId: context.project._id,
+            files: unchangedFiles,
+            lifecycle: false,
           });
           return;
         }

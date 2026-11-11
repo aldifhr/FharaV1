@@ -480,7 +480,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
         if (canReplan()) {
           // Plan 022: escalation notes and failed acceptance gates are
           // their own reasons, not an unmet objective.
-          const own = /^(Escalation from subtask|Acceptance gates failed|Requirements not covered)/.test(missing);
+          const own = /^(Escalation from subtask|Acceptance gates failed|Requirements not covered|Architecture decision: revise)/.test(missing);
           const result = await replanOnce(pctx, loop, state, {
             reason: own ? missing : `Objective not satisfied: ${missing}`,
           });

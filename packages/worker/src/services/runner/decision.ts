@@ -12,6 +12,7 @@ import { CAPABILITY } from "@/types";
 import { resolveIssuesForApproval, resolveIssuesForQaPass } from "@/orchestrator/taskContext";
 import type { Escalation } from "@/api/convex/lib/subtaskContract";
 import { handleEscalation } from "./escalation";
+import { handleArchDecision } from "./archDecision";
 import { feedsResearchSynthesis } from "@/prompts/research";
 
 export async function handleNodeOutcome(
@@ -88,6 +89,12 @@ export async function handleNodeOutcome(
   if (outcome.status === "completed") {
     runCompleted.add(node.id);
     if (!settledEarlier) (state.deliveredOutputs ??= new Map()).set(node.id, outcome.output ?? "");
+  }
+  // O1: the CTO's architecture verdict. revise/stop end this invocation
+  // (executePlan reads ctx.archDecision); go lets the gated work run.
+  if (outcome.status === "completed" && !settledEarlier) {
+    const verdict = await handleArchDecision(ctx, node.id, outcome.output, executionId);
+    if (verdict === "revise" || verdict === "stop") return undefined;
   }
   const subtaskKind = plan.subtasks.find((candidate) => candidate.key === node.id)?.kind;
   const meta = outcome.meta as

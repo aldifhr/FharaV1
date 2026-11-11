@@ -98,6 +98,13 @@ export async function executePlan(input: ExecutePlanInput): Promise<ExecutePlanR
       // it could replan away.
       return { status: "cancelled" };
     }
+    // O1: the CTO's architecture verdict decides the exit: stop fails the
+    // task with the CTO's reason (never replanned), revise replans once.
+    if (ctx.archDecision?.verdict === "stop") return { status: "failed" };
+    if (ctx.archDecision?.verdict === "revise") {
+      const exit = terminalExit(ctx);
+      if (exit) return exit;
+    }
     // Plan 022: an escalation or a user pause decides this invocation's
     // exit even though the scheduler settled the stopped node as failed.
     if (ctx.escalated || ctx.paused) {

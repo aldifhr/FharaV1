@@ -132,6 +132,8 @@ async function sendInChat(text) {
     .catch(() => {});
   await box.fill(text);
   await box.press("Enter");
+  await page.waitForTimeout(1500);
+  await shot("sent");
 }
 
 // ── task state ───────────────────────────────────────────────────────────
@@ -188,6 +190,10 @@ async function runToEnd(taskId, timeline, { timeoutMs = 240_000, approve = true 
     task = await waitTask(taskId, (t) => !t || TERMINAL.has(t.status) || t.status === "needs_approval" || t.status === "paused" || t.status === "waiting_input", timeoutMs - (Date.now() - t0), timeline);
     if (task?.status === "needs_approval" && approve) {
       check(`apply approval ${round + 1} approved from chat`, await approveFromChat(taskId));
+      // The approved task can read needs_approval for a moment after the click;
+      // let it leave that state before looking for the next approval (a new
+      // approval that follows at once still counts after 20 s).
+      await waitTask(taskId, (t) => !t || t.status !== "needs_approval", 20_000, timeline);
       continue;
     }
     break;
@@ -219,7 +225,7 @@ const flows = {
     if (check("chat reply offers Create task", await visible(create))) {
       await create.click();
       await page.waitForTimeout(2000);
-      const confirm = page.getByRole("dialog").getByRole("button", { name: /Create|Start/ }).last();
+      const confirm = page.getByRole("alertdialog").or(page.getByRole("dialog")).getByRole("button", { name: /Create|Start/ }).last();
       if (await visible(confirm)) await confirm.click();
     }
     await closeBrowser();
@@ -370,10 +376,12 @@ const flows = {
     if (check("Stop task button on the board", await visible(stop))) {
       await stop.first().click();
       await page.waitForTimeout(1000);
-      const confirm = page.getByRole("dialog").getByRole("button", { name: /Stop task|Cancel task/ });
+      const confirm = page.getByRole("alertdialog").or(page.getByRole("dialog")).getByRole("button", { name: /Stop task|Cancel task/ });
+      await confirm.first().waitFor({ timeout: 15_000 }).catch(() => {});
       await shot("stop-confirm");
-      if (await visible(confirm)) await confirm.first().click();
+      if (check("Stop confirmed in the dialog", await visible(confirm))) await confirm.first().click();
       await page.waitForTimeout(2000);
+      await shot("stopped");
     }
     await closeBrowser();
     const end = await waitTask(t._id, (x) => !x || TERMINAL.has(x.status), 90_000, r.timeline);

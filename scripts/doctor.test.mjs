@@ -73,3 +73,12 @@ test("doctor: required vars and aliases come from the env manifest", () => {
   }
   assert.throws(() => manifestVar("MODEL_CAPABILITY_ROUTING"));
 });
+
+test("B2: scripts parse flags with the one bool dialect from the manifest", async () => {
+  const { envFlag } = await import("./envManifest.mjs");
+  for (const raw of ["1", "true", " YES ", "on"]) assert.equal(envFlag({ ORCHESTRATOR_QA_REQUIRED: raw }, "ORCHESTRATOR_QA_REQUIRED"), true, raw);
+  for (const raw of ["0", "false", "no", "OFF"]) assert.equal(envFlag({ ORCHESTRATOR_QA_REQUIRED: raw }, "ORCHESTRATOR_QA_REQUIRED", true), false, raw);
+  assert.equal(envFlag({ ORCHESTRATOR_QA_REQUIRED: "maybe" }, "ORCHESTRATOR_QA_REQUIRED", true), true);
+  assert.equal(envFlag({}, "FHARA_SMOKE_PROXY_AUTH"), false);
+  assert.throws(() => envFlag({}, "NOT_A_FHARA_VAR"));
+});

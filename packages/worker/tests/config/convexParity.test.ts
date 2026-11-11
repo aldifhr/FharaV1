@@ -8,6 +8,7 @@ import { contextSnapshotsEnabled } from "@/api/convex/lib/contextSnapshot";
 import { appOrigin, oauthStateSecret } from "@/api/convex/lib/oauthState";
 import { getGlobalLLMConfig } from "@/api/convex/lib/llmConfig";
 import * as path from "node:path";
+import { b2Bool } from "./legacyEnv";
 import { resolveRepoPath } from "@/api/convex/lib/workspacePath";
 
 /**
@@ -46,9 +47,9 @@ function oldFixMaxAttempts(raw: string | undefined): number {
   if (!Number.isFinite(n)) return 3;
   return Math.max(0, Math.min(20, Math.floor(n)));
 }
+// B2: the bool oracle follows the unified dialect.
 function oldContextSnapshotsEnabled(env: Env): boolean {
-  const raw = (env.CONTEXT_SNAPSHOTS ?? "").trim().toLowerCase();
-  return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
+  return b2Bool(env.CONTEXT_SNAPSHOTS, true);
 }
 function oldOauthStateSecret(env: Env): string | null {
   return env.OAUTH_STATE_SECRET?.trim() || env.PROVIDER_ENCRYPTION_KEY?.trim() || null;

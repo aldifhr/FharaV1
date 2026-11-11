@@ -1,11 +1,11 @@
 /**
- * The parsers. One boolean parser and one validated number parser, each
- * with the dialects the code used before E1 (see schema/types.ts). A value
+ * The parsers. One boolean parser (one dialect since B2) and one validated
+ * number parser with the dialects the code used before E1 (see schema/types.ts). A value
  * that does not parse falls back to the default and reports an issue; only
  * the `legacyNumber` dialect (index.ts, kept for parity until B3) can still
  * return NaN, and it reports that too.
  */
-import type { BoolParse, EnumVar, NumberVar, StringParse } from "./schema/types";
+import type { EnumVar, NumberVar, StringParse } from "./schema/types";
 
 export interface EnvIssue {
   name: string;
@@ -36,24 +36,22 @@ function report(name: string, raw: string, reason: string): void {
   sink({ name, raw, reason });
 }
 
-const FALSY = ["0", "false", "off", "no"];
-const TRUTHY = /^(1|true|yes|on)$/i;
+/** The one bool dialect (B2); exported so plain-node scripts get it through the manifest. */
+export const BOOL_TRUE = ["1", "true", "yes", "on"] as const;
+export const BOOL_FALSE = ["0", "false", "no", "off"] as const;
 
-/** The one boolean parser. `raw` is the value after alias resolution. */
-export function parseBool(name: string, raw: string | undefined, mode: BoolParse, fallback: () => boolean): boolean {
-  switch (mode) {
-    case "falsyList":
-      if (raw === undefined) return fallback();
-      return !FALSY.includes(raw.trim().toLowerCase());
-    case "truthyList":
-      return TRUTHY.test((raw ?? "").trim());
-    case "neq0":
-      return raw !== "0";
-    case "neq0Trim":
-      return (raw ?? "").trim() !== "0";
-    case "eq1":
-      return raw === "1";
-  }
+/**
+ * The one boolean parser. `raw` is the value after alias resolution.
+ * Unset/blank → default; a known word → its value; anything else → the
+ * default plus an issue.
+ */
+export function parseBool(name: string, raw: string | undefined, fallback: () => boolean): boolean {
+  if (raw === undefined || raw.trim() === "") return fallback();
+  const value = raw.trim().toLowerCase();
+  if ((BOOL_TRUE as readonly string[]).includes(value)) return true;
+  if ((BOOL_FALSE as readonly string[]).includes(value)) return false;
+  report(name, raw, `not a boolean (use ${BOOL_TRUE.join("/")} or ${BOOL_FALSE.join("/")}); using the default`);
+  return fallback();
 }
 
 /** unset/blank → undefined (auto); 0/false → false; anything else → true. */

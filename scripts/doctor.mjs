@@ -20,27 +20,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { ENV_MANIFEST, envFlag, manifestVar, withAliases } from "./envManifest.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const ENV_MANIFEST = createRequire(import.meta.url)("../packages/config/env-manifest.json");
-
-/** The manifest entry of a var (throws on a name the schema does not know). */
-export function manifestVar(name) {
-  const entry = ENV_MANIFEST.vars.find((v) => v.name === name);
-  if (!entry) throw new Error(`doctor: ${name} is not in packages/config/env-manifest.json`);
-  return entry;
-}
 
 /** Required in the worker (schema `required`), e.g. NEXT_PUBLIC_CONVEX_URL, CONVEX_SERVICE_TOKEN. */
 export const REQUIRED_WORKER_VARS = [...(ENV_MANIFEST.required.worker ?? [])];
-
-/** A var's value with its legacy aliases applied (name first, then aliases). */
-export function withAliases(env, name) {
-  for (const key of [name, ...(manifestVar(name).aliases ?? [])]) {
-    if (env[key]) return env[key];
-  }
-  return undefined;
-}
+export { manifestVar, withAliases };
 
 // ---------------------------------------------------------------- pure parts
 
@@ -309,7 +295,7 @@ async function run() {
   );
 
   // Chromium for browser QA
-  const qaRequired = env.ORCHESTRATOR_QA_REQUIRED === "1" || env.QA_REQUIRED === "1";
+  const qaRequired = envFlag(env, "ORCHESTRATOR_QA_REQUIRED", envFlag(env, "QA_REQUIRED", false));
   const explicitChromium = env.QA_CHROMIUM_PATH ?? env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
   let chromium = null;
   let chromiumFrom = "";

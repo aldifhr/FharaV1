@@ -57,7 +57,6 @@ export const SNAPSHOT_VARS = [
   {
     name: "CONTEXT_SNAPSHOTS",
     type: "bool",
-    parse: "falsyList",
     default: true,
     runtimes: ["worker", "convex"],
     group: "snapshots",

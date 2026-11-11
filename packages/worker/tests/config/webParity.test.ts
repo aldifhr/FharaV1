@@ -5,6 +5,7 @@ import { schemaDefault } from "@fhara/config";
 import { serverEnv, serverEnvRaw } from "@fhara/config/web-server";
 import { isAllowedHost } from "../../../../apps/web/lib/requestGuard";
 import { resolveWorkspaceBase } from "../../../../apps/web/lib/projectFilesPolicy";
+import { b2Bool } from "./legacyEnv";
 
 /**
  * Parity (E3): each web / electron read through @fhara/config returns what
@@ -46,7 +47,8 @@ describe("web server reads (E3 parity)", () => {
       // callback/route.ts: `if (process.env.CONVEX_SITE_URL) return …`
       expect(Boolean(serverEnv("CONVEX_SITE_URL", env))).toBe(Boolean(env.CONVEX_SITE_URL));
       expect(serverEnv("CONVEX_SITE_URL", env)).toBe(env.CONVEX_SITE_URL);
-      expect(serverEnv("FHARA_ALLOW_LOCAL_MCP", env)).toBe(env.FHARA_ALLOW_LOCAL_MCP === "1");
+      // B2: the unified bool dialect (was === "1").
+      expect(serverEnv("FHARA_ALLOW_LOCAL_MCP", env)).toBe(b2Bool(env.FHARA_ALLOW_LOCAL_MCP, false));
       // NEXT_PUBLIC_CONVEX_URL on the web side never falls back to CONVEX_URL.
       expect(serverEnvRaw("NEXT_PUBLIC_CONVEX_URL", env, { aliases: false })).toBe(env.NEXT_PUBLIC_CONVEX_URL);
     });

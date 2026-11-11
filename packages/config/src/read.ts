@@ -50,7 +50,7 @@ export function readDef(def: EnvVar, source: EnvSource, options?: ReadOptions): 
     case "int":
       return parseNumber(def, raw, fallback as () => number);
     case "bool":
-      return parseBool(def.name, raw, def.parse, fallback as () => boolean);
+      return parseBool(def.name, raw, fallback as () => boolean);
     case "tristate":
       return parseTristate(raw);
     case "enum":

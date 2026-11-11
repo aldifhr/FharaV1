@@ -29,6 +29,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { envFlag } from "./envManifest.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
@@ -56,7 +57,7 @@ if (!repoFull || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repoFull)) {
   process.exit(2);
 }
 const [owner, repo] = repoFull.split("/");
-const proxyAuth = flag("proxy-auth") || process.env.FHARA_SMOKE_PROXY_AUTH === "1";
+const proxyAuth = flag("proxy-auth") || envFlag(process.env, "FHARA_SMOKE_PROXY_AUTH");
 const token =
   process.env.FHARA_SMOKE_GITHUB_TOKEN || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || (proxyAuth ? "proxy-supplied" : "");
 if (!token) {

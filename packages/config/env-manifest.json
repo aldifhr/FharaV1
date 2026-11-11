@@ -359,8 +359,7 @@
         "webServer"
       ],
       "doc": "1 lets the web API register local (stdio) MCP servers.",
-      "default": "false",
-      "parse": "eq1"
+      "default": "false"
     },
     {
       "name": "FHARA_BIND_TAILSCALE",
@@ -370,8 +369,7 @@
         "scripts"
       ],
       "doc": "1 also binds the dev server to this machine's Tailscale address.",
-      "default": "false",
-      "parse": "truthyList"
+      "default": "false"
     },
     {
       "name": "WORKER_POLL_INTERVAL_MS",
@@ -507,8 +505,7 @@
         "worker"
       ],
       "doc": "0 turns off the websocket wake-up subscription (poll only).",
-      "default": "true",
-      "parse": "neq0"
+      "default": "true"
     },
     {
       "name": "WORKER_LLM_MAX_CONCURRENCY",
@@ -532,8 +529,7 @@
         "worker"
       ],
       "doc": "0 turns off memory suggestions after a task.",
-      "default": "true",
-      "parse": "neq0"
+      "default": "true"
     },
     {
       "name": "FHARA_ROLE_MEMORY",
@@ -543,8 +539,7 @@
         "worker"
       ],
       "doc": "0 turns off role memory (per-role learnings) for every project.",
-      "default": "true",
-      "parse": "neq0"
+      "default": "true"
     },
     {
       "name": "DIRECT_POLL_MS",
@@ -619,7 +614,6 @@
       ],
       "doc": "Run each task in its own git worktree.",
       "default": "false",
-      "parse": "falsyList",
       "knob": {
         "reader": "worker"
       }
@@ -814,8 +808,7 @@
         "worker"
       ],
       "doc": "Run verification after code changes.",
-      "default": "true",
-      "parse": "falsyList"
+      "default": "true"
     },
     {
       "name": "ORCHESTRATOR_VERIFICATION_BUILD",
@@ -825,8 +818,7 @@
         "worker"
       ],
       "doc": "Include the build in verification.",
-      "default": "true",
-      "parse": "falsyList"
+      "default": "true"
     },
     {
       "name": "ORCHESTRATOR_VERIFICATION_TIMEOUT_MS",
@@ -942,8 +934,7 @@
         "worker"
       ],
       "doc": "Let routing fall back to the top agent when no agent serves a capability.",
-      "default": "false",
-      "parse": "falsyList"
+      "default": "false"
     },
     {
       "name": "ORCHESTRATOR_AUTHORITATIVE",
@@ -953,8 +944,7 @@
         "worker"
       ],
       "doc": "The orchestrator's plan and decisions are the ones executed.",
-      "default": "true",
-      "parse": "falsyList"
+      "default": "true"
     },
     {
       "name": "ORCHESTRATOR_ROUTER_LLM",
@@ -1027,7 +1017,6 @@
       ],
       "doc": "Labs: dynamic tool discovery for research/audit agents.",
       "default": "false",
-      "parse": "falsyList",
       "knob": {
         "reader": "worker"
       }
@@ -1040,8 +1029,7 @@
         "worker"
       ],
       "doc": "Read-only agents may use discovered MCP tools mid-task.",
-      "default": "true",
-      "parse": "falsyList"
+      "default": "true"
     },
     {
       "name": "ORCHESTRATOR_MCP_WRITE_TOOLS",
@@ -1052,7 +1040,6 @@
       ],
       "doc": "Allow MCP write tools (otherwise filtered for every role).",
       "default": "false",
-      "parse": "falsyList",
       "knob": {
         "reader": "worker"
       }
@@ -1105,7 +1092,6 @@
       ],
       "doc": "Agent Reach web tool for agents that declare web_reach.",
       "default": "true",
-      "parse": "falsyList",
       "knob": {
         "reader": "worker"
       }
@@ -1232,7 +1218,6 @@
       "doc": "An environment-blocked QA run fails the task; falls back to the legacy QA_REQUIRED.",
       "default": null,
       "derivedDefault": true,
-      "parse": "falsyList",
       "knob": {
         "reader": "worker",
         "defaultValue": "false"
@@ -1248,7 +1233,6 @@
       ],
       "doc": "Legacy name of ORCHESTRATOR_QA_REQUIRED.",
       "default": "false",
-      "parse": "falsyList",
       "deprecated": "use ORCHESTRATOR_QA_REQUIRED"
     },
     {
@@ -1260,7 +1244,6 @@
       ],
       "doc": "Load-aware routing default when the project has none.",
       "default": "false",
-      "parse": "falsyList",
       "knob": {
         "reader": "worker"
       }
@@ -1274,7 +1257,6 @@
       ],
       "doc": "Performance routing default when the project has none.",
       "default": "false",
-      "parse": "falsyList",
       "knob": {
         "reader": "worker"
       }
@@ -1344,8 +1326,7 @@
         "worker"
       ],
       "doc": "1 lets OpenCode run in the project checkout without worktree isolation.",
-      "default": "false",
-      "parse": "truthyList"
+      "default": "false"
     },
     {
       "name": "ORCHESTRATOR_COMMAND_APPROVAL_TIMEOUT_MS",
@@ -1407,8 +1388,7 @@
         "worker"
       ],
       "doc": "0 turns off the verification baseline run (heuristic only).",
-      "default": "true",
-      "parse": "falsyList"
+      "default": "true"
     },
     {
       "name": "REPO_MAP",
@@ -1418,8 +1398,7 @@
         "worker"
       ],
       "doc": "0 turns off the repo map in agent prompts.",
-      "default": "true",
-      "parse": "falsyList"
+      "default": "true"
     },
     {
       "name": "REPO_MAP_MAX_CHARS",
@@ -1463,8 +1442,7 @@
         "worker"
       ],
       "doc": "0 turns off LLM-written commit messages.",
-      "default": "true",
-      "parse": "neq0"
+      "default": "true"
     },
     {
       "name": "FHARA_OPENCODE_VERIFY_POLICY",
@@ -1474,8 +1452,7 @@
         "worker"
       ],
       "doc": "0 turns off the OpenCode permission-policy check before a run.",
-      "default": "true",
-      "parse": "neq0Trim"
+      "default": "true"
     },
     {
       "name": "FHARA_CHILD_ENV_PASSTHROUGH",
@@ -1528,7 +1505,6 @@
       ],
       "doc": "Allow force pushes from agent tools.",
       "default": "false",
-      "parse": "truthyList",
       "knob": {
         "reader": "worker"
       }
@@ -1542,7 +1518,6 @@
       ],
       "doc": "Allow pushes to the base branch from agent tools.",
       "default": "false",
-      "parse": "truthyList",
       "knob": {
         "reader": "worker"
       }
@@ -1556,7 +1531,6 @@
       ],
       "doc": "Open pull requests as drafts.",
       "default": "true",
-      "parse": "falsyList",
       "knob": {
         "reader": "worker"
       }
@@ -1724,7 +1698,6 @@
       ],
       "doc": "0 turns off context snapshots.",
       "default": "true",
-      "parse": "falsyList",
       "knob": {
         "reader": "both"
       }
@@ -1843,8 +1816,7 @@
         "scripts"
       ],
       "doc": "1 tests the push through an authenticating proxy (smoke:push).",
-      "default": "false",
-      "parse": "eq1"
+      "default": "false"
     },
     {
       "name": "FHARA_SMOKE_GITHUB_TOKEN",
@@ -1887,6 +1859,20 @@
       "secret": true
     }
   ],
+  "bool": {
+    "true": [
+      "1",
+      "true",
+      "yes",
+      "on"
+    ],
+    "false": [
+      "0",
+      "false",
+      "no",
+      "off"
+    ]
+  },
   "convexSync": [
     "CONVEX_SERVICE_TOKEN",
     "PROVIDER_ENCRYPTION_KEY",

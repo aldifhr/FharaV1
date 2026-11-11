@@ -130,7 +130,6 @@ export const WORKER_VARS = [
   {
     name: "WORKER_SUBSCRIBE",
     type: "bool",
-    parse: "neq0",
     default: true,
     runtimes: ["worker"],
     group: "worker",
@@ -151,7 +150,6 @@ export const WORKER_VARS = [
   {
     name: "FHARA_MEMORY_SUGGESTIONS",
     type: "bool",
-    parse: "neq0",
     default: true,
     runtimes: ["worker"],
     group: "worker",
@@ -160,7 +158,6 @@ export const WORKER_VARS = [
   {
     name: "FHARA_ROLE_MEMORY",
     type: "bool",
-    parse: "neq0",
     default: true,
     runtimes: ["worker"],
     group: "worker",

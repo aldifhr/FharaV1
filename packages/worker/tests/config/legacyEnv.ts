@@ -2,10 +2,23 @@
  * FROZEN pre-E1 env readers (packages/worker at 4d2dfb7), kept verbatim as
  * parity oracles for the E1 migration onto @fhara/config. Do not "fix"
  * anything here: these copies define what "no behaviour change" means.
+ *
+ * Exception, B2 (one bool dialect): every boolean oracle below now calls
+ * b2Bool, an independent copy of the unified rule. The five pre-B2
+ * dialects are pinned (and contrasted) in behaviourFixes.test.ts.
  */
 /* eslint-disable */
 type Env = Record<string, string | undefined>;
 type Get = (name: string) => string | undefined;
+
+/** B2 reference: unset/blank → d; 1|true|yes|on → true; 0|false|no|off → false; else d. */
+export function b2Bool(raw: string | undefined, d: boolean): boolean {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (v === "") return d;
+  if (["1", "true", "yes", "on"].includes(v)) return true;
+  if (["0", "false", "no", "off"].includes(v)) return false;
+  return d;
+}
 
 export function legacyExecutionRuntime(env: Env): "api" | "native-provider" {
   const raw = (env.ORCHESTRATOR_EXECUTION_RUNTIME ?? env.ORCHESTRATOR_RUNTIME ?? "").trim().toLowerCase();
@@ -25,9 +38,7 @@ export function legacyLoadPolicy(get: Get, rawEnv: Env): Record<string, unknown>
   }
 
   function boolFromEnv(name: string, fallback: boolean): boolean {
-    const raw = get(name);
-    if (raw === undefined) return fallback;
-    return !["0", "false", "off", "no"].includes(raw.trim().toLowerCase());
+    return b2Bool(get(name), fallback);
   }
 
   function planningModeFromEnv(name: string, fallback: "auto" | "never" = "auto"): "always" | "auto" | "never" {
@@ -242,7 +253,7 @@ export function legacyIndexConstants(env: Env) {
 
 /** convexClient.ts */
 export const legacyConvexUrl = (env: Env) => env.NEXT_PUBLIC_CONVEX_URL ?? env.CONVEX_URL;
-export const legacySubscribe = (env: Env) => !(env.WORKER_SUBSCRIBE === "0");
+export const legacySubscribe = (env: Env) => b2Bool(env.WORKER_SUBSCRIBE, true);
 
 /** direct/index.ts */
 export const legacyDirectPollMs = (env: Env) => Math.max(250, Number(env.DIRECT_POLL_MS ?? 750));
@@ -272,10 +283,10 @@ export function legacyNativeTimeoutMs(env: Env): number {
   const parsed = Number(env.ORCHESTRATOR_NATIVE_TIMEOUT_MS);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 10 * 60 * 1000;
 }
-export const legacyVerifyPolicy = (env: Env) => !((env.FHARA_OPENCODE_VERIFY_POLICY ?? "").trim() === "0");
+export const legacyVerifyPolicy = (env: Env) => b2Bool(env.FHARA_OPENCODE_VERIFY_POLICY, true);
 
 /** execution/opencodeDetect.ts */
-export const legacyAllowUnisolated = (env: Env) => /^(1|true|yes|on)$/i.test((env.ORCHESTRATOR_OPENCODE_ALLOW_UNISOLATED ?? "").trim());
+export const legacyAllowUnisolated = (env: Env) => b2Bool(env.ORCHESTRATOR_OPENCODE_ALLOW_UNISOLATED, false);
 
 /** execution/opencodeHome.ts (default dir part) */
 export const legacyOpencodeCacheDir = (env: Env) => env.FHARA_OPENCODE_CACHE_DIR?.trim() || "<tmp>";
@@ -295,8 +306,7 @@ export const legacyQaBaseUrl = (env: Env) => env.QA_BASE_URL;
 
 /** execution/repoMap.ts */
 export function legacyRepoMapEnabled(env: Env): boolean {
-  const raw = (env.REPO_MAP ?? "").trim().toLowerCase();
-  return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
+  return b2Bool(env.REPO_MAP, true);
 }
 export function legacyRepoMapMaxChars(env: Env): number {
   const value = Number(env.REPO_MAP_MAX_CHARS);
@@ -306,8 +316,7 @@ export const legacyCacheDir = (env: Env) => env.FHARA_CACHE_DIR ?? "<home>";
 
 /** execution/verifyBaseline.ts */
 export function legacyBaselineEnabled(env: Env): boolean {
-  const raw = (env.ORCHESTRATOR_VERIFY_BASELINE ?? "").trim().toLowerCase();
-  return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
+  return b2Bool(env.ORCHESTRATOR_VERIFY_BASELINE, true);
 }
 
 /** services/runner/commandApproval.ts */
@@ -317,11 +326,11 @@ export function legacyCommandApprovalTimeoutMs(env: Env): number {
 }
 
 /** commitMessage / memoryReconcile / roleLearnings / WORKER_SUBSCRIBE */
-export const legacyNeq0 = (env: Env, name: string) => !(env[name] === "0");
+export const legacyNeq0 = (env: Env, name: string) => b2Bool(env[name], true);
 
 /** tools/gitPush.ts envFlag, tools/githubPr.ts draft */
-export const legacyEnvFlag = (get: Get, name: string) => /^(1|true|yes|on)$/i.test((get(name) ?? "").trim());
-export const legacyPrDraft = (get: Get) => !/^(0|false|off|no)$/i.test((get("FHARA_PR_DRAFT") ?? "").trim());
+export const legacyEnvFlag = (get: Get, name: string) => b2Bool(get(name), false);
+export const legacyPrDraft = (get: Get) => b2Bool(get("FHARA_PR_DRAFT"), true);
 
 /** tools/webClient.ts */
 export const legacyStagehandModel = (env: Env) => env.STAGEHAND_MODEL ?? "anthropic/claude-sonnet-4-20250514";

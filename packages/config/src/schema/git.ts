@@ -26,7 +26,6 @@ export const GIT_VARS = [
   {
     name: "FHARA_ALLOW_FORCE_PUSH",
     type: "bool",
-    parse: "truthyList",
     default: false,
     runtimes: ["worker"],
     group: "git",
@@ -36,7 +35,6 @@ export const GIT_VARS = [
   {
     name: "FHARA_ALLOW_BASE_BRANCH_PUSH",
     type: "bool",
-    parse: "truthyList",
     default: false,
     runtimes: ["worker"],
     group: "git",
@@ -46,7 +44,6 @@ export const GIT_VARS = [
   {
     name: "FHARA_PR_DRAFT",
     type: "bool",
-    parse: "falsyList",
     default: true,
     runtimes: ["worker"],
     group: "git",

@@ -15,10 +15,10 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseDotenv } from "./doctor.mjs";
+import { ENV_MANIFEST } from "./envManifest.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const API_DIR = path.join(ROOT, "apps", "api");
@@ -29,8 +29,6 @@ const isWin = process.platform === "win32";
  * @fhara/config (CONVEX_SYNC_KEYS) through its generated manifest, since
  * plain node cannot import the TypeScript package.
  */
-const require = createRequire(import.meta.url);
-const ENV_MANIFEST = require("../packages/config/env-manifest.json");
 export const CONVEX_KEYS = [...ENV_MANIFEST.convexSync];
 
 /** Root .env merged under the current process env (process env wins). */

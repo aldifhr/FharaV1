@@ -46,7 +46,6 @@ export const EXEC_VARS = [
   {
     name: "ORCHESTRATOR_OPENCODE_ALLOW_UNISOLATED",
     type: "bool",
-    parse: "truthyList",
     default: false,
     runtimes: ["worker"],
     group: "exec",
@@ -100,7 +99,6 @@ export const EXEC_VARS = [
   {
     name: "ORCHESTRATOR_VERIFY_BASELINE",
     type: "bool",
-    parse: "falsyList",
     default: true,
     runtimes: ["worker"],
     group: "exec",
@@ -109,7 +107,6 @@ export const EXEC_VARS = [
   {
     name: "REPO_MAP",
     type: "bool",
-    parse: "falsyList",
     default: true,
     runtimes: ["worker"],
     group: "exec",
@@ -145,7 +142,6 @@ export const EXEC_VARS = [
   {
     name: "FHARA_COMMIT_MESSAGE_LLM",
     type: "bool",
-    parse: "neq0",
     default: true,
     runtimes: ["worker"],
     group: "exec",
@@ -154,7 +150,6 @@ export const EXEC_VARS = [
   {
     name: "FHARA_OPENCODE_VERIFY_POLICY",
     type: "bool",
-    parse: "neq0Trim",
     default: true,
     runtimes: ["worker"],
     group: "exec",

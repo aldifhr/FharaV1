@@ -5,6 +5,7 @@
  * a guard test fails when the committed file is stale.
  */
 import { CONVEX_SYNC_KEYS } from "./convexSync";
+import { BOOL_FALSE, BOOL_TRUE } from "./parse";
 import { ENV_SCHEMA } from "./schema";
 import type { EnvVar, Runtime } from "./schema/types";
 import { CHILD_ENV_ESCAPE_NAMES, EXTRA_PLATFORM_SECRETS, KNOWN_PROVIDER_KEYS, SCHEMA_SECRET_NAMES } from "./secrets";
@@ -33,6 +34,8 @@ export interface ManifestVar {
 export interface EnvManifest {
   $comment: string;
   vars: ManifestVar[];
+  /** The bool dialect (B2): unset/blank → default, these words → true/false, else default + warning. */
+  bool: { true: readonly string[]; false: readonly string[] };
   convexSync: readonly string[];
   secrets: { schema: readonly string[]; extraPlatform: readonly string[]; knownProviderKeys: readonly string[]; childEnvEscape: readonly string[] };
   required: Partial<Record<Runtime, string[]>>;
@@ -76,6 +79,7 @@ export function buildManifest(): EnvManifest {
   return {
     $comment: "Generated from packages/config/src/schema by `npm run env:example`. Do not edit.",
     vars,
+    bool: { true: BOOL_TRUE, false: BOOL_FALSE },
     convexSync: CONVEX_SYNC_KEYS,
     secrets: {
       schema: SCHEMA_SECRET_NAMES,

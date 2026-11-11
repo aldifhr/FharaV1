@@ -3,7 +3,7 @@ import type { EnvGet, EnvVar, KnobMeta } from "./types";
 /**
  * orchestrator/policy.ts loadPolicy(): every var is read through the knob
  * override source (settingEnv), parsed with intFromEnv ("clamp") or
- * boolFromEnv ("falsyList"). Bounds and defaults are today's literals.
+ * boolFromEnv (one bool dialect since B2). Bounds and defaults are today's literals.
  */
 function pint<const N extends string>(
   name: N,
@@ -36,7 +36,6 @@ function pbool<const N extends string>(
   return {
     name,
     type: "bool" as const,
-    parse: "falsyList" as const,
     default: def,
     runtimes: extra.runtimes ?? (["worker"] as const),
     group: "policy" as const,
@@ -201,7 +200,7 @@ export const POLICY_VARS = [
     "ORCHESTRATOR_QA_REQUIRED",
     (get) => get("QA_REQUIRED") as boolean,
     "An environment-blocked QA run fails the task; falls back to the legacy QA_REQUIRED.",
-    { knob: { reader: "worker", defaultValue: "false" }, runtimes: ["worker", "scripts"], quirk: "doctor.mjs only accepts \"1\" (D5)" }
+    { knob: { reader: "worker", defaultValue: "false" }, runtimes: ["worker", "scripts"] }
   ),
   pbool("QA_REQUIRED", false, "Legacy name of ORCHESTRATOR_QA_REQUIRED.", {
     runtimes: ["worker", "scripts"],

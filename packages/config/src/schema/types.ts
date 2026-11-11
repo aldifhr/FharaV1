@@ -55,15 +55,13 @@ export type NumberParse =
   | "truthyRawNumber";
 
 /**
- * Boolean dialects found in the code before E1 (D5).
- *
- * - falsyList:  undefined → d; otherwise true unless trim/lower is 0|false|off|no ("" is true).
- * - truthyList: true only when trim matches 1|true|yes|on (case-insensitive); d is false.
- * - neq0:       false only when raw === "0" (no trim).
- * - neq0Trim:   false only when raw.trim() === "0".
- * - eq1:        true only when raw === "1".
+ * Booleans (B2): one dialect for every bool var. Unset or blank → the
+ * default; 1|true|yes|on → true; 0|false|no|off → false (trimmed,
+ * case-insensitive); anything else warns and keeps the default.
+ * Before B2 there were five dialects (D5): falsyList, truthyList, neq0,
+ * neq0Trim and eq1.
  */
-export type BoolParse = "falsyList" | "truthyList" | "neq0" | "neq0Trim" | "eq1";
+export type BoolParse = "bool";
 
 /**
  * String dialects.
@@ -125,7 +123,7 @@ export interface NumberVar extends VarBase {
 
 export interface BoolVar extends VarBase {
   type: "bool";
-  parse: BoolParse;
+  parse?: BoolParse;
   default: boolean | DefaultFn<boolean>;
 }
 

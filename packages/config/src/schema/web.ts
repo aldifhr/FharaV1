@@ -22,7 +22,6 @@ export const WEB_VARS = [
   {
     name: "FHARA_ALLOW_LOCAL_MCP",
     type: "bool",
-    parse: "eq1",
     default: false,
     runtimes: ["webServer"],
     group: "web",
@@ -31,7 +30,6 @@ export const WEB_VARS = [
   {
     name: "FHARA_BIND_TAILSCALE",
     type: "bool",
-    parse: "truthyList",
     default: false,
     runtimes: ["scripts"],
     group: "web",
@@ -83,7 +81,6 @@ export const SCRIPT_VARS = [
   {
     name: "FHARA_SMOKE_PROXY_AUTH",
     type: "bool",
-    parse: "eq1",
     default: false,
     runtimes: ["scripts"],
     group: "scripts",

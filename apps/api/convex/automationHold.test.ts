@@ -228,6 +228,7 @@ describe("cron wrappers", () => {
     expect(listed.filter((j) => j.heldByAutomationHold).map((j) => j.name).sort()).toEqual([
       "prune context snapshots",
       "refresh task pull requests",
+      "run scheduled tasks", // G7: held per scheduled task inside the tick
       "sweep stale task worktrees",
     ]);
   });

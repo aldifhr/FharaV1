@@ -51,7 +51,9 @@ SOFTWARE.
   commit-tree, update-ref; a pattern from `apps/server/src/vcs/GitVcsDriver.ts`);
   `apps/api/convex/lib/checkpointRestore.ts` (checkpoint restore with multi-pass clean and the
   worktree snapshot before cleanup; a pattern from `GitVcsDriver.ts` `restoreCheckpoint` and
-  `apps/server/src/worktreeSnapshots/captureSnapshot.ts`). Modified by Fhara.
+  `apps/server/src/worktreeSnapshots/captureSnapshot.ts`); `apps/api/convex/lib/schedule.ts` (port of
+  `apps/server/src/scheduledTasks/Schedule.ts`: next-run, missed fixed-time run, schedule equality;
+  epoch milliseconds and IANA time zones instead of Effect DateTime). Modified by Fhara.
   GOAT's Pen, office, PDF, native and asset sub-paths carry other licences; nothing is taken from them.
 
 ```

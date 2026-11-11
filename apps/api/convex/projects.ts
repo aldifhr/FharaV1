@@ -232,6 +232,8 @@ export const get = query({
  * its rows are detached (projectId cleared) instead.
  */
 export const PROJECT_CASCADE = [
+  { table: "scheduledTaskRuns", index: "by_project" },
+  { table: "scheduledTasks", index: "by_project" },
   { table: "issueDrafts", index: "by_project" },
   { table: "subtaskLive", index: "by_project" },
   { table: "threadStreams", index: "by_project" },

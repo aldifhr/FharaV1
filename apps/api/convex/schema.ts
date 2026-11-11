@@ -25,6 +25,7 @@ import {
 } from "./lib/traceValidators";
 import { diffCommentsTable, reviewEvidenceValidator, reviewFixValidator } from "./lib/diffCommentSchema";
 import { invokedSkillsField } from "./lib/invokedSkillsSchema";
+import { scheduledTaskTables } from "./lib/scheduledTaskSchema";
 
 export const taskStatus = v.union(
   v.literal("queued"),
@@ -2295,14 +2296,12 @@ export default defineSchema({
     lastStatus: v.union(v.literal("running"), v.literal("ok"), v.literal("failed"), v.literal("held")), // held = G3 hold
     lastError: v.optional(v.string()),
     lastResult: v.optional(v.string()),
-    // "cron" or "manual" (Run now / Maintenance).
-    trigger: v.optional(v.string()),
+    trigger: v.optional(v.string()), // "cron" or "manual" (Run now / Maintenance)
     runCount: v.optional(v.number()),
   }).index("by_name", ["name"]),
 
-  // Mock fixtures (docs/mock-fixtures.md, dev only): every row
-  // devFixtures.seed inserted, so devFixtures.wipe deletes exactly those
-  // rows and nothing a real run wrote. Empty on a deployment never seeded.
+  // Mock fixtures (docs/mock-fixtures.md, dev only): every row devFixtures.seed inserted, so
+  // devFixtures.wipe deletes exactly those rows and nothing a real run wrote (empty if never seeded).
   devFixtureRows: defineTable({
     fixture: v.string(),
     table: v.string(),
@@ -2310,4 +2309,5 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_fixture", ["fixture"]),
   diffComments: diffCommentsTable,
+  ...scheduledTaskTables, // GOAT G7 scheduled tasks + their runs
 });

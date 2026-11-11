@@ -36,4 +36,8 @@ crons.interval("recover expired task leases", { seconds: 30 }, internal.cronJobs
 // the worker queue.
 crons.interval("sweep stale chat replies", { minutes: 2 }, internal.cronJobs.sweepStaleChatReplies, {});
 
+// GOAT G7: fire the user's scheduled tasks that are due, once per occurrence
+// (scheduledTasks.ts). Honours the G3 automation hold per task.
+crons.interval("run scheduled tasks", { minutes: 1 }, internal.cronJobs.runScheduledTasks, {});
+
 export default crons;

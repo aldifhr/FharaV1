@@ -56,6 +56,12 @@ export const CRON_JOBS = [
     description: "Settles chat replies whose run died as interrupted or failed.",
     kind: "mutation",
   },
+  {
+    name: "run scheduled tasks",
+    schedule: "Every minute",
+    description: "Fires your scheduled tasks that are due; while automation is held each one records held.",
+    kind: "mutation",
+  },
 ] as const;
 
 export type CronJobName = (typeof CRON_JOBS)[number]["name"];
@@ -211,6 +217,15 @@ export const sweepStaleChatReplies = internalMutation({
   },
 });
 
+// G7: the tick checks the hold per scheduled task (a "held" run row each),
+// so it is not in HELD_CRON_JOBS and always runs.
+export const runScheduledTasks = internalMutation({
+  args: triggerArg,
+  handler: async (ctx, args) => {
+    await runMutationJob(ctx, "run scheduled tasks", args.trigger, () => ctx.runMutation(internal.scheduledTasks.tick, {}));
+  },
+});
+
 export const refreshTaskPullRequests = internalAction({
   args: triggerArg,
   handler: async (ctx, args) => {
@@ -285,7 +300,7 @@ export const list = query({
         lastResult: run?.lastResult ?? null,
         trigger: run?.trigger ?? null,
         runCount: run?.runCount ?? 0,
-        heldByAutomationHold: HELD_CRON_JOBS.has(job.name),
+        heldByAutomationHold: HELD_CRON_JOBS.has(job.name) || job.name === "run scheduled tasks",
       };
     });
   },
@@ -315,6 +330,9 @@ export const runNow = mutation({
         break;
       case "sweep stale chat replies":
         await ctx.scheduler.runAfter(0, internal.cronJobs.sweepStaleChatReplies, trigger);
+        break;
+      case "run scheduled tasks":
+        await ctx.scheduler.runAfter(0, internal.cronJobs.runScheduledTasks, trigger);
         break;
       default:
         throw new Error(`Unknown scheduled task: ${args.name}`);

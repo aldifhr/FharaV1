@@ -754,14 +754,14 @@ export class WorkerApi {
   async appendDirectEvents(
     input: ActionInput<typeof api.worker.appendDirectEvents>
   ): Promise<FunctionReturnType<typeof api.worker.appendDirectEvents>> {
-    return await this.client.action(api.worker.appendDirectEvents, this.args(input));
+    return await this.client.action(api.worker.appendDirectEvents, this.args({ ...input, events: this.masked(input.events) }));
   }
 
   /** Hot stream rows (~300 ms per item). */
   async flushDirectStream(
     input: ActionInput<typeof api.worker.flushDirectStream>
   ): Promise<FunctionReturnType<typeof api.worker.flushDirectStream>> {
-    return await this.client.action(api.worker.flushDirectStream, this.args(input));
+    return await this.client.action(api.worker.flushDirectStream, this.args({ ...input, items: this.masked(input.items) }));
   }
 
   async clearDirectStreams(

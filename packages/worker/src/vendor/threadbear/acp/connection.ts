@@ -5,13 +5,20 @@
 // (proc.ts, codex/appserver.ts) are replaced by a small Logger interface,
 // a detached spawn with process-group kills, and a local newline reader
 // with the same size guard; the child env goes through buildChildEnv so a
-// worker secret never reaches the agent. clientInfo names Fhara. Everything else (the
-// JSON-RPC framing, pending map, timeouts, close/kill order) is unchanged.
+// worker secret never reaches the agent. clientInfo names Fhara. The stderr
+// tail is redacted (vendor/nuphos/stderrTail.ts, from openab) and the exit
+// message names the cause of death (vendor/nuphos/processDeath.ts, from
+// Nuphos); a bare internal error gets the redacted tail as its detail.
+// Everything else (the JSON-RPC framing, pending map, timeouts, close/kill
+// order) is unchanged.
 
 // One ACP agent process (Agent Client Protocol, agentclientprotocol.com):
 // newline-delimited JSON-RPC 2.0 over its stdio, in its own process group.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { buildChildEnv } from '@/api/convex/lib/childEnv';
+import { redactText } from '../../../utils/redact';
+import { StderrTail } from '../../nuphos/stderrTail';
+import { describeProcessDeath, oomKills, ownCgroup } from '../../nuphos/processDeath';
 
 export type RequestId = number | string;
 
@@ -31,13 +38,25 @@ export const AUTH_REQUIRED = -32000;
 /** Longest line read from an agent (threadbear: MAX_LINE_BYTES). */
 export const MAX_LINE_BYTES = 16 * 1024 * 1024;
 
+/** JSON-RPC's internal error: agents send it bare when something they didn't expect broke. */
+export const INTERNAL_ERROR = -32603;
+
 export class AcpRpcError extends Error {
   readonly code: number;
   readonly data: unknown;
-  constructor(method: string, body: { code?: unknown; message?: unknown; data?: unknown }) {
-    super(typeof body?.message === 'string' ? body.message : `${method} failed`);
+  /**
+   * The agent's message is its own text and may quote a credential, so it is
+   * masked (L2). A bare internal error carries the agent's redacted stderr
+   * tail instead of nothing (openab `with_recent_stderr`).
+   */
+  constructor(method: string, body: { code?: unknown; message?: unknown; data?: unknown }, stderrTail = '') {
+    const base = typeof body?.message === 'string' ? redactText(body.message) : `${method} failed`;
+    const code = typeof body?.code === 'number' ? body.code : INTERNAL_ERROR;
+    const dataMessage = (body?.data as { message?: unknown } | undefined)?.message;
+    const bare = code === INTERNAL_ERROR && !(typeof dataMessage === 'string' && dataMessage.trim());
+    super(bare && stderrTail ? `${base}\nThe agent gave no error details. Its last error output:\n${stderrTail}` : base);
     this.name = 'AcpRpcError';
-    this.code = typeof body?.code === 'number' ? body.code : -32603;
+    this.code = code;
     this.data = body?.data;
   }
 }
@@ -75,6 +94,8 @@ export type AcpProcessOptions = {
   cwd: string;
   log: AcpLogger;
   label: string; // the task id, for log lines
+  /** Who the agent is in an exit message ("OpenCode"); default "The agent". */
+  agentName?: string;
   maxLineBytes?: number;
   timings?: Partial<AcpTimings>;
   clientVersion?: string;
@@ -157,7 +178,9 @@ export class AcpProcess {
   private pid?: number;
   private nextId = 1;
   private pending = new Map<RequestId, { method: string; resolve: (v: unknown) => void; reject: (e: Error) => void; timer?: NodeJS.Timeout }>();
-  private stderrTail: string[] = [];
+  private stderrTail = new StderrTail();
+  private cgroup: string | null = null;
+  private oomKillsAtStart = 0;
   private exited = true;
   private exitWaiters: (() => void)[] = [];
   private closing = false;
@@ -171,8 +194,9 @@ export class AcpProcess {
     return !this.exited;
   }
 
+  /** The agent's recent stderr, redacted: error-like lines only, credentials withheld. */
   stderrLines(): string[] {
-    return [...this.stderrTail];
+    return this.stderrTail.list();
   }
 
   // Spawns the process and completes initialize.
@@ -191,6 +215,10 @@ export class AcpProcess {
     });
     this.child = child;
     this.pid = child.pid;
+    // The agent runs in the worker's cgroup: an OOM kill there while it ran
+    // names the memory limit as its cause of death.
+    this.cgroup = process.platform === 'linux' ? ownCgroup() : null;
+    this.oomKillsAtStart = oomKills(this.cgroup);
     this.exited = false;
     let stderrBuf = '';
     child.stderr?.on('data', (d: Buffer) => {
@@ -226,9 +254,10 @@ export class AcpProcess {
       );
       child.stdout?.on('data', (d: Buffer) => reader.push(d));
       child.once('exit', (code, signal) => {
-        const tail = this.stderrTail.slice(-5).join('\n');
+        if (stderrBuf) this.stderr(stderrBuf);
+        stderrBuf = '';
         this.markExited();
-        const what = `The agent exited (${signal ?? `code ${code}`})${tail ? `\n${tail}` : ''}`;
+        const what = this.exitMessage(code, signal);
         for (const p of this.pending.values()) {
           if (p.timer) clearTimeout(p.timer);
           p.reject(new AcpExitedError(what));
@@ -258,6 +287,22 @@ export class AcpProcess {
     });
   }
 
+  /** The cause of death in words, then the agent's last redacted error lines. */
+  exitMessage(code: number | null, signal: NodeJS.Signals | string | null): string {
+    const own = this.stderrTail.processDeath;
+    const death = own
+      ? `${own.replace(/\s*Send a message to continue\.?$/, '')} Send a message to continue.`
+      : describeProcessDeath({
+          agent: this.opts.agentName ?? 'The agent',
+          code,
+          signal,
+          cgroup: this.cgroup,
+          oomKillsBefore: this.oomKillsAtStart,
+        });
+    const tail = this.stderrTail.text(5);
+    return tail ? `${death}\nIts last error output:\n${tail}` : death;
+  }
+
   private markExited(): void {
     this.exited = true;
     const ws = this.exitWaiters;
@@ -268,8 +313,7 @@ export class AcpProcess {
   private stderr(line: string): void {
     if (!line.trim()) return;
     this.stderrTail.push(line);
-    if (this.stderrTail.length > 20) this.stderrTail.shift();
-    this.opts.log.debug('acp stderr', { taskId: this.opts.label, line: line.slice(0, 500) });
+    this.opts.log.debug('acp stderr', { taskId: this.opts.label, line: redactText(line.slice(0, 500)) });
   }
 
   private onLine(line: Buffer): void {
@@ -293,7 +337,7 @@ export class AcpProcess {
       if (!p) return;
       this.pending.delete(msg.id as RequestId);
       if (p.timer) clearTimeout(p.timer);
-      if (msg.error) p.reject(new AcpRpcError(p.method, msg.error as { code?: unknown; message?: unknown; data?: unknown }));
+      if (msg.error) p.reject(new AcpRpcError(p.method, msg.error as { code?: unknown; message?: unknown; data?: unknown }, this.stderrTail.text()));
       else p.resolve(msg.result);
     }
   }

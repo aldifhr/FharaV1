@@ -888,3 +888,65 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Nuphos
+
+- Source: https://github.com/nuphos/nuphos (commit `a210a05`)
+- Used in:
+  - `packages/worker/src/vendor/nuphos/processDeath.ts`: copy of `apps/runtime/image/process-death.mjs` (cause of an
+    agent's death in words; a SIGKILL while the cgroup's `oom_kill` count rose names the memory limit). Modified by
+    Fhara: TypeScript, identifiers renamed, cgroup root and reader as parameters, reason built from the exit
+    code/signal, described in the worker instead of announced on stderr.
+  - `packages/worker/src/direct/streamRedactor.ts`: the idea of holding back a possible secret across stream chunks
+    from `apps/backend/src/lib/claude-code-preview/streamed-token-redaction.ts` (pattern only, no code copied; the
+    redaction is Fhara's L2).
+- Copyright 2026 Zeabur Inc. Licensed under the Apache License, Version 2.0 (full text in the Aider entry above).
+  "Nuphos" and its logo are trademarks of Zeabur Inc.; Fhara uses the name only to describe where this code came from.
+  The upstream NOTICE file reads:
+
+```
+Nuphos
+Copyright 2026 Zeabur Inc.
+
+This product includes software developed at Zeabur Inc.
+
+"Nuphos" and the Nuphos logo are trademarks of Zeabur Inc. The Apache License,
+Version 2.0 does not grant permission to use them beyond describing the origin
+of this work; TRADEMARK.md spells out what that does and does not cover.
+
+apps/runtime/openab is vendored from openabdev/openab (via the zeabur/openab
+fork) and remains under the MIT License, Copyright (c) 2026 openabdev. See
+apps/runtime/openab/LICENSE.
+```
+
+## openab
+
+- Source: https://github.com/openabdev/openab, as vendored in Nuphos at `apps/runtime/openab` (commit `a210a05`)
+- Used in: `packages/worker/src/vendor/nuphos/stderrTail.ts`: the `ERROR_LIKE`, `CREDENTIAL_LIKE` and `OPAQUE_RUN`
+  patterns copied from `crates/openab-core/src/acp/connection.rs` (the errno branch split into its own regex), and
+  `redact_stderr_line`, the bounded tail (20 lines / 2 KB / 500 chars a line), `with_recent_stderr` and
+  `redact_session_ids` (`src/redact.rs`) ported from Rust to TypeScript.
+
+```
+MIT License
+
+Copyright (c) 2026 openabdev
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

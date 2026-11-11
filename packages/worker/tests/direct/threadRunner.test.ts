@@ -330,8 +330,10 @@ describe("generation guard", () => {
     await runner.deliver(store.userMessage("go"));
     sinks[0].output({ kind: "delta", delta: { type: "assistant.text.delta", itemId: "a", text: "Hel" } });
     sinks[0].output({ kind: "delta", delta: { type: "assistant.text.delta", itemId: "a", text: "lo" } });
-    await waitFor(() => store.streams.get("a") === "Hello");
-    sinks[0].output({ kind: "event", event: { type: "assistant.text", itemId: "a", text: "Hello" } });
+    sinks[0].output({ kind: "delta", delta: { type: "assistant.text.delta", itemId: "a", text: " there" } });
+    // L2 (N1): the last word is held until it can't be a secret's start.
+    await waitFor(() => store.streams.get("a") === "Hello ");
+    sinks[0].output({ kind: "event", event: { type: "assistant.text", itemId: "a", text: "Hello there" } });
     sinks[0].output({ kind: "result", result: { outcome: "completed", durationMs: 1, queuedTurns: 0 } });
     await runner.idle();
     await runner.drain();

@@ -105,7 +105,7 @@ export class AcpSession implements DirectSession {
     this.now = deps.now ?? Date.now;
     this.preamble = opts.sessionId ? undefined : opts.preamble;
     this.normalizer = new AcpNormalizer({ cwd: opts.cwd }, deps.newId);
-    this.proc = new AcpProcess({ binary: deps.binary, args: deps.args, env: deps.env, cwd: opts.cwd, log: deps.log, label: opts.taskId, timings: deps.timings });
+    this.proc = new AcpProcess({ binary: deps.binary, args: deps.args, env: deps.env, cwd: opts.cwd, log: deps.log, label: opts.taskId, agentName: "OpenCode", timings: deps.timings });
     this.proc.onNotification = (method, params) => this.notification(method, params);
     this.proc.onRequest = (id, method, params) => this.request(id, method, params);
     this.proc.onExit = (err) => this.exited(err);

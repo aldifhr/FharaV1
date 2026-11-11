@@ -28,6 +28,7 @@
  */
 import type { AcpOutput, NormalizedEvent } from "@/vendor/threadbear/acp/normalize";
 import { handoffNote, type HandoffEvent } from "./handoff";
+import { DirectStreamRedactor, redactErrorText, redactPayload } from "./streamRedactor";
 import type { ToolGateAnswer, ToolGateCall } from "./toolGate";
 import {
   SessionNotFoundError,
@@ -128,6 +129,8 @@ export class ThreadRunner {
   private streamText = new Map<string, { kind: "text" | "reasoning" | "output"; text: string }>();
   private dirty = new Set<string>();
   private flushTimer?: NodeJS.Timeout;
+  // L2: deltas are masked chunk-safely before they reach a hot row.
+  private redactor = new DirectStreamRedactor();
   private turnDone: Array<() => void> = [];
 
   constructor(opts: ThreadRunnerOptions) {
@@ -245,6 +248,7 @@ export class ThreadRunner {
         const stored = eventPayload(out.event);
         const itemId = (out.event as { itemId?: string }).itemId;
         if (itemId && (out.event.type === "assistant.text" || out.event.type === "reasoning")) {
+          this.redactor.drop(itemId);
           this.streamText.delete(itemId);
           this.dirty.delete(itemId);
         }
@@ -254,8 +258,11 @@ export class ThreadRunner {
       case "delta": {
         const kind = out.delta.type === "reasoning.delta" ? "reasoning" : "text";
         const cur = this.streamText.get(out.delta.itemId) ?? { kind, text: "" };
-        cur.text += out.delta.text;
+        // Only what can't be the start of a secret; the rest waits for the next chunk.
+        const safe = this.redactor.push(out.delta.itemId, out.delta.text);
         this.streamText.set(out.delta.itemId, cur);
+        if (!safe) return;
+        cur.text += safe;
         this.dirty.add(out.delta.itemId);
         this.scheduleFlush();
         return;
@@ -288,6 +295,13 @@ export class ThreadRunner {
     if (this.turn !== turn) return;
     this.turn = undefined;
     if (turn.grace) clearTimeout(turn.grace);
+    // What the redactor still held is released (masked) with the turn's last flush.
+    for (const [itemId, rest] of this.redactor.endAll()) {
+      const cur = this.streamText.get(itemId);
+      if (!cur) continue;
+      cur.text += rest;
+      this.dirty.add(itemId);
+    }
     await this.flushStreams();
     this.streamText.clear();
     this.dirty.clear();
@@ -302,7 +316,7 @@ export class ThreadRunner {
             outcome,
             durationMs,
             answered: turn.messages,
-            ...(error ? { error: error.slice(0, 2000) } : {}),
+            ...(error ? { error: redactErrorText(error).slice(0, 2000) } : {}),
             ...(turn.usage ? { usage: turn.usage } : {}),
           },
         },
@@ -438,7 +452,8 @@ export class ThreadRunner {
       // One append at a time, in order; whatever was queued meanwhile goes
       // in the next batch of this same run.
       while (this.outbox.length || patch) {
-        const batch = this.outbox.splice(0, 100);
+        // L2: no event leaves with a secret in it, whoever produced it.
+        const batch = this.outbox.splice(0, 100).map((e) => ({ ...e, payload: redactPayload(e.payload) }));
         const seqs = await this.opts.store.appendEvents(batch, patch);
         patch = undefined;
         for (const s of seqs) if (s > this.lastSeq) this.lastSeq = s;

@@ -10,6 +10,7 @@
 //   "slow"         answers after 400 ms
 //   "wait-cancel"  holds the turn until session/cancel, then stopReason cancelled
 //   "hang"         holds the turn forever and ignores session/cancel
+//   "die-secret"   streams a key split over chunks, writes it to stderr, exits 3
 //   anything else  echoes the whole prompt text
 // FAKE_ACP_KNOWN_SESSION: the only id session/resume accepts.
 import fs from "node:fs";
@@ -106,6 +107,21 @@ async function prompt(id, params) {
     return send({ id, result: { stopReason: "cancelled" } });
   }
   if (text === "hang") return; // never answers, ignores session/cancel
+  if (text === "die-secret") {
+    // Streams a key split over three chunks, then dies with secrets on stderr.
+    const key = process.env.FAKE_ACP_SECRET ?? "sk-proj-FAKEsecretKEY0123456789abcdef";
+    const mid = `e${++n}`;
+    for (const part of ["Using key ", key.slice(0, 6), key.slice(6, 20), key.slice(20), " now"]) {
+      notify(sessionId, { sessionUpdate: "agent_message_chunk", messageId: mid, content: { type: "text", text: part } });
+      await sleep(30);
+    }
+    fs.writeSync(2, `Error: request failed with OPENAI_API_KEY=${key}\n`);
+    fs.writeSync(2, `fatal: Authorization: Bearer ${key}\n`);
+    fs.writeSync(2, "Error: provider returned 500\n");
+    fs.writeSync(2, "loading plugins\n");
+    await sleep(50);
+    process.exit(3);
+  }
   notify(sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "thinking" } });
   notify(sessionId, { sessionUpdate: "agent_message_chunk", messageId: `e${++n}`, content: { type: "text", text: `Echo: ${all}` } });
   send({ id, result: { stopReason: "end_turn", usage } });

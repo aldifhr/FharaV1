@@ -19,6 +19,9 @@ import { permissionModeValidator, projectDefaultPermissionMode } from "./lib/per
 import { admitTaskInput } from "./lib/taskInputGuard";
 import { touchBriefQuestion } from "./briefs";
 import { commandNeedsChatContext } from "./lib/chat/intent";
+import { projectTeamIds } from "./lib/projectTeam";
+import { invokedSkillsField } from "./lib/invokedSkillsSchema";
+import { assertInvokedSkills, resolveInvokedSkills } from "./lib/chat/invokedSkills";
 import { appendAgentEvent, appendTaskEvent } from "./lib/taskEvents";
 
 /** A worker currently holds an unexpired lease on the task (e.g. resuming it). */
@@ -149,6 +152,8 @@ export const createFromCommand = mutation({
      * an offer that is already used returns that task instead of a second.
      */
     offerMessageId: v.optional(v.id("messages")),
+    /** Paradev C3: skills to inline in every run (a "/task" from a skill message). */
+    invokedSkills: invokedSkillsField,
   },
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
@@ -243,11 +248,23 @@ export const createFromCommand = mutation({
       command = rawCommand + "\n\n--- Conversation context ---\n" + historyLines.slice(-room);
     }
 
+    // Paradev C3: the skills invoked on the message this task comes from (the
+    // offer answers it), or given with the command; checked against the team.
+    const sourceMessage = offerMessage?.replyToMessageId ? await ctx.db.get(offerMessage.replyToMessageId) : null;
+    // A skill removed since the message was sent is dropped, not an error.
+    const skillTeam = args.invokedSkills?.length || sourceMessage?.invokedSkills?.length
+      ? await Promise.all((await projectTeamIds(ctx, project)).map((id) => ctx.db.get(id)))
+      : [];
+    const invokedSkills = args.invokedSkills?.length
+      ? await assertInvokedSkills(ctx, args.invokedSkills, skillTeam)
+      : (await resolveInvokedSkills(ctx, sourceMessage?.invokedSkills, skillTeam)).skills.map((s) => s.name);
+
     const now = Date.now();
     const taskId = await ctx.db.insert("tasks", {
       projectId: args.projectId,
       title,
       command,
+      ...(invokedSkills.length ? { invokedSkills } : {}),
       status: "queued",
       assignedAgentIds: args.assignedAgentIds,
       ...(args.conversationId ? { conversationId: args.conversationId } : {}),

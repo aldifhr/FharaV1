@@ -5,7 +5,9 @@ import { MAX_TOOL_STEPS } from "./lib/chat/activity";
 import type { Doc, Id } from "./_generated/dataModel";
 import { loadProviderPool } from "./lib/llmResolver";
 import { activeParticipantRows, selectDefaultChatAgents } from "./conversations";
-import { normalizeSkillLoading, skillsSectionFor } from "./lib/skillRuntime";
+import { normalizeSkillLoading, skillsSectionWithInvoked } from "./lib/skillRuntime";
+import { invokedSkillsField } from "./lib/invokedSkillsSchema";
+import { resolveInvokedSkills } from "./lib/chat/invokedSkills";
 import { loadPromptSkills } from "./skills";
 import { loadMemorySection, loadRecalledSection } from "./memories";
 import { extractAgentMentions } from "./lib/chat/team";
@@ -41,6 +43,7 @@ export const insertUserMessage = internalMutation({
     preferredAgentIds: v.optional(v.array(v.id("agents"))),
     permissionMode: v.optional(permissionModeValidator),
     clientId: v.optional(v.string()),
+    invokedSkills: invokedSkillsField,
   },
   handler: async (ctx, args) => insertChatUserMessage(ctx, args),
 });
@@ -57,6 +60,8 @@ export async function insertChatUserMessage(
     preferredAgentIds?: Id<"agents">[];
     permissionMode?: PermissionMode;
     clientId?: string;
+    /** Paradev C3: canonical skill names, already checked against the team. */
+    invokedSkills?: string[];
   }
 ): Promise<Id<"messages">> {
   const content = args.content.trim();
@@ -84,6 +89,7 @@ export async function insertChatUserMessage(
     replyStatus: "pending",
     ...(args.clientId ? { clientId: args.clientId } : {}),
     ...(Object.keys(replyOptions).length ? { replyOptions } : {}),
+    ...(args.invokedSkills?.length ? { invokedSkills: args.invokedSkills } : {}),
   });
 }
 
@@ -465,6 +471,15 @@ export const getContext = internalQuery({
     // chat persona (not the classifier/chooser snippets) carries them.
     // Skill v2: inline agents get the budgeted sections as before; on_demand
     // agents get the index plus their skills for the local load_skill tool.
+    // The whole project team — the conversational agent is picked from here,
+    // not from the (possibly mention-stale) participant set.
+    const teamAgents = await Promise.all(
+      (await projectTeamIds(ctx, project)).map((id) => ctx.db.get(id))
+    );
+    // Paradev C3: skills the answered message invoked ("/<skill>"), inline for
+    // this turn only, on every shape, so whichever agent O3 routes the
+    // message to (its topic owner) carries them.
+    const invoked = (await resolveInvokedSkills(ctx, anchor?.invokedSkills, teamAgents)).skills;
     const agentShape = async (a: Doc<"agents">) => {
       const skills = await loadPromptSkills(ctx, a);
       const mode = normalizeSkillLoading(a.skillLoading);
@@ -473,7 +488,7 @@ export const getContext = internalQuery({
       name: a.name,
       role: a.role,
       systemPrompt: a.systemPrompt,
-      skillsSection: skillsSectionFor(skills, mode) || undefined,
+      skillsSection: skillsSectionWithInvoked(skills, mode, invoked) || undefined,
       ...(mode === "on_demand" && skills.length ? { onDemandSkills: skills } : {}),
       // Pinned memories for this agent in this project, after the skills.
       // Plan L4: then the unpinned memories this message recalls (a second
@@ -488,11 +503,6 @@ export const getContext = internalQuery({
       };
     };
 
-    // The whole project team — the conversational agent is picked from here,
-    // not from the (possibly mention-stale) participant set.
-    const teamAgents = await Promise.all(
-      (await projectTeamIds(ctx, project)).map((id) => ctx.db.get(id))
-    );
     const team = teamAgents.filter(
       (a): a is Doc<"agents"> => a !== null && a.isEnabled !== false
     );
@@ -557,6 +567,8 @@ export const getPersonalContext = internalQuery({
       .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))
       .order("desc")
       .take(1);
+    // Paradev C3: the answered message's invoked skills, from this agent's own.
+    const invoked = (await resolveInvokedSkills(ctx, anchor?.invokedSkills, [usable])).skills;
     const shape = async (a: Doc<"agents">) => {
       const skills = await loadPromptSkills(ctx, a);
       const mode = normalizeSkillLoading(a.skillLoading);
@@ -565,7 +577,7 @@ export const getPersonalContext = internalQuery({
         name: a.name,
         role: a.role,
         systemPrompt: a.systemPrompt,
-        skillsSection: skillsSectionFor(skills, mode) || undefined,
+        skillsSection: skillsSectionWithInvoked(skills, mode, invoked) || undefined,
         ...(mode === "on_demand" && skills.length ? { onDemandSkills: skills } : {}),
         memorySection:
           (await loadMemorySection(ctx, { ...(project ? { projectId: project._id } : {}), agentId: a._id })) || undefined,

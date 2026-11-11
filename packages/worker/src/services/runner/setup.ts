@@ -29,7 +29,7 @@ import type { WebReachConfig } from "@/execution/webReachTools";
 import type { WebClientConfig } from "@/tools/webClient";
 import type { NodeOutcome, SchedulerResult } from "@/scheduler/dagScheduler";
 import type { FileDiff } from "@/tools/gitDiff";
-import { appendAgentSkills, normalizeSkillLoading } from "@/api/convex/lib/skillRuntime";
+import { taskAgentSkills } from "@/execution/skillLoading";
 import type { ModelTiers } from "@/api/convex/lib/modelTiers";
 import { appendMemoryToPrompt } from "@/api/convex/lib/memory";
 import type {
@@ -222,7 +222,7 @@ export function slugifyKeyPart(value: string): string {
 
 
 export function toAgentDefinition(agent: WorkerRunAgent): AgentDefinition {
-  const skillLoading = normalizeSkillLoading(agent.skillLoading);
+  const skills = taskAgentSkills(agent);
   return {
     _id: agent._id,
     name: agent.name,
@@ -238,12 +238,13 @@ export function toAgentDefinition(agent: WorkerRunAgent): AgentDefinition {
     // the pinned prefix is identical with and without recall.
     systemPrompt: appendMemoryToPrompt(
       appendMemoryToPrompt(
-        appendAgentSkills(agent.systemPrompt, agent.attachedSkills, skillLoading),
+        skills.systemPrompt,
         agent.memorySection
       ),
       agent.recalledMemorySection
     ),
-    ...(skillLoading === "on_demand" && agent.attachedSkills?.length ? { onDemandSkills: agent.attachedSkills } : {}),
+    // Paradev C3: invoked skills are inline (above) and leave this list.
+    ...(skills.onDemandSkills ? { onDemandSkills: skills.onDemandSkills } : {}),
     description: agent.description,
     capabilities: agent.capabilities,
     supportedTools: agent.supportedTools,

@@ -400,7 +400,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     }
   };
 
-  const { runSlash, slashEntries } = useProjectSlash({
+  const { runSlash, skillFor, slashEntries } = useProjectSlash({
     projectId,
     agents,
     permissionMode,
@@ -431,7 +431,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
           content,
           preferredAgentIds: recipientsFor(content) as any,
           permissionMode,
-          ...(quote ? { quotedMessageId: quote.messageId as any } : {}),
+          ...(quote ? { quotedMessageId: quote.messageId as any } : {}), ...(skillFor(text) ?? {}),
         });
       }
       setQuote(null);

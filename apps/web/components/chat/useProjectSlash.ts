@@ -1,19 +1,22 @@
 "use client";
 
 /**
- * Project chat slash commands (Paradev C2, plan audit/paradev-plan-2026-11-11.md
+ * Project chat slash commands (Paradev C2/C3, plan audit/paradev-plan-2026-11-11.md
  * P-C). `runSlash` turns a sent "/command …" draft into its action and returns
- * true when it handled it; `/research` is left to the server (intent.ts makes
- * the research task). `slashEntries` feeds the composer's "/" menu: the
- * registry's project builtins, then the skills this team's agents carry
- * (listed, not callable until C3).
+ * true when it handled it. `/research <question>` is an explicit command like
+ * `/task`: it creates the research task with the raw "/research …" line, so
+ * the worker fan-out runs unchanged (never without a question). A skill
+ * ("/<skill> [request]") is not handled here: `skillFor` gives the
+ * `invokedSkills` the normal send path adds, so O3 routing (the topic owner)
+ * is unchanged and the routed owner carries the skill. `slashEntries` feeds
+ * the composer's "/" menu: project builtins, then this team's skills.
  */
 import { useMemo } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { api } from "@/api/convex/_generated/api";
 import { roleLabel } from "@/lib/agentRoles";
-import { skillsUsedBy, slashMenuEntries } from "@/lib/slashMenu";
+import { skillInvocation, skillsUsedBy, slashMenuEntries } from "@/lib/slashMenu";
 import type { PermissionMode } from "@/api/convex/lib/permissionModes";
 import { useToast } from "../Toasts";
 
@@ -56,7 +59,7 @@ export function useProjectSlash({
 
   /** Slash commands. Returns true when the draft was handled. */
   const runSlash = async (text: string): Promise<boolean> => {
-    const match = text.match(/^\/(task|memory|qa|review|push)\b\s*([\s\S]*)$/i);
+    const match = text.match(/^\/(task|research|memory|qa|review|push)\b\s*([\s\S]*)$/i);
     if (!match) return false;
     const command = match[1].toLowerCase();
     const rest = match[2].trim();
@@ -75,6 +78,21 @@ export function useProjectSlash({
         ...(conversationId ? { conversationId } : {}),
       });
       toast("success", "Task created", rest.slice(0, 80));
+      onSelectTask(taskId as string);
+      return true;
+    }
+    if (command === "research") {
+      if (!rest) {
+        setChatError("Ask a question after /research.");
+        return true;
+      }
+      const taskId = await createTask({
+        projectId: projectId as never,
+        permissionMode,
+        command: `/research ${rest}`,
+        ...(conversationId ? { conversationId } : {}),
+      });
+      toast("success", "Research started", rest.slice(0, 80));
       onSelectTask(taskId as string);
       return true;
     }
@@ -111,5 +129,8 @@ export function useProjectSlash({
     return true;
   };
 
-  return { runSlash, slashEntries };
+  /** "/<skill> [request]" → `{ invokedSkills }` for messages.send; else null. */
+  const skillFor = (text: string) => skillInvocation(text, slashEntries);
+
+  return { runSlash, skillFor, slashEntries };
 }

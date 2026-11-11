@@ -20,6 +20,7 @@ import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver"
 import { effectiveTeamIds } from "./lib/projectTeam";
 import type { PromptSkill } from "./lib/skills";
 import { loadPromptSkills } from "./skills";
+import { resolveInvokedSkills } from "./lib/chat/invokedSkills";
 import { resolveRunMcpServers } from "./mcpServers";
 import { loadMemorySection, loadRecalledSection } from "./memories";
 import { touchBriefQuestion } from "./briefs";
@@ -185,7 +186,7 @@ export const getRunContext = internalQuery({
      * skills, resolved in order. The worker appends them after the static
      * system prompt (lib/skills.appendSkillsToPrompt).
      */
-    agents: Array<Doc<"agents"> & { attachedSkills: PromptSkill[]; memorySection?: string; recalledMemorySection?: string }>;
+    agents: Array<Doc<"agents"> & { attachedSkills: PromptSkill[]; invokedSkills?: PromptSkill[]; memorySection?: string; recalledMemorySection?: string }>;
     plan: Doc<"plans"> | null;
     subtasks: Doc<"subtasks">[];
     /**
@@ -270,6 +271,9 @@ export const getRunContext = internalQuery({
     // Plan 038: once the OpenCode provider row exists, the ordered model
     // list decides and the legacy switch is neutralized ("api" baseline).
     const opencode = await effectiveLegacyOpencode(ctx, await loadOpencodeSettings(ctx));
+    // Paradev C3: skills invoked on the source message, from the team's own (inlined in every agent's prompt).
+    const teamIds = task.invokedSkills?.length && project ? effectiveTeamIds(project.agentIds, allAgents) : [];
+    const invoked = (await resolveInvokedSkills(ctx, task.invokedSkills, allAgents.filter((a) => teamIds.includes(a._id)))).skills;
 
     return {
       task,
@@ -278,6 +282,7 @@ export const getRunContext = internalQuery({
         agents.map(async (agent) => ({
           ...projectAgentForWorker(agent),
           attachedSkills: await loadPromptSkills(ctx, agent),
+          ...(invoked.length ? { invokedSkills: invoked } : {}),
           // Pinned memories (shared → project → agent), pre-rendered and
           // capped (lib/memory.ts). The worker appends it after the skills.
           ...(await (async () => {

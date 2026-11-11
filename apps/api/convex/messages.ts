@@ -13,6 +13,9 @@ import {
 import { isPersonalConversation } from "./lib/conversationShape";
 import { internal } from "./_generated/api";
 import { permissionModeValidator } from "./lib/permissionModes";
+import { invokedSkillsField } from "./lib/invokedSkillsSchema";
+import { assertInvokedSkills } from "./lib/chat/invokedSkills";
+import { projectTeamIds } from "./lib/projectTeam";
 
 export const listByProject = query({
   args: { projectId: v.id("projects"), limit: v.optional(v.number()) },
@@ -341,6 +344,8 @@ export const send = mutation({
     quotedMessageId: v.optional(v.id("messages")),
     /** Composer-generated id for dedupe + optimistic reconcile. */
     clientId: v.optional(v.string()),
+    /** Paradev C3: "/<skill> [request]" — skills the reply inlines for this turn. */
+    invokedSkills: invokedSkillsField,
   },
   handler: async (ctx, args): Promise<{ messageId: string; conversationId: string; deduped: boolean }> => {
     // Authorization (core H5): owned projects require their owner; open
@@ -365,6 +370,12 @@ export const send = mutation({
     // Plan 007: resolve (or create) the project's active conversation and sync
     // the caller's participant selection into it before the reply runs, so
     // participation is persisted rather than recomputed per message.
+    // Only skills the project's team carries (what the "/" menu lists).
+    const project = await ctx.db.get(args.projectId);
+    const teamAgents = args.invokedSkills?.length
+      ? await Promise.all((await projectTeamIds(ctx, project)).map((id) => ctx.db.get(id)))
+      : [];
+    const invokedSkills = await assertInvokedSkills(ctx, args.invokedSkills, teamAgents);
     const conversationId = await ensureChatConversation(ctx, {
       projectId: args.projectId,
       conversationId: args.conversationId,
@@ -378,6 +389,7 @@ export const send = mutation({
       ...(args.preferredAgentIds?.length ? { preferredAgentIds: args.preferredAgentIds } : {}),
       ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
       ...(clientId ? { clientId } : {}),
+      ...(invokedSkills.length ? { invokedSkills } : {}),
     });
     // A message typed while a command waits declines it ("user replied
     // instead"): the agent continues with these words rather than blocking.
@@ -475,6 +487,8 @@ export const sendInConversation = mutation({
     content: v.string(),
     quotedMessageId: v.optional(v.id("messages")),
     clientId: v.optional(v.string()),
+    /** Paradev C3: skills this chat's agent carries, inlined for this turn. */
+    invokedSkills: invokedSkillsField,
   },
   handler: async (ctx, args): Promise<{ messageId: string; conversationId: string; deduped: boolean }> => {
     const { conversation } = await getAccessibleConversation(ctx, args.conversationId);
@@ -497,11 +511,14 @@ export const sendInConversation = mutation({
         return { messageId: existing._id as string, conversationId: conversation._id as string, deduped: true };
       }
     }
+    const personalAgent = args.invokedSkills?.length && conversation.agentId ? await ctx.db.get(conversation.agentId) : null;
+    const invokedSkills = await assertInvokedSkills(ctx, args.invokedSkills, [personalAgent]);
     const messageId = await insertChatUserMessage(ctx, {
       content: args.content,
       conversationId: conversation._id,
       ...(args.quotedMessageId ? { quotedMessageId: args.quotedMessageId } : {}),
       ...(clientId ? { clientId } : {}),
+      ...(invokedSkills.length ? { invokedSkills } : {}),
     });
     const now = Date.now();
     await ctx.db.patch(conversation._id, { lastMessageAt: now, updatedAt: now });

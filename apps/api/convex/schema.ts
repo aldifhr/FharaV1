@@ -24,6 +24,7 @@ import {
   requirementValidator,
 } from "./lib/traceValidators";
 import { diffCommentsTable, reviewEvidenceValidator, reviewFixValidator } from "./lib/diffCommentSchema";
+import { invokedSkillsField } from "./lib/invokedSkillsSchema";
 
 export const taskStatus = v.union(
   v.literal("queued"),
@@ -502,9 +503,9 @@ export default defineSchema({
         resumeAt: v.number(),
       })
     ),
-    // Shadow Agent (additive): the Reviewer observes this task and leaves
-    // notes after each completed subtask. Never executes or blocks.
+    // Shadow Agent (additive): the Reviewer observes and leaves notes after each subtask; never executes or blocks.
     shadowAgent: v.optional(v.boolean()),
+    invokedSkills: invokedSkillsField, // Paradev C3: skills invoked on the source message, inlined in every run.
     // Plan 025 (additive): requirements extracted from the request at plan
     // time, and the last deterministic coverage check before "done".
     requirements: v.optional(v.array(requirementValidator)),
@@ -742,11 +743,9 @@ export default defineSchema({
     // so pre-conversation messages still validate; task-thread messages keep
     // taskId and need no conversation.
     conversationId: v.optional(v.id("conversations")),
-    // Pinned by the user for quick access from the header chip. Optional so
-    // pre-pin messages still validate.
+    // Pinned by the user for quick access from the header chip (optional: pre-pin rows validate).
     pinned: v.optional(v.boolean()),
-    // True while the chat action is still streaming this agent reply. The
-    // UI animates "Thinking" / the caret from it; cleared on finish or error.
+    // True while the chat action streams this agent reply ("Thinking" / caret); cleared on finish or error.
     streaming: v.optional(v.boolean()),
     // Plan 006 Phase 4: durable queue. Messages are claimed by the worker
     // with the task lease pattern (leasedBy / leaseExpiresAt). Task-linked
@@ -779,6 +778,7 @@ export default defineSchema({
     ),
     // Idempotent send (t3code idea #2): the composer's client id; a retried send with the same id returns this row.
     clientId: v.optional(v.string()),
+    invokedSkills: invokedSkillsField, // Paradev C3: "/<skill>" — the reply inlines these for this turn only.
     // Agent bubble whose run died (stale sweep / failed run): "Reply interrupted" + Retry.
     interrupted: v.optional(v.boolean()),
     // Reply kept with its partial text: cut mid-stream or at the output limit. "Continue" appends (lib/chat/continueReply.ts).

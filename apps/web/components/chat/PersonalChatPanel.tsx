@@ -11,7 +11,7 @@ import { newClientId, optimisticUserRow, reconcileOptimistic, withOptimisticRow 
 import { agentRoleText, roleLabel } from "@/lib/agentRoles";
 import { clockTime, isSameDay, shortDate } from "@/lib/format";
 import { conversationKindLabel, personalDraftKey, personalEmptyText } from "@/lib/personalChat";
-import { skillsUsedBy, slashMenuEntries } from "@/lib/slashMenu";
+import { skillInvocation, skillsUsedBy, slashMenuEntries } from "@/lib/slashMenu";
 import { usePersonalAttachEnabled } from "@/lib/personalAttachPref";
 import { useToast } from "../Toasts";
 import ConfirmDialog, { type ConfirmRequest } from "../ConfirmDialog";
@@ -75,12 +75,13 @@ export default function PersonalChatPanel({
     store.setQuery(api.messages.listByConversation, listArgs, withOptimisticRow(current as any[], row as any) as any);
   });
   const send = useCallback(
-    (content: string, extra: { quotedMessageId?: string; clientId?: string } = {}) =>
+    (content: string, extra: { quotedMessageId?: string; clientId?: string; invokedSkills?: string[] } = {}) =>
       sendMutation({
         conversationId: conversationId as never,
         content,
         clientId: extra.clientId ?? newClientId(),
         ...(extra.quotedMessageId ? { quotedMessageId: extra.quotedMessageId as never } : {}),
+        ...(extra.invokedSkills?.length ? { invokedSkills: extra.invokedSkills } : {}),
       }),
     [sendMutation, conversationId],
   );
@@ -254,7 +255,8 @@ export default function PersonalChatPanel({
     try {
       if (!(await runSlash(text))) {
         nearBottomRef.current = true;
-        await send(text, quote ? { quotedMessageId: quote.messageId } : {});
+        // Paradev C3: "/<skill> [request]" invokes one of this agent's skills.
+        await send(text, { ...(quote ? { quotedMessageId: quote.messageId } : {}), ...(skillInvocation(text, slashCommands) ?? {}) });
       }
       setQuote(null);
       setDraft("");
@@ -342,7 +344,7 @@ export default function PersonalChatPanel({
   };
 
   // "/" menu: the registry's personal builtins (/task once a project is
-  // attached), then this agent's skills (listed, not callable until Paradev C3).
+  // attached), then this agent's skills (callable since Paradev C3).
   const personalAgentId = agent?.agentId;
   const slashCommands = useMemo(
     () => slashMenuEntries("personal", skillsUsedBy((allSkills ?? []) as any[], personalAgentId ? [personalAgentId] : []), { attached }),

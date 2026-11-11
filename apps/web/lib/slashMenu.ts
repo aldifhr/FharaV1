@@ -8,7 +8,9 @@
  */
 import {
   builtinCommandsForScope,
+  findBuiltinSlash,
   getCommandMatchRank,
+  parseSlash,
   shouldSuppressSlashMenuForCommittedCommand,
   skillSlashEntry,
   sortSlashCommandMatches,
@@ -74,12 +76,11 @@ export function runsOnEnter(state: SlashMenuState | null, entry: SlashMenuEntry 
   return entry.entryKind === "command" && entry.argumentHint.trim() === "" && entry.name.toLowerCase() === state.query;
 }
 
-/** Skills are listed but not callable from chat until Paradev C3. */
-export const SKILL_DISABLED_NOTE = "Coming soon";
-
 /**
  * The rows a chat offers: its scope's builtins, then the given skills
- * (deduplicated by name, skipping any that shadow a builtin), disabled.
+ * (deduplicated by name, skipping any that shadow a builtin). Since Paradev
+ * C3 a skill row is callable: "/<skill> [request]" sends the message with
+ * `invokedSkills` (see skillInvocation).
  */
 export function slashMenuEntries(
   scope: SlashCommandScope,
@@ -93,7 +94,7 @@ export function slashMenuEntries(
     const key = skill.name.toLowerCase();
     if (!key || taken.has(key)) continue;
     taken.add(key);
-    out.push({ ...skillSlashEntry(skill), disabled: true, disabledNote: SKILL_DISABLED_NOTE });
+    out.push(skillSlashEntry(skill));
   }
   return out;
 }
@@ -115,4 +116,17 @@ export function skillsUsedBy<T extends { name: string; usedBy?: ReadonlyArray<{ 
   if (!skills?.length || !agentIds.length) return [];
   const ids = new Set(agentIds.map(String));
   return skills.filter((s) => (s.usedBy ?? []).some((a) => ids.has(String(a._id))));
+}
+
+/**
+ * Paradev C3: "/<skill> [request]" → the skill to invoke with the message.
+ * Any slash word that is not a builtin counts: the menu's canonical name when
+ * listed, else the word as typed, so the server answers an unknown one with
+ * "No skill named X on this team." Builtins and non-slash text → null.
+ */
+export function skillInvocation(text: string, entries: readonly SlashMenuEntry[]): { invokedSkills: string[] } | null {
+  const parsed = parseSlash(text);
+  if (!parsed || findBuiltinSlash(text)) return null;
+  const hit = entries.find((e) => e.entryKind === "skill" && e.name.toLowerCase() === parsed.name);
+  return { invokedSkills: [hit?.name ?? parsed.name] };
 }

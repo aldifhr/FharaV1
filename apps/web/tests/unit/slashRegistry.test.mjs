@@ -7,19 +7,18 @@ import { readFileSync } from "node:fs";
 import { FHARA_BUILTIN_COMMANDS } from "../../../api/convex/lib/slashCommands.ts";
 import { personalSlashNames } from "../../lib/personalChat.ts";
 import {
-  SKILL_DISABLED_NOTE,
   committedUsage,
   completeSlash,
   filterSlashEntries,
   runsOnEnter,
+  skillInvocation,
   skillsUsedBy,
   slashMenuEntries,
 } from "../../lib/slashMenu.ts";
 
-// Registry builtins runSlash does not handle in the client: /research goes to
-// the server as a message (intent.ts turns it into a task). /memory is wired
-// in runSlash since Paradev C2.
-const NOT_IN_RUN_SLASH = new Set(["research"]);
+// Registry builtins runSlash does not handle in the client. Since Paradev C3
+// it handles all of them: /research creates its task like /task does.
+const NOT_IN_RUN_SLASH = new Set([]);
 
 test("runSlash handles exactly the registry builtins it owns", () => {
   const src = readFileSync(new URL("../../components/chat/useProjectSlash.ts", import.meta.url), "utf8");
@@ -100,14 +99,41 @@ test("Enter runs only an exact no-argument command", () => {
   assert.equal(runsOnEnter(filterSlashEntries("/task", project), task), false);
 });
 
-test("skills are listed but disabled until C3; builtin names are never shadowed", () => {
+test("skills are callable since C3 (no Coming soon); builtin names are never shadowed", () => {
   const entries = slashMenuEntries("project", [...SKILLS, { name: "Push", description: "dup" }, { name: "frontend-design" }]);
   const skills = entries.filter((e) => e.entryKind === "skill");
   assert.deepEqual(skills.map((s) => s.name), ["frontend-design", "release-notes"]);
-  assert.ok(skills.every((s) => s.disabled && s.disabledNote === SKILL_DISABLED_NOTE && s.argumentHint === "[request]"));
+  assert.ok(skills.every((s) => !s.disabled && !s.disabledNote && s.argumentHint === "[request]"));
   assert.ok(entries.filter((e) => e.entryKind === "command").every((e) => !e.disabled));
   const skill = skills[0];
+  // A skill takes a request: Enter completes it, never sends it bare.
   assert.equal(runsOnEnter(filterSlashEntries("/frontend-design", entries), skill), false);
+  const src = readFileSync(new URL("../../lib/slashMenu.ts", import.meta.url), "utf8");
+  assert.ok(!/Coming soon/.test(src), "skills are no longer marked Coming soon");
+});
+
+test("C3 dispatch: a skill line invokes the skill, builtins and plain text do not", () => {
+  const Skills = slashMenuEntries("project", [{ name: "Frontend-Design", description: "UI" }]);
+  assert.deepEqual(skillInvocation("/frontend-design make the header nicer", Skills), { invokedSkills: ["Frontend-Design"] });
+  assert.deepEqual(skillInvocation("/frontend-design", Skills), { invokedSkills: ["Frontend-Design"] });
+  // Unknown word: sent as typed so the server answers "No skill named X on this team."
+  assert.deepEqual(skillInvocation("/nope do it", Skills), { invokedSkills: ["nope"] });
+  for (const text of ["/research 3 why", "/task fix it", "/memory use pnpm", "/push", "hello", "/usr/bin is broken"]) {
+    assert.equal(skillInvocation(text, Skills), null, text);
+  }
+});
+
+test("C3 dispatch: runSlash sends /research to createTask with the raw line, /memory to memories.create, skills to messages.send", () => {
+  const src = readFileSync(new URL("../../components/chat/useProjectSlash.ts", import.meta.url), "utf8");
+  const research = src.slice(src.indexOf('command === "research"'), src.indexOf('command === "memory"'));
+  assert.ok(/createTask\(/.test(research) && /command: `\/research \$\{rest\}`/.test(research), "/research creates its task with the raw line");
+  assert.ok(/Ask a question after \/research\./.test(research), "a bare /research never starts a task");
+  const memory = src.slice(src.indexOf('command === "memory"'), src.indexOf('command === "push"'));
+  assert.ok(/createMemory\(\{[\s\S]*scope: "project"[\s\S]*pinned: true/.test(memory), "/memory pins a project memory");
+  const panel = readFileSync(new URL("../../components/ChatPanel.tsx", import.meta.url), "utf8");
+  assert.ok(/sendMessage\(\{[\s\S]*?skillFor\(text\)[\s\S]*?\}\)/.test(panel), "skill lines go through the normal (O3-routed) send");
+  const personal = readFileSync(new URL("../../components/chat/PersonalChatPanel.tsx", import.meta.url), "utf8");
+  assert.ok(/skillInvocation\(text, slashCommands\)/.test(personal));
 });
 
 test("personal scope: no commands until a project is attached, then /task", () => {
@@ -132,7 +158,7 @@ test("usage line shows the argument hint once a command is committed", () => {
   assert.equal(committedUsage("/research ", project), "/research [2-6] <question>");
   assert.equal(committedUsage("/task do it", project), null);
   assert.equal(committedUsage("/push ", project), null);
-  assert.equal(committedUsage("/frontend-design ", project), null);
+  assert.equal(committedUsage("/frontend-design ", project), "/frontend-design [request]");
 });
 
 test("composer reads the registry, not a hard-coded list, and Esc keeps the draft", () => {

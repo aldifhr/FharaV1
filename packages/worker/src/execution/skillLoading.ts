@@ -16,8 +16,33 @@
  * declares `run_command` does not get the agent run_command.
  */
 import { extractToolCalls } from "@/api/convex/lib/chat/toolCallText";
-import { createSkillLoader, LOAD_SKILL_TOOL_LINE, wantsLoadSkillTool } from "@/api/convex/lib/skillRuntime";
+import {
+  appendAgentSkills,
+  createSkillLoader,
+  LOAD_SKILL_TOOL_LINE,
+  normalizeSkillLoading,
+  wantsLoadSkillTool,
+  withoutInvoked,
+} from "@/api/convex/lib/skillRuntime";
 import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_MAX_CHARS, LOAD_SKILL_TOOL, type PromptSkill } from "@/api/convex/lib/skills";
+
+/**
+ * Paradev C3: an agent's skills for a task run. Skills the user invoked on
+ * the task's source message (`tasks.invokedSkills`, resolved by getRunContext)
+ * are inlined whatever the agent's loading mode, so an on_demand agent never
+ * has to load them; they leave the on-demand list so each body is read once.
+ */
+export function taskAgentSkills(agent: {
+  systemPrompt?: string;
+  attachedSkills?: PromptSkill[];
+  invokedSkills?: PromptSkill[];
+  skillLoading?: unknown;
+}): { systemPrompt: string | undefined; onDemandSkills?: PromptSkill[] } {
+  const mode = normalizeSkillLoading(agent.skillLoading);
+  const systemPrompt = appendAgentSkills(agent.systemPrompt, agent.attachedSkills, mode, agent.invokedSkills);
+  const onDemand = mode === "on_demand" ? withoutInvoked(agent.attachedSkills, agent.invokedSkills) : [];
+  return { systemPrompt, ...(onDemand.length ? { onDemandSkills: onDemand } : {}) };
+}
 
 export type SkillPreloadMessage = { role: "system" | "user" | "assistant"; content: string };
 

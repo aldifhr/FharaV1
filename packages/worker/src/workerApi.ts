@@ -10,14 +10,14 @@ export type WorkerTask = Doc<"tasks">;
 export type WorkerProject = Doc<"projects">;
 export type WorkerAgent = Doc<"agents">;
 /**
- * Agent row as getRunContext delivers it: plus its attached library skills
- * and its pre-rendered "## Memory" section (pinned memories, capped).
+ * Agent row as getRunContext delivers it: plus its attached library skills, the skills invoked on the
+ * task's source message (Paradev C3, always inline) and its pre-rendered "## Memory" section (pinned, capped).
  */
 export type WorkerRunAgent = WorkerAgent & {
   attachedSkills?: PromptSkill[];
+  invokedSkills?: PromptSkill[];
   memorySection?: string;
-  /** Plan L4: unpinned memories recalled for this task (after the pinned section). */
-  recalledMemorySection?: string;
+  recalledMemorySection?: string; // Plan L4: unpinned memories recalled for this task (after the pinned section).
 };
 export type WorkerPlanRecord = Doc<"plans">;
 export type WorkerSubtask = Doc<"subtasks">;

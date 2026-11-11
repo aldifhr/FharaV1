@@ -53,6 +53,7 @@ import { handoffNote, resendTexts, type HandoffEvent } from "./handoff";
 import { PERMANENT_RESTORE_NOTE, SessionResumeTransientError, TRANSIENT_RESTORE_NOTE, type RestoreRecord } from "./restore";
 import { DirectStreamRedactor, redactErrorText, redactPayload } from "./streamRedactor";
 import { cancelReasonOf, type ToolGateAnswer, type ToolGateCall } from "./toolGate";
+import type { QuestionAskCall, QuestionRouted } from "./nativeQuestion";
 import {
   SessionNotFoundError,
   type ApprovalCancelReason,
@@ -106,6 +107,11 @@ export interface DirectStore {
   } | null>;
   /** Closes a card; the store writes approval.resolved {decision: "cancelled", reason, message}. */
   cancelApproval(approvalId: string, reason: ApprovalCancelReason, message: string): Promise<void>;
+  /**
+   * N7: write a question card (approval.requested {kind: "question"}) and
+   * route it (the CTO within policy, else the user). Absent: questions are refused.
+   */
+  askQuestion?(input: QuestionAskCall): Promise<QuestionRouted>;
   /** The thread's events so far (for a handoff note). */
   loadEvents(): Promise<HandoffEvent[]>;
   recordUsage(usage: TurnUsage): Promise<void>;
@@ -324,6 +330,10 @@ export class ThreadRunner {
         requestApproval: (call) => {
           if (gen !== this.generation) return Promise.resolve({ decision: "expired" as const });
           return this.requestApproval(call);
+        },
+        askQuestion: (call) => {
+          if (gen !== this.generation) return Promise.reject(new Error("the agent session was replaced"));
+          return this.askQuestion(call);
         },
         activity: (progress) => {
           if (gen !== this.generation) return;
@@ -604,6 +614,13 @@ export class ThreadRunner {
       watched?.resume();
       if (this.turn) await this.persist([], { status: "running" }).catch(() => undefined);
     }
+  }
+
+  /** N7: the card lands after the question's tool row; the answer is a later message. */
+  private async askQuestion(call: QuestionAskCall): Promise<QuestionRouted> {
+    if (!this.opts.store.askQuestion) throw new Error("this thread can't show questions");
+    await this.drain();
+    return await this.opts.store.askQuestion(call);
   }
 
   /** A cancelled permission request the store didn't record: approval.resolved here. */

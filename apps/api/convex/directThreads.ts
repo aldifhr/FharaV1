@@ -12,13 +12,11 @@
  * Two callers:
  *   - the web UI: create / send / interrupt / respond / close, and the
  *     tail / page / streams / body reads (T3 renders them);
- *   - the worker, through token-gated wrappers in worker.ts: claim, poll,
- *     appendEvents, flushStream, requestApproval, approvalState,
- *     cancelApproval, release. Every worker write is lease-fenced.
+ *   - the worker, through token-gated wrappers in worker.ts: claim, poll, appendEvents,
+ *     flushStream, requestApproval, approvalState, cancelApproval, release (lease-fenced).
  *
- * Approvals are in-process: the worker keeps its lease (heartbeat) while a
- * card waits, and this module never calls orchestration.requestApproval,
- * which would drop the lease and re-queue the task.
+ * Approvals are in-process: the worker keeps its lease (heartbeat) while a card waits, and this
+ * module never calls orchestration.requestApproval, which would drop the lease and re-queue the task.
  */
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { v, type Infer } from "convex/values";
@@ -46,6 +44,7 @@ import {
 } from "./lib/directThreads";
 import { directMcpSetHash } from "./directThreadSettings";
 import { patchTask, syncTaskThread } from "./lib/threadIndex";
+import { resolveDirectQuestion } from "./lib/directQuestions";
 
 const TERMINAL = new Set(["done", "failed", "rejected", "cancelled"]);
 const LEASE_LOST = "Lease lost: this task is no longer owned by this worker";
@@ -208,6 +207,7 @@ export const send = mutation({
 export async function sendDirectMessage(ctx: MutationCtx, task: Doc<"tasks">, text: string, clientId: string) {
   const written = await writeUserMessage(ctx, task, text, clientId);
   if (written.deduped) return { eventId: written.eventId, deduped: true, declined: 0 };
+  await resolveDirectQuestion(ctx, task, { text, by: "user" }); // N7: the message answers an open question card
   const declined = await declineDirectCards(ctx, task, text);
   if (task.status === "waiting_input" || task.status === "paused") await patchTask(ctx, task._id, { status: "queued", updatedAt: Date.now() });
   return { eventId: written.eventId, deduped: false, declined };

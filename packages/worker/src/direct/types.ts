@@ -8,6 +8,7 @@ import type { AcpOutput, NormalizedEvent } from "@/vendor/threadbear/acp/normali
 import type { RestoreRecord } from "./restore";
 import type { AcpMcpServer } from "./mcpDeclare";
 import type { ApprovalCancelReason, ToolGateAnswer, ToolGateCall } from "./toolGate";
+import type { QuestionAskCall, QuestionRouted } from "./nativeQuestion";
 
 export type { ApprovalCancelReason };
 
@@ -56,6 +57,12 @@ export interface SessionSink {
   output(out: AcpOutput | { kind: "session"; sessionId: string; model?: string } | { kind: "result"; result: TurnResult }): void;
   /** A tool call wants a decision; resolves once answered or cancelled. */
   requestApproval(call: ToolGateCall): Promise<ToolGateAnswer>;
+  /**
+   * N7: the agent asked with its question tool. Resolves once the card is
+   * written (and routed: the user, or the CTO); never waits for the answer,
+   * which arrives as the next prompt. Absent: questions are refused.
+   */
+  askQuestion?(call: QuestionAskCall): Promise<QuestionRouted>;
   /**
    * A frame from the agent arrived mid-turn (the turn watchdog's liveness
    * signal); progress when it advanced the turn (text, a tool, a plan), not

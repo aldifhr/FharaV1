@@ -38,6 +38,8 @@ import { normalizeRoleKey } from "./lib/roles";
 import { answerCrossesCeiling, classifyQuestion } from "./lib/questionPolicy";
 import { decisionDeliveryValidator, decisionTurnSourceValidator } from "./lib/decisionTurnSchema";
 import { touchBriefQuestion } from "./briefs";
+import { handDirectQuestionToUser, NATIVE_QUESTION_DEDUPE } from "./lib/directQuestions";
+import { deliverCtoAnswer } from "./directQuestions";
 
 const TERMINAL = new Set<Doc<"tasks">["status"]>(["done", "failed", "rejected", "cancelled"]);
 export const DECISION_TTL_MIN_MS = 30_000;
@@ -175,6 +177,8 @@ export async function openDecisionTurn(ctx: MutationCtx, input: OpenTurnInput): 
 async function parkForUser(ctx: MutationCtx, turn: Doc<"decisionTurns">, why: string): Promise<boolean> {
   const task = await ctx.db.get(turn.taskId);
   if (!task || TERMINAL.has(task.status) || task.status === "needs_approval") return false;
+  // N7: a native direct-thread question stays a card in the thread; it is re-shown for the user.
+  if (isNativeQuestion(turn)) return await handDirectQuestionToUser(ctx, task, turn._id, why);
   if (task.status === "waiting_input" && task.pendingQuestion) return false;
   if (task.workerId && (task.leaseExpiresAt ?? 0) > Date.now()) return false;
   await patchTask(ctx, task._id, {
@@ -193,6 +197,9 @@ async function parkForUser(ctx: MutationCtx, turn: Doc<"decisionTurns">, why: st
   });
   return true;
 }
+
+/** A question an ACP agent asked with its own question tool (plan N7, directQuestions.ts). */
+const isNativeQuestion = (turn: Doc<"decisionTurns">) => turn.dedupeKey.startsWith(NATIVE_QUESTION_DEDUPE);
 
 /** Close an open turn as expired. No option is chosen; a task_input question goes to the user. */
 async function expireTurn(ctx: MutationCtx, turn: Doc<"decisionTurns">, why: string): Promise<void> {
@@ -394,6 +401,12 @@ export const deliver = internalMutation({
     if (!task || TERMINAL.has(task.status)) {
       await ctx.db.patch(signal._id, { consumedAt: now, consumedBy: "terminal" });
       return { delivered: false };
+    }
+    // N7: a native question's answer is the thread's next user.message (skipped if the user answered first).
+    if (isNativeQuestion(turn)) {
+      const sent = await deliverCtoAnswer(ctx, task, turn._id, signal.answer ?? "");
+      await ctx.db.patch(signal._id, { consumedAt: now, consumedBy: sent ? "deliver" : "superseded" });
+      return { delivered: sent };
     }
     await ctx.db.insert("taskInputs", {
       taskId: task._id,

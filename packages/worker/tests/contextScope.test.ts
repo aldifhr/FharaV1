@@ -175,3 +175,16 @@ describe("compaction (C2)", () => {
     expect(summaryPrompt).toContain("Summarize the earlier conversation");
   });
 });
+
+describe("System lines (O2/O3, one flag: voice \"system\")", () => {
+  it("never reach the summary or chat prompt", () => {
+    const history = [
+      { authorType: "user", content: "add a CSV export" },
+      { authorType: "agent", voice: "system", content: "Sent to Backend" },
+      { authorType: "agent", content: "Done: export added." },
+    ];
+    expect(buildSummaryPrompt(history)).not.toContain("Sent to Backend");
+    expect(buildChatPrompt({ history })).not.toContain("Sent to Backend");
+    expect(buildChatPrompt({ history })).toContain("Done: export added.");
+  });
+});

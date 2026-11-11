@@ -21,6 +21,7 @@ import { closesIssueFor } from "./issueIntake";
 import { ciRollup, mergeabilityOf, type CheckFact } from "./lib/prFeedback";
 import { fetchCommitChecks, MAX_POLLED_CHECKS, summarizeChecks } from "./lib/prChecks";
 import { appendTaskEvent } from "./lib/taskEvents";
+import { inheritedFixPush } from "./lib/fixPushPr";
 
 /**
  * Plan 019 — stage cards and the GitHub push / pull-request flow.
@@ -266,38 +267,8 @@ export const recordTaskCommit = internalMutation({
       return { applied: true as const, pushId: existing._id, messageId: existing.messageId, deduped: true };
     }
     const now = Date.now();
-    // Post-push feedback loop: a PR fix commit joins its owner's PR (same
-    // branch), so the push updates that PR instead of opening another.
-    let inherited: Partial<PushRow> = {};
-    if (task.parentTaskId && task.prFix) {
-      const ownerRows = await ctx.db
-        .query("taskPushes")
-        .withIndex("by_repo_pr", (q) => q.eq("repoFullName", task.prFix!.repoFullName).eq("prNumber", task.prFix!.prNumber))
-        .take(100);
-      const pr = ownerRows
-        .filter((row) => row.projectId === args.projectId && row.branchName === args.branchName)
-        .sort((a, b) => b.createdAt - a.createdAt)[0];
-      if (pr) {
-        inherited = {
-          ownerTaskId: task.parentTaskId,
-          openPr: true,
-          repoFullName: pr.repoFullName,
-          baseBranch: pr.baseBranch,
-          prNumber: pr.prNumber,
-          prUrl: pr.prUrl,
-          prTitle: pr.prTitle,
-          prState: pr.prState,
-          prCheckedAt: pr.prCheckedAt,
-          headSha: pr.headSha,
-          ciState: pr.ciState,
-          ciChecks: pr.ciChecks,
-          reviewState: pr.reviewState,
-          mergeable: pr.mergeable,
-        };
-      } else {
-        inherited = { ownerTaskId: task.parentTaskId };
-      }
-    }
+    // A prFix/reviewFix commit joins its owner's PR (lib/fixPushPr.ts).
+    const inherited = await inheritedFixPush(ctx, task, args.projectId, args.branchName);
     const pushId = await ctx.db.insert("taskPushes", {
       ...inherited,
       taskId: args.taskId,

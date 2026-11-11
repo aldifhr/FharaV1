@@ -233,3 +233,65 @@ describe("diffComments.sendRound", () => {
     expect(list[0].status).toBe("draft");
   });
 });
+
+describe("review-round fix commit", () => {
+  test("a reviewFix task's commit joins the owner's open PR, like a prFix commit", async () => {
+    const { t, ownerId, projectId } = await orchestrated();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("taskPushes", {
+        taskId: ownerId,
+        projectId,
+        branchName: BRANCH,
+        commitSha: SHA,
+        commitMessage: "feat: dark mode",
+        filesChanged: 1,
+        status: "pushed",
+        attempts: 1,
+        openPr: true,
+        repoFullName: "acme/app",
+        baseBranch: "main",
+        prNumber: 7,
+        prUrl: "https://github.com/acme/app/pull/7",
+        prState: "open",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    await draft(t, ownerId);
+    const sent = await t.mutation(api.diffComments.sendRound, { taskId: ownerId });
+    const fixId = (sent as any).roundTaskId;
+    await t.run((ctx) => ctx.db.patch(fixId, { status: "running", workerId: "w1", leaseExpiresAt: Date.now() + 60_000 }));
+    const res = await t.mutation(internal.githubPush.recordTaskCommit, {
+      taskId: fixId,
+      projectId,
+      workerId: "w1",
+      branchName: BRANCH,
+      commitSha: SHA2,
+      commitMessage: "Fhara: review round 1",
+      filesChanged: 1,
+    });
+    const row = await t.run(async (ctx) => await ctx.db.get((res as any).pushId));
+    expect(row).toMatchObject({ ownerTaskId: ownerId, openPr: true, prNumber: 7, repoFullName: "acme/app", baseBranch: "main", status: "ready" });
+  });
+
+  test("with no PR on the owner it still links the owner but opens nothing", async () => {
+    const { t, ownerId, projectId } = await orchestrated({ headSha: SHA });
+    await draft(t, ownerId);
+    const sent = await t.mutation(api.diffComments.sendRound, { taskId: ownerId });
+    const fixId = (sent as any).roundTaskId;
+    await t.run((ctx) => ctx.db.patch(fixId, { status: "running", workerId: "w1", leaseExpiresAt: Date.now() + 60_000 }));
+    const res = await t.mutation(internal.githubPush.recordTaskCommit, {
+      taskId: fixId,
+      projectId,
+      workerId: "w1",
+      branchName: BRANCH,
+      commitSha: SHA2,
+      commitMessage: "Fhara: review round 1",
+      filesChanged: 1,
+    });
+    const row = (await t.run(async (ctx) => await ctx.db.get((res as any).pushId))) as any;
+    expect(row?.ownerTaskId).toBe(ownerId);
+    expect(row?.prNumber).toBeUndefined();
+    expect(row?.openPr).toBeUndefined();
+  });
+});

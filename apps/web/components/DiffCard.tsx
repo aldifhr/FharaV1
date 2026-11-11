@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useUiPref } from "@/lib/uiPrefs";
+import { parseDiff } from "@/lib/lineComments";
 
 // react-diff-viewer-continued is a CommonJS class component; load it
 // client-only so its prop-types graph never runs during SSR. (The
@@ -21,39 +22,6 @@ export function countLines(diff: string): { added: number; removed: number } {
     else if (line.startsWith("-")) removed += 1;
   }
   return { added, removed };
-}
-
-type DiffRow =
-  | { type: "hunk"; oldStart: number; newStart: number }
-  | { type: "add" | "del" | "ctx"; oldNo: number | null; newNo: number | null; text: string };
-
-function parseDiff(diff: string): DiffRow[] {
-  const rows: DiffRow[] = [];
-  let oldNo = 0;
-  let newNo = 0;
-  for (const raw of diff.split("\n")) {
-    const hunk = raw.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-    if (hunk) {
-      oldNo = Number(hunk[1]);
-      newNo = Number(hunk[2]);
-      rows.push({ type: "hunk", oldStart: oldNo, newStart: newNo });
-      continue;
-    }
-    if (raw.startsWith("diff ") || raw.startsWith("index ") || raw.startsWith("---") || raw.startsWith("+++")) continue;
-    // "\ No newline at end of file" is metadata, not a line.
-    if (raw.startsWith("\\")) continue;
-    if (raw.startsWith("+")) {
-      rows.push({ type: "add", oldNo: null, newNo: newNo++, text: raw.slice(1) });
-    } else if (raw.startsWith("-")) {
-      rows.push({ type: "del", oldNo: oldNo++, newNo: null, text: raw.slice(1) });
-    } else {
-      rows.push({ type: "ctx", oldNo: oldNo++, newNo: newNo++, text: raw.replace(/^ /, "") });
-    }
-  }
-  // The trailing newline of the diff yields one empty "context" row.
-  const last = rows[rows.length - 1];
-  if (last && last.type === "ctx" && last.text === "") rows.pop();
-  return rows;
 }
 
 type Props = {
@@ -79,6 +47,13 @@ type Props = {
   /** Always render the parsed unified diff (old/new gutters), never the
    *  full-file viewer — the chat "Changed N files" card uses this. */
   forceUnified?: boolean;
+  /** Gutter click on a numbered row of the unified view (shift = extend);
+   *  turns the line numbers into buttons (Changes pane line comments). */
+  onLineClick?: (rowIndex: number, shift: boolean) => void;
+  /** Inclusive row-index range to mark as selected. */
+  selectedRange?: [number, number] | null;
+  /** Content shown under a row (comments, the composer). */
+  renderAnnotation?: (rowIndex: number) => ReactNode;
 };
 
 /** "site/lib/pricing.ts" → dimmed directory + bold file name. */
@@ -110,6 +85,9 @@ export default function DiffCard({
   splitView,
   variant = "card",
   forceUnified = false,
+  onLineClick,
+  selectedRange,
+  renderAnnotation,
 }: Props) {
   const rows = useMemo(() => parseDiff(diff), [diff]);
   const { added, removed } = useMemo(() => countLines(diff), [diff]);
@@ -238,15 +216,38 @@ export default function DiffCard({
                   : row.type === "del"
                     ? "text-[#d83a3a] dark:text-rose-400"
                     : "text-transparent";
+              const selected = Boolean(selectedRange && i >= selectedRange[0] && i <= selectedRange[1]);
+              const gutter = (n: number | null) =>
+                onLineClick ? (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={(e) => onLineClick(i, e.shiftKey)}
+                    aria-label={`Comment on line ${n ?? ""}`}
+                    className="w-10 shrink-0 select-none px-2 text-right text-ink-3 hover:bg-hover hover:text-ink"
+                  >
+                    {n ?? ""}
+                  </button>
+                ) : (
+                  <span className="w-10 shrink-0 select-none px-2 text-right text-ink-3">{n ?? ""}</span>
+                );
+              const note = renderAnnotation?.(i);
               return (
-                <div key={i} className={`flex min-w-max ${bg}`}>
-                  <span className="w-10 shrink-0 select-none px-2 text-right text-ink-3">{row.oldNo ?? ""}</span>
-                  <span className="w-10 shrink-0 select-none px-2 text-right text-ink-3">{row.newNo ?? ""}</span>
-                  <span className={`w-5 shrink-0 select-none text-center ${signColor}`}>
-                    {row.type === "add" ? "+" : row.type === "del" ? "−" : ""}
-                  </span>
-                  <span className="whitespace-pre pr-4 text-ink">{row.text}</span>
-                </div>
+                <Fragment key={i}>
+                  <div
+                    data-diff-row={i}
+                    aria-selected={onLineClick ? selected : undefined}
+                    className={`flex min-w-max ${bg} ${onLineClick ? `border-l-2 ${selected ? "border-ink" : "border-transparent"}` : ""}`}
+                  >
+                    {gutter(row.oldNo)}
+                    {gutter(row.newNo)}
+                    <span className={`w-5 shrink-0 select-none text-center ${signColor}`}>
+                      {row.type === "add" ? "+" : row.type === "del" ? "−" : ""}
+                    </span>
+                    <span className="whitespace-pre pr-4 text-ink">{row.text}</span>
+                  </div>
+                  {note ? <div className="sticky left-0 border-y border-line bg-panel font-sans">{note}</div> : null}
+                </Fragment>
               );
             })}
           </div>

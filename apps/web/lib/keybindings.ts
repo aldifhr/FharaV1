@@ -21,6 +21,7 @@ export const KEYBINDING_ACTIONS = [
   { id: "toggleChanges", label: "Open or close the task's changes", scope: "Task thread", defaultChord: "Mod+Shift+G" },
   { id: "nextFile", label: "Next changed file", scope: "Changes", defaultChord: "Alt+ArrowDown" },
   { id: "prevFile", label: "Previous changed file", scope: "Changes", defaultChord: "Alt+ArrowUp" },
+  { id: "sendRound", label: "Send draft comments as a review round", scope: "Changes", defaultChord: "Mod+Shift+Enter" },
 ] as const;
 
 export type KeybindingId = (typeof KEYBINDING_ACTIONS)[number]["id"];

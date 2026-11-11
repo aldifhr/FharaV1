@@ -13,6 +13,8 @@ import { useToast } from "../Toasts";
 import ChangesFileList from "./ChangesFileList";
 import ChangesHeader, { type HeaderActing } from "./ChangesHeader";
 import ChecksList from "./ChecksList";
+import DraftCommentsBar from "./DraftCommentsBar";
+import { useLineComments } from "./useLineComments";
 import { OPEN_CHANGES_EVENT, consumeOpenChanges, diffChangeType, isPatchTruncated, splitPatchByFile, stepFile } from "@/lib/changesView";
 import { matchesChord, useKeybindings } from "@/lib/keybindings";
 
@@ -89,6 +91,7 @@ export default function ChangesPane({ taskId }: { taskId: string }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const listRef = useRef<HTMLDivElement>(null);
+  const comments = useLineComments(taskId, view);
 
   // The branch patch is read once per commit (a fix round's commit reloads it).
   const commitSha = view?.source === "branch" ? view.commit?.sha : undefined;
@@ -214,6 +217,7 @@ export default function ChangesPane({ taskId }: { taskId: string }) {
                     changeType={diffChangeType(file.status)}
                     expanded={open[file.path] ?? index < EXPANDED_FILES}
                     onExpandedChange={(value) => setOpen((prev) => ({ ...prev, [file.path]: value }))}
+                    {...comments.fileProps(file.path, file.oldPath, diff)}
                   />
                 )}
               </div>
@@ -221,6 +225,14 @@ export default function ChangesPane({ taskId }: { taskId: string }) {
           })}
         </div>
       )}
+      <DraftCommentsBar
+        draftCount={comments.draftCount}
+        sending={comments.sending}
+        lastRound={comments.lastRound}
+        refusal={comments.refusal}
+        error={comments.sendError}
+        onSend={() => void comments.send()}
+      />
     </div>
   );
 }

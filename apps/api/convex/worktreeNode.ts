@@ -46,7 +46,13 @@ export const createBranch = internalAction({
     workspaceRoot: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const data = (await ctx.runQuery(internal.orchestration.getBranchContext, args)) as {
+    // Only the ids: getBranchContext's validator has no workspaceRoot, and
+    // passing `args` whole failed every isolated task once the worker sent
+    // its WORKSPACE_ROOT ("extra field `workspaceRoot`").
+    const data = (await ctx.runQuery(internal.orchestration.getBranchContext, {
+      taskId: args.taskId,
+      projectId: args.projectId,
+    })) as {
       taskTitle: string;
       workspacePath: string;
       worktreesPath?: string;

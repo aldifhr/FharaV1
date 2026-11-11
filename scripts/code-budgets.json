@@ -87,7 +87,7 @@
     "hex": 3
   },
   "apps/web/components/ChatPanel.tsx": {
-    "lines": 856,
+    "lines": 828,
     "suppressions": 3,
     "tint": 8
   },

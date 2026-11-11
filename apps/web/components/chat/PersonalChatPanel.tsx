@@ -10,11 +10,12 @@ import { composeOfferedTask } from "@/api/convex/lib/chat/intent";
 import { newClientId, optimisticUserRow, reconcileOptimistic, withOptimisticRow } from "@/lib/optimisticChat";
 import { agentRoleText, roleLabel } from "@/lib/agentRoles";
 import { clockTime, isSameDay, shortDate } from "@/lib/format";
-import { conversationKindLabel, personalDraftKey, personalEmptyText, personalSlashNames } from "@/lib/personalChat";
+import { conversationKindLabel, personalDraftKey, personalEmptyText } from "@/lib/personalChat";
+import { skillsUsedBy, slashMenuEntries } from "@/lib/slashMenu";
 import { usePersonalAttachEnabled } from "@/lib/personalAttachPref";
 import { useToast } from "../Toasts";
 import ConfirmDialog, { type ConfirmRequest } from "../ConfirmDialog";
-import ChatComposer, { SLASH_COMMANDS } from "./ChatComposer";
+import ChatComposer from "./ChatComposer";
 import MessageList from "./MessageList";
 import { quoteOf, type ChatQuote } from "./QuoteBlock";
 import { useChatQueue } from "./useChatQueue";
@@ -56,6 +57,7 @@ export default function PersonalChatPanel({
   const startNew = useMutation(api.conversations.startNewPersonal);
   const deleteChat = useMutation(api.conversations.removePersonal);
   const createTask = useMutation(api.tasks.createFromCommand);
+  const allSkills = useQuery(api.skills.list, {});
   const sendMutation = useMutation(api.messages.sendInConversation).withOptimisticUpdate((store, args) => {
     if (!args.clientId) return;
     const listArgs = { conversationId: args.conversationId };
@@ -338,9 +340,12 @@ export default function PersonalChatPanel({
     }
   };
 
+  // "/" menu: the registry's personal builtins (/task once a project is
+  // attached), then this agent's skills (listed, not callable until Paradev C3).
+  const personalAgentId = agent?.agentId;
   const slashCommands = useMemo(
-    () => SLASH_COMMANDS.filter((c) => (personalSlashNames(attached) as string[]).includes(c.name)),
-    [attached],
+    () => slashMenuEntries("personal", skillsUsedBy((allSkills ?? []) as any[], personalAgentId ? [personalAgentId] : []), { attached }),
+    [allSkills, personalAgentId, attached],
   );
 
   if (leaving && (conversation === null || conversation === undefined)) {

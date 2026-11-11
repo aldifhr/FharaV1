@@ -15,6 +15,7 @@ import { isClosedStatus } from "@/lib/taskStatus";
 import { readLastRead, writeLastRead } from "@/lib/lastRead";
 import { statusFromLeases, type LeaseEntry, type StatusMap } from "@/lib/teamStatus";
 import ChatComposer from "./chat/ChatComposer";
+import { useProjectSlash } from "./chat/useProjectSlash";
 import ChatHeader, { type ChatTab, type HeaderNotification } from "./chat/ChatHeader";
 import ManageProjectModal from "./chat/ManageProjectModal";
 import MessageList from "./chat/MessageList";
@@ -399,48 +400,18 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     }
   };
 
-  const agentByRole = (...roles: string[]) => roles.map((r) => agents.find((a) => a.role === r)).find(Boolean);
-
-  /** Slash commands. Returns true when the draft was handled. */
-  const runSlash = async (text: string): Promise<boolean> => {
-    const match = text.match(/^\/(task|qa|review|push)\b\s*([\s\S]*)$/i);
-    if (!match) return false;
-    const command = match[1].toLowerCase();
-    const rest = match[2].trim();
-    if (command === "task") {
-      if (!rest) {
-        setChatError("Describe the task after /task.");
-        return true;
-      }
-      const content = await mentions.attachMentionedFiles(rest);
-      const assignees = mentions.mentionedAgentIds(content);
-      const taskId = await createTask({
-        projectId: projectId as never,
-        permissionMode,
-        command: content,
-        ...(assignees.length ? { assignedAgentIds: assignees as never[] } : {}),
-        ...((activeConversation as any)?.conversation?._id ? { conversationId: (activeConversation as any).conversation._id } : {}),
-      });
-      toast("success", "Task created", rest.slice(0, 80));
-      onSelectTask(taskId as string);
-      return true;
-    }
-    if (command === "push") {
-      const push = pendingItems.find((a: any) => a.kind === "git_push");
-      if (push) onSelectTask(push.taskId);
-      else toast("info", "No push is waiting", "A push shows up here once a task branch is ready.");
-      return true;
-    }
-    const agent = command === "qa" ? agentByRole("qa") : agentByRole("reviewer", "cto");
-    if (!agent) {
-      setChatError(`No ${command === "qa" ? "QA" : "reviewer"} on this project's team.`);
-      return true;
-    }
-    const content =
-      rest || (command === "qa" ? "Please QA the latest change and report what you checked." : "Please review the latest change and call out any risks.");
-    await sendMessage({ projectId: projectId as any, content: `@${roleLabel(agent.role)} ${content}`, preferredAgentIds: [agent._id] as any, permissionMode });
-    return true;
-  };
+  const { runSlash, slashEntries } = useProjectSlash({
+    projectId,
+    agents,
+    permissionMode,
+    conversationId: (activeConversation as any)?.conversation?._id,
+    pendingItems,
+    mentions,
+    createTask,
+    sendMessage,
+    setChatError,
+    onSelectTask,
+  });
 
   const sendImmediately = async () => {
     const text = draft.trim();
@@ -843,6 +814,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             onPermissionModeChange={setPermissionModeChoice}
             quote={quote}
             onCancelQuote={() => setQuote(null)}
+            slashCommands={slashEntries}
           />
           {decisions?.pickup && !decisions.pickup.workerOnline && decisions.pickup.queuedTasks + decisions.pickup.pendingMessages > 0 && (
             <p role="status" className="-mt-2 shrink-0 bg-panel px-4 pb-2 text-[12.5px] text-ink-3 sm:px-9 lg:px-11">

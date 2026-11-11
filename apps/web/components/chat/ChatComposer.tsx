@@ -34,19 +34,14 @@ import {
   PERMISSION_MODE_LABELS,
   type PermissionMode,
 } from "@/api/convex/lib/permissionModes";
+import SlashMenu from "./SlashMenu";
+import { committedUsage, completeSlash, filterSlashEntries, runsOnEnter, slashMenuEntries, type SlashMenuEntry } from "@/lib/slashMenu";
 
 type MentionAgent = { _id: string; name: string; role: string; avatarParams?: unknown };
 type MentionOption = { kind: "agent"; agent: MentionAgent } | { kind: "file"; path: string };
 
-export type SlashCommand = { name: "task" | "qa" | "review" | "push"; hint: string };
-
-/** Composer slash commands; ChatPanel maps each to a real action on send. */
-export const SLASH_COMMANDS: SlashCommand[] = [
-  { name: "task", hint: "Create a task from the rest of the message" },
-  { name: "qa", hint: "Ask QA to check the latest change" },
-  { name: "review", hint: "Ask for a code review of the latest change" },
-  { name: "push", hint: "Open the push waiting for your approval" },
-];
+/** Project-chat default: the registry's project builtins (ChatPanel adds team skills). */
+const DEFAULT_SLASH_ENTRIES: SlashMenuEntry[] = slashMenuEntries("project", []);
 
 const tool =
   "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40";
@@ -103,7 +98,7 @@ export default function ChatComposer({
   onCancelQuote,
   placeholder,
   onKeyIntercept,
-  slashCommands = SLASH_COMMANDS,
+  slashCommands = DEFAULT_SLASH_ENTRIES,
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -140,8 +135,8 @@ export default function ChatComposer({
   placeholder?: string;
   /** Runs first on Enter / Escape when no picker is open; true = handled. */
   onKeyIntercept?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => boolean;
-  /** Slash commands offered in this composer (personal chat: /task after attach only). */
-  slashCommands?: SlashCommand[];
+  /** "/" menu rows from the shared registry (lib/slashMenu `slashMenuEntries`). */
+  slashCommands?: SlashMenuEntry[];
 }) {
   const toast = useToast();
   const textareaRef = useAutoGrowRef([draft], 200);
@@ -195,10 +190,13 @@ export default function ChatComposer({
     };
   }, [modeOpen]);
 
-  // Slash menu: the draft is a bare "/word" being typed.
-  const slashMatch = draft.match(/^\/(\w*)$/);
-  const slashOptions = slashMatch ? slashCommands.filter((c) => c.name.startsWith(slashMatch[1].toLowerCase())) : [];
-  const slashOpen = slashOptions.length > 0;
+  // Slash menu (Paradev C2): the draft starts with "/word"; Esc hides it for
+  // this exact draft only, so the next keystroke can bring it back.
+  const [slashDismissedFor, setSlashDismissedFor] = useState<string | null>(null);
+  const slashState = filterSlashEntries(draft, slashCommands);
+  const slashOptions = slashState?.matches ?? [];
+  const slashOpen = slashOptions.length > 0 && slashDismissedFor !== draft;
+  const usage = committedUsage(draft, slashCommands);
 
   const mentionOptions: MentionOption[] = [
     ...agentResults.map((agent) => ({ kind: "agent" as const, agent })),
@@ -206,17 +204,25 @@ export default function ChatComposer({
   ];
   const mentionOpen = !slashOpen && mention !== null && mentionOptions.length > 0;
   const listLength = slashOpen ? slashOptions.length : mentionOptions.length;
-  useEffect(() => setActiveIndex(0), [mention, listLength, slashOpen]);
+  useEffect(() => setActiveIndex(0), [mention, listLength, slashOpen, slashState?.query]);
 
   const chooseMention = (option: MentionOption | undefined) => {
     if (!option) return;
     if (option.kind === "agent") onInsertAgent(option.agent);
     else onInsertMention(option.path);
   };
-  const chooseSlash = (command: SlashCommand | undefined) => {
-    if (!command) return;
-    onDraftChange(`/${command.name} `);
-    textareaRef.current?.focus();
+  const chooseSlash = (command: SlashMenuEntry | undefined) => {
+    if (!command || command.disabled) return;
+    const next = completeSlash(draft, command.name);
+    onDraftChange(next);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      // Caret right after "/name " so the argument goes there.
+      const caret = command.name.length + 2;
+      el.setSelectionRange(caret, caret);
+    });
   };
 
   const insertAtCursor = (before: string, after = "", placeholder = "") => {
@@ -318,14 +324,19 @@ export default function ChatComposer({
       }
       if (e.key === "Escape") {
         e.preventDefault();
+        // Closes the menu and keeps the draft.
         if (mentionOpen) onDismissMention();
-        else onDraftChange("");
+        else setSlashDismissedFor(draft);
         return;
       }
-      if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+      if ((e.key === "Enter" && !e.shiftKey && !e.altKey) || (e.key === "Tab" && !e.shiftKey)) {
         e.preventDefault();
-        if (slashOpen) chooseSlash(slashOptions[activeIndex]);
-        else chooseMention(mentionOptions[activeIndex]);
+        if (slashOpen) {
+          const entry = slashOptions[activeIndex];
+          // Enter on an exact no-argument command ("/push") runs it.
+          if (e.key === "Enter" && runsOnEnter(slashState, entry)) onSend();
+          else chooseSlash(entry);
+        } else chooseMention(mentionOptions[activeIndex]);
         return;
       }
     }
@@ -368,23 +379,14 @@ export default function ChatComposer({
     <div className="shrink-0 bg-panel px-3 pb-[max(0.875rem,env(safe-area-inset-bottom))] pt-1 sm:px-8 lg:px-10">
       <div className="relative flex flex-col gap-2">
         {slashOpen && (
-          <ul id="composer-slash" role="listbox" aria-label="Commands" className={popover}>
-            {slashOptions.map((command, index) => (
-              <li key={command.name} id={`composer-slash-${index}`} role="option" aria-selected={index === activeIndex}>
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => chooseSlash(command)}
-                  className={`flex w-full items-baseline gap-3 px-3 py-2 text-left ${index === activeIndex ? "bg-hover" : ""}`}
-                >
-                  <span className="font-mono text-[13px] font-medium text-ink">/{command.name}</span>
-                  <span className="truncate text-[13px] text-ink-3">{command.hint}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <SlashMenu
+            id="composer-slash"
+            entries={slashOptions}
+            activeIndex={activeIndex}
+            onHover={setActiveIndex}
+            onPick={chooseSlash}
+            className={popover.replace("max-h-64", "max-h-[min(24rem,50vh)]")}
+          />
         )}
         {mentionOpen && (
           <ul id="composer-mentions" role="listbox" aria-label="Mention a teammate or file" className={popover}>
@@ -501,6 +503,11 @@ export default function ChatComposer({
               </button>
             </div>
           )}
+          {usage && (
+            <p id="composer-slash-usage" className="truncate px-4 pt-2 font-mono text-[12px] text-ink-3">
+              {usage}
+            </p>
+          )}
           <textarea
             ref={textareaRef}
             value={draft}
@@ -515,6 +522,7 @@ export default function ChatComposer({
             aria-controls={slashOpen ? "composer-slash" : mentionOpen ? "composer-mentions" : undefined}
             aria-expanded={slashOpen || mentionOpen}
             aria-activedescendant={slashOpen ? `composer-slash-${activeIndex}` : mentionOpen ? `composer-mention-${activeIndex}` : undefined}
+            aria-describedby={usage ? "composer-slash-usage" : undefined}
             placeholder={placeholder ?? (narrow ? `Message ${projectName}` : `Message ${projectName}, or type / for a command`)}
             className="block w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-base leading-6 text-ink outline-none placeholder:text-ink-3 sm:text-[15px]"
             style={{ minHeight: 48, maxHeight: 200 }}

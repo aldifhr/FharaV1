@@ -73,9 +73,22 @@ describe("go reply after a CTO Create task offer", () => {
     expect(got!.command).toBe(`tambah dark mode\n\n${offer("x")[1].content}`);
     expect(got!.index).toBe(1);
   });
-  it("teammates pulled in after the offer do not hide it", () => {
-    const history = [...offer("tambah dark mode"), { authorType: "agent", agentId: "be", content: "Bisa, toggle di header." }, { authorType: "user", content: "gas" }];
+  it("System lines after the offer do not hide it", () => {
+    const history = [...offer("tambah dark mode"), { authorType: "agent", voice: "system", content: "Nothing running" }, { authorType: "user", content: "gas" }];
     expect(findOfferedTask(history, roleOf)?.index).toBe(1);
+  });
+  it("O3: the nearest reply decides; a later reply without an offer is not a go target", () => {
+    const history = [...offer("tambah dark mode"), { authorType: "agent", agentId: "be", content: "Bisa, toggle di header." }, { authorType: "user", content: "gas" }];
+    expect(findOfferedTask(history, roleOf)).toBeNull();
+  });
+  it("a routed owner's stored offer starts on 'gas' (any role)", () => {
+    const history = [
+      { authorType: "user", content: "tolong jalankan tes" },
+      { authorType: "agent", voice: "system", content: "Sent to Backend" },
+      { authorType: "agent", agentId: "be", content: "Siap.", taskOffer: { kind: "testing", commands: ["npm run test"] } },
+      { authorType: "user", content: "gas" },
+    ];
+    expect(findOfferedTask(history, roleOf)?.index).toBe(2);
   });
   it("an option pick offer composes like the button", () => {
     const history = [

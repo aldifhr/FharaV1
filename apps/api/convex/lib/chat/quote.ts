@@ -4,7 +4,6 @@
  * prompt context) and the web UI (quote bar + bubble snippet).
  */
 
-import { ORCHESTRATOR_ROLE } from "./team";
 import { roleLabel } from "../roles";
 
 /** Max characters of the quoted text that ride into the agent prompt. */
@@ -54,14 +53,14 @@ export type QuotedMessage = {
 
 /**
  * The agent that should answer a reply to `quote`, or null to route as
- * usual. A quoted agent answers when the user @mentioned nobody; the CTO
- * (the default speaker) and the user's own messages route as usual.
+ * usual. A quoted agent (the CTO included since O3: it is no longer the
+ * default speaker) answers when the user @mentioned nobody; the user's own
+ * messages and System lines route as usual.
  */
 export function quotedResponderId(quote: QuotedMessage | null | undefined, userMentionCount: number): string | null {
   if (!quote || quote.authorType !== "agent" || !quote.agentId) return null;
   if (userMentionCount > 0) return null;
   if (quote.inTeam === false) return null;
-  if (ORCHESTRATOR_ROLE.test((quote.role ?? "").trim())) return null;
   return quote.agentId;
 }
 

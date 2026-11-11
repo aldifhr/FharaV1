@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { commandNeedsChatContext, composeOfferedTask, findOfferedTask, isMetaFollowUp, requestAnsweredByOffer } from "./lib/chat/intent";
 import { buildChatMessages, buildSeparateSpeakersLine, buildTurnContextSection, NO_SPEAKER_PREFIX_LINE, teammateContextBlock } from "./lib/prompts/chat";
@@ -144,12 +144,22 @@ describe("(1) a go reply starts the task the CTO offered", () => {
   });
 
   test("end to end: 'gas' after the offer creates the FAQ task with no appended turns", async () => {
-    const { t, projectId, frontendId } = await setup();
-    // Drive the chat through messages.send: the CTO answers each turn with
-    // the reply it gave in the night run.
-    const script = new Map(nightHistory.slice(0, 6).map((row, i, all) => [row.content, all[i + 1]?.content ?? ""]));
-    replyFor = (call) => script.get(call.msgs[call.msgs.length - 1].content) ?? "Oke.";
-    for (const row of nightHistory.slice(0, 6)) if (row.authorType === "user") await send(t, { projectId, content: row.content });
+    const { t, projectId, ctoId, frontendId } = await setup();
+    // O3: the CTO is no longer the chat default, so the night run's CTO turns
+    // are seeded as they were stored (pre-O3 rows without a stored offer);
+    // "gas" must still start the offer they carry.
+    const conversationId = await t.mutation(internal.conversations.ensureForChat, { projectId });
+    await t.run(async (ctx) => {
+      for (const row of nightHistory.slice(0, 6)) {
+        await ctx.db.insert("messages", {
+          projectId,
+          conversationId,
+          authorType: row.authorType as "user" | "agent",
+          content: row.content,
+          ...(row.authorType === "agent" ? { agentId: ctoId } : {}),
+        });
+      }
+    });
     await send(t, { projectId, content: "gas" });
     const tasks = await t.run(async (ctx) => ctx.db.query("tasks").collect());
     expect(tasks).toHaveLength(1);
@@ -157,15 +167,34 @@ describe("(1) a go reply starts the task the CTO offered", () => {
     expect(tasks[0].command).toBe(`dia bilang: buat halaman FAQ\n\n${CTO_FAQ_OFFER}`);
     expect(tasks[0].command).not.toContain("--- Conversation context ---");
     expect(tasks[0].assignedAgentIds).toEqual([frontendId]);
+    // System posts the status line; the CTO writes no assignment reply.
+    const system = await t.run(async (ctx) => ctx.db.query("messages").filter((q) => q.eq(q.field("voice"), "system")).collect());
+    expect(system.map((m) => m.content)).toEqual(["Task created · planning"]);
   });
 
   test("a self-contained /task command gets no earlier turns appended", async () => {
     const { t, projectId } = await setup();
     await send(t, { projectId, content: "apa kabar tim?" });
+    calls.length = 0;
     await send(t, { projectId, content: "/task buat halaman login, register, logout" });
     const tasks = await t.run(async (ctx) => ctx.db.query("tasks").collect());
     expect(tasks).toHaveLength(1);
     expect(tasks[0].command).toBe("buat halaman login, register, logout");
+    // O3: /task makes no CTO assignment call; System posts one status line with the card.
+    expect(calls).toHaveLength(0);
+    const lines = await t.run(async (ctx) => ctx.db.query("messages").filter((q) => q.eq(q.field("taskId"), tasks[0]._id)).collect());
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ voice: "system", content: "Task created · planning", authorType: "agent" });
+    expect(lines[0].agentId).toBeUndefined();
+    expect(lines[0].card?.kind).toBe("assignment");
+    expect(lines[0].content).not.toContain("@");
+  });
+
+  test("chat never auto-starts a task: a change request gets an offer, not a task", async () => {
+    const { t, projectId } = await setup();
+    await send(t, { projectId, content: "tambahkan halaman FAQ di frontend" });
+    await send(t, { projectId, content: "keren, makasih" });
+    expect(await t.run(async (ctx) => ctx.db.query("tasks").collect())).toHaveLength(0);
   });
 });
 

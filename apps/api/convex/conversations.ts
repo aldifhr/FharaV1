@@ -27,10 +27,10 @@ type WriteCtx = MutationCtx;
 type AgentDoc = Doc<"agents">;
 
 /**
- * Default chat selection, preserved verbatim from the pre-Plan-007
- * `chatContext.getContext` (and mirrored by
+ * Default chat selection (mirrored by
  * `packages/worker/tests/chatAndTasks.test.ts`): explicit selection first,
- * then CTO (the planning authority answers chat and drafts the plan).
+ * then one conversational agent. O3: never the CTO by default; a message
+ * with no @mention is routed to its topic owner in chat.ts.
  */
 export function selectDefaultChatAgents(
   projectAgentIds: Id<"agents">[] | undefined,
@@ -54,18 +54,16 @@ export function selectDefaultChatAgents(
   return [];
 }
 
-/** One conversational agent (plan 016): CTO first — as decision-maker,
- * the CTO drafts chat replies and the execution plan. */
+/** One conversational agent (O3: no CTO default): Support (the guidance
+ * role), General, Researcher, then the first non-CTO teammate. */
 function pickConversationalAgent(agents: AgentDoc[]): AgentDoc {
-  const cto = agents.find((a) => /^cto$/i.test(a.role));
-  if (cto) return cto;
+  const support = agents.find((a) => /^support/i.test(a.role));
+  if (support) return support;
   const general = agents.find((a) => /^(general|assistant)/i.test(a.role));
   if (general) return general;
   const researcher = agents.find((a) => /^researcher/i.test(a.role));
   if (researcher) return researcher;
-  const support = agents.find((a) => /^support/i.test(a.role));
-  if (support) return support;
-  return agents[0];
+  return agents.find((a) => !/^(cto|architect)$/i.test(a.role)) ?? agents[0];
 }
 
 /** Active (not left) participant rows of a conversation, oldest join first. */
@@ -216,10 +214,8 @@ export async function ensureChatConversation(
     conversation = (await ctx.db.get(id))!;
   }
 
-  const team = await loadTeamAgents(ctx, project);
-  const active = await activeParticipantRows(ctx, conversation._id);
-
   if (args.preferredAgentIds?.length) {
+    const team = await loadTeamAgents(ctx, project);
     await syncParticipants(
       ctx,
       conversation._id,
@@ -227,29 +223,9 @@ export async function ensureChatConversation(
       team,
       args.preferredAgentIds
     );
-  } else if (active.length === 0) {
-    const seeded = selectDefaultChatAgents(team.map((a) => a._id), team);
-    await syncParticipants(
-      ctx,
-      conversation._id,
-      project,
-      team,
-      seeded.map((a) => a._id)
-    );
-  } else {
-    // Migrate legacy default (Researcher/Support) to CTO once.
-    const teamById = new Map(team.map((a) => [String(a._id), a]));
-    const activeAgents = active
-      .map((row) => teamById.get(String(row.agentId)))
-      .filter(Boolean) as AgentDoc[];
-    const isLegacyDefault = activeAgents.every((a) =>
-      /^(researcher|support|general|assistant)$/i.test(a.role)
-    );
-    const cto = team.find((a) => /^cto$/i.test(a.role));
-    if (isLegacyDefault && cto && !activeAgents.some((a) => /^cto$/i.test(a.role))) {
-      await syncParticipants(ctx, conversation._id, project, team, [cto._id]);
-    }
   }
+  // O3: no default participant (To: Team) and no migration to the CTO; a
+  // message nobody was @mentioned in is routed to its topic owner.
   return conversation._id;
 }
 

@@ -47,16 +47,13 @@ export function pickConversationalAgent(
   return [notCto[0]];
 }
 
-/** Who answers a bare greeting: the mentioned agents, else the CTO (the
- *  default chat participant), else the conversational fallback. Before
- *  this, greetings skipped the CTO and the Researcher answered "hello". */
-export function pickGreetingResponders<T extends ChatAgent>(
-  mentioned: T[],
-  orchestrator: T | null,
-  team: T[]
-): T[] {
+/** Who answers a bare greeting: the mentioned agents, else Support (the
+ *  guidance role; O3: no CTO default), else the conversational fallback.
+ *  Before plan 016 the Researcher answered "hello"; before O3 the CTO did. */
+export function pickGreetingResponders<T extends ChatAgent>(mentioned: T[], team: T[]): T[] {
   if (mentioned.length > 0) return mentioned;
-  if (orchestrator) return [orchestrator];
+  const support = team.find((a) => /^support/i.test(a.role.trim()));
+  if (support) return [support];
   return pickConversationalAgent(team) as T[];
 }
 

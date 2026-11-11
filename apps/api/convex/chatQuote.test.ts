@@ -132,7 +132,7 @@ describe("reply quote routing", () => {
   });
 
   test("a quoted CTO message and the user's own message route as usual, with the context line", async () => {
-    const { t, projectId, ctoId } = await setup();
+    const { t, projectId, ctoId, frontendId } = await setup();
     const ctoMsg = await t.run(async (ctx) =>
       ctx.db.insert("messages", { projectId, agentId: ctoId, authorType: "agent", content: "Plan: header, then footer." })
     );
@@ -147,7 +147,10 @@ describe("reply quote routing", () => {
       preferredAgentIds: [ctoId],
       quotedMessageId: first.messageId as any,
     });
-    expect((await repliesTo(t, second.messageId)).map((r) => r.agentId)).toEqual([ctoId]);
+    // O3: the untyped CTO pick is the old default receiver (To: Team), so System routes it to a topic owner.
+    const routed = await repliesTo(t, second.messageId);
+    expect(routed.filter((r) => r.voice === "system").map((r) => r.content)).toEqual(["Sent to Frontend"]);
+    expect(routed.filter((r) => r.voice !== "system").map((r) => r.agentId)).toEqual([frontendId]);
     expect(calls[0].system).toContain(`The user is replying to their own earlier message: "kenapa header dulu?"`);
   });
 
@@ -173,7 +176,8 @@ describe("quote helpers", () => {
     const agent = { authorType: "agent" as const, agentId: "a1", role: "frontend", content: "x", inTeam: true };
     expect(quotedResponderId(agent, 0)).toBe("a1");
     expect(quotedResponderId(agent, 1)).toBeNull();
-    expect(quotedResponderId({ ...agent, role: "cto" }, 0)).toBeNull();
+    // O3: the CTO is a teammate like any other; quoting it routes to it.
+    expect(quotedResponderId({ ...agent, role: "cto" }, 0)).toBe("a1");
     expect(quotedResponderId({ ...agent, inTeam: false }, 0)).toBeNull();
     expect(quotedResponderId({ authorType: "user", content: "x" }, 0)).toBeNull();
     expect(quoteContextLine({ authorType: "user", content: "x" })).toBe(`The user is replying to their own earlier message: "x"`);

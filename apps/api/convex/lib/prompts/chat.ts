@@ -1,11 +1,9 @@
 /**
  * Chat LLM prompt text: system prompts and guidance lines for the chat
- * reply loop, the CTO's task assignment, the ASK responder chooser and the
- * intent classifier. Builders only — the wording is the product's prompt
+ * reply loop, the neutral ASK responder chooser and the intent classifier. Builders only — the wording is the product's prompt
  * contract, so change it here deliberately and nowhere else.
  */
 import type { IntentSubtype } from "../chat/intent";
-import { WRAP_UP_MAX_LINES } from "../chat/wrapUp";
 import { isHandoffLine } from "../chat/dispatch";
 import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_TOOL } from "../skills";
 import { LOAD_SKILL_TOOL_LINE } from "../skillRuntime";
@@ -23,7 +21,7 @@ function clip500(text: string): string {
 const NOT_THE_MODEL =
   "You are NOT the underlying LLM model. Never name the model (e.g. \"Crouton Alpha\") or claim to be the provider — always answer as your assigned role.";
 
-/** CTO chooser: pick the one teammate who best answers an ASK. */
+/** Neutral chooser (O3): System picks the one teammate who owns the topic. */
 export const ASK_RESPONDER_SYSTEM = "Pick one conversational agent. Return JSON only.";
 
 export function buildAskResponderPrompt(
@@ -34,7 +32,7 @@ export function buildAskResponderPrompt(
     .map((a, i) => `${i + 1}. ${a.name} (${a.role}): ${(a.systemPrompt ?? "").slice(0, 120)} [id ${a._id}]`)
     .join("\n");
   return [
-    "You are the CTO picking which single teammate best answers this chat question. Choose the role whose expertise matches the question topic (e.g. styling/UI → Frontend, security/audit → Reviewer, server/deploy → DevOps/Backend).",
+    "Route this chat message to the single teammate whose role owns its topic (e.g. styling/UI → Frontend, colours/UX → Designer, security/audit → Reviewer, API/database → Backend, CI/deploy → DevOps, comparisons/research → Researcher, greetings and how to use the product → Support).",
     "Return ONLY JSON with this exact schema:",
     `{"agentId":"<id from [id ...]>"}`,
     "",
@@ -74,26 +72,6 @@ export function buildGreetingSystem(agent: Persona, projectName: string): string
     NOT_THE_MODEL,
     agent.systemPrompt ?? "",
     "Greet the user briefly in your own persona, same language as the user. One short sentence, no plan, no delegation, no Create task instructions.",
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-/** The CTO's assignment reply when a chat message becomes a task. */
-export function buildCtoAssignmentSystem(
-  orchestrator: Persona & { _id: string },
-  projectName: string,
-  team: Array<{ _id: string; name: string; role: string }>,
-  requested: Array<{ name: string }>
-): string {
-  return [
-    `You are ${orchestrator.name}, the CTO of project "${projectName}".`,
-    "You are NOT the underlying LLM model. Never name the model or the provider.",
-    // The CTO persona prompt (read-only advisor, long technical answers) is
-    // left out on purpose: here the task already exists and this bubble is
-    // only the hand-off. With the persona in, the CTO answered the request
-    // itself (code, risks, "I'm read-only", "@Frontend please create the task").
-    ...buildAssignmentGuidance(team, String(orchestrator._id), requested),
   ]
     .filter(Boolean)
     .join("\n");
@@ -244,52 +222,18 @@ export function buildSelfReviewGuidance(previousReply: string | null, hasRepoToo
   ].join("\n");
 }
 
-/** Line for a teammate the CTO pulled into the chat by @mention. */
-export function buildHandoffNotice(ctoName: string, request = ""): string {
-  return [
-    `${ctoName} (CTO) brought you into this chat with an @mention.`,
-    request ? `What the CTO asked you: "${request}"` : "",
-    "Answer only that, briefly (2-4 sentences), in the user's language, and only about the user's LATEST message. Do not pick up earlier topics or tasks from the conversation unless the latest message is about them. Do not repeat what the CTO said, do not @mention anyone, and do not tell the user to create a task.",
-  ].filter(Boolean).join(" ");
-}
-
 /**
- * A specialist the CTO routed the user's question to (dispatch pre-route):
- * it owns the whole answer, unlike a brief @mention handoff.
+ * The owner System routed the user's message to (O3, no @mention): it owns
+ * the whole answer. System only routes; there is no CTO in between.
  */
-export function buildRoutedSpecialistNotice(ctoName: string, hasRepoTools: boolean): string {
+export function buildRoutedOwnerNotice(hasRepoTools: boolean): string {
   return [
-    `${ctoName} (CTO) handed the user's latest message to you because it is your area. Answer it fully yourself, in the user's language.`,
+    "The user's latest message was routed to you because it is your area. Answer it fully yourself, in the user's language.",
     hasRepoTools
       ? "Check the code with the repo tools before you state anything about it, and cite only what a tool result shows."
       : "",
-    "Answer only the user's LATEST message. Do not @mention anyone, do not hand the question back, do not repeat the CTO's handoff line, and do not tell the user to create a task unless the question asks for changes to be made.",
+    "Answer only the user's LATEST message. Do not @mention anyone, do not hand the question back, do not mention the routing, and do not tell the user to create a task unless the question asks for changes to be made.",
   ].filter(Boolean).join(" ");
-}
-
-/**
- * The CTO's wrap-up after a routed specialist answered (only for a long
- * reply; see lib/chat/wrapUp.ts). Tool-free; it may only add a decision or
- * next step, never restate the reply.
- */
-export function buildCtoSummarySystem(cto: { name: string }, specialist: { name: string; role: string }, projectName: string): string {
-  return [
-    `You are ${cto.name}, the CTO of the agent team of project "${projectName}". ${NOT_THE_MODEL}`,
-    `${specialist.name} (${specialist.role}) just answered the user's question in this chat, and the user has already read that reply. Write a wrap-up of at most ${WRAP_UP_MAX_LINES} lines, in the user's language, plain text.`,
-    `It may only add a decision or a next step that follows from ${specialist.name}'s reply below. Do not restate, summarise or paraphrase the reply, and do not repeat any offer or question it ends with. Add no new facts, files, line numbers, code or claims, and do not say you checked anything yourself.`,
-    "If there is no decision or next step to add, reply with exactly: nothing to add.",
-    "Do not @mention anyone, do not write as or for the teammate, and do not offer an [options] block. No headers, no tool calls.",
-  ].join("\n");
-}
-
-/** The message the CTO's wrap-up answers: the question and the specialist's reply, quoted. */
-export function buildCtoSummaryMessages(question: string, specialist: { name: string }, reply: string): ChatPromptMessage[] {
-  return [
-    {
-      role: "user",
-      content: `User's question:\n${question.trim()}\n\n${specialist.name}'s reply:\n${reply.trim()}\n\nWrite the wrap-up now (a decision or next step only, or \"nothing to add\").`,
-    },
-  ];
 }
 
 /** CTO chat conduct: delegate deep work, stay short, never speak for a teammate. */
@@ -297,7 +241,7 @@ export const CTO_DELEGATION_GUIDANCE =
   "Keep your own replies short. Deep work (a code audit, a test check, research, a design or security review) belongs to the teammate whose area it is: bring them in with @Name instead of doing it at length yourself. Never write lines as a teammate, speak for them, or invent what they found.";
 
 /** One chat history row as getContext returns it. */
-export type ChatHistoryRow = { authorType: string; content: string; agentId?: string };
+export type ChatHistoryRow = { authorType: string; content: string; agentId?: string; voice?: string };
 export type ChatPromptMessage = { role: "user" | "assistant"; content: string };
 
 /** Older turns are clipped; the message being answered never is. */
@@ -345,7 +289,8 @@ export function buildChatMessages(
     else if (!seenUser) continue;
     // The CTO's fixed handoff line is routing, not content: as a transcript
     // line it got copied into the specialist's reply.
-    if (row.authorType === "agent" && isHandoffLine(text)) continue;
+    // System lines (routing, task created, status) never reach a model.
+    if (row.authorType === "agent" && (row.voice === "system" || isHandoffLine(text))) continue;
     let msg: ChatPromptMessage;
     if (row.authorType === "agent") {
       const self = opts.selfAgentId !== undefined && String(row.agentId ?? "") === String(opts.selfAgentId);
@@ -416,10 +361,9 @@ export function buildPlanningGuidance(
   }
 ): string[] {
   const run = opts.taskIntent.runCommands;
-  if (opts.isOrchestrator && opts.taskIntent.kind === "task" && run && run.length > 0) {
+  if (opts.taskIntent.kind === "task" && run && run.length > 0) {
     const lines = run.map((line) => `\`${line}\``).join(", ");
     return [
-      "You are the orchestrator/planner (CTO).",
       `The user asked to run ${lines}. Chat replies cannot run commands, but the team can: a task runs it on the worker after the user allows the command.`,
       "Never say you have no shell or terminal access, and never tell the user to run it themselves.",
       `In 1-2 short sentences in the user's language: say that the Create task button under this reply runs ${lines} (the user approves the command first) and what you will report back. No plan, no bullets, no terminal output, and never claim anything has run.`,
@@ -428,7 +372,7 @@ export function buildPlanningGuidance(
   if (opts.isOrchestrator && opts.taskIntent.kind === "task") {
     const who = opts.assigneeName?.trim() || "the right teammate";
     return [
-      "You are the orchestrator (CTO).",
+      "You are the CTO.",
       `The user asked the team to create or change files. Reply with ONE short sentence, entirely in the user's language: that you hand it to ${who} as a task, and that replying "gas" or pressing the Create task button under this reply starts it.`,
       `Shape (Indonesian): "Saya serahkan ke ${who} sebagai task — balas gas atau tekan Create task." Shape (English): "I'll hand this to ${who} as a task — reply gas or press Create task."`,
       "No plan, no architecture, design or styling advice, no code, no bullets, no headers. Never say you are read-only and never claim anything has run.",
@@ -437,8 +381,7 @@ export function buildPlanningGuidance(
   }
   if (opts.isOrchestrator) {
     return [
-      "You are the orchestrator/planner.",
-      "Greetings and small talk get a brief greeting back — never a plan, delegation, or mention list for a bare hello.",
+      "You are the CTO: you own architecture and technical direction (repo shape, data model, service split, priorities). Give a clear decision with the reasons.",
       "Answer briefly. If user asks for work to be done, propose a plan + delegation, then tell them to use Create task. Do not pretend to have executed code. Respond in plain text.",
       CTO_DELEGATION_GUIDANCE,
     ];
@@ -510,25 +453,6 @@ export function buildHandoffGuidance(
     "When you only describe or list the team (who does what), write their role names WITHOUT @.",
     repo.hasRepoTools ? SELF_VERIFY_LINE : noRepoAccessHandoffLine(repo.offReason ?? ""),
   ];
-}
-
-/** System-prompt lines for the CTO when it assigns a task from chat. */
-export function buildAssignmentGuidance(
-  team: Array<{ _id: string; name: string; role: string }>,
-  speakerId: string,
-  requested: Array<{ name: string }>
-): string[] {
-  const others = team.filter((a) => String(a._id) !== String(speakerId));
-  return [
-    "The user asked the team to do work, and the task is being created now. Reply quickly, without long deliberation.",
-    `In one or two short sentences in the user's language, say who does what and address each owner as @Name. Teammates: ${others.map((a) => `@${a.name}`).join(", ")}. Pick only the ones really needed.`,
-    requested.length ? `The user asked for ${requested.map((a) => `@${a.name}`).join(", ")}; include them.` : "",
-    "Do not tell the user to click Create task and do not claim anything has run.",
-    "The task is ALREADY created; the team executes it. Do not solve it yourself: no code, no code blocks, no implementation details, no risk analysis, no mention of being read-only, and never ask anyone to create a task.",
-    // The example must not look like a real request: the model copied the
-    // old one (a formatRupiah task) word for word whenever it was close.
-    "Format: at most 2 sentences, under 40 words, shaped like: \"Siap. @<owner> <their part>, lalu @<checker> <their part>.\" Fill it from THIS request; pick owners by the work (code in the UI: Frontend; API or data: Backend; checks: QA or Reviewer).",
-  ].filter(Boolean);
 }
 
 /** Shared guidance: machine-readable choice blocks for clickable cards.

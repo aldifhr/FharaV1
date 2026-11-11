@@ -20,7 +20,7 @@
 export interface EchoContext {
   /** The replying agent's own name and role ("Frontend", "frontend"). */
   selfNames: string[];
-  /** Every other speaker in the chat: teammate names and roles, "CTO", "User". */
+  /** Every other speaker in the chat: teammate names and roles, "CTO", "User". "System" is always added. */
   speakerNames: string[];
   /** Recent messages a reply could copy (handoff line, this turn's replies, last history rows). */
   priorMessages: string[];
@@ -80,10 +80,13 @@ function cutPrior(rest: string, priors: string[]): string | null {
   return null;
 }
 
+/** System's label (O3 status lines): a reply never opens with "System:". */
+const SYSTEM_LABEL = "System";
+
 /** The reply without a leading speaker echo or speaker prefix (see module doc). At most three passes. */
 export function stripLeadingEcho(content: string, ctx: EchoContext): string {
   let text = content;
-  const names = [...ctx.speakerNames, ...ctx.selfNames];
+  const names = [...ctx.speakerNames, SYSTEM_LABEL, ...ctx.selfNames];
   for (let pass = 0; pass < 3; pass += 1) {
     const prefix = speakerPrefix(text, names);
     if (!prefix) break;
@@ -119,7 +122,7 @@ export function streamEchoSafe(content: string, ctx: EchoContext): string {
 function mightStillEcho(content: string, ctx: EchoContext): boolean {
   const t = content.replace(/^[\s*_@]+/, "").toLowerCase();
   if (!t) return false;
-  const names = uniqueNames([...ctx.speakerNames, ...ctx.selfNames]);
+  const names = uniqueNames([...ctx.speakerNames, SYSTEM_LABEL, ...ctx.selfNames]);
   // A partial label: "Fron", "CTO" (no colon yet).
   if (t.length < 45 && names.some((n) => `${n.toLowerCase()}:`.startsWith(t) || t === n.toLowerCase())) return true;
   const prefix = speakerPrefix(content, names);

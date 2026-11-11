@@ -120,6 +120,36 @@ export const insertAgentMessage = internalMutation({
 });
 
 /**
+ * A System status line (plan §2.5): "Sent to Backend", "Task created ·
+ * planning", "Nothing running". No agent, English only, no @name, never
+ * sent to a model (buildChatMessages skips it).
+ */
+export const insertSystemLine = internalMutation({
+  args: {
+    projectId: v.optional(v.id("projects")),
+    conversationId: v.optional(v.id("conversations")),
+    taskId: v.optional(v.id("tasks")),
+    replyToMessageId: v.optional(v.id("messages")),
+    content: v.string(),
+    card: v.optional(v.object({ kind: v.literal("assignment"), data: v.any() })),
+  },
+  handler: async (ctx, args) => {
+    const content = args.content.trim();
+    if (!content && !args.card) return null;
+    return await ctx.db.insert("messages", {
+      ...(args.projectId ? { projectId: args.projectId } : {}),
+      authorType: "agent",
+      voice: "system",
+      content,
+      replyToMessageId: args.replyToMessageId,
+      taskId: args.taskId,
+      conversationId: args.conversationId,
+      ...(args.card ? { card: args.card } : {}),
+    });
+  },
+});
+
+/**
  * The message a user message quotes (chat "Reply"), with what routing needs:
  * the author's role, whether it is still an enabled team member, and how
  * many teammates the user @mentioned in the reply text.
@@ -272,7 +302,8 @@ export const getContinueTarget = internalQuery({
       .withIndex("by_conversation", (q) => q.eq("conversationId", message.conversationId))
       .order("desc")
       .take(20);
-    const lastReply = earlier.find((m) => m._creationTime < message._creationTime && m.authorType === "agent" && !m.taskId);
+    // System lines ("Sent to Backend", status lines) are never the reply to continue (O3).
+    const lastReply = earlier.find((m) => m._creationTime < message._creationTime && m.authorType === "agent" && m.voice !== "system" && !m.taskId);
     return lastReply ? shape(lastReply) : null;
   },
 });
@@ -355,6 +386,11 @@ export const getContext = internalQuery({
       });
       if (mentioned.length > 0) {
         selected = mentioned.filter((a) => team.includes(a._id));
+      } else if (selected.length === 0) {
+        // O3: To: Team (no participant). chat.ts routes the message to its
+        // topic owner from the team; this only keeps `agents` non-empty.
+        const all = await ctx.db.query("agents").collect();
+        selected = selectDefaultChatAgents(team, all);
       }
     } else {
       const all = await ctx.db.query("agents").collect();
@@ -392,6 +428,7 @@ export const getContext = internalQuery({
         // The message id: a go reply marks the offer it starts as used.
         messageId: m._id,
         ...(m.taskOffer ? { taskOffer: m.taskOffer } : {}),
+        ...(m.voice ? { voice: m.voice } : {}),
       }));
 
     // Plan 016: the active task for router context (title + status).
@@ -513,6 +550,7 @@ export const getPersonalContext = internalQuery({
         // The message id: a go reply marks the offer it starts as used.
         messageId: m._id,
         ...(m.taskOffer ? { taskOffer: m.taskOffer } : {}),
+        ...(m.voice ? { voice: m.voice } : {}),
       }));
     const summaries = await ctx.db
       .query("contextSummaries")

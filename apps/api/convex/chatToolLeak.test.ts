@@ -90,7 +90,7 @@ async function ask(t: Awaited<ReturnType<typeof setup>>["t"], projectId: any, co
       .query("messages")
       .withIndex("by_reply_to", (q) => q.eq("replyToMessageId", messageId as any))
       .collect()
-  );
+  ).then((rows) => rows.filter((r) => r.voice !== "system")); // O3: the "Sent to X" System line is not an answer
 }
 
 const JSONISH = /"tool"\s*:|"arguments"\s*:|tool_call/;
@@ -106,11 +106,12 @@ afterEach(() => {
 
 describe("no tools: a tool call is never shown", () => {
   test("retried once with the no-tools line; the prose retry is the answer; trace says why tools are off", async () => {
-    const { t, projectId, ctoId } = await setup({ workspacePath: "/repo", worker: "none" });
+    const { t, projectId, backendId } = await setup({ workspacePath: "/repo", worker: "none" });
     script = [LEAKED, "Belum saya cek isi schema.ts — repo tidak bisa saya baca dari chat sekarang."];
     const replies = await ask(t, projectId);
     expect(replies).toHaveLength(1);
-    expect(replies[0].agentId).toBe(ctoId);
+    // O3: no CTO default; System routes the un-mentioned question to Backend.
+    expect(replies[0].agentId).toBe(backendId);
     expect(replies[0].content).toBe("Belum saya cek isi schema.ts — repo tidak bisa saya baca dari chat sekarang.");
     expect(replies[0].content).not.toMatch(JSONISH);
     expect(replies[0].streaming).toBe(false);

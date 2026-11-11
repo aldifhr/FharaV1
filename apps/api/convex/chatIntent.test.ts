@@ -4,7 +4,7 @@ import { describe, expect, test, it } from "vitest";
 import { classifyChatIntent, explicitTaskCommand, parseIntentResult } from "./lib/chat/intent";
 import { resolveAssignees, suggestAssigneesByKeywords, extractAgentMentions, selectHandoffs, handoffRequestFor, parseResponderSelection, pickConversationalAgent, pickGreetingResponders } from "./lib/chat/team";
 import { stripToolCallMarkup } from "./lib/chat/strip";
-import { buildAssignmentGuidance, buildHandoffGuidance } from "./lib/prompts/chat";
+import { buildHandoffGuidance } from "./lib/prompts/chat";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -140,13 +140,6 @@ describe("CTO task assignment", () => {
   test("returns no pool when nobody was assigned", () => {
     expect(resolveAssignees(team, team[0], [])).toEqual([]);
   });
-
-  test("assignment guidance lists teammates and the user's picks", () => {
-    const lines = buildAssignmentGuidance(team, "cto", [{ name: "Backend" }]).join("\n");
-    expect(lines).toContain("@Frontend");
-    expect(lines).toContain("include them");
-    expect(lines).not.toContain("@CTO,");
-  });
 });
 
 describe("stripToolCallMarkup", () => {
@@ -195,22 +188,22 @@ describe("chat dispatch safety (e2e safety probe)", () => {
   });
 });
 
-describe("pickGreetingResponders", () => {
+describe("pickGreetingResponders (O3: greetings go to Support)", () => {
   const cto = { _id: "c", name: "CTO", role: "cto" };
   const researcher = { _id: "r", name: "Researcher", role: "researcher" };
   const frontend = { _id: "f", name: "Frontend", role: "frontend" };
-  const team = [cto, researcher, frontend];
+  const support = { _id: "s", name: "Support", role: "support" };
 
-  it("lets the CTO answer a bare greeting, not the Researcher", () => {
-    expect(pickGreetingResponders([], cto, team)).toEqual([cto]);
+  it("Support answers a bare greeting, never the CTO", () => {
+    expect(pickGreetingResponders([], [cto, researcher, frontend, support])).toEqual([support]);
   });
 
   it("an @mention wins", () => {
-    expect(pickGreetingResponders([frontend], cto, team)).toEqual([frontend]);
+    expect(pickGreetingResponders([frontend], [cto, frontend, support])).toEqual([frontend]);
   });
 
-  it("falls back to the conversational agent when no CTO is in the chat", () => {
-    expect(pickGreetingResponders([], null, [researcher, frontend])).toEqual([researcher]);
+  it("no Support: the conversational fallback, not the CTO", () => {
+    expect(pickGreetingResponders([], [cto, researcher, frontend])).toEqual([researcher]);
   });
 });
 

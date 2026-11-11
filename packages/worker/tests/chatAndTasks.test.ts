@@ -1,18 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 
 // Minimal test implementations of the core routing and validation algorithms
+// Mirrors fallbackOwner (apps/api/convex/lib/chat/owner.ts, O3): no CTO default.
+// An un-mentioned message nobody's topic matched goes to Support, General,
+// Researcher, then anyone but the CTO.
 function pickConversationalAgent(
   agents: Array<{ _id: string; name: string; role: string; isEnabled?: boolean }>
 ) {
-  const cto = agents.find((a) => /^cto$/i.test(a.role));
-  if (cto) return cto;
-  const general = agents.find((a) => /^(general|assistant)/i.test(a.role));
-  if (general) return general;
-  const researcher = agents.find((a) => /^researcher/i.test(a.role));
-  if (researcher) return researcher;
-  const support = agents.find((a) => /^support/i.test(a.role));
-  if (support) return support;
-  return agents[0];
+  const notCto = agents.filter((a) => !/^(?:cto|architect)$/i.test(a.role.trim()));
+  if (notCto.length === 0) return agents[0];
+  return (
+    notCto.find((a) => /^support/i.test(a.role)) ??
+    notCto.find((a) => /^(general|assistant)/i.test(a.role)) ??
+    notCto.find((a) => /^researcher/i.test(a.role)) ??
+    notCto[0]
+  );
 }
 
 function selectConversationAgents(
@@ -59,13 +61,20 @@ describe("Chat and Task Management", () => {
     { _id: "external-1", name: "Rogue Agent", role: "External", isEnabled: true },
   ];
 
-  it("1. Normal conversation routes to the CTO by default (planning authority answers chat)", () => {
-    const selected = selectConversationAgents(["cto-1", "lead-1", "frontend-1"], [
+  it("1. Normal conversation has no CTO default: the fallback owner is Support (O3)", () => {
+    const team = [
       { _id: "cto-1", name: "CTO", role: "cto", isEnabled: true },
+      { _id: "support-1", name: "Support", role: "support", isEnabled: true },
       ...mockAgents,
-    ]);
+    ];
+    const selected = selectConversationAgents(["cto-1", "lead-1", "frontend-1", "support-1"], team);
     expect(selected).toHaveLength(1);
-    expect(selected[0]._id).toBe("cto-1");
+    expect(selected[0]._id).toBe("support-1");
+    // No Support on the team: anyone but the CTO.
+    expect(selectConversationAgents(["cto-1", "frontend-1"], team)[0]._id).toBe("frontend-1");
+    // The CTO answers only when it is the whole team (or @mentioned).
+    expect(selectConversationAgents(["cto-1"], team)[0]._id).toBe("cto-1");
+    expect(selectConversationAgents(["cto-1", "frontend-1"], team, ["cto-1"])[0]._id).toBe("cto-1");
   });
 
   it("2. Explicit task creation uses same mutation payload contract", () => {

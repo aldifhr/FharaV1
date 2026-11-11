@@ -85,7 +85,7 @@ vi.mock("./repoTools", async (importOriginal) => {
 
 const modules = import.meta.glob("./**/*.ts");
 
-/** A specialist reply over the short-reply limit (lib/chat/wrapUp.ts). */
+/** A long specialist reply (pre-O3 this got a CTO wrap-up). */
 const LONG_REPLY = (topic: string) =>
   Array.from({ length: 10 }, (_, i) => `Point ${i + 1} about ${topic}: ` + Array.from({ length: 14 }, (_, j) => `detail${i}_${j}`).join(" ") + ".").join("\n");
 
@@ -256,112 +256,79 @@ describe("tools off: no verification handoff", () => {
   });
 });
 
-describe("CTO dispatch pre-route (no @mention)", () => {
-  test("a QA question goes to QA: CTO handoff line, QA answers with tools; a short single reply gets no CTO wrap-up", async () => {
-    const { t, projectId, ctoId, qaId } = await setup({ worker: "new" });
+describe("O3 routing (no @mention): System routes, the owner answers, no CTO wrap-up", () => {
+  const SYS = undefined;
+  test("a QA question goes to QA: a System line, QA answers with tools, the CTO is never called", async () => {
+    const { t, projectId, qaId } = await setup({ worker: "new" });
     reply = (call) => {
       const who = speaker(call);
       if (who === "QA") return toolResults(call) === 0 ? GREP : "Cakupan tes schema masih tipis: belum ada tes untuk defineTable.";
       return "QA: cakupan tes schema masih tipis.";
     };
     const replies = await ask(t, projectId, "gimana cakupan tes untuk schema kita sekarang?");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId, qaId]);
-    expect(replies[0].content).toBe("Saya serahkan ke @QA untuk pengecekan tes ini.");
+    expect(replies.map((r) => r.agentId)).toEqual([SYS, qaId]);
+    expect(replies[0]).toMatchObject({ voice: "system", content: "Sent to QA" });
     expect(replies[1].content).toBe("Cakupan tes schema masih tipis: belum ada tes untuk defineTable.");
     const qaFirst = callsBy("QA")[0];
     expect(qaFirst.system).toContain("## Repo tools");
-    expect(qaFirst.system).toContain("handed the user's latest message to you");
-    // No wrap-up call was even made.
+    expect(qaFirst.system).toContain("was routed to you because it is your area");
     expect(callsBy("CTO")).toHaveLength(0);
   });
 
-  test("the user named the specialist ('can you ask frontend …'): no CTO wrap-up", async () => {
-    const { t, projectId, ctoId, frontendId } = await setup({ worker: "new" });
-    const long = LONG_REPLY("HTML");
-    reply = (call) => (speaker(call) === "Frontend" ? long : "HTML is the markup language. Want me to show an example?");
-    const replies = await ask(t, projectId, "can you ask frontend, what is html");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId, frontendId]);
+  test("no CTO summary after a long specialist reply", async () => {
+    const { t, projectId, qaId } = await setup({ worker: "new" });
+    const long = LONG_REPLY("coverage");
+    reply = (call) => (speaker(call) === "QA" ? (toolResults(call) === 0 ? GREP : long) : "Keputusan: tambah tes dulu.");
+    const replies = await ask(t, projectId, "gimana cakupan tes untuk schema kita sekarang?");
+    expect(replies.map((r) => r.agentId)).toEqual([SYS, qaId]);
     expect(callsBy("CTO")).toHaveLength(0);
   });
 
-  test("the specialist never sees the handoff line as a transcript line, and a copied one is stripped", async () => {
-    const { t, projectId, ctoId, frontendId } = await setup({ worker: "new" });
-    const line = "Handing this to @Frontend for the frontend side.";
-    // Live bug: Frontend opened with the CTO's handoff line.
-    reply = (call) => (speaker(call) === "Frontend" ? `CTO: ${line}\n\nHTML is the markup language of the web.` : "nothing to add");
+  test("the owner never sees the System line as a transcript line, and a copied one is stripped", async () => {
+    const { t, projectId, frontendId } = await setup({ worker: "new" });
+    reply = (call) => (speaker(call) === "Frontend" ? "System: Sent to Frontend\n\nHTML is the markup language of the web." : "nothing to add");
     const replies = await ask(t, projectId, "can you ask frontend, what is html");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId, frontendId]);
-    expect(replies[0].content).toBe(line);
+    expect(replies.map((r) => r.agentId)).toEqual([SYS, frontendId]);
+    expect(replies[0].content).toBe("Sent to Frontend");
     expect(replies[1].content).toBe("HTML is the markup language of the web.");
     const first = callsBy("Frontend")[0];
-    expect(first.system).not.toContain("Handing this to");
-    expect(first.system).toContain("handed the user's latest message to you");
-    expect(first.msgs.map((m) => m.content).join("\n")).not.toContain("Handing this to");
+    expect(first.msgs.map((m) => m.content).join("\n")).not.toContain("Sent to");
 
-    // Next turn: the earlier handoff line stays out of the history too.
+    // Next turn: the earlier System line stays out of the history too.
     calls.length = 0;
     reply = (call) => (speaker(call) === "Frontend" ? "CSS styles the HTML." : "nothing to add");
     await ask(t, projectId, "can you ask frontend, what is css");
-    const second = callsBy("Frontend")[0];
-    const transcript = second.msgs.map((m) => m.content).join("\n");
-    expect(transcript).not.toContain("Handing this to");
+    const transcript = callsBy("Frontend")[0].msgs.map((m) => m.content).join("\n");
+    expect(transcript).not.toContain("Sent to");
     expect(transcript).toContain("HTML is the markup language of the web.");
+    expect(callsBy("CTO")).toHaveLength(0);
   });
 
-  test("a long single reply gets a wrap-up of at most 2 lines with only a next step", async () => {
-    const { t, projectId, ctoId, qaId } = await setup({ worker: "new" });
-    const long = LONG_REPLY("coverage");
-    reply = (call) => {
-      const who = speaker(call);
-      if (who === "QA") return toolResults(call) === 0 ? GREP : long;
-      return "Keputusan: tambah tes untuk defineTable dulu.\nLangkah berikut: QA menulis tesnya.\nBaris ketiga tidak boleh tampil.";
-    };
-    const replies = await ask(t, projectId, "gimana cakupan tes untuk schema kita sekarang?");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId, qaId, ctoId]);
-    expect(replies[2].content).toBe("Keputusan: tambah tes untuk defineTable dulu.\nLangkah berikut: QA menulis tesnya.");
-    const summary = callsBy("CTO").at(-1)!;
-    expect(summary.system).toContain("at most 2 lines");
-    expect(summary.system).toContain("Do not restate, summarise or paraphrase the reply");
-    expect(summary.system).not.toContain("## Repo tools");
-    expect(summary.msgs.at(-1)?.content).toContain("QA's reply:\n" + long.split("\n")[0]);
-  });
-
-  test("a wrap-up that restates the long reply is dropped, not posted", async () => {
-    const { t, projectId, ctoId, qaId } = await setup({ worker: "new" });
-    const long = LONG_REPLY("coverage");
-    reply = (call) => {
-      const who = speaker(call);
-      if (who === "QA") return toolResults(call) === 0 ? GREP : long;
-      return long.split("\n").slice(0, 2).join(" ");
-    };
-    const replies = await ask(t, projectId, "gimana cakupan tes untuk schema kita sekarang?");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId, qaId]);
-    expect(callsBy("CTO")).toHaveLength(1);
-  });
-
-  test("the CTO itself answers a planning question", async () => {
+  test("a planning question goes to the CTO", async () => {
     const { t, projectId, ctoId } = await setup({ worker: "new" });
     reply = () => "Fokus ke login dulu.";
     const replies = await ask(t, projectId, "prioritas kita minggu ini apa?");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
+    expect(replies.map((r) => r.agentId)).toEqual([SYS, ctoId]);
+    expect(replies[0].content).toBe("Sent to CTO");
   });
 
-  test("a code question with repo tools off stays with the CTO", async () => {
-    const { t, projectId, ctoId } = await setup({ worker: "none" });
+  test("a code question with repo tools off still goes to its owner, never the CTO", async () => {
+    const { t, projectId, qaId } = await setup({ worker: "none" });
     reply = () => "Belum saya cek.";
     const replies = await ask(t, projectId, "apakah fungsi parseConfig sudah dites?");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
+    expect(replies.map((r) => r.agentId)).toEqual([SYS, qaId]);
+    expect(callsBy("CTO")).toHaveLength(0);
   });
 
-  test("'tolong jalankan tes' gets a CTO Create task offer (stored on the reply), never a task", async () => {
-    const { t, projectId, ctoId } = await setup({ worker: "new" });
+  test("'tolong jalankan tes' gets QA's Create task offer (stored on the reply), never a task", async () => {
+    const { t, projectId, qaId } = await setup({ worker: "new" });
     // nous ignored the plan guidance in live2 3e; the offer must not depend on the wording.
     reply = () => "Saya tidak punya akses shell. Jalankan npm test di terminal lokal Anda.";
     const replies = await ask(t, projectId, "tolong jalankan tes");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
-    expect(calls[0].system).toContain("Create task button under this reply runs `npm run test`");
-    expect(calls[0].system).toContain("Never say you have no shell or terminal access");
-    expect(replies[0].taskOffer).toEqual({ kind: "testing", commands: ["npm run test"] });
+    expect(replies.map((r) => r.agentId)).toEqual([SYS, qaId]);
+    expect(callsBy("QA")[0].system).toContain("Create task button under this reply runs `npm run test`");
+    expect(callsBy("QA")[0].system).toContain("Never say you have no shell or terminal access");
+    expect(replies[1].taskOffer).toEqual({ kind: "testing", commands: ["npm run test"] });
     const tasks = await t.run(async (ctx) => ctx.db.query("tasks").collect());
     expect(tasks).toHaveLength(0);
   });
@@ -381,31 +348,34 @@ describe("CTO dispatch pre-route (no @mention)", () => {
 // task/audit. The pre-route is deterministic: the LLM label never decides it.
 describe("pre-route ignores the LLM's audit/review label", () => {
   test("a read-only request the LLM calls task/audit still goes to the specialist; follow-ups go back to it", async () => {
-    const { t, projectId, ctoId, qaId } = await setup({ worker: "new" });
+    const { t, projectId, qaId } = await setup({ worker: "new" });
     llmIntent.intent = "task";
     llmIntent.subtype = "audit";
     reply = (call) => (speaker(call) === "QA" ? "Tes untuk main.js belum ada." : "CTO answered");
     const first = await ask(t, projectId, "tolong audit tes di src/");
-    expect(first.map((r) => r.agentId)).toEqual([ctoId, qaId]);
-    expect(first[0].content).toMatch(/^Saya serahkan ke @QA/);
+    expect(first.map((r) => r.agentId)).toEqual([undefined, qaId]);
+    expect(first[0].content).toBe("Sent to QA");
     // The routed reply is chat: no Create task offer on anything.
     expect(first.some((r) => r.taskOffer)).toBe(false);
     for (const followUp of ["cek lebih dalam", "lanjutkan", "detailnya?"]) {
       const replies = await ask(t, projectId, followUp);
-      expect(replies.map((r) => r.agentId)).toEqual([ctoId, qaId]);
+      expect(replies.map((r) => r.agentId)).toEqual([undefined, qaId]);
     }
     const tasks = await t.run(async (ctx) => ctx.db.query("tasks").collect());
     expect(tasks).toHaveLength(0);
   });
 
-  test("a change request stays with the CTO (plan + Create task offer), never routed", async () => {
-    const { t, projectId, ctoId } = await setup({ worker: "new" });
+  test("a change request goes to its owner with the Create task offer, never auto-started", async () => {
+    const { t, projectId, qaId } = await setup({ worker: "new" });
     llmIntent.intent = "task";
     llmIntent.subtype = "implementation";
     reply = () => "Rencana singkat.";
     const replies = await ask(t, projectId, "tambahkan tes untuk main.js");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
-    expect(replies[0].taskOffer).toEqual({ kind: "implementation" });
+    expect(replies.map((r) => r.agentId)).toEqual([undefined, qaId]);
+    expect(replies[1].taskOffer?.kind).toBe("implementation");
+    expect(callsBy("CTO")).toHaveLength(0);
+    const tasks = await t.run(async (ctx) => ctx.db.query("tasks").collect());
+    expect(tasks).toHaveLength(0);
   });
 
   // live2: this CTO reply came back empty (taken for narration, nudged twice,

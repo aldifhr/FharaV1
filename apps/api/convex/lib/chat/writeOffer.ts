@@ -4,8 +4,10 @@
  *
  * Chat never writes files and never starts a task by itself: a write request
  * gets a short reply plus this offer (messages.taskOffer), and the Create task
- * button or a bare "gas"/"lanjut" starts it. The offer names its assignee:
- * an @mentioned code role (Frontend, Backend, DevOps) takes its own request;
+ * button or a bare "gas"/"lanjut" starts it. Only the speaker the message
+ * was for offers: an @mentioned agent, or the owner System routed the
+ * message to (O3: routed = addressed). The offer names its assignee:
+ * an addressed code role (Frontend, Backend, DevOps) takes its own request;
  * otherwise the role the request's files belong to ("ultimate.html" →
  * Frontend), when the team has one.
  */
@@ -24,7 +26,7 @@ export interface WriteOfferPlan<A> {
 export function planWriteOffer<A extends { _id: string; name: string; role: string }>(opts: {
   speaker: A;
   isCto: boolean;
-  /** The user @mentioned this speaker (a teammate offers only then). */
+  /** The user @mentioned this speaker, or System routed the message to it. */
   addressed: boolean;
   team: A[];
   text: string;
@@ -34,7 +36,7 @@ export function planWriteOffer<A extends { _id: string; name: string; role: stri
   const codeInChat = wantsCodeInChat(opts.text);
   const none: WriteOfferPlan<A> = { offer: null, assignee: null, codeInChat };
   if (opts.optionPick || opts.taskIntent.kind !== "task") return none;
-  if (!opts.isCto && !opts.addressed) return none;
+  if (!opts.addressed) return none;
   const runCommands = opts.taskIntent.runCommands;
   const byFiles = codeRoleForRequest(opts.text);
   const roleAgent = byFiles ? opts.team.find((a) => normalizeRoleKey(a.role) === byFiles) ?? null : null;

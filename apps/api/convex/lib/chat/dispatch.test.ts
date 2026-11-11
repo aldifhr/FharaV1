@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatPreRouteAllowed, dispatchHandoffLine, isFollowUpText, looksIndonesian, routeCtoQuestion } from "./dispatch";
+import { chatPreRouteAllowed, isFollowUpText, isHandoffLine, looksIndonesian, routeQuestion, systemRoutingLine } from "./dispatch";
 
 type M = { _id: string; name: string; role: string };
 const full: M[] = [
@@ -11,13 +11,65 @@ const full: M[] = [
   { _id: "ops", name: "DevOps", role: "devops" },
   { _id: "rev", name: "Reviewer", role: "reviewer" },
   { _id: "res", name: "Researcher", role: "researcher" },
+  { _id: "sup", name: "Support", role: "support" },
 ];
 const without = (...roles: string[]) => full.filter((a) => !roles.includes(a.role));
-const route = (text: string, team: M[] = full, extra: Partial<Parameters<typeof routeCtoQuestion>[0]> = {}) =>
-  routeCtoQuestion<M>({ text, team, orchestratorId: "cto", ...extra });
-const to = (r: ReturnType<typeof route>) => (r.kind === "specialist" ? r.agent.role : "cto");
+const route = (text: string, team: M[] = full, extra: Partial<Parameters<typeof routeQuestion>[0]> = {}) =>
+  routeQuestion<M>({ text, team, ...extra });
+/** The routed role, or "status" / "none". */
+const to = (r: ReturnType<typeof route>) => (r.kind === "specialist" ? r.agent.role : r.kind);
 
-describe("CTO dispatch: domain routing (EN/ID)", () => {
+describe("O3 routing table: every role owns its topics, no CTO default", () => {
+  it.each([
+    // §5 chat rows (role-flow-examples-2026-11-11.md)
+    ["monorepo atau polyrepo untuk project ini?", "cto"],
+    ["should we split the API into microservices?", "cto"],
+    ["S3 vs local untuk upload file?", "cto"],
+    ["warna ini cocok?", "designer"],
+    ["kenapa query lambat?", "backend"],
+    ["CI gagal di github actions", "devops"],
+    ["bandingkan zod vs valibot", "researcher"],
+    ["user tidak bisa login, kenapa?", "support"],
+    ["users can't log in after the update", "support"],
+    ["cara pakai fitur export?", "support"],
+    // greetings and short how-to → Support
+    ["halo", "support"],
+    ["thanks!", "support"],
+    ["how do I add an agent", "support"],
+    ["cara restart worker?", "support"],
+    // planning → CTO
+    ["prioritas kita minggu ini apa?", "cto"],
+    ["what should we work on next", "cto"],
+    ["mulai dari mana ya", "cto"],
+  ])("%s → %s", (text, role) => {
+    expect(to(route(text))).toBe(role);
+  });
+
+  it("a short status question is a System status line, not an LLM reply", () => {
+    expect(route("sampai mana?").kind).toBe("status");
+    expect(route("status task sekarang gimana?").kind).toBe("status");
+    expect(route("what's the status of the release").kind).toBe("status");
+  });
+
+  it("'status code 500' is a technical question, not a status check", () => {
+    expect(route("kenapa API balikin status code 500?").kind).not.toBe("status");
+  });
+
+  it("nothing matched → none (the caller's chooser decides; never a CTO default)", () => {
+    expect(route("menurutmu nama produk ini bagus?").kind).toBe("none");
+    expect(to(route(""))).toBe("support");
+  });
+
+  it("greeting with no Support in the team → none (fallback picks, not the CTO)", () => {
+    expect(route("halo", without("support")).kind).toBe("none");
+  });
+
+  it("planning with no CTO in the team → none", () => {
+    expect(route("prioritas kita minggu ini apa?", without("cto")).kind).toBe("none");
+  });
+});
+
+describe("routing: domains (EN/ID)", () => {
   it.each([
     ["tolong audit fungsi parseConfig di lib/config.ts", "reviewer"],
     ["please review the auth middleware code", "reviewer"],
@@ -51,29 +103,16 @@ describe("CTO dispatch: domain routing (EN/ID)", () => {
   });
 });
 
-describe("CTO dispatch: light questions stay with the CTO", () => {
-  it.each([
-    "halo",
-    "thanks!",
-    "status task sekarang gimana?",
-    "what's the status of the release",
-    "prioritas kita minggu ini apa?",
-    "what should we work on next",
-    "mulai dari mana ya",
-    "cara restart worker?",
-    "how do I add an agent",
-    "",
-    "menurutmu nama produk ini bagus?",
-  ])("%s → CTO", (text) => {
-    expect(route(text).kind).toBe("light");
+describe("routing: how-to", () => {
+  it("a short how-to on a topic goes to the topic owner", () => {
+    expect(to(route("how do I deploy to vercel"))).toBe("devops");
   });
-
   it("a short how-to that asks for depth is not light", () => {
     expect(to(route("how do I audit the auth code"))).toBe("reviewer");
   });
 });
 
-describe("CTO dispatch: missing roles", () => {
+describe("routing: missing roles", () => {
   it("custom security agent wins over the reviewer", () => {
     const team = [...full, { _id: "sec", name: "Sentinel", role: "Security" }];
     expect(to(route("cek keamanan endpoint login", team))).toBe("Security");
@@ -81,8 +120,8 @@ describe("CTO dispatch: missing roles", () => {
   it("security falls back to the reviewer", () => {
     expect(to(route("cek celah keamanan di login"))).toBe("reviewer");
   });
-  it("security with no reviewer and no security role → CTO", () => {
-    expect(route("cek celah keamanan di login", without("reviewer")).kind).toBe("light");
+  it("security with no reviewer and no security role → none", () => {
+    expect(route("cek celah keamanan di login", without("reviewer")).kind).toBe("none");
   });
   it("designer question goes to frontend when there is no designer", () => {
     expect(to(route("warna palet halaman landing kurang enak", without("designer")))).toBe("frontend");
@@ -94,26 +133,29 @@ describe("CTO dispatch: missing roles", () => {
     const team = [...without("designer", "frontend"), { _id: "ux", name: "UX", role: "UI UX" }];
     expect(to(route("what do you think of the typography", team))).toBe("UI UX");
   });
-  it("role missing entirely → CTO", () => {
-    expect(route("bandingkan zod vs valibot", without("researcher")).kind).toBe("light");
+  it("role missing entirely → none", () => {
+    expect(route("bandingkan zod vs valibot", without("researcher")).kind).toBe("none");
   });
   it("roles are matched case-insensitively with suffixes", () => {
     const team = [{ _id: "cto", name: "CTO", role: "cto" }, { _id: "q", name: "Tester", role: "QA Engineer" }];
     expect(to(route("what is our test coverage", team))).toBe("QA Engineer");
   });
-  it("never routes to the CTO itself", () => {
+  it("routes by role, not by name", () => {
     const team = [{ _id: "cto", name: "CTO", role: "reviewer" }];
-    expect(route("please review the code", team).kind).toBe("light");
+    expect(to(route("please review the code", team))).toBe("reviewer");
   });
-  it("code audit without repo tools → CTO", () => {
-    expect(route("tolong audit fungsi parseConfig", full, { repoToolsAvailable: false }).kind).toBe("light");
+  it("code audit without repo tools still goes to its owner (no CTO fallback)", () => {
+    expect(to(route("tolong audit fungsi parseConfig", full, { repoToolsAvailable: false }))).toBe("reviewer");
+  });
+  it("without repo tools a domain that needs no repo wins over a code-bound one", () => {
+    expect(to(route("bandingkan library untuk fungsi parseConfig", full, { repoToolsAvailable: false }))).toBe("researcher");
   });
   it("research does not need repo tools", () => {
     expect(to(route("bandingkan zod vs valibot", full, { repoToolsAvailable: false }))).toBe("researcher");
   });
 });
 
-describe("CTO dispatch: follow-ups", () => {
+describe("routing: follow-ups", () => {
   const afterReviewer = [
     { authorType: "user", content: "tolong audit lib/config.ts" },
     { authorType: "agent", agentId: "cto", content: "Saya serahkan ke @Reviewer untuk audit `lib/config.ts`." },
@@ -138,58 +180,55 @@ describe("CTO dispatch: follow-ups", () => {
     }
   );
 
-  it("'cek lagi' after a CTO-only answer is the CTO re-checking itself", () => {
-    expect(ask(afterCtoOnly("prioritas minggu ini apa?", "Fokus ke login."), "cek lagi").kind).toBe("light");
+  it("'cek lagi' after a CTO answer goes back to the CTO", () => {
+    expect(to(ask(afterCtoOnly("prioritas minggu ini apa?", "Fokus ke login."), "cek lagi"))).toBe("cto");
+  });
+
+  it("System lines in the previous turn are skipped", () => {
+    const h = [
+      { authorType: "user", content: "kenapa query lambat?" },
+      { authorType: "agent", voice: "system", content: "Sent to Backend" },
+      { authorType: "agent", agentId: "be", content: "Index users belum ada." },
+    ];
+    expect(to(route("lebih detail", full, { history: [...h, { authorType: "user", content: "lebih detail" }] }))).toBe("backend");
   });
 
   it("'lebih detail' routes by the previous question's domain", () => {
-    const h = afterCtoOnly("bandingkan zod vs valibot", "Zod lebih populer.");
+    const h = [{ authorType: "user", content: "bandingkan zod vs valibot" }, { authorType: "agent", content: "Zod lebih populer." }];
     expect(to(ask(h, "lebih detail"))).toBe("researcher");
   });
 
-  it("'cek lebih dalam' on code the CTO talked about → reviewer", () => {
-    const h = afterCtoOnly("menurutmu gimana struktur ini?", "File `apps/api/convex/chat.ts` agak panjang.");
+  it("'cek lebih dalam' on code an unknown speaker talked about → reviewer", () => {
+    const h = [{ authorType: "user", content: "menurutmu gimana struktur ini?" }, { authorType: "agent", agentId: "gen", content: "File `apps/api/convex/chat.ts` agak panjang." }];
     const r = ask(h, "cek lebih dalam");
     expect(to(r)).toBe("reviewer");
     if (r.kind === "specialist") expect(r.topic).toBe("apps/api/convex/chat.ts");
   });
 
-  it("follow-up with no previous turn stays with the CTO", () => {
-    expect(ask([], "lebih detail").kind).toBe("light");
-  });
-
-  it("follow-up after a light question with no code stays with the CTO", () => {
-    expect(ask(afterCtoOnly("prioritas minggu ini apa?", "Fokus login."), "lebih detail").kind).toBe("light");
+  it("follow-up with no previous turn → none", () => {
+    expect(ask([], "lebih detail").kind).toBe("none");
   });
 
   it("a follow-up phrase with its own domain routes by that domain", () => {
     expect(to(ask(afterReviewer, "cek lebih dalam tesnya"))).toBe("qa");
   });
 
-  it("follow-up back to the reviewer is skipped without repo tools", () => {
-    expect(ask(afterReviewer, "cek lebih dalam", { repoToolsAvailable: false }).kind).toBe("light");
+  it("follow-up without repo tools still reaches the reviewer through the previous question", () => {
+    expect(to(ask(afterReviewer, "cek lebih dalam", { repoToolsAvailable: false }))).toBe("reviewer");
   });
 });
 
-describe("CTO dispatch: handoff line", () => {
-  it("Indonesian with topic", () => {
-    expect(dispatchHandoffLine({ name: "Reviewer" }, "reviewer", { topic: "lib/config.ts", indonesian: true })).toBe(
-      "Saya serahkan ke @Reviewer untuk audit `lib/config.ts`."
-    );
+describe("System routing line (§2.5: English, no @name)", () => {
+  it("one and several owners", () => {
+    expect(systemRoutingLine([{ name: "Backend" }])).toBe("Sent to Backend");
+    expect(systemRoutingLine([{ name: "Backend" }, { name: "Designer" }])).toBe("Sent to Backend and Designer");
+    expect(systemRoutingLine([{ name: "A" }, { name: "B" }, { name: "C" }])).toBe("Sent to A, B and C");
+    expect(systemRoutingLine([])).toBe("");
+    expect(systemRoutingLine([{ name: "Backend" }])).not.toContain("@");
   });
-  it("Indonesian without topic", () => {
-    expect(dispatchHandoffLine({ name: "QA" }, "qa", { indonesian: true })).toBe("Saya serahkan ke @QA untuk pengecekan tes ini.");
-  });
-  it("English with and without topic", () => {
-    expect(dispatchHandoffLine({ name: "Reviewer" }, "security", { topic: "auth.ts", indonesian: false })).toBe(
-      "Handing this to @Reviewer for a security check of `auth.ts`."
-    );
-    expect(dispatchHandoffLine({ name: "Researcher" }, "researcher", { indonesian: false })).toBe(
-      "Handing this to @Researcher for research."
-    );
-  });
-  it("strips backticks from the topic", () => {
-    expect(dispatchHandoffLine({ name: "R" }, "reviewer", { topic: "a`b", indonesian: false })).toBe("Handing this to @R for a code audit of `ab`.");
+  it("old CTO handoff rows are still recognised (kept out of transcripts)", () => {
+    expect(isHandoffLine("Saya serahkan ke @Reviewer untuk audit `lib/config.ts`.")).toBe(true);
+    expect(isHandoffLine("Handing this to @Researcher for research.")).toBe(true);
   });
   it("detects Indonesian copy", () => {
     expect(looksIndonesian("tolong audit kode ini")).toBe(true);

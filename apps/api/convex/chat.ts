@@ -30,7 +30,6 @@ import {
   isGoReply,
   isPastedContent,
   isOptionPick as isOptionPickText,
-  isRefusalReply,
   isSelfReviewRequest,
   previousReplyOf,
   targetsOutsideRepo,
@@ -40,10 +39,10 @@ import {
 import { chooseAskResponder, classifyIntent } from "./lib/chat/classify";
 import { type EchoContext, streamEchoSafe, stripLeadingEcho } from "./lib/chat/echo";
 import { ROLE_KEYS, ROLES } from "./lib/roles";
-import { chatPreRouteAllowed, dispatchHandoffLine, looksIndonesian as looksIndonesianDispatch, routeCtoQuestion, routedAnswerSubtype } from "./lib/chat/dispatch";
+import { chatPreRouteAllowed, routedAnswerSubtype, systemRoutingLine } from "./lib/chat/dispatch";
+import { buildTaskStatusLine, resolveChatOwner } from "./lib/chat/owner";
 import { detectChatRunCommands } from "./lib/chat/runRequest";
 import {
-  ORCHESTRATOR_LIKE_ROLE,
   ORCHESTRATOR_ROLE,
   extractAgentMentions,
   pickConversationalAgent,
@@ -61,7 +60,6 @@ import {
 } from "./lib/chat/llm";
 import { stripToolCallMarkup } from "./lib/chat/strip";
 import { planWriteOffer } from "./lib/chat/writeOffer";
-import { sanitizeWrapUp, wrapUpSkipReason } from "./lib/chat/wrapUp";
 import { firstReasoningSentence, intentLineFor, stripInternalPhrasing, toolStepFor } from "./lib/chat/activity";
 import { completeWithSnapshot, type ChatSnapshotScope } from "./lib/chat/snapshot";
 import { readRepoSnapshot } from "./lib/chat/repoSnapshot";
@@ -98,16 +96,12 @@ import {
   buildChatPersonaLines,
   buildChatMessages,
   buildTurnContextSection,
-  buildCtoAssignmentSystem,
-  buildCtoSummaryMessages,
-  buildCtoSummarySystem,
   buildGreetingSystem,
   buildGroundingGuidance,
   buildHandoffGuidance,
-  buildHandoffNotice,
   buildPersonalChatSystem,
   buildPlanningGuidance,
-  buildRoutedSpecialistNotice,
+  buildRoutedOwnerNotice,
   buildRepoToolProtocol,
   buildSkillToolProtocol,
   buildSelfReviewGuidance,
@@ -137,7 +131,7 @@ type ChatContextData = {
   agents: ChatAgent[];
   team?: ChatAgent[];
   projectName: string;
-  history: { authorType: string; content: string; agentId?: string; messageId?: Id<"messages">; taskOffer?: ChatTaskOffer }[];
+  history: { authorType: string; content: string; agentId?: string; voice?: string; messageId?: Id<"messages">; taskOffer?: ChatTaskOffer }[];
   contextSummary?: string;
   activeTask?: { title: string; status: string } | null;
   llmProviders?: PoolConnectionPayload[];
@@ -395,7 +389,7 @@ async function handleLifecycleIntent(
     return true;
   }
   if (intent.intent === "status" && activeTask) {
-    await ctx.runMutation(internal.chatContext.insertAgentMessage, {
+    await ctx.runMutation(internal.chatContext.insertSystemLine, {
       projectId: args.projectId,
       conversationId: args.conversationId,
       content: `Task "${activeTask.title}" is ${activeTask.status}.`,
@@ -416,6 +410,17 @@ async function handleLifecycleIntent(
     }
   }
   return false;
+}
+
+/** System's status line from the project's task state (no LLM). */
+async function taskStatusLine(ctx: ActionCtx, projectId: Id<"projects">, team: ChatAgent[]): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { api: apiRef } = (await import("./_generated/api.js")) as any;
+  const tasks = (await ctx.runQuery(apiRef.tasks.listByProject, { projectId, limit: 50 })) as Array<{ title: string; status: string; assignedAgentIds?: string[] }>;
+  const nameOf = (id: string) => team.find((a) => String(a._id) === String(id))?.name;
+  return buildTaskStatusLine(
+    tasks.map((t) => ({ title: t.title, status: t.status, assigneeNames: (t.assignedAgentIds ?? []).map(nameOf).filter((n): n is string => Boolean(n)) }))
+  );
 }
 
 /** Refusal copy for a request that targets a path outside the repository. */
@@ -454,32 +459,26 @@ type StreamReply = (
  * Explicit dispatch: an explicit command ("/task …", "kerjakan …") creates
  * the task row and skips the chat loop. Never reached from the classifier.
  * Idempotent per message: the same command can only create one live task.
+ * O3: no CTO assignment reply. Assignees come from the user's @mentions and
+ * the request's keywords (the planner decides the rest); System posts
+ * "Task created · planning" with the assignment card.
  */
 async function dispatchTaskFromChat(
   ctx: ActionCtx,
   args: ReplyArgs,
   opts: {
     text: string;
-    agents: ChatAgent[];
     team: ChatAgent[];
     orchestrator: ChatAgent | null;
-    dispatcher: ChatAgent;
-    projectName: string;
-    conversation: { role: string; content: string }[];
-    /** System section: summary, quoted message (buildTurnContextSection). */
-    turnContext?: string;
-    llmProviders?: PoolConnectionPayload[];
-    globalConfig: ChatLlmConfig;
-    streamReplyToAgent: StreamReply;
-    /** Set when the command was composed from a CTO offer ("kerjakan itu"). */
+    /** Set when the command was composed from an offer ("kerjakan itu"). */
     title?: string;
     conversationContext?: boolean;
   }
 ): Promise<void> {
-  const { text, team, orchestrator, dispatcher } = opts;
+  const { text, team, orchestrator } = opts;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { api: idemApi } = await import("./_generated/api.js") as any;
-  const existing = await (ctx as any).runQuery(idemApi.tasks.listByProject, { projectId: args.projectId });
+  const { api } = await import("./_generated/api.js") as any;
+  const existing = await (ctx as any).runQuery(api.tasks.listByProject, { projectId: args.projectId });
   const dupe = (existing as any[]).find(
     (t: any) =>
       t.command === text &&
@@ -488,95 +487,60 @@ async function dispatchTaskFromChat(
   if (dupe) {
     return; // already dispatched; UI shows the task
   }
+  const systemLine = (content: string, extra: { taskId?: Id<"tasks">; card?: { kind: "assignment"; data: unknown } } = {}) =>
+    ctx.runMutation(internal.chatContext.insertSystemLine, {
+      projectId: args.projectId,
+      conversationId: args.conversationId,
+      replyToMessageId: args.userMessageId,
+      content,
+      ...extra,
+    });
   // Safety: a request aimed at paths outside the repository is never
   // turned into a task — the worker would only refuse it later, after
   // planning and approvals (e2e safety probe).
   const outsidePath = targetsOutsideRepo(text);
   if (outsidePath) {
-    await ctx.runMutation(internal.chatContext.insertAgentMessage, {
-      projectId: args.projectId,
-      agentId: dispatcher._id as any,
-      conversationId: args.conversationId,
-      replyToMessageId: args.userMessageId,
-      content: outsideRepoReply(text, outsidePath),
-    });
+    await systemLine(outsideRepoReply(text, outsidePath));
     return;
   }
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { api } = await import("./_generated/api.js") as any;
     // Explicit @mentions from the user are assignees too.
     const userAssignees = (args.preferredAgentIds ?? [])
       .map((id) => team.find((a) => a._id === String(id)))
       .filter((a): a is ChatAgent => Boolean(a) && a!._id !== orchestrator?._id);
-    // CTO assignment: the CTO answers with a short plan and @mentions the
-    // teammates who own each part; those become the task's assignees.
-    let ctoAssignees: ChatAgent[] = [];
-    if (orchestrator) {
-      try {
-        const ctoConfig = await resolveConfigFromProviders(opts.llmProviders, opts.globalConfig, orchestrator as any);
-        const plan = await opts.streamReplyToAgent(
-          orchestrator._id as any,
-          ctoConfig,
-          [buildCtoAssignmentSystem(orchestrator, opts.projectName, team, userAssignees), opts.turnContext ?? ""].filter(Boolean).join("\n"),
-          opts.conversation,
-        );
-        ctoAssignees = extractAgentMentions(plan.content, team, String(orchestrator._id));
-        // The CTO declined the request: its reply stands as the
-        // answer and no task is created or dispatched.
-        if (isRefusalReply(plan.content, ctoAssignees.length)) {
-          return;
-        }
-      } catch (err: any) {
-        console.error("CTO assignment reply failed:", err?.message ?? err);
-      }
-    }
-    // The CTO's reply may name nobody (empty reply, no @mentions); pick
-    // owners from the request itself instead of handing it to everyone.
-    const keywordAssignees =
-      userAssignees.length || ctoAssignees.length
-        ? []
-        : suggestAssigneesByKeywords(text, team.filter((a) => a._id !== orchestrator?._id));
-    const assignees = resolveAssignees(team, orchestrator, [...userAssignees, ...ctoAssignees, ...keywordAssignees]);
+    // Nobody named: pick owners from the request itself instead of handing
+    // it to everyone.
+    const keywordAssignees = userAssignees.length
+      ? []
+      : suggestAssigneesByKeywords(text, team.filter((a) => a._id !== orchestrator?._id));
+    const assignees = resolveAssignees(team, orchestrator, [...userAssignees, ...keywordAssignees]);
+    const title = opts.title ?? text.slice(0, 80);
     const taskId = await (ctx as any).runMutation(api.tasks.createFromCommand, {
       projectId: args.projectId,
       command: text,
-      title: opts.title ?? text.slice(0, 80),
+      title,
       conversationId: args.conversationId,
       ...(opts.conversationContext === false ? { conversationContext: false } : {}),
       ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
       ...(assignees.length ? { assignedAgentIds: assignees.map((a) => a._id) } : {}),
     });
-    if (orchestrator) {
-      await ctx.runMutation(internal.chatContext.insertAgentMessage, {
-        projectId: args.projectId,
-        agentId: orchestrator._id as any,
-        conversationId: args.conversationId,
-        replyToMessageId: args.userMessageId,
-        taskId: taskId as any,
-        content: "",
-        card: {
-          kind: "assignment",
-          data: {
-            taskId: String(taskId),
-            title: opts.title ?? text.slice(0, 80),
-            assignees: (assignees.length ? assignees : team)
-              .filter((a) => a._id !== orchestrator._id)
-              .map((a) => ({ agentId: String(a._id), name: a.name, role: a.role })),
-            assignedBy: orchestrator.name,
-          },
+    await systemLine("Task created · planning", {
+      taskId: taskId as any,
+      card: {
+        kind: "assignment",
+        data: {
+          taskId: String(taskId),
+          title,
+          assignees: (assignees.length ? assignees : team)
+            .filter((a) => a._id !== orchestrator?._id)
+            .map((a) => ({ agentId: String(a._id), name: a.name, role: a.role })),
+          assignedBy: "System",
         },
-      });
-    }
+      },
+    });
   } catch (e: any) {
     console.error("Auto-dispatch failed:", e?.message ?? e);
-    await ctx.runMutation(internal.chatContext.insertAgentMessage, {
-      projectId: args.projectId,
-      agentId: dispatcher._id as any,
-      conversationId: args.conversationId,
-      content: `I couldn't create the task (${e?.message ?? "unknown error"}). Please try again or create the task manually.`,
-      replyToMessageId: args.userMessageId,
-    });
+    await systemLine(`Task not created: ${e?.message ?? "unknown error"}. Try again or create it manually.`);
     // do not pretend execution is running
   }
 }
@@ -593,10 +557,9 @@ async function startOfferedTask(
     offer: { command: string; title?: string; reply: string; messageId?: Id<"messages">; assigneeAgentId?: string };
     team: ChatAgent[];
     orchestrator: ChatAgent | null;
-    dispatcher: ChatAgent;
   }
 ): Promise<void> {
-  const { offer, team, orchestrator, dispatcher } = opts;
+  const { offer, team, orchestrator } = opts;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { api } = (await import("./_generated/api.js")) as any;
   const existing = (await ctx.runQuery(api.tasks.listByProject, { projectId: args.projectId })) as any[];
@@ -604,48 +567,41 @@ async function startOfferedTask(
   const mentioned = extractAgentMentions(offer.reply, team, String(orchestrator?._id ?? ""));
   const assignees = mentioned.length ? mentioned : team.filter((a) => String(a._id) === offer.assigneeAgentId);
   const title = offer.title ?? offer.command.split("\n")[0].slice(0, 80);
+  const scope = { projectId: args.projectId, conversationId: args.conversationId, replyToMessageId: args.userMessageId };
   try {
     const taskId = await ctx.runMutation(api.tasks.createFromCommand, {
       projectId: args.projectId,
       command: offer.command,
       title,
       conversationId: args.conversationId,
-      // Built from the CTO's offer and the request it answered: no other turns.
+      // Built from the offer and the request it answered: no other turns.
       conversationContext: false,
       ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
       ...(assignees.length ? { assignedAgentIds: assignees.map((a) => a._id) } : {}),
       // Marks the offer used: its button shows "Task created".
       ...(offer.messageId ? { offerMessageId: offer.messageId } : {}),
     });
-    if (orchestrator) {
-      await ctx.runMutation(internal.chatContext.insertAgentMessage, {
-        projectId: args.projectId,
-        agentId: orchestrator._id as any,
-        conversationId: args.conversationId,
-        replyToMessageId: args.userMessageId,
-        taskId: taskId as any,
-        content: "",
-        card: {
-          kind: "assignment",
-          data: {
-            taskId: String(taskId),
-            title,
-            assignees: (assignees.length ? assignees : team)
-              .filter((a) => a._id !== orchestrator._id)
-              .map((a) => ({ agentId: String(a._id), name: a.name, role: a.role })),
-            assignedBy: orchestrator.name,
-          },
+    await ctx.runMutation(internal.chatContext.insertSystemLine, {
+      ...scope,
+      taskId: taskId as any,
+      content: "Task created · planning",
+      card: {
+        kind: "assignment",
+        data: {
+          taskId: String(taskId),
+          title,
+          assignees: (assignees.length ? assignees : team)
+            .filter((a) => a._id !== orchestrator?._id)
+            .map((a) => ({ agentId: String(a._id), name: a.name, role: a.role })),
+          assignedBy: "System",
         },
-      });
-    }
+      },
+    });
   } catch (e: any) {
     console.error("Offered task start failed:", e?.message ?? e);
-    await ctx.runMutation(internal.chatContext.insertAgentMessage, {
-      projectId: args.projectId,
-      agentId: dispatcher._id as any,
-      conversationId: args.conversationId,
-      content: `I couldn't create the task (${e?.message ?? "unknown error"}). Use the Create task button under the plan instead.`,
-      replyToMessageId: args.userMessageId,
+    await ctx.runMutation(internal.chatContext.insertSystemLine, {
+      ...scope,
+      content: `Task not created: ${e?.message ?? "unknown error"}. Use the Create task button instead.`,
     });
   }
 }
@@ -778,8 +734,8 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     };
 
     // Reply quote: replying to a teammate's message (no @mention) routes the answer to that teammate, as if the user
-    // had @mentioned it. The CTO and the user's own messages route as usual; either way the quoted text rides into the
-    // context below.
+    // had @mentioned it (the CTO included, O3). The user's own messages route as usual; either way the quoted text rides
+    // into the context below.
     const quoteInfo = await ctx.runQuery(internal.chatContext.getQuoteForReply, {
       userMessageId: rawArgs.userMessageId,
     });
@@ -837,7 +793,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     const turnReplies: Array<{ name: string; content: string }> = [];
     const turnContext = () =>
       buildTurnContextSection({ summary: data.contextSummary, quoteLine, turnReplies });
-    // CTO handoff lines posted this turn (kept out of the specialist's context).
+    // System routing lines posted this turn (kept out of the owner's context).
     const handoffLines: string[] = [];
     // Leading speaker-echo cleanup (lib/chat/echo.ts): what a reply by this
     // agent may have copied, and the speaker labels it would copy it under.
@@ -866,14 +822,14 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // compat). Anchored: an unanchored match also hit "director", "doctor", … Falling back to agents[0] made any
     // selected agent introduce itself as "the orchestrator/planner" while still naming its own role (e.g. "frontend
     // developer ... I'm the orchestrator/planner").
+    // O3: the CTO is a teammate that owns architecture and planning, not the
+    // chat default. Read from the team (not the conversation's participants)
+    // so routing can reach it.
+    const team = teamAgents ?? agents;
     const orchestrator =
+      team.find((a) => ORCHESTRATOR_ROLE.test(a.role.trim())) ??
       agents.find((a) => ORCHESTRATOR_ROLE.test(a.role.trim())) ??
       null;
-    // The dispatcher creates the task row. It may be the orchestrator, or the
-    // first agent when the project has no CTO — but a non-orchestrator
-    // never receives planning guidance.
-    const dispatcher = orchestrator ?? agents[0];
-    const team = teamAgents ?? agents;
 
     // The user's message this run answers (fixed fallback copy follows its language).
     const userText = history[history.length - 1]?.content ?? "";
@@ -1263,14 +1219,27 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // agent answers, not the whole team: fanning out to every agent made 12 sequential LLM calls and blew the action
     // timeout, leaving the first bubble stuck on "Thinking" forever.
     const lastContent = history[history.length - 1]?.content ?? "";
+    // Who the user addressed: the @mentioned agents (or the To pick). The
+    // web's old default receiver, the CTO without "@CTO" typed, counts as
+    // To: Team (O3: no CTO default), so System routes the message.
+    const pickedAgents = (args.preferredAgentIds ?? [])
+      .map((id) => agents.find((a) => a._id === String(id)))
+      .filter((a): a is ChatAgent => Boolean(a));
+    const ctoTyped =
+      orchestrator !== null &&
+      new RegExp(`@(?:cto|${orchestrator.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![\\w-])`, "i").test(lastContent);
+    // "@CTO" typed always addresses the CTO, picked or not.
+    const mentionedAgents =
+      orchestrator !== null && !ctoTyped && !quotedResponder && pickedAgents.length === 1 && String(pickedAgents[0]._id) === String(orchestrator._id)
+        ? []
+        : orchestrator !== null && ctoTyped && pickedAgents.length === 0
+          ? [orchestrator]
+          : pickedAgents;
     if (GREETING.test(lastContent.trim())) {
       const greetingHistory = [{ role: "user", content: lastContent.trim() }];
-      // Same speaker rule as ASK: an @mention wins, else the CTO (the
-      // default chat participant), else the deterministic fallback.
-      const greetingMentions = (args.preferredAgentIds ?? [])
-        .map((id) => agents.find((a) => a._id === String(id)))
-        .filter((a): a is ChatAgent => Boolean(a));
-      const greeters = pickGreetingResponders(greetingMentions, orchestrator, team);
+      // An @mention wins, else Support (the guidance role), else the
+      // deterministic fallback. Never the CTO by default.
+      const greeters = pickGreetingResponders(mentionedAgents, team);
       for (const agent of greeters) {
         try {
           const perAgentConfig = await resolveConfigFromProviders(
@@ -1311,23 +1280,15 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       await dispatchTaskFromChat(ctx, projectArgs, {
         text: backOffer ? `${explicitCommand}\n\n${backOffer.command}` : explicitCommand,
         ...(backOffer ? { title: backOffer.title, conversationContext: false } : {}),
-        agents,
         team,
         orchestrator,
-        dispatcher,
-        projectName,
-        conversation: messagesFor(orchestrator ? String(orchestrator._id) : undefined),
-        turnContext: turnContext(),
-        llmProviders,
-        globalConfig,
-        streamReplyToAgent,
       });
       return;
     }
     if (!isOptionPick && isGoReply(lastUserContent)) {
       const offer = findOfferedTask(history, roleOf);
       if (offer) {
-        await startOfferedTask(ctx, projectArgs, { offer: { ...offer, messageId: history[offer.index]?.messageId }, team, orchestrator, dispatcher });
+        await startOfferedTask(ctx, projectArgs, { offer: { ...offer, messageId: history[offer.index]?.messageId }, team, orchestrator });
         return;
       }
       // No offer to start: a bare "gas" is just chat.
@@ -1361,112 +1322,75 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     //   of this turn reach later speakers through their system section.
     // - A single mention or no mention → the conversational agent (ASK) /
     //   orchestrator (TASK). Pure questions get the cheapest adequate agent.
-    const mentionedAgents = (args.preferredAgentIds ?? [])
-      .map((id) => agents.find((a) => a._id === String(id)))
-      .filter((a): a is ChatAgent => Boolean(a));
-    // Repo tools for every agent answering in this turn (the CTO, the teammates it hands off to, agents the user
-    // @mentioned): only when a worker can serve them (the repo lives on the worker's host). Checked once per turn.
-    // Otherwise no tools, and the grounding rule makes each agent say it has not checked.
+    // Repo tools for every agent answering in this turn (the routed owner, agents the user @mentioned): only when a
+    // worker can serve them (the repo lives on the worker's host). Checked once per turn. Otherwise no tools, and the
+    // grounding rule makes each agent say it has not checked.
     const repoTools = !isOptionPick ? await repoToolsAvailability(ctx, projectId) : null;
 
-    // CTO dispatch pre-route (lib/chat/dispatch.ts): a question addressed to the CTO (no @mention, or only the To
-    // field's default CTO without "@CTO" typed) that belongs to a specialist's domain goes straight to that specialist;
-    // the CTO posts a one-line handoff and a short wrap-up. Questions only — a work request keeps the CTO's plan +
-    // Create task.
-    const ctoTyped =
-      orchestrator !== null &&
-      new RegExp(`@(?:cto|${orchestrator.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![\\w-])`, "i").test(lastUserContent);
-    const addressedToCto =
-      orchestrator !== null &&
-      !ctoTyped &&
-      (mentionedAgents.length === 0 ||
-        (mentionedAgents.length === 1 && String(mentionedAgents[0]._id) === String(orchestrator._id)));
+    // O3 routing (lib/chat/owner.ts): a message nobody was @mentioned in is routed by System to the role that owns
+    // its topic; System posts "Sent to <Role>" and the owner answers. No CTO default and no CTO wrap-up.
     let routed: ChatAgent | null = null;
-    // Pasted/relayed text and change-shaped requests stay with the CTO (it
-    // discusses the paste, or offers a plan + Create task).
-    const workShaped = classifyChatIntent(lastUserContent).kind === "task" && !hasAskShape(lastUserContent);
-    // Deterministic: the LLM's audit/review/research label never decides it.
-    const preRoute = chatPreRouteAllowed({
-      text: lastUserContent,
-      intent,
-      optionPick: isOptionPick,
-      pasted: isPastedContent(lastUserContent),
-      workShaped,
-      runRequest: detectChatRunCommands(lastUserContent) !== null,
-    });
-    if (orchestrator && addressedToCto && preRoute) {
-      const route = routeCtoQuestion<ChatAgent>({
+    if (mentionedAgents.length === 0) {
+      const owner = await resolveChatOwner<ChatAgent>({
         text: lastUserContent,
         team,
-        orchestratorId: String(orchestrator._id),
         history,
         repoToolsAvailable: repoTools?.available === true,
+        optionPick: isOptionPick,
+        choose: async (pool) => chooseAskResponder(pool, lastUserContent, await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig())),
       });
-      if (route.kind === "specialist") {
-        routed = route.agent;
-        const line = dispatchHandoffLine(route.agent, route.domain, {
-          topic: route.topic,
-          indonesian: looksIndonesianDispatch(lastUserContent),
-        });
-        const handoffMessageId = await ctx.runMutation(internal.chatContext.insertAgentMessage, {
-          projectId: projectId,
-          agentId: orchestrator._id as any,
+      if (owner?.kind === "status") {
+        await ctx.runMutation(internal.chatContext.insertSystemLine, {
+          projectId,
           conversationId: args.conversationId,
-          content: line,
           replyToMessageId: args.userMessageId,
+          content: await taskStatusLine(ctx, projectId, team),
         });
+        return;
+      }
+      if (owner?.kind === "agent") {
+        routed = owner.agent;
+        // A one-agent team has no routing decision to show.
+        const line = team.length > 1 ? systemRoutingLine([owner.agent]) : "";
+        const handoffMessageId = line && await ctx.runMutation(internal.chatContext.insertSystemLine, {
+          projectId,
+          conversationId: args.conversationId,
+          replyToMessageId: args.userMessageId,
+          content: line,
+        });
+        // Not a reply, but a prior message for echo cleanup ("System: Sent to …").
+        if (line) handoffLines.push(line);
         if (handoffMessageId) {
           await ctx
             .runMutation(internal.chatContext.appendToolStep, {
               messageId: handoffMessageId,
-              step: { tool: "handoff", target: route.agent.role, ok: true, at: Date.now() },
+              step: { tool: "handoff", target: owner.agent.role, ok: true, at: Date.now() },
             })
             .catch(() => undefined);
         }
-        // Not a turn reply: the routed notice tells the specialist the CTO
-        // handed it over. As a "- CTO: …" line it got copied verbatim into
-        // the specialist's answer. Still a prior message for echo cleanup.
-        handoffLines.push(line);
-        // A routed message is chat: the specialist answers it (no plan, no Create task offer), whatever the LLM's
-        // suggestion was. A code audit / security review routed to the Reviewer is an audit, whatever the LLM labelled
-        // it: the Reviewer reads the code with the repo tools instead of proposing a plan (live test 4).
-        const routedSubtype = routedAnswerSubtype(route.domain, intent.subtype);
-        if (intent.intent !== "ask" || intent.subtype !== routedSubtype) {
-          intent = { ...intent, intent: "ask", subtype: routedSubtype };
-          taskIntent = { ...taskIntent, kind: "chat", subtype: intent.subtype };
+        // A routed question is answered (no plan, no Create task offer). A code audit / security review routed to the
+        // Reviewer is an audit, whatever the LLM labelled it (live test 4). Work-shaped messages (a change request,
+        // a paste, a run request) keep their intent: the owner replies with the Create task offer.
+        const preRoute = chatPreRouteAllowed({
+          text: lastUserContent,
+          intent,
+          optionPick: isOptionPick,
+          pasted: isPastedContent(lastUserContent),
+          workShaped: classifyChatIntent(lastUserContent).kind === "task" && !hasAskShape(lastUserContent),
+          runRequest: detectChatRunCommands(lastUserContent) !== null,
+        });
+        if (preRoute && owner.domain) {
+          const routedSubtype = routedAnswerSubtype(owner.domain, intent.subtype);
+          if (intent.intent !== "ask" || intent.subtype !== routedSubtype) {
+            intent = { ...intent, intent: "ask", subtype: routedSubtype };
+            taskIntent = { ...taskIntent, kind: "chat", subtype: intent.subtype };
+          }
         }
       }
     }
 
-    let responders: ChatAgent[];
-    // A suggested work request ("task") is answered like a question: the
-    // CTO (or the @mentioned agent) replies, with a plan proposal.
-    if (routed) {
-      responders = [routed];
-    } else if ((intent.intent === "ask" || intent.intent === "task") && !isOptionPick) {
-      if (mentionedAgents.length > 0) {
-        responders = mentionedAgents;
-      } else if (orchestrator !== null) {
-        // The CTO is in the chat (the default participant): it answers and
-        // pulls teammates in by @mention when their expertise is needed.
-        responders = [orchestrator];
-      } else {
-        const pool = team.filter((a) => !ORCHESTRATOR_LIKE_ROLE.test(a.role.trim()));
-        const pickedId = await chooseAskResponder(
-          pool,
-          lastUserContent,
-          await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig())
-        );
-        const picked = pickedId ? pool.filter((a) => String(a._id) === pickedId) : [];
-        responders = picked.length ? picked : pickConversationalAgent(team);
-      }
-    } else if (isOptionPick) {
-      // A pick is answered by the one agent that offered the options (the
-      // CTO by default), not by the whole team.
-      responders = mentionedAgents.length > 0 ? mentionedAgents.slice(0, 1) : orchestrator ? [orchestrator] : pickConversationalAgent(team);
-    } else {
-      responders = agents;
-    }
+    // The routed owner answers; otherwise the @mentioned agents, in the user's order.
+    const responders: ChatAgent[] = routed ? [routed] : mentionedAgents.length > 0 ? mentionedAgents : pickConversationalAgent(team);
     // Sequential multi-agent replies: each selected agent answers with its persona.
     // The queue grows when the CTO @mentions teammates in its reply (handoff).
     const queue = [...responders];
@@ -1477,19 +1401,15 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     const intentLine = intentLineFor(intent, lastUserContent);
     const selfReview = isSelfReviewRequest(lastUserContent);
     const answered = new Set<string>();
-    const handoffFrom = new Map<string, { by: string; request: string }>();
-    if (routed && orchestrator) {
-      handoffFrom.set(String(routed._id), { by: orchestrator.name, request: lastUserContent });
-    }
-    let routedReply = "";
     for (let turn = 0; turn < queue.length; turn += 1) {
       const agent = queue[turn];
       if (answered.has(String(agent._id))) continue;
       answered.add(String(agent._id));
       const isCto = orchestrator !== null && agent._id === orchestrator._id;
       // Write request: a short reply plus the Create task offer (lib/chat/writeOffer.ts).
-      const write = planWriteOffer({ speaker: agent, isCto, addressed: mentionedAgents.some((a) => String(a._id) === String(agent._id)), team, text: lastUserContent, taskIntent, optionPick: isOptionPick });
-      const handoffBy = handoffFrom.get(String(agent._id));
+      // O3: routed = addressed, so the owner System routed to can offer Create task.
+      const isRouted = routed !== null && String(routed._id) === String(agent._id);
+      const write = planWriteOffer({ speaker: agent, isCto, addressed: isRouted || mentionedAgents.some((a) => String(a._id) === String(agent._id)), team, text: lastUserContent, taskIntent, optionPick: isOptionPick });
       const callCap = toolBudget.capForNextReply();
       const useRepoTools = repoTools?.available === true && !workerGone && callCap > 0;
       // Skill v2: an on_demand agent reads its skills through load_skill,
@@ -1504,9 +1424,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       const offNote = !repoTools
         ? undefined
         : !repoTools.available
-          ? handoffBy === undefined
-            ? repoToolsOffNote(repoTools.reason)
-            : undefined
+          ? repoToolsOffNote(repoTools.reason)
           : workerGone
             ? repoToolsOffNote("unclaimed")
             : callCap <= 0
@@ -1525,15 +1443,9 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         ...(isOptionPick
           ? ["The user's last message is a button pick ('I choose …'), not their language: reply in the language of their earlier messages, in 2-3 sentences, and do not bring teammates in. Say which roles would do the work (as @Role) and that the Create task button under your reply starts it; never ask them to type a command."]
           : []),
-        ...(handoffBy !== undefined
-          ? [
-              routed && String(routed._id) === String(agent._id)
-                ? buildRoutedSpecialistNotice(handoffBy.by, useRepoTools)
-                : buildHandoffNotice(handoffBy.by, handoffBy.request),
-            ]
-          : []),
+        ...(isRouted ? [buildRoutedOwnerNotice(useRepoTools)] : []),
         ...buildGroundingGuidance(useRepoTools, skillLoader !== undefined),
-        selfReview && (handoffBy === undefined || (routed !== null && String(routed._id) === String(agent._id)))
+        selfReview
           ? buildSelfReviewGuidance(previousReplyOf(history, String(agent._id)), useRepoTools)
           : "",
         // Questions (compare, explain, recommend) get a prose answer; the
@@ -1582,15 +1494,9 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         toolBudget.spend(result.toolCalls ?? 0);
         content = result.content;
         // Create task offer: the server's own reading of the request, stored on
-        // the reply (CTO, or an @mentioned teammate) so the button and "gas" never depend on wording.
+        // the reply (the routed owner, or an @mentioned agent) so the button and "gas" never depend on wording.
         if (write.offer && result.messageId) {
           await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, { messageId: result.messageId, taskOffer: write.offer }).catch(() => undefined);
-        }
-        // Collaboration graph: record that this reply was a CTO handoff.
-        if (handoffBy !== undefined && orchestrator && result.messageId) {
-          await ctx
-            .runMutation(internal.orgIntel.markChatHandoff, { messageId: result.messageId, fromAgentId: orchestrator._id as any })
-            .catch(() => undefined);
         }
         // Post-answer check: file paths and file:line references the
         // answer cites but no tool result (or the snapshot) showed. A file the
@@ -1619,41 +1525,9 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         // Later speakers in this turn see this reply in their system
         // section; the user's message stays the last chat message.
         turnReplies.push({ name: agent.name, content: content.trim() });
-        if (routed && String(routed._id) === String(agent._id)) routedReply = content.trim();
-        // An @Name inside the CTO's own reply never pulls a teammate in: "izinkan @QA atau @Reviewer lanjut?" is a
-        // question to the user, not a handoff. Only the user's typed @mentions (responders) and the deterministic
-        // pre-route (routed) bring a specialist in.
+        // An @Name inside a reply never pulls a teammate in: "izinkan @QA atau @Reviewer lanjut?" is a question to
+        // the user, not a handoff. Only the user's typed @mentions and System's routing bring an agent in.
       }
     }
 
-    // Routed question: the CTO may add a decision / next step (≤2 lines, tool-free) — never when the user named the
-    // specialist or a single short reply already says it all, and never a restatement of the reply
-    // (lib/chat/wrapUp.ts).
-    const wrapUpSpecialists = routed && routedReply ? [{ agent: routed, reply: routedReply }] : [];
-    const wrapUpSkip = wrapUpSkipReason({ userText: lastUserContent, specialists: wrapUpSpecialists });
-    if (routed && orchestrator && routedReply && wrapUpSkip === null) {
-      try {
-        const ctoConfig = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), orchestrator as any);
-        const raw = await completeWithAgent(
-          buildCtoSummarySystem(orchestrator, routed, projectName),
-          buildCtoSummaryMessages(lastUserContent, routed, routedReply),
-          ctoConfig,
-        );
-        const wrapUp = sanitizeWrapUp(
-          stripLeadingEcho(stripInternalPhrasing(stripToolCallMarkup(raw.content ?? "")), echoContextFor(String(orchestrator._id))),
-          [routedReply],
-        );
-        if (wrapUp && !hasToolCallText(wrapUp)) {
-          await ctx.runMutation(internal.chatContext.insertAgentMessage, {
-            projectId: projectId,
-            agentId: orchestrator._id as any,
-            conversationId: args.conversationId,
-            content: wrapUp,
-            replyToMessageId: args.userMessageId,
-          });
-        }
-      } catch (err: any) {
-        console.error("CTO wrap-up failed:", err?.message ?? err);
-      }
-    }
 }

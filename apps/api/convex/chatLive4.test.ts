@@ -137,7 +137,7 @@ afterEach(() => {
 
 describe("routed Reviewer audits with its own prompt and the repo tools", () => {
   test("'tolong audit kode src/' labelled task/audit goes to the Reviewer as an audit, not a CTO plan", async () => {
-    const { t, projectId, ctoId, reviewerId } = await setup();
+    const { t, projectId, reviewerId } = await setup();
     llmIntent.intent = "task";
     llmIntent.subtype = "audit";
     reply = (call) => {
@@ -145,7 +145,8 @@ describe("routed Reviewer audits with its own prompt and the repo tools", () => 
       return "nothing to add";
     };
     const replies = await ask(t, projectId, "tolong audit kode src/ ya");
-    expect(replies.map((r) => String(r.agentId))).toEqual([String(ctoId), String(reviewerId)]);
+    expect(replies.map((r) => String(r.agentId))).toEqual(["undefined", String(reviewerId)]);
+    expect(replies[0]).toMatchObject({ voice: "system", content: "Sent to Reviewer" });
     // Saved without the copied speaker prefix.
     expect(replies[1].content).toBe("Temuan: defineSchema tanpa index (sedang).");
     expect(replies.some((r) => r.taskOffer)).toBe(false);

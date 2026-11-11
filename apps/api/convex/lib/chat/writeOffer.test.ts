@@ -12,7 +12,7 @@ const team = [
 ];
 const intent = { kind: "task", subtype: "implementation" };
 const plan = (speaker: (typeof team)[number], text: string, extra: Partial<Parameters<typeof planWriteOffer>[0]> = {}) =>
-  planWriteOffer({ speaker, isCto: speaker.role === "cto", addressed: speaker.role !== "cto", team, text, taskIntent: intent, optionPick: false, ...extra });
+  planWriteOffer({ speaker, isCto: speaker.role === "cto", addressed: true, team, text, taskIntent: intent, optionPick: false, ...extra });
 
 describe("codeRoleForRequest", () => {
   test("files and words pick the role", () => {

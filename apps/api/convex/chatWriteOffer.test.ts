@@ -159,15 +159,19 @@ describe("write requests in chat get a short reply and a routed Create task offe
     expect(tasks[0].assignedAgentIds).toEqual([frontendId]);
   });
 
-  test("the CTO hands an HTML file to Frontend in one line; no fixed English plan sentence", async () => {
-    const { t, projectId, ctoId, frontendId } = await setup({ worker: "none" });
-    reply = () => "Saya serahkan ke Frontend sebagai task — balas gas atau tekan Create task.";
-    const replies = await ask(t, projectId, "buatkan file ultimate.html dengan teks 'Ultimate is a new vision' dengan background yang menarik");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
-    const system = calls.find((c) => speaker(c) === "CTO")!.system;
-    expect(system).toContain("hand it to Frontend as a task");
-    expect(system).toContain("No plan, no architecture, design or styling advice");
-    expect(system).not.toContain("To execute this plan");
+  test("an un-mentioned HTML file request goes to Frontend directly (System line, no CTO); the offer still appears", async () => {
+    const { t, projectId, frontendId } = await setup({ worker: "none" });
+    reply = () => "Siap, ini dikerjakan lewat task — balas gas atau tekan Create task.";
+    const all = await ask(t, projectId, "buatkan file ultimate.html dengan teks 'Ultimate is a new vision' dengan background yang menarik");
+    const system = all.filter((r) => r.voice === "system");
+    const replies = all.filter((r) => r.voice !== "system");
+    expect(system.map((r) => r.content)).toEqual(["Sent to Frontend"]);
+    expect(system[0].agentId).toBeUndefined();
+    expect(replies.map((r) => r.agentId)).toEqual([frontendId]);
+    expect(calls.some((c) => speaker(c) === "CTO")).toBe(false);
+    const prompt = calls.find((c) => speaker(c) === "Frontend")!.system;
+    expect(prompt).toContain("Do not paste the file, its contents or any code block");
+    expect(prompt).not.toContain("To execute this plan");
     expect(replies[0].taskOffer).toEqual({ kind: "implementation", assigneeAgentId: String(frontendId) });
     expect(replies[0].unverifiedRefs).toBeUndefined();
     await ask(t, projectId, "gas");

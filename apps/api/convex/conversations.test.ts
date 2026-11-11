@@ -75,8 +75,8 @@ function participantRows(t: T, conversationId: string) {
 }
 
 describe("ensureForChat: resolve-or-create + seed", () => {
-  test("creates the active conversation and seeds the CTO by default (it hands off by @mention)", async () => {
-    const { t, projectId, leadId, feId } = await setup();
+  test("creates the active conversation with no default participant (O3: To: Team)", async () => {
+    const { t, projectId } = await setup();
 
     const conversationId = await t.mutation(internal.conversations.ensureForChat, {
       projectId,
@@ -85,16 +85,15 @@ describe("ensureForChat: resolve-or-create + seed", () => {
     const participants = await t.query(api.conversations.getParticipants, {
       conversationId,
     });
-    // The CTO is the default chat participant and pulls teammates in by @mention.
-    expect(participants.map((p) => p.agentId)).toEqual([leadId]);
-    expect(participants.map((p) => p.agentId)).not.toContain(feId);
+    // No CTO default: a message nobody was @mentioned in is routed by System.
+    expect(participants).toHaveLength(0);
 
     const active = await t.query(api.conversations.getActive, { projectId });
     expect(active?.conversation._id).toBe(conversationId);
-    expect(active?.participants.map((p) => p.agentId)).toEqual([leadId]);
+    expect(active?.participants).toHaveLength(0);
   });
 
-  test("the CTO wins the default chat selection over a general-purpose agent", async () => {
+  test("no CTO default and no migration to the CTO; chat context falls back to a non-CTO agent", async () => {
     const t = makeT();
     const ids = await t.run(async (ctx) => {
       const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p" });
@@ -105,8 +104,9 @@ describe("ensureForChat: resolve-or-create + seed", () => {
     });
     await t.mutation(api.projects.updateTeam, { projectId: ids.projectId, agentIds: [ids.cto, ids.general, ids.fe] });
     const conversationId = await t.mutation(internal.conversations.ensureForChat, { projectId: ids.projectId });
-    const participants = await t.query(api.conversations.getParticipants, { conversationId });
-    expect(participants.map((p) => p.agentId)).toEqual([ids.cto]);
+    expect(await t.query(api.conversations.getParticipants, { conversationId })).toHaveLength(0);
+    const context = await t.query(internal.chatContext.getContext, { projectId: ids.projectId, conversationId });
+    expect(context.agents.map((a: { _id: string }) => a._id)).toEqual([ids.general]);
   });
 
   test("is idempotent: a second send neither duplicates rows nor conversations", async () => {
@@ -116,7 +116,7 @@ describe("ensureForChat: resolve-or-create + seed", () => {
     const second = await t.mutation(internal.conversations.ensureForChat, { projectId });
     expect(second).toBe(first);
 
-    expect(await participantRows(t, first)).toHaveLength(1);
+    expect(await participantRows(t, first)).toHaveLength(0);
     const conversations = await t.run(async (ctx) =>
       ctx.db.query("conversations").collect()
     );
@@ -275,10 +275,10 @@ describe("participation gate: membership + enabled", () => {
 });
 
 describe("getContext fallback preserves the historical selection", () => {
-  test("no conversationId: preferred first, else the CTO", async () => {
+  test("no conversationId: preferred first, else the conversational agent", async () => {
     const { t, projectId, leadId, feId } = await setup();
 
-    // Default is the CTO (the chat front); explicit mentions override it.
+    // Default is the conversational agent; explicit mentions override it.
     const byDefault = await t.query(internal.chatContext.getContext, { projectId });
     expect(byDefault.agents.map((a) => a._id)).toEqual([leadId]);
 
@@ -407,7 +407,7 @@ describe("registry read models (addendum §1)", () => {
 });
 
 describe("a project with no agentIds runs with the fixed team", () => {
-  test("ensureForChat seeds the CTO and chat context has agents (no 'No enabled agents')", async () => {
+  test("ensureForChat seeds nobody and chat context still has agents (no 'No enabled agents')", async () => {
     const t = convexTest(schema, modules);
     const ids = await t.run(async (ctx) => {
       const cto = await ctx.db.insert("agents", { name: "CTO", role: "cto", status: "idle", isEnabled: true });
@@ -418,12 +418,12 @@ describe("a project with no agentIds runs with the fixed team", () => {
     });
     const conversationId = await t.mutation(internal.conversations.ensureForChat, { projectId: ids.projectId });
     const participants = await t.query(api.conversations.getParticipants, { conversationId });
-    expect(participants.map((p) => p.agentId)).toEqual([ids.cto]);
+    expect(participants).toHaveLength(0);
     const context = await t.query(internal.chatContext.getContext, { projectId: ids.projectId, conversationId });
-    expect(context.agents.map((a: { _id: string }) => a._id)).toEqual([ids.cto]);
+    expect(context.agents.map((a: { _id: string }) => a._id)).toEqual([ids.fe]);
     expect((context.team ?? []).map((a: { _id: string }) => a._id).sort()).toEqual([ids.cto, ids.fe].sort());
     // Without a conversation (legacy path) the same default answers.
     const legacy = await t.query(internal.chatContext.getContext, { projectId: ids.projectId });
-    expect(legacy.agents.map((a: { _id: string }) => a._id)).toEqual([ids.cto]);
+    expect(legacy.agents.map((a: { _id: string }) => a._id)).toEqual([ids.fe]);
   });
 });

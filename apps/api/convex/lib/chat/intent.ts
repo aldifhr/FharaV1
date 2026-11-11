@@ -440,14 +440,13 @@ export function composeOfferedTask(
 }
 
 /**
- * The task a bare go reply starts: the CTO reply right before the user's
- * latest message (teammates it pulled in may sit in between) that offered
- * Create task. Mirrors `suggestTaskId` + `createTaskFromMessage` in the web
+ * The task a bare go reply starts: the agent reply right before the user's
+ * latest message (System lines skipped) that offered Create task. Mirrors `suggestTaskId` + `createTaskFromMessage` in the web
  * chat, so "gas" does exactly what clicking the button would. Null when the
  * latest message is not preceded by such an offer.
  */
 export function findOfferedTask(
-  history: Array<{ authorType: string; content: string; agentId?: string; taskOffer?: ChatTaskOffer }>,
+  history: Array<{ authorType: string; content: string; agentId?: string; voice?: string; taskOffer?: ChatTaskOffer }>,
   roleOf: (agentId: string | undefined) => string | undefined
 ): OfferedTask | null {
   const last = history.length - 1;
@@ -456,11 +455,13 @@ export function findOfferedTask(
     const m = history[i];
     if (m.authorType === "user") return null;
     if (m.authorType !== "agent" || !m.content?.trim()) continue;
-    // A teammate's reply offers a task only through the server-stored offer
-    // (an @mentioned Frontend asked to write a file); the wording rule and
-    // option picks stay the CTO's.
+    // System lines (routing, task created) are not replies.
+    if (m.voice === "system" || !m.agentId) continue;
+    // O3: the nearest reply decides. It offers a task through its
+    // server-stored offer (the owner System routed to, or an @mentioned
+    // agent), as the answer to an option pick, or (pre-O3 CTO rows without
+    // a stored offer) through the CTO's Create task wording.
     const isCto = String(roleOf(m.agentId) ?? "").trim().toLowerCase() === "cto";
-    if (!isCto && !m.taskOffer) continue;
     let prevUser: string | null = null;
     for (let j = i - 1; j >= 0; j -= 1) {
       if (history[j].authorType === "user") {
@@ -471,7 +472,7 @@ export function findOfferedTask(
     // The offer already became a task (button or an earlier go reply).
     if (isOfferUsed(m.taskOffer)) return null;
     const pick = prevUser?.match(OPTION_PICK)?.[1];
-    if (!pick && !m.taskOffer && !OFFERS_CREATE_TASK.test(m.content)) return null;
+    if (!pick && !m.taskOffer && !(isCto && OFFERS_CREATE_TASK.test(m.content))) return null;
     const { command, title } = composeOfferedTask(history, i);
     const assigneeAgentId = m.taskOffer?.assigneeAgentId ?? (isCto ? undefined : m.agentId);
     return { index: i, command, title, reply: m.content, ...(assigneeAgentId ? { assigneeAgentId } : {}) };

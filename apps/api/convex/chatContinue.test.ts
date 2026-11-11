@@ -127,6 +127,28 @@ describe("cut replies", () => {
     expect(call.history.some((m) => m.content === "continue")).toBe(false);
   });
 
+  test("O3: \"continue\" finishes the routed owner's cut reply; the System line before it is not the target", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, designerId } = await t.run(async (ctx) => {
+      const ctoId = await ctx.db.insert("agents", { name: "CTO", role: "cto", status: "idle", isEnabled: true });
+      const designerId = await ctx.db.insert("agents", { name: "Designer", role: "designer", status: "idle", isEnabled: true });
+      const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p", agentIds: [ctoId, designerId] });
+      return { projectId, designerId };
+    });
+    llm.replies.push(cutStream());
+    const { conversationId } = await send(t, projectId, "warna ini cocok?");
+    const before = await agentMessages(t, conversationId);
+    expect(before.map((m) => m.voice === "system" ? `System: ${m.content}` : String(m.agentId))).toEqual(["System: Sent to Designer", String(designerId)]);
+    llm.replies.push(answer(" paired with an icon and a label."));
+    await send(t, projectId, "continue");
+    const after = await agentMessages(t, conversationId);
+    const owned = after.filter((m) => m.voice !== "system");
+    expect(owned).toHaveLength(1);
+    expect(owned[0]).toMatchObject({ agentId: designerId, content: `${PARTIAL} paired with an icon and a label.` });
+    expect(owned[0].cutOff).toBeUndefined();
+    expect(llm.calls.at(-1)!.history.some((m) => m.content.includes("Sent to"))).toBe(false);
+  });
+
   test("the Continue button resumes the cut reply, and a cut continuation can be continued again", async () => {
     const { t, projectId } = await setup();
     llm.replies.push(cutStream());

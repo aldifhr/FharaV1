@@ -777,14 +777,14 @@ export default defineSchema({
         permissionMode: v.optional(permissionModeValidator),
       })
     ),
-    // Idempotent send (t3code idea #2): the composer's client message id.
-    // A retried/double-submitted send with the same id returns this row.
+    // Idempotent send (t3code idea #2): the composer's client id; a retried send with the same id returns this row.
     clientId: v.optional(v.string()),
     // Agent bubble whose run died (stale sweep / failed run): "Reply interrupted" + Retry.
     interrupted: v.optional(v.boolean()),
     // Reply kept with its partial text: cut mid-stream or at the output limit. "Continue" appends (lib/chat/continueReply.ts).
     cutOff: v.optional(v.object({ kind: v.union(v.literal("interrupted"), v.literal("truncated")), reason: v.string() })),
     toAgentId: v.optional(v.id("agents")),
+    voice: v.optional(v.literal("system")), // §2.5 System status line ("Sent to Backend"): no agentId, authorType "agent".
     leasedBy: v.optional(v.string()),
     leaseExpiresAt: v.optional(v.number()),
     attempts: v.optional(v.number()),

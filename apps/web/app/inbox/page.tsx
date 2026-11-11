@@ -261,7 +261,7 @@ export default function InboxPage() {
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[14px]">{q.title}</p>
                           <p className="truncate text-[12.5px] text-ink-3">
-                            {q.agentRole ? `${roleLabel(q.agentRole)} · ` : ""}
+                            {`${q.agentRole ? roleLabel(q.agentRole) : "System"} · `}
                             {q.projectName}
                           </p>
                         </div>

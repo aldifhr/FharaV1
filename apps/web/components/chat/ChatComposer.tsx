@@ -121,17 +121,17 @@ export default function ChatComposer({
   onRetry: (id: string) => void;
   onSendAll: () => void;
   projectName: string;
-  /** Who can receive the message ("To <Agent>"). */
+  /** Teammates the message can be pinned to; null = the team (the server routes it, O4). */
   targets: MentionAgent[];
   targetId: string | null;
-  onTargetChange: (agentId: string) => void;
+  onTargetChange: (agentId: string | null) => void;
   /** Plan 020: permission mode for tasks this composer dispatches. */
   permissionMode?: PermissionMode;
   onPermissionModeChange?: (mode: PermissionMode) => void;
   /** Message being replied to (quote bar above the input); Esc or × cancels. */
   quote?: ChatQuote | null;
   onCancelQuote?: () => void;
-  /** Overrides the default "Message <project>" placeholder (decisions tray). */
+  /** Overrides the default "Message the team" placeholder (decisions tray). */
   placeholder?: string;
   /** Runs first on Enter / Escape when no picker is open; true = handled. */
   onKeyIntercept?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => boolean;
@@ -523,7 +523,7 @@ export default function ChatComposer({
             aria-expanded={slashOpen || mentionOpen}
             aria-activedescendant={slashOpen ? `composer-slash-${activeIndex}` : mentionOpen ? `composer-mention-${activeIndex}` : undefined}
             aria-describedby={usage ? "composer-slash-usage" : undefined}
-            placeholder={placeholder ?? (narrow ? `Message ${projectName}` : `Message ${projectName}, or type / for a command`)}
+            placeholder={placeholder ?? (narrow ? "Message the team" : "Message the team, or type / for a command")}
             className="block w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-base leading-6 text-ink outline-none placeholder:text-ink-3 sm:text-[15px]"
             style={{ minHeight: 48, maxHeight: 200 }}
           />
@@ -574,17 +574,17 @@ export default function ChatComposer({
                   onClick={() => setTargetOpen((o) => !o)}
                   aria-haspopup="listbox"
                   aria-expanded={targetOpen}
-                  aria-label={`Send to ${target ? roleLabel(target.role) : "the team"}`}
+                  aria-label={target ? `Only ${roleLabel(target.role)} answers` : "Choose a teammate to answer"}
                   className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg bg-hover px-2 text-[13.5px] text-ink outline-none transition hover:bg-line focus-visible:ring-2 focus-visible:ring-brand/40"
                 >
                   {target && <InitialAvatar agent avatarParams={target.avatarParams} name={roleLabel(target.role)} size={18} />}
-                  <span className="truncate">To {target ? roleLabel(target.role) : "team"}</span>
+                  <span className="truncate">{target ? roleLabel(target.role) : "Team"}</span>
                   <ChevronDown size={13} className="shrink-0 text-ink-3" />
                 </button>
                 {targetOpen && (
-                  <ul role="listbox" aria-label="Send to" className="absolute bottom-full left-0 z-30 mb-2 max-h-72 w-56 overflow-y-auto rounded-xl border border-line bg-panel py-1 shadow-[0_12px_32px_-12px_rgba(20,20,40,0.3)]">
-                    {targets.map((agent) => (
-                      <li key={agent._id} role="option" aria-selected={agent._id === targetId}>
+                  <ul role="listbox" aria-label="Who answers" className="absolute bottom-full left-0 z-30 mb-2 max-h-72 w-56 overflow-y-auto rounded-xl border border-line bg-panel py-1 shadow-[0_12px_32px_-12px_rgba(20,20,40,0.3)]">
+                    {[{ _id: null, role: "team" } as any, ...targets].map((agent: any) => (
+                      <li key={agent._id ?? "team"} role="option" aria-selected={agent._id === targetId}>
                         <button
                           type="button"
                           onClick={() => {
@@ -593,8 +593,8 @@ export default function ChatComposer({
                           }}
                           className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-ink hover:bg-hover ${agent._id === targetId ? "font-medium" : ""}`}
                         >
-                          <InitialAvatar agent avatarParams={agent.avatarParams} name={agentName(agent)} size={20} />
-                          <span className="flex-1 truncate">{agentName(agent)}</span>
+                          <InitialAvatar agent={Boolean(agent._id)} avatarParams={agent.avatarParams} name={agent._id ? agentName(agent) : "Team"} size={20} />
+                          <span className="flex-1 truncate">{agent._id ? agentName(agent) : "Team"}</span>
                           {agent._id === targetId && <span className="text-[12px] text-brand-ink">current</span>}
                         </button>
                       </li>

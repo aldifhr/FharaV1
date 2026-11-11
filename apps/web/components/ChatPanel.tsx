@@ -313,15 +313,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     }
     setTargetIdState((current) => {
       if (current && agents.some((a) => a._id === current)) return current;
-      if (stored && agents.some((a) => a._id === stored)) return stored;
-      // Default receiver: the CTO, else the first teammate.
-      return (agents.find((a) => a.role === "cto") ?? agents[0])._id;
+      // No default receiver (O4): un-mentioned messages go to the team and the server routes them.
+      return stored && agents.some((a) => a._id === stored) ? stored : null;
     });
   }, [agents, projectId]);
-  const setTargetId = (id: string) => {
+  const setTargetId = (id: string | null) => {
     setTargetIdState(id);
     try {
-      localStorage.setItem(TARGET_KEY(projectId), id);
+      if (id) localStorage.setItem(TARGET_KEY(projectId), id);
+      else localStorage.removeItem(TARGET_KEY(projectId));
     } catch {
       /* storage denied */
     }
@@ -710,7 +710,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             scrollToMessageRef={scrollToMessageRef}
             chatSending={chatSending}
             conversationTyping={conversationTyping}
-            typingAgent={quotedResponder ?? targetAgent ?? agents.find((a: any) => a.role === "cto")}
+            typingAgent={quotedResponder ?? targetAgent}
             onSelectTask={onSelectTask}
             approve={(approvalId) => approve({ approvalId: approvalId as any, ...boundTo(approvalId) })}
             reject={(approvalId) => reject({ approvalId: approvalId as any, ...boundTo(approvalId) })}
@@ -760,7 +760,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
           <StatusLine
             agents={agents}
             status={status}
-            drafting={conversationTyping ? [roleLabel((quotedResponder ?? targetAgent)?.role ?? "cto")] : []}
+            drafting={conversationTyping ? [(quotedResponder ?? targetAgent) ? roleLabel((quotedResponder ?? targetAgent)!.role) : "Team"] : []}
             events={projectEvents as any}
             qaUrl={(project as any)?.qaUrl ?? (project as any)?.devUrl}
           />

@@ -28,36 +28,10 @@ import { QuotedSnippet, quoteOf } from "./QuoteBlock";
 import { ChatOpinionLine, useChatOpinions, useRequestMessageOpinion } from "../review/Reviewer";
 import ContextDrawer from "../context/ContextDrawer";
 import ReplyInterrupted, { ReplyCutOff } from "./ReplyInterrupted";
+import { CheckedFilesLine, checkedFilesLabel, delegationParts, messageKindOf } from "./messageKinds";
+import SystemLineRow from "./SystemLineRow";
+import { systemLineText } from "@/lib/systemLine";
 
-export type MessageKind = "evaluation" | "planning" | "delegation" | "design" | null;
-
-export function messageKindOf(content: string): MessageKind {
-  return /^Task (completed|finished)/.test(content) ? "evaluation" :
-    /^Plan dibuat/.test(content) ? "planning" :
-    /^Delegation:/.test(content) ? "delegation" :
-    /^Design proposal:/.test(content) ? "design" : null;
-}
-
-export function delegationParts(content: string) {
-  const match = content.match(/^Delegation:\s*(.+?)\s*→\s*(.+?)\s*\((.+?)\)(?::\s*(.*))?$/s);
-  return match ? { from: match[1], to: match[2], capability: match[3], reason: match[4] ?? "" } : null;
-}
-
-/** Files the agent read while writing a grounded reply: one quiet line under the bubble. */
-const CHECKED_FILES_SHOWN = 6;
-export function checkedFilesLabel(files: string[]): string {
-  const shown = files.slice(0, CHECKED_FILES_SHOWN).join(", ");
-  const more = files.length - CHECKED_FILES_SHOWN;
-  return `Checked: ${shown}${more > 0 ? ` +${more} more` : ""}`;
-}
-
-function CheckedFilesLine({ files }: { files: string[] }) {
-  return (
-    <p className="mt-1 max-w-3xl truncate pl-1 text-[12px] text-ink-3" title={files.join("\n")}>
-      {checkedFilesLabel(files)}
-    </p>
-  );
-}
 
 /** References the reply cites that no repo check in it showed: one quiet line, never hidden. */
 const UNVERIFIED_SHOWN = 6;
@@ -145,21 +119,21 @@ export default function MessageList(props: Props) {
     return ids;
   }, [timeline]);
 
-  // The CTO's newest reply offers "Create task" when it answers an option
-  // pick or recommends making a task itself.
+  // The newest teammate reply offers "Create task" when it answers an option
+  // pick or carries a server-stored offer.
   const [taskState, setTaskState] = useState<Record<string, "busy" | "done">>({});
   const suggestTaskId = (() => {
     if (!onCreateTaskFrom) return null;
     for (let i = timeline.length - 1; i >= 0; i--) {
       const m = timeline[i];
       if (m.authorType === "user") return null;
-      if (m.authorType !== "agent" || m.card || !m.content?.trim() || m.taskId) continue;
+      if (m.authorType !== "agent" || m.card || !m.content?.trim() || m.taskId || systemLineText(m)) continue;
       if (isLive(m)) return null;
       let prevUser: any = null;
       for (let j = i - 1; j >= 0; j--) if (timeline[j].authorType === "user") { prevUser = timeline[j]; break; }
       const afterPick = /^i choose\b/i.test(prevUser?.content?.trim() ?? "");
-      // The CTO's reply offers the button; a teammate's only through the server-stored offer
-      // (an @mentioned Frontend asked to write a file), never by merely saying "create task".
+      // The server-stored offer (the addressed or routed owner) shows the button; the reply's
+      // wording alone only counts on pre-O3 CTO rows, never on a teammate merely saying "create task".
       const role = String((agents as any[])?.find((a: any) => a._id === m.agentId)?.role ?? "").toLowerCase();
       if (role !== "cto" && !m.taskOffer) continue;
       // A used offer shows "Task created" instead (TaskCreatedLink).
@@ -265,7 +239,8 @@ export default function MessageList(props: Props) {
     // Divider marks the start of a task block (at the user's message
     // that spawned it), not a transition back to plain conversation.
     const boundary = key !== prevKey && key !== "conversation";
-    const showTaskCard = key !== "conversation" && m.authorType === "agent" && previous?.authorType === "user";
+    const systemText = systemLineText(m);
+    const showTaskCard = key !== "conversation" && m.authorType === "agent" && previous?.authorType === "user" && systemText === null;
     const messageAgent = m.authorType === "agent"
       ? (agents as any)?.find((a: any) => a._id === m.agentId)
       : undefined;
@@ -334,7 +309,9 @@ export default function MessageList(props: Props) {
             />
           </div>
         )}
-        {!open ? null : animate ? (
+        {!open ? null : systemText !== null ? (
+          <SystemLineRow id={`message-${m._id}`} text={systemText} time={formatTime(m._creationTime)} className="mt-4" />
+        ) : animate ? (
           <motion.div
             key={m._id}
             id={`message-${m._id}`}
@@ -671,11 +648,11 @@ export default function MessageList(props: Props) {
           <InitialAvatar
             agent
             avatarParams={typingAgent?.avatarParams}
-            name={roleLabel(typingAgent?.role ?? "cto")}
+            name={(typingAgent ? roleLabel(typingAgent.role) : "Team")}
             size={32}
           />
           <div className="min-w-0 flex-1">
-            <p className="text-[14px] font-semibold text-ink">{roleLabel(typingAgent?.role ?? "cto")}</p>
+            <p className="text-[14px] font-semibold text-ink">{(typingAgent ? roleLabel(typingAgent.role) : "Team")}</p>
             <div className="mt-1.5 w-fit rounded-2xl rounded-tl-md bg-bubble px-4 py-3">
               <ReasoningLine running />
             </div>

@@ -262,7 +262,7 @@ export default function Home() {
               <section className="mt-10">
                 <SectionTitle>Recent tasks</SectionTitle>
                 {data.recentTasks.length === 0 ? (
-                  <Empty>No tasks yet. Ask the CTO for something in a project chat.</Empty>
+                  <Empty>No tasks yet. Ask the team for something in a project chat.</Empty>
                 ) : (
                   <ul className="divide-y divide-line">
                     {data.recentTasks.slice(0, 6).map((t) => (

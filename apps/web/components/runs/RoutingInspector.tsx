@@ -11,8 +11,8 @@ import type { RoutingView } from "@/api/convex/lib/routing";
  */
 
 const PLANNER_TEXT: Record<RoutingView["planner"]["mode"], string> = {
-  cto: "Planned by the CTO",
-  fallback: "Planned by the CTO as a stand-in planner",
+  cto: "Planned by the planner",
+  fallback: "Planned by the planner (fallback model)",
   heuristic: "Deterministic fallback plan (no LLM planner)",
   unknown: "Planner not recorded",
 };

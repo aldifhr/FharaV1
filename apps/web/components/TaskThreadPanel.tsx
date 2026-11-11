@@ -18,6 +18,9 @@ import ReviewSnippet from "./chat/cards/ReviewSnippet";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import PauseResumeButton from "./PauseResumeButton";
 import TaskHoldNotice from "./TaskHoldNotice";
+import TaskQuestionCard from "./TaskQuestionCard";
+import SystemLineRow from "./chat/SystemLineRow";
+import { canReplyTo, systemLineText, threadBlockOf } from "@/lib/systemLine";
 import Requirements from "./runs/Requirements";
 import { useToast } from "./Toasts";
 import { useSequencedEvents } from "@/lib/useSequencedEvents";
@@ -273,7 +276,6 @@ export default function TaskThreadPanel({
   const checks = (agentEvents ?? []).filter((e: any) => e.type === "tool.completed");
   const taskStatus = (task as any).status as string;
   const busy = sendingReply || steering;
-  const threadOptions: string[] = Array.isArray((task as any).pendingOptions) ? (task as any).pendingOptions : [];
   const subtasks: any[] = [...((execution as any)?.subtasks ?? [])].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
 
   // Every reply lands in the thread (so the user sees it went through); a
@@ -380,11 +382,11 @@ export default function TaskThreadPanel({
   const pendingApprovals = ((execution as any)?.approvals ?? []).filter((a: any) => a.status === "pending");
   const approvedByHuman = ((execution as any)?.approvals ?? []).some((a: any) => a.status === "approved");
   const agentById = (id: string | undefined) => ((agents as any) ?? []).find((a: any) => a._id === id);
-  const ctoMessages = (messages ?? []).filter((m: any) => {
-    if (m.authorType !== "agent") return false;
-    const role = agentById(m.agentId)?.role;
-    return role === "cto" || role === "reviewer";
-  });
+  // O4: the pinned block holds the final report (as the Response Owner), review notes and CTO
+  // architecture decisions; everything else is a reply. System lines render as status rows.
+  const responseOwner = (task as any).responseOwner as string | undefined;
+  const blockOf = (m: any) => threadBlockOf(m, agentById(m.agentId)?.role, responseOwner);
+  const ctoMessages = (messages ?? []).filter((m: any) => blockOf(m) !== null);
   // Delegation handoff rows (`@Reviewer <reasoning>`, written by the worker
   // for agent-to-agent addressing) are not replies; the handoff is recorded
   // via `recordDelegation`.
@@ -399,7 +401,7 @@ export default function TaskThreadPanel({
       (m.authorType === "agent" && !ctoMessages.includes(m) && !isDelegationHandoff(m)) ||
       (m.authorType === "user" && m._id !== commandMessageId),
   );
-  const replyCount = threadReplies.length;
+  const replyCount = threadReplies.filter((m: any) => systemLineText(m) === null).length;
   // Compact activity log: consecutive activity cards from one agent
   // collapse into one summary row (lib/activityGroups).
   const replyGroups = groupByIndex(
@@ -434,7 +436,7 @@ export default function TaskThreadPanel({
           : "Reply to the thread";
   /** Hover Reply on a thread message (text messages only). */
   const replyButton = (m: any) =>
-    m.content?.trim() ? (
+    canReplyTo(m) ? (
       <button
         type="button"
         aria-label="Reply"
@@ -542,29 +544,7 @@ export default function TaskThreadPanel({
               onRespond={(approvalId, decision) => respondCommand({ approvalId: approvalId as any, decision })}
             />
           ))}
-          {taskStatus === "waiting_input" && (task as any).pendingQuestion && (
-            <div className="rounded-xl border border-line bg-panel-2 p-3.5">
-              <p className="text-[13px] font-medium text-warn">The team asked you</p>
-              <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-ink">{(task as any).pendingQuestion}</p>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {threadOptions.map((option, index) => (
-                  <button
-                    key={`${index}-${option}`}
-                    type="button"
-                    disabled={sendingReply}
-                    onClick={() => void submitAnswer(option)}
-                    className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-1.5 text-left text-[14px] text-ink outline-none hover:border-brand/40 hover:bg-brand-soft focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
-                  >
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-hover text-[11px] font-semibold text-ink-2">{String.fromCharCode(65 + index)}</span>
-                    {option}
-                  </button>
-                ))}
-                <button type="button" onClick={askCancel} className="rounded-lg px-3 py-1.5 text-[14px] text-ink-2 hover:bg-hover hover:text-ink">
-                  Cancel task
-                </button>
-              </div>
-            </div>
-          )}
+          <TaskQuestionCard task={task as any} busy={sendingReply} onAnswer={(answer) => void submitAnswer(answer)} onCancel={askCancel} />
           {subtasks.length > 0 && (
             <section aria-label="Subtasks">
               <div className="flex items-center gap-3 text-[13px] text-ink-3">
@@ -624,22 +604,21 @@ export default function TaskThreadPanel({
           {ctoMessages.map((m: any, index: number) => {
             const msgAgent = agentById(m.agentId);
             const isLastCto = index === ctoMessages.length - 1;
-            const isReview = !m.card;
+            const block = blockOf(m);
+            const isReview = block !== "decision" && !m.card;
             return (
               <div key={m._id} id={`thread-message-${m._id}`} className={rowClass(m)}>
                 {replyButton(m)}
                 <InitialAvatar agent avatarParams={msgAgent?.avatarParams} name={roleLabel(msgAgent?.role)} size={30} />
                 <div className="min-w-0 flex-1">
-                  {nameRow(msgAgent?.role, m._creationTime, isReview ? "review" : undefined)}
+                  {nameRow(msgAgent?.role ?? (block === "report" ? responseOwner : undefined), m._creationTime, m.card ? undefined : block ?? undefined)}
                   {m.content?.trim() ? <MessageText content={m.content} size="sm" /> : null}
                   {m.card && (
                     <div className="mt-2.5">
                       <ChatCard card={m.card} />
                     </div>
                   )}
-                  {/* The CTO's latest review note carries a snippet of the
-                      run's diff and its status chips; the full diff is one
-                      click away. */}
+                  {/* The latest review note carries the run's diff snippet; the full diff is one click away. */}
                   {isLastCto && isReview && fileChanges && fileChanges.length > 0 && (
                     <ReviewSnippet
                       files={fileChanges as any}
@@ -674,7 +653,10 @@ export default function TaskThreadPanel({
                 />
               ) : null;
             if (!open) return summaryRow;
-            const row = (
+            const systemText = systemLineText(m);
+            const row = systemText !== null ? (
+              <SystemLineRow key={m._id} id={`thread-message-${m._id}`} text={systemText} time={timeOf(m._creationTime)} />
+            ) : (
               <div key={m._id} id={`thread-message-${m._id}`} className={rowClass(m)}>
                 {replyButton(m)}
                 <InitialAvatar agent={!isUser} avatarParams={isUser ? undefined : msgAgent?.avatarParams} name={isUser ? "You" : roleLabel(msgAgent?.role)} size={30} />

@@ -118,7 +118,7 @@ export function useProjectSlash({
       else toast("info", "No push is waiting", "A push shows up here once a task branch is ready.");
       return true;
     }
-    const agent = command === "qa" ? agentByRole("qa") : agentByRole("reviewer", "cto");
+    const agent = command === "qa" ? agentByRole("qa") : agentByRole("reviewer");
     if (!agent) {
       setChatError(`No ${command === "qa" ? "QA" : "reviewer"} on this project's team.`);
       return true;

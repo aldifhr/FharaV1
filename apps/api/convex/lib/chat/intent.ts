@@ -7,6 +7,7 @@
 import { isSystemLine } from "../systemLine";
 import { detectChatRunCommands, explicitRunCommand } from "./runRequest";
 import { findBuiltinSlash } from "../slashCommands";
+import { isPoliteWriteRequest } from "./offerBrief";
 
 // Mirrored from packages/worker/src/router/route.ts (Convex cannot import
 // worker code). The backend chat auto-dispatch must honor the same platform
@@ -118,6 +119,8 @@ export function classifyChatIntent(text: string): { kind: string; frontend: bool
   if (EXPLICIT_NEGATION.test(text)) {
     return { kind: "chat", frontend, backend, testing, security };
   }
+  // "can you create file index.html": polite, but a request for concrete work (an offer, never a start).
+  if (isPoliteWriteRequest(text)) return { kind: "task", frontend, backend, testing, security };
   // Boundary guard (same as worker router): question/advice shapes never
   // become tasks, even when they contain a change verb. Capability/
   // confirmation questions ("can you be X?", "bisa kan?") belong here too.
@@ -196,6 +199,7 @@ export function parseIntentResult(raw: string): IntentResult | null {
  * becomes a task, whatever change verbs it contains.
  */
 export function hasAskShape(text: string): boolean {
+  if (!EXPLICIT_NEGATION.test(text) && isPoliteWriteRequest(text)) return false;
   return (
     EXPLICIT_NEGATION.test(text) ||
     (QUESTION_SHAPE.test(text) || QUESTION_SHAPE_ID.test(text)) ||
@@ -275,7 +279,7 @@ export function explicitTaskCommand(text: string): string | null {
 }
 
 const GO_REPLY =
-  /^(?:(?:ok(?:e|ay)?|sip|ya|yes|yup|siap|y)[\s,]+)?(?:gas+(?:kan)?|lanjut(?:kan)?|go|kerjakan|jalankan|eksekusi|do it|run it|run this|let'?s go|ship it)(?:\s+(?:aja|ya|dong|sekarang|now|please|bro|kak))?[\s!.]*$/i;
+  /^(?:(?:(?:ok(?:e|ay)?|sip|ya|yes|yup|siap|y)[\s,]+)?(?:gas+(?:kan)?|lanjut(?:kan)?|go|kerjakan|jalankan|eksekusi|do it|run it|run this|let'?s go|ship it)|ok(?:e|ay)?|yes|yep|yup|ya|iya|sure|sip|siap)(?:\s+(?:aja|ya|dong|sekarang|now|please|bro|kak))?[\s!.]*$/i;
 
 /** A bare short go reply ("gas", "lanjut", "ok kerjakan", "yes do it"). */
 export function isGoReply(text: string): boolean {
@@ -297,6 +301,8 @@ export interface OfferedTask {
   reply: string;
   /** Assignee stored on the offer (messages.taskOffer.assigneeAgentId). */
   assigneeAgentId?: string;
+  /** The prefilled task brief (plan line + request, lib/chat/offerBrief.ts); the task command when set. */
+  brief?: string;
 }
 
 /**
@@ -392,6 +398,8 @@ export interface ChatTaskOffer {
   usedAt?: number;
   /** The agent the offered task goes to (an @mentioned code role, or the role the request's files belong to). */
   assigneeAgentId?: string;
+  /** The prefilled task brief (plan line + request, lib/chat/offerBrief.ts); the task command when set. */
+  brief?: string;
 }
 
 /** Whether a reply's Create task offer already produced a task. */
@@ -437,6 +445,9 @@ export function composeOfferedTask(
   const ask = requestAnsweredByOffer(history, offerIndex);
   const titleSource = ask ? stripRelayPrefix(ask) || ask : reply;
   const title = titleSource.split("\n")[0].trim().slice(0, 80) || undefined;
+  // A prefilled brief (plan line + the request) is the task as offered.
+  const brief = history[offerIndex]?.taskOffer?.brief?.trim();
+  if (brief) return { command: brief, title };
   return { command: [ask, reply].filter(Boolean).join("\n\n"), title };
 }
 

@@ -825,14 +825,14 @@ export default defineSchema({
     // Create task offer (additive): set on a CTO chat reply when the server
     // read the user's message as work (intent "task"); `kind` is the intent
     // subtype ("testing", "implementation", …) and `commands` the
-    // allowlisted command lines a run request asked for ("npm run test").
-    // The web Create task button keys on this, not on the reply's wording.
+    // allowlisted command lines a run request asked for ("npm run test"); the web button keys on this.
     taskOffer: v.optional(
       v.object({
         kind: v.string(),
         commands: v.optional(v.array(v.string())),
-        // Who the task goes to (an @mentioned code role, or the role the files belong to).
+        // Who the task goes to (an @mentioned code role, or the role the files belong to); brief = prefilled task text.
         assigneeAgentId: v.optional(v.string()),
+        brief: v.optional(v.string()),
         // Set once a task was created from it: "Task created" link, never a second task.
         usedTaskId: v.optional(v.id("tasks")),
         usedAt: v.optional(v.number()),

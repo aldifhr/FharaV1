@@ -166,6 +166,23 @@ describe("appSettings (Convex)", () => {
     expect(await t.mutation(api.appSettings.forgetOfflineWorkers, {})).toBe(1);
     expect((await t.query(api.appSettings.workers, {})).map((w) => w.workerId)).toEqual(["a"]);
   });
+
+  test("G10: the status line shows the worst host pressure an online worker reports", async () => {
+    const t = convexTest(schema, modules);
+    const beat = (workerId: string, capabilities: string[]) =>
+      t.mutation(internal.orchestration.heartbeat, { workerId, hostname: workerId, capacity: 1, activeTasks: 0, capabilities });
+    await beat("a", ["repoTools"]);
+    expect(await t.query(api.appSettings.hostPressure, {})).toBeNull();
+    await beat("b", ["repoTools", "pressure:warn:memory"]);
+    expect(await t.query(api.appSettings.hostPressure, {})).toEqual({ level: "warn", resources: ["memory"], hostname: "b" });
+    await beat("a", ["pressure:critical:disk,load"]);
+    expect(await t.query(api.appSettings.hostPressure, {})).toEqual({ level: "critical", resources: ["disk", "load"], hostname: "a" });
+    // An offline worker's last report does not count.
+    await t.run(async (ctx) => {
+      for (const w of await ctx.db.query("workers").collect()) await ctx.db.patch(w._id, { status: "offline" as const });
+    });
+    expect(await t.query(api.appSettings.hostPressure, {})).toBeNull();
+  });
 });
 
 describe("cron wrappers", () => {

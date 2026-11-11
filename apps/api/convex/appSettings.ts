@@ -118,6 +118,35 @@ export const automationHold = query({
 });
 
 /**
+ * G10: the worst host pressure an online worker reports on its heartbeat
+ * ("pressure:<level>:<resources>" capability), for the status line.
+ * Signed out or all ok: null.
+ */
+export const hostPressure = query({
+  args: {},
+  handler: async (ctx) => {
+    try {
+      await assertRegistryWriteAccess(ctx);
+    } catch {
+      return null;
+    }
+    const online = await ctx.db
+      .query("workers")
+      .withIndex("by_status_and_heartbeat", (q) => q.eq("status", "online"))
+      .take(50);
+    let worst: { level: "warn" | "critical"; resources: string[]; hostname: string | null } | null = null;
+    for (const w of online) {
+      const m = (w.capabilities ?? []).map((c) => /^pressure:(warn|critical):([a-z,]*)$/.exec(c)).find(Boolean);
+      if (!m) continue;
+      const level = m[1] as "warn" | "critical";
+      if (worst && (worst.level === "critical" || level === "warn")) continue;
+      worst = { level, resources: m[2].split(",").filter(Boolean), hostname: w.hostname ?? null };
+    }
+    return worst;
+  },
+});
+
+/**
  * Hold or resume automation (Settings → Scheduled tasks). Resuming
  * re-evaluates the PRs auto-merge parked as "held", so they continue
  * without waiting for the next GitHub signal.

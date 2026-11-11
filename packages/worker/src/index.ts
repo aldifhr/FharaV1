@@ -22,6 +22,7 @@ import { effectiveWorkspaceRoot, reportKnobEnv, syncAppSettings } from "./servic
 import { REPO_TOOLS_CAPABILITY } from "@/api/convex/lib/chat/repoTools";
 import { DirectThreads } from "./direct";
 import { installConsoleRedaction, registerEnvSecrets } from "./utils/redact";
+import { claimUnlessPressured, createHostPressureMonitor, pressureCapability } from "./utils/hostPressure";
 
 // L2: the worker's own logs (stdout/stderr) never print a known secret.
 registerEnvSecrets();
@@ -120,6 +121,10 @@ async function main() {
   // Settings → Workspace can override WORKSPACE_ROOT; deps.workspaceRoot
   // follows it (applied on each heartbeat by syncAppSettings).
   const workspaceRoot = effectiveWorkspaceRoot();
+  // G10: host pressure gate. Critical memory/disk/load defers new claims
+  // (the task stays queued) and shows on the status line via the heartbeat.
+  const pressure = createHostPressureMonitor(() => effectiveWorkspaceRoot());
+  let lastPressureLevel = pressure.current().level;
   const inFlight = new Map<string, Promise<void>>();
   // Per-task lease guard: aborted when a heartbeat reports the task lost.
   const leaseGuards = new Map<string, AbortController>();
@@ -206,7 +211,9 @@ async function main() {
         activeTaskIds: [...Array.from(inFlight.keys()), ...direct.activeTaskIds()],
         // Grounded chat only queues repo tool calls when an online worker
         // advertises that it polls for them (an older build does not).
-        capabilities: [REPO_TOOLS_CAPABILITY, sandboxTag],
+        capabilities: [REPO_TOOLS_CAPABILITY, sandboxTag, pressureCapability(pressure.check())].filter(
+          (c): c is string => Boolean(c)
+        ),
       })
       .then((result) => {
         // Stop runs this worker no longer owns (recovery requeued them or
@@ -482,8 +489,16 @@ async function main() {
           }
         }
 
-        const claimed = await api.claimTask({ workerId, leaseMs: LEASE_MS });
-        if (claimed) {
+        const hostState = pressure.check();
+        if (hostState.level !== lastPressureLevel) {
+          log(`host pressure ${hostState.level}${hostState.reasons.length ? `: ${hostState.reasons.join("; ")}` : ""}`);
+          lastPressureLevel = hostState.level;
+        }
+        // At critical nothing is claimed or failed: the task stays queued and
+        // the next claim scan (fallback poll) tries again.
+        const gated = await claimUnlessPressured(hostState, () => api.claimTask({ workerId, leaseMs: LEASE_MS }), FALLBACK_POLL_MS);
+        if (gated.kind === "claimed") {
+          const claimed = gated.value;
           log(`picked task ${claimed._id}: ${claimed.title}`);
           startTask(claimed._id, (taskDeps) => processTask(claimed, taskDeps));
           woken = true;

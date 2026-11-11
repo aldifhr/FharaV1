@@ -495,6 +495,68 @@
       "min": 5000
     },
     {
+      "name": "WORKER_PRESSURE_GATE",
+      "type": "bool",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Host pressure gate (G10): 0 turns it off. While memory, disk or load is critical the worker defers new task claims (they stay queued).",
+      "default": "true"
+    },
+    {
+      "name": "WORKER_PRESSURE_MEMORY_PCT",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Memory used (%) that counts as critical; warn is 10 points lower (0 = memory never trips).",
+      "default": "95",
+      "parse": "clampBlank",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "name": "WORKER_PRESSURE_DISK_PCT",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Workspace disk used (%) that counts as critical, only together with WORKER_PRESSURE_DISK_GIB; warn is 5 points lower (0 = disk never trips).",
+      "default": "95",
+      "parse": "clampBlank",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "name": "WORKER_PRESSURE_DISK_GIB",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Workspace disk free (GiB) at or below which disk counts as critical, only together with WORKER_PRESSURE_DISK_PCT; warn is 3x this.",
+      "default": "2",
+      "parse": "clampBlank",
+      "min": 0,
+      "max": 10000
+    },
+    {
+      "name": "WORKER_PRESSURE_LOAD_PCT",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "1-minute load per CPU (%, 400 = 4 per core) that counts as critical; warn is 75% of it (0 = load never trips).",
+      "default": "400",
+      "parse": "clampBlank",
+      "min": 0,
+      "max": 10000
+    },
+    {
       "name": "WORKER_ID",
       "type": "string",
       "group": "worker",

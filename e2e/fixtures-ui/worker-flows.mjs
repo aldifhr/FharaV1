@@ -120,6 +120,16 @@ async function sendInChat(text) {
   await open(`/workspace/${project}`);
   const box = page.getByPlaceholder(/^Message .*or type/).or(page.locator("main [contenteditable=true]")).first();
   await box.waitFor({ timeout: 60_000 });
+  // next dev hydrates late on a cold page: text typed into the server-rendered
+  // textarea before React attaches is dropped, and Enter sends nothing. Wait for
+  // React's props on the node first.
+  await box
+    .evaluate((el) => new Promise((ok) => {
+      const t0 = Date.now();
+      const tick = () => (Object.keys(el).some((k) => k.startsWith("__reactProps")) || Date.now() - t0 > 60_000 ? ok() : setTimeout(tick, 250));
+      tick();
+    }))
+    .catch(() => {});
   await box.fill(text);
   await box.press("Enter");
 }
@@ -159,7 +169,8 @@ const TERMINAL = new Set(["done", "failed", "cancelled"]);
 /** Approve a plan/apply approval from the project chat when the task parks on one. */
 async function approveFromChat(taskId) {
   await open(`/workspace/${project}`);
-  const approve = page.getByRole("button", { name: /^Approve\b/ });
+  // Enabled only: a disabled "Approve & push" (no GitHub on the throwaway repo) can sit above it.
+  const approve = page.getByRole("button", { name: /^Approve\b/ }).and(page.locator(":enabled"));
   await approve.first().waitFor({ timeout: 30_000 }).catch(() => {});
   await shot("approval");
   const ok = await visible(approve);

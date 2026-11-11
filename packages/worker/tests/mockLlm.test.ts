@@ -5,6 +5,7 @@ import { parseIntentResult } from "@/router/semantic";
 import { parseFileBlocks } from "@/utils/draftLenient";
 import { parseReview } from "@/utils/json";
 import { chunkText, loadScript, pickRule, startMockLlm } from "../../../scripts/mock-llm/server";
+import { buildChatPersonaLines, buildTurnContextSection } from "../../../apps/api/convex/lib/prompts/chat";
 
 /**
  * The mock LLM (scripts/mock-llm, `npm run mock:llm`) driven through the
@@ -96,6 +97,17 @@ describe("default mock script matches the worker's parsers", () => {
     expect(files.map((f) => f.filePath)).toEqual(["docs/MOCK_LLM.md"]);
     expect(parseReview(replyFor('Return JSON only:\n{"verdict":"approved"|"changes_requested"}'))?.verdict).toBe("approved");
     expect(parseIntentResult(replyFor("You are an intent classifier"))?.intent).toBe("task");
+  });
+
+  it("the Convex chat reply (project CTO chat) has its own rule, not the fallback", () => {
+    const system = [
+      ...buildChatPersonaLines({ name: "CTO", role: "cto" } as any, "Demo", [], null),
+      buildTurnContextSection({}),
+    ].join("\n");
+    const picked = pickRule(script, `${system}\nAdd a footer to index.html`, "default", new Map());
+    expect(picked.rule?.id).toBe("chat-reply");
+    expect(picked.reply).toMatch(/Create task/);
+    expect(picked.reply).not.toMatch(/@\w/); // no @mention: it would pull a teammate into a reply loop
   });
 
   it("an unmatched request gets the fallback, not an error", () => {

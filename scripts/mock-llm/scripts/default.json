@@ -117,6 +117,23 @@
         "You reformat answers into the requested file-block format"
       ],
       "reply": "FILE: docs/MOCK_LLM.md\n````\n# Written by the mock LLM\n\nThis file was produced by `npm run mock:llm` (scripts/mock-llm). It proves the worker ran end to end without a real model.\n````\n"
+    },
+    {
+      "id": "chat-reply-personal",
+      "role": "chat",
+      "match": [
+        "in a personal one-to-one chat with the user"
+      ],
+      "reply": "Mock reply from your personal chat. Ask me anything about the project, or attach one to turn a request into a task."
+    },
+    {
+      "id": "chat-reply",
+      "role": "chat",
+      "match": [
+        "on the agent team of project"
+      ],
+      "reasoning": "A small, self-contained change; offer the task instead of doing it in chat.",
+      "reply": "This is a small, self-contained change. Press Create task to start it: I will plan it and hand it to the right teammate, and you can follow the run from the task card."
     }
   ],
   "fallback": "Mock reply: no rule matched this request. Add one to scripts/mock-llm/scripts/default.json."

@@ -89,11 +89,13 @@ const scenarios = {
   async "command-approval"() {
     const project = idOf("command-approval", "projects");
     await open(`/workspace/${project}`, "npm run test");
-    const allow = page.getByRole("button", { name: /^(Allow|Izinkan)/ });
-    const deny = page.getByRole("button", { name: /^(Deny|Decline|Tolak)/ });
+    const allow = page.getByRole("button", { name: /^Allow/ });
+    const deny = page.getByRole("button", { name: /^(Deny|Decline)/ });
     check("approval card Allow button", await visible(allow));
     check("approval card Deny button", await visible(deny));
-    check("Always allow offered", await visible(page.getByText(/Always allow|Selalu izinkan/)));
+    check("Always allow offered", await visible(page.getByText(/Always allow/)));
+    const chatText = await bodyText();
+    check("approval box is English", !/Keputusan|Izinkan|Tolak|Selalu izinkan|dari \d/.test(chatText), "Indonesian copy in the chat");
     await shot(page, "command-approval-chat");
     await open("/inbox", "Run npm run test");
     check("inbox lists the command", (await bodyText()).includes("Run npm run test"));
@@ -108,9 +110,12 @@ const scenarios = {
     check("run status Paused", /\bPaused\b/.test(await bodyText()));
     await shot(page, "held-resume-run");
     await open(`/workspace/${project}`, "Dark mode toggle");
+    check("chat shows the hold line", await visible(page.getByTestId("chat-hold-line")), "no hold notice in chat");
+    await shot(page, "held-resume-chat");
     await page.getByRole("tab", { name: /^tasks/i }).first().click().catch(() => {});
     await page.waitForTimeout(2000);
     check("board badge Paused", await visible(page.getByText("Paused", { exact: true })));
+    check("collapsed board row hold line", await visible(page.getByTestId("board-hold-line")), "no hold line on the collapsed row");
     await shot(page, "held-resume-board");
     await page.getByText("Dark mode toggle").first().click().catch(() => {});
     await page.waitForTimeout(2000);
@@ -144,6 +149,7 @@ const scenarios = {
     const t = await bodyText();
     check("thread events replayed", t.includes("turn.completed") && t.includes("edit.diff"));
     check("idle thread not labelled 'Waiting for you'", !t.includes("Waiting for you"), "run header says Waiting for you");
+    check("idle thread labelled Idle", /\bIdle\b/.test(t), "no Idle label");
     await shot(page, "direct-idle-run");
     await open("/", "Needs you");
     const needs = page.locator("section,div").filter({ has: page.getByText(/^Needs you$/) }).first();
@@ -170,6 +176,7 @@ const scenarios = {
     const after = await bodyText();
     check("toast 'Chat deleted'", after.includes("Chat deleted"), "no success toast");
     check("seeded messages gone", !after.includes("Lost updates: both read"), "old reply still on screen");
+    check("no dead end after delete", !after.includes("This chat no longer exists"), "landed on 'This chat no longer exists'");
     await shot(page, "personal-chat-after-delete");
   },
 };

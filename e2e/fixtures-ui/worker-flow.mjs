@@ -46,7 +46,7 @@ await box.fill(instruction);
 await box.press("Enter");
 const t0 = Date.now();
 // The chat reply decides whether a task starts. When it only offers a
-// "Create task" button (the mock has no chat-routing rule), press it.
+// "Create task" button (chat never starts a task by itself), press it.
 const create = page.getByRole("button", { name: /Create task/ }).last();
 await create.waitFor({ timeout: 45_000 }).catch(() => {});
 await page.screenshot({ path: path.join(shots, "worker-01-sent.png") });

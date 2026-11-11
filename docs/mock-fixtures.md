@@ -81,7 +81,7 @@ Replies come from `scripts/mock-llm/scripts/default.json` (`--script` or
 `MOCK_LLM_SCRIPT` for another file): rules matched in order on the request text,
 each recognising one worker role by its prompt wording (classifier, planner,
 decision advisor, research assistant and synthesis, reviewer, commit message,
-code change, memory and role learnings). A rule may be limited to a scenario
+code change, memory and role learnings, and the Convex chat reply). A rule may be limited to a scenario
 (`mock/<scenario>` model, `x-mock-scenario` header or `--scenario`), answer with
 an HTTP status (`429` twice for `held-resume`, `500` for RA-2 in
 `research-fanout`), play several replies in order, or stop after `times` uses.
@@ -119,5 +119,8 @@ reply only offers it), polls the task's status until done/failed/paused, and
 shoots the chat and run page. Point the worker at the mock LLM (an
 `openai-compatible` provider row with the mock's base URL and token) and the
 project at a throwaway local git repo with no remote. The default mock script
-has no rule for the Convex chat reply, so the chat answers with the fallback
-text and the task starts from the button.
+answers the Convex chat reply (`chat-reply`, matched on the project chat
+persona line; `chat-reply-personal` for personal chats): the CTO says it is a
+small change and to press Create task. A chat message never starts a task by
+itself (only the Create task button, an explicit command or a go-reply to an
+offer does), so the flow then presses the button the server offered.

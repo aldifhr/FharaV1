@@ -7,7 +7,7 @@
  * every call, secret-shaped args are redacted, and the sandbox / argv
  * allowlist rules from `tools.ts` are reused unchanged.
  */
-import { ROLES } from "@/api/convex/lib/roles";
+import { canWritePath, ROLES } from "@/api/convex/lib/roles";
 import { resolveRoleKey } from "@/utils/rolePolicy";
 import {
   audit,
@@ -45,6 +45,13 @@ function roleDeniesTool(roleName: string, tool: string): boolean {
   if (tool === "write_file") return permissions.write === false;
   if (tool === "run_command") return permissions.shell === "none";
   return false;
+}
+
+/** Path-scoped writers (DevOps, Support since O2): the target must match the role's globs. */
+function roleDeniesPath(roleName: string, tool: string, filePath: unknown): boolean {
+  const key = resolveRoleKey(roleName);
+  if (!key || tool !== "write_file" || typeof filePath !== "string") return false;
+  return !canWritePath(ROLES[key].permissions, filePath);
 }
 
 const TOOL_REGISTRY: ToolDefinition[] = [
@@ -145,6 +152,9 @@ export async function tool_call(input: {
   const roleName = input.ctx.agentRole ?? "";
   if (roleDeniesTool(roleName, def.name)) {
     return denied(`denied:${roleName ? `${roleName}:` : ""}${def.name}:read-only-role`);
+  }
+  if (roleDeniesPath(roleName, def.name, input.args.path)) {
+    return denied(`denied:${roleName}:${def.name}:path-not-allowed-for-role`, String(input.args.path));
   }
   // Search scope enforced.
   if (

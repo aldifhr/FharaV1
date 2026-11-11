@@ -70,7 +70,7 @@ export function planningPrompt(input: PlanningPromptInput): string {
     "- Backend (backend-development): Convex/API routes, database schema, server logic. A plain Next.js lib/ file with TypeScript types is frontend, not backend.",
     "- DevOps (github, shell-execution): repositories, issues/PRs, CI, infra commands. May edit only .github/**, Dockerfile*, docker-compose*, infra/**.",
     "- QA (browser-testing): perform only the verification explicitly requested. Structural QA checks HTML, browser reachability, console, and network errors. Responsive viewport and screenshot-baseline checks are opt-in only; never add them when the user says not to.",
-    "- Support (documentation-support): documentation guidance, customer communication, release notes, as analysis output. Read-only: Support never writes files.",
+    "- Support (documentation-support): documentation guidance, customer communication, release notes. Support may write only Markdown files (*.md, e.g. README.md) and docs/**, never code; a docs-file change for Support is a code_change node scoped to those paths.",
     "- Researcher (research): technical research, evidence gathering, fact vs assumption separation. Read-only.",
     "Agents available (only use capabilities listed here):",
     input.capabilityList,

@@ -3,7 +3,7 @@
  * Plan 040 (P1): the fixed-team sync brings existing rows to the role
  * policy without touching user choices: new default tools are added
  * (Researcher web_reach, DevOps write_file), revoked ones removed
- * (Designer/Support write_file), and a prompt is replaced only when it is
+ * (Designer write_file), and a prompt is replaced only when it is
  * exactly an earlier seed (D10). Each patched row leaves an audit entry.
  */
 import { convexTest } from "convex-test";
@@ -67,7 +67,8 @@ describe("fixed-team sync: tools and unedited seed prompts", () => {
     expect(rows.researcher?.supportedTools).toEqual(["read_file", "web_reach"]);
     expect(rows.researcher?.systemPrompt).toBe("my own research prompt");
     expect(rows.designer?.supportedTools).toEqual(["read_file", "figma_peek"]);
-    expect(rows.support?.supportedTools).toEqual(["read_file"]);
+    // O2: Support writes Markdown and docs/** again, so write_file stays.
+    expect(rows.support?.supportedTools).toEqual(["read_file", "write_file"]);
     // Unedited old seed → current seed. Edited one stays exactly as is.
     expect(rows.support?.systemPrompt).toBe(AGENT_SEED_PROMPTS.support);
     expect(rows.qa?.systemPrompt).toBe(`${PREVIOUS_SEED_PROMPTS.qa![0]} Also check Safari.`);
@@ -76,7 +77,7 @@ describe("fixed-team sync: tools and unedited seed prompts", () => {
     const synced = rows.audit.filter((row) => row.action === "agent.sync");
     expect(synced.map((row) => row.target).sort()).toEqual(["Designer", "Researcher", "Support"]);
     const supportAudit = synced.find((row) => row.target === "Support");
-    expect((supportAudit?.details as { changed: string[] }).changed).toEqual(["supportedTools", "systemPrompt"]);
+    expect((supportAudit?.details as { changed: string[] }).changed).toEqual(["systemPrompt"]);
 
     // Idempotent: a second sync patches nothing more.
     await t.mutation(internal.agents.syncFixedTeamInternal, {});
@@ -90,7 +91,7 @@ describe("fixed-team sync: tools and unedited seed prompts", () => {
     const agents = await t.run(async (ctx) => await ctx.db.query("agents").collect());
     const tools = (role: string) => agents.find((agent) => agent.role === role)?.supportedTools ?? [];
     expect(tools("designer")).not.toContain("write_file");
-    expect(tools("support")).not.toContain("write_file");
+    expect(tools("support")).toContain("write_file");
     expect(tools("researcher")).toContain("web_reach");
     expect(tools("devops")).toContain("write_file");
   });

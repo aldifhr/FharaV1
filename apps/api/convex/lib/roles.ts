@@ -56,6 +56,13 @@ export interface RolePermissions {
   options: boolean;
 }
 
+/**
+ * O2 (user decision 2026-11-11): the only paths Support may write, i.e.
+ * Markdown files anywhere (README.md, CHANGELOG.md, apps/web/README.md) and
+ * the docs/ tree. Never source code.
+ */
+export const SUPPORT_WRITE_PATHS: readonly string[] = ["**/*.md", "docs/**"];
+
 /** D7: the only paths DevOps may write (CI, containers, infra). */
 export const DEVOPS_WRITE_PATHS: readonly string[] = [
   ".github/**",
@@ -215,11 +222,11 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     // Plan 040 (D2): no "general" catch-all; Support is not the default owner.
     capabilities: ["documentation-support"],
     registryCapabilities: ["documentation-support"],
-    defaultTools: ["read_file"],
-    permissions: { read: true, write: false, shell: "none", web: false, push: false, options: false },
+    defaultTools: ["read_file", "write_file"],
+    permissions: { read: true, write: SUPPORT_WRITE_PATHS, shell: "none", web: false, push: false, options: false },
     priority: 6,
     maxConcurrency: 1,
-    hint: "Answer the actual question first, then the how. Never invent features or behavior — check the code or say it is unknown. Docs and guidance only, no code changes.",
+    hint: "Answer the actual question first, then the how. Never invent features or behavior — check the code or say it is unknown. May edit Markdown and docs/ only, never code.",
     chatSummary: "Documentation, troubleshooting, how-to guidance and explaining how things work.",
     defaultPromptKey: "support",
     color: "bg-indigo-500/10 text-indigo-700 ring-indigo-500/20 dark:bg-indigo-500/20 dark:text-indigo-300",
@@ -327,16 +334,17 @@ export const REVOKED_DEFAULT_CAPABILITIES: Readonly<Record<string, readonly stri
 export const ADDED_DEFAULT_TOOLS: Readonly<Record<string, readonly string[]>> = {
   researcher: ["web_reach"],
   devops: ["write_file"],
+  support: ["write_file"],
 };
 
 /**
  * Default tools a fixed role used to ship with and must no longer carry
- * (plan 040: Designer and Support are read-only). The executor enforces the
- * role's `permissions` either way; this keeps the stored rows honest.
+ * (plan 040: Designer is read-only; Support writes docs only since O2). The
+ * executor enforces the role's `permissions` either way; this keeps the
+ * stored rows honest.
  */
 export const REVOKED_DEFAULT_TOOLS: Readonly<Record<string, readonly string[]>> = {
   designer: ["write_file"],
-  support: ["write_file"],
 };
 
 /** Permissions for a fixed role key (null for an unknown/custom role). */

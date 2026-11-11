@@ -2286,7 +2286,7 @@ export default defineSchema({
     updatedAt: v.number(),
   }),
 
-  checkpoints: defineTable(checkpointFields).index("by_task_n", ["taskId", "n"]), // GOAT G5: hidden-ref worktree checkpoints
+  checkpoints: defineTable(checkpointFields).index("by_task_n", ["taskId", "n"]).index("by_project", ["projectId"]), // GOAT G5/G6 checkpoints
   // Last run of each cron job (Settings → Scheduled tasks), one row per job, written by cronJobs.ts.
   cronRuns: defineTable({
     name: v.string(),

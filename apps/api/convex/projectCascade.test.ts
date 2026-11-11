@@ -95,6 +95,10 @@ describe("projects.remove cascade", () => {
         createdAt: now,
         updatedAt: now,
       });
+      await ctx.db.insert("checkpoints", {
+        taskId, projectId, n: 1, ref: `refs/fhara/checkpoints/${taskId}/1`, commitSha: "c".repeat(40), treeSha: "d".repeat(40),
+        kind: "subtask", files: [], filesChanged: 0, additions: 0, deletions: 0, createdAt: now,
+      });
       await ctx.db.insert("calibrationActions", { projectId, recId: "r", action: "applied", title: "t", actor: "u", createdAt: now });
       await ctx.db.insert("audit", { projectId, actor: "u", tool: "t", action: "a", decision: "recorded", createdAt: now });
       return { projectId, taskId };

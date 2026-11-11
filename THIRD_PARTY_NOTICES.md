@@ -48,7 +48,10 @@ SOFTWARE.
   pattern only); `packages/worker/src/vendor/goat/diffs.ts` (copy of
   `apps/server/src/checkpointing/Diffs.ts`, numstat parser) with `packages/worker/src/tools/gitCheckpoint.ts`
   and `apps/api/convex/lib/checkpointRefs.ts` (hidden-ref checkpoint capture: temp index, write-tree,
-  commit-tree, update-ref; a pattern from `apps/server/src/vcs/GitVcsDriver.ts`). Modified by Fhara.
+  commit-tree, update-ref; a pattern from `apps/server/src/vcs/GitVcsDriver.ts`);
+  `apps/api/convex/lib/checkpointRestore.ts` (checkpoint restore with multi-pass clean and the
+  worktree snapshot before cleanup; a pattern from `GitVcsDriver.ts` `restoreCheckpoint` and
+  `apps/server/src/worktreeSnapshots/captureSnapshot.ts`). Modified by Fhara.
   GOAT's Pen, office, PDF, native and asset sub-paths carry other licences; nothing is taken from them.
 
 ```

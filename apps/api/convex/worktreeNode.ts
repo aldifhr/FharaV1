@@ -3,6 +3,7 @@
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { execFileSync } from "node:child_process";
+import { rmSync } from "node:fs";
 import * as path from "node:path";
 import { internal } from "./_generated/api";
 import { buildChildEnv } from "./lib/childEnv";
@@ -13,11 +14,12 @@ import { worktreeRetentionMs } from "./lib/worktreeRetention";
 import { assertRepoPathExists, resolveRepoPath } from "./lib/workspacePath";
 import { buildBranchPatch, type GitRun } from "./lib/diffPatch";
 import { deleteTaskCheckpointRefs, removeTaskGitState } from "./lib/checkpointRefs";
+import { captureWorktreeSnapshot, pruneWorktreeSnapshots, type WorktreeSnapshot } from "./lib/checkpointRestore";
 import type { Id } from "./_generated/dataModel";
 
 // execFile, not a shell string: branch names, paths and the identity
 // (`user.name=Some Name`) are passed as argv, never re-split or interpreted.
-function gitExec(cwd: string, args: string[], maxBuffer?: number): string {
+export function gitExec(cwd: string, args: string[], maxBuffer?: number, env?: Record<string, string>): string {
   // A relative or missing cwd surfaced as "spawnSync git ENOENT" (live
   // test 4): resolve it and fail with a clear message instead.
   const dir = resolveRepoPath(cwd);
@@ -26,7 +28,7 @@ function gitExec(cwd: string, args: string[], maxBuffer?: number): string {
     cwd: dir,
     encoding: "utf-8",
     windowsHide: true,
-    env: buildChildEnv(),
+    env: buildChildEnv(env),
     ...(maxBuffer ? { maxBuffer } : {}),
   });
 }
@@ -253,14 +255,32 @@ async function dropCheckpointRefs(ctx: ActionCtx, repo: string, taskId: Id<"task
  * branches, read from `worktree list --porcelain`), never the main
  * checkout, and (GOAT G5) its checkpoint refs. Branches are kept.
  */
-function removeTaskWorktrees(workspacePath: string, taskId: string): { removed: string[]; refsDeleted: string[] } {
+function removeTaskWorktrees(
+  workspacePath: string,
+  taskId: string,
+  beforeRemove?: (worktreePath: string) => void
+): { removed: string[]; refsDeleted: string[]; kept: string[] } {
   let main: string;
   try {
     main = resolveRepoPath(workspacePath);
   } catch {
-    return { removed: [], refsDeleted: [] };
+    return { removed: [], refsDeleted: [], kept: [] };
   }
-  return removeTaskGitState((args) => gitExec(workspacePath, args), taskId, (wtPath) => path.resolve(wtPath) === main);
+  const isMain = (wtPath: string) => path.resolve(wtPath) === main;
+  return removeTaskGitState((args) => gitExec(workspacePath, args), taskId, isMain, beforeRemove);
+}
+
+/** GOAT G6: snapshot a worktree into `refs/fhara/snapshots/<taskId>/<ms>` (lib/checkpointRestore.ts). Throws on failure. */
+function snapshotWorktree(worktreePath: string, taskId: string, now: number): WorktreeSnapshot {
+  return captureWorktreeSnapshot(
+    {
+      git: (args, env) => gitExec(worktreePath, args, undefined, env),
+      removeFile: (file) => rmSync(file, { force: true }),
+    },
+    taskId,
+    now,
+    { worktreePath }
+  );
 }
 
 export const cleanupStaleWorktrees = internalAction({
@@ -292,19 +312,57 @@ export const sweepStaleWorktrees = internalAction({
       retentionMs: worktreeRetentionMs(settingFrom(settings, "FHARA_WORKTREE_RETENTION_HOURS")),
     })) as Array<{ taskId: Id<"tasks"> }>;
     let cleaned = 0;
+    let snapshotFailed = 0;
     for (const { taskId } of tasks) {
       const data = (await ctx.runQuery(internal.orchestration.cleanupWorktreeContext, { taskId })) as {
         workspacePath: string;
       } | null;
       if (!data) continue;
-      const { removed, refsDeleted } = removeTaskWorktrees(data.workspacePath, taskId);
+      // GOAT G6: snapshot before removal; a failed snapshot keeps the worktree for the next sweep.
+      const snapshots: WorktreeSnapshot[] = [];
+      const { removed, refsDeleted, kept } = removeTaskWorktrees(data.workspacePath, taskId, (wtPath) => {
+        snapshots.push(snapshotWorktree(wtPath, taskId, Date.now()));
+      });
+      for (const snapshot of snapshots) {
+        await ctx.runMutation(internal.checkpointRestore.snapshotTaken, { taskId, ...snapshotEvent(snapshot) });
+      }
+      if (kept.length > 0) {
+        snapshotFailed += 1;
+        continue;
+      }
       await ctx.runMutation(internal.orchestration.worktreeCleaned, { taskId, removed });
       if (refsDeleted.length > 0) await ctx.runMutation(internal.checkpoints.refsDeleted, { taskId });
       cleaned += 1;
     }
-    return { cleaned };
+    const snapshotsPruned = await pruneSnapshotRefs(ctx);
+    return { cleaned, snapshotFailed, snapshotsPruned };
   },
 });
+
+function snapshotEvent(snapshot: WorktreeSnapshot) {
+  return {
+    ref: snapshot.ref,
+    commitSha: snapshot.commitSha,
+    headSha: snapshot.headSha,
+    ...(snapshot.worktreePath ? { worktreePath: snapshot.worktreePath } : {}),
+  };
+}
+
+/** GOAT G6 retention: snapshot refs older than 7 days (SNAPSHOT_RETENTION_MS), in every project repo. */
+async function pruneSnapshotRefs(ctx: ActionCtx): Promise<number> {
+  const repos = (await ctx.runQuery(internal.checkpointRestore.snapshotRepos, {})) as string[];
+  let pruned = 0;
+  const seen = new Set<string>();
+  for (const workspacePath of repos) {
+    try {
+      const repo = resolveRepoPath(workspacePath);
+      if (seen.has(repo)) continue;
+      seen.add(repo);
+      pruned += pruneWorktreeSnapshots((args) => gitExec(repo, args), Date.now()).length;
+    } catch {}
+  }
+  return pruned;
+}
 
 /**
  * Post-push feedback loop: the PR of a task merged or closed, so the

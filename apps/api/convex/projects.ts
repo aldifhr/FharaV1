@@ -241,6 +241,7 @@ export const PROJECT_CASCADE = [
   { table: "evaluations", index: "by_project" },
   { table: "diffComments", index: "by_project" },
   { table: "fileChanges", index: "by_project" },
+  { table: "checkpoints", index: "by_project" },
   { table: "taskInputs", index: "by_project" },
   { table: "taskContexts", index: "by_project" },
   { table: "taskBriefs", index: "by_project" },

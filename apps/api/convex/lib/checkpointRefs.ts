@@ -71,19 +71,31 @@ export function deleteTaskCheckpointRefs(git: GitSync, taskId: string): string[]
  * The worktree sweep for one task: remove each of its worktrees (never the
  * main checkout), prune, and delete its checkpoint refs. Branches are kept.
  * Every step is best effort, as the sweep always was.
+ *
+ * GOAT G6: `beforeRemove` runs first for each worktree (the sweep's
+ * snapshot, lib/checkpointRestore.ts). When it throws, that worktree is
+ * kept and the checkpoint refs too (`kept`), so the next sweep retries.
  */
 export function removeTaskGitState(
   git: GitSync,
   taskId: string,
   isMainCheckout: (worktreePath: string) => boolean,
-): { removed: string[]; refsDeleted: string[] } {
+  beforeRemove?: (worktreePath: string) => void,
+): { removed: string[]; refsDeleted: string[]; kept: string[] } {
   const removed: string[] = [];
+  const kept: string[] = [];
   try {
     // Porcelain output, matched on the branch: the human `worktree list`
     // lines start with the path followed by sha and branch.
     const porcelain = git(["worktree", "list", "--porcelain"]);
     for (const wtPath of taskWorktreesFromPorcelain(porcelain, taskId)) {
       if (isMainCheckout(wtPath)) continue;
+      try {
+        beforeRemove?.(wtPath);
+      } catch {
+        kept.push(wtPath);
+        continue;
+      }
       try {
         git(["worktree", "remove", "--force", wtPath]);
         removed.push(wtPath);
@@ -94,8 +106,9 @@ export function removeTaskGitState(
     } catch {}
   } catch {}
   let refsDeleted: string[] = [];
+  if (kept.length > 0) return { removed, refsDeleted, kept };
   try {
     refsDeleted = deleteTaskCheckpointRefs(git, taskId);
   } catch {}
-  return { removed, refsDeleted };
+  return { removed, refsDeleted, kept };
 }

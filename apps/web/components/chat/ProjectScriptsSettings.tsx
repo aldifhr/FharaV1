@@ -14,7 +14,7 @@ import {
   type ProjectScriptKind,
 } from "@/api/convex/lib/projectScriptsSchema";
 
-const field = "rounded-lg border border-line bg-panel px-3 py-2 font-mono text-[13px] text-ink outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/15";
+const field = "rounded-lg border border-line bg-panel px-3 py-2 font-mono text-[13px] text-ink outline-none focus:border-ink/30 focus:ring-2 focus:ring-ink/10";
 
 /**
  * GOAT G9 / T6: the project's setup and check scripts. Each is one choice

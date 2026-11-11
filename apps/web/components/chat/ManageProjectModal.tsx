@@ -47,7 +47,7 @@ type ProjectDoc = {
   scripts?: unknown;
 };
 
-const field = "rounded-lg border border-line bg-panel px-3 py-2 text-ink outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/15";
+const field = "rounded-lg border border-line bg-panel px-3 py-2 text-ink outline-none focus:border-ink/30 focus:ring-2 focus:ring-ink/10";
 
 /** Project settings: name, folder, default permission mode, instructions, team. */
 export default function ManageProjectModal({
@@ -300,7 +300,7 @@ export default function ManageProjectModal({
             type="checkbox"
             checked={shadowDefault}
             onChange={(e) => setShadowDefaultState(e.target.checked)}
-            className="mt-1 h-4 w-4 accent-[var(--shell-brand)]"
+            className="mt-1 h-4 w-4 accent-ink"
           />
           <span className="grid gap-0.5">
             Shadow agent on new tasks
@@ -314,7 +314,7 @@ export default function ManageProjectModal({
             type="checkbox"
             checked={prReactions}
             onChange={(e) => setPrReactionsState(e.target.checked)}
-            className="mt-1 h-4 w-4 accent-[var(--shell-brand)]"
+            className="mt-1 h-4 w-4 accent-ink"
           />
           <span className="grid gap-0.5">
             Fix pull request feedback
@@ -328,7 +328,7 @@ export default function ManageProjectModal({
             type="checkbox"
             checked={autoMerge}
             onChange={(e) => setAutoMergeState(e.target.checked)}
-            className="mt-1 h-4 w-4 accent-[var(--shell-brand)]"
+            className="mt-1 h-4 w-4 accent-ink"
           />
           <span className="grid gap-0.5">
             Merge pull requests automatically
@@ -342,7 +342,7 @@ export default function ManageProjectModal({
             type="checkbox"
             checked={roleMemory}
             onChange={(e) => setRoleMemoryState(e.target.checked)}
-            className="mt-1 h-4 w-4 accent-[var(--shell-brand)]"
+            className="mt-1 h-4 w-4 accent-ink"
           />
           <span className="grid gap-0.5">
             Role memory
@@ -357,7 +357,7 @@ export default function ManageProjectModal({
             type="checkbox"
             checked={intakeOn}
             onChange={(e) => setIntakeChoice(e.target.checked)}
-            className="mt-1 h-4 w-4 accent-[var(--shell-brand)]"
+            className="mt-1 h-4 w-4 accent-ink"
           />
           <span className="grid min-w-0 flex-1 gap-1">
             <label htmlFor="issue-intake">Draft tasks from GitHub issues</label>
@@ -434,7 +434,7 @@ export default function ManageProjectModal({
           </div>
         </fieldset>
         {error && <p className="text-[13px] text-red-600">{error}</p>}
-        <button type="submit" disabled={saving} className="rounded-lg bg-brand px-4 py-2 font-medium text-white hover:bg-brand-hover disabled:opacity-50">
+        <button type="submit" disabled={saving} className="rounded-lg bg-ink px-4 py-2 font-medium text-canvas hover:bg-ink/85 disabled:opacity-50">
           {saving ? "Saving…" : "Save project"}
         </button>
       </form>

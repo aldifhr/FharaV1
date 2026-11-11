@@ -44,9 +44,9 @@ type MentionOption = { kind: "agent"; agent: MentionAgent } | { kind: "file"; pa
 const DEFAULT_SLASH_ENTRIES: SlashMenuEntry[] = slashMenuEntries("project", []);
 
 const tool =
-  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40";
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40";
 const rowBtn =
-  "flex h-7 w-7 items-center justify-center rounded-md text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-30";
+  "flex h-7 w-7 items-center justify-center rounded-md text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:cursor-not-allowed disabled:opacity-30";
 
 const ATTACH_MAX_BYTES = 200_000;
 
@@ -482,7 +482,7 @@ export default function ChatComposer({
           </ul>
         )}
 
-        <div className="rounded-2xl border border-line-strong bg-panel shadow-[0_1px_2px_rgba(20,20,40,0.04)] transition focus-within:border-brand/50 focus-within:ring-4 focus-within:ring-brand/10">
+        <div className="rounded-2xl border border-line-strong bg-panel shadow-[0_1px_2px_rgba(20,20,40,0.04)] transition focus-within:border-ink/30 focus-within:ring-4 focus-within:ring-ink/30">
           {quote && onCancelQuote && <QuoteBar quote={quote} onCancel={onCancelQuote} />}
           {formatOpen && (
             <div className="flex items-center gap-0.5 border-b border-line px-2 py-1" role="toolbar" aria-label="Formatting">
@@ -575,7 +575,7 @@ export default function ChatComposer({
                   aria-haspopup="listbox"
                   aria-expanded={targetOpen}
                   aria-label={target ? `Only ${roleLabel(target.role)} answers` : "Choose a teammate to answer"}
-                  className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg bg-hover px-2 text-[13.5px] text-ink outline-none transition hover:bg-line focus-visible:ring-2 focus-visible:ring-brand/40"
+                  className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg bg-hover px-2 text-[13.5px] text-ink outline-none transition hover:bg-line focus-visible:ring-2 focus-visible:ring-ink/30"
                 >
                   {target && <InitialAvatar agent avatarParams={target.avatarParams} name={roleLabel(target.role)} size={18} />}
                   <span className="truncate">{target ? roleLabel(target.role) : "Team"}</span>
@@ -595,7 +595,7 @@ export default function ChatComposer({
                         >
                           <InitialAvatar agent={Boolean(agent._id)} avatarParams={agent.avatarParams} name={agent._id ? agentName(agent) : "Team"} size={20} />
                           <span className="flex-1 truncate">{agent._id ? agentName(agent) : "Team"}</span>
-                          {agent._id === targetId && <span className="text-[12px] text-brand-ink">current</span>}
+                          {agent._id === targetId && <span className="text-[12px] text-ink">current</span>}
                         </button>
                       </li>
                     ))}
@@ -623,7 +623,7 @@ export default function ChatComposer({
                   aria-expanded={modeOpen}
                   aria-label={`Permission mode: ${PERMISSION_MODE_LABELS[permissionMode]}`}
                   title={PERMISSION_MODE_HINTS[permissionMode]}
-                  className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+                  className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
                 >
                   <Shield size={14} className="shrink-0 text-ink-3" aria-hidden="true" />
                   <span className="max-sm:hidden">{PERMISSION_MODE_LABELS[permissionMode]}</span>
@@ -655,7 +655,7 @@ export default function ChatComposer({
               onClick={onSend}
               disabled={sending || !draft.trim()}
               aria-label="Send message"
-              className={`${queue.length > 0 || (permissionMode && onPermissionModeChange) ? "" : "ml-auto md:ml-0"} flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white shadow-sm outline-none transition hover:bg-brand-hover focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-40`}
+              className={`${queue.length > 0 || (permissionMode && onPermissionModeChange) ? "" : "ml-auto md:ml-0"} flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink text-canvas shadow-sm outline-none transition hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-40`}
             >
               {sending ? <Loader2 size={16} className="animate-spin" /> : <SendHorizontal size={16} />}
             </button>

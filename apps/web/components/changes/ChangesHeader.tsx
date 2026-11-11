@@ -8,7 +8,7 @@ import type { ChangesForTask } from "@/api/convex/changes";
 import { selectActionButton, selectStatusLabel } from "@/api/convex/lib/changeset";
 import { prFactsText, prLine } from "@/lib/changesView";
 
-const BTN = "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-brand/50 disabled:cursor-not-allowed disabled:opacity-50";
+const BTN = "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 disabled:cursor-not-allowed disabled:opacity-50";
 const BTN_PRIMARY = `${BTN} bg-ink text-canvas hover:opacity-90`;
 const BTN_PLAIN = `${BTN} border border-line text-ink hover:bg-hover`;
 

@@ -20,7 +20,7 @@ export default function TaskQuestionCard({
   if (task.status !== "waiting_input" || !task.pendingQuestion) return null;
   const held = heldStopReason(task);
   const options: string[] = held ? [] : Array.isArray(task.pendingOptions) ? task.pendingOptions : [];
-  const action = "rounded-lg px-3 py-1.5 text-[14px] outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50";
+  const action = "rounded-lg px-3 py-1.5 text-[14px] outline-none focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50";
   return (
     <div className="rounded-xl border border-line bg-panel-2 p-3.5">
       <p className={`text-[13px] font-medium ${held ? "text-ink-2" : "text-warn"}`}>{held ? "Held · CTO stopped the plan" : "The team asked you"}</p>
@@ -37,7 +37,7 @@ export default function TaskQuestionCard({
             type="button"
             disabled={busy}
             onClick={() => onAnswer(option)}
-            className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-1.5 text-left text-[14px] text-ink outline-none hover:border-brand/40 hover:bg-brand-soft focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-1.5 text-left text-[14px] text-ink outline-none hover:border-ink/30 hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
           >
             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-hover text-[11px] font-semibold text-ink-2">{String.fromCharCode(65 + index)}</span>
             {option}

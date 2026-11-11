@@ -29,7 +29,7 @@ export function QuoteBar({ quote, onCancel }: { quote: ChatQuote; onCancel: () =
         onClick={onCancel}
         aria-label="Cancel reply"
         title="Cancel reply (Esc)"
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
       >
         <X size={14} />
       </button>
@@ -52,7 +52,7 @@ export function QuotedSnippet({ quote, onJump }: { quote: ChatQuote | null; onJu
       type="button"
       onClick={() => onJump(quote.messageId)}
       title="Jump to message"
-      className={`${cls} rounded-r-md outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40`}
+      className={`${cls} rounded-r-md outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30`}
     >
       {body}
     </button>

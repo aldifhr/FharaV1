@@ -122,7 +122,7 @@ export default function ConfirmDialog({
                 type="button"
                 onClick={onCancel}
                 disabled={pending}
-                className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 outline-none transition focus-visible:ring-2 focus-visible:ring-[#635bff]/50 hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 outline-none transition focus-visible:ring-2 focus-visible:ring-ink/50 hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>
@@ -132,7 +132,7 @@ export default function ConfirmDialog({
                 disabled={pending}
                 className={
                   request.tone === "neutral"
-                    ? "rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-canvas outline-none transition focus-visible:ring-2 focus-visible:ring-brand/40 hover:opacity-90 disabled:opacity-50"
+                    ? "rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-canvas outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 hover:opacity-90 disabled:opacity-50"
                     : "rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white outline-none transition focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900 hover:bg-red-700 disabled:opacity-50"
                 }
               >

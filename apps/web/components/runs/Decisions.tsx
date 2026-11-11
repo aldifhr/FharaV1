@@ -19,7 +19,7 @@ const LABEL_TEXT: Record<string, string> = {
   unknown: "Unknown",
 };
 const LABEL_CLASS: Record<string, string> = {
-  good: "text-brand-ink",
+  good: "text-ink",
   suboptimal: "text-warn",
   bad: "text-destructive",
   unknown: "text-ink-3",

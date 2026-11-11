@@ -116,7 +116,7 @@ function RunsPage() {
                       title={r.status === "running" ? "Running runs can't be deleted" : "Delete run"}
                       disabled={r.status === "running" || deleting === r.taskId}
                       onClick={() => deleteRun(r.taskId, r.title)}
-                      className="mr-3 shrink-0 rounded-lg p-2 text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
+                      className="mr-3 shrink-0 rounded-lg p-2 text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
                     >
                       <Trash2 size={16} />
                     </button>

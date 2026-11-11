@@ -61,7 +61,7 @@ function OptionPreview({ style }: { style: ChatOption["preview"] }) {
           <div className="h-2.5 w-4/5 rounded bg-line-strong" />
           <div className="h-1.5 w-3/5 rounded bg-line" />
         </div>
-        <div className="mx-auto h-3.5 w-12 rounded-full border border-brand/50" />
+        <div className="mx-auto h-3.5 w-12 rounded-full border border-ink/30" />
       </div>
     );
   }
@@ -75,7 +75,7 @@ function OptionPreview({ style }: { style: ChatOption["preview"] }) {
         <div className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-md bg-[#15131c] p-3 dark:bg-black">
           <div className="h-2.5 w-3/5 rounded bg-white/90" />
           <div className="h-1.5 w-2/5 rounded bg-white/50" />
-          <div className="mt-0.5 h-3 w-10 rounded-full bg-brand" />
+          <div className="mt-0.5 h-3 w-10 rounded-full bg-ink" />
         </div>
         <div className="flex gap-1.5">
           <div className="h-6 flex-1 rounded border border-line" />
@@ -95,13 +95,13 @@ function OptionPreview({ style }: { style: ChatOption["preview"] }) {
             key={i}
             className={
               i === 1
-                ? "flex flex-1 flex-col gap-1 rounded border-2 border-brand p-1.5"
+                ? "flex flex-1 flex-col gap-1 rounded border-2 border-ink p-1.5"
                 : "flex flex-1 flex-col gap-1 rounded border border-line p-1.5"
             }
           >
             {bar("w-2/3")}
             <div className={`h-2.5 w-1/2 rounded ${i === 1 ? "bg-line-strong" : "bg-line"}`} />
-            <div className={`mt-auto h-2.5 rounded-full ${i === 1 ? "bg-brand" : "bg-hover"}`} />
+            <div className={`mt-auto h-2.5 rounded-full ${i === 1 ? "bg-ink" : "bg-hover"}`} />
           </div>
         ))}
       </div>
@@ -146,7 +146,7 @@ export default function OptionCards({
               onClick={() => onPick(option)}
               aria-pressed={selected}
               className={`group/option flex w-full flex-col overflow-hidden rounded-xl border bg-panel text-left outline-none transition ${
-                selected ? "border-brand ring-1 ring-brand" : "border-line hover:border-line-strong focus-visible:ring-2 focus-visible:ring-brand/40"
+                selected ? "border-ink ring-1 ring-ink" : "border-line hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ink/30"
               } disabled:cursor-default ${pickedId !== undefined && !selected ? "opacity-50" : ""}`}
             >
               {showPreview && (
@@ -157,7 +157,7 @@ export default function OptionCards({
               <div className="flex items-start gap-3 px-3.5 py-3">
                 <span
                   className={`mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold ${
-                    selected ? "bg-brand text-white" : "bg-hover text-ink-2"
+                    selected ? "bg-ink text-canvas" : "bg-hover text-ink-2"
                   }`}
                 >
                   {selected ? <Check size={12} /> : option.id}
@@ -176,7 +176,7 @@ export default function OptionCards({
           <span className="text-[12px] text-ink-3">You picked {pickedId}</span>
           {ctoAgrees && (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1 text-[12px] font-medium text-ink-2 dark:bg-transparent">
-              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-100 text-[9px] font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">C</span>
+              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-100 text-[9px] font-bold text-indigo-700 dark:bg-indigo-950">C</span>
               CTO agrees
             </span>
           )}
@@ -185,7 +185,7 @@ export default function OptionCards({
               type="button"
               onClick={() => onOpenTask?.(taskId)}
               title="Open the task created from this pick"
-              className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium text-ink-2 transition hover:border-brand/50 hover:text-brand-ink"
+              className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium text-ink-2 transition hover:border-ink/30 hover:text-ink"
             >
               {taskStatus === "done" ? (
                 <CheckCircle2 size={11} />

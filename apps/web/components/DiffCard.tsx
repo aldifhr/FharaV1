@@ -135,7 +135,7 @@ export default function DiffCard({
           }}
           aria-expanded={isExpanded}
           aria-label={isExpanded ? `Collapse ${filePath}` : `Expand ${filePath}`}
-          className="rounded p-1 text-ink-3 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
+          className="rounded p-1 text-ink-3 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30"
         >
           {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>

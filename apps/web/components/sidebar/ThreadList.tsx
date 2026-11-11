@@ -236,7 +236,7 @@ export default function ThreadList({
                   type="button"
                   onClick={() => setCollapsed((s) => toggle(s, g.key))}
                   aria-expanded={isOpen}
-                  className="flex h-6 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12.5px] text-ink-3 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+                  className="flex h-6 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12.5px] text-ink-3 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
                 >
                   <ChevronRight size={12} aria-hidden="true" className={`transition-transform ${isOpen ? "rotate-90" : ""}`} />
                   <span className="min-w-0 flex-1 truncate">{g.label}</span>

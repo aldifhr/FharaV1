@@ -59,7 +59,7 @@ export default function ChangesCard({ data }: { data: ChangesCardData }) {
           <button
             type="button"
             onClick={openChanges}
-            className="shrink-0 rounded-md px-2 py-1 text-[12.5px] font-medium text-ink-2 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+            className="shrink-0 rounded-md px-2 py-1 text-[12.5px] font-medium text-ink-2 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
           >
             Open changes
           </button>

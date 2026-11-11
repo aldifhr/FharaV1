@@ -33,14 +33,14 @@ export default function ProjectError({
             <button
               type="button"
               onClick={() => retry()}
-              className="rounded-lg border border-[#e5e3eb] px-4 py-2 text-sm font-medium text-gray-700 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-[#635bff]/40 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+              className="rounded-lg border border-[#e5e3eb] px-4 py-2 text-sm font-medium text-gray-700 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-ink/40 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
             >
               Try again
             </button>
           )}
           <Link
             href="/chats"
-            className="rounded-lg bg-[#635bff] px-4 py-2 text-sm font-semibold text-white outline-none hover:bg-[#5346d8] focus-visible:ring-2 focus-visible:ring-[#635bff]/50 focus-visible:ring-offset-2"
+            className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-canvas outline-none hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/50 focus-visible:ring-offset-2"
           >
             Back to projects
           </Link>

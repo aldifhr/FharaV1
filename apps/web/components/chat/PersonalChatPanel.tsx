@@ -401,7 +401,7 @@ export default function PersonalChatPanel({
                 <button
                   type="button"
                   onClick={() => setAttachOpen(true)}
-                  className="h-[30px] rounded-lg border border-line px-3 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+                  className="h-[30px] rounded-lg border border-line px-3 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
                 >
                   Attach project
                 </button>
@@ -419,7 +419,7 @@ export default function PersonalChatPanel({
                 }
                 aria-label="Delete chat"
                 title="Delete chat"
-                className="flex h-[30px] w-[30px] items-center justify-center rounded-lg border border-line text-ink-3 outline-none transition hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-brand/40 dark:hover:border-red-900 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+                className="flex h-[30px] w-[30px] items-center justify-center rounded-lg border border-line text-ink-3 outline-none transition hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-ink/30 dark:hover:border-red-900 dark:hover:bg-red-950/40 dark:hover:text-red-400"
               >
                 <Trash2 size={15} />
               </button>
@@ -434,7 +434,7 @@ export default function PersonalChatPanel({
                     tone: "neutral",
                   })
                 }
-                className="h-[30px] rounded-lg bg-ink px-3 text-[12.5px] font-medium text-canvas outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-brand/40"
+                className="h-[30px] rounded-lg bg-ink px-3 text-[12.5px] font-medium text-canvas outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ink/30"
               >
                 New chat
               </button>

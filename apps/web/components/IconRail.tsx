@@ -37,7 +37,7 @@ import { clockTime } from "@/lib/format";
 type IconType = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
 const railBtn =
-  "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40";
+  "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30";
 
 /** Rail button with a hover/focus tooltip rendered in a portal (the rail scrolls). */
 function RailButton({
@@ -70,7 +70,7 @@ function RailButton({
     onMouseLeave: () => setTip(null),
     onFocus: (e: React.FocusEvent<HTMLElement>) => show(e.currentTarget),
     onBlur: () => setTip(null),
-    className: `${railBtn} ${active ? "bg-brand-soft text-brand-ink hover:bg-brand-soft hover:text-brand-ink" : ""}`,
+    className: `${railBtn} ${active ? "bg-hover text-ink hover:bg-hover hover:text-ink" : ""}`,
   };
   const inner = (
     <>
@@ -286,7 +286,7 @@ export default function IconRail({
       <Link
         href="/"
         aria-label="Fhara home"
-        className="mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand text-white shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+        className="mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-ink text-canvas shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
       >
         <Share2 size={18} strokeWidth={2} />
       </Link>
@@ -295,7 +295,7 @@ export default function IconRail({
         onClick={openNewProject}
         aria-label="New project"
         title="New project"
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
       >
         <Plus size={18} strokeWidth={1.75} />
       </button>
@@ -338,7 +338,7 @@ export default function IconRail({
           type="button"
           onClick={() => openSettings(projectId)}
           aria-label="Settings"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
         >
           <Settings size={18} strokeWidth={1.75} />
         </button>

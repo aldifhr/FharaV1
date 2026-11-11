@@ -280,7 +280,7 @@ function AuditPage() {
                 type="button"
                 disabled={exporting !== null}
                 onClick={() => void exportRows("json")}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
               >
                 <Download size={14} />
                 {exporting === "json" ? "Exporting…" : "Export JSON"}
@@ -289,7 +289,7 @@ function AuditPage() {
                 type="button"
                 disabled={exporting !== null}
                 onClick={() => void exportRows("csv")}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
               >
                 <Download size={14} />
                 {exporting === "csv" ? "Exporting…" : "Export CSV"}
@@ -298,7 +298,7 @@ function AuditPage() {
                 type="button"
                 disabled={rows.length === 0 || busy}
                 onClick={askDeleteShown}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] text-ink-3 outline-none transition hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] text-ink-3 outline-none transition hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
               >
                 <Trash2 size={14} />
                 Delete shown
@@ -314,7 +314,7 @@ function AuditPage() {
                 role="tab"
                 aria-selected={filter === f.key}
                 onClick={() => setFilter(f.key)}
-                className={`rounded-full border px-3 py-1 text-[12.5px] outline-none transition focus-visible:ring-2 focus-visible:ring-brand/40 ${
+                className={`rounded-full border px-3 py-1 text-[12.5px] outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 ${
                   filter === f.key
                     ? "border-ink bg-ink text-canvas"
                     : "border-line bg-panel text-ink-2 hover:bg-hover hover:text-ink"
@@ -351,7 +351,7 @@ function AuditPage() {
                           type="button"
                           aria-expanded={expanded}
                           onClick={() => setOpen(expanded ? null : row._id)}
-                          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
                         >
                           <span
                             aria-label={row.decision}
@@ -380,7 +380,7 @@ function AuditPage() {
                           onClick={() => askDelete(row)}
                           aria-label={`Delete ${actionLabel(row)}`}
                           title="Delete entry"
-                          className="shrink-0 rounded-lg p-1.5 text-ink-3 outline-none transition hover:bg-hover hover:text-destructive focus-visible:ring-2 focus-visible:ring-brand/40"
+                          className="shrink-0 rounded-lg p-1.5 text-ink-3 outline-none transition hover:bg-hover hover:text-destructive focus-visible:ring-2 focus-visible:ring-ink/30"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -404,7 +404,7 @@ function AuditPage() {
                     type="button"
                     disabled={loadingMore}
                     onClick={() => void loadMore()}
-                    className="rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+                    className="rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
                   >
                     {loadingMore ? "Loading…" : "Load more"}
                   </button>

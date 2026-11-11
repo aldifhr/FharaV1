@@ -174,7 +174,7 @@ function MemoryInner() {
               type="button"
               disabled={needsTarget}
               onClick={() => setEditingId("new")}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
             >
               <Plus size={14} /> Memory
             </button>
@@ -335,7 +335,7 @@ function MemoryInner() {
                             setError(err instanceof Error ? err.message : "Failed to update memory");
                           }
                         }}
-                        className={`mt-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg outline-none transition hover:bg-panel focus-visible:ring-2 focus-visible:ring-brand/40 ${
+                        className={`mt-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg outline-none transition hover:bg-panel focus-visible:ring-2 focus-visible:ring-ink/30 ${
                           m.pinned ? "text-ink" : "text-ink-3"
                         }`}
                       >

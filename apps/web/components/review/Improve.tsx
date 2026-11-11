@@ -30,7 +30,7 @@ export function DiffText({ diff }: { diff: string }) {
             line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@")
               ? "text-ink-3"
               : line.startsWith("+")
-                ? "text-brand-ink"
+                ? "text-ink"
                 : line.startsWith("-")
                   ? "text-destructive"
                   : "text-ink-2"
@@ -101,7 +101,7 @@ export function SuggestionItem({ suggestion, showTask = false }: { suggestion: S
             type="button"
             disabled={busy !== null}
             onClick={run("apply")}
-            className="inline-flex h-8 items-center rounded-lg bg-brand px-3 text-[13px] font-medium text-white outline-none transition hover:bg-brand-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+            className="inline-flex h-8 items-center rounded-lg bg-ink px-3 text-[13px] font-medium text-canvas outline-none transition hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
           >
             {busy === "apply" ? "Applying…" : "Apply"}
           </button>
@@ -109,7 +109,7 @@ export function SuggestionItem({ suggestion, showTask = false }: { suggestion: S
             type="button"
             disabled={busy !== null}
             onClick={run("dismiss")}
-            className="inline-flex h-8 items-center rounded-lg border border-line bg-panel px-3 text-[13px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+            className="inline-flex h-8 items-center rounded-lg border border-line bg-panel px-3 text-[13px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
           >
             Dismiss
           </button>
@@ -138,7 +138,7 @@ export function SuggestFixButton({ taskId, label = "Suggest fix" }: { taskId?: s
           setBusy(false);
         }
       }}
-      className="inline-flex h-8 items-center rounded-lg border border-line bg-panel px-3 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+      className="inline-flex h-8 items-center rounded-lg border border-line bg-panel px-3 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
     >
       {busy ? "Starting…" : label}
     </button>

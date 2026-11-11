@@ -26,7 +26,7 @@ export default function ActivityGroupRow({
       onClick={onToggle}
       aria-expanded={open}
       aria-label={`${group.summary}${group.failed ? " (has failures)" : ""}. ${open ? "Collapse" : "Expand"} ${count} items`}
-      className={`group/activity flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 ${className}`}
+      className={`group/activity flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 ${className}`}
     >
       <ChevronRight
         size={14}

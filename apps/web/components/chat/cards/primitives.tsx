@@ -17,8 +17,8 @@ export const MUTED = "text-ink-3";
 export const TITLE = "text-[13px] font-semibold text-ink";
 
 const BTN_BASE =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-50";
-export const BTN_PRIMARY = `${BTN_BASE} bg-brand text-white shadow-sm hover:bg-brand-hover`;
+  "inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-50";
+export const BTN_PRIMARY = `${BTN_BASE} bg-ink text-canvas shadow-sm hover:bg-ink/85`;
 export const BTN_OUTLINE = `${BTN_BASE} border border-line bg-panel text-ink hover:bg-hover dark:bg-transparent`;
 export const BTN_TEXT = `${BTN_BASE} px-2.5 text-ink-2 hover:text-ink`;
 
@@ -30,7 +30,7 @@ const PILL: Record<PillTone, string> = {
   green: "bg-[#e9f8ef] text-[#1f8a4c] dark:bg-emerald-500/15 dark:text-emerald-300",
   red: "bg-[#fdecec] text-[#c43333] dark:bg-rose-500/15 dark:text-rose-300",
   gray: "bg-hover text-ink-2",
-  indigo: "bg-brand-soft text-brand-ink dark:bg-indigo-500/20 dark:text-indigo-300",
+  indigo: "bg-hover text-ink",
 };
 
 export function Pill({ tone, children, className = "" }: { tone: PillTone; children: ReactNode; className?: string }) {

@@ -44,7 +44,7 @@ export default function ReplyInterrupted({
             setBusy(false);
           }
         }}
-        className="inline-flex items-center gap-1 font-medium text-ink-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+        className="inline-flex items-center gap-1 font-medium text-ink-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
       >
         <RotateCcw size={12} aria-hidden />
         {busy ? "Retrying…" : "Retry"}
@@ -81,7 +81,7 @@ export function ReplyCutOff({ messageId, reason }: { messageId: string; reason?:
             setBusy(false);
           }
         }}
-        className="font-medium text-ink-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+        className="font-medium text-ink-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
       >
         {busy ? "Continuing…" : "Continue"}
       </button>

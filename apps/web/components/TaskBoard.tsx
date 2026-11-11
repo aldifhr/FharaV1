@@ -212,13 +212,13 @@ export default function TaskBoard({
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Filter tasks…"
           aria-label="Filter tasks"
-          className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-brand/40 sm:text-sm"
+          className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ink/30 sm:text-sm"
         />
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           aria-label="Filter by status"
-          className="rounded-lg border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-brand/40 sm:text-sm"
+          className="rounded-lg border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ink/30 sm:text-sm"
         >
           {["all", ...TASK_STATUSES].map((s) => (
             <option key={s} value={s}>
@@ -240,13 +240,13 @@ export default function TaskBoard({
           }}
           placeholder="Create a task manually…"
           aria-label="New task"
-          className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-brand/40 sm:text-sm"
+          className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ink/30 sm:text-sm"
         />
         <button
           type="button"
           onClick={() => void handleCreate()}
           disabled={creating || !manual.trim()}
-          className="flex items-center gap-1 rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white outline-none hover:bg-brand-hover focus-visible:ring-2 focus-visible:ring-brand/50 disabled:opacity-50"
+          className="flex items-center gap-1 rounded-lg bg-ink px-3 py-2 text-sm font-medium text-canvas outline-none hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
         >
           {creating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
           Create
@@ -303,11 +303,11 @@ export default function TaskBoard({
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             className={`rounded-xl border bg-panel p-3 ${
-              selectedTaskId === t._id ? "border-brand/60" : "border-line"
+              selectedTaskId === t._id ? "border-ink/30" : "border-line"
             }`}
           >
             <div className="flex items-start justify-between gap-3">
-              <button type="button" onClick={() => onSelectTask(t._id)} className="min-w-0 flex-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
+              <button type="button" onClick={() => onSelectTask(t._id)} className="min-w-0 flex-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ink/30">
                 <p className="truncate text-sm font-medium">{t.title}</p>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-3">
                   <span className={`rounded-full px-2 py-0.5 font-semibold ${TASK_STATUS_PILL[t.status] ?? NEUTRAL_PILL}`}>{taskStatusLabel(t.status, t)}</span>
@@ -337,7 +337,7 @@ export default function TaskBoard({
               <div className="flex shrink-0 items-center gap-2">
                 <div className="flex gap-1">
                   {[...assigned.entries()].slice(0, 4).map(([name, id]) => (
-                    <span key={name} title={name} className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-soft text-[9px] font-semibold text-brand-ink">
+                    <span key={name} title={name} className="flex h-5 w-5 items-center justify-center rounded-full bg-hover text-[9px] font-semibold text-ink">
                       {name.slice(0, 2).toUpperCase()}
                     </span>
                   ))}
@@ -350,7 +350,7 @@ export default function TaskBoard({
                   onClick={() => setExpanded((prev) => ({ ...prev, [t._id]: !isOpen }))}
                   aria-label={isOpen ? `Collapse ${t.title}` : `Expand ${t.title}`}
                   aria-expanded={isOpen}
-                  className="rounded-md p-1.5 text-ink-3 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
+                  className="rounded-md p-1.5 text-ink-3 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30"
                 >
                   {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                 </button>
@@ -435,7 +435,7 @@ export default function TaskBoard({
                     href={prOf.get(t._id)!.prUrl!}
                     target="_blank"
                     rel="noreferrer"
-                    className="block pt-1 text-[11px] text-brand-ink outline-none hover:underline focus-visible:underline"
+                    className="block pt-1 text-[11px] text-ink outline-none hover:underline focus-visible:underline"
                   >
                     Open PR #{prOf.get(t._id)!.prNumber} on GitHub
                   </a>
@@ -451,7 +451,7 @@ export default function TaskBoard({
                         <span
                           className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                             active
-                              ? "bg-brand text-white"
+                              ? "bg-ink text-canvas"
                               : passed
                                 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
                                 : "bg-hover text-ink-3"

@@ -50,8 +50,8 @@ export default function TaskHoldNotice({
         onClick={() => void run()}
         className={
           compact
-            ? "mt-1.5 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
-            : "mt-2.5 flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-[13px] font-medium text-white outline-none hover:bg-brand-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+            ? "mt-1.5 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
+            : "mt-2.5 flex items-center gap-1.5 rounded-lg bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas outline-none hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
         }
       >
         <Play size={compact ? 11 : 14} /> Resume now

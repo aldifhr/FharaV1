@@ -67,7 +67,7 @@ export default function VerificationSources({
             type="button"
             onClick={() => setShowTail((v) => !v)}
             aria-expanded={showTail}
-            className={`flex w-full items-center gap-1.5 px-4 py-2 text-left text-[12px] font-medium outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 ${MUTED}`}
+            className={`flex w-full items-center gap-1.5 px-4 py-2 text-left text-[12px] font-medium outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 ${MUTED}`}
           >
             {showTail ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
             Host check output

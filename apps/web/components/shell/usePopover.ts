@@ -30,4 +30,4 @@ export const popoverClass =
   "absolute z-40 mt-2 overflow-hidden rounded-xl border border-line bg-panel py-1 text-sm text-ink shadow-[0_12px_32px_-12px_rgba(20,20,40,0.25)] dark:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.6)]";
 
 export const iconButtonClass =
-  "inline-flex h-8 min-w-8 items-center justify-center gap-1 rounded-lg px-1.5 text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40";
+  "inline-flex h-8 min-w-8 items-center justify-center gap-1 rounded-lg px-1.5 text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30";

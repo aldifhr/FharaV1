@@ -319,7 +319,7 @@ export function SourcesTab({
           <button
             type="button"
             onClick={() => onHistory(s)}
-            className="shrink-0 rounded-md px-1.5 py-0.5 text-[12px] text-ink-3 outline-none transition hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+            className="shrink-0 rounded-md px-1.5 py-0.5 text-[12px] text-ink-3 outline-none transition hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
           >
             History
           </button>
@@ -367,7 +367,7 @@ export function SourcesTab({
                   type="button"
                   disabled={busy !== null}
                   onClick={() => handleUpdateAll(repo)}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
                 >
                   <RefreshCw size={13} className={busy === repo ? "animate-spin" : ""} />
                   {busy === repo ? "Updating…" : "Update all from source"}

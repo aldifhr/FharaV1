@@ -69,7 +69,7 @@ export default function CollaborationSection() {
               aria-label="Project"
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
-              className="h-[30px] max-w-[180px] truncate rounded-lg border border-line bg-panel px-2 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
+              className="h-[30px] max-w-[180px] truncate rounded-lg border border-line bg-panel px-2 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30"
             >
               <option value="">All projects</option>
               {projects.map((p) => (
@@ -90,7 +90,7 @@ export default function CollaborationSection() {
             type="button"
             aria-pressed={types[t.key]}
             onClick={() => setTypes((cur) => ({ ...cur, [t.key]: !cur[t.key] }))}
-            className={`rounded-lg border border-line px-2.5 py-1 text-[12.5px] outline-none transition focus-visible:ring-2 focus-visible:ring-brand/40 ${
+            className={`rounded-lg border border-line px-2.5 py-1 text-[12.5px] outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 ${
               types[t.key] ? "bg-hover font-medium text-ink" : "bg-panel text-ink-3 hover:text-ink"
             }`}
           >

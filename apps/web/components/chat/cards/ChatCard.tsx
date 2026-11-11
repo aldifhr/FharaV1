@@ -81,7 +81,7 @@ function AssignmentCard({ data }: { data: AssignmentCardData }) {
             type="button"
             onClick={() => surface.onOpenTask?.(data.taskId)}
             aria-label={`Open task ${data.title}`}
-            className="rounded-md p-1 text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+            className="rounded-md p-1 text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
           >
             <ArrowUpRight size={16} />
           </button>

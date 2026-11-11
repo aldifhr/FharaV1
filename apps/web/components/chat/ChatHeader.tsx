@@ -117,7 +117,7 @@ export default function ChatHeader({
           role="tab"
           aria-selected={tab === t}
           onClick={() => onTab(t)}
-          className={`flex-1 rounded-lg px-3.5 py-1.5 text-[14px] capitalize outline-none transition focus-visible:ring-2 focus-visible:ring-brand/40 ${
+          className={`flex-1 rounded-lg px-3.5 py-1.5 text-[14px] capitalize outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 ${
             tab === t ? "bg-panel font-medium text-ink shadow-[0_1px_2px_rgba(20,20,40,0.08)]" : "text-ink-2 hover:text-ink"
           }`}
         >
@@ -162,7 +162,7 @@ export default function ChatHeader({
                     onClick={() => onOpenAgent?.(a._id)}
                     title={`${agentName(a)} · ${teamStatusLabel(status?.[a._id])}`}
                     aria-label={`${agentName(a)}, ${teamStatusLabel(status?.[a._id])}`}
-                    className="-ml-1 rounded-full ring-2 ring-panel outline-none first:ml-0 focus-visible:ring-brand/50"
+                    className="-ml-1 rounded-full ring-2 ring-panel outline-none first:ml-0 focus-visible:ring-ink/30"
                   >
                     <InitialAvatar agent avatarParams={a.avatarParams} name={agentName(a)} size={17} />
                   </button>
@@ -184,7 +184,7 @@ export default function ChatHeader({
               type="button"
               onClick={() => onOpenTask(branch.taskId)}
               title={`Branch of “${branch.taskTitle}”`}
-              className="mr-1 hidden h-8 max-w-[180px] items-center gap-1.5 rounded-lg border border-line px-2.5 text-[13.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 sm:flex"
+              className="mr-1 hidden h-8 max-w-[180px] items-center gap-1.5 rounded-lg border border-line px-2.5 text-[13.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 sm:flex"
             >
               <GitBranch size={14} className="shrink-0" aria-hidden="true" />
               <span className="truncate">{branch.name}</span>
@@ -271,7 +271,7 @@ export default function ChatHeader({
                             type="button"
                             disabled={acting !== null}
                             onClick={() => void act(n.approvalId!, onApprove)}
-                            className="h-7 rounded-lg bg-brand px-2.5 text-[12.5px] font-medium text-white hover:bg-brand-hover disabled:opacity-50"
+                            className="h-7 rounded-lg bg-ink px-2.5 text-[12.5px] font-medium text-canvas hover:bg-ink/85 disabled:opacity-50"
                           >
                             {acting === n.approvalId ? "Working…" : "Approve"}
                           </button>

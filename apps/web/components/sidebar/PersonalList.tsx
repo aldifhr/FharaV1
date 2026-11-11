@@ -111,7 +111,7 @@ export default function PersonalList({
                     onClick={onNavigate}
                     aria-current={selected ? "page" : undefined}
                     title={preview ? `${name} · ${role}: ${preview}` : `${name} · ${role}`}
-                    className="flex min-w-0 items-center gap-2.5 rounded-lg px-2 py-[7px] outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                    className="flex min-w-0 items-center gap-2.5 rounded-lg px-2 py-[7px] outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
                   >
                     <InitialAvatar agent avatarParams={row.agent.avatarParams} name={name} size={24} />
                     <span className="min-w-0 flex-1">

@@ -7,7 +7,7 @@
 // `unawaitedAsyncAssertions` is adapted from Nuphos `eslint-rules/no-unawaited-async-assertion.js`,
 // Copyright 2026 Zeabur Inc., Apache License 2.0.
 // Modified by Fhara, 2026-11: oxlint/ESLint rules rewritten as plain source scans over text and the
-// TypeScript AST; Fhara's own UI rules (animate-pulse, pills/badges, palette tints, raw hex) added;
+// TypeScript AST; Fhara's own UI rules (animate-pulse, pills/badges, palette tints, raw hex, the retired brand colour) added;
 // the line budget lowered to 800. See THIRD_PARTY_NOTICES.md (## GOAT, ## Nuphos).
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -95,6 +95,8 @@ const UTILITY = "bg|text|border|border-[trblxy]|ring|ring-offset|from|via|to|fil
 const TINT = new RegExp(`(?<![\\w-])(?:${UTILITY})-(?:${PALETTE})-\\d{2,3}(?![\\w])`, "gu");
 // A hex colour starting a string or a Tailwind arbitrary value: "#fff", '#635bff', [#ebe9f0].
 const RAW_HEX = /(?<=["'`[])#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![\w])/gu;
+// The old purple brand: the primary is ink now (bg-ink text-canvas), with no accent colour.
+const BRAND = new RegExp(`(?<![\\w-])(?:${UTILITY})-brand(?:-(?:hover|soft|ink))?(?![\\w-])|var\\(--(?:shell|accent)-brand`, "gu");
 const PULSE = /(?<![\w-])animate-pulse(?![\w-])/gu;
 const PILL_SHAPE = /(?<![\w-])rounded-full(?![\w-])[^"'`\n]*?(?<![\w-])px-|(?<![\w-])px-[\d.]+(?![\w-])[^"'`\n]*?(?<![\w-])rounded-full(?![\w-])/u;
 const PILL_CLASS = /["'`\s](?:pill|badge|chip)(?:-[\w-]+)?(?=["'`\s])/u;
@@ -121,6 +123,7 @@ export function uiRuleCounts(text) {
     pill,
     tint: countMatches(code, TINT),
     hex: countMatches(code, RAW_HEX),
+    brand: countMatches(code, BRAND),
   };
 }
 
@@ -193,6 +196,7 @@ export const RULE_HELP = {
   pulse: "No animate-pulse. Show a static loading state (text-ink-3 \"Loading…\" or a plain bg-hover block).",
   pill: "No pills or badges (rounded-full + px-, pill/badge/chip classes, ui/badge). Use plain text in text-ink-2/-3.",
   tint: "No palette tints (bg-rose-100, text-emerald-600, …). Use theme tokens: bg-canvas/panel/hover, border-line, text-ink/-2/-3.",
+  brand: "No brand/accent colour. The primary is ink: bg-ink text-canvas, focus rings ring-ink/30, active rows bg-hover text-ink.",
   hex: "No raw hex colours in UI code. Use theme tokens defined in app/globals.css.",
   unawaited: "`expect(...).rejects/.resolves` settles asynchronously. Prefix it with `await` (or `return`).",
 };

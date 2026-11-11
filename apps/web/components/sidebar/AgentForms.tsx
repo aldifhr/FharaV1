@@ -194,7 +194,7 @@ export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onCl
 
   const autoName = agentRole ? nextAgentName(agentRole, agents) : "";
   const tile = (selected: boolean) =>
-    `flex min-w-0 flex-col items-start rounded-lg border px-2.5 py-1.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-brand/40 ${
+    `flex min-w-0 flex-col items-start rounded-lg border px-2.5 py-1.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 ${
       selected ? "border-ink-3 bg-hover text-ink" : "border-line text-ink-2 hover:bg-hover hover:text-ink"
     }`;
   const field = "w-full rounded-lg border border-line bg-transparent px-3 py-2 text-[14px] text-ink outline-none transition focus:border-ink-3";
@@ -235,7 +235,7 @@ export function CreateAgentModal({ agents, onClose }: { agents: AgentDoc[]; onCl
             onClick={handleRandomizeAvatar}
             title="Shuffle avatar"
             aria-label="Shuffle avatar"
-            className="group relative shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+            className="group relative shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
           >
             <AgentAvatar name={agentRole ? roleLabel(agentRole) : "Agent"} size={52} avatar={avatarSeed ?? undefined} />
             <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-line bg-panel text-ink-3 transition group-hover:text-ink">
@@ -427,7 +427,7 @@ export function EditAgentModal({ agent, onClose, inline = false }: { agent: Agen
             onClick={handleRandomizeAvatar}
             title="Shuffle avatar"
             aria-label="Shuffle avatar"
-            className="group relative mt-0.5 shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+            className="group relative mt-0.5 shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
           >
             <AgentAvatar
               name={agentName || "Agent"}

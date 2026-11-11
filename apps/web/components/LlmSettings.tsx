@@ -105,7 +105,7 @@ function RowMenu({
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="inline-flex h-8 min-w-8 items-center justify-center rounded-lg text-ink-3 transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+        className="inline-flex h-8 min-w-8 items-center justify-center rounded-lg text-ink-3 transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
       >
         <MoreHorizontal size={15} />
       </button>

@@ -101,7 +101,7 @@ export function OpinionItem({ opinion, label }: { opinion: Opinion; label?: stri
               setBusy(false);
             }
           }}
-          className="mt-2 inline-flex h-7 items-center rounded-lg border border-line bg-panel px-2.5 text-[12.5px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+          className="mt-2 inline-flex h-7 items-center rounded-lg border border-line bg-panel px-2.5 text-[12.5px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
         >
           {busy ? "Sending…" : "Replan with this note"}
         </button>
@@ -131,7 +131,7 @@ export function SecondOpinionButton({ taskId, subtaskKey, className = "" }: { ta
           setBusy(false);
         }
       }}
-      className={`text-[12.5px] text-ink-3 underline-offset-2 outline-none hover:text-ink hover:underline focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50 ${className}`}
+      className={`text-[12.5px] text-ink-3 underline-offset-2 outline-none hover:text-ink hover:underline focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50 ${className}`}
     >
       {busy ? "Asking…" : "Second opinion"}
     </button>
@@ -160,7 +160,7 @@ function ShadowToggle({ taskId, enabled }: { taskId: string; enabled: boolean })
             setBusy(false);
           }
         }}
-        className={`relative h-4 w-7 shrink-0 rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50 ${enabled ? "bg-brand" : "bg-line-strong"}`}
+        className={`relative h-4 w-7 shrink-0 rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50 ${enabled ? "bg-ink" : "bg-line-strong"}`}
       >
         <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-panel transition-[left] ${enabled ? "left-3.5" : "left-0.5"}`} />
       </button>

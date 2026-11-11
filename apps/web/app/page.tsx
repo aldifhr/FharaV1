@@ -101,7 +101,7 @@ export default function Home() {
             <button
               type="button"
               onClick={openNewProject}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30"
             >
               <Plus size={14} /> Project
             </button>
@@ -235,7 +235,7 @@ export default function Home() {
                         <li key={p._id}>
                           <Link
                             href={`/chats/${p._id}`}
-                            className="group block h-full rounded-xl border border-line bg-panel p-4 outline-none transition hover:border-line-strong focus-visible:ring-2 focus-visible:ring-brand/40"
+                            className="group block h-full rounded-xl border border-line bg-panel p-4 outline-none transition hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ink/30"
                           >
                             <div className="flex items-center justify-between gap-3">
                               <p className="truncate text-[15px] font-medium">{p.name}</p>

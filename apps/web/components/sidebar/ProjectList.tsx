@@ -41,7 +41,7 @@ function ProjectRows({
                 href={`/chats/${p._id}`}
                 onClick={() => onSelect?.(p._id)}
                 aria-current={selected ? "page" : undefined}
-                className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-[7px] outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-[7px] outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
               >
                 <ProjectAvatar name={p.name} size={22} />
                 <span className={`min-w-0 flex-1 truncate text-[15px] ${selected ? "font-medium text-ink" : "text-ink"}`}>{p.name}</span>

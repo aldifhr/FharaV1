@@ -15,7 +15,7 @@ const KIND_ICON: Record<string, { icon: LucideIcon; tone: string }> = {
   changes: { icon: FileDiff, tone: "bg-warn-soft text-warn" },
   command: { icon: Terminal, tone: "bg-warn-soft text-warn" },
   merge: { icon: GitMerge, tone: "bg-warn-soft text-warn" },
-  question: { icon: HelpCircle, tone: "bg-brand-soft text-brand-ink" },
+  question: { icon: HelpCircle, tone: "bg-hover text-ink" },
   review: { icon: ShieldCheck, tone: "bg-warn-soft text-warn" },
   pr: { icon: GitPullRequest, tone: "bg-hover text-ink-2" },
 };
@@ -85,7 +85,7 @@ export default function NeedsYou({
         </ul>
       )}
       {open && items.length > MAX_SHOWN && (
-        <Link href="/inbox" onClick={onNavigate} className="mt-1.5 block px-2 text-[13px] text-brand-ink hover:underline">
+        <Link href="/inbox" onClick={onNavigate} className="mt-1.5 block px-2 text-[13px] text-ink hover:underline">
           View all {data?.total} in Inbox
         </Link>
       )}

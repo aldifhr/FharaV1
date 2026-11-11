@@ -166,12 +166,12 @@ export default function Sidebar({
               onClick={onCollapse}
               aria-label="Hide sidebar"
               title="Hide sidebar"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 max-[979px]:hidden"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 max-[979px]:hidden"
             >
               <PanelLeftClose size={17} strokeWidth={1.75} />
             </button>
           )}
-          <label className="relative flex h-9 min-w-0 flex-1 items-center rounded-lg border border-line bg-panel transition focus-within:border-brand/50 focus-within:ring-2 focus-within:ring-brand/15">
+          <label className="relative flex h-9 min-w-0 flex-1 items-center rounded-lg border border-line bg-panel transition focus-within:border-ink/30 focus-within:ring-2 focus-within:ring-ink/10">
             <Search size={15} className="pointer-events-none absolute left-2.5 text-ink-3" aria-hidden="true" />
             <input
               ref={searchRef}

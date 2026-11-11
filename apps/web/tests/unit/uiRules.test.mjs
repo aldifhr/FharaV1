@@ -64,6 +64,13 @@ test("raw hex colours are caught, issue numbers are not", () => {
   assert.equal(uiRuleCounts(`<p>Fixes PR #123 and #456</p>`).hex, 0);
 });
 
+test("the retired brand colour is caught, ink is not (dashboard F1)", () => {
+  assert.equal(uiRuleCounts(`<button className="bg-brand text-white hover:bg-brand-hover focus-visible:ring-brand/40" />`).brand, 3);
+  assert.equal(uiRuleCounts(`<span className="bg-brand-soft text-brand-ink accent-[var(--shell-brand)]" />`).brand, 3);
+  assert.equal(uiRuleCounts(`<button className="bg-ink text-canvas hover:bg-ink/85 focus-visible:ring-ink/30" />`).brand, 0);
+  assert.equal(uiRuleCounts(`const label = "brand new";`).brand, 0);
+});
+
 test("suppressions need a reason", () => {
   assert.deepEqual(unexplainedSuppressions(`// ${TS}ignore\nconst x = 1;`), [1]);
   assert.deepEqual(unexplainedSuppressions(`// ${TS}expect-error: upstream type is wrong\nconst x = 1;`), []);

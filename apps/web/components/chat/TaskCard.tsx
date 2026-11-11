@@ -124,7 +124,7 @@ export default function TaskCard({
           }
         }}
         aria-label={`Open task ${task.title}`}
-        className={`${CARD_SURFACE} max-w-xl cursor-pointer outline-none transition hover:border-brand/40 focus-visible:ring-2 focus-visible:ring-brand/40 dark:hover:border-white/20`}
+        className={`${CARD_SURFACE} max-w-xl cursor-pointer outline-none transition hover:border-ink/30 focus-visible:ring-2 focus-visible:ring-ink/30 dark:hover:border-white/20`}
       >
         <div className="flex items-center gap-2.5 px-4 pt-3.5">
           {statusIcon}
@@ -192,7 +192,7 @@ export default function TaskCard({
                 }}
                 aria-label="Answer the team"
                 placeholder="Reply to continue the task…"
-                className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-base text-ink placeholder:text-ink-3 focus:border-brand/40 focus:outline-none sm:text-[13px] dark:bg-transparent"
+                className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-base text-ink placeholder:text-ink-3 focus:border-ink/30 focus:outline-none sm:text-[13px] dark:bg-transparent"
               />
               <button
                 type="button"

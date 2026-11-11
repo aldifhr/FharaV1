@@ -86,7 +86,7 @@ export default function ReviewSnippet({ files, approved, completed }: { files: F
             type="button"
             onClick={() => setShowAll((value) => !value)}
             aria-expanded={showAll}
-            className="ml-auto rounded-md px-1.5 py-0.5 text-[12px] font-medium text-brand-ink outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand/40 dark:text-indigo-300"
+            className="ml-auto rounded-md px-1.5 py-0.5 text-[12px] font-medium text-ink outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ink/30"
           >
             {showAll ? "Hide diff" : `Show full diff (${files.length} ${files.length === 1 ? "file" : "files"})`}
           </button>

@@ -58,12 +58,29 @@
   --color-ink: var(--shell-ink);
   --color-ink-2: var(--shell-ink-2);
   --color-ink-3: var(--shell-ink-3);
-  --color-brand: var(--shell-brand);
-  --color-brand-hover: var(--shell-brand-hover);
-  --color-brand-soft: var(--shell-brand-soft);
-  --color-brand-ink: var(--shell-brand-ink);
+  /* There is no accent colour: the primary action is ink (bg-ink text-canvas).
+     The old purple brand names stay as ink aliases so a stray class cannot turn
+     purple again; the guard in scripts/guards/rules.mjs rejects new uses. */
+  --color-brand: var(--shell-ink);
+  --color-brand-hover: var(--shell-ink);
+  --color-brand-soft: var(--shell-hover);
+  --color-brand-ink: var(--shell-ink);
   --color-warn: var(--shell-warn);
   --color-warn-soft: var(--shell-warn-soft);
+  /* Dashboard restyle (F1). */
+  --color-inset: var(--shell-inset);
+  --color-dot: var(--shell-dot);
+  --color-ok: var(--shell-ok);
+  --color-danger: var(--shell-danger);
+  --font-mono: var(--font-jetbrains), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  /* Radius scale: field (inputs, buttons), card, panel (inspector, dialogs). */
+  --radius-field: 0.5rem;
+  --radius-card: 0.75rem;
+  --radius-panel: 1rem;
+  /* Layout widths: w-sidebar, w-sidebar-rail, w-inspector. */
+  --spacing-sidebar: 248px;
+  --spacing-sidebar-rail: 60px;
+  --spacing-inspector: 380px;
   --animate-shimmer-slide: shimmer-slide var(--speed) ease-in-out infinite alternate;
   --animate-spin-around: spin-around calc(var(--speed) * 2) infinite linear;
   --animate-rainbow: rainbow var(--speed, 2s) infinite linear;
@@ -96,10 +113,6 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
-  /* Brand accent (purple) used across the 3-panel workspace. */
-  --accent-brand: #635bff;
-  --accent-brand-hover: #5346d8;
-  --accent-brand-soft: #eeecfb;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -127,10 +140,10 @@
   --shell-ink: #1d1d22;
   --shell-ink-2: #6b6b76;
   --shell-ink-3: #9b9ba6;
-  --shell-brand: #5b5bd6;
-  --shell-brand-hover: #4c4cc4;
-  --shell-brand-soft: #e8e8fa;
-  --shell-brand-ink: #4a4ac0;
+  --shell-inset: #f3f2ee;
+  --shell-dot: #d9d6cf;
+  --shell-ok: #2f7d4f;
+  --shell-danger: #c2410c;
   --shell-warn: #d9580b;
   --shell-warn-soft: #fff1e6;
 }
@@ -163,7 +176,7 @@
   --chart-5: oklch(0.269 0 0);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary: oklch(0.922 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
@@ -184,10 +197,10 @@
   --shell-ink: #ececf1;
   --shell-ink-2: #9a9aa5;
   --shell-ink-3: #6c6c77;
-  --shell-brand: #6e6ef0;
-  --shell-brand-hover: #7d7df5;
-  --shell-brand-soft: #22223a;
-  --shell-brand-ink: #a7a7ff;
+  --shell-inset: #18181c;
+  --shell-dot: #2a2a31;
+  --shell-ok: #6cc08b;
+  --shell-danger: #f0845c;
   --shell-warn: #f08a3c;
   --shell-warn-soft: #2d1d12;
 }
@@ -219,6 +232,49 @@ html[data-font="jetbrains"] {
 body {
   background: transparent;
   color: var(--shell-ink);
+}
+
+/* Dashboard restyle (F1) utilities. */
+/* Dotted-grid canvas for the main area. */
+@utility bg-dots {
+  background-color: var(--shell-canvas);
+  background-image: radial-gradient(var(--shell-dot) 1px, transparent 1px);
+  background-size: 16px 16px;
+  background-position: -8px -8px;
+}
+/* Small uppercase section label (sidebar groups, inspector fields). */
+@utility text-caption {
+  font-size: 10.5px;
+  line-height: 14px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--shell-ink-3);
+}
+/* Ids, hashes, run numbers. */
+@utility text-mono-id {
+  font-family: var(--font-jetbrains), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--shell-ink-2);
+  font-variant-numeric: tabular-nums;
+}
+/* Status as a hairline frame plus text, never a tinted fill (see ui/status-tag.tsx). */
+@utility status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.375rem;
+  padding-inline: 0.5rem;
+  /* A tone sets --status-tone; the frame is that colour at half strength. */
+  border: 1px solid color-mix(in oklab, var(--status-tone, var(--shell-ink-3)) 50%, transparent);
+  border-radius: 0.375rem;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--status-tone, var(--shell-ink-2));
+  background: transparent;
 }
 
 /* Thin, quiet scrollbars inside the shell panes. */

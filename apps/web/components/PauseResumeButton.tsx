@@ -59,7 +59,7 @@ export default function PauseResumeButton({
           : "Pause: running subtasks finish, nothing new starts"
       }
       aria-label={task.title ? `${label} ${task.title}` : label}
-      className="rounded-md p-1.5 text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
+      className="rounded-md p-1.5 text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
     >
       {paused ? <Play size={size} /> : <Pause size={size} />}
     </button>

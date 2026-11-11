@@ -89,7 +89,7 @@ export default function Modal({
       <button
         type="button"
         onClick={onClose}
-        className="rounded-lg p-1.5 text-gray-500 outline-none focus-visible:ring-2 focus-visible:ring-[#635bff]/40 hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-white"
+        className="rounded-lg p-1.5 text-gray-500 outline-none focus-visible:ring-2 focus-visible:ring-ink/40 hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-white"
         aria-label="Close"
       >
         <X size={17} />

@@ -238,7 +238,7 @@ export default function PushCard({ data }: { data: PushCardData }) {
                   type="checkbox"
                   checked={openPr}
                   onChange={(event) => setOpenPr(event.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-line-strong accent-[#635bff]"
+                  className="h-3.5 w-3.5 rounded border-line-strong accent-ink"
                 />
                 Open draft PR
               </label>

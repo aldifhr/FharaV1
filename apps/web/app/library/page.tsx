@@ -45,7 +45,7 @@ function sourceText(source: NonNullable<Skill["source"]>): string {
 }
 
 const headerButton =
-  "inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40";
+  "inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30";
 
 /**
  * Library: reusable agent skills. Each skill is markdown guidance attached
@@ -302,7 +302,7 @@ function SkillRowMenu({ skill, onEdit, onHistory }: { skill: Skill; onEdit: () =
         aria-expanded={open}
         disabled={busy}
         onClick={() => setOpen((o) => !o)}
-        className={`flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-ink-3 outline-none transition hover:border-line hover:bg-panel hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40 ${open || busy ? "opacity-100" : "opacity-0 group-hover:opacity-100"} [@media(hover:none)]:opacity-100`}
+        className={`flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-ink-3 outline-none transition hover:border-line hover:bg-panel hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40 ${open || busy ? "opacity-100" : "opacity-0 group-hover:opacity-100"} [@media(hover:none)]:opacity-100`}
       >
         <MoreHorizontal size={16} />
       </button>

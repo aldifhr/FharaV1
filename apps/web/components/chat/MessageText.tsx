@@ -43,7 +43,7 @@ function Strong({ children, className }: { children?: ReactNode; className?: str
     return (
       <span
         data-mention={roleKey ?? text.slice(1).toLowerCase()}
-        className="font-medium text-brand-ink"
+        className="font-medium text-ink"
       >
         {text}
       </span>

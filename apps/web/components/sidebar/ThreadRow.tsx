@@ -40,7 +40,7 @@ export default function ThreadRow({
         onKeyDown={(e) => onRowKeyDown?.(e, row)}
         aria-current={current ? "page" : undefined}
         title={row.title}
-        className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg py-[6px] pr-2 outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${row.nested ? "pl-6" : "pl-2"}`}
+        className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg py-[6px] pr-2 outline-none focus-visible:ring-2 focus-visible:ring-ink/30 ${row.nested ? "pl-6" : "pl-2"}`}
       >
         <span className="min-w-0 flex-1">
           {titleSlot ?? (

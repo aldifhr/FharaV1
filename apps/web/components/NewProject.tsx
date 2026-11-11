@@ -200,7 +200,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
                         : (agents ?? []).map((agent) => agent._id)
                     )
                   }
-                  className="text-xs font-medium text-[#635bff] hover:underline"
+                  className="text-xs font-medium text-ink hover:underline"
                 >
                   {(agents ?? []).length > 0 && selectedAgentIds.length === (agents ?? []).length
                     ? "Deselect all"

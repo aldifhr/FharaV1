@@ -83,7 +83,7 @@ export default function AgentProfilePage() {
                   {p.agent.enabled && (
                     <Link
                       href={`/chats/personal/${agentId}`}
-                      className="inline-flex h-[30px] items-center rounded-lg border border-line px-3 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+                      className="inline-flex h-[30px] items-center rounded-lg border border-line px-3 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
                     >
                       Chat
                     </Link>
@@ -93,7 +93,7 @@ export default function AgentProfilePage() {
                       aria-label="Project"
                       value={projectId}
                       onChange={(e) => setProjectId(e.target.value)}
-                      className="h-[30px] max-w-[180px] truncate rounded-lg border border-line bg-panel px-2 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
+                      className="h-[30px] max-w-[180px] truncate rounded-lg border border-line bg-panel px-2 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30"
                     >
                       <option value="">All projects</option>
                       {projects.map((proj) => (

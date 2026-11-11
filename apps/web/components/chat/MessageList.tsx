@@ -251,8 +251,8 @@ export default function MessageList(props: Props) {
         {index === firstNewIndex && (
           <div role="separator" aria-label="New messages" className="mb-2 mt-6 flex items-center gap-3">
             <span className="h-px flex-1 bg-line" />
-            <span className="flex items-center gap-1.5 text-[13px] font-medium text-brand-ink">
-              <span className="h-1.5 w-1.5 rounded-full bg-brand" />
+            <span className="flex items-center gap-1.5 text-[13px] font-medium text-ink">
+              <span className="h-1.5 w-1.5 rounded-full bg-ink" />
               New
             </span>
           </div>
@@ -339,7 +339,7 @@ export default function MessageList(props: Props) {
   const renderUserBody = (m: any) => (
     <div className="ml-auto flex min-w-0 max-w-[min(85%,42rem)] flex-col items-end">
       <div className="mb-1 flex items-center gap-1.5 pr-1 text-[12px] text-ink-3">
-        {m.pinned && <Pin size={11} className="text-brand-ink" aria-label="Pinned" />}
+        {m.pinned && <Pin size={11} className="text-ink" aria-label="Pinned" />}
         <span>{formatTime(m._creationTime)}</span>
       </div>
       <div className="flex min-w-0 max-w-full items-center gap-1.5">
@@ -355,7 +355,7 @@ export default function MessageList(props: Props) {
           onReply={onReply && m.content?.trim() ? () => onReply(m) : undefined}
           personal={!m.projectId}
         />}
-        <div className="min-w-0 rounded-2xl rounded-tr-md bg-brand-soft px-4 py-2.5 text-ink [&_p]:my-0">
+        <div className="min-w-0 rounded-2xl rounded-tr-md bg-bubble px-4 py-2.5 text-ink [&_p]:my-0">
           {m.quotedMessageId && (() => {
             const quoted = timeline.find((q: any) => q._id === m.quotedMessageId);
             return <QuotedSnippet quote={quoted ? quoteOf(quoted, agents) : null} onJump={jumpToQuoted} />;
@@ -383,7 +383,7 @@ export default function MessageList(props: Props) {
             })()}
           </p>
           <span className="text-[12px] text-ink-3">{formatTime(m._creationTime)}</span>
-          {m.pinned && <Pin size={12} className="self-center text-brand-ink" aria-label="Pinned" />}
+          {m.pinned && <Pin size={12} className="self-center text-ink" aria-label="Pinned" />}
         </div>
         <MessageActions
           pinned={Boolean(m.pinned)}
@@ -598,7 +598,7 @@ export default function MessageList(props: Props) {
             <div className="mt-1 flex max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-ink">
               <span className="font-medium">{parts.from}</span>
               <span aria-hidden="true" className="text-ink-3">→</span>
-              <span className="font-medium text-brand-ink">@{parts.to}</span>
+              <span className="font-medium text-ink">@{parts.to}</span>
               <span className="rounded-md border border-line px-1.5 py-px text-[12px] text-ink-2">{parts.capability}</span>
               {parts.reason && <span className="w-full text-ink-2">{parts.reason}</span>}
             </div>
@@ -701,7 +701,7 @@ function TaskCreatedLink({ taskId, title, onOpen }: { taskId: string; title?: st
       <Check size={13} aria-hidden="true" />
       <span>Task created</span>
       <span aria-hidden="true">·</span>
-      <span className="truncate text-brand-ink underline-offset-2 hover:underline">{title && title !== "task" ? title : "Open task"}</span>
+      <span className="truncate text-ink underline-offset-2 hover:underline">{title && title !== "task" ? title : "Open task"}</span>
     </button>
   );
 }
@@ -792,7 +792,7 @@ function MessageActions({
   }, []);
 
   const item = "flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-ink hover:bg-hover";
-  const hoverBtn = `flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-ink-3 outline-none transition hover:border-line hover:bg-panel hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand/40 ${open ? "opacity-100" : "opacity-0 group-hover:opacity-100"} [@media(hover:none)]:hidden`;
+  const hoverBtn = `flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-ink-3 outline-none transition hover:border-line hover:bg-panel hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ink/30 ${open ? "opacity-100" : "opacity-0 group-hover:opacity-100"} [@media(hover:none)]:hidden`;
   return (
     <div ref={ref} className={`flex items-center gap-0.5 ${inline ? "relative shrink-0 self-center" : "absolute right-0 top-0"}`}>
       {onReply && (

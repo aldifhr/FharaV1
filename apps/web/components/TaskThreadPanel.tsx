@@ -186,7 +186,7 @@ export default function TaskThreadPanel({
           onClick={onToggle}
           title="Expand task thread"
           aria-label="Expand task thread"
-          className="rounded-lg p-1.5 text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+          className="rounded-lg p-1.5 text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
         >
           <ChevronLeft size={17} />
         </button>
@@ -199,13 +199,13 @@ export default function TaskThreadPanel({
     : "relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-line bg-panel text-ink";
 
   const closeButton = fullScreen ? (
-    <button type="button" onClick={onClose} aria-label="Back to chat" className="-ml-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40">
+    <button type="button" onClick={onClose} aria-label="Back to chat" className="-ml-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30">
       <ArrowLeft size={18} />
     </button>
   ) : null;
   const wide = panelWidth >= WIDE_WIDTH - 20;
   const headerBtn =
-    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40";
+    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30";
   const xButton = !fullScreen ? (
     <>
       <button
@@ -237,7 +237,7 @@ export default function TaskThreadPanel({
         if (e.key === "ArrowLeft") { e.preventDefault(); onPanelWidthChange(Math.min(MAX_WIDTH, panelWidth + KEYBOARD_STEP)); }
         if (e.key === "ArrowRight") { e.preventDefault(); onPanelWidthChange(Math.max(MIN_WIDTH, panelWidth - KEYBOARD_STEP)); }
       }}
-      className="group absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none outline-none hover:bg-brand/25 focus-visible:bg-brand/40 active:bg-brand/50"
+      className="group absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none outline-none hover:bg-ink/20 focus-visible:bg-ink/20 active:bg-ink/20"
       title="Drag to resize"
     >
       <div className="absolute left-0 top-1/2 h-8 w-0.5 -translate-y-1/2 rounded-full bg-gray-300 opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-600" />
@@ -418,7 +418,7 @@ export default function TaskThreadPanel({
   const pill = needsYou
     ? { label: "Needs you", cls: "bg-warn-soft text-warn" }
     : taskStatus === "running"
-      ? { label: "In progress", cls: "bg-brand-soft text-brand-ink" }
+      ? { label: "In progress", cls: "bg-hover text-ink" }
       : taskStatus === "paused"
         ? { label: "Paused", cls: "bg-hover text-ink-2" }
       : taskStatus === "done"
@@ -442,7 +442,7 @@ export default function TaskThreadPanel({
         aria-label="Reply"
         title="Reply"
         onClick={() => startReply(m)}
-        className="absolute right-0 top-0 flex h-7 w-7 items-center justify-center rounded-md text-ink-3 opacity-0 outline-none transition hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand/40 group-hover:opacity-100 [@media(hover:none)]:hidden"
+        className="absolute right-0 top-0 flex h-7 w-7 items-center justify-center rounded-md text-ink-3 opacity-0 outline-none transition hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ink/30 group-hover:opacity-100 [@media(hover:none)]:hidden"
       >
         <Reply size={15} />
       </button>
@@ -526,7 +526,7 @@ export default function TaskThreadPanel({
                 type="button"
                 disabled={retrying}
                 onClick={() => void doRetry()}
-                className="mt-2.5 flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-[13px] font-medium text-white hover:bg-brand-hover disabled:opacity-50"
+                className="mt-2.5 flex items-center gap-1.5 rounded-lg bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas hover:bg-ink/85 disabled:opacity-50"
               >
                 <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
               </button>
@@ -716,7 +716,7 @@ export default function TaskThreadPanel({
             void submit();
           }}
         >
-          <div className="rounded-2xl border border-line-strong bg-panel transition focus-within:border-brand/50 focus-within:ring-4 focus-within:ring-brand/10">
+          <div className="rounded-2xl border border-line-strong bg-panel transition focus-within:border-ink/30 focus-within:ring-4 focus-within:ring-ink/30">
             {quote && <QuoteBar quote={quote} onCancel={() => setQuote(null)} />}
             <textarea
               ref={replyRef}
@@ -751,7 +751,7 @@ export default function TaskThreadPanel({
                 onClick={() => fileRef.current?.click()}
                 aria-label="Attach a text file"
                 title="Attach a text file"
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
               >
                 <Paperclip size={16} />
               </button>
@@ -773,7 +773,7 @@ export default function TaskThreadPanel({
                 }}
                 aria-label="Mention a teammate"
                 title="Mention"
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
               >
                 <AtSign size={16} />
               </button>
@@ -782,7 +782,7 @@ export default function TaskThreadPanel({
                   type="checkbox"
                   checked={alsoSendToChat}
                   onChange={(event) => setAlsoSendToChat(event.target.checked)}
-                  className="h-4 w-4 rounded border-line-strong accent-[var(--shell-brand)]"
+                  className="h-4 w-4 rounded border-line-strong accent-ink"
                 />
                 Also send to chat
               </label>
@@ -790,7 +790,7 @@ export default function TaskThreadPanel({
                 type="submit"
                 disabled={busy || !reply.trim()}
                 aria-label={taskStatus === "waiting_input" ? "Send answer" : taskStatus === "running" ? "Steer task" : "Send reply"}
-                className="ml-auto flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-white shadow-sm outline-none transition hover:bg-brand-hover focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-40"
+                className="ml-auto flex h-9 w-9 items-center justify-center rounded-xl bg-ink text-canvas shadow-sm outline-none transition hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {busy ? <SendLoader size={15} className="animate-spin" /> : <SendHorizontal size={16} />}
               </button>

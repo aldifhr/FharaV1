@@ -58,7 +58,7 @@ function TeamRows({
                 type="button"
                 onClick={() => onOpenAgent(a)}
                 title={`${name}${roleText ? ` (${roleText})` : ""} — ${detail}`}
-                className="flex w-full items-center gap-2.5 rounded-lg px-2 py-[7px] text-left outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
+                className="flex w-full items-center gap-2.5 rounded-lg px-2 py-[7px] text-left outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30"
               >
                 <InitialAvatar agent avatarParams={a.avatarParams} name={name} size={24} status={disabled ? undefined : word} />
                 <span className="min-w-0 flex-1 truncate text-[15px] text-ink">

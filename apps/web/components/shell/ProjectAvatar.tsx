@@ -9,7 +9,7 @@ const TONES = [
   "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
   "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
   "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
-  "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300",
+  "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15",
 ];
 
 export function projectTone(name: string): string {

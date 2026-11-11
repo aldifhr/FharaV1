@@ -11,7 +11,7 @@ export default function ChatPage() {
         <div className="max-w-sm text-center">
           <h1 className="text-[17px] font-semibold">Pick a project</h1>
           <p className="mt-1.5 text-[15px] text-ink-2">Choose a project from the sidebar to open its team chat, tasks and files.</p>
-          <Link href="/" className="mt-4 inline-flex h-9 items-center rounded-lg bg-brand px-4 text-[14px] font-medium text-white hover:bg-brand-hover">
+          <Link href="/" className="mt-4 inline-flex h-9 items-center rounded-lg bg-ink px-4 text-[14px] font-medium text-canvas hover:bg-ink/85">
             View overview
           </Link>
         </div>

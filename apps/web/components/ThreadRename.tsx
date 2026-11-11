@@ -123,7 +123,7 @@ export function RenameInput({
         }}
         onKeyDown={onKeyDown}
         onBlur={() => submit(true)}
-        className={`w-full min-w-0 rounded-md border bg-panel px-1.5 text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${empty ? "border-ink" : "border-line"} ${className}`}
+        className={`w-full min-w-0 rounded-md border bg-panel px-1.5 text-ink outline-none focus-visible:ring-2 focus-visible:ring-ink/30 ${empty ? "border-ink" : "border-line"} ${className}`}
       />
       {empty && (
         <span role="alert" className="mt-0.5 block text-[12px] text-ink-2">
@@ -178,7 +178,7 @@ export function EditableTitle({
           onClick={() => setEditing(true)}
           aria-label={`Rename ${label}`}
           title={`Rename ${label}`}
-          className="shrink-0 rounded-md p-1 text-ink-3 opacity-0 outline-none transition hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand/40 group-hover/title:opacity-100"
+          className="shrink-0 rounded-md p-1 text-ink-3 opacity-0 outline-none transition hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ink/30 group-hover/title:opacity-100"
         >
           <Pencil size={13} aria-hidden="true" />
         </button>

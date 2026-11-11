@@ -99,7 +99,7 @@ export default function FilesView({ project }: { project: any }) {
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search files…"
           aria-label="Search files"
-          className="rounded-xl border border-line bg-panel px-3 py-2 text-base outline-none focus:border-brand/50 focus-visible:ring-2 focus-visible:ring-brand/15 sm:text-sm"
+          className="rounded-xl border border-line bg-panel px-3 py-2 text-base outline-none focus:border-ink/30 focus-visible:ring-2 focus-visible:ring-ink/10 sm:text-sm"
         />
         <div className="max-h-[60vh] min-h-0 flex-1 overflow-y-auto rounded-xl border md:max-h-[calc(100dvh-16rem)] border-line bg-panel p-1">
           {error && <p className="px-2 py-2 text-xs text-rose-600">{error}</p>}
@@ -113,7 +113,7 @@ export default function FilesView({ project }: { project: any }) {
               type="button"
               onClick={() => openFile(file)}
               aria-current={selected === file ? "true" : undefined}
-              className={`flex w-full items-center gap-2 truncate rounded-lg px-2 py-1.5 text-left text-[13px] outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 ${
+              className={`flex w-full items-center gap-2 truncate rounded-lg px-2 py-1.5 text-left text-[13px] outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 ${
                 selected === file ? "bg-hover font-semibold" : ""
               }`}
             >
@@ -130,7 +130,7 @@ export default function FilesView({ project }: { project: any }) {
               <button
                 type="button"
                 onClick={() => setSelected(null)}
-                className="rounded-md px-1.5 py-0.5 text-xs font-medium text-brand-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 md:hidden dark:text-indigo-300"
+                className="rounded-md px-1.5 py-0.5 text-xs font-medium text-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 md:hidden"
               >
                 ← Files
               </button>

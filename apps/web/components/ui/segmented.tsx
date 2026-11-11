@@ -26,7 +26,7 @@ export default function Segmented<T extends string>({
             role="tab"
             aria-selected={active}
             onClick={() => onChange(option.value)}
-            className={`rounded-md px-3 py-1 text-[13px] outline-none transition focus-visible:ring-2 focus-visible:ring-brand/40 ${
+            className={`rounded-md px-3 py-1 text-[13px] outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 ${
               active ? "bg-hover font-medium text-ink" : "text-ink-3 hover:text-ink"
             }`}
           >

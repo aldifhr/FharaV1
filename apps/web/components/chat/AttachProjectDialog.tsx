@@ -82,7 +82,7 @@ export default function AttachProjectDialog({
           type="button"
           onClick={onClose}
           disabled={pending}
-          className="h-9 rounded-lg border border-line px-4 text-[13px] text-ink-2 outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+          className="h-9 rounded-lg border border-line px-4 text-[13px] text-ink-2 outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
         >
           Cancel
         </button>
@@ -90,7 +90,7 @@ export default function AttachProjectDialog({
           type="button"
           onClick={() => void submit()}
           disabled={!picked || pending}
-          className="h-9 rounded-lg bg-ink px-4 text-[13px] font-medium text-canvas outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
+          className="h-9 rounded-lg bg-ink px-4 text-[13px] font-medium text-canvas outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
         >
           {pending ? "Attaching…" : "Attach"}
         </button>

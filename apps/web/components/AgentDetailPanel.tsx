@@ -151,7 +151,7 @@ export default function AgentDetailPanel({
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-hover"
+              className="rounded-lg bg-ink px-3 py-1.5 text-xs font-medium text-canvas hover:bg-ink/85"
             >
               Edit agent
             </button>

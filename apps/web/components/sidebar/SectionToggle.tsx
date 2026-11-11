@@ -26,7 +26,7 @@ export function SectionToggle({
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="flex items-center gap-1.5 rounded-md px-1 text-[13px] text-ink-2 outline-none transition hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+        className="flex items-center gap-1.5 rounded-md px-1 text-[13px] text-ink-2 outline-none transition hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
       >
         {chevron && <ChevronRight size={13} className={`text-ink-3 transition-transform ${open ? "rotate-90" : ""}`} aria-hidden="true" />}
         <span>{title}</span>
@@ -38,7 +38,7 @@ export function SectionToggle({
           onClick={onAdd}
           aria-label={addLabel ?? `Add to ${title}`}
           title={addLabel ?? `Add to ${title}`}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-ink-3 opacity-0 outline-none transition hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand/40 group-hover/section:opacity-100 [@media(hover:none)]:opacity-100"
+          className="flex h-6 w-6 items-center justify-center rounded-md text-ink-3 opacity-0 outline-none transition hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ink/30 group-hover/section:opacity-100 [@media(hover:none)]:opacity-100"
         >
           <Plus size={14} />
         </button>

@@ -133,7 +133,7 @@ function BudgetField() {
         placeholder="e.g. 2000000"
         id="settings-weekly-budget"
         aria-describedby="settings-weekly-budget-help"
-        className="mt-2 h-8 w-full max-w-xs rounded-lg border border-line bg-canvas px-3 text-xs text-ink outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/15"
+        className="mt-2 h-8 w-full max-w-xs rounded-lg border border-line bg-canvas px-3 text-xs text-ink outline-none focus:border-ink/30 focus:ring-2 focus:ring-ink/10"
       />
     </section>
   );
@@ -335,7 +335,7 @@ export function SettingsModal({
           {/* Left Sidebar */}
           <aside className="flex w-[240px] shrink-0 flex-col border-r border-line bg-canvas">
             <div className="p-3 pb-2">
-              <div className="relative flex items-center rounded-lg border border-line bg-canvas px-2.5 py-1.5 gap-2 text-ink-3 focus-within:border-brand focus-within:text-ink">
+              <div className="relative flex items-center rounded-lg border border-line bg-canvas px-2.5 py-1.5 gap-2 text-ink-3 focus-within:border-ink focus-within:text-ink">
                 <Search size={13} className="shrink-0 text-ink-3" />
                 <input
                   ref={searchInputRef}
@@ -437,7 +437,7 @@ export function SettingsModal({
                             onClick={() => setTheme(value)}
                             aria-pressed={active}
                             className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-[13px] font-medium transition ${
-                              active ? "border-brand bg-brand-soft text-brand-ink" : "border-line hover:bg-hover"
+                              active ? "border-ink bg-hover text-ink" : "border-line hover:bg-hover"
                             }`}
                           >
                             <Icon size={14} />
@@ -462,12 +462,12 @@ export function SettingsModal({
                             onClick={() => setFont(option.value)}
                             aria-pressed={active}
                             className={`rounded-lg border px-2 py-1.5 text-left transition ${
-                              active ? "border-brand bg-brand-soft" : "border-line hover:bg-hover"
+                              active ? "border-ink bg-hover" : "border-line hover:bg-hover"
                             }`}
                           >
                             <span className="flex items-center justify-between gap-2">
                               <span className="truncate text-[13px] font-semibold">{option.label}</span>
-                              {active && <Check size={12} className="shrink-0 text-brand-ink" />}
+                              {active && <Check size={12} className="shrink-0 text-ink" />}
                             </span>
                             <span className="mt-0.5 block truncate text-[11px] text-ink-3">{option.description}</span>
                             <span className="mt-0.5 block truncate text-[11px]" style={option.style}>

@@ -63,7 +63,7 @@ export function TemplatesTab({ projectId, tabs }: { projectId?: string; tabs: Re
         <button
           type="button"
           onClick={() => setEditing("new")}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30"
         >
           <Plus size={14} /> Template
         </button>
@@ -112,7 +112,7 @@ export function TemplatesTab({ projectId, tabs }: { projectId?: string; tabs: Re
                   disabled={using === t.id}
                   onClick={() => use(t)}
                   aria-label={`Create an agent from ${t.name}`}
-                  className="shrink-0 rounded-lg border border-line bg-canvas px-2.5 py-1 text-[12.5px] text-ink outline-none transition hover:bg-panel focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
+                  className="shrink-0 rounded-lg border border-line bg-canvas px-2.5 py-1 text-[12.5px] text-ink outline-none transition hover:bg-panel focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
                 >
                   {using === t.id ? "Adding…" : "Use"}
                 </button>

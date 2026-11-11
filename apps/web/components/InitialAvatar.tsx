@@ -9,7 +9,7 @@ import { AvatartionAvatarView, avatartionFor, deserializeAvatartion } from "./ui
  */
 const ROLE_BG: Record<string, string> = {
   L: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
-  C: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
+  C: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950",
   D: "bg-pink-100 text-pink-700 dark:bg-pink-950 dark:text-pink-300",
   F: "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
   B: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",

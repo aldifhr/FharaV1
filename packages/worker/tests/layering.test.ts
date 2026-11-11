@@ -79,6 +79,9 @@ const SHARED_FOUNDATION = new Set([
   "convex/lib/secretPatterns",
   // Role memory: learnings parse / dedupe / cap helpers (pure).
   "convex/lib/roleMemory",
+  // Orchestrator/CTO split O1: the architecture flag type, decision key and
+  // parsers (pure, no imports), shared by the planner and the plan validator.
+  "convex/lib/architectureFlag",
 ]);
 
 const SRC = path.resolve(import.meta.dirname, "../src");

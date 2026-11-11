@@ -14,6 +14,7 @@ import { SectionLoading, useWorkspace } from "@/app/WorkspaceContext";
 import ConfirmDialog from "./ConfirmDialog";
 import PauseResumeButton from "./PauseResumeButton";
 import TaskHoldNotice from "./TaskHoldNotice";
+import { holdNoticeText } from "@/api/convex/lib/providerHold";
 import { PR_LANES, type PrLane } from "@/api/convex/lib/prFeedback";
 
 type TaskRow = any;
@@ -309,7 +310,7 @@ export default function TaskBoard({
               <button type="button" onClick={() => onSelectTask(t._id)} className="min-w-0 flex-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
                 <p className="truncate text-sm font-medium">{t.title}</p>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-3">
-                  <span className={`rounded-full px-2 py-0.5 font-semibold ${TASK_STATUS_PILL[t.status] ?? NEUTRAL_PILL}`}>{taskStatusLabel(t.status)}</span>
+                  <span className={`rounded-full px-2 py-0.5 font-semibold ${TASK_STATUS_PILL[t.status] ?? NEUTRAL_PILL}`}>{taskStatusLabel(t.status, t)}</span>
                   {subtasks.length > 0 && (
                     <span className="rounded-full bg-hover px-2 py-0.5 font-medium">
                       {done}/{subtasks.length} subtasks
@@ -321,6 +322,14 @@ export default function TaskBoard({
                     </span>
                   )}
                 </div>
+                {!isOpen && t.status === "paused" && (t as any).pausedBy === "held" && (t as any).hold && (
+                  <p className="mt-1 truncate text-[11px] text-ink-2" data-testid="board-hold-line">
+                    {holdNoticeText((t as any).hold, Date.now())}
+                  </p>
+                )}
+                {t.status === "done" && (t as any).completionWarning && (
+                  <p className="mt-1 truncate text-[11px] text-warn">{(t as any).completionWarning}</p>
+                )}
                 {prOf.get(t._id) && (
                   <p className="mt-1 truncate text-[11px] text-ink-3">{prSummary(prOf.get(t._id)!)}</p>
                 )}

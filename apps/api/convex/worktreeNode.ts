@@ -11,16 +11,39 @@ import { settingFrom } from "./lib/appSettings";
 import { makeTaskBranchName, resolveMainBranch, taskWorktreesFromPorcelain } from "./lib/taskBranch";
 import { worktreeRetentionMs } from "./lib/worktreeRetention";
 import { assertRepoPathExists, resolveRepoPath } from "./lib/workspacePath";
+import { buildBranchPatch, type GitRun } from "./lib/diffPatch";
 import type { Id } from "./_generated/dataModel";
 
 // execFile, not a shell string: branch names, paths and the identity
 // (`user.name=Some Name`) are passed as argv, never re-split or interpreted.
-function gitExec(cwd: string, args: string[]): string {
+function gitExec(cwd: string, args: string[], maxBuffer?: number): string {
   // A relative or missing cwd surfaced as "spawnSync git ENOENT" (live
   // test 4): resolve it and fail with a clear message instead.
   const dir = resolveRepoPath(cwd);
   assertRepoPathExists(dir, cwd);
-  return execFileSync("git", args, { cwd: dir, encoding: "utf-8", windowsHide: true, env: buildChildEnv() });
+  return execFileSync("git", args, {
+    cwd: dir,
+    encoding: "utf-8",
+    windowsHide: true,
+    env: buildChildEnv(),
+    ...(maxBuffer ? { maxBuffer } : {}),
+  });
+}
+
+/**
+ * Paradev A1: `gitExec` with a byte cap for diffs. Past `maxBuffer` git is
+ * killed (ENOBUFS) and the output read so far is kept for the budget cut
+ * in lib/diffPatch.ts, instead of failing the whole diff.
+ */
+function gitRunBounded(cwd: string): GitRun {
+  return (args, maxBuffer) => {
+    try {
+      return { stdout: gitExec(cwd, args, maxBuffer), overflowed: false };
+    } catch (err: any) {
+      if (err?.code !== "ENOBUFS") throw err;
+      return { stdout: String(err.stdout ?? ""), overflowed: true };
+    }
+  };
 }
 
 /**
@@ -116,24 +139,17 @@ export const getDiff = internalAction({
     const mainBranch = resolveMainBranch(data.mainBranch, (gitArgs) => gitExec(data.worktreePath, gitArgs));
 
     try {
-      const diff = gitExec(data.worktreePath, ["diff", `${mainBranch}..${data.branchName}`]);
-      const rawFiles = gitExec(data.worktreePath, [
-        "diff",
-        "--name-status",
-        `${mainBranch}..${data.branchName}`,
-      ])
-        .trim()
-        .split("\n")
-        .filter(Boolean);
-
-      const files = rawFiles.map((line) => {
-        const [status, ...pathParts] = line.split("\t");
-        return { path: pathParts.join("\t"), status };
-      });
-
-      return { diff, fileCount: files.length, files };
+      // Paradev A1: safe -c config + base args (a user's diff.noprefix or
+      // quotePath cannot change the patch shape) and a byte budget with a
+      // truncation marker (lib/diffPatch.ts).
+      const { patch, truncated, files } = buildBranchPatch(
+        gitRunBounded(data.worktreePath),
+        mainBranch,
+        data.branchName,
+      );
+      return { diff: patch, truncated, fileCount: files.length, files, base: mainBranch, branchName: data.branchName };
     } catch {
-      return { diff: "", fileCount: 0, files: [] };
+      return { diff: "", truncated: false, fileCount: 0, files: [], base: mainBranch, branchName: data.branchName };
     }
   },
 });

@@ -868,6 +868,19 @@ SOFTWARE.
   `sortSlashCommandMatches` and their tests, copied from `packages/shared/src/slash-commands.ts` and
   `slash-commands.test.ts`). Changed by Fhara: no `trigger` field, builtins sort first, plus the Fhara
   builtin list, scopes and `parseSlash`; changes are marked in the file headers.
+- Also used in (Paradev A1, cloned from github.com/superset-sh/superset @ ce98da26, now github.com/paradevai/paradev):
+  - `apps/api/convex/lib/changeset.ts` (`getChangesFlowState`, `selectActionButton`, `selectPrLink`,
+    `selectStatusLabel`), adapted from
+    `apps/desktop/src/renderer/routes/_authenticated/_dashboard/v2-workspace/$workspaceId/utils/getPRFlowState/getPRFlowState.ts`
+    (`getPRFlowState` and its selectors); `ChangesetFile` follows the pattern of `.../hooks/useChangeset/types.ts`.
+    `apps/api/convex/lib/changeset.test.ts` ports the cases of `getPRFlowState.test.ts`. Changed by Fhara: states
+    renamed for Fhara task facts (no-branch, worktree-gone, proposed, committed, pushed, pr-exists, fix-running,
+    error), plus the git `-z` parsers.
+  - `apps/api/convex/lib/diffPatch.ts` (`CONFIG_ARGS`, `BASE_ARGS`, `MAX_PATCH_BYTES`, `PatchBudget`,
+    `keepCompleteSections`), copied from `packages/host-service/src/trpc/router/git/utils/diff-patch.ts` and used by
+    `apps/api/convex/worktreeNode.ts` (`getDiff`). Changed by Fhara: no spawn, git runs through Fhara's `gitExec`
+    with a maxBuffer, and a truncated patch ends with a marker line.
+- Other Paradev-inspired changes take the ideas only.
 
 ```
 MIT License

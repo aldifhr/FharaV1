@@ -150,7 +150,7 @@ export default function Sidebar({
     setOpen((s) => ({ ...s, [section]: true }));
   };
 
-  const { build, observe, teamHref } = sidebarNavLinks({ pathname, projectId, openSettings });
+  const { build, observe, teamHref } = sidebarNavLinks({ pathname, projectId });
   const inboxActive = pathname === "/inbox";
   const activity = projectId ? (
     rail ? (

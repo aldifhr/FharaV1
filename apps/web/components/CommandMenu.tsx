@@ -131,7 +131,7 @@ export default function CommandMenu({ open, onClose, projectId }: { open: boolea
       : []),
   ];
 
-  const { build, observe, teamHref } = sidebarNavLinks({ pathname: pathname ?? "", projectId, openSettings });
+  const { build, observe, teamHref } = sidebarNavLinks({ pathname: pathname ?? "", projectId });
   const fromLinks = (links: NavLink[]): Entry[] =>
     links.map((l) => ({ key: l.label, label: l.label, icon: l.icon, run: l.href ? go(l.href) : act(() => l.onClick?.()) }));
   const work: Entry[] = [

@@ -669,7 +669,7 @@ export default function TaskThreadPanel({
                     nameRow(msgAgent?.role, m._creationTime)
                   )}
                   {quoteFor(m)}
-                  {m.content?.trim() ? <MessageText content={m.content} size="sm" /> : null}
+                  {m.content?.trim() ? <MessageText content={m.content} size="sm" maskSecrets={isUser} /> : null}
                   {m.card && (
                     <div className="mt-2.5">
                       <ChatCard card={m.card} />

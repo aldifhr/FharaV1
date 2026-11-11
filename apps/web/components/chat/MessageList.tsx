@@ -360,7 +360,7 @@ export default function MessageList(props: Props) {
             const quoted = timeline.find((q: any) => q._id === m.quotedMessageId);
             return <QuotedSnippet quote={quoted ? quoteOf(quoted, agents) : null} onJump={jumpToQuoted} />;
           })()}
-          <MessageText content={m.content ?? ""} />
+          <MessageText content={m.content ?? ""} maskSecrets />
         </div>
       </div>
       {m.replyStatus === "failed" && !interruptedFor.has(String(m._id)) && (

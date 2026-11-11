@@ -3,6 +3,7 @@
 import { Bell, Check, Copy, GitBranch, Menu, MoreHorizontal, PanelLeftOpen, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
 import { useState } from "react";
 import InitialAvatar from "../InitialAvatar";
+import OpenInMenu from "./OpenInMenu";
 import ProjectAvatar from "../shell/ProjectAvatar";
 import { EditableTitle } from "../ThreadRename";
 import { iconButtonClass, popoverClass, usePopover } from "../shell/usePopover";
@@ -61,7 +62,7 @@ export default function ChatHeader({
   onOpenDrawer,
   formatTime,
 }: {
-  project: { name?: string; devUrl?: string; workspacePath?: string } | null | undefined;
+  project: { _id?: string; name?: string; devUrl?: string; workspacePath?: string } | null | undefined;
   /** The project's active conversation; its title is renamed in place (Paradev B3). */
   conversation?: { _id: string; title?: string } | null;
   agents: Agent[];
@@ -340,6 +341,7 @@ export default function ChatHeader({
                 >
                   <Pencil size={15} className="text-ink-3" /> Manage project
                 </button>
+                <OpenInMenu projectId={project?._id} branch={branch} onDone={() => morePop.setOpen(false)} />
                 <div className="my-1 h-px bg-line" />
                 <button
                   type="button"

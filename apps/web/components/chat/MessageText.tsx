@@ -1,4 +1,4 @@
-import { Children, isValidElement, type ReactNode } from "react";
+import { Children, isValidElement, useMemo, type ClipboardEvent, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
@@ -8,6 +8,7 @@ import "katex/dist/katex.min.css";
 import "streamdown/styles.css";
 import { useToast } from "../Toasts";
 import { roleKeyForMention } from "@/lib/agentRoles";
+import { maskSecrets as maskSecretsIn, unmaskText } from "@/lib/secretMask";
 
 /**
  * `@Role` mentions (from the user, or the CTO handing off to "@QA",
@@ -57,18 +58,35 @@ export default function MessageText({
   content,
   isAnimating = false,
   size = "md",
+  maskSecrets = false,
 }: {
   content: string;
   isAnimating?: boolean;
   /** md: chat body (15px); sm: dense contexts like the task thread (14px). */
   size?: "md" | "sm";
+  /**
+   * User messages: show pasted API keys as `sk-abcde*****`. Display only;
+   * copying a selection puts the real text back on the clipboard.
+   */
+  maskSecrets?: boolean;
 }) {
   const toast = useToast();
+  const masked = useMemo(() => (maskSecrets ? maskSecretsIn(content ?? "", { markdown: true }) : null), [maskSecrets, content]);
+  const masks = masked?.masks ?? [];
   // Make agent routing explicit in the transcript without changing the
   // persisted message text or mention semantics used by the worker.
-  const highlighted = markMentions(content ?? "");
+  const highlighted = markMentions(masked ? masked.text : (content ?? ""));
+  const onCopy = (event: ClipboardEvent<HTMLDivElement>) => {
+    const selected = window.getSelection()?.toString() ?? "";
+    if (!selected) return;
+    event.preventDefault();
+    event.clipboardData.setData("text/plain", unmaskText(selected, masks));
+  };
   return (
-    <div className={`max-w-3xl space-y-2 text-ink ${size === "md" ? "text-[15px] leading-[1.6]" : "text-[14px] leading-[1.55]"}`}>
+    <div
+      onCopy={masks.length > 0 ? onCopy : undefined}
+      className={`max-w-3xl space-y-2 text-ink ${size === "md" ? "text-[15px] leading-[1.6]" : "text-[14px] leading-[1.55]"}`}
+    >
       <div className="markdown-body">
         <Streamdown
           mode={isAnimating ? "streaming" : "static"}
@@ -81,7 +99,9 @@ export default function MessageText({
           tableMaxHeight={280}
           controls={{
             code: {
-              copy: {
+              // A code block's copy button would copy the masked key; with a
+              // key on screen, copy the selection or use "Copy text" instead.
+              copy: masks.length > 0 ? false : {
                 onCopy: () => toast("success", "Copied to clipboard"),
                 onError: (error) => toast("error", "Copy failed", error.message),
               },

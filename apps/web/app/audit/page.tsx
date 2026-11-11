@@ -6,6 +6,7 @@ import { useConvex, useMutation, useQuery } from "convex/react";
 import { ChevronRight, Download, ScrollText, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import Sidebar from "@/components/Sidebar";
+import { HEADER_ACTION, PageHeader } from "@/components/ui/page-header";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { roleLabel } from "@/lib/agentRoles";
 import { clockTime, isSameDay, shortDate } from "@/lib/format";
@@ -253,58 +254,63 @@ function AuditPage() {
       <Sidebar projectId={projectId} />
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
         <div className="mx-auto max-w-3xl">
-          <header className="flex flex-wrap items-end justify-between gap-3">
-            <div className="min-w-0">
-              {projectName && <p className="truncate text-[13px] text-ink-3">{projectName}</p>}
-              <h1 className="mt-1 text-[26px] font-semibold tracking-tight">Audit log</h1>
-              <p className="mt-1 text-[15px] text-ink-2">Tool calls, approvals and configuration changes, newest first.</p>
-              {chain && (
-                <p
-                  data-testid="audit-chain"
-                  title={
-                    chain.ok
-                      ? `${chain.checked} chained ${chain.checked === 1 ? "entry" : "entries"} verified${chain.preChain ? `, ${chain.preChain} pre-chain` : ""}${chain.truncated ? " (newest only)" : ""}`
-                      : chain.reason
-                  }
-                  className={`mt-2 inline-flex items-center gap-1.5 text-[12.5px] ${chain.ok ? "text-ink-3" : "text-destructive"}`}
+          <PageHeader
+            eyebrow={projectName}
+            title="Audit log"
+            status={chain ? (chain.ok ? { tone: "ok", label: "Chain intact" } : { tone: "danger", label: "Chain broken" }) : null}
+            meta={
+              <>
+                <p className="text-[15px] text-ink-2">Tool calls, approvals and configuration changes, newest first.</p>
+                {chain && (
+                  <p
+                    data-testid="audit-chain"
+                    title={
+                      chain.ok
+                        ? `${chain.checked} chained ${chain.checked === 1 ? "entry" : "entries"} verified${chain.preChain ? `, ${chain.preChain} pre-chain` : ""}${chain.truncated ? " (newest only)" : ""}`
+                        : chain.reason
+                    }
+                    className={`mt-1 inline-flex items-center gap-1.5 text-[12.5px] ${chain.ok ? "text-ink-3" : "text-destructive"}`}
+                  >
+                    {chain.ok ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
+                    {chain.ok
+                      ? `Chain intact · ${chain.checked} verified${chain.preChain ? ` · ${chain.preChain} pre-chain` : ""}`
+                      : `Chain broken at entry ${chain.brokenAt}: ${chain.reason}`}
+                  </p>
+                )}
+              </>
+            }
+            actions={
+              <>
+                <button
+                  type="button"
+                  disabled={exporting !== null}
+                  onClick={() => void exportRows("json")}
+                  className={HEADER_ACTION}
                 >
-                  {chain.ok ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
-                  {chain.ok
-                    ? `Chain intact · ${chain.checked} verified${chain.preChain ? ` · ${chain.preChain} pre-chain` : ""}`
-                    : `Chain broken at entry ${chain.brokenAt}: ${chain.reason}`}
-                </p>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                disabled={exporting !== null}
-                onClick={() => void exportRows("json")}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
-              >
-                <Download size={14} />
-                {exporting === "json" ? "Exporting…" : "Export JSON"}
-              </button>
-              <button
-                type="button"
-                disabled={exporting !== null}
-                onClick={() => void exportRows("csv")}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
-              >
-                <Download size={14} />
-                {exporting === "csv" ? "Exporting…" : "Export CSV"}
-              </button>
-              <button
-                type="button"
-                disabled={rows.length === 0 || busy}
-                onClick={askDeleteShown}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] text-ink-3 outline-none transition hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
-              >
-                <Trash2 size={14} />
-                Delete shown
-              </button>
-            </div>
-          </header>
+                  <Download size={14} />
+                  {exporting === "json" ? "Exporting…" : "Export JSON"}
+                </button>
+                <button
+                  type="button"
+                  disabled={exporting !== null}
+                  onClick={() => void exportRows("csv")}
+                  className={HEADER_ACTION}
+                >
+                  <Download size={14} />
+                  {exporting === "csv" ? "Exporting…" : "Export CSV"}
+                </button>
+                <button
+                  type="button"
+                  disabled={rows.length === 0 || busy}
+                  onClick={askDeleteShown}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] text-ink-3 outline-none transition hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
+                >
+                  <Trash2 size={14} />
+                  Delete shown
+                </button>
+              </>
+            }
+          />
 
           <div role="tablist" aria-label="Filter" className="mt-8 flex flex-wrap gap-1.5">
             {FILTERS.map((f) => (
@@ -314,7 +320,7 @@ function AuditPage() {
                 role="tab"
                 aria-selected={filter === f.key}
                 onClick={() => setFilter(f.key)}
-                className={`rounded-full border px-3 py-1 text-[12.5px] outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 ${
+                className={`rounded-field border px-3 py-1 text-[12.5px] outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 ${
                   filter === f.key
                     ? "border-ink bg-ink text-canvas"
                     : "border-line bg-panel text-ink-2 hover:bg-hover hover:text-ink"
@@ -328,7 +334,7 @@ function AuditPage() {
           {first === undefined ? (
             <div className="mt-6 space-y-3" aria-label="Loading audit log">
               {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="h-12 animate-pulse rounded-xl bg-hover" />
+                <div key={i} className="h-12 rounded-xl bg-hover" />
               ))}
             </div>
           ) : rows.length === 0 ? (

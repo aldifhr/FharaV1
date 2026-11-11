@@ -3,13 +3,14 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, ShieldCheck } from "lucide-react";
 import type { VerificationCardData } from "@/api/convex/cardTypes";
-import { CARD_DIVIDER, CardHeader, CardShell, IconTile, MUTED, Pill, StatusWord, formatDuration } from "./primitives";
+import { CARD_DIVIDER, CardHeader, CardShell, IconTile, MUTED, StatusWord, formatDuration } from "./primitives";
 import VerificationSources from "./VerificationSources";
+import { StatusTag } from "../../ui/status-tag";
 
 const OUTCOME = {
-  passed: { tone: "green", label: "Passed" },
-  failed: { tone: "red", label: "Failed" },
-  inconclusive: { tone: "gray", label: "Inconclusive" },
+  passed: { tone: "ok", label: "Passed" },
+  failed: { tone: "danger", label: "Failed" },
+  inconclusive: { tone: "neutral", label: "Inconclusive" },
 } as const;
 
 /** Build / test / lint results per check. A step that did not run says so. */
@@ -36,13 +37,13 @@ export default function VerificationCard({ data }: { data: VerificationCardData 
       header={
         <CardHeader
           icon={
-            <IconTile tone={data.outcome === "failed" ? "red" : data.outcome === "passed" ? "green" : "gray"}>
+            <IconTile tone={data.outcome === "failed" ? "danger" : data.outcome === "passed" ? "ok" : "neutral"}>
               <ShieldCheck size={15} />
             </IconTile>
           }
           title={verificationTitle(data)}
           subtitle={[duration && `took ${duration}`, checks.length === 0 && !data.hostCheck && "no checks reported"].filter(Boolean).join(" · ") || undefined}
-          pill={<Pill tone={outcome.tone}>{outcome.label}</Pill>}
+          pill={<StatusTag tone={outcome.tone}>{outcome.label}</StatusTag>}
         />
       }
     >

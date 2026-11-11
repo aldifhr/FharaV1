@@ -2,13 +2,14 @@
 
 import { Check, Loader2, Minus, X } from "lucide-react";
 import type { QaCardData, QaCardRow } from "@/api/convex/cardTypes";
-import { CARD_DIVIDER, CardShell, MUTED, Pill } from "./primitives";
+import { CARD_DIVIDER, CardShell, MUTED } from "./primitives";
+import { StatusTag } from "../../ui/status-tag";
 
 const OUTCOME = {
-  running: { tone: "blue", label: "Running" },
-  passed: { tone: "green", label: "Passed" },
-  failed: { tone: "red", label: "Issues found" },
-  blocked: { tone: "gray", label: "Skipped" },
+  running: { tone: "active", label: "Running" },
+  passed: { tone: "ok", label: "Passed" },
+  failed: { tone: "danger", label: "Issues found" },
+  blocked: { tone: "neutral", label: "Skipped" },
 } as const;
 
 function RowIcon({ status }: { status: QaCardRow["status"] }) {
@@ -72,7 +73,7 @@ export default function QaCard({ data }: { data: QaCardData }) {
             </p>
           )}
         </div>
-        <Pill tone={outcome.tone}>{outcome.label}</Pill>
+        <StatusTag tone={outcome.tone}>{outcome.label}</StatusTag>
       </div>
       {data.reason && <p className={`px-4 pt-1.5 text-[12px] ${MUTED}`}>{data.reason}</p>}
       {rows.length > 0 && (

@@ -4,11 +4,12 @@ import { api } from "@/api/convex/_generated/api";
 import { roleLabel } from "@/lib/agentRoles";
 import { ArrowUpRight, Bell, Check, CheckCircle2, Loader2, RotateCcw, XCircle } from "lucide-react";
 import OptionCards from "./OptionCards";
-import { BTN_OUTLINE, BTN_PRIMARY, CARD_SURFACE, MUTED, Pill, RoleAvatar } from "./cards/primitives";
+import { BTN_OUTLINE, BTN_PRIMARY, CARD_SURFACE, MUTED, RoleAvatar } from "./cards/primitives";
 import { useToast } from "../Toasts";
 import { isClosedStatus } from "@/lib/taskStatus";
 import { normalizePermissionMode } from "@/api/convex/lib/permissionModes";
 import { refusalCopy } from "@/lib/taskInput";
+import { StatusTag } from "../ui/status-tag";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 
@@ -70,14 +71,14 @@ export default function TaskCard({
   };
   const badgeTone =
     task.status === "done"
-      ? ("green" as const)
+      ? ("ok" as const)
       : task.status === "failed" || task.status === "rejected"
-        ? ("red" as const)
+        ? ("danger" as const)
         : needsYou
-          ? ("orange" as const)
+          ? ("warn" as const)
           : task.status === "queued" || isCancelled
-            ? ("gray" as const)
-            : ("blue" as const);
+            ? ("neutral" as const)
+            : ("active" as const);
   const badgeLabel =
     task.status === "done"
       ? "Done"
@@ -153,7 +154,7 @@ export default function TaskCard({
             </>
           )}
           <span className="ml-auto">
-            <Pill tone={badgeTone}>{badgeLabel}</Pill>
+            <StatusTag tone={badgeTone}>{badgeLabel}</StatusTag>
           </span>
         </div>
         <div className="mx-4 mb-3 h-1 overflow-hidden rounded-full bg-hover" role="progressbar" aria-label="Task progress" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
@@ -164,7 +165,7 @@ export default function TaskCard({
         <div className={`${CARD_SURFACE} max-w-xl px-4 py-3`}>
           <div className="flex items-center gap-2">
             <p className="min-w-0 flex-1 text-[13px] font-semibold text-ink">The team asked you</p>
-            <Pill tone="orange">Needs you</Pill>
+            <StatusTag tone="warn">Needs you</StatusTag>
           </div>
           <p className="mt-1 whitespace-pre-wrap text-[13px] text-ink-2">{task.pendingQuestion}</p>
           {hasOptions ? (

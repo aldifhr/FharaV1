@@ -7,14 +7,15 @@ import { api } from "@/api/convex/_generated/api";
 import type { Id } from "@/api/convex/_generated/dataModel";
 import type { SideEffectCardData } from "@/api/convex/cardTypes";
 import { useToast } from "../../Toasts";
-import { BTN_OUTLINE, BTN_PRIMARY, BTN_TEXT, CardHeader, CardShell, IconTile, MUTED, Pill } from "./primitives";
+import { BTN_OUTLINE, BTN_PRIMARY, BTN_TEXT, CardHeader, CardShell, IconTile, MUTED } from "./primitives";
+import { StatusTag } from "../../ui/status-tag";
 
-const PHASE_WORD: Record<string, { tone: "orange" | "green" | "gray" | "blue"; label: string }> = {
-  ambiguous: { tone: "orange", label: "Needs you" },
-  armed: { tone: "blue", label: "Checking" },
-  queued: { tone: "blue", label: "Retrying" },
-  accepted: { tone: "blue", label: "Checking" },
-  terminal: { tone: "green", label: "Settled" },
+const PHASE_WORD: Record<string, { tone: "warn" | "ok" | "neutral" | "active"; label: string }> = {
+  ambiguous: { tone: "warn", label: "Needs you" },
+  armed: { tone: "active", label: "Checking" },
+  queued: { tone: "active", label: "Retrying" },
+  accepted: { tone: "active", label: "Checking" },
+  terminal: { tone: "ok", label: "Settled" },
 };
 
 /**
@@ -48,13 +49,13 @@ export default function SideEffectCard({ data }: { data: SideEffectCardData }) {
       header={
         <CardHeader
           icon={
-            <IconTile tone="orange">
+            <IconTile tone="warn">
               <AlertTriangle size={15} />
             </IconTile>
           }
           title={`Fhara could not confirm whether ${data.label} happened`}
           subtitle={view?.reason ?? undefined}
-          pill={<Pill tone={word.tone}>{phase === "terminal" && view?.outcome === "failed" ? "Failed" : word.label}</Pill>}
+          pill={<StatusTag tone={word.tone}>{phase === "terminal" && view?.outcome === "failed" ? "Failed" : word.label}</StatusTag>}
         />
       }
       actions={

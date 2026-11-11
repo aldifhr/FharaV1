@@ -27,10 +27,6 @@
   "apps/web/app/WorkspaceContext.tsx": {
     "pulse": 1
   },
-  "apps/web/app/audit/page.tsx": {
-    "pulse": 1,
-    "pill": 1
-  },
   "apps/web/app/chats/[id]/error.tsx": {
     "hex": 4
   },
@@ -64,8 +60,7 @@
     "tint": 2
   },
   "apps/web/app/runs/[taskId]/page.tsx": {
-    "pulse": 2,
-    "tint": 12
+    "tint": 8
   },
   "apps/web/app/runs/page.tsx": {
     "pulse": 1
@@ -73,15 +68,8 @@
   "apps/web/app/search/page.tsx": {
     "hex": 2
   },
-  "apps/web/app/team/[agentId]/page.tsx": {
-    "pulse": 2
-  },
   "apps/web/components/AgentAvatar.tsx": {
     "tint": 7
-  },
-  "apps/web/components/AgentDetailPanel.tsx": {
-    "pill": 5,
-    "tint": 6
   },
   "apps/web/components/ApprovalCard.tsx": {
     "hex": 3
@@ -139,9 +127,6 @@
   "apps/web/components/chat/ChatComposer.tsx": {
     "tint": 14
   },
-  "apps/web/components/chat/ChatHeader.tsx": {
-    "tint": 8
-  },
   "apps/web/components/chat/FilesView.tsx": {
     "suppressions": 1,
     "tint": 1
@@ -185,10 +170,6 @@
     "tint": 4,
     "hex": 8
   },
-  "apps/web/components/chat/cards/primitives.tsx": {
-    "tint": 11,
-    "hex": 11
-  },
   "apps/web/components/chat/useChatQueue.ts": {
     "suppressions": 1
   },
@@ -218,7 +199,7 @@
     "tint": 27
   },
   "apps/web/components/sidebar/AgentForms.tsx": {
-    "tint": 4
+    "tint": 2
   },
   "apps/web/components/sidebar/NeedsYou.tsx": {
     "pulse": 1
@@ -236,10 +217,6 @@
   },
   "apps/web/components/ui/shimmer-button.tsx": {
     "hex": 1
-  },
-  "apps/web/lib/runFormat.ts": {
-    "pulse": 1,
-    "tint": 2
   },
   "apps/web/lib/taskStatus.ts": {
     "tint": 34

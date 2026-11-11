@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Check } from "lucide-react";
 import DiffCard, { countLines } from "../../DiffCard";
-import { Chip } from "./primitives";
+import { StatusTag } from "../../ui/status-tag";
 
 type FileChange = { _id: string; filePath: string; diff: string; changeType: "new" | "modified" | "deleted" };
 
@@ -76,11 +76,11 @@ export default function ReviewSnippet({ files, approved, completed }: { files: F
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         {approved ? (
-          <Chip tone="green" icon={<Check size={12} strokeWidth={2.5} />}>Approved</Chip>
+          <StatusTag tone="ok" icon={<Check size={12} strokeWidth={2.5} />}>Approved</StatusTag>
         ) : completed ? (
-          <Chip tone="gray" icon={<Check size={12} strokeWidth={2.5} />}>Completed</Chip>
+          <StatusTag tone="neutral" icon={<Check size={12} strokeWidth={2.5} />}>Completed</StatusTag>
         ) : null}
-        {!touchesPackages && <Chip tone="gray">no new packages</Chip>}
+        {!touchesPackages && <StatusTag tone="neutral">no new packages</StatusTag>}
         {files.length > 0 && (
           <button
             type="button"

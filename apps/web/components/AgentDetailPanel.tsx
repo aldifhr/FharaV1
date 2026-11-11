@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
-import Modal from "./Modal";
-import { EditAgentModal } from "./sidebar/AgentForms";
-import { Badge } from "./ui/badge";
-import { SkeletonBox } from "skullet/react";
+import AgentActivity, { type ActiveExecution } from "./agents/AgentActivity";
+import AgentConfigureForm from "./agents/AgentConfigureForm";
+import AgentSkillsForm from "./agents/AgentSkillsForm";
+import { Inspector, InspectorTabs } from "./ui/inspector";
+import { StatusTag } from "./ui/status-tag";
 import { agentName, roleLabel } from "@/lib/agentRoles";
 import { LEGACY_ROLE_SUCCESSORS, ROLES, isRoleKey } from "@/api/convex/lib/roles";
 
@@ -43,33 +44,12 @@ export function statusFromActive(
   return { label: "Working", avatar: "working" };
 }
 
-function ChipRow({ values }: { values: string[] }) {
-  if (!values.length) return <p className="text-xs text-gray-400">None.</p>;
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {values.map((value) => (
-        <Badge key={value} variant="secondary" className="text-[11px]">
-          {value}
-        </Badge>
-      ))}
-    </div>
-  );
-}
+type Tab = "configure" | "skills" | "activity";
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{title}</h3>
-      <div className="mt-1.5">{children}</div>
-    </section>
-  );
-}
+const ACTION =
+  "inline-flex h-7 items-center rounded-field border border-line px-2.5 text-[12px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30";
 
-function formatTime(epoch: number | null | undefined) {
-  if (epoch == null) return "—";
-  return new Date(epoch).toLocaleString();
-}
-
+/** Agent inspector (dashboard F4): Configure / Skills / Activity in the right-hand panel. */
 export default function AgentDetailPanel({
   agent,
   onClose,
@@ -85,12 +65,17 @@ export default function AgentDetailPanel({
   const opencode = useQuery(api.opencodeSettings.get, {});
   const history = useQuery(api.agents.getExecutionHistory, { agentId: agent._id as never, limit: 20 });
   const activeByAgent = useQuery(api.executionView.activeByAgent, {});
-  const active = (activeByAgent as any)?.[agent._id as string] as
-    | { taskId: string; taskTitle: string; subtaskKey?: string; status: string }
-    | undefined;
+  const active = (activeByAgent as any)?.[agent._id as string] as ActiveExecution | undefined;
   const status = statusFromActive(active);
 
-  const [editing, setEditing] = useState(false);
+  const [tab, setTab] = useState<Tab>("configure");
+  const [dirty, setDirty] = useState<Record<"configure" | "skills", boolean>>({ configure: false, skills: false });
+  const onConfigureDirty = useCallback((d: boolean) => setDirty((prev) => (prev.configure === d ? prev : { ...prev, configure: d })), []);
+  const onSkillsDirty = useCallback((d: boolean) => setDirty((prev) => (prev.skills === d ? prev : { ...prev, skills: d })), []);
+  const close = () => {
+    if ((dirty.configure || dirty.skills) && !window.confirm("Discard unsaved changes?")) return;
+    onClose();
+  };
 
   const rawRole = (agent.role ?? "").trim().toLowerCase();
   // Retired roles (ui-ux, product-analyst) display as their successor.
@@ -122,176 +107,83 @@ export default function AgentDetailPanel({
   const assignedProjects: any[] = (detail as any)?.assignedProjects ?? [];
   const assignments: any[] = (detail as any)?.projectAssignments ?? [];
   const assignedTasks: any[] = (detail as any)?.assignedTasks ?? [];
+  const category = roleDefinition?.category ?? fallback?.category;
+  const runtime = opencode?.viaModelList
+    ? "From the model list: an OpenCode entry runs on the OpenCode CLI, an API entry on the built-in tools"
+    : opencode?.runtime === "opencode"
+      ? `OpenCode${opencode.model ? ` · ${opencode.model}` : " · Fhara LLM"}`
+      : "Built-in (Fhara host tools)";
+  const tone = status.avatar === "working" ? "active" : status.avatar === "needs_you" ? "warn" : "neutral";
 
   return (
-    <Modal title={displayName} onClose={onClose} fullScreen>
-      {editing ? (
-        <EditAgentModal agent={agent} inline onClose={() => setEditing(false)} />
-      ) : (
-      <div className="mt-4 space-y-5">
-        <div className="flex items-center gap-3">
-          <AgentAvatar name={displayName} size={44} status={status.avatar === "idle" ? undefined : status.avatar} avatarParams={agent.avatarParams} />
-          <div className="min-w-0">
-            <p className="text-sm font-medium">{displayName}</p>
-            <p className="text-xs text-ink-3">
-              {fallback?.displayName ?? roleName}
-              {(roleDefinition?.category ?? fallback?.category) ? <span className="capitalize">{` · ${roleDefinition?.category ?? fallback?.category}`}</span> : null}
-            </p>
-          </div>
-          <span className="ml-auto flex items-center gap-2">
-            <Badge variant={status.avatar === "working" ? "default" : "secondary"}>{status.label}</Badge>
-            {agent?._id && (
-              <Link
-                href={`/team/${agent._id}`}
-                className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-hover"
-              >
-                Performance
-              </Link>
-            )}
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="rounded-lg bg-ink px-3 py-1.5 text-xs font-medium text-canvas hover:bg-ink/85"
-            >
-              Edit agent
+    <Inspector
+      label={`Agent ${displayName}`}
+      title={displayName}
+      subtitle={
+        <>
+          {fallback?.displayName ?? roleName}
+          {category ? <span className="capitalize">{` · ${category}`}</span> : null}
+        </>
+      }
+      icon={<AgentAvatar name={displayName} size={36} status={status.avatar === "idle" ? undefined : status.avatar} avatarParams={agent.avatarParams} />}
+      status={<StatusTag tone={tone}>{status.label}</StatusTag>}
+      actions={
+        <>
+          {agent?._id && (
+            <Link href={`/team/${agent._id}`} className={ACTION}>
+              Performance
+            </Link>
+          )}
+          {onRemove && (
+            <button type="button" onClick={() => onRemove(agent)} className={`${ACTION} hover:text-danger`}>
+              Remove
             </button>
-            {onRemove && (
-              <button
-                type="button"
-                onClick={() => onRemove(agent)}
-                className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-hover dark:text-red-400"
-              >
-                Remove
-              </button>
-            )}
-          </span>
-        </div>
-
-        {detail === undefined && (
-          <div aria-hidden className="space-y-2">
-            <SkeletonBox height={12} width="90%" />
-            <SkeletonBox height={12} width="70%" />
-          </div>
-        )}
-
-        <Section title="Role description">
-          <p className="text-sm text-gray-600 dark:text-gray-300">{responsibilities[0] ?? "No role description."}</p>
-        </Section>
-
-        {responsibilities.length > 1 && (
-          <Section title="Responsibilities">
-            <ul className="list-disc space-y-1 pl-5 text-sm text-gray-600 dark:text-gray-300">
-              {responsibilities.slice(1).map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </Section>
-        )}
-
-        <Section title="Capabilities">
-          <ChipRow values={capabilities} />
-          {agent.capabilities === undefined && capabilities.length > 0 && (
-            <p className="mt-1 text-[11px] text-gray-400">From role defaults — set on the agent to override.</p>
           )}
-        </Section>
-
-        <Section title="Tool permissions">
-          <ChipRow values={effectiveTools} />
-          <p className="mt-1 text-[11px] text-gray-400">
-            {toolsAreCustom ? "Custom for this agent." : "Role defaults."}
-          </p>
-          {assignments.some((row) => row.allowedTools) && (
-            <ul className="mt-2 space-y-1 text-xs text-gray-500">
-              {assignments
-                .filter((row) => row.allowedTools)
-                .map((row) => {
-                  const projectName =
-                    assignedProjects.find((p) => p.projectId === row.projectId)?.name ?? row.projectId;
-                  return (
-                    <li key={row.projectId}>
-                      Project override on <span className="font-medium">{projectName}</span>:{" "}
-                      {(row.allowedTools as string[]).join(", ")}
-                    </li>
-                  );
-                })}
-            </ul>
-          )}
-        </Section>
-
-        <Section title="Runtime">
-          <p className="text-sm text-gray-600 dark:text-gray-300">
-            {/* Plan 035: the runtime is app-wide (Settings → LLM & Models). */}
-            {opencode?.viaModelList
-              ? "From the model list: an OpenCode entry runs on the OpenCode CLI, an API entry on the built-in tools"
-              : opencode?.runtime === "opencode"
-              ? `OpenCode${opencode.model ? ` · ${opencode.model}` : " · Fhara LLM"}`
-              : "Built-in (Fhara host tools)"}
-          </p>
-        </Section>
-
-        <Section title="Assigned projects">
-          {assignedProjects.length === 0 ? (
-            <p className="text-sm text-gray-400">No projects using this agent.</p>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {assignedProjects.map((project) => (
-                <Badge key={project.projectId} variant="outline">
-                  {project.name}
-                </Badge>
-              ))}
-            </div>
-          )}
-        </Section>
-
-        <Section title="Assigned task">
-          {active ? (
-            <p className="text-sm">
-              <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                {status.label === "Working" ? "Working" : status.label}
-              </span>{" "}
-              · {active.taskTitle}
-              {active.subtaskKey ? ` · ${active.subtaskKey}` : ""}
-            </p>
-          ) : (
-            <p className="text-sm text-gray-400">Idle — no active execution.</p>
-          )}
-          {assignedTasks.length > 0 && (
-            <ul className="mt-1 space-y-1 text-xs text-gray-500">
-              {assignedTasks.map((task) => (
-                <li key={task.taskId}>
-                  Open task: <span className="font-medium">{task.title}</span> ({task.status})
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
-
-        <Section title="Recent executions">
-          {history === undefined ? (
-            <div aria-hidden className="space-y-2">
-              <SkeletonBox height={12} width="80%" />
-              <SkeletonBox height={12} width="60%" />
-            </div>
-          ) : history.length === 0 ? (
-            <p className="text-sm text-gray-400">No executions yet.</p>
-          ) : (
-            <ul className="space-y-2">
-              {history.map((row: any) => (
-                <li key={row.executionId} className="rounded-lg border border-gray-100 px-3 py-2 text-xs dark:border-gray-800">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant={row.status === "failed" ? "destructive" : "secondary"}>{row.status}</Badge>
-                    <span className="font-medium">{row.taskTitle ?? "Unknown task"}</span>
-                    {row.subtaskKey && <span className="text-gray-400">· {row.subtaskKey}</span>}
-                    <span className="ml-auto text-gray-400">{formatTime(row.completedAt ?? row.startedAt ?? row.createdAt)}</span>
-                  </div>
-                  {row.error && <p className="mt-1 text-red-600 dark:text-red-400">{row.error}</p>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
+        </>
+      }
+      tabs={
+        <InspectorTabs<Tab>
+          label="Agent sections"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "configure", label: "Configure", dirty: dirty.configure },
+            { value: "skills", label: "Skills", dirty: dirty.skills },
+            { value: "activity", label: "Activity" },
+          ]}
+        />
+      }
+      onClose={close}
+    >
+      {/* Both forms stay mounted so switching tabs keeps an unsaved draft. */}
+      <div hidden={tab !== "configure"} className="flex flex-1 flex-col">
+        <AgentConfigureForm agent={agent} onDirtyChange={onConfigureDirty} />
       </div>
+      <div hidden={tab !== "skills"} className="flex flex-1 flex-col">
+        <AgentSkillsForm agent={agent} onDirtyChange={onSkillsDirty} />
+      </div>
+      {tab === "activity" && (
+        <AgentActivity
+          loading={detail === undefined}
+          responsibilities={responsibilities}
+          capabilities={capabilities}
+          capabilitiesFromRole={agent.capabilities === undefined}
+          tools={effectiveTools}
+          toolsAreCustom={toolsAreCustom}
+          toolOverrides={assignments
+            .filter((row) => row.allowedTools)
+            .map((row) => ({
+              projectName: assignedProjects.find((p) => p.projectId === row.projectId)?.name ?? row.projectId,
+              tools: row.allowedTools as string[],
+            }))}
+          runtime={runtime}
+          projects={assignedProjects}
+          active={active}
+          activeLabel={status.label}
+          openTasks={assignedTasks}
+          history={history as never}
+        />
       )}
-    </Modal>
+    </Inspector>
   );
 }

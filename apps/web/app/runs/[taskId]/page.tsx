@@ -8,6 +8,7 @@ import type { FunctionReturnType } from "convex/server";
 import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Copy, Download, FileJson, FileText } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import Sidebar from "@/components/Sidebar";
+import { PageHeader } from "@/components/ui/page-header";
 import SubtaskLiveOutput from "@/components/SubtaskLiveOutput";
 import { useToast } from "@/components/Toasts";
 import { buildRunJson, buildRunMarkdown, exportFilename } from "@/lib/runExport";
@@ -35,6 +36,7 @@ import {
   isActiveStatus,
   isErrorStatus,
   statusDot,
+  statusTone,
 } from "@/lib/runFormat";
 import { PERMISSION_MODE_LABELS, normalizePermissionMode } from "@/api/convex/lib/permissionModes";
 import { approvalDeciderLabel } from "@/lib/sandbox";
@@ -561,29 +563,28 @@ export default function RunTracePage() {
 
           {run === undefined ? (
             <div className="mt-6 space-y-3" aria-label="Loading run">
-              <div className="h-8 w-1/2 animate-pulse rounded-lg bg-hover" />
+              <div className="h-8 w-1/2 rounded-lg bg-hover" />
               {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="h-12 animate-pulse rounded-xl bg-hover" />
+                <div key={i} className="h-12 rounded-xl bg-hover" />
               ))}
             </div>
           ) : run === null ? (
             <p className="mt-10 text-[14px] text-ink-2">This run no longer exists.</p>
           ) : (
             <>
-              <header className="mt-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] text-ink-3">{run.task.projectName}</p>
-                    <h1 className="mt-1 text-[26px] font-semibold leading-tight tracking-tight">{run.task.title}</h1>
-                  </div>
-                  <ExportMenu run={run} />
-                </div>
-                <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-ink-2">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className={`h-1.5 w-1.5 rounded-full ${statusDot(isIdleDirectThread(run.task.status, run.task) ? "idle" : run.task.status)}`} />
-                    {taskStatusLabel(run.task.status, run.task)}
-                  </span>
-                  <span className="text-ink-3">·</span>
+              <PageHeader
+                className="mt-3"
+                eyebrow={run.task.projectName}
+                title={run.task.title}
+                id={String(run.task._id)}
+                idLabel="run id"
+                status={{
+                  tone: statusTone(isIdleDirectThread(run.task.status, run.task) ? "idle" : run.task.status),
+                  label: taskStatusLabel(run.task.status, run.task),
+                }}
+                actions={<ExportMenu run={run} />}
+                meta={
+                <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-ink-2">
                   <span className="tabular-nums">{formatDuration(duration)}</span>
                   <span className="text-ink-3">·</span>
                   <span className="text-[13px] text-ink-3" title="Permission mode">
@@ -598,12 +599,14 @@ export default function RunTracePage() {
                   {errors > 0 && (
                     <>
                       <span className="text-ink-3">·</span>
-                      <span className="text-red-600 dark:text-red-400">
+                      <span className="text-danger">
                         {errors} {errors === 1 ? "error" : "errors"}
                       </span>
                     </>
                   )}
                 </p>
+                }
+              >
                 {run.task.status === "done" && run.task.completionWarning && (
                   <p className="mt-1 text-[13px] text-warn" data-testid="completion-warning">{run.task.completionWarning}</p>
                 )}
@@ -614,9 +617,9 @@ export default function RunTracePage() {
                   </p>
                 )}
                 {run.task.errorMessage && (
-                  <p className="mt-3 rounded-lg border border-line px-3 py-2 text-[13px] text-red-600 dark:text-red-400">{run.task.errorMessage}</p>
+                  <p className="mt-3 rounded-lg border border-line px-3 py-2 text-[13px] text-danger">{run.task.errorMessage}</p>
                 )}
-              </header>
+              </PageHeader>
 
               <TaskBrief taskId={String(run.task._id)} />
 

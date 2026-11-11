@@ -11,7 +11,6 @@ import {
   CardShell,
   IconTile,
   MUTED,
-  Pill,
   StatusWord,
   type StepStatus,
 } from "./chat/cards/primitives";
@@ -19,6 +18,7 @@ import { clockTime } from "@/lib/format";
 import PlanCard from "./chat/cards/PlanCard";
 import { approvalTrayItem } from "@/api/convex/lib/decisionTray";
 import { TRAY_BTN_PRIMARY, TRAY_BTN_SECONDARY, TRAY_BTN_TEXT } from "./chat/DecisionsTray";
+import { StatusTag } from "./ui/status-tag";
 
 type Approval = {
   _id: string;
@@ -197,13 +197,13 @@ function GenericApprovalCard({
       header={
         <CardHeader
           icon={
-            <IconTile tone="orange">
+            <IconTile tone="warn">
               <Bell size={15} />
             </IconTile>
           }
           title={approval.summary}
           subtitle={[KIND_LABEL[approval.kind] ?? approval.kind, taskTitle, time].filter(Boolean).join(" · ")}
-          pill={<Pill tone="orange">Needs you</Pill>}
+          pill={<StatusTag tone="warn">Needs you</StatusTag>}
         />
       }
       actions={

@@ -16,11 +16,11 @@ import {
   CardShell,
   IconTile,
   MUTED,
-  Pill,
-  type PillTone,
+  type StatusTone,
   StatusWord,
   type StepStatus,
 } from "./primitives";
+import { StatusTag } from "../../ui/status-tag";
 
 type View = NonNullable<ReturnType<typeof useQuery<typeof api.githubPush.get>>>;
 
@@ -77,22 +77,22 @@ function prChecksStatus(checks: { state: string; total: number; failed: number; 
   return { status: "passed", label: `${checks.total} of ${checks.total} passing` };
 }
 
-function headerPill(view: View): { tone: PillTone; label: string } {
+function headerPill(view: View): { tone: StatusTone; label: string } {
   switch (view.status) {
     case "ready":
-      return view.heldAt ? { tone: "gray", label: "Held" } : { tone: "orange", label: "Needs you" };
+      return view.heldAt ? { tone: "neutral", label: "Held" } : { tone: "warn", label: "Needs you" };
     case "requested":
-      return { tone: "blue", label: "Queued" };
+      return { tone: "active", label: "Queued" };
     case "pushing":
-      return { tone: "blue", label: "Pushing" };
+      return { tone: "active", label: "Pushing" };
     case "failed":
-      return { tone: "red", label: "Failed" };
+      return { tone: "danger", label: "Failed" };
     default:
-      if (view.prState === "merged") return { tone: "indigo", label: "Merged" };
-      if (view.prState === "closed") return { tone: "red", label: "Closed" };
-      if (view.prState === "draft") return { tone: "gray", label: "Draft PR" };
-      if (view.prState === "open") return { tone: "green", label: "PR open" };
-      return { tone: "green", label: "Pushed" };
+      if (view.prState === "merged") return { tone: "active", label: "Merged" };
+      if (view.prState === "closed") return { tone: "danger", label: "Closed" };
+      if (view.prState === "draft") return { tone: "neutral", label: "Draft PR" };
+      if (view.prState === "open") return { tone: "ok", label: "PR open" };
+      return { tone: "ok", label: "Pushed" };
   }
 }
 
@@ -182,7 +182,7 @@ export default function PushCard({ data }: { data: PushCardData }) {
       header={
         <CardHeader
           icon={
-            <IconTile tone={view.status === "failed" ? "red" : view.status === "pushed" ? "green" : "orange"}>
+            <IconTile tone={view.status === "failed" ? "danger" : view.status === "pushed" ? "ok" : "warn"}>
               {view.status === "pushed" ? <Check size={15} /> : <ArrowUp size={15} />}
             </IconTile>
           }
@@ -193,7 +193,7 @@ export default function PushCard({ data }: { data: PushCardData }) {
             </>
           }
           subtitle={<span className={view.status === "failed" ? "text-[#c43333] dark:text-rose-300" : undefined}>{subtitle}</span>}
-          pill={<Pill tone={pill.tone}>{pill.label}</Pill>}
+          pill={<StatusTag tone={pill.tone}>{pill.label}</StatusTag>}
         />
       }
       actions={

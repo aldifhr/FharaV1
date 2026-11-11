@@ -3,11 +3,12 @@
 import type { ReactNode } from "react";
 import { Check, Loader2, Minus, X } from "lucide-react";
 import InitialAvatar from "../../InitialAvatar";
+import type { StatusTone } from "../../ui/status-tag";
 import { roleLabel } from "@/lib/agentRoles";
 
 /**
  * Plan 019 card language: white surface, soft border, rounded-xl, small
- * muted metadata, coloured status words. Dark mode is a neutral near-black
+ * muted metadata, status as StatusTag (dashboard F3). Dark mode is a neutral near-black
  * surface (not blue-grey) with white/10 hairlines.
  */
 export const CARD_SURFACE =
@@ -22,34 +23,16 @@ export const BTN_PRIMARY = `${BTN_BASE} bg-ink text-canvas shadow-sm hover:bg-in
 export const BTN_OUTLINE = `${BTN_BASE} border border-line bg-panel text-ink hover:bg-hover dark:bg-transparent`;
 export const BTN_TEXT = `${BTN_BASE} px-2.5 text-ink-2 hover:text-ink`;
 
-export type PillTone = "orange" | "blue" | "green" | "red" | "gray" | "indigo";
+/** Status tones come from the shared StatusTag (hairline frame + text, no tinted fill). */
+export type { StatusTone } from "../../ui/status-tag";
 
-const PILL: Record<PillTone, string> = {
-  orange: "bg-[#fff1e4] text-[#c2581a] dark:bg-orange-500/15 dark:text-orange-300",
-  blue: "bg-[#eaf1ff] text-[#2f6fe0] dark:bg-blue-500/15 dark:text-blue-300",
-  green: "bg-[#e9f8ef] text-[#1f8a4c] dark:bg-emerald-500/15 dark:text-emerald-300",
-  red: "bg-[#fdecec] text-[#c43333] dark:bg-rose-500/15 dark:text-rose-300",
-  gray: "bg-hover text-ink-2",
-  indigo: "bg-hover text-ink",
+const TILE_TONE: Record<StatusTone, string> = {
+  neutral: "text-ink-2",
+  active: "text-ink",
+  ok: "text-ok",
+  warn: "text-warn",
+  danger: "text-danger",
 };
-
-export function Pill({ tone, children, className = "" }: { tone: PillTone; children: ReactNode; className?: string }) {
-  return (
-    <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-0.5 text-[12px] font-medium ${PILL[tone]} ${className}`}>
-      {children}
-    </span>
-  );
-}
-
-/** Small status chip with an icon, e.g. "✓ Approved", "no new packages". */
-export function Chip({ tone = "gray", icon, children }: { tone?: PillTone; icon?: ReactNode; children: ReactNode }) {
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[12px] font-medium ${PILL[tone]}`}>
-      {icon}
-      {children}
-    </span>
-  );
-}
 
 export type StepStatus = "passed" | "failed" | "running" | "pending" | "not_run" | "blocked";
 
@@ -70,11 +53,11 @@ export function StatusWord({ status, label, size = 14 }: { status: StepStatus; l
               : "Not run");
   const icon =
     status === "passed" ? (
-      <Check size={size} strokeWidth={2.5} className="text-[#1f9d55] dark:text-emerald-400" aria-hidden="true" />
+      <Check size={size} strokeWidth={2.5} className="text-ok" aria-hidden="true" />
     ) : status === "failed" ? (
-      <X size={size} strokeWidth={2.5} className="text-[#d83a3a] dark:text-rose-400" aria-hidden="true" />
+      <X size={size} strokeWidth={2.5} className="text-danger" aria-hidden="true" />
     ) : status === "running" ? (
-      <Loader2 size={size} strokeWidth={2.5} className="animate-spin text-[#e5671f] dark:text-orange-400" aria-hidden="true" />
+      <Loader2 size={size} strokeWidth={2.5} className="animate-spin text-warn" aria-hidden="true" />
     ) : (
       <Minus size={size} strokeWidth={2.5} className="text-ink-3" aria-hidden="true" />
     );
@@ -125,10 +108,10 @@ export function CardHeader({
   );
 }
 
-/** Rounded icon tile for a card header (↑ push, bell approval, …). */
-export function IconTile({ children, tone = "orange" }: { children: ReactNode; tone?: PillTone }) {
+/** Inset icon tile for a card header (↑ push, bell approval, …). */
+export function IconTile({ children, tone = "warn" }: { children: ReactNode; tone?: StatusTone }) {
   return (
-    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${PILL[tone]}`} aria-hidden="true">
+    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-field bg-inset ${TILE_TONE[tone]}`} aria-hidden="true">
       {children}
     </span>
   );

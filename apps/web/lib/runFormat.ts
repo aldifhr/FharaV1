@@ -47,20 +47,29 @@ export function statusDot(status: string): string {
   switch (status) {
     case "failed":
     case "rejected":
-      return "bg-red-500";
+      return "bg-danger";
     case "needs_approval":
     case "waiting_input":
     case "waiting_approval":
     case "pending":
-      return "bg-orange-500";
+      return "bg-warn";
     case "running":
     case "queued":
     case "pushing":
     case "requested":
-      return "bg-ink animate-pulse";
+      return "bg-ink";
     default:
       return "bg-ink-3";
   }
+}
+
+/** The same status as a StatusTag tone (dashboard F3 page headers). */
+export function statusTone(status: string): "neutral" | "active" | "ok" | "warn" | "danger" {
+  if (isErrorStatus(status)) return "danger";
+  if (status === "needs_approval" || status === "waiting_input" || status === "waiting_approval" || status === "pending") return "warn";
+  if (isActiveStatus(status)) return "active";
+  if (status === "done") return "ok";
+  return "neutral";
 }
 
 export function isActiveStatus(status: string): boolean {

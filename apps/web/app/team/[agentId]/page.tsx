@@ -7,6 +7,7 @@ import { useQuery } from "convex/react";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import Sidebar from "@/components/Sidebar";
+import { HEADER_ACTION, PageHeader } from "@/components/ui/page-header";
 import Segmented from "@/components/ui/segmented";
 import PerformanceScoreSection from "@/components/team/PerformanceScoreSection";
 import { compact, duration, pct, usd } from "@/lib/metrics";
@@ -62,28 +63,32 @@ export default function AgentProfilePage() {
 
           {p === undefined ? (
             <div className="mt-6 space-y-3" aria-label="Loading profile">
-              <div className="h-8 w-1/3 animate-pulse rounded-lg bg-hover" />
-              <div className="h-64 animate-pulse rounded-xl bg-hover" />
+              <div className="h-8 w-1/3 rounded-lg bg-hover" />
+              <div className="h-64 rounded-xl bg-hover" />
             </div>
           ) : p === null ? (
             <p className="mt-10 rounded-xl border border-dashed border-line px-4 py-5 text-[13px] text-ink-3">This agent no longer exists.</p>
           ) : (
             <>
-              <header className="mt-4 flex flex-wrap items-end justify-between gap-4">
-                <div className="min-w-0">
-                  <h1 className="text-[26px] font-semibold tracking-tight">{p.agent.label}</h1>
-                  <p className="mt-1 text-[13px] text-ink-3">
-                    {p.agent.enabled ? "Enabled" : "Disabled"}
-                    {` · ${p.agent.runtime === "opencode" ? "OpenCode" : "Built-in"}`}
+              <PageHeader
+                className="mt-4"
+                title={p.agent.label}
+                id={String(agentId)}
+                idLabel="agent id"
+                status={p.agent.enabled ? { tone: "ok", label: "Enabled" } : { tone: "neutral", label: "Disabled" }}
+                meta={
+                  <p className="text-[13px] text-ink-3">
+                    {p.agent.runtime === "opencode" ? "OpenCode" : "Built-in"}
                     {` · concurrency ${p.agent.maxConcurrency ?? 1}`}
                     {p.agent.recognized ? "" : " · custom role"}
                   </p>
-                </div>
+                }
+                actions={
                 <div className="flex items-center gap-2">
                   {p.agent.enabled && (
                     <Link
                       href={`/chats/personal/${agentId}`}
-                      className="inline-flex h-[30px] items-center rounded-lg border border-line px-3 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
+                      className={HEADER_ACTION}
                     >
                       Chat
                     </Link>
@@ -93,7 +98,7 @@ export default function AgentProfilePage() {
                       aria-label="Project"
                       value={projectId}
                       onChange={(e) => setProjectId(e.target.value)}
-                      className="h-[30px] max-w-[180px] truncate rounded-lg border border-line bg-panel px-2 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30"
+                      className="h-8 max-w-[180px] truncate rounded-field border border-line bg-panel px-2 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30"
                     >
                       <option value="">All projects</option>
                       {projects.map((proj) => (
@@ -105,7 +110,8 @@ export default function AgentProfilePage() {
                   )}
                   <Segmented label="Time window" value={days} options={DAY_OPTIONS} onChange={setDays} />
                 </div>
-              </header>
+                }
+              />
 
               <ul className="mt-8 divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
                 <Row

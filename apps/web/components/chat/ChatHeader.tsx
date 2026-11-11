@@ -6,6 +6,7 @@ import InitialAvatar from "../InitialAvatar";
 import OpenInMenu from "./OpenInMenu";
 import ProjectAvatar from "../shell/ProjectAvatar";
 import { EditableTitle } from "../ThreadRename";
+import { PageHeader, type PageHeaderStatus } from "../ui/page-header";
 import { iconButtonClass, popoverClass, usePopover } from "../shell/usePopover";
 import { agentName, roleLabel } from "@/lib/agentRoles";
 import { teamStatusLabel, type StatusMap } from "@/lib/teamStatus";
@@ -35,6 +36,15 @@ export function appLabel(project: { devUrl?: string; workspacePath?: string } | 
   }
   const base = project.workspacePath?.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
   return base || null;
+}
+
+/** The project's run state for the header tag: the user first, then any agent at work. */
+export function runStatus(status: StatusMap | undefined, waiting: number): PageHeaderStatus {
+  const words = Object.values(status ?? {}).map((e) => e?.status);
+  if (waiting > 0 || words.some((w) => w === "needs_you" || w === "waiting_on_you")) return { tone: "warn", label: "Needs you" };
+  if (words.some((w) => w === "working" || w === "reviewing" || w === "testing")) return { tone: "active", label: "Running" };
+  if (words.some((w) => w === "queued")) return { tone: "neutral", label: "Queued" };
+  return { tone: "neutral", label: "Idle" };
 }
 
 export default function ChatHeader({
@@ -130,42 +140,51 @@ export default function ChatHeader({
         <button type="button" onClick={onOpenDrawer} aria-label="Open projects and team" className={`${iconButtonClass} -ml-1 min-[980px]:hidden`}>
           <Menu size={18} />
         </button>
-        <ProjectAvatar name={project?.name ?? "•"} size={34} />
-        <div className="min-w-0">
-          <h1 className="flex min-w-0 items-center gap-1.5 text-[16px] font-semibold leading-tight text-ink">
-            <span className="min-w-0 shrink truncate">{project?.name ?? "Project"}</span>
-            {conversation && (
-              <>
-                <span aria-hidden="true" className="font-normal text-ink-3">/</span>
-                <span className="min-w-0 flex-1 font-normal text-ink-2">
-                  <EditableTitle title={conversation.title?.trim() || "Chat"} renameRef={{ conversationId: String(conversation._id) }} label="chat" />
+        <PageHeader
+          variant="bar"
+          className="min-w-0"
+          leading={<ProjectAvatar name={project?.name ?? "•"} size={34} />}
+          title={
+            <>
+              <span className="min-w-0 shrink truncate">{project?.name ?? "Project"}</span>
+              {conversation && (
+                <>
+                  <span aria-hidden="true" className="font-normal text-ink-3">/</span>
+                  <span className="min-w-0 flex-1 font-normal text-ink-2">
+                    <EditableTitle title={conversation.title?.trim() || "Chat"} renameRef={{ conversationId: String(conversation._id) }} label="chat" />
+                  </span>
+                </>
+              )}
+            </>
+          }
+          id={conversation ? String(conversation._id) : null}
+          idLabel="conversation id"
+          status={runStatus(status, notifications.length)}
+          meta={
+            <>
+              {stacked.length > 0 && (
+                <span className="flex shrink-0 items-center max-sm:hidden">
+                  {stacked.map((a) => (
+                    <button
+                      key={a._id}
+                      type="button"
+                      onClick={() => onOpenAgent?.(a._id)}
+                      title={`${agentName(a)} · ${teamStatusLabel(status?.[a._id])}`}
+                      aria-label={`${agentName(a)}, ${teamStatusLabel(status?.[a._id])}`}
+                      className="-ml-1 rounded-full ring-2 ring-panel outline-none first:ml-0 focus-visible:ring-ink/30"
+                    >
+                      <InitialAvatar agent avatarParams={a.avatarParams} name={agentName(a)} size={17} />
+                    </button>
+                  ))}
                 </span>
-              </>
-            )}
-          </h1>
-          <div className="mt-0.5 flex min-w-0 items-center gap-2">
-            {stacked.length > 0 && (
-              <span className="flex shrink-0 items-center max-sm:hidden">
-                {stacked.map((a) => (
-                  <button
-                    key={a._id}
-                    type="button"
-                    onClick={() => onOpenAgent?.(a._id)}
-                    title={`${agentName(a)} · ${teamStatusLabel(status?.[a._id])}`}
-                    aria-label={`${agentName(a)}, ${teamStatusLabel(status?.[a._id])}`}
-                    className="-ml-1 rounded-full ring-2 ring-panel outline-none first:ml-0 focus-visible:ring-ink/30"
-                  >
-                    <InitialAvatar agent avatarParams={a.avatarParams} name={agentName(a)} size={17} />
-                  </button>
-                ))}
+              )}
+              <span className="truncate text-[13px] text-ink-2">
+                {agents.length} {agents.length === 1 ? "agent" : "agents"}
+                {app ? <span className="max-sm:hidden"> · {app}</span> : null}
               </span>
-            )}
-            <span className="truncate text-[13px] text-ink-2">
-              {agents.length} {agents.length === 1 ? "agent" : "agents"}
-              {app ? <span className="max-sm:hidden"> · {app}</span> : null}
-            </span>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         <div className="mx-auto hidden md:block">{tabs}</div>
 
@@ -234,7 +253,7 @@ export default function ChatHeader({
               className={`${iconButtonClass} relative`}
             >
               <Bell size={16} />
-              {notifications.length > 0 && <span aria-hidden="true" className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-panel" />}
+              {notifications.length > 0 && <span aria-hidden="true" className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-danger ring-2 ring-panel" />}
             </button>
             {bellPop.open && (
               <div className={`${popoverClass} right-0 w-[min(22rem,calc(100vw-1.5rem))]`}>
@@ -272,7 +291,7 @@ export default function ChatHeader({
                                 type="button"
                                 disabled={acting !== null}
                                 onClick={() => void act(n.approvalId!, onReject)}
-                                className="h-7 rounded-lg bg-red-600 px-2.5 text-[12.5px] font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                                className="h-7 rounded-lg bg-danger px-2.5 text-[12.5px] font-medium text-canvas hover:bg-danger/85 disabled:opacity-50"
                               >
                                 Confirm reject
                               </button>
@@ -318,7 +337,7 @@ export default function ChatHeader({
                   }}
                   className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] hover:bg-hover"
                 >
-                  {copied ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} className="text-ink-3" />}
+                  {copied ? <Check size={15} className="text-ok" /> : <Copy size={15} className="text-ink-3" />}
                   {copied ? "Link copied" : "Copy project link"}
                 </button>
                 <button
@@ -341,7 +360,7 @@ export default function ChatHeader({
                     morePop.setOpen(false);
                     onClearChat();
                   }}
-                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-danger hover:bg-hover"
                 >
                   <Trash2 size={15} /> Clear chat
                 </button>

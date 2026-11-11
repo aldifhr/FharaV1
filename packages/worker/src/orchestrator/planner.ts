@@ -82,10 +82,10 @@ export interface PlannerInput {
   hasQaUrl?: boolean;
   /** Plan 015: durable shared instructions from the project record. */
   sharedInstructions?: string;
-  /**
-   * Real workspace-relative paths (see utils/workspaceLayout). allowedPaths
-   * must be declared against these, not guessed.
-   */
+  /** D4: AGENTS.md chain (root + user-global) and the volatile time line. */
+  projectInstructions?: string;
+  timeLine?: string;
+  /** Real workspace-relative paths (utils/workspaceLayout): allowedPaths are declared against these, not guessed. */
   workspaceLayout?: string[];
   /** R7: ranked repository map (execution/repoMap), already within its character budget. */
   repoMap?: string;

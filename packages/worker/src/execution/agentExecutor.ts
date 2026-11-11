@@ -103,6 +103,7 @@ import {
   WEB_REACH_TOOL_NAME,
   type WebReachConfig,
 } from "./webReachTools";
+import { turnUserContent } from "./turnContext";
 
 const execFileAsync = promisify(execFile);
 
@@ -1217,12 +1218,11 @@ function baseMessages(input: SubtaskExecutionInput, userContent: string) {
   const { agent } = input;
   const prior = priorContextFor(input);
   return [
-    ...(agent.systemPrompt
-      ? [{ role: "system" as const, content: agent.systemPrompt }]
-      : []),
+    ...(agent.systemPrompt ? [{ role: "system" as const, content: agent.systemPrompt }] : []),
     {
       role: "user" as const,
-      content: [prior, userContent].filter(Boolean).join("\n\n"),
+      // D4: instruction chain first, the time line last (volatile tail).
+      content: turnUserContent(input.workspacePath, input.subtask.allowedPaths, [prior, userContent]),
     },
   ];
 }

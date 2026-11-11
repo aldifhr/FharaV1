@@ -2279,9 +2279,9 @@ export default defineSchema({
     newProjectPlanReview: v.optional(planReviewSetting),
     newProjectPrFeedback: v.optional(v.boolean()),
     newProjectShadowAgent: v.optional(v.boolean()),
-    // O2 / O4 new-project defaults (additive). Unset = off.
-    newProjectAutoMerge: v.optional(v.boolean()),
+    newProjectAutoMerge: v.optional(v.boolean()), // O2 / O4 new-project defaults (additive). Unset = off.
     newProjectIssueIntake: v.optional(v.boolean()),
+    userTimeZone: v.optional(v.string()), // D4: IANA zone of the agents' time line; unset = Asia/Jakarta
     automationHold: v.optional(v.object({ heldAt: v.number(), reason: v.optional(v.string()) })), // G3; unset = automation may act
     updatedAt: v.number(),
   }),

@@ -2,6 +2,8 @@ import { runWithObservationScope } from "@/effects/observationContext";
 import { unwrapSandboxBrief } from "@/orchestrator/classifier";
 import { listWorkspaceLayout } from "@/utils/workspaceLayout";
 import { buildRepoMap } from "@/execution/repoMap";
+import { projectInstructionsBlock } from "@/context/projectInstructions";
+import { timeContextLine } from "@/context/timeContext";
 import type { WorkerProject, WorkerTask } from "@/workerApi";
 import type {
   AgentDefinition,
@@ -222,6 +224,10 @@ async function callPlanner(
     repoMap: extra.storedPlan
       ? undefined
       : (await buildRepoMap(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath), { query: task.command, signal }))?.map,
+    // D4: the planner sees the root + user-global AGENTS.md (it has no
+    // allowedPaths yet) and the time line as the prompt's last line.
+    projectInstructions: projectInstructionsBlock(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath), []),
+    timeLine: timeContextLine(resolveWorkspacePath(deps.workspaceRoot, project.workspacePath)),
     // Requirements come from the user's own request: a Sandbox brief's
     // wrapper (header, guardrails, time box) is not a requirement.
     request: unwrapSandboxBrief(task.command),

@@ -59,6 +59,7 @@ import {
   WorkspaceTab,
   WorktreesTab,
 } from "./settings/tabs";
+import { TimeZoneField } from "./settings/TimeZoneField";
 import { resetUiPrefs } from "@/lib/uiPrefs";
 import { defaultKeybindings, writeKeybindings } from "@/lib/keybindings";
 import { useFont, type FontChoice } from "@/components/ui/use-font";
@@ -481,6 +482,7 @@ export function SettingsModal({
               ) : active === "general" ? (
                 <>
                   <BudgetField />
+                  <TimeZoneField />
                 </>
               ) : active === "chat" ? (
                 <section>

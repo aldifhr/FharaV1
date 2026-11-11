@@ -247,6 +247,10 @@ export interface AuthoritativePlanInput {
   workspaceLayout?: string[];
   /** R7: ranked repository map (execution/repoMap) for the planner prompt. */
   repoMap?: string;
+  /** D4: root + user-global AGENTS.md chain for the planner prompt. */
+  projectInstructions?: string;
+  /** D4: the time line (volatile tail of the planner prompt). */
+  timeLine?: string;
   /** Plan 025: the user's own request (requirement extraction source). */
   request?: string;
   /** Plan 025: requirements already fixed for this task. */
@@ -341,6 +345,8 @@ export async function createAuthoritativePlan(
       sharedInstructions: input.sharedContext.instructions,
       workspaceLayout: input.workspaceLayout,
       repoMap: input.repoMap,
+      projectInstructions: input.projectInstructions,
+      timeLine: input.timeLine,
       request: input.request,
       requirements: input.requirements,
     });

@@ -28,6 +28,7 @@ export const SECTION_KEYS = [
   "tools",
   "task",
   "user",
+  "volatile",
 ] as const;
 export type SectionKey = (typeof SECTION_KEYS)[number];
 
@@ -40,6 +41,7 @@ export const SECTION_LABELS: Record<SectionKey, string> = {
   tools: "Tool definitions",
   task: "Task context / contract",
   user: "User message",
+  volatile: "Runtime context (volatile tail)",
 };
 
 /** What the call was for. */
@@ -184,6 +186,9 @@ function classifyHeading(title: string): SectionKey {
 
 function classifyParagraph(paragraph: string, fallback: SectionKey): SectionKey {
   const head = paragraph.trimStart().slice(0, 200).toLowerCase();
+  // D4: the time line closes the last user turn (lib/timeContext.ts).
+  if (/^current time: \w{3} \d{4}-\d{2}-\d{2} \d{2}:\d{2} \(/.test(head)) return "volatile";
+  if (head.startsWith("project instructions (agents.md")) return "shared";
   if (
     head.startsWith("shared task context:") ||
     head.startsWith("previous subtask outputs:") ||

@@ -22,6 +22,7 @@ import {
   type SettingKey,
 } from "./lib/appSettings";
 import { AUTOMATION_HELD_CODE, loadAutomationHold } from "./lib/automationHold";
+import { effectiveTimeZone, normalizeTimeZone } from "./lib/timeContext";
 import { internal } from "./_generated/api";
 
 type Ctx = GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>;
@@ -97,6 +98,7 @@ export const get = query({
         issueIntake: row?.newProjectIssueIntake ?? false,
       },
       automationHold: row?.automationHold ?? null,
+      userTimeZone: effectiveTimeZone(row?.userTimeZone),
       updatedAt: row?.updatedAt ?? null,
     };
   },
@@ -230,6 +232,26 @@ export const setNewProjectDefaults = mutation({
   },
 });
 
+/** D4: the zone of the agents' time line (Settings → General). Empty resets to Asia/Jakarta. */
+export const setUserTimeZone = mutation({
+  args: { timeZone: v.string() },
+  handler: async (ctx, args) => {
+    await assertRegistryWriteAccess(ctx);
+    const trimmed = args.timeZone.trim();
+    const zone = trimmed === "" ? undefined : normalizeTimeZone(trimmed);
+    if (zone === null) throw new Error(`Unknown time zone: ${trimmed.slice(0, 64)}`);
+    await upsert(ctx, { userTimeZone: zone });
+    await recordAudit(ctx, { action: "settings.update", target: "time zone", details: { changed: ["userTimeZone"] } });
+    return effectiveTimeZone(zone);
+  },
+});
+
+/** D4: the zone chat replies stamp their time line with. */
+export const userTimeZone = internalQuery({
+  args: {},
+  handler: async (ctx) => effectiveTimeZone((await loadRow(ctx))?.userTimeZone),
+});
+
 /** What the worker applies: knob overrides + the child env. */
 export const forWorker = internalQuery({
   args: {},
@@ -238,7 +260,7 @@ export const forWorker = internalQuery({
     const values = await loadSettingValues(ctx);
     const childEnv: Record<string, string> = {};
     for (const entry of row?.childEnv ?? []) childEnv[entry.name] = entry.value;
-    return { values, childEnv, updatedAt: row?.updatedAt ?? 0 };
+    return { values, childEnv, updatedAt: row?.updatedAt ?? 0, userTimeZone: effectiveTimeZone(row?.userTimeZone) };
   },
 });
 

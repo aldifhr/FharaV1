@@ -17,7 +17,7 @@ vi.mock("./lib/chat/llm", () => ({
   getGlobalLLMConfig: () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m" }),
   resolveConfigFromProviders: async (_p: unknown, global: unknown) => global,
   completeWithAgent: async (system: string, msgs: { role: string; content: string }[]) => {
-    calls.push({ system, msgs: msgs.map((m) => ({ ...m })) });
+    calls.push({ system, msgs: msgs.map((m) => ({ ...m, content: m.content.replace(/\n\nCurrent time: [^\n]*$/, "") })) /* D4: drop the time tail */ });
     return { content: "Maksudnya bagian header.", reasoning: "", reasoningDurationMs: 0 };
   },
 }));

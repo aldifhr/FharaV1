@@ -11,6 +11,7 @@ import { LOAD_SKILL_TOOL_LINE } from "../skillRuntime";
 import { PAST_WORK_MAX_CALLS, PAST_WORK_TOOL, PAST_WORK_TOOL_LINE } from "../pastWork";
 import { LEGACY_ROLE_SUCCESSORS, isRoleKey, normalizeRoleKey, roleChatSummary } from "../roles";
 import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT, PREVIOUS_SEED_PROMPTS } from "./agents";
+import { CHAT_CANNOT_WRITE_LINE, writeNeededGuidance } from "../chat/offerBrief";
 
 type Persona = { name: string; role: string; systemPrompt?: string; skillsSection?: string; memorySection?: string };
 
@@ -142,8 +143,8 @@ export function buildChatPersonaLines(
     agent.memorySection ?? "",
     repoSnapshot
       ? repoTools
-        ? `Repo snapshot (read-only, provided by the host):\n${repoSnapshot}\nRead deeper with the repo tools described below.`
-        : `Your chat replies are grounded in this repo snapshot (read-only, provided by the host):\n${repoSnapshot}\nYou still cannot run commands or read other files; for anything deeper, ask the user to Create a task.`
+        ? `Repo snapshot (provided by the host):\n${repoSnapshot}\nRead deeper with the repo tools described below.`
+        : `Your chat replies are grounded in this repo snapshot (provided by the host):\n${repoSnapshot}\nYou cannot run commands or read other files here; work that needs them becomes a task you offer (the Create task button under your reply).`
       : "",
 
     buildRequestSubjectGuard(projectName),
@@ -362,8 +363,11 @@ export function buildPlanningGuidance(
     assigneeName?: string;
     /** The user explicitly asked to see the code in chat. */
     codeInChat?: boolean;
+    /** The one-line plan for a write request ("I'll add a plain HTML index.html at the repo root."). */
+    plan?: string | null;
   }
 ): string[] {
+  const plan = opts.plan?.trim() || null;
   const run = opts.taskIntent.runCommands;
   if (opts.taskIntent.kind === "task" && run && run.length > 0) {
     const lines = run.map((line) => `\`${line}\``).join(", ");
@@ -377,9 +381,9 @@ export function buildPlanningGuidance(
     const who = opts.assigneeName?.trim() || "the right teammate";
     return [
       "You are the CTO.",
-      `The user asked the team to create or change files. Reply with ONE short sentence, entirely in the user's language: that you hand it to ${who} as a task, and that replying "gas" or pressing the Create task button under this reply starts it.`,
+      `The user asked the team to create or change files. Reply in at most two short sentences, entirely in the user's language: ${plan ? `the plan ("${plan}"), then ` : ""}that you hand it to ${who} as a task, and that replying "gas" or pressing the Create task button under this reply starts it.`,
       `Shape (Indonesian): "Saya serahkan ke ${who} sebagai task — balas gas atau tekan Create task." Shape (English): "I'll hand this to ${who} as a task — reply gas or press Create task."`,
-      "No plan, no architecture, design or styling advice, no code, no bullets, no headers. Never say you are read-only and never claim anything has run.",
+      "No architecture, design or styling advice, no code, no bullets, no headers, no questions the repo answers. Never say read-only and never claim anything has run.",
       WRITE_OFFER_OVERRIDE,
     ];
   }
@@ -394,8 +398,10 @@ export function buildPlanningGuidance(
     return [
       "The user asked you to create or change files. Chat replies cannot write files; a task does it, and the Create task button under this reply is already prepared with their request" +
         (opts.assigneeName ? ` and assigned to ${opts.assigneeName}.` : "."),
-      "Reply in 1-2 short sentences, entirely in the user's language: say it will be done as a task and that replying \"gas\" or pressing Create task starts it. You may name the file and give one line on the approach.",
-      "Do not paste the file, its contents or any code block. Do not say you are read-only, and never tell the user to save or create the file themselves.",
+      plan
+        ? `Reply in 1-2 short sentences, entirely in the user's language: the plan ("${plan}"), then "${CHAT_CANNOT_WRITE_LINE}" Replying "gas" or pressing Create task starts it.`
+        : `Reply in 1-2 short sentences, entirely in the user's language: a one-line plan (the file and the approach, with the stack inferred from the repo; an empty repo or one with no framework means plain HTML), then "${CHAT_CANNOT_WRITE_LINE}" Replying "gas" or pressing Create task starts it.`,
+      "Do not paste the file, its contents or any code block, and do not ask the user what the repo can tell you (stack, folder). Never say read-only, and never tell the user to save or create the file themselves or to create the task.",
       WRITE_OFFER_OVERRIDE,
     ];
   }
@@ -405,8 +411,9 @@ export function buildPlanningGuidance(
       ? "You can read the repository with the read-only repo tools described below — check the code yourself before answering and cite only what a tool result shows. You still cannot run commands or modify files."
       : "You can answer structural questions (architecture, folders, features) from the repo snapshot given when present — cite actual paths you see there. You still cannot run commands, modify files, or read beyond the snapshot.",
     opts.hasRepoTools
-      ? "A read-only audit, review or code question is yours to answer here, now, by reading the code with the repo tools: never answer it with a plan or by telling the user to create a task. Only work that changes files or runs code needs a task."
-      : "Only when the user asked for work that needs workspace access (audit, review, run code) say that it needs a task; for plain questions never mention creating a task.",
+      ? "An audit, review or code question is yours to answer here, now, by reading the code with the repo tools: never answer it with a plan or by telling the user to create a task. Only work that changes files or runs code needs a task."
+      : "Only when the user asked for work that needs workspace access (audit, review, run code) offer a task; for plain questions never mention creating a task.",
+    writeNeededGuidance(plan),
     opts.codeInChat && opts.taskIntent.kind === "task"
       ? "The user asked to see the code here: show it, then say in one line that the Create task button under this reply writes it into the project."
       : "",
@@ -529,10 +536,11 @@ export function buildPersonalChatSystem(
       ? [
           opts.repoSnapshot
             ? opts.repoTools
-              ? `Repo snapshot (read-only, provided by the host):\n${opts.repoSnapshot}\nRead deeper with the repo tools described below.`
-              : `Repo snapshot (read-only, provided by the host):\n${opts.repoSnapshot}`
+              ? `Repo snapshot (provided by the host):\n${opts.repoSnapshot}\nRead deeper with the repo tools described below.`
+              : `Repo snapshot (provided by the host):\n${opts.repoSnapshot}`
             : "",
-          "You cannot write files or run commands in this chat. For work on the code, the user can create a task (the Create task button or /task).",
+          "You cannot write files or run commands in this chat; work on the code becomes a task you offer (the Create task button under your reply).",
+          writeNeededGuidance(null),
           buildRequestSubjectGuard(opts.projectName ?? ""),
         ]
           .filter(Boolean)

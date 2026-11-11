@@ -36,11 +36,11 @@ describe("wantsCodeInChat", () => {
 describe("planWriteOffer", () => {
   test("an @mentioned code role takes its own request", () => {
     const p = plan(team[1], "tolong buatkan bold.html");
-    expect(p.offer).toEqual({ kind: "implementation", assigneeAgentId: "fe" });
+    expect(p.offer).toMatchObject({ kind: "implementation", assigneeAgentId: "fe" });
     expect(p.assignee?.name).toBe("Frontend");
   });
   test("the CTO routes an HTML file to Frontend", () => {
-    expect(plan(team[0], "buatkan file ultimate.html").offer).toEqual({ kind: "implementation", assigneeAgentId: "fe" });
+    expect(plan(team[0], "buatkan file ultimate.html").offer).toMatchObject({ kind: "implementation", assigneeAgentId: "fe" });
   });
   test("a non-code role routes by files; unclear requests carry no assignee", () => {
     expect(plan(team[3], "buatkan landing.html").offer?.assigneeAgentId).toBe("fe");

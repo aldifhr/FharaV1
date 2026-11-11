@@ -7,7 +7,7 @@
  * the model wrote. Replies from before the field (or a CTO that offers a
  * task on its own) still match the old wording rule.
  */
-type TaskOffer = { kind: string; commands?: string[]; usedTaskId?: string; usedAt?: number };
+type TaskOffer = { kind: string; commands?: string[]; usedTaskId?: string; usedAt?: number; brief?: string };
 
 /** The offer already became a task (messages.taskOffer.usedTaskId). */
 export function isOfferUsed(offer: TaskOffer | null | undefined): offer is TaskOffer & { usedTaskId: string } {

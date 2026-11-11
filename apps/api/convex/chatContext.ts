@@ -243,7 +243,7 @@ export const updateStreamingAgentMessage = internalMutation({
     checkedFiles: v.optional(v.array(v.string())),
     unverifiedRefs: v.optional(v.array(v.string())),
     intentLine: v.optional(v.string()),
-    taskOffer: v.optional(v.object({ kind: v.string(), commands: v.optional(v.array(v.string())), assigneeAgentId: v.optional(v.string()) })),
+    taskOffer: v.optional(v.object({ kind: v.string(), commands: v.optional(v.array(v.string())), assigneeAgentId: v.optional(v.string()), brief: v.optional(v.string()) })),
     // A reply kept with partial text (lib/chat/continueReply.ts); clearCutOff drops the marker (Continue started).
     cutOff: v.optional(v.object({ kind: v.union(v.literal("interrupted"), v.literal("truncated")), reason: v.string() })),
     clearCutOff: v.optional(v.boolean()),

@@ -139,7 +139,6 @@ export default function MessageList(props: Props) {
       // wording alone only counts on pre-O3 CTO rows, never on a teammate merely saying "create task".
       const role = String((agents as any[])?.find((a: any) => a._id === m.agentId)?.role ?? "").toLowerCase();
       if (role !== "cto" && !m.taskOffer) continue;
-      // A used offer shows "Task created" instead (TaskCreatedLink).
       if (isOfferUsed(m.taskOffer)) return null;
       return afterPick || offersCreateTask(m) ? String(m._id) : null;
     }
@@ -515,6 +514,7 @@ export default function MessageList(props: Props) {
                 <button
                   type="button"
                   disabled={taskState[String(m._id)] === "busy"}
+                  title={m.taskOffer?.brief}
                   onClick={async () => {
                     const id = String(m._id);
                     setTaskState((s) => ({ ...s, [id]: "busy" }));

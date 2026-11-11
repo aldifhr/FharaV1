@@ -1,4 +1,5 @@
 import { WebClient } from "@/tools/webClient";
+import { researchFailuresTolerated } from "@/prompts/research";
 import { snapshotIdForChanges } from "@/tools/gitDiff";
 import type { ExecutePlanInput, RunContext } from "./types";
 import { dryRunPolicy, stagehandConfigFrom } from "./setup";
@@ -103,7 +104,10 @@ export async function executePlan(input: ExecutePlanInput): Promise<ExecutePlanR
       const exit = terminalExit(ctx);
       if (exit) return exit;
     }
-    if (implementation.status !== "completed") {
+    // O7: a /research run whose synthesis answered from the angles that
+    // succeeded is complete; the failed angle is named in the answer.
+    const anglesTolerated = researchFailuresTolerated(plan.subtasks, implementation);
+    if (implementation.status !== "completed" && !anglesTolerated) {
       if (implementation.outcomes) {
         for (const [key, o] of implementation.outcomes) {
           if (o.status === "failed") state.feedback.push(`${key}: ${o.error ?? "failed without detail"}`);

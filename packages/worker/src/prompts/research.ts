@@ -94,6 +94,30 @@ export function isResearchSynthesis(subtask: { key: string; dependencies: string
   );
 }
 
+/** Whether `key` is an angle that feeds a research synthesis node of this plan. */
+export function feedsResearchSynthesis(
+  subtasks: ReadonlyArray<{ key: string; dependencies: string[] }>,
+  key: string
+): boolean {
+  return subtasks.some((subtask) => isResearchSynthesis(subtask) && subtask.dependencies.includes(key));
+}
+
+/**
+ * A fan-out run whose only failures are research angles and whose synthesis
+ * completed on the others is a success (the synthesis names the missing
+ * angle). Every angle failed → the synthesis is blocked → not tolerated.
+ */
+export function researchFailuresTolerated(
+  subtasks: ReadonlyArray<{ key: string; dependencies: string[] }>,
+  result: { status: string; failed: string[]; outcomes?: Map<string, { status: string }> }
+): boolean {
+  if (result.status !== "failed" || result.failed.length === 0 || !result.outcomes) return false;
+  const syntheses = subtasks.filter(isResearchSynthesis);
+  if (syntheses.length === 0) return false;
+  if (!syntheses.every((synthesis) => result.outcomes!.get(synthesis.key)?.status === "completed")) return false;
+  return result.failed.every((key) => feedsResearchSynthesis(subtasks, key));
+}
+
 /** The fan-out plan: N parallel angles + one synthesis that depends on all. */
 export function researchFanoutPlan(request: ResearchFanoutRequest, maxSubtasks: number) {
   const total = Math.max(2, Math.min(request.angles, MAX_FANOUT, Math.max(2, maxSubtasks - 1)));

@@ -1,3 +1,4 @@
+import { feedsResearchSynthesis, isResearchSynthesis } from "@/prompts/research";
 import type {
   AgentDefinition,
   ExecutionPlan,
@@ -114,13 +115,22 @@ export async function finalize(input: {
     state.verification = verificationStatus([]);
   }
 
+  // O7: a failed /research angle whose synthesis completed on the other
+  // angles is settled, not a failure: it is reported like a skip.
+  const synthesisDone = input.plan.subtasks
+    .filter(isResearchSynthesis)
+    .every((synthesis) => input.subtasks.some((row) => row.key === synthesis.key && row.status === "completed"));
+  const toleratedAngle = (subtask: { key: string; status: string }) =>
+    subtask.status === "failed" && synthesisDone && feedsResearchSynthesis(input.plan.subtasks, subtask.key);
   const evaluation = await evaluateTask({
     workspacePath: input.workspacePath,
     subtasks: input.subtasks.map((subtask) => ({
       key: subtask.key,
       kind: subtask.kind,
-      status: subtask.status,
-      error: subtask.error,
+      status: toleratedAngle(subtask) ? "skipped" : subtask.status,
+      error: toleratedAngle(subtask)
+        ? `research angle failed, the synthesis answered without it: ${(subtask.error ?? "failed").slice(0, 300)}`
+        : subtask.error,
     })),
     fileChanges: changes.map((change) => ({
       filePath: change.filePath,

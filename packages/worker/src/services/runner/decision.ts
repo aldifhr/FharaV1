@@ -12,6 +12,7 @@ import { CAPABILITY } from "@/types";
 import { resolveIssuesForApproval, resolveIssuesForQaPass } from "@/orchestrator/taskContext";
 import type { Escalation } from "@/api/convex/lib/subtaskContract";
 import { handleEscalation } from "./escalation";
+import { feedsResearchSynthesis } from "@/prompts/research";
 
 export async function handleNodeOutcome(
   ctx: RunContext,
@@ -571,6 +572,10 @@ export async function handleNodeOutcome(
             // task on exhaustion. Latching a replan here would halt the
             // loop's own fix node before it can run.
             if (ctx.inStageLoop) break;
+            // O7: a failed /research angle does not halt the fan-out; the
+            // synthesis runs on the angles that succeeded (the scheduler's
+            // partialDependencies node) and is blocked only if all fail.
+            if (feedsResearchSynthesis(plan.subtasks, node.id)) break;
             ctx.decisionTerminal = true;
             // First request wins: the earliest missing list is the
             // feedback the bounded re-plan will address.

@@ -12,8 +12,7 @@ import {
   REPORT_CHAR_BUDGET,
   researchFanoutPlan,
   researchFanoutRequest,
-  synthesisDescription,
-} from "@/prompts/research";
+  synthesisDescription, feedsResearchSynthesis, researchFailuresTolerated } from "@/prompts/research";
 
 /** O7: `/research` → N read-only Researcher angles + one synthesis node. */
 
@@ -150,5 +149,25 @@ describe("research fan-out", () => {
     );
     expect(allFailed.status).toBe("failed");
     expect(none.synthesis).toBe("blocked");
+  });
+
+  it("a failed angle is tolerated once the synthesis completed; not when it was blocked or a non-angle failed", () => {
+    const plan = researchFanoutPlan({ question: "Q?", angles: 3 }, policy.maxSubtasks);
+    expect(feedsResearchSynthesis(plan.subtasks, "ra-2")).toBe(true);
+    expect(feedsResearchSynthesis(plan.subtasks, "synthesis")).toBe(false);
+    const outcomes = (synth: string) =>
+      new Map([
+        ["ra-1", { status: "completed" }],
+        ["ra-2", { status: "failed" }],
+        ["ra-3", { status: "completed" }],
+        ["synthesis", { status: synth }],
+      ]);
+    expect(researchFailuresTolerated(plan.subtasks, { status: "failed", failed: ["ra-2"], outcomes: outcomes("completed") })).toBe(true);
+    expect(researchFailuresTolerated(plan.subtasks, { status: "failed", failed: ["ra-2"], outcomes: outcomes("failed") })).toBe(false);
+    expect(researchFailuresTolerated(plan.subtasks, { status: "failed", failed: ["ra-2", "synthesis"], outcomes: outcomes("completed") })).toBe(false);
+    expect(researchFailuresTolerated(plan.subtasks, { status: "halted", failed: ["ra-2"], outcomes: outcomes("completed") })).toBe(false);
+    const normal = [{ key: "build", dependencies: [] }, { key: "synthesis", dependencies: ["build"] }];
+    expect(feedsResearchSynthesis(normal, "build")).toBe(false);
+    expect(researchFailuresTolerated(normal, { status: "failed", failed: ["build"], outcomes: new Map([["synthesis", { status: "completed" }]]) })).toBe(false);
   });
 });

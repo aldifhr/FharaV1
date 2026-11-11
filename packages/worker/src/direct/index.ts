@@ -20,6 +20,15 @@
  * Agent processes (Nuphos N2): every ACP agent's process group is recorded
  * (agentPids.ts). Before the first claim, groups left by a worker that died
  * are verified and reaped; shutdown stops whatever this worker still has.
+ *
+ * MCP servers and effort (Nuphos N10): an ACP thread declares its role's
+ * enabled MCP servers (mcpDeclare.ts) and records their set hash in
+ * tasks.direct.mcpSetHash. Each poll brings the hash the thread should have
+ * now; when it differs, the session is released once no turn is running
+ * (a turn waiting on a card counts as running), and the thread resumes the
+ * same session with the new set on its next message (at once when one is
+ * already queued). Header-only and secret-only changes keep the hash. The
+ * poll also carries tasks.direct.effort, applied before the next prompt.
  */
 import { wenv, wenvRaw } from "@fhara/config/worker";
 import * as fs from "node:fs/promises";
@@ -41,6 +50,8 @@ import { COMPLETION_CONTRACT } from "@/prompts/completionContract";
 import { AcpEngine } from "./acpSession";
 import { ApiLoopEngine } from "./apiLoopSession";
 import { AgentPidRegistry } from "./agentPids";
+import { buildDirectMcpSet, EMPTY_MCP_SET, mcpRestartDue, type DirectMcpSet } from "./mcpDeclare";
+import type { McpServerConfig } from "@/mcp/types";
 import { ThreadRunner, type DirectStore } from "./threadRunner";
 import type { DirectEngine } from "./types";
 
@@ -141,7 +152,15 @@ type Live = {
   deliveredSeq: number;
   timer?: NodeJS.Timeout;
   closing: boolean;
+  /** N10: the MCP set hash this session declared; undefined on the API loop (no MCP). */
+  mcpHash?: string;
+  /** N10: a set change is waiting for the running turn to end (logged once). */
+  mcpWaiting?: boolean;
 };
+
+/** Said when a changed MCP set releases a thread between turns. */
+export const MCP_CHANGED_NOTE =
+  "The MCP servers for this thread changed. The session was released between turns and resumes with the new set on the next message.";
 
 export interface DirectThreadsDeps {
   api: WorkerApi;
@@ -287,10 +306,16 @@ export class DirectThreads {
       llm = undefined;
     }
 
-    const opencodeCtx = context as { opencodeModel?: string };
+    const opencodeCtx = context as { opencodeModel?: string; mcpServers?: McpServerConfig[] };
     let engine: DirectEngine;
     let model: string | undefined;
+    let mcp: DirectMcpSet | undefined;
     if (choice.engine === "opencode-acp") {
+      // Decrypted here, handed to OpenCode only; values never logged (mcpDeclare.ts).
+      mcp = await buildDirectMcpSet(opencodeCtx.mcpServers, claimed.direct.role, cwd).catch((error) => {
+        this.deps.log("[direct] MCP servers not declared", taskId, error instanceof Error ? error.name : "error");
+        return EMPTY_MCP_SET;
+      });
       const built = buildOpencodeConfig({ model: opencodeCtx.opencodeModel, llm });
       model = built.model;
       const env = buildChildEnv({ PWD: cwd, ...built.env });
@@ -365,6 +390,8 @@ export class DirectThreads {
       model,
       // The API loop keeps nothing across processes: a stored id is ACP's.
       sessionId: engine.name === "opencode-acp" && claimed.direct.engine === "opencode-acp" ? claimed.direct.sessionId : undefined,
+      ...(mcp?.servers.length ? { mcpServers: mcp.servers } : {}),
+      effort: (claimed.direct as { effort?: string }).effort ?? null,
       budgetGate,
       log: this.deps.log,
       approvalMaxMs: directApprovalMaxMs(),
@@ -378,9 +405,15 @@ export class DirectThreads {
       handledInterrupt: claimed.direct.interruptRequestedAt ?? 0,
       deliveredSeq: claimed.direct.deliveredSeq ?? 0,
       closing: false,
+      ...(mcp ? { mcpHash: mcp.hash } : {}),
     };
     this.live.set(taskId, live);
-    await store.appendEvents([], { engine: engine.name, status: "idle", error: null });
+    await store.appendEvents([], { engine: engine.name, status: "idle", error: null, ...(mcp ? { mcpSetHash: mcp.hash } : {}) });
+    if (mcp?.skipped.length) {
+      await store.appendEvents([
+        { type: "system.note", payload: { text: `Some MCP servers weren't given to this thread: ${mcp.skipped.map((s) => `${s.name} (${s.reason})`).join("; ")}.` } },
+      ]);
+    }
     if (choice.engine === "api-loop") {
       await store.appendEvents([{ type: "system.note", payload: { text: `This thread runs on the API loop (no workspace tools): ${choice.reason}.` } }]);
     }
@@ -420,6 +453,14 @@ export class DirectThreads {
             .catch(() => undefined);
         }
       } else {
+        // N10: between turns only. The set hash carries no secrets.
+        const due = mcpRestartDue({ liveHash: live.mcpHash, wantHash: (state as { mcpSetHash?: string | null }).mcpSetHash, busy: live.runner.busy, closing: live.closing });
+        if (due === "release") return void (await this.releaseForMcp(live));
+        if (due === "wait" && !live.mcpWaiting) {
+          live.mcpWaiting = true;
+          this.deps.log(`[direct] MCP servers changed for ${live.taskId}; waiting for the running turn to end`);
+        }
+        live.runner.setEffort((state as { effort?: string | null }).effort ?? null);
         for (const message of state.messages) {
           if (message.seq <= live.deliveredSeq) continue;
           live.deliveredSeq = message.seq;
@@ -438,6 +479,15 @@ export class DirectThreads {
     } finally {
       this.schedule(live);
     }
+  }
+
+  /** N10: the MCP set changed and no turn is running: say so, then release (it resumes on the next message). */
+  private async releaseForMcp(live: Live): Promise<void> {
+    this.deps.log(`[direct] MCP servers changed for ${live.taskId}; releasing between turns`);
+    await this.deps.api
+      .appendDirectEvents({ taskId: live.taskId as never, workerId: this.deps.workerId, events: [{ type: "system.note", payload: { text: MCP_CHANGED_NOTE } }] })
+      .catch(() => undefined);
+    await this.stop(live, "MCP servers changed", true);
   }
 
   /** End the session; `release` hands the thread back (idle, closed, shutdown). */

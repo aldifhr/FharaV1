@@ -59,6 +59,7 @@ import {
   type PermissionCancel,
   type DirectEngine,
   type DirectSession,
+  type StartSessionOptions,
   type TurnResult,
   type TurnUsage,
   type UserInput,
@@ -79,6 +80,8 @@ export type DirectStatePatch = {
   idleSince?: number | null;
   error?: string | null;
   stoppedMidTurn?: boolean;
+  /** Nuphos N10: the MCP set hash the live session declared (lib/mcpDeclaration.ts). */
+  mcpSetHash?: string;
 };
 
 export type StoredEvent = { type: string; eventKey?: string; payload: Record<string, unknown> };
@@ -118,6 +121,10 @@ export interface ThreadRunnerOptions {
   model?: string;
   /** An engine session to resume (tasks.direct.sessionId). */
   sessionId?: string;
+  /** Nuphos N10: MCP servers every session of this runner declares. */
+  mcpServers?: StartSessionOptions["mcpServers"];
+  /** Nuphos N10: reasoning effort (tasks.direct.effort), applied by every session start. */
+  effort?: string | null;
   /** Rule 6: throws (BudgetExhaustedError) when the next prompt is over budget. */
   budgetGate?: () => void;
   interruptGraceMs?: number;
@@ -281,12 +288,34 @@ export class ThreadRunner {
     this.session!.send(input);
   }
 
+  /**
+   * Nuphos N10: the thread's effort changed. A later session start uses it,
+   * and a live session applies it before its next prompt (never mid-turn).
+   */
+  setEffort(effort: string | null): void {
+    if ((this.opts.effort ?? null) === effort) return;
+    this.opts = { ...this.opts, effort };
+    this.session?.setEffort?.(effort);
+  }
+
+  get effort(): string | null {
+    return this.opts.effort ?? null;
+  }
+
   // ── Engine ────────────────────────────────────────────────────────────
 
   private startSession(preamble: string | undefined): void {
     const gen = ++this.generation;
     this.session = this.opts.engine.start(
-      { taskId: this.opts.taskId, cwd: this.opts.cwd, sessionId: this.sessionId, preamble, model: this.opts.model },
+      {
+        taskId: this.opts.taskId,
+        cwd: this.opts.cwd,
+        sessionId: this.sessionId,
+        preamble,
+        model: this.opts.model,
+        ...(this.opts.mcpServers?.length ? { mcpServers: this.opts.mcpServers } : {}),
+        ...(this.opts.effort ? { effort: this.opts.effort } : {}),
+      },
       {
         output: (out) => {
           if (gen !== this.generation) return; // a dead or replaced engine

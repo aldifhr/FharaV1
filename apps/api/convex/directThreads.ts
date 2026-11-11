@@ -21,7 +21,7 @@
  * which would drop the lease and re-queue the task.
  */
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { assertProjectAccess, getViewerId } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
@@ -44,6 +44,7 @@ import {
   STREAM_TEXT_MAX,
   userMessagesAfter,
 } from "./lib/directThreads";
+import { directMcpSetHash } from "./directThreadSettings";
 
 const TERMINAL = new Set(["done", "failed", "rejected", "cancelled"]);
 const LEASE_LOST = "Lease lost: this task is no longer owned by this worker";
@@ -472,6 +473,8 @@ export const poll = internalQuery({
       lastSeq: task.direct.lastSeq,
       sessionId: task.direct.sessionId ?? null,
       allowRules: task.direct.allowRules ?? [],
+      mcpSetHash: await directMcpSetHash(ctx, task.projectId, task.direct.role),
+      effort: task.direct.effort ?? null,
       messages: messages.map((row) => ({
         seq: row.sequence ?? 0,
         text: String((row.payload as { text?: unknown } | undefined)?.text ?? ""),
@@ -491,19 +494,10 @@ const directPatchValidator = v.object({
   error: v.optional(v.union(v.string(), v.null())),
   stoppedMidTurn: v.optional(v.boolean()),
   allowRules: v.optional(v.array(v.string())),
+  mcpSetHash: v.optional(v.string()),
 });
 
-type DirectPatch = {
-  status?: "idle" | "starting" | "running" | "waiting" | "stopped" | "error";
-  sessionId?: string | null;
-  turnId?: string | null;
-  engine?: "opencode-acp" | "api-loop";
-  deliveredSeq?: number;
-  idleSince?: number | null;
-  error?: string | null;
-  stoppedMidTurn?: boolean;
-  allowRules?: string[];
-};
+type DirectPatch = Infer<typeof directPatchValidator>;
 
 function applyDirectPatch(direct: NonNullable<Doc<"tasks">["direct"]>, patch: DirectPatch, lastSeq: number) {
   const next = { ...direct, lastSeq: Math.max(direct.lastSeq, lastSeq) };
@@ -516,6 +510,7 @@ function applyDirectPatch(direct: NonNullable<Doc<"tasks">["direct"]>, patch: Di
   if (patch.error !== undefined) next.error = patch.error ? patch.error.slice(0, 1000) : undefined;
   if (patch.stoppedMidTurn !== undefined) next.stoppedMidTurn = patch.stoppedMidTurn;
   if (patch.allowRules !== undefined) next.allowRules = patch.allowRules.slice(-50);
+  if (patch.mcpSetHash !== undefined) next.mcpSetHash = patch.mcpSetHash.slice(0, 64);
   return next;
 }
 

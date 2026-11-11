@@ -123,18 +123,18 @@ export const directThreadValidator = v.object({
   turnId: v.optional(v.string()),
   // Highest taskEvents sequence the worker has persisted for this thread.
   lastSeq: v.number(),
-  // Highest user.message sequence handed to the engine (sent, steered or
-  // dropped by Stop). Messages above it are still queued.
+  // Highest user.message seq handed to the engine (sent, steered or dropped by Stop); above it is queued.
   deliveredSeq: v.optional(v.number()),
   // "Always allow" rules for THIS thread only (never the project's).
   allowRules: v.optional(v.array(v.string())),
   idleSince: v.optional(v.number()),
-  // Stop pressed: the worker interrupts the live turn when it sees a value
-  // newer than the one it last handled.
+  // Stop pressed: the worker interrupts the live turn when this is newer than the one it last handled.
   interruptRequestedAt: v.optional(v.number()),
   // The worker died mid-turn (recoverDirect); cleared by the next turn.
   stoppedMidTurn: v.optional(v.boolean()),
   error: v.optional(v.string()),
+  mcpSetHash: v.optional(v.string()), // N10: the declared MCP set (lib/mcpDeclaration.ts, no secrets)
+  effort: v.optional(v.string()), // N10: picked reasoning effort; unset = agent default
 });
 
 /** Options review draft / response (lib/optionsReview.ts ReviewDraft). */

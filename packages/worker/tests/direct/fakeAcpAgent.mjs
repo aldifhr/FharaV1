@@ -22,6 +22,11 @@
 //   anything else  echoes the whole prompt text
 // FAKE_ACP_KNOWN_SESSION: the only id session/resume accepts.
 // FAKE_ACP_RESUME_HANG: a file path; while it exists, session/resume never answers.
+// FAKE_ACP_LOG: a file path; session/new|resume params and set_config_option
+//   calls are appended to it as JSON lines (Nuphos N10 tests).
+// FAKE_ACP_EFFORT=1: advertise an "effort" option (category thought_level,
+//   values low|medium|high) next to the model, on new and on resume.
+// FAKE_ACP_HTTP=1: advertise mcpCapabilities.http.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -30,6 +35,19 @@ let nextId = 0;
 const pending = new Map();
 const sessions = new Set([process.env.FAKE_ACP_KNOWN_SESSION ?? "ses_known"]);
 let cancelWaiter = null;
+const config = [{ id: "model", category: "model", currentValue: "opencode/fake" }];
+if (process.env.FAKE_ACP_EFFORT === "1") {
+  config.push({
+    id: "effort",
+    name: "Effort",
+    category: "thought_level",
+    currentValue: "medium",
+    options: ["low", "medium", "high"].map((v) => ({ value: v, name: v[0].toUpperCase() + v.slice(1) })),
+  });
+}
+const record = (entry) => {
+  if (process.env.FAKE_ACP_LOG) fs.appendFileSync(process.env.FAKE_ACP_LOG, JSON.stringify(entry) + "\n");
+};
 let n = 0;
 
 const send = (msg) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...msg }) + "\n");
@@ -179,7 +197,12 @@ function onMessage(msg) {
           id,
           result: {
             protocolVersion: 1,
-            agentCapabilities: { loadSession: true, promptCapabilities: { image: false }, sessionCapabilities: { resume: {}, close: {} } },
+            agentCapabilities: {
+              loadSession: true,
+              promptCapabilities: { image: false },
+              sessionCapabilities: { resume: {}, close: {} },
+              ...(process.env.FAKE_ACP_HTTP === "1" ? { mcpCapabilities: { http: true } } : {}),
+            },
             authMethods: [{ id: "opencode-login", name: "Login with opencode" }],
             agentInfo: { name: "OpenCode", version: "fake" },
           },
@@ -187,15 +210,22 @@ function onMessage(msg) {
       case "session/new": {
         const sessionId = `ses_fake_${process.pid}_${++n}`;
         sessions.add(sessionId);
-        return send({ id, result: { sessionId, configOptions: [{ id: "model", category: "model", currentValue: "opencode/fake" }] } });
+        record({ method, sessionId, mcpServers: params.mcpServers });
+        return send({ id, result: { sessionId, configOptions: config } });
       }
       case "session/resume":
         if (process.env.FAKE_ACP_RESUME_HANG && fs.existsSync(process.env.FAKE_ACP_RESUME_HANG)) return;
         if (!sessions.has(params.sessionId)) return send({ id, error: { code: -32002, message: `Session not found: ${params.sessionId}` } });
-        return send({ id, result: { configOptions: [] } });
-      case "session/set_config_option":
-        return send({ id, result: { configOptions: [{ id: "model", category: "model", currentValue: params.value }] } });
+        record({ method, sessionId: params.sessionId, mcpServers: params.mcpServers });
+        return send({ id, result: { configOptions: process.env.FAKE_ACP_EFFORT === "1" ? config : [] } });
+      case "session/set_config_option": {
+        record({ method, configId: params.configId, value: params.value });
+        const opt = config.find((o) => o.id === params.configId) ?? config[0];
+        opt.currentValue = params.value;
+        return send({ id, result: { configOptions: config } });
+      }
       case "session/prompt":
+        record({ method, text: (params.prompt ?? []).map((b) => b.text ?? "").pop() });
         return void prompt(id, params);
       default:
         return send({ id, error: { code: -32601, message: `no ${method}` } });

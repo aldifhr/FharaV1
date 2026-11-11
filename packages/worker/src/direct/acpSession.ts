@@ -21,6 +21,13 @@
 // answered within the runner's bound; the agent is told no with reject_once
 // so the turn goes on). Reported through sink.permissionCancelled, which the
 // runner writes as approval.resolved {decision: "cancelled", reason}.
+// Nuphos N10: the thread's MCP servers (direct/mcpDeclare.ts) are declared
+// on session/new|resume|load (http ones only when the agent takes them),
+// and the reasoning effort (tasks.direct.effort) is set in the "model"
+// phase of every boot, so a resume re-applies it; a change made between
+// turns is applied before the next prompt, never mid-turn. Effort option
+// matching (category thought_level, or id effort/reasoning_effort/thinking)
+// follows Nuphos session-config-options.ts (pattern only).
 
 // Threads on OpenCode over ACP: one process per live thread, and everything
 // it wants to do comes through here first. The agent is set to ask before
@@ -50,6 +57,7 @@ import {
 } from "./restore";
 import { cancelReasonOf, describeToolCall, gateToolCall } from "./toolGate";
 import { RunawayDetector, runawayNoteText } from "./runaway";
+import { declarableServers } from "./mcpDeclare";
 import {
   SessionNotFoundError,
   type DirectEngine,
@@ -80,10 +88,29 @@ export type AcpEngineDeps = {
   processHooks?: AcpProcessHooks;
 };
 
+type ConfigOption = { id?: string; name?: string; category?: string; currentValue?: unknown; options?: unknown };
 type SessionResult = {
   sessionId?: string;
-  configOptions?: { id?: string; category?: string; currentValue?: unknown }[] | null;
+  configOptions?: ConfigOption[] | null;
 };
+
+const EFFORT_IDS = new Set(["effort", "reasoning_effort", "thinking"]);
+
+/** The agent's effort option, when it advertises one. */
+export function effortOption(options: readonly ConfigOption[]): ConfigOption | undefined {
+  return options.find((o) => o.category === "thought_level") ?? options.find((o) => typeof o.id === "string" && EFFORT_IDS.has(o.id));
+}
+
+/** The advertised value matching `effort` (by value or name, any case); undefined when the list says it isn't offered. */
+export function effortValueFor(option: ConfigOption, effort: string): string | undefined {
+  const list = Array.isArray(option.options) ? (option.options as unknown[]) : [];
+  // Grouped lists ({group, options: [...]}) are flattened.
+  const flat = list.flatMap((c) => (isPlainObject(c) && Array.isArray(c.options) ? (c.options as unknown[]) : [c]));
+  const choices = flat.filter(isPlainObject).filter((c) => typeof c.value === "string") as { value: string; name?: unknown }[];
+  if (!choices.length) return effort; // nothing advertised: try it as given
+  const want = effort.toLowerCase();
+  return choices.find((c) => c.value.toLowerCase() === want || (typeof c.name === "string" && c.name.toLowerCase() === want))?.value;
+}
 
 function notFound(e: unknown): boolean {
   if (e instanceof AcpRpcError && e.code === -32002) return true;
@@ -129,6 +156,8 @@ export class AcpSession implements DirectSession {
   private restore: RestoreRecorder;
   private restoreStep: RestorePhaseName = "initialize";
   private authFailed = false;
+  /** The effort the agent has now, as far as we set it (N10). */
+  private effortApplied: string | null = null;
 
   constructor(opts: StartSessionOptions, sink: SessionSink, deps: AcpEngineDeps) {
     this.opts = opts;
@@ -179,9 +208,11 @@ export class AcpSession implements DirectSession {
     this.sessionId = this.sessionId ?? res.sessionId;
     if (typeof this.sessionId !== "string" || !this.sessionId) throw new Error("OpenCode started a session without an id");
     if (Array.isArray(res.configOptions)) this.configOptions = res.configOptions;
-    if (this.opts.model) {
+    if (this.opts.model || this.opts.effort) {
       this.step("model");
-      await this.applyModel(this.opts.model);
+      if (this.opts.model) await this.applyModel(this.opts.model);
+      // Every boot (new, resume, load): the effort is re-applied.
+      if (this.opts.effort) await this.applyEffort(this.opts.effort);
     }
     this.step("ready");
     const model = this.modelNow();
@@ -212,12 +243,23 @@ export class AcpSession implements DirectSession {
     if (record) this.sink.restore?.(record);
   }
 
+  /** The servers to declare; a note (names only) for any this agent can't take. */
+  private mcpServers(): unknown[] {
+    const { declared, dropped } = declarableServers(this.opts.mcpServers ?? [], this.init.agentCapabilities?.mcpCapabilities);
+    if (dropped.length) {
+      this.emit([{ kind: "event", event: { type: "system.note", text: `OpenCode doesn't take HTTP MCP servers, so ${dropped.join(", ")} ${dropped.length === 1 ? "isn't" : "aren't"} available in this thread.` } }]);
+    }
+    this.deps.log.info("acp session mcp servers", { taskId: this.opts.taskId, count: declared.length });
+    return declared;
+  }
+
   private openSession(): Promise<SessionResult> {
     const { opts } = this;
     const caps = this.init.agentCapabilities;
-    if (!opts.sessionId) return this.proc.request<SessionResult>("session/new", { cwd: opts.cwd, mcpServers: [] });
+    const mcpServers = this.mcpServers();
+    if (!opts.sessionId) return this.proc.request<SessionResult>("session/new", { cwd: opts.cwd, mcpServers });
     this.sessionId = opts.sessionId;
-    const common = { sessionId: opts.sessionId, cwd: opts.cwd, mcpServers: [] };
+    const common = { sessionId: opts.sessionId, cwd: opts.cwd, mcpServers };
     this.restore.op = caps?.sessionCapabilities?.resume === undefined && caps?.loadSession ? "load" : "resume";
     const opened =
       caps?.sessionCapabilities?.resume !== undefined
@@ -264,6 +306,38 @@ export class AcpSession implements DirectSession {
       this.deps.log.warn("could not set the model", { taskId: this.opts.taskId, model, error: String(e) });
       this.emit([{ kind: "event", event: { type: "system.note", text: `${model} couldn't be picked, so this thread uses ${this.modelNow() ?? "the default model"}.` } }]);
     }
+  }
+
+  private async applyEffort(effort: string): Promise<void> {
+    const option = effortOption(this.configOptions);
+    const note = (text: string) => this.emit([{ kind: "event", event: { type: "system.note", text } }]);
+    if (!option?.id) {
+      this.effortApplied = effort; // nothing to set: don't say it again each turn
+      return note(`This agent offers no effort setting, so "${effort}" wasn't applied.`);
+    }
+    const value = effortValueFor(option, effort);
+    if (!value) {
+      this.effortApplied = effort;
+      return note(`"${effort}" isn't an effort this agent offers, so it keeps ${typeof option.currentValue === "string" ? `"${option.currentValue}"` : "its default"}.`);
+    }
+    if (option.currentValue === value) {
+      this.effortApplied = effort;
+      return;
+    }
+    try {
+      const r = await this.proc.request<SessionResult>("session/set_config_option", { sessionId: this.sessionId, configId: option.id, value });
+      if (Array.isArray(r?.configOptions)) this.configOptions = r.configOptions;
+      this.effortApplied = effort;
+    } catch (e) {
+      this.effortApplied = effort;
+      this.deps.log.warn("could not set the effort", { taskId: this.opts.taskId, effort, error: String(e) });
+      note(`The effort "${effort}" couldn't be set, so this thread keeps the agent's current setting.`);
+    }
+  }
+
+  /** N10: a new effort from the thread; it is applied before the next prompt. */
+  setEffort(effort: string | null): void {
+    this.opts = { ...this.opts, effort };
   }
 
   // ---- From the agent
@@ -442,6 +516,9 @@ export class AcpSession implements DirectSession {
     this.state = "turn";
     let result: Omit<TurnResult, "queuedTurns">;
     try {
+      // Between turns only: an effort picked since the last prompt.
+      const effort = this.opts.effort ?? null;
+      if (effort && effort !== this.effortApplied) await this.applyEffort(effort);
       const r = await this.proc.request<{ stopReason?: string; usage?: Record<string, unknown> }>(
         "session/prompt",
         { sessionId: this.sessionId, prompt: this.promptBlocks(input) },

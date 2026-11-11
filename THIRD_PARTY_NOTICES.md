@@ -958,6 +958,10 @@ SOFTWARE.
   - `packages/worker/src/direct/runaway.ts`: adapted from `apps/backend/src/lib/agent/stop-gate-runaway.ts`
     (`RUNAWAY_FAILURE_THRESHOLD`, `canonicalToolInputKey`). Modified by Fhara: a streaming detector fed by direct-thread
     tool events and api-loop model calls instead of a scan over step messages.
+  - `packages/worker/src/direct/acpSession.ts` (effort): the effort-option matching rule (category `thought_level`,
+    or id `effort`/`reasoning_effort`/`thinking`) and "persisted per thread, re-applied on resume" from
+    `apps/backend/src/lib/claude-code-preview/session-config-options.ts` and `docs/effort-picker.md` (pattern only,
+    no code copied).
 - Copyright 2026 Zeabur Inc. Licensed under the Apache License, Version 2.0 (full text in the Aider entry above).
   "Nuphos" and its logo are trademarks of Zeabur Inc.; Fhara uses the name only to describe where this code came from.
   The upstream NOTICE file reads:
@@ -989,6 +993,10 @@ apps/runtime/openab/LICENSE.
     the transient/permanent split for session loads (`pool.rs` `TRANSIENT_LOAD_ERRORS`: keep the id and retry, versus
     a fresh session) and live-session admission (`reserve_admission`, `candidate_in_flight`: at the cap, release the
     oldest idle session, never one with a turn in flight or waiting on a permission).
+  - `apps/api/convex/lib/mcpDeclaration.ts` and `packages/worker/src/direct/mcpDeclare.ts` (pattern only, no code
+    copied): `pool.rs` `mcp_declaration_changed` (headers never count as a change of the MCP server set) and
+    `suspend_for_mcp_change` (release an idle session whose set changed, never one with a turn in flight, and resume
+    the same session with the new set).
 
 ```
 MIT License

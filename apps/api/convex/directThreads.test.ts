@@ -343,3 +343,41 @@ describe("directApprovalPolicy", () => {
     expect(directApprovalPolicy({ mode: "full_access", request: push }).offerAlways).toBe(false);
   });
 });
+
+describe("MCP set hash and effort (Nuphos N10)", () => {
+  const addServer = (t: Awaited<ReturnType<typeof setup>>["t"], row: Record<string, unknown>) =>
+    t.run((ctx) => ctx.db.insert("mcpServers", { status: "untested", createdAt: 1, type: "local", ...row } as never));
+
+  test("poll carries the set hash: a new server changes it, a rotated secret or header does not", async () => {
+    const { t, taskId, projectId } = await claimed();
+    const poll = () => t.query(internal.directThreads.poll, { taskId, workerId: "w1" });
+    expect((await poll())!.mcpSetHash).toBe("");
+    const local = await addServer(t, { name: "files", command: "npx", args: '["-y","srv"]', envKeys: ["TOKEN"], envCiphertext: "c1" });
+    const remote = await addServer(t, { name: "docs", type: "remote", url: "https://mcp.example.com/mcp", projectId, envKeys: ["Authorization"], envCiphertext: "h1" });
+    const withBoth = (await poll())!.mcpSetHash;
+    expect(withBoth).toMatch(/^[0-9a-f]{16}$/);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(local, { envCiphertext: "c2" } as never);
+      await ctx.db.patch(remote, { envCiphertext: "h2" } as never);
+    });
+    expect((await poll())!.mcpSetHash).toBe(withBoth);
+    await t.run((ctx) => ctx.db.patch(remote, { enabled: false } as never));
+    expect((await poll())!.mcpSetHash).not.toBe(withBoth);
+    // A server for another role is not this thread's.
+    await t.run((ctx) => ctx.db.patch(remote, { enabled: true, agentRoles: ["designer"] } as never));
+    const roleFiltered = (await poll())!.mcpSetHash;
+    await t.run((ctx) => ctx.db.delete(remote));
+    expect((await poll())!.mcpSetHash).toBe(roleFiltered);
+  });
+
+  test("the worker records the declared hash; setEffort stores a normalized effort the poll returns", async () => {
+    const { t, taskId } = await claimed();
+    await t.mutation(internal.directThreads.appendEvents, { taskId, workerId: "w1", events: [], state: { mcpSetHash: "0123456789abcdef" } });
+    expect((await t.run((ctx) => ctx.db.get(taskId)))!.direct!.mcpSetHash).toBe("0123456789abcdef");
+    expect(await t.mutation(api.directThreadSettings.setEffort, { taskId, effort: " High " })).toEqual({ effort: "high" });
+    expect((await t.query(internal.directThreads.poll, { taskId, workerId: "w1" }))!.effort).toBe("high");
+    await expect(t.mutation(api.directThreadSettings.setEffort, { taskId, effort: "x".repeat(40) })).rejects.toThrow(/short word/);
+    expect(await t.mutation(api.directThreadSettings.setEffort, { taskId, effort: null })).toEqual({ effort: null });
+    expect((await t.run((ctx) => ctx.db.get(taskId)))!.direct!.effort).toBeUndefined();
+  });
+});

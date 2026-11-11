@@ -1568,6 +1568,7 @@ const directPatchArg = v.object({
   error: v.optional(v.union(v.string(), v.null())),
   stoppedMidTurn: v.optional(v.boolean()),
   allowRules: v.optional(v.array(v.string())),
+  mcpSetHash: v.optional(v.string()),
 });
 
 export const claimDirectThread = action({

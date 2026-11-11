@@ -6,6 +6,7 @@
  */
 import type { AcpOutput, NormalizedEvent } from "@/vendor/threadbear/acp/normalize";
 import type { RestoreRecord } from "./restore";
+import type { AcpMcpServer } from "./mcpDeclare";
 import type { ApprovalCancelReason, ToolGateAnswer, ToolGateCall } from "./toolGate";
 
 export type { ApprovalCancelReason };
@@ -77,6 +78,10 @@ export interface StartSessionOptions {
   /** Said once, before the first prompt of a new session (role, handoff). */
   preamble?: string;
   model?: string;
+  /** Nuphos N10: MCP servers declared on session/new|resume|load (values are secrets: never logged). */
+  mcpServers?: AcpMcpServer[];
+  /** Nuphos N10: reasoning effort (tasks.direct.effort); applied at boot, so re-applied on every resume. */
+  effort?: string | null;
 }
 
 /** A live engine session: one per live thread. */
@@ -89,6 +94,8 @@ export interface DirectSession {
   end(): Promise<void>;
   /** Kill straight away (a frozen agent after the interrupt grace). */
   kill(): void;
+  /** Nuphos N10: a new effort; applied before the next prompt, never mid-turn. */
+  setEffort?(effort: string | null): void;
 }
 
 export interface DirectEngine {

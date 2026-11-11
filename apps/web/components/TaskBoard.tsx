@@ -2,47 +2,18 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { motion } from "framer-motion";
-import { ChevronDown, ChevronRight, Loader2, Plus, Square, Trash2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Loader2, Plus } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { useToast } from "./Toasts";
-import { roleLabel } from "@/lib/agentRoles";
-import SubtaskActivity from "./SubtaskActivity";
-import SubtaskLiveOutput from "./SubtaskLiveOutput";
-import { NEUTRAL_PILL, TASK_STATUSES, TASK_STATUS_PILL, isClosedStatus, subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
+import { TASK_STATUSES, isClosedStatus, taskStatusLabel } from "@/lib/taskStatus";
 import { SectionLoading, useWorkspace } from "@/app/WorkspaceContext";
 import ConfirmDialog from "./ConfirmDialog";
-import PauseResumeButton from "./PauseResumeButton";
-import TaskHoldNotice from "./TaskHoldNotice";
-import { holdNoticeText } from "@/api/convex/lib/providerHold";
-import { PR_LANES, type PrLane } from "@/api/convex/lib/prFeedback";
+import { PR_LANES } from "@/api/convex/lib/prFeedback";
+import BoardTaskCard from "./board/BoardTaskCard";
+import { PHASES, phaseOf, type PrLaneRow } from "./board/boardModel";
 
 type TaskRow = any;
-
-// Agile phases: derived from subtask kind + task status, never from a stale
-// stored phase. Order matches the sprint flow.
-const PHASES = [
-  { key: "planning", label: "Planning" },
-  { key: "implementation", label: "Implementation" },
-  { key: "review", label: "Review" },
-  { key: "verification", label: "Verification" },
-  { key: "done", label: "Closed" },
-] as const;
-
-function phaseOf(t: any, subtasks: any[]): string {
-  // Done, failed and rejected tasks will not progress on their own: they
-  // belong in the closed lane (the pill says which), not "Implementation".
-  if (isClosedStatus(t.status)) return "done";
-  // A subtask is actively running right now → its phase is current.
-  const running = subtasks.find((s) => s.status === "running");
-  if (running) return kindToPhase(running.kind);
-  // Nothing running: the earliest pending kind marks the phase.
-  const earliest = subtasks.find((s) => ["pending", "ready", "waiting_approval", "blocked"].includes(s.status));
-  if (earliest) return kindToPhase(earliest.kind);
-  const done = subtasks.filter((s) => s.status === "completed").length;
-  if (done > 0) return "implementation";
-  return "planning";
-}
 
 // Post-push lanes: derived from the PR facts stored with the push
 // (prFeedback.lanesByProject). A pushed task with a PR lives here instead
@@ -52,41 +23,6 @@ const BOARD_GROUPS: ReadonlyArray<{ key: string; label: string }> = [
   ...PR_LANES.map((lane) => ({ key: `pr:${lane.key}`, label: lane.label })),
   PHASES[PHASES.length - 1],
 ];
-
-type PrLaneRow = {
-  taskId: string;
-  lane: PrLane;
-  prNumber: number;
-  prUrl: string | null;
-  ciState: string | null;
-  failedChecks: string[];
-  reviewState: string | null;
-  mergeable: string | null;
-  fixing: boolean;
-  fixAttempts: number;
-  maxAttempts: number;
-};
-
-/** One quiet line under the title: PR number, what blocks it, who acts next. */
-function prSummary(row: PrLaneRow): string {
-  const parts = [`PR #${row.prNumber}`];
-  if (row.ciState === "failed") parts.push(row.failedChecks.length ? `CI failed: ${row.failedChecks.slice(0, 2).join(", ")}` : "CI failed");
-  else if (row.ciState === "pending") parts.push("CI running");
-  else if (row.ciState === "passed") parts.push("CI passed");
-  if (row.reviewState === "changes_requested") parts.push("changes requested");
-  else if (row.reviewState === "approved") parts.push("approved");
-  if (row.mergeable === "conflict") parts.push("merge conflict");
-  if (row.fixing) parts.push(`Fhara is fixing (${row.fixAttempts}/${row.maxAttempts})`);
-  else if (row.fixAttempts > 0 && row.lane !== "merged") parts.push(`${row.fixAttempts}/${row.maxAttempts} fixes used`);
-  return parts.join(" · ");
-}
-
-function kindToPhase(kind: string): string {
-  if (kind === "review") return "review";
-  if (kind === "qa") return "verification";
-  if (kind === "analysis" || kind === "research") return "planning";
-  return "implementation";
-}
 
 export default function TaskBoard({
   projectId,
@@ -132,6 +68,8 @@ export default function TaskBoard({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [manual, setManual] = useState("");
   const [creating, setCreating] = useState(false);
+  // ⌘K "New task" opens this tab with ?compose=1: focus the create field.
+  const compose = useSearchParams().get("compose") === "1";
 
   const subtasksOf = useMemo(() => {
     const map = new Map<string, any[]>();
@@ -212,13 +150,13 @@ export default function TaskBoard({
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Filter tasks…"
           aria-label="Filter tasks"
-          className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ink/30 sm:text-sm"
+          className="min-w-0 flex-1 rounded-field border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ink/30 sm:text-sm"
         />
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           aria-label="Filter by status"
-          className="rounded-lg border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ink/30 sm:text-sm"
+          className="rounded-field border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ink/30 sm:text-sm"
         >
           {["all", ...TASK_STATUSES].map((s) => (
             <option key={s} value={s}>
@@ -240,13 +178,14 @@ export default function TaskBoard({
           }}
           placeholder="Create a task manually…"
           aria-label="New task"
-          className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ink/30 sm:text-sm"
+          autoFocus={compose}
+          className="min-w-0 flex-1 rounded-field border border-line bg-panel px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ink/30 sm:text-sm"
         />
         <button
           type="button"
           onClick={() => void handleCreate()}
           disabled={creating || !manual.trim()}
-          className="flex items-center gap-1 rounded-lg bg-ink px-3 py-2 text-sm font-medium text-canvas outline-none hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
+          className="flex items-center gap-1 rounded-field bg-ink px-3 py-2 text-sm font-medium text-canvas outline-none hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
         >
           {creating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
           Create
@@ -263,7 +202,7 @@ export default function TaskBoard({
 
       {/* Sprint board: agile phases as swimlanes. Each task is indivisible —
           it lives in exactly one phase, derived from its subtasks. */}
-      <div className="space-y-4">
+      <div className={`bg-dots space-y-4 rounded-panel border border-line p-3 ${visible.length ? "" : "hidden"}`} data-testid="task-board-canvas">
         {BOARD_GROUPS.map((phase) => {
           // A task with a PR sits in its PR lane once its own run is over.
           const groupOf = (t: TaskRow, subtasks: any[]) => {
@@ -276,200 +215,29 @@ export default function TaskBoard({
           if (inPhase.length === 0) return null;
           return (
             <section key={phase.key} className="space-y-2">
-              <header className="flex items-center gap-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-3">
-                  {phase.label}
-                </h3>
-                <span className="text-[11px] text-ink-3">{inPhase.length}</span>
+              <header className="flex items-center gap-2 px-0.5">
+                <h3 className="text-caption">{phase.label}</h3>
+                <span className="font-mono text-[11px] tabular-nums text-ink-3">{inPhase.length}</span>
               </header>
-              {inPhase.map(({ t, subtasks }) => {
-        const done = subtasks.filter((s) => s.status === "completed").length;
-        const plan = planOf.get(t._id);
-        const pending = (pendingApprovals ?? []).filter((a: any) => a.taskId === t._id && a.status === "pending");
-        // The user's own toggle wins; with none, the selected task starts
-        // open. (`expanded || selected` kept a selected task open forever,
-        // so its chevron did nothing.)
-        const isOpen = expanded[t._id] ?? selectedTaskId === t._id;
-        const assigned = new Map<string, string>();
-        for (const s of subtasks) {
-          const role = agentNameById.get(s.assignedAgentId ?? "")?.role;
-          if (role) assigned.set(roleLabel(role), s.assignedAgentId ?? "");
-        }
-
-        return (
-          <motion.div
-            key={t._id}
-            layout="position"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`rounded-xl border bg-panel p-3 ${
-              selectedTaskId === t._id ? "border-ink/30" : "border-line"
-            }`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <button type="button" onClick={() => onSelectTask(t._id)} className="min-w-0 flex-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ink/30">
-                <p className="truncate text-sm font-medium">{t.title}</p>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-3">
-                  <span className={`rounded-full px-2 py-0.5 font-semibold ${TASK_STATUS_PILL[t.status] ?? NEUTRAL_PILL}`}>{taskStatusLabel(t.status, t)}</span>
-                  {subtasks.length > 0 && (
-                    <span className="rounded-full bg-hover px-2 py-0.5 font-medium">
-                      {done}/{subtasks.length} subtasks
-                    </span>
-                  )}
-                  {pending.length > 0 && (
-                    <span className="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-700 dark:bg-rose-950 dark:text-rose-300">
-                      {pending.length} approval{pending.length === 1 ? "" : "s"}
-                    </span>
-                  )}
-                </div>
-                {!isOpen && t.status === "paused" && (t as any).pausedBy === "held" && (t as any).hold && (
-                  <p className="mt-1 truncate text-[11px] text-ink-2" data-testid="board-hold-line">
-                    {holdNoticeText((t as any).hold, Date.now())}
-                  </p>
-                )}
-                {t.status === "done" && (t as any).completionWarning && (
-                  <p className="mt-1 truncate text-[11px] text-warn">{(t as any).completionWarning}</p>
-                )}
-                {prOf.get(t._id) && (
-                  <p className="mt-1 truncate text-[11px] text-ink-3">{prSummary(prOf.get(t._id)!)}</p>
-                )}
-              </button>
-              <div className="flex shrink-0 items-center gap-2">
-                <div className="flex gap-1">
-                  {[...assigned.entries()].slice(0, 4).map(([name, id]) => (
-                    <span key={name} title={name} className="flex h-5 w-5 items-center justify-center rounded-full bg-hover text-[9px] font-semibold text-ink">
-                      {name.slice(0, 2).toUpperCase()}
-                    </span>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  // Toggle against the *current* openness (including the
-                  // selection default) — toggling expanded[id] alone could
-                  // never close a selected task, making the chevron dead.
-                  onClick={() => setExpanded((prev) => ({ ...prev, [t._id]: !isOpen }))}
-                  aria-label={isOpen ? `Collapse ${t.title}` : `Expand ${t.title}`}
-                  aria-expanded={isOpen}
-                  className="rounded-md p-1.5 text-ink-3 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30"
-                >
-                  {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                </button>
-                {!isClosedStatus(t.status) && <PauseResumeButton task={t} />}
-                {!isClosedStatus(t.status) ? (
-                <button
-                  type="button"
-                  onClick={() => stopTask({ _id: t._id, title: t.title })}
-                  title="Stop task (delete it after it stops)"
-                  aria-label={`Stop task ${t.title}`}
-                  className="rounded-md p-1.5 text-ink-3 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-400/50 dark:hover:bg-red-950/50"
-                >
-                  <Square size={13} />
-                </button>
-                ) : (
-                <button
-                  type="button"
-                  onClick={() => deleteTask({ _id: t._id, title: t.title, status: t.status })}
-                  title="Delete task"
-                  aria-label={`Delete task ${t.title}`}
-                  className="rounded-md p-1.5 text-ink-3 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-400/50 disabled:opacity-30 dark:hover:bg-red-950/50"
-                >
-                  <Trash2 size={14} />
-                </button>
-                )}
-              </div>
-            </div>
-
-            {isOpen && (
-              <div className="mt-3 space-y-1.5 border-t border-line pt-3">
-                {plan && (
-                  <p className="text-[11px] text-ink-3">
-                    <span className="font-semibold text-ink-2">Goal:</span> {plan.goal}
-                    <span className="ml-2 text-ink-3">v{plan.version} · {plan.createdBy}</span>
-                    {plan.createdBy === "fallback" && plan.degradedReason && (
-                      <span className="mt-0.5 block text-amber-700 dark:text-amber-400">
-                        Deterministic plan: {plan.degradedReason}
-                      </span>
-                    )}
-                  </p>
-                )}
-                {subtasks.length === 0 && (
-                  <p className="text-xs text-ink-3">No subtasks yet.</p>
-                )}
-                {subtasks.map((s: any) => {
-                  const meta = subtaskStatusMeta(s.status);
-                  const Icon = meta.icon;
-                  const agent = s.assignedAgentName ? agentNameById.get(s.assignedAgentId) : null;
-                  return (
-                    <div key={s._id}>
-                    <div className="flex items-center gap-2 text-xs">
-                      <Icon size={13} className={`${meta.cls}${s.status === "running" ? " animate-spin" : ""}`} />
-                      <span className="min-w-0 flex-1 truncate font-medium text-ink">
-                        {s.title}
-                        {s.reviewRound && s.reviewRound > 1 ? (
-                          <span className="ml-1 font-normal text-ink-3">(round {s.reviewRound})</span>
-                        ) : null}
-                      </span>
-                      <span className="shrink-0 rounded bg-hover px-1.5 py-0.5 text-[10px] font-medium text-ink-3">
-                        {s.capability}
-                      </span>
-                      {s.assignedAgentName && (
-                        <span className="flex shrink-0 items-center gap-1 text-[11px] text-ink-3">
-                          {roleLabel(agent?.role)}
-                        </span>
-                      )}
-                      <span className={`shrink-0 text-[10px] font-semibold ${meta.cls}`}>{meta.label}</span>
-                    </div>
-                    {s.status === "running" && s.activity && (
-                      <SubtaskActivity activity={s.activity} at={s.activityAt} />
-                    )}
-                    {s.status === "running" && <SubtaskLiveOutput taskId={t._id} subtaskKey={s.key} />}
-                    </div>
-                  );
-                })}
-                <TaskHoldNotice task={t as any} compact />
-                {t.errorMessage && (
-                  <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] text-red-600 dark:bg-red-950/40 dark:text-red-300">{t.errorMessage}</p>
-                )}
-                {prOf.get(t._id)?.prUrl && (
-                  <a
-                    href={prOf.get(t._id)!.prUrl!}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block pt-1 text-[11px] text-ink outline-none hover:underline focus-visible:underline"
-                  >
-                    Open PR #{prOf.get(t._id)!.prNumber} on GitHub
-                  </a>
-                )}
-                {/* Agile phase flow */}
-                <div className="flex flex-wrap items-center gap-1 pt-2">
-                  {PHASES.map((phase, i) => {
-                    const current = phaseOf(t, subtasks);
-                    const active = phase.key === current;
-                    const passed = PHASES.findIndex((p) => p.key === current) > i;
-                    return (
-                      <span key={phase.key} className="flex items-center gap-1">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                            active
-                              ? "bg-ink text-canvas"
-                              : passed
-                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                                : "bg-hover text-ink-3"
-                          }`}
-                        >
-                          {phase.label}
-                        </span>
-                        {i < PHASES.length - 1 && <span aria-hidden="true" className="text-ink-2">→</span>}
-                      </span>
-                    );
-                  })}
-                  {t.sprint && <span className="ml-auto text-[10px] text-ink-3">Sprint {t.sprint}</span>}
-                </div>
-              </div>
-            )}
-          </motion.div>
-        );
-      })}
+              {inPhase.map(({ t, subtasks }) => (
+                <BoardTaskCard
+                  key={t._id}
+                  task={t}
+                  subtasks={subtasks}
+                  plan={planOf.get(t._id)}
+                  pendingCount={(pendingApprovals ?? []).filter((a: any) => a.taskId === t._id && a.status === "pending").length}
+                  pr={prOf.get(t._id)}
+                  laneLabel={phase.label}
+                  selected={selectedTaskId === t._id}
+                  // The user's own toggle wins; with none, the selected task starts open.
+                  isOpen={expanded[t._id] ?? selectedTaskId === t._id}
+                  agentById={agentNameById}
+                  onSelect={() => onSelectTask(t._id)}
+                  onToggle={() => setExpanded((prev) => ({ ...prev, [t._id]: !(prev[t._id] ?? selectedTaskId === t._id) }))}
+                  onStop={() => stopTask({ _id: t._id, title: t.title })}
+                  onDelete={() => deleteTask({ _id: t._id, title: t.title, status: t.status })}
+                />
+              ))}
             </section>
           );
         })}

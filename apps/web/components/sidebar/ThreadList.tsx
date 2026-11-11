@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useMutation, useQueries, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { ChevronRight } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { matchesChord, useKeybindings } from "@/lib/keybindings";
@@ -24,39 +24,13 @@ import { isRenameKey, renameRefOf } from "@/lib/threadRename";
 import { RenameInput, useRenameThread } from "../ThreadRename";
 import { SectionToggle } from "./SectionToggle";
 import ThreadRow from "./ThreadRow";
+import { useAllThreads } from "./useAllThreads";
 
-/** Projects whose threads are loaded (newest projects first) and rows per project. */
-const MAX_PROJECTS = 20;
-const PER_PROJECT = 50;
 /** Rows shown per group before "N more" (all rows show while filtering). */
 const SHOWN = 6;
 
-type ProjectRow = { _id: string; name: string };
-type ListRow = Omit<ThreadItem, "projectId" | "projectName">;
-
 const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
-
-/** Threads of every visible project, flattened. `undefined` until the first load. */
-function useAllThreads(): ThreadItem[] | undefined {
-  const projects = useQuery(api.projects.list, {}) as ProjectRow[] | undefined;
-  const shown = useMemo(() => (projects ?? []).slice(0, MAX_PROJECTS), [projects]);
-  const requests = useMemo(
-    () => Object.fromEntries(shown.map((p) => [p._id, { query: api.threads.list, args: { projectId: p._id, limit: PER_PROJECT } }])),
-    [shown],
-  );
-  const results = useQueries(requests);
-  return useMemo(() => {
-    if (projects === undefined) return undefined;
-    const rows: ThreadItem[] = [];
-    for (const p of shown) {
-      const list = results[p._id];
-      if (!Array.isArray(list)) continue; // loading, or no access: skip that project
-      for (const r of list as ListRow[]) rows.push({ ...r, id: String(r.id), projectId: p._id, projectName: p.name });
-    }
-    return rows;
-  }, [projects, shown, results]);
-}
 
 function ThreadControls({
   groupBy,

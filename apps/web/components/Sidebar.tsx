@@ -3,23 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import {
-  Activity,
-  BookOpen,
-  Brain,
-  Cpu,
-  FolderKanban,
-  GitBranch,
-  Inbox,
-  Menu,
-  MessageCircle,
-  Plug,
-  ScrollText,
-  Sparkles,
-  TestTubes,
-  Users,
-  X,
-} from "lucide-react";
+import { Activity, FolderKanban, Inbox, Menu, MessageCircle, Users, X } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import AgentDetailPanel from "./AgentDetailPanel";
@@ -35,7 +19,8 @@ import PersonalList from "./sidebar/PersonalList";
 import TeamList, { type TeamAgent } from "./sidebar/TeamList";
 import { CreateAgentModal } from "./sidebar/AgentForms";
 import ActivityPopover from "./sidebar/ActivityPopover";
-import { InboxNav, NavGroup, NavRow, RailItem, type NavIcon } from "./sidebar/SidebarNav";
+import { InboxNav, NavGroup, NavRow, RailItem } from "./sidebar/SidebarNav";
+import { sidebarNavLinks } from "./sidebar/navLinks";
 import { AccountRow, SearchBox, SidebarHeader, useShellChords } from "./sidebar/SidebarChrome";
 import { agentName, fixedAgentIds } from "@/lib/agentRoles";
 import { onFocusTeam } from "@/lib/shellEvents";
@@ -43,7 +28,6 @@ import { useUiPref } from "@/lib/uiPrefs";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 
 type Sections = { needsYou: boolean; threads: boolean; projects: boolean; personal: boolean; team: boolean };
-type NavLink = { icon: NavIcon; label: string; href?: string; onClick?: () => void; active: boolean };
 
 /**
  * The one app sidebar (dashboard restyle F2): logo and collapse, search (⌘K),
@@ -161,25 +145,12 @@ export default function Sidebar({
     });
   };
 
-  const withProject = (href: string, param = "project") => (projectId ? `${href}${href.includes("?") ? "&" : "?"}${param}=${projectId}` : href);
   const expandTo = (section: keyof Sections) => () => {
     setCollapsedPref(false);
     setOpen((s) => ({ ...s, [section]: true }));
   };
 
-  const build: NavLink[] = [
-    { icon: BookOpen, label: "Library", href: withProject("/library"), active: pathname === "/library" },
-    { icon: Brain, label: "Memory", href: projectId ? `/memory?scope=project&project=${projectId}` : "/memory", active: pathname === "/memory" },
-    { icon: TestTubes, label: "Agent Sandbox", href: "/playground", active: pathname === "/playground" },
-    { icon: Cpu, label: "LLM & Models", onClick: () => openSettings(projectId, "models"), active: false },
-    { icon: Plug, label: "Integrations", href: withProject("/integrations"), active: pathname === "/integrations" },
-  ];
-  const observe: NavLink[] = [
-    { icon: GitBranch, label: "Runs", href: withProject("/runs"), active: pathname.startsWith("/runs") },
-    { icon: ScrollText, label: "Audit log", href: withProject("/audit"), active: pathname === "/audit" },
-    { icon: Sparkles, label: "Improve", href: withProject("/improve"), active: pathname === "/improve" },
-  ];
-  const teamHref = withProject("/team");
+  const { build, observe, teamHref } = sidebarNavLinks({ pathname, projectId, openSettings });
   const inboxActive = pathname === "/inbox";
   const activity = projectId ? (
     rail ? (
@@ -203,7 +174,7 @@ export default function Sidebar({
 
   return (
     <>
-      <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} />
+      <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} projectId={projectId} />
       {isDrawer && ownsDrawer && (
         // Phone: a slim top bar with the menu button; the sidebar opens as a drawer.
         <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-panel px-3 pt-[env(safe-area-inset-top)] min-[980px]:hidden">

@@ -4,12 +4,13 @@ import { api } from "@/api/convex/_generated/api";
 import { roleLabel } from "@/lib/agentRoles";
 import { ArrowUpRight, Bell, Check, CheckCircle2, Loader2, RotateCcw, XCircle } from "lucide-react";
 import OptionCards from "./OptionCards";
-import { BTN_OUTLINE, BTN_PRIMARY, CARD_SURFACE, MUTED, RoleAvatar } from "./cards/primitives";
+import { BTN_OUTLINE, BTN_PRIMARY, MUTED, RoleAvatar } from "./cards/primitives";
+import { PanelCard, PanelCardBody, PanelCardFooter, PanelCardHeader } from "../ui/panel-card";
+import { StatusTag, type StatusTone } from "../ui/status-tag";
 import { useToast } from "../Toasts";
 import { isClosedStatus } from "@/lib/taskStatus";
 import { normalizePermissionMode } from "@/api/convex/lib/permissionModes";
 import { refusalCopy } from "@/lib/taskInput";
-import { StatusTag } from "../ui/status-tag";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 
@@ -69,17 +70,17 @@ export default function TaskCard({
       setAnswering(false);
     }
   };
-  const badgeTone =
+  const statusTone: StatusTone =
     task.status === "done"
-      ? ("ok" as const)
+      ? "ok"
       : task.status === "failed" || task.status === "rejected"
-        ? ("danger" as const)
+        ? "danger"
         : needsYou
-          ? ("warn" as const)
+          ? "warn"
           : task.status === "queued" || isCancelled
-            ? ("neutral" as const)
-            : ("active" as const);
-  const badgeLabel =
+            ? "neutral"
+            : "active";
+  const statusLabel =
     task.status === "done"
       ? "Done"
       : task.status === "failed"
@@ -103,18 +104,19 @@ export default function TaskCard({
       ? [{ agentId: String(primaryAgent._id), role: primaryAgent.role as string }]
       : (assignees ?? []).map((a) => ({ agentId: a.agentId, role: a.role }));
   const statusIcon = needsYou
-    ? <Bell size={16} className="shrink-0 text-[#e5671f] dark:text-orange-400" />
+    ? <Bell size={16} className="text-warn" />
     : task.status === "done"
-      ? <CheckCircle2 size={16} className="shrink-0 text-[#1f9d55] dark:text-emerald-400" />
+      ? <CheckCircle2 size={16} className="text-ok" />
       : task.status === "failed" || task.status === "rejected"
-        ? <XCircle size={16} className="shrink-0 text-[#d83a3a] dark:text-rose-400" />
+        ? <XCircle size={16} className="text-danger" />
         : isCancelled
-          ? <XCircle size={16} className="shrink-0 text-ink-3" />
-        : <Loader2 size={16} strokeWidth={2.5} className="shrink-0 animate-spin text-[#2f6fe0] dark:text-blue-400" />;
+          ? <XCircle size={16} className="text-ink-3" />
+        : <Loader2 size={16} strokeWidth={2.5} className="animate-spin text-ink-2" />;
 
   return (
     <div className="space-y-1.5">
-      <div
+      <PanelCard
+        interactive
         onClick={() => onOpen(task._id)}
         role="button"
         tabIndex={0}
@@ -125,49 +127,47 @@ export default function TaskCard({
           }
         }}
         aria-label={`Open task ${task.title}`}
-        className={`${CARD_SURFACE} max-w-xl cursor-pointer outline-none transition hover:border-ink/30 focus-visible:ring-2 focus-visible:ring-ink/30 dark:hover:border-white/20`}
+        className="max-w-xl"
       >
-        <div className="flex items-center gap-2.5 px-4 pt-3.5">
-          {statusIcon}
-          <p className="min-w-0 flex-1 truncate text-[14px] font-semibold text-ink">{task.title}</p>
-          <ArrowUpRight size={16} aria-hidden="true" className="shrink-0 text-ink-3" />
-        </div>
-        <div className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 px-4 pb-3 pt-2 text-[12px] ${MUTED}`}>
-          {owners.slice(0, 3).map((owner) => (
-            <span key={owner.agentId} className="inline-flex items-center gap-1.5">
-              <RoleAvatar role={owner.role} size={18} />
-              <span className="text-ink-2">{roleLabel(owner.role)}</span>
-            </span>
-          ))}
-          {task.branchName && (
-            <>
-              <span aria-hidden="true">·</span>
-              <span className="max-w-[14rem] truncate rounded-md bg-hover px-1.5 py-0.5 font-mono text-[11px] text-ink-2">
-                {task.branchName}
+        <PanelCardHeader
+          kind="Task"
+          icon={statusIcon}
+          title={task.title}
+          meta={
+            owners.length > 0 ? (
+              <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                {owners.slice(0, 3).map((owner) => (
+                  <span key={owner.agentId} className="inline-flex items-center gap-1.5">
+                    <RoleAvatar role={owner.role} size={18} />
+                    <span className="text-ink-2">{roleLabel(owner.role)}</span>
+                  </span>
+                ))}
               </span>
-            </>
-          )}
-          {subtasks.length > 0 && (
+            ) : undefined
+          }
+          aside={
             <>
-              <span aria-hidden="true">·</span>
-              <span>{doneSubs} of {subtasks.length} steps</span>
+              <StatusTag tone={statusTone}>{statusLabel}</StatusTag>
+              <ArrowUpRight size={16} aria-hidden="true" className="text-ink-3" />
             </>
-          )}
-          <span className="ml-auto">
-            <StatusTag tone={badgeTone}>{badgeLabel}</StatusTag>
-          </span>
+          }
+        />
+        <div className="mx-3.5 mb-3 h-1 overflow-hidden rounded-full bg-inset" role="progressbar" aria-label="Task progress" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+          <div className={`h-full rounded-full transition-all ${task.status === "done" ? "bg-ok" : "bg-ink"}`} style={{ width: `${progress}%` }} />
         </div>
-        <div className="mx-4 mb-3 h-1 overflow-hidden rounded-full bg-hover" role="progressbar" aria-label="Task progress" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
-          <div className={`h-full rounded-full transition-all ${task.status === "done" ? "bg-[#1f9d55]" : "bg-[#2f6fe0]"}`} style={{ width: `${progress}%` }} />
-        </div>
-      </div>
+        <PanelCardFooter
+          metrics={[
+            { label: "Steps", value: subtasks.length ? `${doneSubs}/${subtasks.length}` : null },
+            { label: "Progress", value: `${progress}%` },
+            { label: "Branch", value: task.branchName || null, title: task.branchName || undefined },
+          ]}
+        />
+      </PanelCard>
       {waitingForInput && (
-        <div className={`${CARD_SURFACE} max-w-xl px-4 py-3`}>
-          <div className="flex items-center gap-2">
-            <p className="min-w-0 flex-1 text-[13px] font-semibold text-ink">The team asked you</p>
-            <StatusTag tone="warn">Needs you</StatusTag>
-          </div>
-          <p className="mt-1 whitespace-pre-wrap text-[13px] text-ink-2">{task.pendingQuestion}</p>
+        <PanelCard className="max-w-xl">
+          <PanelCardHeader kind="Question" title="The team asked you" aside={<StatusTag tone="warn">Needs you</StatusTag>} />
+          <PanelCardBody>
+          <p className="whitespace-pre-wrap text-[13px] text-ink-2">{task.pendingQuestion}</p>
           {hasOptions ? (
             <OptionCards
               options={options.map((option, index) => ({
@@ -210,11 +210,12 @@ export default function TaskCard({
               {refusal}
             </p>
           )}
-        </div>
+          </PanelCardBody>
+        </PanelCard>
       )}
       {isFailed && (
-        <div className={`${CARD_SURFACE} max-w-xl px-4 py-3 text-[13px]`}>
-          <p className={isCancelled ? "font-semibold text-ink-2" : "font-semibold text-[#c43333] dark:text-rose-300"}>{task.status === "rejected" ? "Task rejected" : isCancelled ? "Task cancelled" : "Task failed"}{task.errorMessage ? `: ${task.errorMessage}` : ""}</p>
+        <PanelCard className="max-w-xl px-3.5 py-3 text-[13px]">
+          <p className={isCancelled ? "font-semibold text-ink-2" : "font-semibold text-danger"}>{task.status === "rejected" ? "Task rejected" : isCancelled ? "Task cancelled" : "Task failed"}{task.errorMessage ? `: ${task.errorMessage}` : ""}</p>
           <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
@@ -237,7 +238,7 @@ export default function TaskCard({
               View thread
             </button>
           </div>
-        </div>
+        </PanelCard>
       )}
       {/* Approve lives on the ApprovalCard(s) rendered below this card —
           one control per approval, not a second button for pending[0]. */}

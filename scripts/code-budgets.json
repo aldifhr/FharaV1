@@ -110,10 +110,6 @@
   "apps/web/components/SubtaskActivity.tsx": {
     "tint": 2
   },
-  "apps/web/components/TaskBoard.tsx": {
-    "pill": 4,
-    "tint": 22
-  },
   "apps/web/components/TaskThreadPanel.tsx": {
     "lines": 808,
     "tint": 22
@@ -144,10 +140,6 @@
   "apps/web/components/chat/PersonalChatPanel.tsx": {
     "suppressions": 1,
     "tint": 6
-  },
-  "apps/web/components/chat/TaskCard.tsx": {
-    "tint": 5,
-    "hex": 7
   },
   "apps/web/components/chat/cards/ChangesCard.tsx": {
     "tint": 2,

@@ -154,7 +154,7 @@ function hasOpenLayer(panel: HTMLElement | null, target: EventTarget | null): bo
   return target instanceof HTMLSelectElement;
 }
 
-const NAV_ITEMS: { id: string; label: string; icon: typeof SlidersHorizontal; group?: string }[] = [
+export const NAV_ITEMS: { id: string; label: string; icon: typeof SlidersHorizontal; group?: string }[] = [
   // Top group
   { id: "general", label: "General", icon: SlidersHorizontal },
   { id: "appearance", label: "Appearance", icon: Palette },

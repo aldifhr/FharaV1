@@ -193,7 +193,7 @@ export async function finalize(input: {
     qaValues.length === 0
       ? ""
       : blockedQa.length > 0
-        ? `QA: skipped — ${blockedDetail ?? "the QA environment could not run browser checks"}.`
+        ? `QA blocked — ${blockedDetail ?? "the QA environment could not run browser checks"}. Browser checks did not run.`
         : qaValues.every(([, verdict]) => verdict === "passed")
           ? "QA: structural browser checks passed."
           : "";
@@ -230,7 +230,14 @@ export async function finalize(input: {
     content: message,
     agentId: ctoAgent?._id as any,
   });
-  await deps.api.completeTask({ taskId: task._id, status: "done" });
+  // QA that could not run (no browser, no deps) does not fail the task
+  // (policy.qaRequired decides that), but the Done it ends in carries a
+  // visible "QA blocked" warning instead of reading as fully checked.
+  const qaWarning =
+    blockedQa.length > 0
+      ? `QA blocked: ${blockedDetail ?? "the QA environment could not run browser checks"}`.slice(0, 500)
+      : undefined;
+  await deps.api.completeTask({ taskId: task._id, status: "done", ...(qaWarning ? { completionWarning: qaWarning } : {}) });
   return evaluation;
 }
 

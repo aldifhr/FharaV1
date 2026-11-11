@@ -683,6 +683,10 @@ export const get = query({
         branchName: task.branchName ?? null,
         permissionMode: task.permissionMode ?? "supervised",
         errorMessage: task.errorMessage ?? null,
+        // Direct threads idle in waiting_input; the label needs both.
+        mode: task.mode ?? "orchestrated",
+        pendingQuestion: task.pendingQuestion ?? null,
+        completionWarning: task.completionWarning ?? null,
         createdAt: task._creationTime,
         startedAt,
         endedAt,

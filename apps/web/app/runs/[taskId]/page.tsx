@@ -13,7 +13,7 @@ import { useToast } from "@/components/Toasts";
 import { buildRunJson, buildRunMarkdown, exportFilename } from "@/lib/runExport";
 import webPackage from "../../../package.json";
 import { roleLabel } from "@/lib/agentRoles";
-import { taskStatusLabel } from "@/lib/taskStatus";
+import { isIdleDirectThread, taskStatusLabel } from "@/lib/taskStatus";
 import { clockTime } from "@/lib/format";
 import RoutingInspector from "@/components/runs/RoutingInspector";
 import PlanGraph from "@/components/runs/PlanGraph";
@@ -580,8 +580,8 @@ export default function RunTracePage() {
                 </div>
                 <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-ink-2">
                   <span className="inline-flex items-center gap-1.5">
-                    <span className={`h-1.5 w-1.5 rounded-full ${statusDot(run.task.status)}`} />
-                    {taskStatusLabel(run.task.status)}
+                    <span className={`h-1.5 w-1.5 rounded-full ${statusDot(isIdleDirectThread(run.task.status, run.task) ? "idle" : run.task.status)}`} />
+                    {taskStatusLabel(run.task.status, run.task)}
                   </span>
                   <span className="text-ink-3">·</span>
                   <span className="tabular-nums">{formatDuration(duration)}</span>
@@ -604,6 +604,9 @@ export default function RunTracePage() {
                     </>
                   )}
                 </p>
+                {run.task.status === "done" && run.task.completionWarning && (
+                  <p className="mt-1 text-[13px] text-warn" data-testid="completion-warning">{run.task.completionWarning}</p>
+                )}
                 {models.length > 0 && <p className="mt-1 truncate text-[12.5px] text-ink-3">{models.join(", ")}</p>}
                 {run.plan?.estimate && (
                   <p className="mt-1 text-[12.5px] tabular-nums text-ink-3" title="An estimate from this project's recent runs, not a guarantee">

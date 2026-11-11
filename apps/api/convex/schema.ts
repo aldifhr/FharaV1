@@ -478,6 +478,9 @@ export default defineSchema({
     // separately (taskContext decision `user_answer`) — this field holds
     // ONLY the pending question.
     pendingQuestion: v.optional(v.string()),
+    // A done task's caveat, shown next to Done (e.g. "QA blocked: Chromium
+    // is not installed on the worker"). Additive; set by completeTask.
+    completionWarning: v.optional(v.string()),
     // Optional A/B/C-style choices the UI offers instead of free text.
     // Empty/absent = the free-text answer box.
     pendingOptions: v.optional(v.array(v.string())),

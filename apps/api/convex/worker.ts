@@ -708,14 +708,16 @@ export const completeTask = action({
     taskId: v.id("tasks"),
     status: taskStatus,
     errorMessage: v.optional(v.string()),
+    completionWarning: v.optional(v.string()),
     workerId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
-    const { taskId, status, errorMessage, workerId } = withoutToken(args);
+    const { taskId, status, errorMessage, completionWarning, workerId } = withoutToken(args);
     return await ctx.runMutation(internal.orchestration.completeTask, {
       taskId,
       status,
       errorMessage,
+      completionWarning,
       workerId,
     });
   },

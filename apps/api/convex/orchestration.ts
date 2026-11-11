@@ -1802,6 +1802,8 @@ export const completeTask = internalMutation({
     taskId: v.id("tasks"),
     status: taskStatus,
     errorMessage: v.optional(v.string()),
+    /** A Done that comes with a caveat, e.g. "QA blocked: …". Only stored on done. */
+    completionWarning: v.optional(v.string()),
     workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -1841,6 +1843,8 @@ export const completeTask = internalMutation({
     await ctx.db.patch(args.taskId, {
       status: args.status,
       errorMessage: args.errorMessage,
+      completionWarning:
+        args.status === "done" && args.completionWarning?.trim() ? args.completionWarning.trim().slice(0, 500) : undefined,
       completedAt: now,
       updatedAt: now,
       workerId: undefined,
@@ -1855,7 +1859,11 @@ export const completeTask = internalMutation({
         taskId: task._id,
         projectId: task.projectId,
         type: `task.${args.status}`,
-        payload: args.errorMessage ? { error: args.errorMessage.slice(0, 500) } : {},
+        payload: args.errorMessage
+          ? { error: args.errorMessage.slice(0, 500) }
+          : args.status === "done" && args.completionWarning?.trim()
+            ? { warning: args.completionWarning.trim().slice(0, 500) }
+            : {},
         level: args.status === "failed" ? "error" : "info",
       });
       const executions = await ctx.db

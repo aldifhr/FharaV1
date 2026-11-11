@@ -186,7 +186,7 @@ function indexConstants(env: Env) {
     OPENCODE_CATALOG_POLL_MS: wenv("WORKER_OPENCODE_CATALOG_POLL_MS", env),
     WORKER_ID: wenv("WORKER_ID", env),
     CONVEX_SERVICE_TOKEN: wenv("CONVEX_SERVICE_TOKEN", env),
-    LOG_CONVEX_URL: wenvRaw("NEXT_PUBLIC_CONVEX_URL", env, { aliases: false }),
+    LOG_CONVEX_URL: wenv("NEXT_PUBLIC_CONVEX_URL", env),
   };
 }
 const INDEX_NAMES = [

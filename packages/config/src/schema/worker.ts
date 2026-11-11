@@ -138,7 +138,7 @@ export const WORKER_VARS = [
     group: "worker",
     doc: "Worker-wide LLM gate; falls back to ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS, then 1.",
     readAt: "startup",
-    quirk: "read at module load, before dotenv runs, so only the shell env counts until the entrypoint bootstraps the gate; \"0\" reads as 0 (D14)",
+    quirk: "read at module load (after utils/loadEnv); \"0\" reads as 0",
   },
   {
     name: "FHARA_MEMORY_SUGGESTIONS",
@@ -169,7 +169,6 @@ export const DIRECT_VARS = [
     group: "direct",
     doc: "Direct-thread poll interval (ms).",
     readAt: "startup",
-    quirk: "read at module load (D14)",
   },
   {
     name: "DIRECT_IDLE_MIN",

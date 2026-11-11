@@ -1,5 +1,6 @@
-import { wenv, wenvRaw } from "@fhara/config/worker";
-import dotenv from "dotenv";
+// Must stay the first import: loads the root .env before any other module is evaluated.
+import "./utils/loadEnv";
+import { wenv } from "@fhara/config/worker";
 import os from "node:os";
 import { createConvexClient, createConvexSubscriber } from "./convexClient";
 import { WorkerApi, type WorkerTask } from "./workerApi";
@@ -19,9 +20,7 @@ import { effectiveWorkspaceRoot, reportKnobEnv, syncAppSettings } from "./servic
 import { REPO_TOOLS_CAPABILITY } from "@/api/convex/lib/chat/repoTools";
 import { DirectThreads } from "./direct";
 import { installConsoleRedaction, registerEnvSecrets } from "./utils/redact";
-import { ROOT_ENV_FILE } from "./utils/rootEnv";
 
-dotenv.config({ path: ROOT_ENV_FILE });
 // L2: the worker's own logs (stdout/stderr) never print a known secret.
 registerEnvSecrets();
 installConsoleRedaction();
@@ -145,7 +144,7 @@ async function main() {
   });
 
   log(
-    `listening: convex=${wenvRaw("NEXT_PUBLIC_CONVEX_URL", undefined, { aliases: false })} root=${workspaceRoot} concurrency=${CONCURRENCY}`
+    `listening: convex=${wenv("NEXT_PUBLIC_CONVEX_URL")} root=${workspaceRoot} concurrency=${CONCURRENCY}`
   );
 
   // Retry recover until Convex is reachable (cloud or local dev)

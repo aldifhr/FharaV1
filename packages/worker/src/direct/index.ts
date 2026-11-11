@@ -32,7 +32,7 @@ import { ApiLoopEngine } from "./apiLoopSession";
 import { ThreadRunner, type DirectStore } from "./threadRunner";
 import type { DirectEngine } from "./types";
 
-/** Read at module load (before the entrypoint's dotenv), as before E1. */
+/** Read at module load; the entrypoint loads the root .env before this module is evaluated. */
 export const DIRECT_POLL_MS = wenv("DIRECT_POLL_MS"); // ≥ 250
 
 export function directIdleMs(env?: Record<string, string | undefined>): number {

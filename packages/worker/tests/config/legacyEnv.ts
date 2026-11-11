@@ -260,7 +260,8 @@ export function legacyIndexConstants(env: Env) {
     OPENCODE_CATALOG_POLL_MS: b3Int(env.WORKER_OPENCODE_CATALOG_POLL_MS, 15_000, 5_000),
     WORKER_ID: env.WORKER_ID,
     CONVEX_SERVICE_TOKEN: env.CONVEX_SERVICE_TOKEN,
-    LOG_CONVEX_URL: env.NEXT_PUBLIC_CONVEX_URL,
+    // The startup log shows the CONVEX_URL alias too.
+    LOG_CONVEX_URL: env.NEXT_PUBLIC_CONVEX_URL ?? env.CONVEX_URL,
   };
 }
 

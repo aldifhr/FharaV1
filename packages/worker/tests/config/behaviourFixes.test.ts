@@ -237,3 +237,35 @@ describe("B7: one workspace-path resolver", () => {
     }
   });
 });
+
+describe("startup: .env is loaded before any module-load read; the log shows the CONVEX_URL alias", () => {
+  it("index.ts imports utils/loadEnv first and nothing else calls dotenv", async () => {
+    const fs = await import("node:fs");
+    const nodePath = await import("node:path");
+    const src = nodePath.resolve(import.meta.dirname, "../../src");
+    const index = fs.readFileSync(nodePath.join(src, "index.ts"), "utf8");
+    const firstImport = index.split("\n").find((l) => l.startsWith("import "));
+    expect(firstImport).toBe('import "./utils/loadEnv";');
+    const loadEnv = fs.readFileSync(nodePath.join(src, "utils/loadEnv.ts"), "utf8");
+    expect(loadEnv).toContain("dotenv.config({ path: ROOT_ENV_FILE })");
+    const others: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = nodePath.join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (/\.ts$/.test(e.name) && !full.endsWith("utils/loadEnv.ts") && /dotenv\.config\(/.test(fs.readFileSync(full, "utf8"))) others.push(full);
+      }
+    };
+    walk(src);
+    expect(others).toEqual([]);
+  });
+
+  it("the listening line reads NEXT_PUBLIC_CONVEX_URL with its CONVEX_URL alias", async () => {
+    const { wenv } = await import("@fhara/config/worker");
+    expect(wenv("NEXT_PUBLIC_CONVEX_URL", { CONVEX_URL: "http://legacy" })).toBe("http://legacy");
+    const fs = await import("node:fs");
+    const nodePath = await import("node:path");
+    const index = fs.readFileSync(nodePath.resolve(import.meta.dirname, "../../src/index.ts"), "utf8");
+    expect(index).toContain('listening: convex=${wenv("NEXT_PUBLIC_CONVEX_URL")}');
+  });
+});

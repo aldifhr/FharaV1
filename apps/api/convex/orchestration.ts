@@ -795,8 +795,7 @@ export const setPlanning = internalMutation({
     taskId: v.id("tasks"),
     classification: v.string(),
     strategy: v.string(),
-    planVersion: v.number(),
-    responseOwner: v.optional(v.string()),
+    planVersion: v.number(), responseOwner: v.optional(v.string()), // O2: the role that reports the outcome
     workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -806,8 +805,7 @@ export const setPlanning = internalMutation({
     await ctx.db.patch(args.taskId, {
       classification: args.classification,
       strategy: args.strategy,
-      planVersion: args.planVersion,
-      ...(args.responseOwner ? { responseOwner: args.responseOwner } : {}),
+      planVersion: args.planVersion, ...(args.responseOwner ? { responseOwner: args.responseOwner } : {}),
       updatedAt: Date.now(),
     });
   },

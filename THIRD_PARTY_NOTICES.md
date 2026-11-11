@@ -169,6 +169,8 @@ SOFTWARE.
     - `runner/src/runner.ts` turn, steer, interrupt and recovery logic → ported (not copied) in
       `packages/worker/src/direct/threadRunner.ts` and `apps/api/convex/lib/directThreads.ts`
       (`recoverDirectThread`)
+  - Direct thread UI (plan T3; pattern only, no code copied): `web/src/transcript.ts` (a live tail plus older
+    pages read once; events folded per item) → `apps/web/lib/threadbear/{reducer.ts, transcriptMerge.ts}`
   - Mock fixtures (docs/mock-fixtures.md; commit b697f32; each file carries a header naming its source):
     - `app/Tools/mock-runner/make-synthetic.mjs` → `scripts/fixtures/make-synthetic.mjs` (adapted: the
       commit-safe generator, one folder per scenario with `events.ndjson`, the sequenced `push` helper;

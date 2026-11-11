@@ -35,6 +35,7 @@ import ActivityGroupRow from "./chat/ActivityGroupRow";
 import { refusalCopy } from "@/lib/taskInput";
 import { useMessageHistory } from "@/lib/useMessageHistory";
 import HistoryBar from "./chat/HistoryBar";
+import DirectThread from "./direct/DirectThread";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 const timeOf = (ms?: number) => (ms ? clockTime(ms) : "");
@@ -63,7 +64,9 @@ export default function TaskThreadPanel({
   const toast = useToast();
 
   const task = useQuery(api.tasks.get, taskId ? { taskId: taskId as any } : "skip");
-  const taskExists = Boolean(task);
+  // A direct thread (threadbear T3) reads its own events in DirectThread; none of the orchestrated reads below.
+  const isDirect = (task as any)?.mode === "direct";
+  const taskExists = Boolean(task) && !isDirect;
   const project = useQuery(api.projects.get, task?.projectId ? { projectId: task.projectId } : "skip");
   const liveMessages = useQuery(api.messages.listByTask, taskExists ? { taskId: taskId as any } : "skip");
   // D12: older pages behind the newest window, and the turn outline.
@@ -80,6 +83,7 @@ export default function TaskThreadPanel({
   const agents = useQuery(api.agents.list, {});
   const execution = useQuery(api.executionView.getForTask, taskExists ? { taskId: taskId as any } : "skip");
 
+  const interruptDirect = useMutation(api.directThreads.interrupt);
   const sendThreadMessage = useMutation(api.messages.insertThreadMessage);
   const retryTask = useMutation(api.tasks.retry);
   const cancelTask = useMutation(api.tasks.cancel);
@@ -195,6 +199,16 @@ export default function TaskThreadPanel({
         ) : (
           <p className="p-5 text-[14px] text-ink-2">This task was deleted or is no longer available.</p>
         )}
+      </InspectorSurface>
+    );
+  }
+
+  if (isDirect) {
+    const stopDirect = () => void interruptDirect({ taskId: task._id as any }).catch((err) => toast("error", "Couldn't stop the agent", errorText(err)));
+    return (
+      <InspectorSurface variant={surface} width={panelWidth} onWidthChange={onPanelWidthChange} resizeLabel="Resize task thread">
+        {header({ onStop: stopDirect })}
+        <DirectThread taskId={String(task._id)} projectId={String(task.projectId)} />
       </InspectorSurface>
     );
   }

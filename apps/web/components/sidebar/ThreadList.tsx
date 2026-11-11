@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation } from "convex/react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { matchesChord, useKeybindings } from "@/lib/keybindings";
 import { useUiPref } from "@/lib/uiPrefs";
@@ -25,6 +25,7 @@ import { RenameInput, useRenameThread } from "../ThreadRename";
 import { SectionToggle } from "./SectionToggle";
 import ThreadRow from "./ThreadRow";
 import { useAllThreads } from "./useAllThreads";
+import NewDirectThread from "../direct/NewDirectThread";
 
 /** Rows shown per group before "N more" (all rows show while filtering). */
 const SHOWN = 6;
@@ -187,10 +188,13 @@ export default function ThreadList({
     return next;
   };
 
+  // Threadbear T3: "+" on a project group starts a direct thread there.
+  const [newIn, setNewIn] = useState<{ projectId: string; name: string } | null>(null);
   const total = rows?.length;
   return (
     <section aria-label="Threads">
       <SectionToggle title="Threads" count={total} open={open} onToggle={onToggle} chevron />
+      {newIn && <NewDirectThread projectId={newIn.projectId} projectName={newIn.name} onClose={() => setNewIn(null)} />}
       {open && <ThreadControls groupBy={groupBy} onGroupBy={setGroupBy} filter={filter} onFilter={setFilter} />}
       {open && rows === undefined && <p className="px-2 pt-1.5 text-[13px] text-ink-3">Loading threads…</p>}
       {open && rows !== undefined && groups.length === 0 && (
@@ -206,16 +210,29 @@ export default function ThreadList({
             const shown = all ? g.rows : g.rows.slice(0, SHOWN);
             return (
               <div key={g.key}>
-                <button
-                  type="button"
-                  onClick={() => setCollapsed((s) => toggle(s, g.key))}
-                  aria-expanded={isOpen}
-                  className="flex h-6 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12.5px] text-ink-3 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
-                >
-                  <ChevronRight size={12} aria-hidden="true" className={`transition-transform ${isOpen ? "rotate-90" : ""}`} />
-                  <span className="min-w-0 flex-1 truncate">{g.label}</span>
-                  <span className="tabular-nums">{g.rows.length}</span>
-                </button>
+                <div className="group/head flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => setCollapsed((s) => toggle(s, g.key))}
+                    aria-expanded={isOpen}
+                    className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-left text-[12.5px] text-ink-3 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
+                  >
+                    <ChevronRight size={12} aria-hidden="true" className={`transition-transform ${isOpen ? "rotate-90" : ""}`} />
+                    <span className="min-w-0 flex-1 truncate">{g.label}</span>
+                    <span className="tabular-nums">{g.rows.length}</span>
+                  </button>
+                  {g.key.startsWith("project:") && (
+                    <button
+                      type="button"
+                      onClick={() => setNewIn({ projectId: g.key.slice("project:".length), name: g.label })}
+                      title={`New direct thread in ${g.label}`}
+                      aria-label={`New direct thread in ${g.label}`}
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 outline-none hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ink/30 group-hover/head:opacity-100 max-sm:opacity-100"
+                    >
+                      <Plus size={13} />
+                    </button>
+                  )}
+                </div>
                 {isOpen && (
                   <ul className="space-y-px">
                     {shown.map((r) => (

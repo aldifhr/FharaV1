@@ -91,7 +91,7 @@ export default function TaskThreadHeader({
       title={<EditableTitle title={task.title} renameRef={{ taskId: String(task._id) }} label="task" />}
       subtitle={
         <>
-          Task thread · {projectName ?? "Workspace"}
+          {task.mode === "direct" ? `Direct thread${task.direct?.role ? ` (${task.direct.role})` : ""}` : "Task thread"} · {projectName ?? "Workspace"}
           {" · "}
           <span title="Permission mode">{PERMISSION_MODE_LABELS[normalizePermissionMode(task.permissionMode)]}</span>
           {" · "}
@@ -114,7 +114,7 @@ export default function TaskThreadHeader({
           {/* Plan 022: Pause / Resume beside Stop. Only Stop confirms. */}
           {running && (
             <>
-              <PauseResumeButton task={{ _id: task._id, title: task.title, status }} size={15} />
+              {task.mode !== "direct" && <PauseResumeButton task={{ _id: task._id, title: task.title, status }} size={15} />}
               <button type="button" onClick={onStop} title="Stop task" aria-label="Stop task" className={`${HEADER_BUTTON} hover:text-danger`}>
                 <Square size={14} />
               </button>

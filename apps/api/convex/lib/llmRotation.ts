@@ -35,6 +35,7 @@
  *
  * Pure module (no Convex import): the backend and the worker share it.
  */
+import { isContextOverflowText } from "./llmWireErrors";
 
 /** Hands out the start index of a rotation among `size` candidates. */
 export interface StickyCursor {
@@ -127,7 +128,13 @@ export interface FailureCooldown {
   cooldownMs: number;
   /** Rate-limit backoff level after this failure (rate limits only). */
   backoffLevel?: number;
-  kind: "rate_limit" | "auth" | "transient" | "request";
+  /**
+   * `context_overflow`: the request is longer than the model's context
+   * window. The request is at fault, not the connection: never a
+   * cooldown, and never a reason to rotate to the next model (the caller
+   * shrinks the request and retries the same one, DeepSeek Harness D2).
+   */
+  kind: "rate_limit" | "auth" | "transient" | "request" | "context_overflow";
 }
 
 /** Exponential backoff for rate limits: level 1 = 2s, then doubling, max 5 min. */
@@ -154,11 +161,15 @@ export function errorStatus(error: unknown): number | undefined {
  * rate-limit wording or 429 → exponential backoff; 401/402/403 → 2 min
  * (the credential is at fault); other 4xx → no cooldown (the request is at
  * fault, not the connection); anything else (5xx, network) → 30 s.
+ * A context overflow is checked first: its 400 (or 413) never cools down.
  */
 export function cooldownForFailure(error: unknown, previousLevel = 0): FailureCooldown {
   const status = errorStatus(error);
   const message =
     error instanceof Error ? error.message.toLowerCase() : typeof error === "string" ? error.toLowerCase() : "";
+  if ((status === undefined || (status >= 400 && status < 500)) && isContextOverflowText(message)) {
+    return { cooldownMs: 0, kind: "context_overflow" };
+  }
   if (status === 429 || RATE_LIMIT_TEXT.some((text) => message.includes(text))) {
     const level = Math.min(previousLevel + 1, BACKOFF.maxLevel);
     return { cooldownMs: rateLimitCooldownMs(level), backoffLevel: level, kind: "rate_limit" };

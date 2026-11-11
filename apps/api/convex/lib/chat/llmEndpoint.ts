@@ -14,6 +14,7 @@
  *   configured is tried first (what has always worked for chat); on a 404
  *   the variant with / without the `/v1` segment is tried once.
  */
+import { contextLimitFromText, isContextOverflowText, LlmContextOverflowError } from "../llmWireErrors";
 
 export type LlmWireProtocol = "anthropic" | "openai";
 
@@ -102,12 +103,12 @@ export function llmHttpError(
       : attempted && attempted.length === 1
         ? `; path ${safePath(attempted[0])}`
         : "";
-  return Object.assign(
-    new Error(
-      `LLM request failed: ${status} (${describeEndpoint(config)}, model "${config.model}"${tried})${excerpt ? `: ${excerpt}` : ""}`
-    ),
-    { status }
-  );
+  const message = `LLM request failed: ${status} (${describeEndpoint(config)}, model "${config.model}"${tried})${excerpt ? `: ${excerpt}` : ""}`;
+  // A context overflow gets its own class (no cooldown, no rotation; D2).
+  if (status >= 400 && status < 500 && isContextOverflowText(body)) {
+    return new LlmContextOverflowError(message, { status, contextLimit: contextLimitFromText(body) });
+  }
+  return Object.assign(new Error(message), { status });
 }
 
 function safePath(url: string): string {

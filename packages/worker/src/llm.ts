@@ -6,6 +6,8 @@ import { emitObservation } from "@/effects/observationContext";
 
 export type { LLMMessage, LLMResult } from "@/types/llm";
 import { mergeRawUsage, normalizeAnthropicUsage, normalizeOpenAiUsage } from "@/llm/usage";
+import { contextLimitFromText, formatTimeoutLimit, isContextOverflowText } from "@/api/convex/lib/llmWireErrors";
+import { asDroppedConnection, LlmContextOverflowError, LlmIncompleteResponseError, LlmMalformedResponseError } from "@/llm/errors";
 
 export interface LLMCallOptions {
   /** External cancellation (task cancel/deadline). Enforcement lands in
@@ -225,21 +227,20 @@ export class OpenAICompatibleProvider implements LLMProvider {
         if (opts?.signal?.aborted) {
           throw new Error(`LLM request aborted by caller at ${this.baseUrl}/chat/completions`);
         }
-        throw new Error(`LLM request timed out after ${Math.round(timeoutMs / 1000)}s at ${this.baseUrl}/chat/completions`);
+        throw new Error(`LLM request timed out after ${formatTimeoutLimit(timeoutMs)} at ${this.baseUrl}/chat/completions`);
       }
-      throw error;
+      throw asDroppedConnection(error, `${this.baseUrl}/chat/completions`) ?? error;
     } finally {
       clearTimeout(timeout);
       opts?.signal?.removeEventListener("abort", onExternalAbort);
     }
-    if (!response.ok) {
-      const details = responseBody.trim().slice(0, 500);
-      throw new Error(
-        `LLM request failed (${response.status}) for model "${model ?? this.model}" at ${this.baseUrl}/chat/completions${details ? `: ${details}` : ""}`
-      );
-    }
+    if (!response.ok) throw httpError(response.status, responseBody, model ?? this.model, this.baseUrl);
 
-    return noteTruncation(parseCompletionBody(responseBody), { model: model ?? this.model, baseUrl: this.baseUrl, maxTokens });
+    return noteTruncation(parseCompletionBody(responseBody, `model "${model ?? this.model}" at ${this.baseUrl}/chat/completions`), {
+      model: model ?? this.model,
+      baseUrl: this.baseUrl,
+      maxTokens,
+    });
   }
 
   /**
@@ -278,15 +279,11 @@ export class OpenAICompatibleProvider implements LLMProvider {
         }),
         signal: controller.signal,
       });
-      if (!response.ok) {
-        const details = (await response.text()).trim().slice(0, 500);
-        throw new Error(
-          `LLM request failed (${response.status}) for model "${model ?? this.model}" at ${this.baseUrl}/chat/completions${details ? `: ${details}` : ""}`
-        );
-      }
+      if (!response.ok) throw httpError(response.status, await response.text(), model ?? this.model, this.baseUrl);
+      const where = `model "${model ?? this.model}" at ${this.baseUrl}/chat/completions`;
       const contentType = response.headers.get("content-type") ?? "";
       if (!response.body || !/event-stream/i.test(contentType)) {
-        const result = parseCompletionBody(await response.text());
+        const result = parseCompletionBody(await response.text(), where);
         if (result.content) onChunk(result.content);
         return noteTruncation(result, { model: model ?? this.model, baseUrl: this.baseUrl, maxTokens });
       }
@@ -296,9 +293,11 @@ export class OpenAICompatibleProvider implements LLMProvider {
       let content = "";
       let usage: unknown;
       let finishReason: string | undefined;
+      let sawDone = false;
       const handleLine = (line: string) => {
         if (!line.startsWith("data:")) return;
         const data = line.slice(5).trim();
+        if (data === "[DONE]") sawDone = true;
         if (!data || data === "[DONE]") return;
         let payload: {
           choices?: { delta?: { content?: string | null }; message?: { content?: string | null }; finish_reason?: string | null }[];
@@ -307,8 +306,11 @@ export class OpenAICompatibleProvider implements LLMProvider {
         };
         try {
           payload = JSON.parse(data);
-        } catch {
-          return; // a malformed keep-alive/comment line is not fatal
+        } catch (cause) {
+          // Keep-alives are ":" comment lines and never reach here. A
+          // `data:` frame that is not JSON lost part of the reply: skipping
+          // it would return a reply with a hole as a success (D2).
+          throw new LlmMalformedResponseError(`LLM stream sent a malformed frame for ${where}: ${data.slice(0, 120)}`, { cause, partial: content });
         }
         if (payload.error) {
           const message = typeof payload.error === "string" ? payload.error : payload.error.message ?? "unknown error";
@@ -323,7 +325,13 @@ export class OpenAICompatibleProvider implements LLMProvider {
         }
       };
       for (;;) {
-        const { value, done } = await reader.read();
+        let chunk: ReadableStreamReadResult<Uint8Array>;
+        try {
+          chunk = await reader.read();
+        } catch (error) {
+          throw asDroppedConnection(error, `${this.baseUrl}/chat/completions`, content) ?? error;
+        }
+        const { value, done } = chunk;
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split(/\r?\n/);
@@ -332,6 +340,14 @@ export class OpenAICompatibleProvider implements LLMProvider {
       }
       buffer += decoder.decode();
       if (buffer) handleLine(buffer);
+      if (!finishReason && !sawDone) {
+        // The body ended cleanly but the reply never said it was done: a
+        // cut stream, not an answer (D2). The partial text rides along.
+        throw new LlmIncompleteResponseError(
+          `LLM stream ended before the reply finished (no finish_reason, no [DONE]) for ${where}`,
+          { partial: content }
+        );
+      }
       return noteTruncation(
         { content, ...normalizeOpenAiUsage(usage), ...(finishReason ? { finishReason } : {}) },
         { model: model ?? this.model, baseUrl: this.baseUrl, maxTokens }
@@ -341,9 +357,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
         if (opts?.signal?.aborted) {
           throw new Error(`LLM request aborted by caller at ${this.baseUrl}/chat/completions`);
         }
-        throw new Error(`LLM request timed out after ${Math.round(timeoutMs / 1000)}s at ${this.baseUrl}/chat/completions`);
+        throw new Error(`LLM request timed out after ${formatTimeoutLimit(timeoutMs)} at ${this.baseUrl}/chat/completions`);
       }
-      throw error;
+      throw asDroppedConnection(error, `${this.baseUrl}/chat/completions`) ?? error;
     } finally {
       clearTimeout(timeout);
       opts?.signal?.removeEventListener("abort", onExternalAbort);
@@ -352,10 +368,27 @@ export class OpenAICompatibleProvider implements LLMProvider {
 }
 
 /**
- * Parse a /chat/completions body: one JSON object, or SSE lines from a
- * server that streams even without `stream: true`.
+ * The error for a non-2xx answer. A context-window overflow gets its own
+ * class (D2); the message keeps the "(NNN)" status and provider text.
  */
-function parseCompletionBody(responseBody: string): LLMResult {
+function httpError(status: number, body: string, model: string, baseUrl: string): Error {
+  const details = body.trim().slice(0, 500);
+  const message = `LLM request failed (${status}) for model "${model}" at ${baseUrl}/chat/completions${details ? `: ${details}` : ""}`;
+  if (status >= 400 && status < 500 && isContextOverflowText(details)) {
+    return new LlmContextOverflowError(`${message} [context overflow: the request is longer than the model's context window]`, {
+      status,
+      contextLimit: contextLimitFromText(details),
+    });
+  }
+  return new Error(message);
+}
+
+/**
+ * Parse a /chat/completions body: one JSON object, or SSE lines from a
+ * server that streams even without `stream: true`. A body that is neither
+ * (cut mid-way, HTML, garbage) is an error, never an empty success (D2).
+ */
+function parseCompletionBody(responseBody: string, where = "the model"): LLMResult {
   const normalizedBody = responseBody.replace(/(?:\r?\n)?data:\s*\[DONE\]\s*$/, "");
   try {
     const data = JSON.parse(normalizedBody) as {
@@ -377,11 +410,22 @@ function parseCompletionBody(responseBody: string): LLMResult {
     // request; missing usage is estimated upstream (withUsageEstimate).
     let usage: unknown;
     let finishReason: string | undefined;
-    const content = normalizedBody
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith("data:") && line.slice(5).trim() !== "[DONE]")
+    const frames = normalizedBody.split(/\r?\n/).filter((line) => line.startsWith("data:") && line.slice(5).trim() !== "[DONE]");
+    if (frames.length === 0) {
+      throw new LlmMalformedResponseError(
+        `LLM response body is not valid JSON for ${where} (${normalizedBody.length} bytes, cut or not a completion): ${normalizedBody.trim().slice(0, 120)}`,
+        { cause: error }
+      );
+    }
+    const content = frames
       .map((line) => {
-        const payload = JSON.parse(line.slice(5).trim()) as {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line.slice(5).trim());
+        } catch (cause) {
+          throw new LlmMalformedResponseError(`LLM response sent a malformed frame for ${where}: ${line.slice(5, 125).trim()}`, { cause });
+        }
+        const payload = parsed as {
           choices?: { delta?: { content?: string }; message?: { content?: string }; finish_reason?: string | null }[];
           usage?: unknown;
         };

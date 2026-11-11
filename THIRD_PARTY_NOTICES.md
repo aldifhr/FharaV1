@@ -997,12 +997,19 @@ SOFTWARE.
 ## DeepSeek Harness
 
 - Source: https://github.com/deepseek-ai/deepseek-harness (commit e8f7b93)
-- Used in (patterns only, no code copied; each file carries a header naming its source):
+- Used in (patterns, unless listed as copied below; each file carries a header naming its source):
   - `scripts/mock-llm/server.ts` wire faults (`fault` on a rule: `partial_disconnect`, `connection_reset`, `stall`,
     `malformed_chunk`, `stream_eof`, `context_overflow`, `server_error`): the behaviour table of
     `packages/test-support/llm-mock-server/README.md`, re-done for Fhara's OpenAI-compatible mock and scripted rules.
   - `packages/worker/tests/helpers/assertUntouched.ts` and `e2e/fixtures-ui/world.mjs`: "Verify the world, not the
     self-report" from `docs/testing.md` (untouched files stay byte-identical after a flow).
+  - `apps/api/convex/lib/llmWireErrors.ts` (re-exported by `packages/worker/src/llm/errors.ts`) and
+    `packages/worker/src/context/overflowRecovery.ts` (D2): typed wire faults and the context-overflow request-error
+    path (prune, re-check, summarize only if still over, retry, `compaction.start`/`compaction.end`) after
+    `packages/compaction/compaction-basic` and `docs/subsystems/compaction.md`; pattern only.
+- Copied (MIT, header in the file): `packages/worker/src/vendor/deepseek-harness/prunerConfig.ts` from
+  `packages/compaction/compaction-tool-result-pruner/src/config.ts` (head 4096 + marker + tail 1024, at most 8192;
+  `deepFreeze` and the types inlined).
 
 ```
 MIT License

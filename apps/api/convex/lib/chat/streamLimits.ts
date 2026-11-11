@@ -13,6 +13,7 @@
  * it as an interrupted reply instead of discarding it.
  */
 import { cenvRaw, cenvParse } from "@fhara/config/convex";
+import { formatTimeoutLimit } from "../llmWireErrors";
 
 export type ChatStreamLimits = { idleMs: number; totalMs: number };
 
@@ -28,7 +29,12 @@ export function chatStreamLimits(source?: {
 
 export type PartialReply = { content: string; reasoning: string };
 
-export type StreamStopKind = "idle" | "total" | "network";
+/**
+ * Why a stream stopped. "incomplete": it ended with no finish_reason /
+ * [DONE] / message_stop; "malformed": a frame was not valid JSON
+ * (lib/llmWireErrors.ts kinds, DeepSeek Harness D2).
+ */
+export type StreamStopKind = "idle" | "total" | "network" | "incomplete" | "malformed";
 
 /** A stream that stopped before the model finished, with what it sent so far. */
 export class ChatStreamError extends Error {
@@ -42,7 +48,8 @@ export class ChatStreamError extends Error {
   }
 }
 
-const seconds = (ms: number) => `${Math.round(ms / 1000)}s`;
+// "250ms" under a second, never "0s" (D2).
+const seconds = (ms: number) => formatTimeoutLimit(ms);
 
 export function idleStopMessage(idleMs: number): string {
   return `Reply stopped: the model went silent for ${seconds(idleMs)}`;

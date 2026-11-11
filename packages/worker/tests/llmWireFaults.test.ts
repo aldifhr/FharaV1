@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAICompatibleProvider, type LLMProvider } from "@/llm";
 import { isTransientLlmError, LlmConcurrencyGate, runLlmCall } from "@/effects/llmCall";
 import { classifyProviderError } from "@/utils/stallDetector";
-import { isEmptyCompletion } from "@/api/convex/lib/llmRotation";
+import { cooldownForFailure } from "@/api/convex/lib/llmRotation";
+import { isContextOverflowError, isIncompleteResponseError, LlmConnectionError, LlmMalformedResponseError, partialTextOf } from "@/llm/errors";
 import { ApiLoopEngine } from "@/direct/apiLoopSession";
 import { ThreadRunner, type DirectStatePatch, type DirectStore, type StoredEvent } from "@/direct/threadRunner";
 import { startMockLlm, type MockRule } from "../../../scripts/mock-llm/server";
@@ -12,8 +13,12 @@ import { startMockLlm, type MockRule } from "../../../scripts/mock-llm/server";
  * real OpenAI-compatible provider, the Effect retry (runLlmCall) and a
  * direct thread (ApiLoopEngine + ThreadRunner, which persists events).
  *
- * Tests marked [open bug D2] pin a mishandling as it is now, so the D2 fix
- * has to flip them on purpose (docs/mock-fixtures.md, "Wire faults").
+ * D1 pinned the mishandlings as "[open bug D2]"; D2 flipped them: a dropped
+ * stream is a classified connection failure with a human message, a
+ * malformed frame or cut body is an error (retried by runLlmCall), a stream
+ * with no finish_reason and no [DONE] is incomplete (never an answer), and a
+ * context overflow has its own class and is shrunk and retried, bounded
+ * (docs/mock-fixtures.md, "Wire faults").
  */
 const REPLY = "The quick brown fox jumps over the lazy dog, then naps in the sun all afternoon.";
 const servers: Array<{ close: () => Promise<void> }> = [];
@@ -36,17 +41,17 @@ const ask = [{ role: "user" as const, content: "hi" }];
 const gate = () => new LlmConcurrencyGate(4);
 
 describe("provider: each fault on the wire", () => {
-  it("partial_disconnect rejects (undici 'terminated'); transient, but not classified as a connection failure [open bug D2]", async () => {
+  it("partial_disconnect: undici's bare 'terminated' becomes a classified, retryable connection failure with a human message", async () => {
     const { provider } = await mock([{ fault: "partial_disconnect", faultAfterChunks: 3 }]);
     const chunks: string[] = [];
     const error = await provider.stream(ask, (d) => chunks.push(d)).catch((e) => e);
-    expect(error).toBeInstanceOf(Error);
-    expect(error.message).toBe("terminated");
+    expect(error).toBeInstanceOf(LlmConnectionError);
+    expect(error.message).not.toBe("terminated");
+    expect(error.message).toMatch(/^LLM connection closed mid-reply \(other side closed\) at http/);
     expect(chunks.join("").length).toBeGreaterThan(0); // the half reply already reached onChunk
+    expect(partialTextOf(error)).toBe(chunks.join(""));
     expect(isTransientLlmError(error)).toBe(true);
-    // The cause (UND_ERR_SOCKET "other side closed") is not looked at, so the
-    // stall/health layer sees an unclassified failure instead of "connection".
-    expect(classifyProviderError(error)).toBeNull();
+    expect(classifyProviderError(error)).toBe("connection");
   });
 
   it("connection_reset rejects 'fetch failed' and is classified as a connection failure", async () => {
@@ -60,7 +65,7 @@ describe("provider: each fault on the wire", () => {
     const { provider } = await mock([{ fault: "stall", faultAfterChunks: 2 }]);
     const started = Date.now();
     const streamed = await provider.stream(ask, () => {}, undefined, { timeoutMs: 250 }).catch((e) => e);
-    expect(streamed.message).toMatch(/^LLM request timed out after/);
+    expect(streamed.message).toMatch(/^LLM request timed out after 250ms at /); // never "after 0s"
     expect(Date.now() - started).toBeLessThan(5_000);
     const completed = await provider.complete(ask, undefined, { timeoutMs: 250 }).catch((e) => e);
     expect(completed.message).toMatch(/^LLM request timed out after/);
@@ -70,39 +75,45 @@ describe("provider: each fault on the wire", () => {
     expect(cancelled.message).toMatch(/aborted by caller/);
   });
 
-  it("malformed_chunk: the broken frame is skipped silently and the reply loses its text, yet finishes 'stop' [open bug D2]", async () => {
+  it("malformed_chunk: the broken frame fails the call (retryable), never a reply with a hole", async () => {
     const { provider } = await mock([{ fault: "malformed_chunk", faultAfterChunks: 2 }]);
-    const result = await provider.stream(ask, () => {});
-    expect(result.finishReason).toBe("stop");
-    expect(result.content).not.toBe(REPLY);
-    expect(result.content.length).toBeLessThan(REPLY.length);
+    const error = await provider.stream(ask, () => {}).catch((e) => e);
+    expect(error).toBeInstanceOf(LlmMalformedResponseError);
+    expect(error.message).toMatch(/malformed frame/);
+    expect(REPLY.startsWith(partialTextOf(error))).toBe(true);
+    expect(isTransientLlmError(error)).toBe(true);
   });
 
-  it("malformed / cut non-stream body: parsed as an empty success (only isEmptyCompletion catches it, and only with a next model)", async () => {
+  it("malformed / cut non-stream body: an error, never an empty success", async () => {
     const { provider } = await mock([{ fault: "malformed_chunk" }]);
-    const result = await provider.complete(ask);
-    expect(result.content).toBe("");
-    expect(isEmptyCompletion(result)).toBe(true);
+    const error = await provider.complete(ask).catch((e) => e);
+    expect(error).toBeInstanceOf(LlmMalformedResponseError);
+    expect(error.message).toMatch(/not valid JSON/);
+    expect(isTransientLlmError(error)).toBe(true);
   });
 
-  it("stream_eof: a stream with no finish_reason and no [DONE] is returned as a success with the partial text [open bug D2]", async () => {
+  it("stream_eof: a stream with no finish_reason and no [DONE] is incomplete, with the partial text attached", async () => {
     const { provider } = await mock([{ fault: "stream_eof", faultAfterChunks: 3 }]);
-    const result = await provider.stream(ask, () => {});
-    expect(result.finishReason).toBeUndefined();
-    expect(result.content.length).toBeGreaterThan(0);
-    expect(REPLY.startsWith(result.content) && result.content !== REPLY).toBe(true);
+    const error = await provider.stream(ask, () => {}).catch((e) => e);
+    expect(isIncompleteResponseError(error)).toBe(true);
+    expect(error.message).toMatch(/ended before the reply finished/);
+    expect(error.partial.length).toBeGreaterThan(0);
+    expect(REPLY.startsWith(error.partial) && error.partial !== REPLY).toBe(true);
   });
 
   it.each(["openai", "deepseek", "anthropic"] as const)(
-    "context_overflow (%s wording): a generic permanent 400, never retried, no overflow class [open bug D2]",
+    "context_overflow (%s wording): its own class, not transient, never a provider failure or a cooldown",
     async (overflowWording) => {
       const { server, provider } = await mock([{ fault: "context_overflow", overflowWording }]);
       const error = await runLlmCall(provider, ask, undefined, { retries: 2, timeoutMs: 5_000, gate: gate() }).catch((e) => e);
       expect(error.message).toMatch(/LLM request failed \(400\)/);
       expect(error.message).toMatch(/maximum context length|prompt is too long/);
+      expect(isContextOverflowError(error)).toBe(true);
+      expect(error.kind).toBe("context_overflow"); // the typed error survives the Effect retry
       expect(server.calls).toHaveLength(1);
       expect(isTransientLlmError(error)).toBe(false);
       expect(classifyProviderError(error)).toBeNull();
+      expect(cooldownForFailure(error)).toEqual({ cooldownMs: 0, kind: "context_overflow" });
     }
   );
 });
@@ -121,6 +132,13 @@ describe("runLlmCall (Effect retry) against the faults", () => {
     expect(error.message).toMatch(/\(503\)/);
     expect(classifyProviderError(error)).toBe("server_error");
     expect(server.calls).toHaveLength(3);
+  });
+
+  it("a cut non-stream body (malformed) is retried and the second answer is whole", async () => {
+    const { server, provider } = await mock([{ fault: "malformed_chunk", times: 1 }, {}]);
+    const result = await runLlmCall(provider, ask, undefined, { retries: 2, timeoutMs: 5_000, gate: gate() });
+    expect(result.content).toBe(REPLY);
+    expect(server.calls.map((c) => c.fault ?? "ok")).toEqual(["malformed_chunk", "ok"]);
   });
 
   it("a dropped body (partial_disconnect) is retried and the second answer is whole", async () => {
@@ -208,7 +226,7 @@ describe("direct thread (api loop) against the faults", () => {
     await turn("first");
     expect(server.calls).toHaveLength(1);
     const done = store.events.find((e) => e.type === "turn.completed")!;
-    expect(String(done.payload.error)).toBe("terminated"); // a bare undici word reaches the thread [open bug D2]
+    expect(String(done.payload.error)).toMatch(/^LLM connection closed/); // not undici's bare "terminated"
     await runner.close();
   });
 
@@ -223,33 +241,56 @@ describe("direct thread (api loop) against the faults", () => {
     await runner.close();
   });
 
-  it("stream_eof: the half reply is persisted as a completed answer [open bug D2]", async () => {
+  it("stream_eof: the half reply is never persisted as a completed answer", async () => {
     const { provider } = await mock([{ fault: "stream_eof", faultAfterChunks: 3 }]);
     const { store, runner, turn } = await thread(provider);
     await turn("first");
-    expect(store.outcomes()).toEqual(["completed"]);
-    expect(store.texts()).toHaveLength(1);
-    expect(store.texts()[0]).not.toBe(REPLY);
-    expect(REPLY.startsWith(store.texts()[0])).toBe(true);
+    expect(store.outcomes()).toEqual(["failed"]);
+    expect(store.texts()).toEqual([]);
+    expect(String(store.events.find((e) => e.type === "turn.completed")!.payload.error)).toMatch(/ended before the reply finished/);
     await runner.close();
   });
 
-  it("malformed_chunk: a reply with a hole is persisted as a completed answer [open bug D2]", async () => {
+  it("malformed_chunk: a reply with a hole is never persisted as a completed answer", async () => {
     const { provider } = await mock([{ fault: "malformed_chunk", faultAfterChunks: 2 }]);
     const { store, runner, turn } = await thread(provider);
     await turn("first");
-    expect(store.outcomes()).toEqual(["completed"]);
-    expect(store.texts()[0]).not.toBe(REPLY);
+    expect(store.outcomes()).toEqual(["failed"]);
+    expect(store.texts()).toEqual([]);
     await runner.close();
   });
 
-  it("context_overflow: the turn fails with the provider's 400 text and the thread is left as is (no prune, no retry) [open bug D2]", async () => {
-    const { server, provider } = await mock([{ fault: "context_overflow", overflowWording: "deepseek" }]);
+  it("context_overflow once: the older history is compacted and the same turn retried, then it completes", async () => {
+    const { server, provider } = await mock([{ match: ["second"], fault: "context_overflow", overflowWording: "deepseek", times: 1 }, {}]);
+    const { store, runner, turn } = await thread(provider);
+    await turn("first");
+    await turn("second");
+    expect(store.outcomes()).toEqual(["completed", "completed"]);
+    expect(store.texts()).toEqual([REPLY, REPLY]);
+    expect(server.calls.map((c) => c.fault ?? "ok")).toEqual(["ok", "context_overflow", "ok"]);
+    await runner.close();
+  });
+
+  it("context_overflow that never clears: bounded retries, then a clear failure (no other model)", async () => {
+    const { server, provider } = await mock([{ match: ["second"], fault: "context_overflow", overflowWording: "deepseek" }, {}]);
+    const { store, runner, turn } = await thread(provider);
+    await turn("first");
+    await turn("second");
+    expect(store.outcomes()).toEqual(["completed", "failed"]);
+    const error = String(store.events.filter((e) => e.type === "turn.completed")[1].payload.error);
+    expect(error).toMatch(/still longer than the model's context window after 1 recovery retry/);
+    expect(error).toMatch(/\(400\)[\s\S]*maximum context length/);
+    expect(server.calls.map((c) => c.fault ?? "ok")).toEqual(["ok", "context_overflow", "context_overflow"]);
+    await runner.close();
+  });
+
+  it("context_overflow with nothing to shrink fails at once, saying so", async () => {
+    const { server, provider } = await mock([{ fault: "context_overflow", overflowWording: "anthropic" }]);
     const { store, runner, turn } = await thread(provider);
     await turn("first");
     expect(store.outcomes()).toEqual(["failed"]);
-    expect(String(store.events.find((e) => e.type === "turn.completed")!.payload.error)).toMatch(/\(400\)[\s\S]*maximum context length/);
+    expect(String(store.events.find((e) => e.type === "turn.completed")!.payload.error)).toMatch(/no older history or tool output left to shrink[\s\S]*prompt is too long/);
     expect(server.calls).toHaveLength(1);
     await runner.close();
-  });
+});
 });

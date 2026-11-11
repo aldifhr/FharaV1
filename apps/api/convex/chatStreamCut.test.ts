@@ -41,7 +41,7 @@ describe("chat stream limits over the mock LLM", () => {
     const error = await completeWithAgent("system", ask, config, undefined, { limits: { idleMs: 100, totalMs: 60_000 } }).catch((e) => e);
     expect(error).toBeInstanceOf(ChatStreamError);
     expect(error.kind).toBe("idle");
-    expect(error.message).toMatch(/^Reply stopped: the model went silent for \d+s$/);
+    expect(error.message).toBe("Reply stopped: the model went silent for 100ms"); // never "0s" (D2)
     expect(error.partial.content.length).toBeGreaterThan(0);
     expect(REPLY.startsWith(error.partial.content)).toBe(true);
   });

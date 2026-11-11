@@ -111,11 +111,18 @@ export type ProviderFailureClass = "connection" | "server_error" | "rate_limited
 const CONNECTION_ERROR =
   /\b(ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|EPIPE|socket hang up|fetch failed|network error|connection (error|refused|reset|closed))\b/i;
 
-/** Provider-unavailable class of an LLM error, or null when it is something else (4xx, abort, parse). */
+/**
+ * Provider-unavailable class of an LLM error, or null when it is something
+ * else (4xx, abort, parse, a context overflow, a reply cut short). A typed
+ * wire error (llm/errors.ts) is classified by its kind: a dropped socket is
+ * "connection" whatever undici called it.
+ */
 export function classifyProviderError(error: unknown): ProviderFailureClass | null {
   if (!error || typeof error !== "object") return null;
-  const candidate = error as { status?: unknown; statusCode?: unknown; message?: unknown; code?: unknown; name?: unknown };
+  const candidate = error as { status?: unknown; statusCode?: unknown; message?: unknown; code?: unknown; name?: unknown; kind?: unknown };
   if (candidate.name === "AbortError") return null;
+  if (candidate.kind === "connection") return "connection";
+  if (candidate.kind === "context_overflow" || candidate.kind === "malformed" || candidate.kind === "incomplete") return null;
   const status =
     typeof candidate.status === "number"
       ? candidate.status

@@ -12,6 +12,7 @@
  */
 import crypto from "node:crypto";
 import type { LLMMessage, LLMProvider, LLMResult } from "@/llm";
+import { callWithOverflowRecovery } from "@/context/overflowRecovery";
 import type { DirectEngine, DirectSession, SessionSink, StartSessionOptions, TurnResult, UserInput } from "./types";
 
 export const API_LOOP_NOTE =
@@ -88,18 +89,27 @@ class ApiLoopSession implements DirectSession {
     ];
     let result: Omit<TurnResult, "queuedTurns">;
     try {
-      const call = () =>
+      const call = (current: LLMMessage[]) => () =>
         this.deps.provider.stream
           ? this.deps.provider.stream(
-              messages,
+              current,
               (delta) => {
                 if (!run.interrupted && delta) this.sink.output({ kind: "delta", delta: { type: "assistant.text.delta", itemId, text: delta } });
               },
               this.deps.model,
               { signal: run.abort.signal }
             )
-          : this.deps.provider.complete(messages, this.deps.model, { signal: run.abort.signal });
-      const answer: LLMResult = this.deps.gate ? await this.deps.gate(call, run.abort.signal) : await call();
+          : this.deps.provider.complete(current, this.deps.model, { signal: run.abort.signal });
+      // A context overflow shrinks the older history and retries the same
+      // turn, bounded (context/overflowRecovery.ts, DeepSeek Harness D2).
+      const recovered = await callWithOverflowRecovery<LLMResult>({
+        messages,
+        call: (current) => (this.deps.gate ? this.deps.gate(call(current), run.abort.signal) : call(current)()),
+        protectFirst: 0,
+        protectLast: 1,
+      });
+      const answer = recovered.result;
+      if (recovered.retries > 0) this.history = messages.filter((m) => m.role !== "system").slice(0, -1);
       if (run.interrupted) throw new Error("Stopped");
       const text = answer.content ?? "";
       if (text) this.sink.output({ kind: "event", event: { type: "assistant.text", itemId, text } });

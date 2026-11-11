@@ -12,6 +12,7 @@ import { cooldownForFailure, errorStatus, isEmptyCompletion, StickyRotationCurso
 import { describeEndpoint, endpointCandidates, llmHttpError, wireProtocolFor } from "./llmEndpoint";
 import { ChatStreamError, chatStreamLimits, readWithLimits, withPartial, type ChatStreamLimits, type PartialReply } from "./streamLimits";
 import { mergeRawUsage, normalizeAnthropicUsage, normalizeOpenAiUsage, type UsageBreakdown } from "../usageLedger";
+import { asDroppedConnection, formatTimeoutLimit } from "../llmWireErrors";
 
 /**
  * Endpoint + credentials for one chat completion. `fallbacks` is the rest
@@ -202,7 +203,7 @@ async function completeOnce(
       // The gateway sometimes takes longer than the old 30s to answer; a
       // raw AbortError reads as "This operation was aborted" in the UI.
       if (ctrl.signal.aborted) {
-        throw new Error(`LLM request timed out after ${Math.round(timeoutMs / 1000)}s (${describeEndpoint(globalConfig)})`);
+        throw new Error(`LLM request timed out after ${formatTimeoutLimit(timeoutMs)} (${describeEndpoint(globalConfig)})`);
       }
       // Network failure ("fetch failed"): name the provider kind and host.
       const reason = error instanceof Error ? error.message : String(error);
@@ -280,7 +281,9 @@ async function completeOnce(
         next = await readWithLimits(() => reader.read(), limits, deadline);
       } catch (error) {
         reader.cancel().catch(() => undefined);
-        throw withPartial(error, partialNow());
+        // undici's bare "terminated" (socket closed mid-body) is named as a
+        // dropped connection before it is wrapped (DeepSeek Harness D2).
+        throw withPartial(asDroppedConnection(error, `${describeEndpoint(globalConfig)}, model "${model}"`) ?? error, partialNow());
       }
       const { done, value } = next;
       if (done) break;
@@ -378,25 +381,34 @@ async function completeOnce(
     let reasoning = "";
     let streamUsage: unknown;
     let truncated = false;
+    let finished = false;
+    let badFrames = 0;
     const raw = await consumeSse(res, (payload) => {
+      let d: any;
       try {
-        const d: any = JSON.parse(payload);
-        // Usage rides on the last chunk when the server sends it
-        // (stream_options is not sent: strict servers reject it).
-        if (d.usage) streamUsage = d.usage;
-        if (d.choices?.[0]?.finish_reason === "length") truncated = true;
-        const delta = d.choices?.[0]?.delta ?? {};
-        if (typeof delta.content === "string") content += delta.content;
-        reasoning += reasoningDelta(delta);
-        onChunk?.({ content, reasoning });
-      } catch {}
+        d = JSON.parse(payload);
+      } catch {
+        badFrames++;
+        return;
+      }
+      // Usage rides on the last chunk when the server sends it
+      // (stream_options is not sent: strict servers reject it).
+      if (d.usage) streamUsage = d.usage;
+      if (d.choices?.[0]?.finish_reason === "length") truncated = true;
+      if (d.choices?.[0]?.finish_reason) finished = true;
+      const delta = d.choices?.[0]?.delta ?? {};
+      if (typeof delta.content === "string") content += delta.content;
+      reasoning += reasoningDelta(delta);
+      onChunk?.({ content, reasoning });
     }, () => ({ content, reasoning }));
-    if (!content && !reasoning) {
+    if (!content && !reasoning && !badFrames) {
       const fallback = parseJsonFallback(raw);
       content = fallback.content;
       reasoning = fallback.reasoning;
+      if (content || reasoning) finished = true; // one whole JSON body
       if (streamUsage === undefined) streamUsage = jsonUsage(raw);
     }
+    assertWholeStream(content, reasoning, { finished: finished || /(?:^|\n)data:\s*\[DONE\]/.test(raw), badFrames });
     return finish(content, reasoning, normalizeOpenAiUsage(streamUsage), truncated);
   }
 
@@ -431,28 +443,55 @@ async function completeOnce(
   let reasoning = "";
   let rawUsage: Record<string, unknown> | undefined;
   let truncated = false;
+  let finished = false;
+  let badFrames = 0;
   const raw = await consumeSse(res, (payload) => {
+    let d: any;
     try {
-      const d: any = JSON.parse(payload);
-      if (d.type === "message_delta" && d.delta?.stop_reason === "max_tokens") truncated = true;
-      // Usage: input + cache counts on message_start, cumulative output on message_delta.
-      if (d.type === "message_start") rawUsage = mergeRawUsage(rawUsage, d.message?.usage);
-      if (d.type === "message_delta") rawUsage = mergeRawUsage(rawUsage, d.usage);
-      if (d.type === "content_block_delta" && d.delta?.type === "text_delta" && typeof d.delta.text === "string") {
-        content += d.delta.text;
-      }
-      if (d.type === "content_block_delta" && d.delta?.type === "thinking_delta" && typeof d.delta.thinking === "string") {
-        reasoning += d.delta.thinking;
-      }
-      onChunk?.({ content, reasoning });
-    } catch {}
+      d = JSON.parse(payload);
+    } catch {
+      badFrames++;
+      return;
+    }
+    if (d.type === "message_delta" && d.delta?.stop_reason === "max_tokens") truncated = true;
+    if (d.type === "message_stop" || (d.type === "message_delta" && d.delta?.stop_reason)) finished = true;
+    // Usage: input + cache counts on message_start, cumulative output on message_delta.
+    if (d.type === "message_start") rawUsage = mergeRawUsage(rawUsage, d.message?.usage);
+    if (d.type === "message_delta") rawUsage = mergeRawUsage(rawUsage, d.usage);
+    if (d.type === "content_block_delta" && d.delta?.type === "text_delta" && typeof d.delta.text === "string") {
+      content += d.delta.text;
+    }
+    if (d.type === "content_block_delta" && d.delta?.type === "thinking_delta" && typeof d.delta.thinking === "string") {
+      reasoning += d.delta.thinking;
+    }
+    onChunk?.({ content, reasoning });
   }, () => ({ content, reasoning }));
-  if (!content && !reasoning) {
+  if (!content && !reasoning && !badFrames) {
     const fallback = parseJsonFallback(raw);
     content = fallback.content;
     reasoning = fallback.reasoning;
+    if (content || reasoning) finished = true;
   }
+  assertWholeStream(content, reasoning, { finished, badFrames });
   return finish(content, reasoning, normalizeAnthropicUsage(rawUsage), truncated);
+}
+
+/**
+ * A stream is an answer only when it said it was done (finish_reason /
+ * [DONE] / message_stop) and every frame parsed (DeepSeek Harness D2).
+ * A malformed frame is an error, not a hole in the reply; a stream that
+ * just stopped is incomplete. Both throw a ChatStreamError (kind
+ * "malformed" / "incomplete") carrying the text so far, so the caller keeps
+ * it as an interrupted reply, never a completed answer. A stream
+ * with no text at all is left to the empty-completion rotation.
+ */
+function assertWholeStream(content: string, reasoning: string, state: { finished: boolean; badFrames: number }): void {
+  if (state.badFrames > 0) {
+    throw new ChatStreamError("malformed", "Reply stopped: the model sent a malformed part of the reply", { content, reasoning });
+  }
+  if (!state.finished && (content || reasoning)) {
+    throw new ChatStreamError("incomplete", "Reply stopped: the model's stream ended before the reply finished", { content, reasoning });
+  }
 }
 
 /** `usage` of a plain JSON body served under an event-stream header, if any. */

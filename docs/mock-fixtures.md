@@ -117,20 +117,30 @@ way (`server-error`: the first three), then the default rules answer.
 
 `packages/worker/tests/mockLlmFaults.test.ts` checks each fault on the raw
 wire. `packages/worker/tests/llmWireFaults.test.ts` records how the worker
-handles each one today (provider, `runLlmCall` retry, a direct thread's
-persisted events); the cases marked `[open bug D2]` pin a mishandling until the
-fix flips them:
+handles each one (provider, `runLlmCall` retry, a direct thread's persisted
+events). D2 classified each fault (typed errors in
+`apps/api/convex/lib/llmWireErrors.ts`, re-exported by `packages/worker/src/llm/errors.ts`;
+the backend chat client raises the same ones):
 
-- a dropped stream rejects with undici's bare `terminated`, which the stall
-  classifier does not see as a connection failure;
-- a malformed SSE frame is skipped silently, so the reply loses text but still
-  ends `stop`; a cut non-stream body parses as an empty success;
-- a stream with no `finish_reason`/`[DONE]` is accepted, and a direct thread
-  persists the half reply as a completed answer;
-- a context overflow is a generic permanent 400 (no overflow class, no prune
-  or retry).
+- a dropped stream (undici's bare `terminated`) is an `LlmConnectionError`
+  ("LLM connection closed mid-reply …"), classed `connection`, retryable;
+- a malformed SSE frame or a cut non-stream body is an
+  `LlmMalformedResponseError`, retryable, never a reply with a hole or an
+  empty success;
+- a stream with no `finish_reason`/`[DONE]` (Anthropic: no `message_stop`)
+  is an `LlmIncompleteResponseError` carrying `partial` (and
+  `partialReasoning` in chat) for interrupted-reply persistence; it is never
+  a completed answer;
+- a context overflow (OpenAI / DeepSeek / Anthropic wording) is an
+  `LlmContextOverflowError`: no cooldown and no rotation (`cooldownForFailure`
+  kind `context_overflow`). `context/overflowRecovery.ts` head/middle/tail-prunes
+  the old messages, re-checks against the named limit, compacts the middle only
+  if still over (summary when a summarizer is given, else a drop note), and
+  retries at most twice, inside `compaction.start`/`compaction.end` events; then
+  a clear failure. The tool loop and the direct api loop use it;
+- a timeout names its limit ("timed out after 250ms", "after 1.5s").
 
-Handled today: a stall is cut by the LLM timeout (a timeout, not a cancel); a
+Also handled: a stall is cut by the LLM timeout (a timeout, not a cancel); a
 reset is a `connection` failure; a 5xx burst is retried by `runLlmCall`; a
 failed direct-thread turn persists no half message and stays out of history.
 

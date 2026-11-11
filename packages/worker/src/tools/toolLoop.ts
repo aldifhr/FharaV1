@@ -27,6 +27,7 @@ import { extractJson } from "@/utils/json";
 import { genericToolLoopPrompt, type ToolLoopPromptSet } from "@/prompts/toolLoop";
 import { StuckDetector, type StuckDetectionThresholds, type StuckEvent, type StuckPattern } from "@/utils/stuckDetector";
 import { redactText } from "@/utils/redact";
+import { callWithOverflowRecovery } from "@/context/overflowRecovery";
 
 /** opencode PRUNE_PROTECT: newest tool output (tokens) that is never pruned. */
 export const PRUNE_PROTECT_TOKENS = 40_000;
@@ -107,6 +108,13 @@ export interface ToolLoopOptions {
   stuckDetection?: Partial<StuckDetectionThresholds> | false;
   /** Pruning budget overrides (tokens); defaults are opencode's 40k / 20k. */
   prune?: { protect?: number; minimum?: number };
+  /**
+   * Summary call used by context-overflow recovery when pruning old tool
+   * output is not enough (context/overflowRecovery.ts). Without it the
+   * oldest tool turns are dropped with a note instead. Must be budget-gated
+   * like `runLlm`.
+   */
+  summarize?: (prompt: string) => Promise<string>;
 }
 
 export interface ToolLoopResult {
@@ -187,9 +195,25 @@ export async function runToolLoop(options: ToolLoopOptions): Promise<ToolLoopRes
     });
   }
 
+  // The task statement, the caller's context and the tool protocol are
+  // never pruned or compacted by overflow recovery; only tool turns are.
+  const protectFirst = messages.filter((m) => m.role !== "system").length;
   for (let iteration = 0; iteration < maxIterations; iteration += 1) {
     if (options.signal?.aborted) break;
-    const raw = await options.runLlm(messages);
+    // A context overflow shrinks the old tool turns and retries the same
+    // step, bounded (DeepSeek Harness D2); any other error propagates.
+    const step = await callWithOverflowRecovery({
+      messages,
+      call: (current) => options.runLlm(current),
+      protectFirst,
+      // The newest message is usually the tool result that overflowed.
+      protectLast: 0,
+      summarize: options.summarize,
+      onEvent: options.onEvent,
+    });
+    // Compaction merged messages: the pruning index no longer points at them.
+    if (step.restructured) outputs.length = 0;
+    const raw = step.result;
     const parsed = extractJson(raw) as Record<string, unknown> | null;
     if (parsed && typeof parsed.answer === "string" && parsed.answer.trim()) {
       return { answer: parsed.answer, toolCalls, toolResults };

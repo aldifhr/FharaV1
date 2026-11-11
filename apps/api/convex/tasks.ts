@@ -23,6 +23,7 @@ import { projectTeamIds } from "./lib/projectTeam";
 import { invokedSkillsField } from "./lib/invokedSkillsSchema";
 import { assertInvokedSkills, resolveInvokedSkills } from "./lib/chat/invokedSkills";
 import { appendAgentEvent, appendTaskEvent } from "./lib/taskEvents";
+import { patchTask, syncTaskThread } from "./lib/threadIndex";
 
 /** A worker currently holds an unexpired lease on the task (e.g. resuming it). */
 function holdsLiveLease(task: Doc<"tasks">): boolean {
@@ -272,6 +273,7 @@ export const createFromCommand = mutation({
       ...(args.shadowAgent ?? project.shadowAgentDefault ? { shadowAgent: true } : {}),
       updatedAt: now,
     });
+    await syncTaskThread(ctx, taskId, { seen: true }); // Paradev B1 thread list
     await ctx.db.insert("messages", {
       projectId: args.projectId,
       taskId,
@@ -375,7 +377,7 @@ export const cancel = mutation({
     const task = await assertTaskAccess(ctx, args.taskId);
     if (task.status === "done" || task.status === "rejected" || task.status === "cancelled") return false;
     const now = Date.now();
-    await ctx.db.patch(args.taskId, {
+    await patchTask(ctx, args.taskId, {
       // A user stop is its own terminal status, never a failure.
       status: "cancelled",
       errorMessage: "Cancelled by user",
@@ -480,7 +482,7 @@ export async function requeueForRetry(
     // again (and the broker deny), and an old approval must not silently
     // grant the new attempt. History is kept on each row.
     await closeApprovals(ctx, task._id, ["pending", "approved", "rejected"], "task_retried", now);
-    await ctx.db.patch(args.taskId, {
+    await patchTask(ctx, args.taskId, {
       status: "queued",
       workerId: undefined,
       leaseExpiresAt: undefined,
@@ -551,7 +553,7 @@ export const answerQuestion = mutation({
       level: "info",
     });
     await emitCanonical(ctx, task.projectId, task._id, undefined, undefined, "message.created", { answer: answer.slice(0, 500) });
-    await ctx.db.patch(args.taskId, {
+    await patchTask(ctx, args.taskId, {
       status: "queued",
       pendingQuestion: undefined,
       pendingOptions: undefined,

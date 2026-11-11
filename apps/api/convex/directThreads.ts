@@ -45,6 +45,7 @@ import {
   userMessagesAfter,
 } from "./lib/directThreads";
 import { directMcpSetHash } from "./directThreadSettings";
+import { patchTask, syncTaskThread } from "./lib/threadIndex";
 
 const TERMINAL = new Set(["done", "failed", "rejected", "cancelled"]);
 const LEASE_LOST = "Lease lost: this task is no longer owned by this worker";
@@ -174,6 +175,7 @@ export const create = mutation({
       ...(args.conversationId ? { conversationId: args.conversationId } : {}),
       updatedAt: now,
     });
+    await syncTaskThread(ctx, taskId, { seen: true }); // Paradev B1 thread list
     const task = (await ctx.db.get(taskId))!;
     await appendTaskEvent(ctx, {
       taskId,
@@ -207,7 +209,7 @@ export async function sendDirectMessage(ctx: MutationCtx, task: Doc<"tasks">, te
   const written = await writeUserMessage(ctx, task, text, clientId);
   if (written.deduped) return { eventId: written.eventId, deduped: true, declined: 0 };
   const declined = await declineDirectCards(ctx, task, text);
-  if (task.status === "waiting_input" || task.status === "paused") await ctx.db.patch(task._id, { status: "queued", updatedAt: Date.now() });
+  if (task.status === "waiting_input" || task.status === "paused") await patchTask(ctx, task._id, { status: "queued", updatedAt: Date.now() });
   return { eventId: written.eventId, deduped: false, declined };
 }
 
@@ -294,7 +296,7 @@ export const interrupt = mutation({
       // Nothing runs yet: the queued messages are dropped here.
       const queued = await userMessagesAfter(ctx, task._id, task.direct!.deliveredSeq ?? 0);
       const last = queued.length ? queued[queued.length - 1].sequence ?? 0 : task.direct!.deliveredSeq ?? 0;
-      await ctx.db.patch(task._id, {
+      await patchTask(ctx, task._id, {
         status: "waiting_input",
         updatedAt: now,
         direct: { ...task.direct!, deliveredSeq: last, interruptRequestedAt: now },
@@ -308,7 +310,7 @@ export const interrupt = mutation({
       });
       return { requested: true };
     }
-    await ctx.db.patch(task._id, { direct: { ...task.direct!, interruptRequestedAt: now } });
+    await patchTask(ctx, task._id, { direct: { ...task.direct!, interruptRequestedAt: now } });
     return { requested: true };
   },
 });
@@ -322,7 +324,7 @@ export const close = mutation({
     if (TERMINAL.has(task.status)) return { closed: false };
     const now = Date.now();
     await expireDirectCards(ctx, task._id, "closed", "The thread was closed.");
-    await ctx.db.patch(task._id, {
+    await patchTask(ctx, task._id, {
       status: "cancelled",
       completedAt: now,
       updatedAt: now,
@@ -421,7 +423,7 @@ export const claim = internalMutation({
       .order("asc")
       .first();
     if (!task || !task.direct) return null;
-    await ctx.db.patch(task._id, {
+    await patchTask(ctx, task._id, {
       status: "running",
       workerId: args.workerId,
       leaseExpiresAt: now + leaseMs,
@@ -579,7 +581,7 @@ export const appendEvents = internalMutation({
       const fresh = (await ctx.db.get(task._id))!;
       const direct = applyDirectPatch(fresh.direct!, args.state as DirectPatch, lastSeq);
       // A new turn clears the interrupted-by-crash marker and Stop.
-      await ctx.db.patch(task._id, { direct, updatedAt: Date.now() });
+      await patchTask(ctx, task._id, { direct, updatedAt: Date.now() });
     }
     return { seqs };
   },
@@ -808,12 +810,12 @@ export const release = internalMutation({
     for (const row of rows) await ctx.db.delete(row._id);
     await expireDirectCards(ctx, task._id, "session_ended", "The agent session ended.");
     if (TERMINAL.has(task.status)) {
-      await ctx.db.patch(task._id, { workerId: undefined, leaseExpiresAt: undefined, updatedAt: now });
+      await patchTask(ctx, task._id, { workerId: undefined, leaseExpiresAt: undefined, updatedAt: now });
       return { status: task.status };
     }
     const pending = await userMessagesAfter(ctx, task._id, task.direct!.deliveredSeq ?? 0, 1);
     const status = pending.length > 0 ? "queued" : "waiting_input";
-    await ctx.db.patch(task._id, {
+    await patchTask(ctx, task._id, {
       status,
       workerId: undefined,
       leaseExpiresAt: undefined,

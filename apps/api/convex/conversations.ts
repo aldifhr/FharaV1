@@ -12,6 +12,7 @@ import { recordAudit } from "./lib/recordAudit";
 import { conversationKind, conversationShapeError, isPersonalConversation } from "./lib/conversationShape";
 import { projectTeamIds } from "./lib/projectTeam";
 import { isSystemLine } from "./lib/systemLine";
+import { syncConversationThread } from "./lib/threadIndex";
 
 /**
  * Plan 007 (addendum §2): conversation participation as a persisted concept,
@@ -212,6 +213,7 @@ export async function ensureChatConversation(
       createdAt: now,
       lastMessageAt: now,
     });
+    await syncConversationThread(ctx, id, { seen: true }); // Paradev B1 thread list
     conversation = (await ctx.db.get(id))!;
   }
 
@@ -660,6 +662,7 @@ export const attachProject = mutation({
     }
     const now = Date.now();
     await ctx.db.patch(conversation._id, { projectId: project._id, projectAttachedAt: now, updatedAt: now });
+    await syncConversationThread(ctx, conversation._id, { seen: true });
     const rows = await ctx.db
       .query("conversationParticipants")
       .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))

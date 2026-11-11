@@ -16,6 +16,7 @@ import { permissionModeValidator } from "./lib/permissionModes";
 import { invokedSkillsField } from "./lib/invokedSkillsSchema";
 import { assertInvokedSkills } from "./lib/chat/invokedSkills";
 import { projectTeamIds } from "./lib/projectTeam";
+import { syncConversationThread } from "./lib/threadIndex";
 
 export const listByProject = query({
   args: { projectId: v.id("projects"), limit: v.optional(v.number()) },
@@ -522,6 +523,7 @@ export const sendInConversation = mutation({
     });
     const now = Date.now();
     await ctx.db.patch(conversation._id, { lastMessageAt: now, updatedAt: now });
+    await syncConversationThread(ctx, conversation._id); // throttled activity bump (Paradev B1)
     await ctx.scheduler.runAfter(0, internal.chat.replyToChat, {
       conversationId: conversation._id,
       userMessageId: messageId,

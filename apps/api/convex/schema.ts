@@ -26,6 +26,7 @@ import {
 import { diffCommentsTable, reviewEvidenceValidator, reviewFixValidator } from "./lib/diffCommentSchema";
 import { invokedSkillsField } from "./lib/invokedSkillsSchema";
 import { scheduledTaskTables } from "./lib/scheduledTaskSchema";
+import { threadIndexTable, titleSetByValidator } from "./lib/threadIndexSchema";
 
 export const taskStatus = v.union(
   v.literal("queued"),
@@ -526,9 +527,9 @@ export default defineSchema({
         reactionId: v.id("prReactions"),
       })
     ),
-    // Paradev A3: a fix task made from a review round, and the owner's round count.
-    reviewFix: v.optional(reviewFixValidator),
-    reviewRounds: v.optional(v.number()),
+    reviewFix: v.optional(reviewFixValidator), // Paradev A3: a fix task made from a review round
+    reviewRounds: v.optional(v.number()), // A3: the owner's round count
+    titleSetBy: titleSetByValidator, // Paradev B1: "user" after threads.rename; the system never overwrites it
     // Agile: the phase within the sprint. The board shows these as columns;
     // the DAG scheduler still owns the true ordering.
     phase: v.optional(
@@ -2300,14 +2301,13 @@ export default defineSchema({
     runCount: v.optional(v.number()),
   }).index("by_name", ["name"]),
 
-  // Mock fixtures (docs/mock-fixtures.md, dev only): every row devFixtures.seed inserted, so
-  // devFixtures.wipe deletes exactly those rows and nothing a real run wrote (empty if never seeded).
+  // Mock fixtures (docs/mock-fixtures.md, dev only): rows devFixtures.seed inserted, so wipe deletes only those.
   devFixtureRows: defineTable({
     fixture: v.string(),
     table: v.string(),
     rowId: v.string(),
     createdAt: v.number(),
   }).index("by_fixture", ["fixture"]),
-  diffComments: diffCommentsTable,
+  diffComments: diffCommentsTable, threadIndex: threadIndexTable, // threadIndex: Paradev B1 thread list (lib/threadIndex.ts)
   ...scheduledTaskTables, // GOAT G7 scheduled tasks + their runs
 });

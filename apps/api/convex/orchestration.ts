@@ -42,12 +42,7 @@ import {
   visibleProjectIds,
   assertConversationAccess,
 } from "./lib/authz";
-import {
-  taskStatus,
-  subtaskKind,
-  subtaskStatus,
-  executionStatus,
-} from "./schema";
+import { taskStatus, subtaskKind, subtaskStatus, executionStatus } from "./schema";
 import { taskBranchPrefixes } from "./lib/taskBranch";
 import { consumeTaskSignals, RESUMABLE_APPROVAL_KINDS, supersedePendingCommandApprovals } from "./taskSignals";
 import { appendAgentEvent as appendAgentEventRow, appendTaskEvent } from "./lib/taskEvents";
@@ -58,6 +53,7 @@ import { recoverDirectThread } from "./lib/directThreads";
 import { decideResume, replayEncodedBytes, RESUME_MAX_REPLAY_EVENTS } from "./lib/eventResume";
 import { loadRecordedSteps } from "./lib/restartSteps";
 import type { RecordedStep } from "./lib/restartContinuation";
+import { patchTask } from "./lib/threadIndex";
 
 const DEFAULT_LEASE_MS = 60_000;
 
@@ -363,7 +359,7 @@ export const claimNextTask = internalMutation({
     const held = await isAutomationHeld(ctx); // G3: while automation is held, automatic tasks stay queued.
     const task = candidates.find((c) => c.status === "queued" && c.mode !== "direct" && !(held && isAutomaticTask(c))); // direct threads: directThreads.claim
     if (!task) return null;
-    await ctx.db.patch(task._id, {
+    await patchTask(ctx, task._id, {
       status: "running",
       workerId: args.workerId,
       leaseExpiresAt: now + leaseMs,
@@ -591,7 +587,7 @@ export const recoverStale = internalMutation({
           .withIndex("by_task", (q) => q.eq("taskId", task._id))
           .take(1);
         if (started.length === 0) {
-          await ctx.db.patch(task._id, {
+          await patchTask(ctx, task._id, {
             status: "queued",
             workerId: undefined,
             leaseExpiresAt: undefined,
@@ -619,7 +615,7 @@ export const recoverStale = internalMutation({
       }
 
       if (planValid && subtaskRows.length > 0 && recoveryCount < MAX_TASK_RECOVERIES) {
-        await ctx.db.patch(task._id, {
+        await patchTask(ctx, task._id, {
           status: "queued",
           workerId: undefined,
           leaseExpiresAt: undefined,
@@ -661,7 +657,7 @@ export const recoverStale = internalMutation({
       }
 
       await supersedePendingCommandApprovals(ctx, task._id, "worker lease expired; task failed");
-      await ctx.db.patch(task._id, {
+      await patchTask(ctx, task._id, {
         status: "failed",
         errorMessage: task.workerId
           ? `Worker lease expired (worker: ${task.workerId})`
@@ -1428,7 +1424,7 @@ export const requestApproval = internalMutation({
       status: "pending",
     });
 
-    await ctx.db.patch(args.taskId, {
+    await patchTask(ctx, args.taskId, {
       status: "needs_approval",
       updatedAt: now,
       workerId: undefined,
@@ -1847,7 +1843,7 @@ export const completeTask = internalMutation({
         return { applied: true, status: "paused" as const, held: true, resumeAt: held.resumeAt };
       }
     }
-    await ctx.db.patch(args.taskId, {
+    await patchTask(ctx, args.taskId, {
       status: args.status,
       errorMessage: args.errorMessage,
       completionWarning:
@@ -1918,10 +1914,10 @@ export const setTaskStatus = internalMutation({
     // (taskControl.pause) takes effect when the resumed run leaves the
     // park: it drains as a paused task instead of running on.
     if (args.status === "running" && task.status === "needs_approval" && task.pausedBy) {
-      await ctx.db.patch(args.taskId, { status: "paused", updatedAt: Date.now() });
+      await patchTask(ctx, args.taskId, { status: "paused", updatedAt: Date.now() });
       return true;
     }
-    await ctx.db.patch(args.taskId, { status: args.status, updatedAt: Date.now() });
+    await patchTask(ctx, args.taskId, { status: args.status, updatedAt: Date.now() });
     return true;
   },
 });
@@ -1962,7 +1958,7 @@ export const pauseForInput = internalMutation({
       .map((option) => option.trim())
       .filter((option) => option.length > 0);
     const uniqueOptions = [...new Set(options)].slice(0, 6);
-    await ctx.db.patch(args.taskId, {
+    await patchTask(ctx, args.taskId, {
       status: "waiting_input",
       pendingQuestion: args.question.slice(0, 2000),
       pendingOptions: uniqueOptions.length >= 2 ? uniqueOptions : undefined,
@@ -2735,7 +2731,7 @@ export const completeBranchCreation = internalMutation({
     worktreePath: v.string(),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.taskId, {
+    await patchTask(ctx, args.taskId, {
       branchName: args.branchName,
       worktreePath: args.worktreePath,
       updatedAt: Date.now(),
@@ -2810,7 +2806,7 @@ export const mergeBranchCompleted = internalMutation({
       throw new Error(`Merge failed: ${args.conflict}`);
     }
     if (!args.kept) {
-      await ctx.db.patch(args.taskId, {
+      await patchTask(ctx, args.taskId, {
         branchName: undefined,
         worktreePath: undefined,
       });
@@ -2848,7 +2844,7 @@ export const discardBranchDone = internalMutation({
     branchName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.taskId, {
+    await patchTask(ctx, args.taskId, {
       branchName: undefined,
       worktreePath: undefined,
     });
@@ -2932,7 +2928,7 @@ export const worktreeCleaned = internalMutation({
   handler: async (ctx, args) => {
     const task = await ctx.db.get(args.taskId);
     if (!task) return;
-    await ctx.db.patch(args.taskId, { worktreePath: undefined });
+    await patchTask(ctx, args.taskId, { worktreePath: undefined });
     await appendTaskEvent(ctx, {
       taskId: args.taskId,
       projectId: task.projectId,

@@ -22,6 +22,7 @@ import { TERMINAL_TASK, buildReviewRoundPrompt, reviewFixTitle, sortLineComments
 import { fixInFlight, syncPrNotifications } from "./prFeedback";
 import { newestPush } from "./changes";
 import { sendDirectMessage } from "./directThreads";
+import { syncTaskThread } from "./lib/threadIndex";
 
 const MAX_BODY = 4_000;
 const MAX_PATH = 1_000;
@@ -172,6 +173,7 @@ async function insertReviewFixTask(ctx: MutationCtx, owner: Doc<"tasks">, round:
     ...(owner.sprint !== undefined ? { sprint: owner.sprint } : {}),
     updatedAt: now,
   });
+  await syncTaskThread(ctx, fixTaskId); // Paradev B1 thread list
   const cardConversationId = await taskCardConversationId(ctx, owner.conversationId);
   await ctx.db.insert("messages", {
     projectId: owner.projectId,

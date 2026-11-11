@@ -45,6 +45,7 @@ import {
   type ScheduledTaskSchedule,
 } from "./lib/schedule";
 import { scheduleValidator, scheduledTargetValidator } from "./lib/scheduledTaskSchema";
+import { syncConversationThread, syncTaskThread } from "./lib/threadIndex";
 
 /** Rows fired per tick; the rest are still due on the next minute. */
 export const SCHEDULED_TICK_BATCH = 25;
@@ -103,6 +104,7 @@ async function createScheduledTaskRow(ctx: MutationCtx, project: Doc<"projects">
     idempotencyKey: fireKey,
     updatedAt: Date.now(),
   });
+  await syncTaskThread(ctx, taskId); // Paradev B1 thread list
   await ctx.db.insert("messages", { projectId: task.projectId, taskId, authorType: "user", content: command });
   return taskId;
 }
@@ -129,6 +131,7 @@ async function sendScheduledMessage(ctx: MutationCtx, task: Doc<"scheduledTasks"
   });
   const now = Date.now();
   await ctx.db.patch(conversation._id, { lastMessageAt: now, updatedAt: now });
+  await syncConversationThread(ctx, conversation._id);
   await ctx.scheduler.runAfter(0, internal.chat.replyToChat, {
     ...(personal ? {} : { projectId: task.projectId }),
     conversationId: conversation._id,

@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { assertTaskAccess } from "./lib/authz";
 import { appendTaskEvent } from "./lib/taskEvents";
 import { nextHoldState, type ProviderHold } from "./lib/providerHold";
+import { patchTask } from "./lib/threadIndex";
 
 /**
  * Plan 022: user Pause / Resume. `paused` is its own non-terminal task
@@ -37,7 +38,7 @@ export const pause = mutation({
       // O3: the user pauses a held task: it stops waiting for the
       // automatic resume and only the user's Resume continues it.
       const now = Date.now();
-      await ctx.db.patch(task._id, { pausedBy: "user", pausedAt: now, hold: undefined, updatedAt: now });
+      await patchTask(ctx, task._id, { pausedBy: "user", pausedAt: now, hold: undefined, updatedAt: now });
       await appendTaskEvent(ctx, {
         taskId: task._id,
         projectId: task.projectId,
@@ -51,7 +52,7 @@ export const pause = mutation({
     if (RECORD_ONLY_PAUSABLE.has(task.status)) {
       if (task.pausedBy) return { paused: true, changed: false };
       const now = Date.now();
-      await ctx.db.patch(task._id, { pausedBy: "user", pausedAt: now, updatedAt: now });
+      await patchTask(ctx, task._id, { pausedBy: "user", pausedAt: now, updatedAt: now });
       await appendTaskEvent(ctx, {
         taskId: task._id,
         projectId: task.projectId,
@@ -65,7 +66,7 @@ export const pause = mutation({
       throw new Error(`A ${task.status.replace("_", " ")} task cannot be paused`);
     }
     const now = Date.now();
-    await ctx.db.patch(task._id, {
+    await patchTask(ctx, task._id, {
       status: "paused",
       pausedBy: "user",
       pausedAt: now,
@@ -97,7 +98,7 @@ export const resume = mutation({
       // A record-only pause (parked on an approval): clear it; a pending
       // approval signal makes the task resumable again by itself.
       const now = Date.now();
-      await ctx.db.patch(task._id, { pausedBy: undefined, pausedAt: undefined, updatedAt: now });
+      await patchTask(ctx, task._id, { pausedBy: undefined, pausedAt: undefined, updatedAt: now });
       await appendTaskEvent(ctx, {
         taskId: task._id,
         projectId: task.projectId,
@@ -115,7 +116,7 @@ export const resume = mutation({
     // re-queue directly: the next claim continues from the stored plan.
     const draining = Boolean(task.workerId) && (task.leaseExpiresAt ?? 0) > now;
     const wasHeld = task.pausedBy === "held";
-    await ctx.db.patch(task._id, {
+    await patchTask(ctx, task._id, {
       status: draining ? "running" : "queued",
       pausedBy: undefined,
       pausedAt: undefined,
@@ -156,11 +157,11 @@ export const releasePausedTask = internalMutation({
     if (task.workerId && task.workerId !== args.workerId) return { result: "not_owner" as const };
     const now = Date.now();
     if (task.status === "paused") {
-      await ctx.db.patch(task._id, { workerId: undefined, leaseExpiresAt: undefined, updatedAt: now });
+      await patchTask(ctx, task._id, { workerId: undefined, leaseExpiresAt: undefined, updatedAt: now });
       return { result: "released" as const };
     }
     if (task.status === "running") {
-      await ctx.db.patch(task._id, {
+      await patchTask(ctx, task._id, {
         status: "queued",
         workerId: undefined,
         leaseExpiresAt: undefined,
@@ -196,7 +197,7 @@ export async function holdTaskForProvider(
 ): Promise<{ resumeAt: number; attempts: number }> {
   const now = Date.now();
   const state = nextHoldState(task.hold, hold, now, detail);
-  await ctx.db.patch(task._id, {
+  await patchTask(ctx, task._id, {
     status: "paused",
     pausedBy: "held",
     pausedAt: now,
@@ -237,7 +238,7 @@ export const autoResumeHeld = internalMutation({
       return { resumed: false, reason: "not_held" };
     }
     const now = Date.now();
-    await ctx.db.patch(task._id, {
+    await patchTask(ctx, task._id, {
       status: "queued",
       pausedBy: undefined,
       pausedAt: undefined,

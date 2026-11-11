@@ -26,6 +26,7 @@ import { commandHead, dangerousCommandReason } from "./commandRules";
 import type { PermissionMode } from "./permissionModes";
 import { buildContinuationText, decideContinuation } from "./restartContinuation";
 import { directContinuationTimes, loadDirectTurnSteps } from "./restartSteps";
+import { patchTask } from "./threadIndex";
 
 /** Tool output above this many bytes is stored in eventBodies, read lazily. */
 export const EVENT_BODY_THRESHOLD = 2 * 1024;
@@ -220,7 +221,7 @@ export async function recoverDirectThread(ctx: MutationCtx, task: Doc<"tasks">, 
   // G4: the cut-off turn is continued (its recorded steps + CONTINUE_PROMPT
   // as the next message) unless the loop guard refuses; then it waits.
   const continued = closedTurn && turnId ? await continueCutOffTurn(ctx, task, turnId, now) : false;
-  await ctx.db.patch(task._id, {
+  await patchTask(ctx, task._id, {
     status: continued ? "queued" : "waiting_input",
     workerId: undefined,
     leaseExpiresAt: undefined,

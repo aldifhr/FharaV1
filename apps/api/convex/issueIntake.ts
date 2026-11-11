@@ -41,6 +41,7 @@ import {
   type IssueStatusLabel,
   type TimelineEvent,
 } from "./lib/issueIntake";
+import { syncTaskThread } from "./lib/threadIndex";
 
 const GH_HEADERS = (token: string) => ({
   Authorization: `Bearer ${token}`,
@@ -400,6 +401,7 @@ export const start = mutation({
       ...(project.shadowAgentDefault ? { shadowAgent: true } : {}),
       updatedAt: now,
     });
+    await syncTaskThread(ctx, taskId); // Paradev B1 thread list
     await ctx.db.insert("messages", { projectId: draft.projectId, taskId, authorType: "user", content: command });
     await ctx.db.patch(draft._id, { status: "started", taskId, updatedAt: now });
     await recordAudit(ctx, {

@@ -35,6 +35,7 @@ import { appendTaskEvent } from "./lib/taskEvents";
 import { loadSettingValues } from "./appSettings";
 import { settingFrom } from "./lib/appSettings";
 import { onIssueTaskChanged } from "./issueIntake";
+import { syncTaskThread } from "./lib/threadIndex";
 
 /** Settings → Diffs & PR: the UI cap overrides FHARA_PR_FIX_MAX_ATTEMPTS. */
 async function fixMaxAttemptsFor(ctx: Parameters<typeof loadSettingValues>[0]): Promise<number> {
@@ -507,6 +508,7 @@ export const createFixTask = internalMutation({
       ...(owner.sprint !== undefined ? { sprint: owner.sprint } : {}),
       updatedAt: now,
     });
+    await syncTaskThread(ctx, fixTaskId); // Paradev B1 thread list
     const cardConversationId = await taskCardConversationId(ctx, owner.conversationId);
     await ctx.db.insert("messages", {
       projectId: owner.projectId,

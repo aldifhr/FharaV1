@@ -26,6 +26,7 @@ import ReplanDiff from "@/components/runs/ReplanDiff";
 import Requirements from "@/components/runs/Requirements";
 import Observations from "@/components/runs/Observations";
 import Decisions from "@/components/runs/Decisions";
+import RawEvents from "@/components/runs/RawEvents";
 import TaskBrief from "@/components/runs/TaskBrief";
 import { MODEL_TIER_LABELS, type ModelTierKey } from "@/api/convex/lib/modelTiers";
 import { formatEstimateLine } from "@/api/convex/lib/estimate";
@@ -350,46 +351,6 @@ function Agents({ run }: { run: Run }) {
   );
 }
 
-function Events({ run }: { run: Run }) {
-  const [open, setOpen] = useState(false);
-  if (run.events.length === 0) return null;
-  return (
-    <section className="mt-10">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex items-center gap-1.5 text-[13px] font-medium text-ink-2 hover:text-ink"
-      >
-        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        Raw events
-        <span className="tabular-nums text-ink-3">
-          {run.events.length}
-          {run.eventsTruncated ? " (latest)" : ""}
-        </span>
-      </button>
-      {open && (
-        <ul className="mt-3 max-h-[480px] divide-y divide-line overflow-y-auto rounded-xl border border-line bg-panel font-mono text-[11.5px]">
-          {run.events.map((e) => (
-            <li key={e._id} className="px-3 py-1.5">
-              <div className="flex gap-2">
-                <span className="w-10 shrink-0 tabular-nums text-ink-3">{e.sequence ?? "—"}</span>
-                <span className="w-12 shrink-0 tabular-nums text-ink-3">{clockTime(e.createdAt)}</span>
-                <span className={`min-w-0 flex-1 break-words ${e.level === "error" ? "text-red-600 dark:text-red-400" : e.level === "warn" ? "text-ink" : "text-ink-2"}`}>
-                  {e.type}
-                  {e.subtaskKey ? <span className="text-ink-3"> [{e.subtaskKey}]</span> : null}
-                  {e.message ? <span className="text-ink"> {e.message}</span> : null}
-                </span>
-              </div>
-              {e.payload && <p className="ml-24 mt-0.5 break-all text-ink-3">{e.payload}</p>}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
 /** "+12%" / "−8%" relative to the estimate; null when it would mislead. */
 function delta(actual: number, estimate: number): string | null {
   if (!estimate || !Number.isFinite(actual)) return null;
@@ -696,7 +657,7 @@ export default function RunTracePage() {
 
               <Agents run={run} />
               <Observations taskId={run.task._id} />
-              <Events run={run} />
+              <RawEvents taskId={run.task._id} events={run.events} truncated={run.eventsTruncated} />
             </>
           )}
         </div>

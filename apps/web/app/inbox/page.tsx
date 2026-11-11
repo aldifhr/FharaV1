@@ -8,6 +8,7 @@ import { ArrowUpRight, Check, Inbox as InboxIcon } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { roleLabel } from "@/lib/agentRoles";
 import { useToast } from "@/components/Toasts";
+import McpDraftsSection from "@/components/inbox/McpDraftsSection";
 
 const KIND_LABEL: Record<string, string> = {
   apply_changes: "Apply changes",
@@ -45,6 +46,8 @@ export default function InboxPage() {
   const issueDrafts = useQuery(api.issueIntake.listDrafts, {});
   const startDraft = useMutation(api.issueIntake.start);
   const dismissDraft = useMutation(api.issueIntake.dismiss);
+  // ui-g13: task drafts saved through the Fhara MCP task.create tool (G12b).
+  const mcpDrafts = useQuery(api.taskDrafts.listVisible, {}) ?? [];
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -118,7 +121,7 @@ export default function InboxPage() {
   const drafts = issueDrafts ?? [];
   const anything =
     inbox !== undefined &&
-    (total > 0 || inbox.approvals.length + inbox.notifications.length + inbox.tasks.length + inbox.failed.length + inbox.questions.length + inbox.pushes.length + drafts.length > 0);
+    (total > 0 || inbox.approvals.length + inbox.notifications.length + inbox.tasks.length + inbox.failed.length + inbox.questions.length + inbox.pushes.length + drafts.length + mcpDrafts.length > 0);
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
@@ -337,6 +340,8 @@ export default function InboxPage() {
                   ))}
                 </Section>
               )}
+
+              <McpDraftsSection drafts={mcpDrafts} />
 
               {inbox.tasks.length > 0 && (
                 <Section title="Drafts to review" count={inbox.tasks.length}>

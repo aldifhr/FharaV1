@@ -21,6 +21,7 @@ import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import TaskHoldNotice from "./TaskHoldNotice";
 import TaskQuestionCard from "./TaskQuestionCard";
 import SystemLineRow from "./chat/SystemLineRow";
+import CtoTurnLine from "./chat/CtoTurnLine";
 import { canReplyTo, systemLineText, threadBlockOf } from "@/lib/systemLine";
 import Requirements from "./runs/Requirements";
 import { useToast } from "./Toasts";
@@ -436,6 +437,7 @@ export default function TaskThreadPanel({
             />
           ))}
           <TaskQuestionCard task={task as any} busy={sendingReply} onAnswer={(answer) => void submitAnswer(answer)} onCancel={askCancel} />
+          <CtoTurnLine taskId={(task as any)._id} />
           {subtasks.length > 0 && (
             <section aria-label="Subtasks">
               <div className="flex items-center gap-3 text-[13px] text-ink-3">

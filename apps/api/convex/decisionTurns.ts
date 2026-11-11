@@ -25,11 +25,11 @@
  * question to the CTO. D7 (auto review) and N7 (native questions) reuse the
  * table, the outbox and the worker's runDecisionTurn with their own purpose.
  */
-import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
+import { internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { assertServiceToken } from "./lib/authz";
+import { assertServiceToken, getVisibleTask } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
 import { appendTaskEvent } from "./lib/taskEvents";
 import { patchTask } from "./lib/threadIndex";
@@ -449,5 +449,34 @@ export const sweep = internalMutation({
       redelivered += 1;
     }
     return { expired: stale.length, redelivered };
+  },
+});
+
+/**
+ * UI (ui-g13): the task's newest CTO decision turn, for the quiet System line
+ * in the task thread ("Waiting on CTO · expires in 9m", the answer, or
+ * "Sent to you"). Null when the task has none or the caller cannot see it.
+ */
+export const latestForTask = query({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, args) => {
+    const task = await getVisibleTask(ctx, args.taskId);
+    if (!task) return null;
+    const turn = await ctx.db
+      .query("decisionTurns")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .order("desc")
+      .first();
+    if (!turn) return null;
+    return {
+      _id: turn._id,
+      role: turn.role,
+      status: turn.status,
+      expiresAt: turn.expiresAt,
+      createdAt: turn.createdAt,
+      decidedAt: turn.decidedAt ?? null,
+      answer: turn.answer ? turn.answer.slice(0, 500) : null,
+      chosenOption: turn.chosenOption ?? null,
+    };
   },
 });

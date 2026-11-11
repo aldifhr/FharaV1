@@ -9,7 +9,7 @@
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { assertProjectAccess } from "./lib/authz";
+import { assertProjectAccess, visibleProjects } from "./lib/authz";
 import type { PermissionMode } from "./lib/permissionModes";
 import { appendTaskEvent } from "./lib/taskEvents";
 import { syncTaskThread } from "./lib/threadIndex";
@@ -61,6 +61,35 @@ export const listByProject = query({
       .withIndex("by_project_and_status", (q) => q.eq("projectId", args.projectId).eq("status", "draft"))
       .order("desc")
       .take(LIST_MAX);
+  },
+});
+
+/**
+ * UI (ui-g13): open drafts across the projects the caller may see, newest
+ * first, for the Inbox ("From MCP"). Bounded like issueIntake.listDrafts.
+ */
+export const listVisible = query({
+  args: {},
+  handler: async (ctx) => {
+    const visible = new Map((await visibleProjects(ctx)).map((p) => [p._id as string, p.name]));
+    const rows = await ctx.db
+      .query("taskDrafts")
+      .withIndex("by_status_and_updated", (q) => q.eq("status", "draft"))
+      .order("desc")
+      .take(LIST_MAX);
+    return rows
+      .filter((d) => visible.has(d.projectId as string))
+      .map((d) => ({
+        _id: d._id,
+        projectId: d.projectId,
+        projectName: visible.get(d.projectId as string) ?? "—",
+        title: d.title,
+        command: d.command.slice(0, 500),
+        reason: d.reason,
+        permissionMode: d.permissionMode,
+        conversationId: d.conversationId ?? null,
+        updatedAt: d.updatedAt,
+      }));
   },
 });
 

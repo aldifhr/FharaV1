@@ -60,7 +60,7 @@
     "tint": 2
   },
   "apps/web/app/runs/[taskId]/page.tsx": {
-    "tint": 8
+    "tint": 6
   },
   "apps/web/app/runs/page.tsx": {
     "pulse": 1

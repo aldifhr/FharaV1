@@ -5,16 +5,19 @@
 //
 //   node e2e/fixtures-ui/worker-flows.mjs --project <projectId> [--flows a-normal,b-approval,...]
 //        [--base http://127.0.0.1:3000] [--convex http://127.0.0.1:3210] [--shots DIR]
-//        [--mock-port 3397]
+//        [--mock-port 3397] [--reset-repo]
 //
 // Needs, already running: the local Convex backend, the web app, and a worker
 // whose ONLY active model is an `openai-compatible` provider row pointing at
 // http://127.0.0.1:<mock-port>/v1 (any dummy key; the mock runs --no-token).
 // This script starts and stops the mock itself, with
 // scripts/mock-llm/scripts/flow-<name>.json for each flow. The project must be
-// a throwaway local git repo with no remote. Writes results.json and one or
+// a throwaway local git repo with no remote; --reset-repo resets it hard to
+// the commit it had when the run started before every flow (the scripted
+// changes are the same each run, and a change already merged is a no-op that
+// fails the node). Writes results.json and one or
 // more PNGs per flow into --shots; exit 1 when any check fails.
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -412,6 +415,19 @@ const flows = {
   },
 };
 
+// --reset-repo: the throwaway repo goes back to its starting commit before each flow.
+const resetRepo = args.includes("--reset-repo");
+const repoPath = resetRepo ? (await q(anyApi.projects.get, { projectId: project }))?.workspacePath : null;
+if (resetRepo && !repoPath) throw new Error("--reset-repo: project has no workspacePath");
+const git = (...a) => execFileSync("git", ["-C", repoPath, ...a], { encoding: "utf8" }).trim();
+if (resetRepo && git("remote")) throw new Error(`--reset-repo refuses a repo with a remote (${repoPath})`);
+const startHead = resetRepo ? git("rev-parse", "HEAD") : null;
+function resetTheRepo() {
+  if (!resetRepo) return;
+  git("reset", "--hard", "-q", startHead);
+  git("clean", "-fdq", "-e", ".moagent-worktrees", "-e", "node_modules");
+}
+
 const wanted = (opt("--flows", "") || Object.keys(flows).join(",")).split(",").filter(Boolean);
 let failed = 0;
 for (const name of wanted) {
@@ -424,6 +440,7 @@ for (const name of wanted) {
     for (const t of await tasks()) {
       if (!TERMINAL.has(t.status)) await convex.mutation(anyApi.tasks.cancel, { taskId: t._id }).catch(() => {});
     }
+    resetTheRepo();
     await startMock(name);
     await flows[name](results[name]);
   } catch (e) {

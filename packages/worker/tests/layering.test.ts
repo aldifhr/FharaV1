@@ -36,6 +36,8 @@ const LAYERS: Record<string, number> = {
   vendor: 1,
   tools: 2,
   mcp: 2,
+  // GOAT G12a: the localhost Fhara MCP server (reads through WorkerApi).
+  mcpServer: 2,
   execution: 3,
   // Generic options review (validator, sanitizer, sandboxed render): uses
   // execution/qa for Chromium launch; called by execution and services.

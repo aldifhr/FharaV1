@@ -22,6 +22,7 @@ import { effectiveWorkspaceRoot, reportKnobEnv, syncAppSettings } from "./servic
 import { REPO_TOOLS_CAPABILITY } from "@/api/convex/lib/chat/repoTools";
 import { DirectThreads } from "./direct";
 import { installConsoleRedaction, registerEnvSecrets } from "./utils/redact";
+import { startFharaMcpFromEnv } from "./mcpServer";
 import { claimUnlessPressured, createHostPressureMonitor, pressureCapability } from "./utils/hostPressure";
 
 // L2: the worker's own logs (stdout/stderr) never print a known secret.
@@ -158,6 +159,8 @@ async function main() {
   // Agent process groups a crashed worker left behind (Nuphos N2); the
   // first direct claim waits for this.
   void direct.sweepLeftovers();
+  // GOAT G12a: the localhost Fhara MCP server (read tools); off unless configured.
+  const mcpServer = await startFharaMcpFromEnv(api);
   // D3: spill files of large tool output, past their retention (default 72 h).
   const sweepSpills = () => {
     try {
@@ -308,6 +311,7 @@ async function main() {
     await withTimeout(subscriber?.close() ?? Promise.resolve(), 1_000);
     // Plan 009: kill every MCP child process before the worker exits.
     await withTimeout(getMcpRegistry().disposeAll(), 2_000);
+    await withTimeout(mcpServer?.close() ?? Promise.resolve(), 1_000);
     await withTimeout(api.markOffline({ workerId }), 2_000);
     process.exit(0);
   };

@@ -715,6 +715,31 @@
       "max": 1440
     },
     {
+      "name": "FHARA_MCP_PORT",
+      "type": "int",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Fhara MCP server (GOAT G12a): the port it listens on, on 127.0.0.1 only (0 = off). Starts only when FHARA_MCP_TOKEN is set too.",
+      "default": "0",
+      "parse": "clampBlank",
+      "min": 0,
+      "max": 65535
+    },
+    {
+      "name": "FHARA_MCP_TOKEN",
+      "type": "string",
+      "group": "worker",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Bearer token every Fhara MCP request must carry (Authorization: Bearer <token>); at least 16 characters, else the server stays off.",
+      "default": "",
+      "parse": "trimOr",
+      "secret": true
+    },
+    {
       "name": "ORCHESTRATOR_MAX_REPLANS",
       "type": "int",
       "group": "policy",
@@ -2217,6 +2242,7 @@
       "GITHUB_CLIENT_SECRET",
       "GITHUB_WEBHOOK_SECRET",
       "OAUTH_STATE_SECRET",
+      "FHARA_MCP_TOKEN",
       "FHARA_SMOKE_GITHUB_TOKEN",
       "GITHUB_TOKEN",
       "GH_TOKEN"

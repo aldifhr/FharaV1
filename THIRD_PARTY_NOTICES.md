@@ -67,7 +67,12 @@ SOFTWARE.
   surrogate-safe eviction) and `packages/worker/src/vendor/goat/terminalHistoryReplay.ts` (copy of
   `apps/server/src/terminal/terminalHistoryReplay.ts`: terminal query/response sequence stripping), used by
   `packages/worker/src/tools/runPty.ts` and `execution/shellRun.ts` (the PTY routing of long shell-node
-  commands into the live tail is a pattern only).
+  commands into the live tail is a pattern only); `packages/worker/src/mcpServer/` (`registry.ts`,
+  `protocol.ts`, `httpServer.ts`) with `apps/api/convex/mcpRead.ts` (the localhost Fhara MCP server: one
+  registry of `resource.verb` tools with access declarations driving the read-only/destructive hints,
+  the two-tool `describe` + `call` core listing, and the bearer-token HTTP transport on 127.0.0.1; a
+  pattern from `apps/server/src/mcp/{McpHttpServer.ts, OrchestratorMcpService.ts, McpToolAccess.ts,
+  ToolDispatch.ts}` and `packages/contracts/src/agentSurface/registry.ts`, no code copied).
   Modified by Fhara.
   GOAT's Pen, office, PDF, native and asset sub-paths carry other licences; nothing is taken from them.
 

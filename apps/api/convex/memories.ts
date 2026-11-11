@@ -95,7 +95,7 @@ export async function loadMemorySection(
  * an empty query returns []. For the agent scope `owner.projectId` picks
  * the role's rows in that project; absent = its global (legacy) rows only.
  */
-async function searchScope(
+export async function searchScope(
   ctx: Ctx,
   scope: Doc<"memories">["scope"],
   owner: { projectId?: Id<"projects">; agentId?: Id<"agents"> },

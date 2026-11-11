@@ -54,6 +54,24 @@
       "reply": "{\"action\": \"complete\", \"reasoning\": \"mock: the plan's evidence is in\", \"expectedOutcome\": \"The change is done\"}"
     },
     {
+      "id": "research-assistant-web",
+      "role": "research-assistant",
+      "match": [
+        "You are research assistant RA-",
+        "web tool available \\(Agent Reach"
+      ],
+      "reply": "{\"answer\": \"Findings (mock): the simplest option fits a small team; the robust option needs one more service.\\n\\nSources: docs/README.md, https://example.com/mock-source\"}"
+    },
+    {
+      "id": "research-synthesis-web",
+      "role": "research-synthesis",
+      "match": [
+        "You are a senior analyst",
+        "web tool available \\(Agent Reach"
+      ],
+      "reply": "{\"answer\": \"Recommendation (mock): start simple, move to the robust option when load needs it.\\n\\nSources: docs/README.md, https://example.com/mock-source\"}"
+    },
+    {
       "id": "research-assistant",
       "role": "research-assistant",
       "match": [

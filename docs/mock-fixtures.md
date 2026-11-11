@@ -80,7 +80,7 @@ local. It binds to loopback only.
 Replies come from `scripts/mock-llm/scripts/default.json` (`--script` or
 `MOCK_LLM_SCRIPT` for another file): rules matched in order on the request text,
 each recognising one worker role by its prompt wording (classifier, planner,
-decision advisor, research assistant and synthesis, reviewer, commit message,
+decision advisor, research assistant and synthesis (plain, or as `{"answer": …}` when the web_reach tool loop is offered), reviewer, commit message,
 code change, memory and role learnings, and the Convex chat reply). A rule may be limited to a scenario
 (`mock/<scenario>` model, `x-mock-scenario` header or `--scenario`), answer with
 an HTTP status (`429` twice for `held-resume`, `500` for RA-2 in

@@ -68,6 +68,7 @@ import {
   type FileDiff,
 } from "@/tools/gitDiff";
 import { isCommandAllowed, runCommand } from "@/tools/runCommand";
+import { runShellCommand } from "@/execution/shellRun";
 import { canWriteAny, permissionsForAgent, resolveRoleKey, shellDenial, writeDenial } from "@/utils/rolePolicy";
 import { buildOpencodePolicy } from "./opencodePolicy";
 import { toolLoopEnabled } from "./toolLoopFlag";
@@ -2510,8 +2511,11 @@ async function executeShell(
     args: parsed.args,
     cwd: workspacePath,
   }, "info");
-  const result = await runCommand(workspacePath, parsed.command, parsed.args, {
+  // GOAT G11: tests/builds/type checks run in a PTY and stream into the
+  // live tail; other allowlisted commands stay on runCommand.
+  const result = await runShellCommand(workspacePath, parsed.command, parsed.args, {
     signal,
+    onChunk: input.onChunk,
   });
   const summary = [
     `$ ${parsed.command} ${parsed.args.join(" ")}`,

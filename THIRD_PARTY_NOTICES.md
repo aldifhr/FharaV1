@@ -61,7 +61,13 @@ SOFTWARE.
   `packages/worker/src/vendor/goat/projectScripts.ts` (port of `packages/shared/src/projectScripts.ts`:
   `projectScriptCwd`, `projectScriptRuntimeEnv`, `setupProjectScript`, `checkProjectScript`, reshaped for
   Fhara's exact-argv `projects.scripts`; the run-on-worktree-create and check-after-settle wiring in
-  `execution/projectScriptRun.ts` and `services/runner/projectScriptHooks.ts` is a pattern only).
+  `execution/projectScriptRun.ts` and `services/runner/projectScriptHooks.ts` is a pattern only);
+  `packages/worker/src/vendor/goat/boundedTerminalHistory.ts` (copy of
+  `apps/server/src/terminal/BoundedTerminalHistory.ts`: line- and UTF-8-byte-capped terminal history with
+  surrogate-safe eviction) and `packages/worker/src/vendor/goat/terminalHistoryReplay.ts` (copy of
+  `apps/server/src/terminal/terminalHistoryReplay.ts`: terminal query/response sequence stripping), used by
+  `packages/worker/src/tools/runPty.ts` and `execution/shellRun.ts` (the PTY routing of long shell-node
+  commands into the live tail is a pattern only).
   Modified by Fhara.
   GOAT's Pen, office, PDF, native and asset sub-paths carry other licences; nothing is taken from them.
 

@@ -23,6 +23,30 @@ export function shouldUseShell(command: string): boolean {
   return SHELL_REQUIRED_COMMANDS.has(command);
 }
 
+/**
+ * The one place a non-PTY command process is started. D6 (bwrap sandbox)
+ * wraps this call; keep it small and keep every spawn going through it.
+ */
+export function execCommandProcess(
+  command: string,
+  args: string[],
+  cwd: string,
+  signal?: AbortSignal
+): Promise<{ stdout: string; stderr: string }> {
+  return execFileAsync(command, args, {
+    cwd,
+    timeout: 120_000,
+    maxBuffer: 10 * 1024 * 1024,
+    shell: shouldUseShell(command),
+    windowsHide: true,
+    env: buildChildEnv(),
+    // Task cancellation (Phase 4): execFile kills the child when the
+    // signal fires; the rejection lands in runCommand's catch like any
+    // other command failure.
+    signal,
+  });
+}
+
 export async function runCommand(
   workspaceRoot: string,
   command: string,
@@ -38,18 +62,7 @@ export async function runCommand(
     throw new Error(`Command blocked by rule ${guard.rule} (${guard.reason}): ${command} ${args.join(" ")}`);
   }
   try {
-    const { stdout, stderr } = await execFileAsync(command, args, {
-      cwd: workspaceRoot,
-      timeout: 120_000,
-      maxBuffer: 10 * 1024 * 1024,
-      shell: shouldUseShell(command),
-      windowsHide: true,
-      env: buildChildEnv(),
-      // Task cancellation (Phase 4): execFile kills the child when the
-      // signal fires; the rejection lands in the catch below like any
-      // other command failure.
-      signal: options.signal,
-    });
+    const { stdout, stderr } = await execCommandProcess(command, args, workspaceRoot, options.signal);
     // L2: output leaves the worker (chat, events): mask secrets first.
     return { stdout: redactText(stdout), stderr: redactText(stderr) };
   } catch (err: any) {

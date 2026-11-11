@@ -39,6 +39,24 @@ export function isCommandAllowed(command: string, args: string[]): boolean {
   );
 }
 
+/**
+ * GOAT G11: allowlisted commands that run long and print progress (tests,
+ * builds, type checks). The shell node runs them through `runPty` so their
+ * output streams into the live tail; everything else stays on `runCommand`.
+ * Being here never widens the allowlist: both paths check `isCommandAllowed`.
+ */
+const INTERACTIVE_ARGV: Readonly<Record<string, ReadonlyArray<ReadonlyArray<string>>>> = {
+  npm: [["run", "test"], ["run", "build"], ["run", "typecheck"]],
+  npx: [["tsc", "--noEmit"]],
+};
+
+export function isInteractiveCommand(command: string, args: string[]): boolean {
+  if (!isCommandAllowed(command, args)) return false;
+  return (INTERACTIVE_ARGV[command] ?? []).some(
+    (candidate) => candidate.length === args.length && candidate.every((value, index) => value === args[index])
+  );
+}
+
 /** Every allowlisted command line ("npm run test", "git status", ...), in allowlist order. */
 export function allowedCommandLines(): string[] {
   return Object.entries(ALLOWED_ARGV).flatMap(([command, variants]) =>

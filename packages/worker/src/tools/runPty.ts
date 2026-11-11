@@ -6,6 +6,8 @@ import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import { shouldUseShell } from "@/tools/runCommand";
 import { redactText } from "@/utils/redact";
 import { shellGuardDecisionForArgv } from "@/utils/shellGuard";
+import { BoundedTerminalHistory } from "@/vendor/goat/boundedTerminalHistory";
+import { sanitizeTerminalHistoryChunk } from "@/vendor/goat/terminalHistoryReplay";
 
 export type PtyHandle = Pick<IPty, "pid" | "write" | "kill" | "onData" | "onExit">;
 
@@ -30,6 +32,15 @@ export interface RunPtyOptions {
   cols?: number;
   rows?: number;
   spawnImpl?: PtySpawnImpl;
+  /**
+   * Streamed output for the live tail (subtaskLive), ANSI-stripped and with
+   * terminal query/response traffic removed. Called once per PTY chunk;
+   * redaction happens in the live coalescer over the joined tail.
+   */
+  onOutput?: (text: string) => void;
+  /** History caps (GOAT G11 defaults: 5,000 lines / 1 MiB of UTF-8). */
+  maxLines?: number;
+  maxBytes?: number;
 }
 
 export interface RunPtyResult {
@@ -51,7 +62,9 @@ export class PtyUnavailableError extends Error {
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
-const MAX_OUTPUT_CHARS = 1_000_000;
+/** Kept terminal history: the newest lines win (bounded, UTF-8 safe). */
+export const PTY_HISTORY_MAX_LINES = 5_000;
+export const PTY_HISTORY_MAX_BYTES = 1024 * 1024;
 const MAX_INPUT_CHARS = 8_000;
 
 function clamp(value: number, min: number, max: number, fallback: number): number {
@@ -113,21 +126,32 @@ function killPtyTree(handle: PtyHandle): void {
   }
 }
 
-async function defaultPtySpawn(
+/**
+ * The one place a PTY process is started. D6 (bwrap sandbox) wraps this
+ * call; keep it small and keep every spawn going through it.
+ */
+export async function spawnPtyProcess(
   command: string,
   args: string[],
-  options: PtySpawnOptions
+  options: PtySpawnOptions,
+  spawnImpl?: PtySpawnImpl
 ): Promise<PtyHandle> {
+  if (spawnImpl) return spawnImpl(command, args, options);
   let spawnFn: typeof import("@lydell/node-pty").spawn;
   try {
     ({ spawn: spawnFn } = await import("@lydell/node-pty"));
   } catch (error) {
     throw new PtyUnavailableError(error);
   }
-  if (process.platform === "win32" && shouldUseShell(command)) {
-    return spawnFn("cmd.exe", ["/c", command, ...args], options);
+  try {
+    if (process.platform === "win32" && shouldUseShell(command)) {
+      return spawnFn("cmd.exe", ["/c", command, ...args], options);
+    }
+    return spawnFn(command, args, options);
+  } catch (error) {
+    // A missing native binding throws on first spawn, not on import.
+    throw new PtyUnavailableError(error);
   }
-  return spawnFn(command, args, options);
 }
 
 export async function runPty(
@@ -158,13 +182,18 @@ export async function runPty(
     rows: clamp(options.rows ?? 24, 10, 60, 24),
     name: "xterm-256color",
   };
-  const handle = options.spawnImpl
-    ? options.spawnImpl(command, args, spawnOptions)
-    : await defaultPtySpawn(command, args, spawnOptions);
+  const handle = await spawnPtyProcess(command, args, spawnOptions, options.spawnImpl);
 
   return new Promise<RunPtyResult>((resolve) => {
-    let output = "";
-    let truncated = false;
+    // GOAT G11: bounded history (line + UTF-8 byte cap, surrogate-safe
+    // eviction); query/response sequences (DSR, DA, DECRQM, OSC colour
+    // queries…) are dropped before they are kept or streamed.
+    const history = new BoundedTerminalHistory(
+      clamp(options.maxLines ?? PTY_HISTORY_MAX_LINES, 1, PTY_HISTORY_MAX_LINES * 4, PTY_HISTORY_MAX_LINES),
+      "",
+      clamp(options.maxBytes ?? PTY_HISTORY_MAX_BYTES, 1, 8 * 1024 * 1024, PTY_HISTORY_MAX_BYTES)
+    );
+    let pendingSequence = "";
     let timedOut = false;
     let settled = false;
     let timeoutTimer: NodeJS.Timeout | undefined;
@@ -193,25 +222,32 @@ export async function runPty(
       options.signal?.removeEventListener("abort", onAbort);
       dataSub?.dispose();
       exitSub?.dispose();
+      const output = history.value();
       resolve({
         // L2: masked after the ANSI strip (escapes can hide a key=value).
         stdout: redactText(stripAnsi(output)),
         stderr: "",
         code,
         timedOut,
-        truncated,
+        truncated: history.position > output.length,
       });
     };
 
     dataSub = handle.onData((chunk) => {
-      if (output.length >= MAX_OUTPUT_CHARS) {
-        truncated = true;
-        return;
-      }
-      output += chunk;
-      if (output.length > MAX_OUTPUT_CHARS) {
-        output = output.slice(0, MAX_OUTPUT_CHARS);
-        truncated = true;
+      if (settled) return;
+      const sanitized = sanitizeTerminalHistoryChunk(pendingSequence, chunk);
+      pendingSequence = sanitized.pendingControlSequence;
+      if (!sanitized.visibleText) return;
+      history.append(sanitized.visibleText);
+      if (options.onOutput) {
+        const text = stripAnsi(sanitized.visibleText);
+        if (text) {
+          try {
+            options.onOutput(text);
+          } catch {
+            // Live output is cosmetic; never fail the command over it.
+          }
+        }
       }
     });
     exitSub = handle.onExit(({ exitCode }) => finish(exitCode));

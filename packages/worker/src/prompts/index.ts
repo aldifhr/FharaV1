@@ -4,6 +4,7 @@
 export * from "./planner";
 export * from "./decision";
 export * from "./codeChange";
+export * from "./completionContract";
 export * from "./review";
 export * from "./readOnly";
 export * from "./shell";

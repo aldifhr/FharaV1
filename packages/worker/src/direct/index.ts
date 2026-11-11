@@ -27,6 +27,7 @@ import { createBudgetGate } from "@/services/runner/session";
 import type { RunnerDeps } from "@/services/runner/types";
 import { findOpencodeBinary, OPENCODE_ACP_ARGS, opencodeEnv } from "@/vendor/threadbear/acp/agents";
 import type { AcpLogger } from "@/vendor/threadbear/acp/connection";
+import { COMPLETION_CONTRACT } from "@/prompts/completionContract";
 import { AcpEngine } from "./acpSession";
 import { ApiLoopEngine } from "./apiLoopSession";
 import { ThreadRunner, type DirectStore } from "./threadRunner";
@@ -70,6 +71,7 @@ export function directPreamble(input: { role: string; agentName?: string; system
       ? "This folder is a git worktree on its own branch for this thread: commit your work there. Never push; the user pushes from Fhara."
       : "Never push; the user pushes from Fhara.",
     "Every edit and command asks the user first unless their permission mode allows it.",
+    COMPLETION_CONTRACT,
   ].join("\n");
 }
 

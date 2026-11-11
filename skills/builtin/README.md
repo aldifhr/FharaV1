@@ -22,3 +22,4 @@ Details: THIRD_PARTY_NOTICES.md.
 | [ui-ux-rules](https://github.com/aldifhr/Fhara/tree/main/skills/builtin/ui-ux-rules) | Prioritized UI/UX rules plus the design_lookup database (MIT, adapted from ui-ux-pro-max). | Designer, Frontend |
 | [accessibility-audit](https://github.com/aldifhr/Fhara/tree/main/skills/builtin/accessibility-audit) | Read-only WCAG 2.2 audit with a fix per finding (MIT, adapted from awesome-agent-skills). | Designer, QA, Reviewer |
 | [web-interface-guidelines](https://github.com/aldifhr/Fhara/tree/main/skills/builtin/web-interface-guidelines) | Review against the Vercel Web Interface Guidelines, fetched at run time (MIT, vercel-labs/agent-skills). | Designer, Reviewer |
+| [fhara-discipline](https://github.com/aldifhr/Fhara/tree/main/skills/builtin/fhara-discipline) | Work classes C0–C5 with verification floors; prove a claim before reporting it done (MIT, adapted from goat-si/goat). | Frontend, Backend, DevOps |

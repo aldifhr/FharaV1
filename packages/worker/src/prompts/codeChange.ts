@@ -1,4 +1,5 @@
 import type { PlanSubtask } from "@/types";
+import { COMPLETION_CONTRACT_LINES } from "./completionContract";
 
 /**
  * Format C (SEARCH/REPLACE) rules and example below are adapted from
@@ -166,6 +167,8 @@ export function codeChangePrompt(input: {
       ...IMPLEMENTATION_RULES,
       ...ESCALATION_RULES,
       "- Type definitions you need but do not see above: reply with only their paths (e.g. node_modules/<pkg>/dist/index.d.ts) and they will be provided; do not guess the API.",
+      "",
+      ...COMPLETION_CONTRACT_LINES,
     ].join("\n") + mcpFindings
   );
 }

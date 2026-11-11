@@ -81,6 +81,18 @@ export const BUILTIN_SKILL_META: readonly BuiltinSkillMeta[] = [
       sha: "1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62",
     },
   },
+  {
+    // Last, so a code role's design skills keep their place in the budget.
+    key: "fhara-discipline",
+    roles: ["frontend", "backend", "devops"],
+    tags: ["discipline", "verification", "builtin"],
+    upstream: {
+      repo: "goat-si/goat",
+      path: "packages/provider-core/src/server/builtinSkills/goatDiscipline.ts",
+      license: "MIT",
+      sha: "718f5b11",
+    },
+  },
 ];
 
 export type BuiltinSkill = BuiltinSkillSource & BuiltinSkillMeta;

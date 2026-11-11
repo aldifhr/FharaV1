@@ -69,6 +69,16 @@
           "ref": "main",
           "license": "MIT",
           "author": "aldifhr"
+        },
+        {
+          "name": "fhara-discipline",
+          "description": "Work classes C0–C5 with verification floors; prove a claim before reporting it done (MIT, adapted from goat-si/goat).",
+          "category": "Fhara built-in",
+          "repo": "aldifhr/Fhara",
+          "path": "skills/builtin/fhara-discipline/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "aldifhr"
         }
       ]
     },

@@ -1,9 +1,8 @@
 import type { EnvGet, EnvVar } from "./types";
 
-const openaiFlavour = (get: EnvGet) => {
-  const provider = get("LLM_PROVIDER");
-  return provider === "openai-compatible" || provider === "openai";
-};
+/** B5: openai and openai-compatible take the OpenAI defaults (worker and Convex alike). */
+export const isOpenAIFlavour = (provider: unknown) => provider === "openai-compatible" || provider === "openai";
+const openaiFlavour = (get: EnvGet) => isOpenAIFlavour(get("LLM_PROVIDER"));
 
 export const LLM_VARS = [
   {
@@ -14,13 +13,11 @@ export const LLM_VARS = [
     runtimes: ["worker", "convex", "scripts"],
     group: "llm",
     doc: "Global LLM provider fallback: anthropic | openai | openai-compatible.",
-    quirk: "worker maps openai-compatible to OpenAI defaults, Convex to Anthropic (D4, fixed by B5)",
   },
   {
     name: "LLM_MODEL",
     type: "string",
     parse: "nullish",
-    // Worker flavour (llm.ts getGlobalLLMConfig).
     default: (get: EnvGet) => (openaiFlavour(get) ? "gpt-4o-mini" : "claude-sonnet-4-20250514"),
     runtimes: ["worker", "convex", "scripts"],
     group: "llm",
@@ -39,17 +36,17 @@ export const LLM_VARS = [
     name: "LLM_OPENAI_BASE_URL",
     type: "url",
     parse: "nullish",
-    runtimes: ["convex"],
+    runtimes: ["worker", "convex"],
     group: "llm",
-    doc: "OpenAI-flavour base URL (Convex only).",
+    doc: "OpenAI-flavour base URL; wins over LLM_BASE_URL for that flavour.",
   },
   {
     name: "LLM_ANTHROPIC_BASE_URL",
     type: "url",
     parse: "nullish",
-    runtimes: ["convex"],
+    runtimes: ["worker", "convex"],
     group: "llm",
-    doc: "Anthropic-flavour base URL (Convex only).",
+    doc: "Anthropic-flavour base URL; wins over LLM_BASE_URL for that flavour.",
   },
   {
     name: "LLM_API_KEY",

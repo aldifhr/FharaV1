@@ -8,7 +8,7 @@ import { contextSnapshotsEnabled } from "@/api/convex/lib/contextSnapshot";
 import { appOrigin, oauthStateSecret } from "@/api/convex/lib/oauthState";
 import { getGlobalLLMConfig } from "@/api/convex/lib/llmConfig";
 import * as path from "node:path";
-import { b2Bool } from "./legacyEnv";
+import { b2Bool, b5GlobalLLMConfig } from "./legacyEnv";
 import { resolveRepoPath } from "@/api/convex/lib/workspacePath";
 
 /**
@@ -66,18 +66,8 @@ function oldAppOrigin(env: Env): string {
   }
   return "http://localhost:3000";
 }
-function oldGlobalLLMConfig(env: Env) {
-  const provider = (env.LLM_PROVIDER ?? "anthropic").toLowerCase();
-  return {
-    provider,
-    model: env.LLM_MODEL ?? (provider === "openai" ? "gpt-4o-mini" : "claude-sonnet-4-20250514"),
-    baseUrl:
-      provider === "openai"
-        ? (env.LLM_OPENAI_BASE_URL ?? env.LLM_BASE_URL ?? "https://api.openai.com/v1")
-        : (env.LLM_ANTHROPIC_BASE_URL ?? env.LLM_BASE_URL ?? "https://api.anthropic.com/v1"),
-    apiKey: env.LLM_API_KEY ?? env.OPENAI_API_KEY ?? "",
-  };
-}
+// B5: Convex and the worker share one fallback (openai-compatible → OpenAI defaults).
+const oldGlobalLLMConfig = b5GlobalLLMConfig;
 
 const NAMES = [
   "CHAT_REPLY_STALE_MS",
@@ -156,7 +146,7 @@ describe("Convex reader parity (E2)", () => {
     }
   });
 
-  it("the Convex LLM fallback keeps its own flavour (openai-compatible → Anthropic defaults)", () => {
+  it("the Convex LLM fallback is the shared one (B5)", () => {
     const providers = [undefined, "", "anthropic", "OpenAI", "openai-compatible", "x"];
     for (const LLM_PROVIDER of providers) {
       for (const extra of [{}, { LLM_BASE_URL: "b" }, { LLM_OPENAI_BASE_URL: "o", LLM_ANTHROPIC_BASE_URL: "a" }, { LLM_MODEL: "" }, { OPENAI_API_KEY: "k" }, { LLM_API_KEY: "", OPENAI_API_KEY: "k" }]) {

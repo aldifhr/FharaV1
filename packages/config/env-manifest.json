@@ -138,9 +138,10 @@
       "type": "url",
       "group": "llm",
       "runtimes": [
+        "worker",
         "convex"
       ],
-      "doc": "OpenAI-flavour base URL (Convex only).",
+      "doc": "OpenAI-flavour base URL; wins over LLM_BASE_URL for that flavour.",
       "default": null,
       "parse": "nullish"
     },
@@ -149,9 +150,10 @@
       "type": "url",
       "group": "llm",
       "runtimes": [
+        "worker",
         "convex"
       ],
-      "doc": "Anthropic-flavour base URL (Convex only).",
+      "doc": "Anthropic-flavour base URL; wins over LLM_BASE_URL for that flavour.",
       "default": null,
       "parse": "nullish"
     },

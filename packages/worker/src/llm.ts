@@ -1,4 +1,4 @@
-import { schemaDefault } from "@fhara/config";
+import { llmFallbackConfig, schemaDefault } from "@fhara/config";
 import { wenv } from "@fhara/config/worker";
 import Anthropic from "@anthropic-ai/sdk";
 import type { LLMMessage, LLMResult } from "@/types/llm";
@@ -34,14 +34,8 @@ export interface GlobalLLMConfig {
 }
 
 export function getGlobalLLMConfig(env?: Record<string, string | undefined>): GlobalLLMConfig {
-  // Worker flavour of the LLM fallback: openai-compatible takes the OpenAI
-  // defaults (Convex differs, D4 / B5). Defaults live in the env schema.
-  const e = env;
-  const provider = wenv("LLM_PROVIDER", e);
-  const model = wenv("LLM_MODEL", e);
-  const baseUrl = wenv("LLM_BASE_URL", e);
-  const apiKey = wenv("LLM_API_KEY", e);
-  return { provider, model, baseUrl, apiKey };
+  // B5: one fallback for the worker and Convex (@fhara/config llmFallbackConfig).
+  return llmFallbackConfig(env);
 }
 
 export const DEFAULT_LLM_MAX_TOKENS = schemaDefault("ORCHESTRATOR_LLM_MAX_TOKENS") as number;

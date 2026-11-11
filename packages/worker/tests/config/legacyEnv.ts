@@ -7,7 +7,8 @@
  * b2Bool, an independent copy of the unified rule. The five pre-B2
  * dialects are pinned (and contrasted) in behaviourFixes.test.ts.
  * Exception, B3 (validated numbers): the index.ts constants, DIRECT_POLL_MS
- * and the LLM ints call b3Int.
+ * and the LLM ints call b3Int. Exception, B5: legacyGlobalLLMConfig is the
+ * unified LLM fallback (b5GlobalLLMConfig).
  */
 /* eslint-disable */
 type Env = Record<string, string | undefined>;
@@ -204,14 +205,18 @@ export function legacyLoadPolicy(get: Get, rawEnv: Env): Record<string, unknown>
 
 // ── Non-policy readers, verbatim (env/get passed in) ──────────────────────
 
-/** llm.ts getGlobalLLMConfig */
-export function legacyGlobalLLMConfig(e: Env) {
+/** B5 reference: the one LLM fallback (worker and Convex). */
+export function b5GlobalLLMConfig(e: Env) {
   const provider = (e.LLM_PROVIDER ?? "anthropic").toLowerCase();
-  const model = e.LLM_MODEL ?? (provider === "openai-compatible" || provider === "openai" ? "gpt-4o-mini" : "claude-sonnet-4-20250514");
-  const baseUrl = e.LLM_BASE_URL ?? (provider === "openai-compatible" || provider === "openai" ? "https://api.openai.com/v1" : "https://api.anthropic.com/v1");
-  const apiKey = e.LLM_API_KEY ?? e.OPENAI_API_KEY ?? "";
-  return { provider, model, baseUrl, apiKey };
+  const openai = provider === "openai-compatible" || provider === "openai";
+  return {
+    provider,
+    model: e.LLM_MODEL ?? (openai ? "gpt-4o-mini" : "claude-sonnet-4-20250514"),
+    baseUrl: (openai ? e.LLM_OPENAI_BASE_URL : e.LLM_ANTHROPIC_BASE_URL) ?? e.LLM_BASE_URL ?? (openai ? "https://api.openai.com/v1" : "https://api.anthropic.com/v1"),
+    apiKey: e.LLM_API_KEY ?? e.OPENAI_API_KEY ?? "",
+  };
 }
+export const legacyGlobalLLMConfig = b5GlobalLLMConfig;
 
 /** llm.ts intEnv */
 function llmIntEnv(name: string, fallback: number, min: number, max: number, env: Env): number {

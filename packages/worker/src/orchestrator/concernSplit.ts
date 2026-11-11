@@ -1,7 +1,5 @@
 import { concernCategory } from "./classifier";
-import { routeCapability } from "./capabilities";
-import { canWriteAny, permissionsForAgent } from "@/utils/rolePolicy";
-import { CAPABILITY, type AgentDefinition, type Classification, type Concern, type ExecutionPlan, type PlanSubtask } from "@/types";
+import { type AgentDefinition, type Classification, type Concern, type ExecutionPlan, type PlanSubtask } from "@/types";
 
 /**
  * Per-concern planning for high/ultra changes (e2e ULTRA).
@@ -40,13 +38,6 @@ function uniqueKey(base: string, used: Set<string>): string {
   return key;
 }
 
-function docsCapability(original: string, agents: AgentDefinition[] | undefined): string {
-  if (!agents) return original;
-  // Plan 040: a docs file is a write; only a docs owner that may write takes it.
-  const owner = routeCapability(CAPABILITY.DOCUMENTATION, agents, { allowFallback: false });
-  return owner && canWriteAny(permissionsForAgent(owner)) ? CAPABILITY.DOCUMENTATION : original;
-}
-
 /** Replace node `key` with `parts` (sequential), rewiring every dependent to the last part. */
 function replaceNode(plan: ExecutionPlan, key: string, parts: PlanSubtask[]): ExecutionPlan {
   const partKeys = parts.map((part) => part.key);
@@ -71,7 +62,7 @@ function replaceNode(plan: ExecutionPlan, key: string, parts: PlanSubtask[]): Ex
   };
 }
 
-function splitByConcerns(node: PlanSubtask, concerns: Concern[], used: Set<string>, agents?: AgentDefinition[]): PlanSubtask[] {
+function splitByConcerns(node: PlanSubtask, concerns: Concern[], used: Set<string>): PlanSubtask[] {
   const parts: PlanSubtask[] = [];
   let previous: string[] = node.dependencies;
   for (const concern of concerns) {
@@ -94,7 +85,10 @@ function splitByConcerns(node: PlanSubtask, concerns: Concern[], used: Set<strin
         .map((other) => other.category)
         .join(", ")}) are separate subtasks. Context: ${node.description}`,
       kind: "code_change",
-      capability: isDocs ? docsCapability(node.capability, agents) : node.capability,
+      // The docs part of a code-affecting multi-concern request stays with the
+      // implementer (user decision 2026-11-11): Support only owns pure-docs
+      // requests, where nothing is split. Its paths are still docs-only.
+      capability: node.capability,
       dependencies: previous,
       order: node.order,
       ...(allowedPaths ? { allowedPaths } : {}),
@@ -151,7 +145,7 @@ export function splitMultiConcernNodes(
     const covered = coveredConcerns(node, concerns);
     if (covered.length < 2) continue;
     if (current.subtasks.length - 1 + covered.length > options.maxSubtasks) continue;
-    current = replaceNode(current, node.key, splitByConcerns(node, covered, used, options.agents));
+    current = replaceNode(current, node.key, splitByConcerns(node, covered, used));
     split.push(node.key);
   }
   return { plan: current, split };
@@ -196,7 +190,7 @@ export function splitTimedOutNodes(
     // concern), fall back to the node's own wording.
     const covered = coveredConcerns(node, concerns.length > 0 ? concerns : [{ category: concernCategory(node.description), text: node.description }]);
     let parts: PlanSubtask[] = [];
-    if (covered.length >= 2) parts = splitByConcerns(node, covered, used, options.agents);
+    if (covered.length >= 2) parts = splitByConcerns(node, covered, used);
     else if ((node.allowedPaths?.length ?? 0) >= 2) parts = splitByPaths(node, used);
     if (parts.length < 2 || current.subtasks.length - 1 + parts.length > options.maxSubtasks) {
       unsplittable.push(node.key);

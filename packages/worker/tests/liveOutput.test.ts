@@ -151,7 +151,9 @@ describe("OpenAICompatibleProvider.stream", () => {
     expect(bodies[0].stream).toBe(true);
     expect(bodies[0].stream_options).toBeUndefined();
     expect(chunks).toEqual(["Hel", "lo"]);
-    expect(result).toEqual({ content: "Hello", inputTokens: 12, outputTokens: 3 });
+    // D5: a streamed call also records its time to first token.
+    expect(result).toEqual({ content: "Hello", inputTokens: 12, outputTokens: 3, ttftMs: expect.any(Number) });
+    expect(result.ttftMs).toBeGreaterThanOrEqual(0);
   });
 
   it("falls back to one chunk when the server ignores stream", async () => {

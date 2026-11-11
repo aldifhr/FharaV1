@@ -27,8 +27,9 @@ export const GENERIC_AGENT_PROMPT =
  * Earlier seed texts, per role (plan 040, decision D10). The fixed-team
  * sync replaces a stored prompt with the current seed only when it is
  * EXACTLY one of these, i.e. the user never edited it. Append the old text
- * here whenever a seed changes (the last entry per role is the one-line
- * seed used before the role prompt templates, 2026-11-11).
+ * here whenever a seed changes (the last one-line entry per role is the
+ * seed used before the role prompt templates, 2026-11-11; entries after it
+ * are earlier "# <Role>" template versions, e.g. Support before O2).
  */
 export const PREVIOUS_SEED_PROMPTS: Partial<Record<RoleKey, readonly string[]>> = {
   cto: [

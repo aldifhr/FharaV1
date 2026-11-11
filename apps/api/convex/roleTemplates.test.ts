@@ -17,8 +17,12 @@ import { isUneditedSeed, prefillPromptForRole, roleTemplateFor } from "./lib/pro
 
 const modules = import.meta.glob("./**/*.ts");
 const makeT = () => convexTest(schema, modules);
+// The last one-line seed used before the role prompt templates. Later
+// entries can be earlier template versions ("# <Role>" markdown, e.g. the
+// pre-O2 Support template), which are checked separately below.
+const isTemplateText = (p: string) => p.startsWith("# ");
 const oldSeed = (role: (typeof ROLE_KEYS)[number]) => {
-  const list = PREVIOUS_SEED_PROMPTS[role] ?? [];
+  const list = (PREVIOUS_SEED_PROMPTS[role] ?? []).filter((p) => !isTemplateText(p));
   return list[list.length - 1]!;
 };
 
@@ -30,6 +34,21 @@ describe("role templates as seeds", () => {
     expect(oldSeed(role)).toMatch(/^You are the /);
     expect(isUneditedSeed(role, oldSeed(role))).toBe(true);
     expect(isUneditedSeed(role, `${oldSeed(role)} Also check Safari.`)).toBe(false);
+  });
+
+  test("earlier template versions are unedited seeds that migrate to the current template", () => {
+    for (const role of ROLE_KEYS) {
+      for (const prev of PREVIOUS_SEED_PROMPTS[role] ?? []) {
+        expect(prev.startsWith("You are the ") || isTemplateText(prev)).toBe(true);
+        expect(isUneditedSeed(role, prev)).toBe(true);
+        expect(prev).not.toBe(ROLE_PROMPT_TEMPLATES[role]);
+        if (isTemplateText(prev)) expect(prefillPromptForRole(prev, role)).toBe(ROLE_PROMPT_TEMPLATES[role]);
+      }
+    }
+    const preO2Support = (PREVIOUS_SEED_PROMPTS.support ?? []).filter(isTemplateText);
+    expect(preO2Support).toHaveLength(1);
+    expect(preO2Support[0]).toMatch(/^# Support Specialist\n/);
+    expect(ROLE_PROMPT_TEMPLATES.support).toMatch(/^# Support Specialist\n/);
   });
 
   test("legacy and label roles resolve to their template; custom roles have none", () => {

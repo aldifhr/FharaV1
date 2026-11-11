@@ -15,6 +15,7 @@ import { defaultAvatarParams } from "./lib/avatar";
 import { changedFields, recordAudit, setFields } from "./lib/recordAudit";
 import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT, PREVIOUS_SEED_PROMPTS } from "./lib/prompts/agents";
 import { applyAgentSkills, applyBuiltinSkills, seedBuiltinSkills } from "./skills";
+import { effectiveTeamIds } from "./lib/projectTeam";
 
 /**
  * Plan 007: browser-safe agent projection — the same shape `list` has always
@@ -55,7 +56,7 @@ export const listByProject = query({
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
     const docs = await Promise.all(
-      (project.agentIds ?? []).map((id) => ctx.db.get(id))
+      effectiveTeamIds(project.agentIds, await ctx.db.query("agents").collect()).map((id) => ctx.db.get(id))
     );
     return docs
       .filter((agent): agent is Doc<"agents"> => agent !== null)
@@ -84,7 +85,7 @@ export const getRegistryView = query({
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
     const docs = await Promise.all(
-      (project.agentIds ?? []).map((id) => ctx.db.get(id))
+      effectiveTeamIds(project.agentIds, await ctx.db.query("agents").collect()).map((id) => ctx.db.get(id))
     );
     const members = docs.filter((agent): agent is Doc<"agents"> => agent !== null);
 

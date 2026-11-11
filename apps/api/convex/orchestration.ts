@@ -17,6 +17,7 @@ import { scheduleShadowReview } from "./lib/reviewer/shadowSchedule";
 import { subtaskContractFields } from "./lib/contractValidators";
 import { recordObservationsForEvent } from "./lib/observationStore";
 import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver";
+import { effectiveTeamIds } from "./lib/projectTeam";
 import type { PromptSkill } from "./lib/skills";
 import { loadPromptSkills } from "./skills";
 import { resolveRunMcpServers } from "./mcpServers";
@@ -225,9 +226,15 @@ export const getRunContext = internalQuery({
     if (!task) return null;
     const project = await ctx.db.get(task.projectId);
     const allAgents = await ctx.db.query("agents").collect();
+    // No explicit assignees: the project's team as every surface sees it
+    // (lib/projectTeam): its roster, or the fixed team when it has none. A
+    // project created through the API without agentIds chatted (998db43) but
+    // its tasks failed "No agents are assigned to this project".
     const assigned = task.assignedAgentIds?.length
       ? task.assignedAgentIds
-      : project?.agentIds;
+      : project
+        ? effectiveTeamIds(project.agentIds, allAgents)
+        : undefined;
     const agents = assigned?.length
       ? allAgents.filter((agent) => assigned.includes(agent._id) && agent.isEnabled !== false)
       : [];

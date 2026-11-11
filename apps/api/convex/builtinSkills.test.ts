@@ -33,10 +33,22 @@ describe("built-in skill metadata", () => {
       expect(skill.roles.length).toBeGreaterThan(0);
       if (skill.upstream) expect(["MIT", "Apache-2.0"]).toContain(skill.upstream.license);
     }
-    expect(builtinSkillKeysForRole("designer")).toEqual(BUILTIN_SKILLS.filter((s) => s.key !== "fhara-discipline").map((s) => s.key));
-    expect(builtinSkillKeysForRole("backend")).toEqual(["fhara-discipline"]);
+    expect(builtinSkillKeysForRole("designer")).toEqual(
+      BUILTIN_SKILLS.filter((s) => s.key !== "fhara-discipline" && s.key !== "review-checklist").map((s) => s.key)
+    );
+    expect(builtinSkillKeysForRole("backend")).toEqual(["fhara-discipline", "review-checklist"]);
     expect(builtinSkillKeysForRole("devops")).toEqual(["fhara-discipline"]);
-    expect(builtinSkillKeysForRole("frontend").at(-1)).toBe("fhara-discipline");
+    expect(builtinSkillKeysForRole("frontend").slice(-2)).toEqual(["fhara-discipline", "review-checklist"]);
+  });
+
+  test("review-checklist goes to Reviewer, Frontend, Backend and QA only, and names no upstream product", () => {
+    const holders = ROLE_KEYS.filter((role) => builtinSkillKeysForRole(role).includes("review-checklist"));
+    expect([...holders].sort()).toEqual(["backend", "frontend", "qa", "reviewer"]);
+    const skill = BUILTIN_SKILLS.find((s) => s.key === "review-checklist")!;
+    expect(skill.license).toBe("MIT");
+    expect(skill.upstream?.repo).toBe("deepseek-ai/deepseek-harness");
+    // The attribution lives in the front matter, which is not part of the prompt text.
+    expect(`${skill.name}\n${skill.description}\n${skill.instructions}`).not.toMatch(/deepseek|\bdsh\b/i);
   });
 
   test("every role's default set fits the inline prompt budget whole", () => {
@@ -59,19 +71,27 @@ describe("built-in skill seeding", () => {
     expect(seeded.map((s) => s.builtin).sort()).toEqual(BUILTIN_SKILLS.map((s) => s.key).sort());
 
     const designer = await agentByRole(t, "designer");
-    expect(await skillNames(t, designer.skillIds)).toEqual(BUILTIN_SKILLS.filter((s) => s.key !== "fhara-discipline").map((s) => s.name));
+    expect(await skillNames(t, designer.skillIds)).toEqual(
+      BUILTIN_SKILLS.filter((s) => s.key !== "fhara-discipline" && s.key !== "review-checklist").map((s) => s.name)
+    );
     expect(await skillNames(t, (await agentByRole(t, "frontend")).skillIds)).toEqual([
       "design-system-detection",
       "frontend-design",
       "ui-ux-rules",
       "fhara-discipline",
+      "review-checklist",
     ]);
-    expect(await skillNames(t, (await agentByRole(t, "qa")).skillIds)).toEqual(["design-options-review", "accessibility-audit"]);
+    expect(await skillNames(t, (await agentByRole(t, "qa")).skillIds)).toEqual([
+      "design-options-review",
+      "accessibility-audit",
+      "review-checklist",
+    ]);
     expect(await skillNames(t, (await agentByRole(t, "reviewer")).skillIds)).toEqual([
       "accessibility-audit",
       "web-interface-guidelines",
+      "review-checklist",
     ]);
-    expect(await skillNames(t, (await agentByRole(t, "backend")).skillIds)).toEqual(["fhara-discipline"]);
+    expect(await skillNames(t, (await agentByRole(t, "backend")).skillIds)).toEqual(["fhara-discipline", "review-checklist"]);
     expect(await skillNames(t, (await agentByRole(t, "devops")).skillIds)).toEqual(["fhara-discipline"]);
 
     // The user edits one, deletes another and detaches a third from the Designer.

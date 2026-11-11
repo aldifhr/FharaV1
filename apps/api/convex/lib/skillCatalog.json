@@ -79,6 +79,16 @@
           "ref": "main",
           "license": "MIT",
           "author": "aldifhr"
+        },
+        {
+          "name": "review-checklist",
+          "description": "Bug classes to check in a diff (lifecycle, callbacks, timing, values, untrusted output, failures) plus test rules (MIT, adapted from deepseek-ai/deepseek-harness).",
+          "category": "Fhara built-in",
+          "repo": "aldifhr/Fhara",
+          "path": "skills/builtin/review-checklist/SKILL.md",
+          "ref": "main",
+          "license": "MIT",
+          "author": "aldifhr"
         }
       ]
     },

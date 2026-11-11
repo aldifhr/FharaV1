@@ -1059,6 +1059,10 @@ SOFTWARE.
     `--die-with-parent`, private `/tmp` and bound writable roots in workspace-write), and the one-time functional probe
     and the bwrap denial dialect (`read-only file system`) follow `src/index.ts`; MIT, header in the file. Fhara adds a
     `partial` profile without the PID namespace, `--chdir`, and a linked worktree's git common dir as a writable root.
+  - `skills/builtin/review-checklist/SKILL.md` (D9, Fhara built-in skill for Reviewer, Frontend, Backend and QA):
+    adapted prose, distilled into a short checklist from `docs/defensive-patterns/general.md`, `docs/testing.md` and
+    `.agents/skills/{dsh-code-review,dsh-error-handling,dsh-ci-test-reliability}/SKILL.md`; attribution in its front
+    matter. Bundled through the generated `apps/api/convex/lib/builtinSkills.data.ts`.
 - Copied (MIT, header in the file): `packages/worker/src/vendor/deepseek-harness/prunerConfig.ts` from
   `packages/compaction/compaction-tool-result-pruner/src/config.ts` (head 4096 + marker + tail 1024, at most 8192;
   `deepFreeze` and the types inlined).

@@ -93,6 +93,18 @@ export const BUILTIN_SKILL_META: readonly BuiltinSkillMeta[] = [
       sha: "718f5b11",
     },
   },
+  {
+    // After the discipline skill: the code roles' budget drops it first.
+    key: "review-checklist",
+    roles: ["reviewer", "frontend", "backend", "qa"],
+    tags: ["review", "testing", "builtin"],
+    upstream: {
+      repo: "deepseek-ai/deepseek-harness",
+      path: "docs/defensive-patterns/general.md, docs/testing.md, .agents/skills (code-review, error-handling, ci-test-reliability)",
+      license: "MIT",
+      sha: "e8f7b93",
+    },
+  },
 ];
 
 export type BuiltinSkill = BuiltinSkillSource & BuiltinSkillMeta;

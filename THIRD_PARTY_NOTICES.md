@@ -821,3 +821,36 @@ SOFTWARE.
   Ported from Python to TypeScript; changes are marked in the file headers. Copyright
   agent-os contributors. Licensed under the Apache License, Version 2.0 (full text in the Aider entry above).
   agent-os ships no NOTICE file.
+
+## Paradev (superset-sh/superset)
+
+- Source: https://github.com/superset-sh/superset
+- Used in: `apps/api/convex/lib/slashCommands.ts` and `slashCommands.test.ts` (the slash-command wire type,
+  `findSlashCommandByNameOrAlias`, `getCommandMatchRank`, `shouldSuppressSlashMenuForCommittedCommand`,
+  `sortSlashCommandMatches` and their tests, copied from `packages/shared/src/slash-commands.ts` and
+  `slash-commands.test.ts`). Changed by Fhara: no `trigger` field, builtins sort first, plus the Fhara
+  builtin list, scopes and `parseSlash`; changes are marked in the file headers.
+
+```
+MIT License
+
+Copyright (c) 2025-2026 Superset Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

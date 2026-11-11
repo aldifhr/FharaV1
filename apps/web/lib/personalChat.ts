@@ -2,6 +2,8 @@
  * Personal chat (plan 039) display helpers, kept pure for node:test.
  */
 
+import { builtinCommandsForScope } from "@/api/convex/lib/slashCommands";
+
 export type ConversationKind = "personal" | "project" | "team";
 
 /**
@@ -35,9 +37,12 @@ export function attachBlockReason(
   return (project.agentIds ?? []).includes(agent._id) ? null : `${agent.name} is not on this project's team`;
 }
 
-/** Composer slash commands in a personal chat: /task only once a project is attached. */
-export function personalSlashNames(attached: boolean): Array<"task"> {
-  return attached ? ["task"] : [];
+/**
+ * Composer slash commands in a personal chat, from the shared registry's
+ * personal scope: /task only once a project is attached.
+ */
+export function personalSlashNames(attached: boolean): string[] {
+  return builtinCommandsForScope("personal", { attached }).map((c) => c.name);
 }
 
 /** Attach dialog rows: every visible project, the ones whose team includes the agent first. */

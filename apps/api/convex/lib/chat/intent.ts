@@ -5,6 +5,7 @@
  */
 
 import { detectChatRunCommands, explicitRunCommand } from "./runRequest";
+import { findBuiltinSlash } from "../slashCommands";
 
 // Mirrored from packages/worker/src/router/route.ts (Convex cannot import
 // worker code). The backend chat auto-dispatch must honor the same platform
@@ -224,8 +225,12 @@ export const EXPLICIT_GO_WORDS = ["kerjakan", "jalankan", "eksekusi", "do it", "
 
 const SLASH_TASK = /^\/task\s+([\s\S]+)$/i;
 // O7: "/research <question>" is an explicit order too; the marker stays on
-// the task command so the planner builds the research fan-out.
-const SLASH_RESEARCH = /^\/research\s+\S[\s\S]*$/i;
+// the task command so the planner builds the research fan-out. Detected via
+// the shared slash registry (lib/slashCommands.ts, Paradev C1).
+function isResearchCommand(text: string): boolean {
+  const hit = findBuiltinSlash(text);
+  return hit?.command.name === "research" && hit.args.length > 0;
+}
 const GO_PREFIX = /^(kerjakan|jalankan|eksekusi|do it|run this)(?=$|[\s:,.!\-–—])[\s:,.!\-–—]*([\s\S]*)$/i;
 // "kata AI Agent saya …", "dia bilang …", "katanya …": the user is relaying
 // someone else's words, not giving an order.
@@ -255,7 +260,7 @@ export function explicitTaskCommand(text: string): string | null {
   const t = text.trim();
   const slash = SLASH_TASK.exec(t);
   if (slash) return slash[1].trim() || null;
-  if (SLASH_RESEARCH.test(t)) return t;
+  if (isResearchCommand(t)) return t;
   if (isPastedContent(t) || /\?\s*$/.test(t) || EXPLICIT_NEGATION.test(t)) return null;
   // A run order ("jalankan tes", "run npm test", "run the tests") keeps its
   // run verb: the worker classifier (detectRunCommands) plans a shell task

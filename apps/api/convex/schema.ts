@@ -490,8 +490,7 @@ export default defineSchema({
     // next worker claim plans afresh with it as planner feedback; the next
     // saved planner version clears it.
     planReviewNote: v.optional(v.string()),
-    // Plan 022 (additive): explicit user pause. Set with status "paused";
-    // cleared on resume.
+    // Plan 022 (additive): explicit user pause. Set with status "paused"; cleared on resume.
     // O3 + L7: "held" = paused by a provider hold (offline, 429, quota,
     // auth); resumes on its own with backoff or on the user's Resume.
     pausedBy: v.optional(v.union(v.literal("user"), v.literal("held"))),
@@ -558,7 +557,8 @@ export default defineSchema({
     .index("by_worker", ["workerId"])
     .index("by_worker_and_status", ["workerId", "status"])
     .index("by_idempotency", ["idempotencyKey"])
-    .index("by_parent", ["parentTaskId"]),
+    .index("by_parent", ["parentTaskId"])
+    .searchIndex("search_title", { searchField: "title", filterFields: ["projectId"] }), // D11 past-work search (additive)
 
   plans: defineTable({
     taskId: v.id("tasks"),
@@ -878,7 +878,8 @@ export default defineSchema({
     // Personal chat (plan 039): conversation history without the by_project
     // take-200 scan, and send dedupe for messages that have no project.
     .index("by_conversation", ["conversationId"])
-    .index("by_conversation_and_client_id", ["conversationId", "clientId"]),
+    .index("by_conversation_and_client_id", ["conversationId", "clientId"])
+    .searchIndex("search_content", { searchField: "content", filterFields: ["projectId", "taskId"] }), // D11 past-work search (additive)
 
   // Plan 007 (addendum §2): conversation participation is its own concept,
   // independent of project membership (projects.agentIds) and task assignment
@@ -1233,9 +1234,8 @@ export default defineSchema({
     updatedBy: v.union(v.literal("user"), v.literal("worker")),
   })
     .index("by_task", ["taskId"])
-    // Project delete cascade (projects.cascadeDelete).
-    .index("by_project", ["projectId"]),
-
+    .index("by_project", ["projectId"]) // project delete cascade (projects.cascadeDelete)
+    .searchIndex("search_latest_result", { searchField: "latestResult", filterFields: ["projectId"] }), // D11 past-work search (additive)
   // Conditional delegation decisions
   delegations: defineTable({
     taskId: v.id("tasks"),

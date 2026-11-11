@@ -16,6 +16,7 @@ import {
   runGovernedFileTool,
   runGovernedCommandTool,
   runGovernedGitHubTool,
+  runGovernedPastWorkSearch,
   validateFilePath,
   validateCommand,
   type ToolContext,
@@ -84,6 +85,13 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       if (typeof command !== "string" || !command) return { ok: false, reason: REASON_TOOL_ARGS_INVALID };
       return runGovernedCommandTool(ctx, { command, args: (args.args as string[]) ?? [] });
     },
+  },
+  {
+    // D11: the project is the context's, never an argument.
+    name: "search_past_work",
+    description: "Search earlier tasks, task results and messages of this project (result fenced as untrusted).",
+    args: ["query", "limit"],
+    execute: async (ctx, args) => runGovernedPastWorkSearch(ctx, { query: args.query, limit: args.limit }),
   },
   {
     name: "github_list_repos",

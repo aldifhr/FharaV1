@@ -1,6 +1,6 @@
 {
   "apps/api/convex/chat.ts": {
-    "lines": 1533,
+    "lines": 1524,
     "suppressions": 5
   },
   "apps/api/convex/directThreads.ts": {

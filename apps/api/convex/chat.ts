@@ -78,7 +78,8 @@ import {
   type RepoToolResult,
 } from "./lib/chat/repoTools";
 import { createSkillLoader, wantsLoadSkillTool, type SkillLoader } from "./lib/skillRuntime";
-import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_TOOL } from "./lib/skills";
+import { chatLocalTools, pastWorkRunner } from "./lib/chat/localTools";
+import { LOAD_SKILL_MAX_CALLS } from "./lib/skills";
 import {
   NO_TOOLS_RETRY_LINE,
   hasToolCallText,
@@ -995,18 +996,8 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         loop = await runRepoToolLoop({
           messages: msgs,
           maxCalls: opts?.maxCalls ?? MAX_REPO_TOOL_CALLS,
-          // Local tool (not the worker queue): the agent's own skills only.
-          ...(skillLoader
-            ? {
-                localTools: {
-                  [LOAD_SKILL_TOOL]: (call: RepoToolCall) => {
-                    const loaded = skillLoader.load(call.args?.name ?? call.args?.skill);
-                    return { ok: loaded.ok, text: loaded.text };
-                  },
-                },
-                maxLocalCalls: skillLoader.maxCalls + 1,
-              }
-            : {}),
+          // Local tools (not the worker queue): the agent's own skills, and past work of this chat's project (D11).
+          ...chatLocalTools({ skillLoader, pastWork: scopeProjectId ? pastWorkRunner(ctx, scopeProjectId) : null }),
           step: async (stepMsgs) => {
             const raw = await completeWithSnapshot(ctx, snapScope(agentId, messageId, "chat_tool_step"), system, stepMsgs, config, ({ content: rawContent, reasoning }) => {
               const now = Date.now();
@@ -1159,7 +1150,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         ...(scopeProjectId && personalWrite.offer ? buildPlanningGuidance(agent, { isOrchestrator: false, taskIntent: { ...classifyChatIntent(lastText), kind: "task" }, assigneeName: personalWrite.assignee?.name, codeInChat: personalWrite.codeInChat }) : []),
         wantsOptions(lastText) ? OPTIONS_GUIDANCE : "Answer in prose. Do not output an [options] block.",
         useRepoTools
-          ? buildRepoToolProtocol(MAX_REPO_TOOL_CALLS, { loadSkill: skillLoader !== undefined })
+          ? buildRepoToolProtocol(MAX_REPO_TOOL_CALLS, { loadSkill: skillLoader !== undefined, pastWork: true })
           : skillLoader
             ? buildSkillToolProtocol()
             : "",
@@ -1460,7 +1451,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       const systemWithContext = [
         system,
         useRepoTools
-          ? buildRepoToolProtocol(callCap, { loadSkill: skillLoader !== undefined })
+          ? buildRepoToolProtocol(callCap, { loadSkill: skillLoader !== undefined, pastWork: true })
           : skillLoader
             ? buildSkillToolProtocol()
             : "",

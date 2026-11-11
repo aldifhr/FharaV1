@@ -1,3 +1,4 @@
+import { clampPastWorkLimit, formatPastWorkResult, PAST_WORK_TOOL, type PastWorkSearchResult } from "@/api/convex/lib/pastWork";
 
 export const REASON_FILE_ESCAPES_WORKSPACE = "file-escapes-workspace";
 export const REASON_FILE_PATH_FORBIDDEN = "file-path-forbidden";
@@ -8,6 +9,8 @@ export const REASON_NETWORK_URL_INVALID = "network-url-invalid";
 export const REASON_SECRET_EXPOSURE = "secret-exposure-risk";
 export const REASON_TOOL_UNKNOWN = "tool-unknown";
 export const REASON_TOOL_ARGS_INVALID = "tool-args-invalid";
+export const REASON_PAST_WORK_NO_PROJECT = "past-work-no-project";
+export const REASON_PAST_WORK_FAILED = "past-work-failed";
 
 export interface AuditInput {
   taskId?: string;
@@ -33,6 +36,8 @@ export interface ToolContext {
   audit?: (entry: AuditInput) => Promise<void> | void;
   /** Agent role ("researcher", "cto", "frontend", …) — the permission broker reads this. */
   agentRole?: string;
+  /** D11: runs a past-work search for a project (the worker binds it to the Convex API). */
+  searchPastWork?: PastWorkSearchFn;
 }
 
 export interface ToolResult<T = unknown> {
@@ -357,4 +362,50 @@ export async function runGovernedGitHubTool(
   });
 
   return { ok: true };
+}
+
+/** D11: one past-work search, always for the given project. */
+export type PastWorkSearchFn = (input: {
+  projectId: string;
+  query: string;
+  limit?: number;
+  excludeTaskId?: string;
+}) => Promise<PastWorkSearchResult>;
+
+export interface PastWorkToolArgs {
+  query?: unknown;
+  limit?: unknown;
+}
+
+/**
+ * D11 `search_past_work`: earlier tasks, task results and messages of the
+ * caller's project. The project comes from the tool context, never from the
+ * arguments, so a model cannot reach another project's work; the result is
+ * fenced as untrusted text and ends with a cap note when the limit was hit.
+ */
+export async function runGovernedPastWorkSearch(
+  context: ToolContext,
+  args: PastWorkToolArgs,
+  search: PastWorkSearchFn | undefined = context.searchPastWork
+): Promise<ToolResult<string>> {
+  const query = typeof args.query === "string" ? args.query.trim() : "";
+  const target = maskStringSecrets(query.slice(0, 200));
+  if (!context.projectId || !search) {
+    await audit(context, { tool: PAST_WORK_TOOL, action: "search", decision: "denied", target, details: { reason: REASON_PAST_WORK_NO_PROJECT } });
+    return { ok: false, reason: REASON_PAST_WORK_NO_PROJECT };
+  }
+  if (!query) return { ok: false, reason: REASON_TOOL_ARGS_INVALID };
+  const limit = clampPastWorkLimit(args.limit);
+  await audit(context, { tool: PAST_WORK_TOOL, action: "search", decision: "allowed", target, details: { limit } });
+  try {
+    const result = await search({
+      projectId: context.projectId,
+      query,
+      limit,
+      ...(context.taskId ? { excludeTaskId: context.taskId } : {}),
+    });
+    return { ok: true, data: maskStringSecrets(formatPastWorkResult(result)) };
+  } catch {
+    return { ok: false, reason: REASON_PAST_WORK_FAILED };
+  }
 }

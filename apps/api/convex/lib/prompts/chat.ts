@@ -8,6 +8,7 @@ import { isHandoffLine } from "../chat/dispatch";
 import { isSystemLine } from "../systemLine";
 import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_TOOL } from "../skills";
 import { LOAD_SKILL_TOOL_LINE } from "../skillRuntime";
+import { PAST_WORK_MAX_CALLS, PAST_WORK_TOOL, PAST_WORK_TOOL_LINE } from "../pastWork";
 import { LEGACY_ROLE_SUCCESSORS, isRoleKey, normalizeRoleKey, roleChatSummary } from "../roles";
 import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT, PREVIOUS_SEED_PROMPTS } from "./agents";
 
@@ -153,7 +154,7 @@ export function buildChatPersonaLines(
  * Read-only repo tool protocol for one chat reply (the CTO, its handoff
  * teammates, or @mentioned agents, when a worker can serve the tools). The loop in lib/chat/repoTools.ts parses the calls.
  */
-export function buildRepoToolProtocol(maxCalls: number, opts: { loadSkill?: boolean } = {}): string {
+export function buildRepoToolProtocol(maxCalls: number, opts: { loadSkill?: boolean; pastWork?: boolean } = {}): string {
   return [
     "## Repo tools (read-only)",
     "You can read the project repository before answering. To call a tool, reply with ONLY one JSON object and nothing else — one call per reply, then wait for its result. E.g.:",
@@ -163,6 +164,8 @@ export function buildRepoToolProtocol(maxCalls: number, opts: { loadSkill?: bool
     '- grep {"pattern": regex, "path"?: dir or file, "glob"?: file filter, "ignoreCase"?: bool}: the total match count, then matching lines as path:line: text (first 40). Omit "path" to search the whole repository — do that to locate a symbol.',
     '- read_file {"path": file, "start"?: line, "lines"?: count}: numbered lines with the file\'s total lines and size; at most 400 lines (16 KB) per read.',
     ...(opts.loadSkill ? [LOAD_SKILL_TOOL_LINE, `(${LOAD_SKILL_TOOL} has its own limit of ${LOAD_SKILL_MAX_CALLS} per reply and does not use the repo tool budget.)`] : []),
+    // D11: past work of this project (runs in the chat action; its own budget).
+    ...(opts.pastWork ? [PAST_WORK_TOOL_LINE, `(${PAST_WORK_TOOL} has its own limit of ${PAST_WORK_MAX_CALLS} per reply and does not use the repo tool budget.)`] : []),
     `At most ${maxCalls} ${opts.loadSkill ? "repo " : ""}tool calls per reply. You cannot write files or run commands. The result comes back as the next message; then call another tool or write your answer as plain prose (never JSON, never a tool call inside the answer).`,
     "Rules for the answer:",
     '- A read_file result marked "truncated: lines X-Y of N" showed only that part. Never state a count or a list for the whole file from a part: read the next page with "start", or grep it (e.g. {"tool":"grep","arguments":{"pattern":"defineTable","path":"apps/api/convex/schema.ts"}}) and use grep\'s match count.',

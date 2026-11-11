@@ -121,6 +121,8 @@ export function describeRepoToolCall(call: RepoToolCall): string {
       return `list_files ${str(a.path) || "."}${str(a.glob) ? ` (${str(a.glob)})` : ""}`;
     case "load_skill":
       return `load_skill ${JSON.stringify(str(a.name))}`;
+    case "search_past_work":
+      return `search_past_work ${JSON.stringify(str(a.pattern) || str(a.query))}`;
     default:
       return call.tool;
   }
@@ -230,8 +232,11 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
     return done(isNarrationOnly(prose) ? "" : prose);
   };
   let nudged = false;
+  // Set when the model asks for a repo tool after the repo budget is used up
+  // while local tools still have budget: the next step is the final one.
+  let repoSpent = false;
   for (let i = 0; i <= steps; i += 1) {
-    const exhausted = i === steps || (repoCalls >= maxCalls && localCalls >= maxLocal);
+    const exhausted = i === steps || repoSpent || (repoCalls >= maxCalls && localCalls >= maxLocal);
     if (exhausted) messages.push({ role: "user", content: TOOL_BUDGET_EXHAUSTED });
     const { content } = await options.step(messages);
     // Lenient: one reply may hold several calls and/or prose. Only the
@@ -258,6 +263,10 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
       return forceFinal();
     }
     const call: RepoToolCall = { tool: found.calls[0].tool, args: normalizeRepoToolArgs(found.calls[0].args) };
+    if (isRepoToolName(call.tool) && maxCalls > 0 && repoCalls >= maxCalls) {
+      repoSpent = true;
+      continue;
+    }
     let result: RepoToolResult;
     if (localNames.includes(call.tool)) {
       if (localCalls >= maxLocal) {

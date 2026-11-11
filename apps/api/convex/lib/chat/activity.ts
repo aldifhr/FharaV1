@@ -118,6 +118,9 @@ export function toolStepFor(call: { tool: string; args?: Record<string, unknown>
     case "load_skill":
       target = str(a.name) || str(a.skill);
       break;
+    case "search_past_work":
+      target = str(a.pattern) || str(a.query);
+      break;
     default:
       target = str(a.role) || str(a.target);
   }

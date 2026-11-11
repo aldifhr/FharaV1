@@ -624,7 +624,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       </QueryBoundary>
 
       <ChatHeader
-        project={project as any}
+        project={project as any} conversation={(activeConversation as any)?.conversation ?? null}
         agents={agents}
         status={status}
         tab={tab}

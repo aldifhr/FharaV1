@@ -4,6 +4,7 @@ import { Bell, Check, Copy, GitBranch, Menu, MoreHorizontal, PanelLeftOpen, Penc
 import { useState } from "react";
 import InitialAvatar from "../InitialAvatar";
 import ProjectAvatar from "../shell/ProjectAvatar";
+import { EditableTitle } from "../ThreadRename";
 import { iconButtonClass, popoverClass, usePopover } from "../shell/usePopover";
 import { agentName, roleLabel } from "@/lib/agentRoles";
 import { teamStatusLabel, type StatusMap } from "@/lib/teamStatus";
@@ -37,6 +38,7 @@ export function appLabel(project: { devUrl?: string; workspacePath?: string } | 
 
 export default function ChatHeader({
   project,
+  conversation,
   agents,
   status,
   tab,
@@ -60,6 +62,8 @@ export default function ChatHeader({
   formatTime,
 }: {
   project: { name?: string; devUrl?: string; workspacePath?: string } | null | undefined;
+  /** The project's active conversation; its title is renamed in place (Paradev B3). */
+  conversation?: { _id: string; title?: string } | null;
   agents: Agent[];
   status?: StatusMap;
   tab: ChatTab;
@@ -136,7 +140,17 @@ export default function ChatHeader({
         )}
         <ProjectAvatar name={project?.name ?? "•"} size={34} />
         <div className="min-w-0">
-          <h1 className="truncate text-[16px] font-semibold leading-tight text-ink">{project?.name ?? "Project"}</h1>
+          <h1 className="flex min-w-0 items-center gap-1.5 text-[16px] font-semibold leading-tight text-ink">
+            <span className="min-w-0 shrink truncate">{project?.name ?? "Project"}</span>
+            {conversation && (
+              <>
+                <span aria-hidden="true" className="font-normal text-ink-3">/</span>
+                <span className="min-w-0 flex-1 font-normal text-ink-2">
+                  <EditableTitle title={conversation.title?.trim() || "Chat"} renameRef={{ conversationId: String(conversation._id) }} label="chat" />
+                </span>
+              </>
+            )}
+          </h1>
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
             {stacked.length > 0 && (
               <span className="flex shrink-0 items-center max-sm:hidden">

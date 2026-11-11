@@ -23,6 +23,7 @@ import SystemLineRow from "./chat/SystemLineRow";
 import { canReplyTo, systemLineText, threadBlockOf } from "@/lib/systemLine";
 import Requirements from "./runs/Requirements";
 import { useToast } from "./Toasts";
+import { EditableTitle } from "./ThreadRename";
 import { useSequencedEvents } from "@/lib/useSequencedEvents";
 import { Skeleton } from "@/app/WorkspaceContext";
 import { ArrowLeft, ArrowUpRight, AtSign, Check, ChevronLeft, Loader2 as SendLoader, Minimize2, Paperclip, Reply, RotateCcw, SendHorizontal, Square, X } from "lucide-react";
@@ -38,7 +39,6 @@ const MAX_WIDTH = 720;
 const DEFAULT_WIDTH = 390;
 const WIDE_WIDTH = 640;
 const KEYBOARD_STEP = 16;
-
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 const timeOf = (ms?: number) => (ms ? clockTime(ms) : "");
 
@@ -478,7 +478,7 @@ export default function TaskThreadPanel({
         <header className="flex min-h-[64px] items-center gap-2 border-b border-line px-5 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
           {closeButton}
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-[16px] font-semibold leading-tight text-ink">{(task as any).title}</h2>
+            <h2 className="min-w-0 text-[16px] font-semibold leading-tight text-ink"><EditableTitle title={(task as any).title} renameRef={{ taskId: String((task as any)._id) }} label="task" /></h2>
             <p className="mt-0.5 truncate text-[13px] text-ink-3">
               Task thread · {(project as any)?.name ?? "Workspace"}
               {" · "}

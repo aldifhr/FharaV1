@@ -20,6 +20,8 @@ import {
   type ThreadRowView,
 } from "@/lib/threadTree";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { isRenameKey, renameRefOf } from "@/lib/threadRename";
+import { RenameInput, useRenameThread } from "../ThreadRename";
 import { SectionToggle } from "./SectionToggle";
 import ThreadRow from "./ThreadRow";
 
@@ -126,6 +128,8 @@ export default function ThreadList({
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const listRef = useRef<HTMLDivElement>(null);
+  const rename = useRenameThread();
+  const [renaming, setRenaming] = useState<string | null>(null);
 
   const rows = useAllThreads();
   const filtering = query.trim().length > 0;
@@ -179,14 +183,27 @@ export default function ThreadList({
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  // Plain ↑/↓ move focus between rows while the list has focus.
+  const focusRow = (id: string) => listRef.current?.querySelector<HTMLElement>(`[data-thread-id="${CSS.escape(id)}"]`)?.focus();
+  const isCurrent = (r: ThreadRowView) =>
+    currentRow ? currentRow.id === r.id : !routeTask && r.kind === "conversation" && r.projectId === routeProject;
+  const startRename = (row: ThreadRowView) => {
+    if (renameRefOf(row)) setRenaming(row.id);
+  };
+
+  // Plain ↑/↓ move focus between rows while the list has focus. F2 (or Enter
+  // on the open thread) renames the focused row in place.
   const onRowKeyDown = (e: KeyboardEvent<HTMLAnchorElement>, row: ThreadRowView) => {
+    if (isRenameKey(e, isCurrent(row)) && renameRefOf(row)) {
+      e.preventDefault();
+      startRename(row);
+      return;
+    }
     if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
     const step = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
     if (!step) return;
     e.preventDefault();
     const next = adjacentThreadId(ids, row.id, step);
-    if (next) listRef.current?.querySelector<HTMLElement>(`[data-thread-id="${CSS.escape(next)}"]`)?.focus();
+    if (next) focusRow(next);
   };
 
   const toggle = (set: Set<string>, key: string) => {
@@ -231,10 +248,25 @@ export default function ThreadList({
                       <ThreadRow
                         key={r.id}
                         row={r}
-                        current={currentRow ? currentRow.id === r.id : !routeTask && r.kind === "conversation" && r.projectId === routeProject}
+                        current={isCurrent(r)}
                         showProject={groupBy !== "project"}
                         onOpen={openRow}
                         onRowKeyDown={onRowKeyDown}
+                        onTitleDoubleClick={startRename}
+                        titleSlot={
+                          renaming === r.id && renameRefOf(r) ? (
+                            <RenameInput
+                              value={r.title}
+                              label="Rename thread"
+                              onSave={(title) => rename(renameRefOf(r)!, title)}
+                              onDone={() => {
+                                setRenaming(null);
+                                requestAnimationFrame(() => focusRow(r.id));
+                              }}
+                              className="h-6 text-[14px]"
+                            />
+                          ) : undefined
+                        }
                       />
                     ))}
                   </ul>

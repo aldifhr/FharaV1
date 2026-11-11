@@ -133,6 +133,12 @@ export interface SchedulerHooks {
   stallRetries?: number;
   /** Typed deadlock / stall observations (each condition classified on its own). */
   onStall?: (observation: StallObservation) => void | Promise<void>;
+  /**
+   * How long to wait for an aborted attempt's executor to settle before a
+   * retry may start. Default 5000. When it does not settle in time the node
+   * is failed as execution-uncertain and never retried automatically.
+   */
+  abortGraceMs?: number;
 }
 
 export interface SchedulerResult {
@@ -228,7 +234,13 @@ export async function runScheduler(
   const controllers = new Map<string, AbortController>();
   const running = new Map<
     string,
-    Promise<{ node: SchedulerNode; outcome: NodeOutcome; attempt: number }>
+    Promise<{
+      node: SchedulerNode;
+      outcome: NodeOutcome;
+      attempt: number;
+      /** The aborted attempt did not settle within `abortGraceMs`. */
+      executionUncertain?: boolean;
+    }>
   >();
   const failed: string[] = [];
   // Live node list: the initial plan plus everything admitted dynamically.
@@ -242,6 +254,7 @@ export async function runScheduler(
   const maxAddedNodes = hooks.maxAddedNodes ?? Number.POSITIVE_INFINITY;
   const stallCounts = new Map<string, number>();
   const stallRetries = Math.max(0, hooks.stallRetries ?? 1);
+  const abortGraceMs = Math.max(0, hooks.abortGraceMs ?? 5_000);
   const observe = async (observation: StallObservation): Promise<void> => {
     try {
       await hooks.onStall?.(observation);
@@ -279,7 +292,8 @@ export async function runScheduler(
   const settle = async (
     node: SchedulerNode,
     outcome: NodeOutcome,
-    attempt: number
+    attempt: number,
+    executionUncertain?: boolean
   ): Promise<void> => {
     const added = await hooks.onOutcome(node, outcome, attempt);
     if (added && added.length > 0) addNodes(added);
@@ -292,6 +306,18 @@ export async function runScheduler(
       states.set(node.id, "waiting");
       outcomes.set(node.id, outcome);
       halted = true;
+      return;
+    }
+    // The aborted attempt never actually stopped: retrying would run a second
+    // attempt beside a live one, so the node fails without an automatic retry.
+    if (executionUncertain) {
+      states.set(node.id, "failed");
+      outcomes.set(node.id, {
+        status: "failed",
+        error: `Execution uncertain: the aborted attempt did not stop within ${abortGraceMs}ms; not retried automatically`,
+        meta: outcome.meta,
+      });
+      failed.push(node.id);
       return;
     }
     // Agent stalled (watchdog): retried `stallRetries` times regardless of
@@ -378,6 +404,7 @@ export async function runScheduler(
     controllers.set(node.id, controller);
     let timer: NodeJS.Timeout | undefined;
     let timedOut = false;
+    let stalled = false;
     const nodeTimeout = Math.max(1, hooks.nodeTimeoutMs?.(node) ?? hooks.timeoutMs);
     const deadlineAt = Date.now() + nodeTimeout;
     // Clock holds (human waits): while held, neither the timeout nor the
@@ -427,6 +454,7 @@ export async function runScheduler(
               if (holds > 0) return;
               if (Date.now() - lastProgress <= stallMs) return;
               if (stallTimer) clearInterval(stallTimer);
+              stalled = true;
               controller.abort();
               resolve({ status: "failed", error: stallError });
             }, Math.min(5_000, Math.max(50, Math.floor(stallMs / 4))));
@@ -437,16 +465,35 @@ export async function runScheduler(
       try {
         await hooks.onStart(node, attempt);
         progress();
-        const outcome = await Promise.race([
-          execute(node, controller.signal, { deadlineAt, attempt, progress, holdClock }),
-          timeout,
-          ...(stall ? [stall] : []),
-        ]);
-        if (timedOut) {
+        const execution = execute(node, controller.signal, { deadlineAt, attempt, progress, holdClock });
+        const outcome = await Promise.race([execution, timeout, ...(stall ? [stall] : [])]);
+        if (timedOut || stalled) {
+          // The attempt was aborted. Wait for the executor to actually settle
+          // — bounded by the grace period — before the scheduler may retry,
+          // so two attempts never run at once. If it does not settle, the
+          // outcome is execution-uncertain and is never retried.
+          let graceTimer: NodeJS.Timeout | undefined;
+          const settled = await Promise.race([
+            execution.then(
+              () => true,
+              () => true
+            ),
+            new Promise<boolean>((resolve) => {
+              graceTimer = setTimeout(() => resolve(false), abortGraceMs);
+              (graceTimer as { unref?: () => void }).unref?.();
+            }),
+          ]);
+          if (graceTimer) clearTimeout(graceTimer);
           return {
             node,
-            outcome: { status: "failed" as const, error: `Subtask timed out after ${nodeTimeout}ms` },
+            outcome: {
+              status: "failed" as const,
+              error: timedOut
+                ? `Subtask timed out after ${nodeTimeout}ms`
+                : stallError,
+            },
             attempt,
+            executionUncertain: !settled,
           };
         }
         return { node, outcome, attempt };
@@ -705,7 +752,7 @@ export async function runScheduler(
       states.set(result.node.id, "blocked");
       continue;
     }
-    await settle(result.node, result.outcome, result.attempt);
+    await settle(result.node, result.outcome, result.attempt, result.executionUncertain);
   }
 
   const status: SchedulerResult["status"] = cancelled

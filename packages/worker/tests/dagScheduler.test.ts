@@ -161,6 +161,79 @@ describe("DAG scheduler", () => {
     expect(events).toEqual(["start:a", "settled:a"]);
   });
 
+  it("waits for a timed-out attempt to settle before the retry starts", async () => {
+    const events: string[] = [];
+    let active = 0;
+    let peak = 0;
+    let attempts = 0;
+    const result = await runScheduler(
+      nodes([["a", []]]),
+      async (_node, signal) => {
+        attempts += 1;
+        const attempt = attempts;
+        active += 1;
+        peak = Math.max(peak, active);
+        events.push(`start:${attempt}`);
+        await new Promise((resolve) => {
+          // Shutdown is not instantaneous: the executor keeps running for a
+          // while after the abort. Without a drain, the retry would start
+          // while this attempt is still alive (peak becomes 2).
+          const finish = () =>
+            setTimeout(() => {
+              events.push(`settled:${attempt}`);
+              active -= 1;
+              resolve(undefined);
+            }, 40);
+          if (signal.aborted) finish();
+          else signal.addEventListener("abort", finish, { once: true });
+        });
+        return { status: "failed", error: "aborted" };
+      },
+      {
+        maxConcurrency: 1,
+        timeoutMs: 20,
+        retries: 1,
+        retryDelayMs: 1,
+        abortGraceMs: 500,
+        onStart: async () => undefined,
+        onOutcome: async () => undefined,
+      }
+    );
+    expect(attempts).toBe(2);
+    expect(peak).toBe(1);
+    expect(events).toEqual(["start:1", "settled:1", "start:2", "settled:2"]);
+    expect(result.status).toBe("failed");
+  });
+
+  it("fails without retry when the aborted attempt never settles", async () => {
+    let attempts = 0;
+    const result = await runScheduler(
+      nodes([["a", []]]),
+      async (_node, signal) => {
+        attempts += 1;
+        // Ignore the abort signal: the executor never settles.
+        void signal;
+        await new Promise(() => undefined);
+        return { status: "completed" };
+      },
+      {
+        maxConcurrency: 1,
+        timeoutMs: 20,
+        retries: 3,
+        retryDelayMs: 1,
+        abortGraceMs: 30,
+        onStart: async () => undefined,
+        onOutcome: async () => undefined,
+      }
+    );
+    expect(attempts).toBe(1);
+    expect(result.status).toBe("failed");
+    expect(result.failed).toContain("a");
+    expect((result.outcomes.get("a") as { error: string }).error).toMatch(
+      /^Execution uncertain: the aborted attempt did not stop within 30ms; not retried automatically$/
+    );
+  });
+
   it("stops scheduling when the task is cancelled", async () => {
     const executed: string[] = [];
     const shouldCancel = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true);

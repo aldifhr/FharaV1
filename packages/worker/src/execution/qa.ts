@@ -399,7 +399,7 @@ export async function runResponsiveQa(
   };
   signal?.addEventListener("abort", onAbort, { once: true });
 
-  const record = async (check: QaCheck) => {
+  const record = async (check: Omit<QaCheck, "status"> & { status: QaCheck["status"] }) => {
     checks.push(check);
     if (check.status === "failed") failures.push(`${check.label}: ${check.details ?? "failed"}`);
     if (check.status === "inconclusive") {
@@ -427,6 +427,10 @@ export async function runResponsiveQa(
       if (options.autoStartServer === false || !isLoopbackUrl(baseUrl)) {
         await record({
           label: "application reachable",
+          objective: "Verify development server is reachable at the task URL",
+          steps: ["Attempt to connect to the base URL"],
+          expected: "HTTP response from the server (any status)",
+          actual: `No response at ${baseUrl}`,
           status: "failed",
           details: `No server reachable at ${baseUrl}${
             isLoopbackUrl(baseUrl) ? "" : " (remote URL: not auto-started)"
@@ -474,11 +478,23 @@ export async function runResponsiveQa(
         if (signal?.aborted) {
           await record({
             label: "qa-run",
+            objective: "QA run was cancelled by the task abort signal",
+            steps: [],
+            expected: "QA to proceed normally",
+            actual: "QA cancelled before it could run",
             status: "failed",
-            details: "QA cancelled while the development server was starting",
+            details: "QA cancelled before it could run",
           });
         } else if (!up && exitInfo?.error) {
-          await block(`Could not start the dev server: ${exitInfo.error}`);
+          await record({
+            label: "application reachable",
+            objective: "Verify development server is reachable at the task URL",
+            steps: ["Attempt to connect to the base URL after dev server start"],
+            expected: "HTTP response from the server (any status)",
+            actual: `Development server exited (code ${exitInfo.code ?? "?"}) before it served ${baseUrl}: ${exitInfo.error}`,
+            status: "failed",
+            details: `Could not start the dev server: ${exitInfo.error}`,
+          });
         } else if (!up) {
           await record({
             label: "application reachable",
@@ -494,13 +510,17 @@ export async function runResponsiveQa(
         } else {
           await record({
             label: "application reachable",
+            objective: "Verify development server is reachable at the task URL",
+            steps: ["Attempt to connect to the base URL after dev server start"],
+            expected: "HTTP response from the server (any status)",
+            actual: baseUrl,
             status: "passed",
             details: baseUrl,
           });
         }
       }
     } else {
-      await record({ label: "application reachable", status: "passed", details: baseUrl });
+      await record({ label: "application reachable", objective: "Verify development server is reachable at the task URL", status: "passed", details: baseUrl });
     }
 
     if (failures.length === 0 && !blockedReason) {
@@ -613,6 +633,10 @@ export async function runResponsiveQa(
               const summary = overlayText.replace(/\s+/g, " ").trim().slice(0, 400);
               await record({
                 label,
+                objective: `Check ${checkLabelFor(viewport.label, options.visualRegression ?? false)}`,
+                steps: [`Load page at ${baseUrl}`],
+                expected: "No framework error overlay visible; page renders correctly",
+                actual: summary ? `Framework error overlay visible: ${summary}` : "Framework error overlay visible",
                 status: "failed",
                 details: summary
                   ? `Framework error overlay is visible: ${summary}`
@@ -633,6 +657,10 @@ export async function runResponsiveQa(
             if (consoleSplit.caused.length > 0) {
               await record({
                 label,
+                objective: `Check ${checkLabelFor(viewport.label, options.visualRegression ?? false)} for console errors caused by this change`,
+                steps: [`Load page at ${baseUrl}`],
+                expected: "No console errors caused by this change; pre-existing errors expected",
+                actual: `Console errors: ${consoleSplit.caused.join(" | ")}`,
                 status: "failed",
                 details: `Console errors: ${consoleSplit.caused.join(" | ")}${preExistingNote}`,
                 ...(consoleSplit.filePath ? { filePath: consoleSplit.filePath } : {}),
@@ -643,6 +671,10 @@ export async function runResponsiveQa(
             if (networkErrors.length > 0) {
               await record({
                 label,
+                objective: `Check ${checkLabelFor(viewport.label, options.visualRegression ?? false)} for network failures`,
+                steps: [`Load page at ${baseUrl}`],
+                expected: "No network failures; all resources load successfully",
+                actual: `Network failures: ${networkErrors.join(" | ")}`,
                 status: "failed",
                 details: `Network failures: ${networkErrors.join(" | ")}`,
               });
@@ -658,13 +690,20 @@ export async function runResponsiveQa(
               );
               await record({
                 label,
+                objective: `Check ${checkLabelFor(viewport.label, options.visualRegression ?? false)} visual regression`,
+                steps: [`Capture screenshot and compare with baseline`],
+                expected: baseline.status === "passed" ? "Screenshot matches baseline" : `Screenshot differs from baseline`,
+                actual: `${baseline.details}${preExistingNote}`,
                 status: baseline.status,
                 details: `${baseline.details}${preExistingNote}`,
-                ...(preExisting ? { preExisting } : {}),
               });
             } else {
               await record({
                 label,
+                objective: `Check ${checkLabelFor(viewport.label, options.visualRegression ?? false)} structural check`,
+                steps: [`Load page at ${baseUrl}`],
+                expected: "Page renders with visible body; no console errors caused by this change",
+                actual: `Page rendered with visible body; no screenshot or visual comparison${preExistingNote}`,
                 status: "passed",
                 details: `Page rendered with visible body; no screenshot or visual comparison${preExistingNote}`,
                 ...(preExisting ? { preExisting } : {}),

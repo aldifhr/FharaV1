@@ -24,6 +24,15 @@ export function declinedCommandsOf(subtasks: Array<{ status: string; error?: str
     .map((subtask) => (subtask.error ?? "").replace(/^Declined by user:?\s*/i, "").trim() || "a command");
 }
 
+/**
+ * Runs static verification if enabled and there are applied code changes.
+ * Returns the verification status and checks, or undefined if verification
+ * was skipped (no changes, disabled, or already covered by the verification loop).
+ *
+ * Phase 5 Step 5.1 optimization: verification results are cached by
+ * content hash. If no files have changed since the last verification run,
+ * the last result is reused instead of re-running the full verification suite.
+ */
 export async function finalize(input: {
   deps: RunnerDeps;
   task: WorkerTask;
@@ -34,12 +43,12 @@ export async function finalize(input: {
   agents: AgentDefinition[];
   subtasks: WorkerSubtask[];
   state: RunState;
-  /**
-   * Shared-context outstanding issues at finalize time (plan 013 step 2).
+  /** Shared-context outstanding issues at finalize time (plan 013 step 2).
    * Open critical/high issues fail the task with the missing list.
    */
   openIssues?: OutstandingIssue[];
-  /** Per-task abort signal (Phase 4): verification steps die with the task. */
+  /** Per-task abort signal (Phase 4): verification steps die with the task.
+   */
   signal?: AbortSignal;
 }): Promise<EvaluationResult> {
   const { deps, task, project, planVersion, state, plan } = input;
@@ -54,38 +63,59 @@ export async function finalize(input: {
   let verificationChecks: EvaluationCheck[] | undefined;
 
   if (deps.policy.verificationEnabled && hasCodeChange && appliedChanges.length > 0) {
-    await deps.api.logEvent({
-      taskId: task._id,
-      projectId: project._id,
-      type: "task.stage",
-      payload: { stage: "static-verification", files: appliedChanges.length },
-    });
+    // Phase 5: check if verification was already run for these exact changes.
+    // If the content hashes match the last verification, reuse the result
+    // instead of re-running the full suite — this avoids double-verification
+    // when the verification loop already validated the same changes.
+    const lastVerification = state.verification;
+    const hashesChanged = appliedChanges.some(
+      (change) => !lastVerification || change.newContentHash !== lastVerification.lastContentHash
+    );
 
-    const verification = await runVerification({
-      workspacePath: input.workspacePath,
-      changedFiles: appliedChanges.map((change) => change.filePath),
-      includeBuild: deps.policy.verificationIncludeBuild,
-      timeoutMs: deps.policy.verificationTimeoutMs,
-      signal: input.signal,
-      onCheck: async (check) => {
-        await deps.api.logEvent({
-          taskId: task._id,
-          projectId: project._id,
-          type: "task.check",
-          payload: {
-            label: `verify:${check.name}`,
-            status: check.status,
-            details: check.details,
-          },
-        });
-      },
-    });
+    if (!hashesChanged && lastVerification) {
+      // Reuse last verification result: same files, same content hashes.
+      verificationChecks = lastVerification.checks;
+      // Ensure state.verification is consistent even though we skipped re-run.
+      if (!state.verification) {
+        state.verification = lastVerification.status;
+      }
+    } else {
+      // Run verification for these changes.
+      await deps.api.logEvent({
+        taskId: task._id,
+        projectId: project._id,
+        type: "task.stage",
+        payload: { stage: "static-verification", files: appliedChanges.length },
+      });
 
-    verificationChecks = verification.checks;
-    // Phase 5 Step 5.1: record the result on the run state so the
-    // objective evaluation sees it on later replans. A check with no
-    // failures is "passed"; inconclusive evidence is skipped, not failed.
-    state.verification = verificationStatus(verification.checks);
+      const verification = await runVerification({
+        workspacePath: input.workspacePath,
+        changedFiles: appliedChanges.map((change) => change.filePath),
+        includeBuild: deps.policy.verificationIncludeBuild,
+        timeoutMs: deps.policy.verificationTimeoutMs,
+        signal: input.signal,
+        onCheck: async (check) => {
+          await deps.api.logEvent({
+            taskId: task._id,
+            projectId: project._id,
+            type: "task.check",
+            payload: {
+              label: `verify:${check.name}`,
+              status: check.status,
+              details: check.details,
+            },
+          });
+        },
+      });
+
+      verificationChecks = verification.checks;
+      // Record the content hashes for future reuse.
+      state.verification = verificationStatus(verification.checks);
+      state.lastContentHash = appliedChanges.map((change) => change.newContentHash).join("|");
+    }
+  } else if (deps.policy.verificationEnabled && hasCodeChange && appliedChanges.length === 0) {
+    // No applied changes but verification is enabled: record skipped status.
+    state.verification = verificationStatus([]);
   }
 
   const evaluation = await evaluateTask({

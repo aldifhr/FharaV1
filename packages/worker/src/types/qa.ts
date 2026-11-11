@@ -1,7 +1,18 @@
 export interface QaCheck {
   label: string;
-  status: "passed" | "failed" | "inconclusive";
+  /** Human-readable test objective/description. */
+  objective: string;
+  /** Steps executed during the check. */
+  steps: string[];
+  /** Expected result for the feature being tested. */
+  expected: string;
+  /** Actual result observed from the feature. */
+  actual: string;
+  /** Evidence (screenshots, DOM snapshots, network traces) supporting the result. */
+  evidence?: string;
+  /** Additional details (free-form, carried from the old interface). */
   details?: string;
+  status: "passed" | "failed" | "inconclusive";
   /**
    * Workspace-relative source file the failure points at (derived from a
    * console error's stack / source location), so the fix agent gets a
@@ -14,6 +25,8 @@ export interface QaCheck {
    * the check; they are surfaced as a warning.
    */
   preExisting?: string[];
+  /** Label for visual regression comparison (optional). */
+  visualLabel?: string;
 }
 
 export interface QaReport {

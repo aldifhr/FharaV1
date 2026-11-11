@@ -13,6 +13,7 @@ import {
   type ReplyStatus,
 } from "./lib/chat/replyLifecycle";
 import { loadSettingValues } from "./appSettings";
+import { insertChatUserMessage } from "./chatContext";
 import { settingFrom } from "./lib/appSettings";
 
 /**
@@ -204,5 +205,34 @@ export const retryReply = mutation({
       ...(message.replyOptions?.permissionMode ? { permissionMode: message.replyOptions.permissionMode } : {}),
     });
     return { retried: true as const };
+  },
+});
+
+/**
+ * Continue button on a cut reply (lib/chat/continueReply.ts): posts a
+ * "Continue" user message quoting the reply, and the reply run appends the
+ * rest to that same message. Only for a reply that still carries `cutOff`.
+ */
+export const continueReply = mutation({
+  args: { messageId: v.id("messages") },
+  handler: async (ctx, args) => {
+    const reply = await ctx.db.get(args.messageId);
+    if (!reply) throw new Error("Message not found");
+    await assertMessageAccess(ctx, reply);
+    if (reply.authorType !== "agent" || !reply.cutOff || reply.streaming || !reply.conversationId) {
+      return { continued: false as const };
+    }
+    const userMessageId = await insertChatUserMessage(ctx, {
+      ...(reply.projectId ? { projectId: reply.projectId } : {}),
+      conversationId: reply.conversationId,
+      content: "Continue",
+      quotedMessageId: reply._id,
+    });
+    await ctx.scheduler.runAfter(0, internal.chat.replyToChat, {
+      ...(reply.projectId ? { projectId: reply.projectId } : {}),
+      conversationId: reply.conversationId,
+      userMessageId,
+    });
+    return { continued: true as const, userMessageId };
   },
 });

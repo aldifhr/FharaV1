@@ -725,10 +725,9 @@ export default defineSchema({
     .index("by_status_and_heartbeat", ["status", "lastHeartbeatAt"]),
 
   messages: defineTable({
-    // Optional since personal chat (plan 039): a message in a `personal`
-    // conversation never carries projectId, even after a project is
-    // attached (D1), so project timelines, pins, clearChat and the delete
-    // cascade never see it. Every other message still sets it.
+    // Optional since personal chat (plan 039): a message in a `personal` conversation never carries projectId, even
+    // after a project is attached (D1), so project timelines, pins, clearChat and the delete cascade never see it.
+    // Every other message still sets it.
     projectId: v.optional(v.id("projects")),
     taskId: v.optional(v.id("tasks")),
     agentId: v.optional(v.id("agents")),
@@ -783,9 +782,10 @@ export default defineSchema({
     // Idempotent send (t3code idea #2): the composer's client message id.
     // A retried/double-submitted send with the same id returns this row.
     clientId: v.optional(v.string()),
-    // Agent bubble whose streaming run died (stale sweep or a failed run):
-    // the UI shows "Reply interrupted" with Retry instead of a live caret.
+    // Agent bubble whose run died (stale sweep / failed run): "Reply interrupted" + Retry.
     interrupted: v.optional(v.boolean()),
+    // Reply kept with its partial text: cut mid-stream or at the output limit. "Continue" appends (lib/chat/continueReply.ts).
+    cutOff: v.optional(v.object({ kind: v.union(v.literal("interrupted"), v.literal("truncated")), reason: v.string() })),
     toAgentId: v.optional(v.id("agents")),
     leasedBy: v.optional(v.string()),
     leaseExpiresAt: v.optional(v.number()),

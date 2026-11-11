@@ -10,6 +10,7 @@ import { loadPromptSkills } from "./skills";
 import { loadMemorySection, loadRecalledSection } from "./memories";
 import { extractAgentMentions } from "./lib/chat/team";
 import { stripLeakedToolCallTags } from "./lib/chat/strip";
+import { isContinueRequest } from "./lib/chat/continueReply";
 import { chatScopeOf, type ChatScope } from "./lib/conversationShape";
 import { effectiveTeamIds, projectTeamIds } from "./lib/projectTeam";
 
@@ -206,13 +207,17 @@ export const updateStreamingAgentMessage = internalMutation({
     unverifiedRefs: v.optional(v.array(v.string())),
     intentLine: v.optional(v.string()),
     taskOffer: v.optional(v.object({ kind: v.string(), commands: v.optional(v.array(v.string())), assigneeAgentId: v.optional(v.string()) })),
+    // A reply kept with partial text (lib/chat/continueReply.ts); clearCutOff drops the marker (Continue started).
+    cutOff: v.optional(v.object({ kind: v.union(v.literal("interrupted"), v.literal("truncated")), reason: v.string() })),
+    clearCutOff: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const { messageId, ...patch } = args;
+    const { messageId, clearCutOff, ...patch } = args;
     const cleaned: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(patch)) {
       if (value !== undefined) cleaned[key] = value;
     }
+    if (clearCutOff && !patch.cutOff) cleaned.cutOff = undefined;
     if (typeof patch.content === "string") cleaned.content = stripLeakedToolCallTags(patch.content);
     await ctx.db.patch(messageId, cleaned);
     return null;
@@ -241,6 +246,34 @@ export const appendToolStep = internalMutation({
     if (steps.length >= MAX_TOOL_STEPS) return null;
     await ctx.db.patch(args.messageId, { toolSteps: [...steps, args.step] });
     return null;
+  },
+});
+
+/**
+ * The cut reply a "continue" message resumes (lib/chat/continueReply.ts):
+ * the quoted message (Continue button) or the latest agent reply before
+ * it in the same conversation, when that reply carries `cutOff`.
+ */
+export const getContinueTarget = internalQuery({
+  args: { userMessageId: v.id("messages") },
+  handler: async (ctx, args) => {
+    const message = await ctx.db.get(args.userMessageId);
+    if (!message || message.authorType !== "user" || !message.conversationId || !isContinueRequest(message.content)) return null;
+    const shape = (m: Doc<"messages">) =>
+      m.authorType === "agent" && m.cutOff && m.agentId && m.conversationId === message.conversationId && !m.streaming
+        ? { messageId: m._id, agentId: m.agentId, content: m.content, reasoning: m.reasoning ?? "", cutOff: m.cutOff }
+        : null;
+    if (message.quotedMessageId) {
+      const quoted = await ctx.db.get(message.quotedMessageId);
+      return quoted ? shape(quoted) : null;
+    }
+    const earlier = await ctx.db
+      .query("messages")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", message.conversationId))
+      .order("desc")
+      .take(20);
+    const lastReply = earlier.find((m) => m._creationTime < message._creationTime && m.authorType === "agent" && !m.taskId);
+    return lastReply ? shape(lastReply) : null;
   },
 });
 

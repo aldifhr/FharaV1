@@ -67,6 +67,8 @@ import { completeWithSnapshot, type ChatSnapshotScope } from "./lib/chat/snapsho
 import { readRepoSnapshot } from "./lib/chat/repoSnapshot";
 import { quoteContextLine, quotedResponderId } from "./lib/chat/quote";
 import { replyFailureText } from "./lib/chat/replyLifecycle";
+import { chatFailureText, historyBefore, isContinueRequest, keptPartial } from "./lib/chat/continueReply";
+import { TRUNCATED_CUT_OFF, keepCutReply, runContinueTurn } from "./lib/chat/continueTurn";
 import { personalNoTaskReply, type ChatScope } from "./lib/conversationShape";
 import {
   MAX_REPO_TOOL_CALLS,
@@ -725,9 +727,8 @@ export const replyToChat = internalAction({
     permissionMode: v.optional(permissionModeValidator),
   },
   handler: async (ctx, rawArgs) => {
-    // Durable reply (t3code idea #1): the "already replied?" check and the
-    // claim are one mutation, so a double-scheduled run returns here before
-    // it creates a bubble. The claim is settled answered/failed below; a run
+    // Durable reply (t3code idea #1): the "already replied?" check and the claim are one mutation, so a
+    // double-scheduled run returns here before it creates a bubble. The claim is settled answered/failed below; a run
     // killed by the 10-minute Node cap is settled by chatReplies.sweepStale.
     const claim = await ctx.runMutation(internal.chatReplies.claimReply, { userMessageId: rawArgs.userMessageId });
     if (!claim.claimed) return;
@@ -764,10 +765,9 @@ export const replyToChat = internalAction({
  */
 async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScope): Promise<void> {
 
-    // Plan 039 (rule PC-S1): one scope, read from the conversation row. A
-    // personal chat answers with its own agent only, writes its messages
-    // without projectId (D1) and gets project features only once a project
-    // is attached (scopeProjectId). There is no default project.
+    // Plan 039 (rule PC-S1): one scope, read from the conversation row. A personal chat answers with its own agent
+    // only, writes its messages without projectId (D1) and gets project features only once a project is attached
+    // (scopeProjectId). There is no default project.
     const personal = scope.kind === "personal";
     const scopeProjectId: Id<"projects"> | null = scope.projectId;
     const messageProjectId = personal ? undefined : (scopeProjectId ?? undefined);
@@ -777,10 +777,9 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       return scopeProjectId;
     };
 
-    // Reply quote: replying to a teammate's message (no @mention) routes the
-    // answer to that teammate, as if the user had @mentioned it. The CTO and
-    // the user's own messages route as usual; either way the quoted text
-    // rides into the context below.
+    // Reply quote: replying to a teammate's message (no @mention) routes the answer to that teammate, as if the user
+    // had @mentioned it. The CTO and the user's own messages route as usual; either way the quoted text rides into the
+    // context below.
     const quoteInfo = await ctx.runQuery(internal.chatContext.getQuoteForReply, {
       userMessageId: rawArgs.userMessageId,
     });
@@ -807,10 +806,9 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     const { agents, team: teamAgents, projectName, history, llmProviders } = data;
     const globalConfig = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig());
 
-    // Repo snapshot (read-only, workspace-confined) so structural chat
-    // questions ("how is this repo structured?") can be answered from
-    // evidence instead of guesses.
-    // No project (personal chat not attached): no snapshot, no workspace read.
+    // Repo snapshot (read-only, workspace-confined) so structural chat questions ("how is this repo structured?") can
+    // be answered from evidence instead of guesses. No project (personal chat not attached): no snapshot, no workspace
+    // read.
     const repoSnapshot = scopeProjectId ? await loadRepoSnapshot(ctx, scopeProjectId) : null;
 
     if (agents.length === 0) {
@@ -825,12 +823,10 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       return;
     }
 
-    // Prompt shape: the history goes in as real chat messages with the
-    // user's latest message LAST (buildChatMessages); the compacted summary,
-    // the quoted message and teammates' replies from this turn go in a
-    // system section (buildTurnContextSection). The latest message is never
-    // followed by anything, so a pasted multi-line request is what gets
-    // answered (night e2e A5).
+    // Prompt shape: the history goes in as real chat messages with the user's latest message LAST (buildChatMessages);
+    // the compacted summary, the quoted message and teammates' replies from this turn go in a system section
+    // (buildTurnContextSection). The latest message is never followed by anything, so a pasted multi-line request is
+    // what gets answered (night e2e A5).
     const agentNameOf = (id: string | undefined) =>
       [...agents, ...(teamAgents ?? [])].find((a) => String(a._id) === String(id ?? ""))?.name;
     const messagesFor = (agentId: string | undefined) =>
@@ -866,12 +862,10 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       };
     };
 
-    // Only an agent whose ROLE is exactly "cto" may act as the orchestrator
-    // (legacy "architect" accepted for backward compat). Anchored: an
-    // unanchored match also hit "director", "doctor", …
-    // Falling back to agents[0] made any selected agent
-    // introduce itself as "the orchestrator/planner" while still naming its own
-    // role (e.g. "frontend developer ... I'm the orchestrator/planner").
+    // Only an agent whose ROLE is exactly "cto" may act as the orchestrator (legacy "architect" accepted for backward
+    // compat). Anchored: an unanchored match also hit "director", "doctor", … Falling back to agents[0] made any
+    // selected agent introduce itself as "the orchestrator/planner" while still naming its own role (e.g. "frontend
+    // developer ... I'm the orchestrator/planner").
     const orchestrator =
       agents.find((a) => ORCHESTRATOR_ROLE.test(a.role.trim())) ??
       null;
@@ -884,16 +878,12 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // The user's message this run answers (fixed fallback copy follows its language).
     const userText = history[history.length - 1]?.content ?? "";
 
-    // Streaming persist helper: create the agent message row first, then
-    // patch content/reasoning as SSE chunks arrive so the UI shows the
-    // bubble + "Thinking" trace live. Patches are throttled to avoid a
-    // mutation per token.
+    // Streaming persist helper: create the agent message row first, then patch content/reasoning as SSE chunks arrive
+    // so the UI shows the bubble + "Thinking" trace live. Patches are throttled to avoid a mutation per token.
     //
-    // This path has NO tools. A model that emits a tool call anyway (JSON
-    // or <longcat_tool_call> markup) never gets it shown: it is held back
-    // while streaming, the reply is retried once with an explicit "no tools"
-    // line, and a reply that is still a call becomes a short fallback.
-    // Context Snapshot scope for one chat LLM call (Inspect context).
+    // This path has NO tools. A model that emits a tool call anyway (JSON or <longcat_tool_call> markup) never gets it
+    // shown: it is held back while streaming, the reply is retried once with an explicit "no tools" line, and a reply
+    // that is still a call becomes a short fallback. Context Snapshot scope for one chat LLM call (Inspect context).
     const snapScope = (
       agentId: Id<"agents">,
       messageId: unknown,
@@ -981,8 +971,11 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           content = stripLeadingEcho(stripInternalPhrasing(stripToolCallMarkup(raw.content)), echoCtx);
         }
       } catch (error) {
-        // Never leave the bubble animating after a failed call.
+        // Never leave the bubble animating after a failed call. Text that
+        // already arrived is kept, marked cut off, with Continue (continueTurn.ts).
         await patchChain;
+        const kept = keptPartial(error, (t) => stripLeadingEcho(stripInternalPhrasing(stripToolCallMarkup(streamVisibleText(t))), echoCtx));
+        if (kept) return await keepCutReply(ctx, messageId as any, error, { ...kept, reasoning: joinTrace(traceBase, kept.reasoning) });
         await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
           messageId: messageId as any,
           streaming: false,
@@ -998,6 +991,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         reasoning: result.reasoning || undefined,
         reasoningDurationMs: result.reasoningDurationMs || undefined,
         streaming: false,
+        ...(raw.truncated && result.content.trim() ? { cutOff: TRUNCATED_CUT_OFF } : {}),
       });
       // A reply that produced only reasoning (e.g. the model ran out of
       // tokens while thinking) would render as an empty bubble.
@@ -1013,12 +1007,10 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // agents still to answer get no tools.
     let workerGone = false;
 
-    // Grounded reply (an agent with repo tools — the CTO, a handoff teammate
-    // or an @mentioned agent): the same streaming bubble, but
-    // each LLM step may be a tool call instead of the answer. Tool-call text
-    // is never shown (several calls in one step: the first runs, the rest is
-    // discarded); the trace notes each check, and the files read are stored
-    // as `checkedFiles` for the quiet "Checked: …" line.
+    // Grounded reply (an agent with repo tools — the CTO, a handoff teammate or an @mentioned agent): the same
+    // streaming bubble, but each LLM step may be a tool call instead of the answer. Tool-call text is never shown
+    // (several calls in one step: the first runs, the rest is discarded); the trace notes each check, and the files
+    // read are stored as `checkedFiles` for the quiet "Checked: …" line.
     const streamGroundedReply: StreamReply = async (agentId, config, system, msgs, opts) => {
       const messageId = await ctx.runMutation(internal.chatContext.createStreamingAgentMessage, {
         ...msgScope,
@@ -1041,6 +1033,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           .catch(() => {});
       };
       let loop: Awaited<ReturnType<typeof runRepoToolLoop>>;
+      let lastTruncated = false;
       try {
         const skillLoader = opts?.skillLoader;
         loop = await runRepoToolLoop({
@@ -1069,6 +1062,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
               patch({ content, reasoning: liveTrace || undefined, ...upgradeIntent(reasoning) });
             });
             trace = joinTrace(trace, raw.reasoning);
+            lastTruncated = raw.truncated === true;
             return { content: raw.content };
           },
           callTool: async (call) => {
@@ -1095,6 +1089,8 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         });
       } catch (error) {
         await patchChain;
+        const kept = keptPartial(error, (t) => stripLeadingEcho(stripInternalPhrasing(stripToolCallMarkup(streamVisibleText(t))), echoCtx));
+        if (kept) return { ...(await keepCutReply(ctx, messageId as any, error, { ...kept, reasoning: joinTrace(trace, kept.reasoning) })), evidence: EMPTY_EVIDENCE };
         await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
           messageId: messageId as any,
           streaming: false,
@@ -1123,6 +1119,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         reasoningDurationMs,
         streaming: false,
         ...(loop.checkedFiles.length ? { checkedFiles: loop.checkedFiles.slice(0, 20) } : {}),
+        ...(lastTruncated && loop.answer.trim() ? { cutOff: TRUNCATED_CUT_OFF } : {}),
       });
       let keptId: Id<"messages"> | undefined = messageId as any;
       if (!content.trim()) {
@@ -1139,10 +1136,22 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       };
     };
 
-    // Personal chat (plan 039 PC3): the conversation's own agent answers,
-    // alone. No CTO pre-route, no handoff, no @mention queue, no intent
-    // classifier. Tasks only with a project attached and only when asked
-    // explicitly (D5); without one a fixed sentence explains why.
+    // "continue" after a cut reply: finish that reply in place (lib/chat/continueTurn.ts).
+    const cut = isContinueRequest(userText) ? await ctx.runQuery(internal.chatContext.getContinueTarget, { userMessageId: args.userMessageId }) : null;
+    const cutAgent = cut ? [...agents, ...(teamAgents ?? [])].find((a) => String(a._id) === String(cut.agentId)) : undefined;
+    if (cut && cutAgent) {
+      return await runContinueTurn(ctx, {
+        target: cut, agent: cutAgent, projectName,
+        prior: buildChatMessages(historyBefore(history, String(cut.messageId)), { selfAgentId: String(cutAgent._id), nameOf: agentNameOf }),
+        config: await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), cutAgent as any),
+        scope: snapScope(cutAgent._id as any, cut.messageId, "chat"),
+        clean: (t) => stripInternalPhrasing(stripToolCallMarkup(streamVisibleText(t))),
+      });
+    }
+
+    // Personal chat (plan 039 PC3): the conversation's own agent answers, alone. No CTO pre-route, no handoff, no
+    // @mention queue, no intent classifier. Tasks only with a project attached and only when asked explicitly (D5);
+    // without one a fixed sentence explains why.
     if (personal) {
       const agent = agents[0];
       const lastText = history[history.length - 1]?.content ?? "";
@@ -1237,7 +1246,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         await ctx.runMutation(internal.chatContext.insertAgentMessage, {
           agentId: agent._id as any,
           conversationId: args.conversationId,
-          content: `I couldn't reply (${err.message}). Check global LLM settings.`,
+          content: chatFailureText(err),
           replyToMessageId: args.userMessageId,
         });
       }
@@ -1249,12 +1258,10 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     const projectId = requireProjectId();
     const projectArgs: ReplyArgs = { ...args, projectId };
 
-    // Greeting fast-path: a bare "hi" gets a brief LLM persona reply on
-    // minimal context (no history, no planning guidance) — previous task
-    // commands must not drag an old topic into a full execution plan.
-    // ONE conversational agent answers, not the whole team: fanning out to
-    // every agent made 12 sequential LLM calls and blew the action timeout,
-    // leaving the first bubble stuck on "Thinking" forever.
+    // Greeting fast-path: a bare "hi" gets a brief LLM persona reply on minimal context (no history, no planning
+    // guidance) — previous task commands must not drag an old topic into a full execution plan. ONE conversational
+    // agent answers, not the whole team: fanning out to every agent made 12 sequential LLM calls and blew the action
+    // timeout, leaving the first bubble stuck on "Thinking" forever.
     const lastContent = history[history.length - 1]?.content ?? "";
     if (GREETING.test(lastContent.trim())) {
       const greetingHistory = [{ role: "user", content: lastContent.trim() }];
@@ -1285,10 +1292,9 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       return;
     }
 
-    // Option picks are conversation, not orders: a bare design question
-    // followed by a choice must NOT auto-create execution tasks (the user
-    // was just asking). The pick is answered in chat; the user asks for
-    // work explicitly when they want it built.
+    // Option picks are conversation, not orders: a bare design question followed by a choice must NOT auto-create
+    // execution tasks (the user was just asking). The pick is answered in chat; the user asks for work explicitly when
+    // they want it built.
     const isOptionPick = isOptionPickText(lastContent);
 
     const lastUserContent = lastContent;
@@ -1358,18 +1364,15 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     const mentionedAgents = (args.preferredAgentIds ?? [])
       .map((id) => agents.find((a) => a._id === String(id)))
       .filter((a): a is ChatAgent => Boolean(a));
-    // Repo tools for every agent answering in this turn (the CTO, the
-    // teammates it hands off to, agents the user @mentioned): only when a
-    // worker can serve them (the repo lives on the worker's host). Checked
-    // once per turn. Otherwise no tools, and the grounding rule makes each
-    // agent say it has not checked.
+    // Repo tools for every agent answering in this turn (the CTO, the teammates it hands off to, agents the user
+    // @mentioned): only when a worker can serve them (the repo lives on the worker's host). Checked once per turn.
+    // Otherwise no tools, and the grounding rule makes each agent say it has not checked.
     const repoTools = !isOptionPick ? await repoToolsAvailability(ctx, projectId) : null;
 
-    // CTO dispatch pre-route (lib/chat/dispatch.ts): a question addressed to
-    // the CTO (no @mention, or only the To field's default CTO without
-    // "@CTO" typed) that belongs to a specialist's domain goes straight to
-    // that specialist; the CTO posts a one-line handoff and a short wrap-up.
-    // Questions only — a work request keeps the CTO's plan + Create task.
+    // CTO dispatch pre-route (lib/chat/dispatch.ts): a question addressed to the CTO (no @mention, or only the To
+    // field's default CTO without "@CTO" typed) that belongs to a specialist's domain goes straight to that specialist;
+    // the CTO posts a one-line handoff and a short wrap-up. Questions only — a work request keeps the CTO's plan +
+    // Create task.
     const ctoTyped =
       orchestrator !== null &&
       new RegExp(`@(?:cto|${orchestrator.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![\\w-])`, "i").test(lastUserContent);
@@ -1424,11 +1427,9 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         // handed it over. As a "- CTO: …" line it got copied verbatim into
         // the specialist's answer. Still a prior message for echo cleanup.
         handoffLines.push(line);
-        // A routed message is chat: the specialist answers it (no plan, no
-        // Create task offer), whatever the LLM's suggestion was.
-        // A code audit / security review routed to the Reviewer is an audit,
-        // whatever the LLM labelled it: the Reviewer reads the code with the
-        // repo tools instead of proposing a plan (live test 4).
+        // A routed message is chat: the specialist answers it (no plan, no Create task offer), whatever the LLM's
+        // suggestion was. A code audit / security review routed to the Reviewer is an audit, whatever the LLM labelled
+        // it: the Reviewer reads the code with the repo tools instead of proposing a plan (live test 4).
         const routedSubtype = routedAnswerSubtype(route.domain, intent.subtype);
         if (intent.intent !== "ask" || intent.subtype !== routedSubtype) {
           intent = { ...intent, intent: "ask", subtype: routedSubtype };
@@ -1608,7 +1609,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           projectId: projectId,
           agentId: agent._id as any,
           conversationId: args.conversationId,
-          content: `I couldn't reply (${err.message}). Check global LLM settings.`,
+          content: chatFailureText(err),
           replyToMessageId: args.userMessageId,
         });
         continue;
@@ -1619,16 +1620,14 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         // section; the user's message stays the last chat message.
         turnReplies.push({ name: agent.name, content: content.trim() });
         if (routed && String(routed._id) === String(agent._id)) routedReply = content.trim();
-        // An @Name inside the CTO's own reply never pulls a teammate in:
-        // "izinkan @QA atau @Reviewer lanjut?" is a question to the user,
-        // not a handoff. Only the user's typed @mentions (responders) and
-        // the deterministic pre-route (routed) bring a specialist in.
+        // An @Name inside the CTO's own reply never pulls a teammate in: "izinkan @QA atau @Reviewer lanjut?" is a
+        // question to the user, not a handoff. Only the user's typed @mentions (responders) and the deterministic
+        // pre-route (routed) bring a specialist in.
       }
     }
 
-    // Routed question: the CTO may add a decision / next step (≤2 lines,
-    // tool-free) — never when the user named the specialist or a single
-    // short reply already says it all, and never a restatement of the reply
+    // Routed question: the CTO may add a decision / next step (≤2 lines, tool-free) — never when the user named the
+    // specialist or a single short reply already says it all, and never a restatement of the reply
     // (lib/chat/wrapUp.ts).
     const wrapUpSpecialists = routed && routedReply ? [{ agent: routed, reply: routedReply }] : [];
     const wrapUpSkip = wrapUpSkipReason({ userText: lastUserContent, specialists: wrapUpSpecialists });

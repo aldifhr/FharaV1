@@ -65,7 +65,7 @@ function LegacyPinsFeed({ projectId, onChange }: { projectId: string; onChange: 
 const TARGET_KEY = (projectId: string) => `fhara-chat-target-${projectId}`;
 
 export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpenAgent, selectedTaskId }: Props) {
-  const { openSidebar, sidebarCollapsed, toggleSidebarCollapsed } = useWorkspace();
+  const { openSidebar } = useWorkspace();
   const toast = useToast();
   const project = useQuery(api.projects.get, { projectId: projectId as any });
   const messages = useQuery(api.messages.listByProject, { projectId: projectId as any });
@@ -665,8 +665,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             onOk: () => void confirmClearChat(),
           })
         }
-        sidebarCollapsed={sidebarCollapsed}
-        onExpandSidebar={toggleSidebarCollapsed}
         onOpenDrawer={openSidebar}
         formatTime={formatMessageTime}
       />

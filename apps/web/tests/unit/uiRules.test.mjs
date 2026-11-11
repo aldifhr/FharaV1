@@ -10,6 +10,7 @@ import path from "node:path";
 
 import {
   MAX_LINES,
+  brandUses,
   compareMeasures,
   countLines,
   isUiSource,
@@ -65,10 +66,11 @@ test("raw hex colours are caught, issue numbers are not", () => {
 });
 
 test("the retired brand colour is caught, ink is not (dashboard F1)", () => {
-  assert.equal(uiRuleCounts(`<button className="bg-brand text-white hover:bg-brand-hover focus-visible:ring-brand/40" />`).brand, 3);
-  assert.equal(uiRuleCounts(`<span className="bg-brand-soft text-brand-ink accent-[var(--shell-brand)]" />`).brand, 3);
-  assert.equal(uiRuleCounts(`<button className="bg-ink text-canvas hover:bg-ink/85 focus-visible:ring-ink/30" />`).brand, 0);
-  assert.equal(uiRuleCounts(`const label = "brand new";`).brand, 0);
+  assert.equal(brandUses(`<button className="bg-brand text-white hover:bg-brand-hover focus-visible:ring-brand/40" />`), 3);
+  assert.equal(brandUses(`<span className="bg-brand-soft text-brand-ink accent-[var(--shell-brand)]" />`), 3);
+  assert.equal(brandUses(`<button className="bg-ink text-canvas hover:bg-ink/85 focus-visible:ring-ink/30" />`), 0);
+  assert.equal(brandUses(`const label = "brand new"; // was bg-brand`), 0);
+  assert.equal(measureFile(UI_FILE, `const s = "bg-brand";`).brand, 1);
 });
 
 test("suppressions need a reason", () => {

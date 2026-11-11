@@ -5,11 +5,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
-import IconRail from "@/components/IconRail";
 import Sidebar from "@/components/Sidebar";
 import PersonalChatPanel from "@/components/chat/PersonalChatPanel";
-import { useSidebarCollapsed } from "@/components/shell/useSidebarCollapsed";
-import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 
 /**
  * Personal chat with one agent (plan 039), opened from the sidebar's
@@ -22,10 +19,7 @@ export default function PersonalAgentChatPage() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const requested = useRef<string | null>(null);
-  const isDesktop = useMediaQuery(DESKTOP_QUERY, true);
-  const [sidebarCollapsed, toggleSidebarCollapsed] = useSidebarCollapsed();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const collapsed = isDesktop && sidebarCollapsed;
 
   useEffect(() => {
     if (!agentId || requested.current === agentId) return;
@@ -42,15 +36,7 @@ export default function PersonalAgentChatPage() {
   return (
     <div className="flex h-dvh overflow-hidden bg-panel text-ink">
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden max-[979px]:flex-col">
-        <IconRail mobile="hidden" />
-        {!collapsed && (
-          <Sidebar
-            drawerOpen={sidebarOpen}
-            onCloseDrawer={() => setSidebarOpen(false)}
-            onSelectProject={() => setSidebarOpen(false)}
-            onCollapse={toggleSidebarCollapsed}
-          />
-        )}
+        <Sidebar drawerOpen={sidebarOpen} onCloseDrawer={() => setSidebarOpen(false)} onSelectProject={() => setSidebarOpen(false)} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
           {error ? (
             <div className="mx-auto w-full max-w-3xl px-6 py-10">
@@ -64,8 +50,6 @@ export default function PersonalAgentChatPage() {
               conversationId={conversationId}
               onNewChat={setConversationId}
               onOpenSidebar={() => setSidebarOpen(true)}
-              sidebarCollapsed={collapsed}
-              onExpandSidebar={toggleSidebarCollapsed}
             />
           ) : (
             <p className="mx-auto w-full max-w-3xl px-6 py-10 text-[13px] text-ink-3" role="status">

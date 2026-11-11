@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { Pin, Plus } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
-import IconRail from "@/components/IconRail";
+import Sidebar from "@/components/Sidebar";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import MemorySuggestions from "@/components/memory/MemorySuggestions";
 import Segmented from "@/components/ui/segmented";
@@ -165,7 +165,7 @@ function MemoryInner() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
-      <IconRail projectId={scope === "project" && projectId ? projectId : roleProjectId || undefined} />
+      <Sidebar projectId={scope === "project" && projectId ? projectId : roleProjectId || undefined} />
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
         <div className="mx-auto max-w-3xl">
           <header className="flex items-end justify-between gap-4">

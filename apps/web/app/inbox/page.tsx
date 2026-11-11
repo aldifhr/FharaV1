@@ -5,7 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import Link from "next/link";
 import { ArrowUpRight, Check, Inbox as InboxIcon } from "lucide-react";
-import IconRail from "@/components/IconRail";
+import Sidebar from "@/components/Sidebar";
 import { roleLabel } from "@/lib/agentRoles";
 import { useToast } from "@/components/Toasts";
 
@@ -122,7 +122,7 @@ export default function InboxPage() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
-      <IconRail />
+      <Sidebar />
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
         <div className="mx-auto max-w-3xl">
           <header>

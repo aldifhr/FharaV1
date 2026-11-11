@@ -55,6 +55,12 @@ export const UI_PREFS = {
   projectsFolder: text("fhara:projects-folder", "", 500),
   /** Devices: desktop notification when something needs your attention. */
   notifyAttention: bool("fhara:notify-attention", false),
+  /** Sidebar: collapsed to the icon rail (desktop). Reads the older "1"/"0" values too. */
+  sidebarCollapsed: {
+    key: "fhara-sidebar-collapsed",
+    defaultValue: false,
+    parse: (raw: string) => (raw === "true" || raw === "1" ? true : raw === "false" || raw === "0" ? false : undefined),
+  } as PrefSpec<boolean>,
   /** Sidebar Threads: group rows by project, kind or status. */
   threadGroupBy: oneOf("fhara:thread-group-by", "project", ["project", "kind", "status"] as const),
   /** Sidebar Threads: show all rows, only ones that need you, or only unread ones. */

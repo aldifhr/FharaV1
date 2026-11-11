@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import IconRail from "@/components/IconRail";
 import Sidebar from "@/components/Sidebar";
 import TaskThreadPanel from "@/components/TaskThreadPanel";
 import { useMutation, useQuery } from "convex/react";
@@ -11,7 +10,6 @@ import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toasts";
 import { api } from "@/api/convex/_generated/api";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
-import { useSidebarCollapsed } from "@/components/shell/useSidebarCollapsed";
 import { SectionLoading, WorkspaceProvider, type Agent, type Task, type WorkspaceContextValue } from "./WorkspaceContext";
 
 function WorkspaceShell({
@@ -25,7 +23,6 @@ function WorkspaceShell({
   const searchParams = useSearchParams();
   const taskParam = searchParams.get("task");
   const isDesktop = useMediaQuery(DESKTOP_QUERY, true);
-  const [sidebarCollapsed, toggleSidebarCollapsed] = useSidebarCollapsed();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [threadCollapsed, setThreadCollapsed] = useState(false);
   const [panelWidth, setPanelWidth] = useState(390);
@@ -105,8 +102,6 @@ function WorkspaceShell({
     openAgent,
     deleteTask,
     openSidebar: () => setSidebarOpen(true),
-    sidebarCollapsed: isDesktop && sidebarCollapsed,
-    toggleSidebarCollapsed,
   };
 
   const thread = selectedTaskId ? (
@@ -132,16 +127,12 @@ function WorkspaceShell({
             onCancel={() => setConfirmReq(null)}
             onConfirm={() => confirmReq?.onOk()}
           />
-          <IconRail projectId={projectId} mobile="hidden" />
-          {!(isDesktop && sidebarCollapsed) && (
-            <Sidebar
-              projectId={projectId}
-              drawerOpen={sidebarOpen}
-              onCloseDrawer={() => setSidebarOpen(false)}
-              onSelectProject={() => setSidebarOpen(false)}
-              onCollapse={toggleSidebarCollapsed}
-            />
-          )}
+          <Sidebar
+            projectId={projectId}
+            drawerOpen={sidebarOpen}
+            onCloseDrawer={() => setSidebarOpen(false)}
+            onSelectProject={() => setSidebarOpen(false)}
+          />
           {project ? (
             children
           ) : (

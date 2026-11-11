@@ -1,12 +1,10 @@
 import Link from "next/link";
-import IconRail from "@/components/IconRail";
 import Sidebar from "@/components/Sidebar";
 
 export default function ChatPage() {
   return (
     <div className="flex h-dvh overflow-hidden bg-panel text-ink max-[979px]:h-auto max-[979px]:min-h-dvh max-[979px]:flex-col">
-      <IconRail />
-      <Sidebar />
+      <Sidebar mobile="inline" />
       <main className="flex min-w-0 flex-1 items-center justify-center p-6">
         <div className="max-w-sm text-center">
           <h1 className="text-[17px] font-semibold">Pick a project</h1>

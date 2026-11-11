@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
-import { Menu, PanelLeftOpen, Trash2 } from "lucide-react";
+import { Menu, Trash2 } from "lucide-react";
 import { iconButtonClass } from "../shell/usePopover";
 import { api } from "@/api/convex/_generated/api";
 import { composeOfferedTask } from "@/api/convex/lib/chat/intent";
@@ -35,8 +35,6 @@ export default function PersonalChatPanel({
   conversationId,
   onNewChat,
   onOpenSidebar,
-  sidebarCollapsed = false,
-  onExpandSidebar,
 }: {
   conversationId: string;
   /** Called with the fresh conversation id after "New chat". */
@@ -44,8 +42,6 @@ export default function PersonalChatPanel({
   /** Phone: open the sidebar drawer (projects, personal messages, team). */
   onOpenSidebar?: () => void;
   /** Desktop: the sidebar is hidden, so offer to bring it back. */
-  sidebarCollapsed?: boolean;
-  onExpandSidebar?: () => void;
 }) {
   const toast = useToast();
   const router = useRouter();
@@ -373,18 +369,11 @@ export default function PersonalChatPanel({
   return (
     <main className="relative mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
       <header className="shrink-0 border-b border-line px-4 pb-4 pt-6 sm:px-6">
-        {(onOpenSidebar || (sidebarCollapsed && onExpandSidebar)) && (
-          <div className={`-ml-1 -mt-2 mb-1 flex items-center gap-1 ${sidebarCollapsed ? "" : "min-[980px]:hidden"}`}>
-            {onOpenSidebar && (
-              <button type="button" onClick={onOpenSidebar} aria-label="Open sidebar" className={`${iconButtonClass} min-[980px]:hidden`}>
-                <Menu size={18} />
-              </button>
-            )}
-            {sidebarCollapsed && onExpandSidebar && (
-              <button type="button" onClick={onExpandSidebar} aria-label="Show sidebar" title="Show sidebar" className={`${iconButtonClass} max-[979px]:hidden`}>
-                <PanelLeftOpen size={17} strokeWidth={1.75} />
-              </button>
-            )}
+        {onOpenSidebar && (
+          <div className="-ml-1 -mt-2 mb-1 flex items-center gap-1 min-[980px]:hidden">
+            <button type="button" onClick={onOpenSidebar} aria-label="Open sidebar" className={iconButtonClass}>
+              <Menu size={18} />
+            </button>
           </div>
         )}
         <div className="flex flex-wrap items-end justify-between gap-3">

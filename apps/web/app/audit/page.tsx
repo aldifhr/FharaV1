@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useConvex, useMutation, useQuery } from "convex/react";
 import { ChevronRight, Download, ScrollText, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
-import IconRail from "@/components/IconRail";
+import Sidebar from "@/components/Sidebar";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { roleLabel } from "@/lib/agentRoles";
 import { clockTime, isSameDay, shortDate } from "@/lib/format";
@@ -250,7 +250,7 @@ function AuditPage() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
-      <IconRail projectId={projectId} />
+      <Sidebar projectId={projectId} />
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
         <div className="mx-auto max-w-3xl">
           <header className="flex flex-wrap items-end justify-between gap-3">

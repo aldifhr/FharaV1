@@ -5,7 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import Link from "next/link";
 import { ArrowUpRight, Plus } from "lucide-react";
-import IconRail from "@/components/IconRail";
+import Sidebar from "@/components/Sidebar";
 import InitialAvatar from "@/components/InitialAvatar";
 import { roleLabel } from "@/lib/agentRoles";
 import { useNewProject } from "@/components/NewProject";
@@ -90,7 +90,7 @@ export default function Home() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
-      <IconRail />
+      <Sidebar />
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
         <div className="mx-auto max-w-3xl">
           <header className="flex items-end justify-between gap-4">

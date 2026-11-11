@@ -29,9 +29,6 @@ export interface WorkspaceContextValue {
   deleteTask: (task: Task) => void;
   /** Open the project/team sidebar (a drawer below 980px). */
   openSidebar: () => void;
-  /** Desktop: the sidebar is hidden; the chat header can bring it back. */
-  sidebarCollapsed: boolean;
-  toggleSidebarCollapsed: () => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);

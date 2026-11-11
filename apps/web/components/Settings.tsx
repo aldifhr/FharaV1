@@ -74,7 +74,8 @@ const FONT_OPTIONS: { value: FontChoice; label: string; description: string; sty
 ];
 
 interface SettingsContextValue {
-  openSettings: (projectId?: string) => void;
+  /** `section` opens one tab, such as "models" for LLM & Models. */
+  openSettings: (projectId?: string, section?: string) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -88,15 +89,17 @@ export function useSettings(): SettingsContextValue {
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [projectId, setProjectId] = useState<string | undefined>(undefined);
-  const openSettings = useCallback((nextProjectId?: string) => {
+  const [section, setSection] = useState<{ id: string } | null>(null);
+  const openSettings = useCallback((nextProjectId?: string, nextSection?: string) => {
     if (nextProjectId) setProjectId(nextProjectId);
+    if (nextSection) setSection({ id: nextSection });
     setOpen(true);
   }, []);
 
   return (
     <SettingsContext.Provider value={{ openSettings }}>
       {children}
-      <SettingsModal open={open} projectId={projectId} onProjectChange={setProjectId} onClose={() => setOpen(false)} />
+      <SettingsModal open={open} section={section} projectId={projectId} onProjectChange={setProjectId} onClose={() => setOpen(false)} />
     </SettingsContext.Provider>
   );
 }
@@ -269,11 +272,14 @@ function NavButton({ item, selected, onSelect }: { item: NavItem; selected: bool
 
 export function SettingsModal({
   open,
+  section,
   projectId,
   onProjectChange,
   onClose,
 }: {
   open: boolean;
+  /** A tab to open on (a new object each request, so asking twice reopens it). */
+  section?: { id: string } | null;
   projectId?: string;
   onProjectChange: (projectId?: string) => void;
   onClose: () => void;
@@ -282,6 +288,9 @@ export function SettingsModal({
   const panelRef = useRef<HTMLDivElement>(null);
   const { font, setFont } = useFont();
   const [active, setActive] = useState("general");
+  useEffect(() => {
+    if (section && NAV_ITEMS.some((item) => item.id === section.id)) setActive(section.id);
+  }, [section]);
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [mounted, setMounted] = useState(false);

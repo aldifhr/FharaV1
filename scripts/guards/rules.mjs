@@ -123,9 +123,11 @@ export function uiRuleCounts(text) {
     pill,
     tint: countMatches(code, TINT),
     hex: countMatches(code, RAW_HEX),
-    brand: countMatches(code, BRAND),
   };
 }
+
+/** Uses of the retired purple brand colour (kept out of uiRuleCounts so its shape stays stable). */
+export const brandUses = (text) => countMatches(stripComments(text), BRAND);
 
 // ---------------------------------------------------------------- async assertions
 
@@ -182,6 +184,8 @@ export function measureFile(file, text) {
   if (suppressions) out.suppressions = suppressions;
   if (isUiSource(file)) {
     for (const [key, value] of Object.entries(uiRuleCounts(text))) if (value) out[key] = value;
+    const brand = brandUses(text);
+    if (brand) out.brand = brand;
   }
   if (isTestCode(file) && /\b(?:rejects|resolves)\b/u.test(text)) {
     const unawaited = unawaitedAsyncAssertions(text, file).length;

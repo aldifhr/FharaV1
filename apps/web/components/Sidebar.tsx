@@ -1,17 +1,32 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { Home, Inbox, Moon, PanelLeftClose, Search, Settings, Sun, X } from "lucide-react";
+import {
+  Activity,
+  BookOpen,
+  Brain,
+  Cpu,
+  FolderKanban,
+  GitBranch,
+  Inbox,
+  Menu,
+  MessageCircle,
+  Plug,
+  ScrollText,
+  Sparkles,
+  TestTubes,
+  Users,
+  X,
+} from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import AgentDetailPanel from "./AgentDetailPanel";
+import CommandMenu from "./CommandMenu";
 import { useNewProject } from "./NewProject";
 import { useSettings } from "./Settings";
 import { useToast } from "./Toasts";
-import { useTheme } from "./ui/use-theme";
 import QueryBoundary from "./shell/QueryBoundary";
 import NeedsYou from "./sidebar/NeedsYou";
 import ThreadList from "./sidebar/ThreadList";
@@ -19,63 +34,91 @@ import ProjectList from "./sidebar/ProjectList";
 import PersonalList from "./sidebar/PersonalList";
 import TeamList, { type TeamAgent } from "./sidebar/TeamList";
 import { CreateAgentModal } from "./sidebar/AgentForms";
+import ActivityPopover from "./sidebar/ActivityPopover";
+import { InboxNav, NavGroup, NavRow, RailItem, type NavIcon } from "./sidebar/SidebarNav";
+import { AccountRow, SearchBox, SidebarHeader, useShellChords } from "./sidebar/SidebarChrome";
 import { agentName, fixedAgentIds } from "@/lib/agentRoles";
 import { onFocusTeam } from "@/lib/shellEvents";
+import { useUiPref } from "@/lib/uiPrefs";
+import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 
 type Sections = { needsYou: boolean; threads: boolean; projects: boolean; personal: boolean; team: boolean };
+type NavLink = { icon: NavIcon; label: string; href?: string; onClick?: () => void; active: boolean };
 
+/**
+ * The one app sidebar (dashboard restyle F2): logo and collapse, search (⌘K),
+ * Needs you and Threads, then WORK (projects, personal messages, team),
+ * BUILD and OBSERVE, with the account row at the bottom. Collapses to an
+ * icon rail on desktop (remembered in uiPrefs); below 980px it is a drawer.
+ */
 export default function Sidebar({
   projectId,
   onSelectProject,
-  drawerOpen = false,
-  onCloseDrawer,
-  onCollapse,
+  drawerOpen: drawerOpenProp,
+  onCloseDrawer: onCloseDrawerProp,
+  mobile = "drawer",
 }: {
   projectId?: string;
   onSelectProject?: (id: string) => void;
-  /** With `onCloseDrawer`, the sidebar is a slide-in drawer below 980px. */
+  /** With `onCloseDrawer`, the page owns the phone drawer (its header has the menu button). */
   drawerOpen?: boolean;
   onCloseDrawer?: () => void;
-  /** Desktop: hide the sidebar (the chat header offers to bring it back). */
-  onCollapse?: () => void;
+  /** Below 980px: a drawer behind a top bar (default), or the lists inline as the page (/chats). */
+  mobile?: "drawer" | "inline";
 }) {
-  const isDrawer = Boolean(onCloseDrawer);
   const pathname = usePathname();
   const router = useRouter();
   const toast = useToast();
   const { openNewProject } = useNewProject();
   const { openSettings } = useSettings();
-  const { theme, toggleTheme: toggle } = useTheme();
+  const isDesktop = useMediaQuery(DESKTOP_QUERY, true);
+  const [collapsedPref, setCollapsedPref] = useUiPref("sidebarCollapsed");
+  const rail = isDesktop && collapsedPref;
   const agents = useQuery(api.agents.list, {}) as (TeamAgent & Record<string, any>)[] | undefined;
   const removeProject = useMutation(api.projects.remove);
   const removeAgent = useMutation(api.agents.remove);
 
-  const [q, setQ] = useState("");
+  const ownsDrawer = !onCloseDrawerProp;
+  const [ownDrawerOpen, setOwnDrawerOpen] = useState(false);
+  const drawerOpen = ownsDrawer ? ownDrawerOpen : Boolean(drawerOpenProp);
+  const closeDrawer = useCallback(() => (ownsDrawer ? setOwnDrawerOpen(false) : onCloseDrawerProp?.()), [ownsDrawer, onCloseDrawerProp]);
+  const isDrawer = mobile === "drawer";
+
   const [open, setOpen] = useState<Sections>({ needsYou: true, threads: true, projects: true, personal: true, team: true });
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [detail, setDetail] = useState<any>(null);
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const [confirmPending, setConfirmPending] = useState(false);
-  const searchRef = useRef<HTMLInputElement>(null);
   const teamRef = useRef<HTMLElement>(null);
+  const activityRef = useRef<HTMLButtonElement>(null);
   const toggleSection = (key: keyof Sections) => setOpen((s) => ({ ...s, [key]: !s[key] }));
+
+  const openCommand = useCallback(() => setCommandOpen(true), []);
+  const openShellSettings = useCallback(() => openSettings(projectId), [openSettings, projectId]);
+  const chord = useShellChords(openCommand, openShellSettings);
+
+  // A route change closes the phone drawer this sidebar owns.
+  useEffect(() => setOwnDrawerOpen(false), [pathname]);
 
   // Drawer: Escape closes it.
   useEffect(() => {
-    if (!isDrawer || !drawerOpen) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCloseDrawer?.();
+    if (!drawerOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeDrawer();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [isDrawer, drawerOpen, onCloseDrawer]);
+  }, [drawerOpen, closeDrawer]);
 
-  // Rail "Team" button: expand and reveal the team list.
+  // "Team" requests from elsewhere: expand and reveal the team list.
   useEffect(
     () =>
       onFocusTeam(() => {
+        setCollapsedPref(false);
         setOpen((s) => ({ ...s, team: true }));
         requestAnimationFrame(() => teamRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
       }),
-    [],
+    [setCollapsedPref],
   );
 
   const runConfirmed = async (work: () => Promise<unknown>, success: [string, string?], failure: string) => {
@@ -118,111 +161,168 @@ export default function Sidebar({
     });
   };
 
-  if (pathname === "/") return null;
+  const withProject = (href: string, param = "project") => (projectId ? `${href}${href.includes("?") ? "&" : "?"}${param}=${projectId}` : href);
+  const expandTo = (section: keyof Sections) => () => {
+    setCollapsedPref(false);
+    setOpen((s) => ({ ...s, [section]: true }));
+  };
 
-  const base =
-    "flex h-full w-[296px] shrink-0 flex-col border-r border-line bg-panel text-ink";
-  const asideClass = isDrawer
-    ? `${base} max-[979px]:fixed max-[979px]:inset-y-0 max-[979px]:left-0 max-[979px]:z-50 max-[979px]:w-[min(86vw,320px)] max-[979px]:shadow-2xl max-[979px]:pt-[env(safe-area-inset-top)] ${drawerOpen ? "" : "max-[979px]:hidden"}`
-    : `${base} max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-r-0`;
-
-  const mobileNav = [
-    { icon: Home, label: "Home", href: "/" },
-    { icon: Inbox, label: "Inbox", href: "/inbox" },
+  const build: NavLink[] = [
+    { icon: BookOpen, label: "Library", href: withProject("/library"), active: pathname === "/library" },
+    { icon: Brain, label: "Memory", href: projectId ? `/memory?scope=project&project=${projectId}` : "/memory", active: pathname === "/memory" },
+    { icon: TestTubes, label: "Agent Sandbox", href: "/playground", active: pathname === "/playground" },
+    { icon: Cpu, label: "LLM & Models", onClick: () => openSettings(projectId, "models"), active: false },
+    { icon: Plug, label: "Integrations", href: withProject("/integrations"), active: pathname === "/integrations" },
   ];
+  const observe: NavLink[] = [
+    { icon: GitBranch, label: "Runs", href: withProject("/runs"), active: pathname.startsWith("/runs") },
+    { icon: ScrollText, label: "Audit log", href: withProject("/audit"), active: pathname === "/audit" },
+    { icon: Sparkles, label: "Improve", href: withProject("/improve"), active: pathname === "/improve" },
+  ];
+  const teamHref = withProject("/team");
+  const inboxActive = pathname === "/inbox";
+  const activity = projectId ? (
+    rail ? (
+      <RailItem icon={Activity} label="Activity" buttonRef={activityRef} expanded={activityOpen} onClick={() => setActivityOpen((v) => !v)} />
+    ) : (
+      <NavRow icon={Activity} label="Activity" buttonRef={activityRef} expanded={activityOpen} onClick={() => setActivityOpen((v) => !v)} />
+    )
+  ) : null;
+  const inboxFallback = rail ? (
+    <RailItem icon={Inbox} label="Inbox" href="/inbox" active={inboxActive} />
+  ) : (
+    <NavRow icon={Inbox} label="Inbox" href="/inbox" active={inboxActive} />
+  );
+
+  const width = rail ? "w-sidebar-rail" : "w-sidebar";
+  const base = `flex h-full ${width} shrink-0 flex-col border-r border-line bg-panel text-ink`;
+  const asideClass =
+    mobile === "inline"
+      ? `${base} max-[979px]:h-auto max-[979px]:w-full max-[979px]:border-r-0`
+      : `${base} max-[979px]:fixed max-[979px]:inset-y-0 max-[979px]:left-0 max-[979px]:z-50 max-[979px]:w-[min(86vw,320px)] max-[979px]:shadow-2xl max-[979px]:pt-[env(safe-area-inset-top)] ${drawerOpen ? "" : "max-[979px]:hidden"}`;
 
   return (
     <>
-      {isDrawer && drawerOpen && (
-        <div aria-hidden="true" onClick={onCloseDrawer} className="fixed inset-0 z-40 bg-black/40 min-[980px]:hidden" />
+      <CommandMenu open={commandOpen} onClose={() => setCommandOpen(false)} />
+      {isDrawer && ownsDrawer && (
+        // Phone: a slim top bar with the menu button; the sidebar opens as a drawer.
+        <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-panel px-3 pt-[env(safe-area-inset-top)] min-[980px]:hidden">
+          <button
+            type="button"
+            onClick={() => setOwnDrawerOpen(true)}
+            aria-label="Open menu"
+            className="flex h-10 w-10 items-center justify-center rounded-field text-ink-2 hover:bg-hover hover:text-ink"
+          >
+            <Menu size={18} strokeWidth={1.75} />
+          </button>
+          <span className="text-[15px] font-semibold tracking-tight">Fhara</span>
+          <div className="ml-auto w-40">
+            <SearchBox chord={chord} onOpen={openCommand} />
+          </div>
+        </div>
       )}
-      <aside className={asideClass} aria-label="Projects and team" {...(isDrawer && drawerOpen ? { role: "dialog", "aria-modal": true } : {})}>
+      {isDrawer && drawerOpen && <div aria-hidden="true" onClick={closeDrawer} className="fixed inset-0 z-40 bg-black/40 min-[980px]:hidden" />}
+      <aside className={asideClass} aria-label="Navigation" {...(isDrawer && drawerOpen ? { role: "dialog", "aria-modal": true } : {})}>
         <ConfirmDialog request={confirmReq} pending={confirmPending} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
 
-        {isDrawer && (
-          // Phone: the rail is hidden, so the drawer carries the app nav.
-          <div className="flex items-center gap-1 border-b border-line px-3 py-2 min-[980px]:hidden">
-            {mobileNav.map(({ icon: Icon, label, href }) => (
-              <Link key={href} href={href} onClick={onCloseDrawer} aria-label={label} className="flex h-10 w-10 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
-                <Icon size={18} />
-              </Link>
-            ))}
-            <button type="button" onClick={() => openSettings()} aria-label="Settings" className="flex h-10 w-10 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
-              <Settings size={18} />
-            </button>
-            <button type="button" onClick={toggle} aria-label={theme === "dark" ? "Light mode" : "Dark mode"} className="flex h-10 w-10 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
-              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-            <button type="button" onClick={onCloseDrawer} aria-label="Close menu" className="ml-auto flex h-10 w-10 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
-              <X size={18} />
-            </button>
+        <div className={`flex flex-col gap-3 pb-2 pt-3 ${rail ? "items-center px-2" : "px-3"}`}>
+          <div className="flex items-start gap-1">
+            <div className="min-w-0 flex-1">
+              <SidebarHeader collapsed={rail} onToggleCollapsed={isDesktop ? () => setCollapsedPref(!collapsedPref) : undefined} onNavigate={closeDrawer} />
+            </div>
+            {isDrawer && drawerOpen && (
+              <button type="button" onClick={closeDrawer} aria-label="Close menu" className="flex h-9 w-9 items-center justify-center rounded-field text-ink-2 hover:bg-hover hover:text-ink min-[980px]:hidden">
+                <X size={18} />
+              </button>
+            )}
           </div>
+          <SearchBox chord={chord} onOpen={openCommand} rail={rail} />
+        </div>
+
+        {rail ? (
+          <nav aria-label="Workspace" className="shell-scroll flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-2 pb-3 pt-1">
+            <QueryBoundary fallback={inboxFallback}>
+              <InboxNav icon={Inbox} active={inboxActive} rail />
+            </QueryBoundary>
+            <span aria-hidden="true" className="my-1.5 h-px w-6 bg-line" />
+            <RailItem icon={FolderKanban} label="Projects" onClick={expandTo("projects")} active={pathname.startsWith("/chats/") && !pathname.startsWith("/chats/personal")} />
+            <RailItem icon={MessageCircle} label="Personal messages" onClick={expandTo("personal")} active={pathname.startsWith("/chats/personal")} />
+            <RailItem icon={Users} label="Team" href={teamHref} active={pathname.startsWith("/team")} />
+            <span aria-hidden="true" className="my-1.5 h-px w-6 bg-line" />
+            {build.map((item) => (
+              <RailItem key={item.label} {...item} />
+            ))}
+            <span aria-hidden="true" className="my-1.5 h-px w-6 bg-line" />
+            {observe.map((item) => (
+              <RailItem key={item.label} {...item} />
+            ))}
+            {activity}
+          </nav>
+        ) : (
+          <nav aria-label="Workspace" className="shell-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-4 pt-1">
+            <div className="flex flex-col gap-3">
+              <QueryBoundary
+                fallback={
+                  <NavRow icon={Inbox} label="Needs you" href="/inbox" onClick={closeDrawer} />
+                }
+              >
+                <NeedsYou open={open.needsYou} onToggle={() => toggleSection("needsYou")} onNavigate={closeDrawer} />
+              </QueryBoundary>
+              <QueryBoundary>
+                <Suspense fallback={null}>
+                  <ThreadList filter="" open={open.threads} onToggle={() => toggleSection("threads")} onNavigate={closeDrawer} />
+                </Suspense>
+              </QueryBoundary>
+            </div>
+            <NavGroup label="Work">
+              <ProjectList
+                filter=""
+                currentId={projectId}
+                open={open.projects}
+                onToggle={() => toggleSection("projects")}
+                onAdd={openNewProject}
+                onSelect={(id) => {
+                  onSelectProject?.(id);
+                  closeDrawer();
+                }}
+                onRemove={askRemoveProject}
+              />
+              <QueryBoundary>
+                <PersonalList filter="" open={open.personal} onToggle={() => toggleSection("personal")} onNavigate={closeDrawer} />
+              </QueryBoundary>
+              <TeamList
+                ref={teamRef}
+                projectId={projectId}
+                filter=""
+                open={open.team}
+                onToggle={() => toggleSection("team")}
+                onAdd={() => setCreateOpen(true)}
+                onOpenAgent={(a) => setDetail(a)}
+              />
+            </NavGroup>
+            <NavGroup label="Build">
+              {build.map((item) => (
+                <NavRow key={item.label} {...item} onClick={item.onClick ?? closeDrawer} />
+              ))}
+            </NavGroup>
+            <NavGroup label="Observe">
+              <QueryBoundary fallback={inboxFallback}>
+                <InboxNav icon={Inbox} active={inboxActive} rail={false} onNavigate={closeDrawer} />
+              </QueryBoundary>
+              {observe.map((item) => (
+                <NavRow key={item.label} {...item} onClick={closeDrawer} />
+              ))}
+              {activity}
+            </NavGroup>
+          </nav>
         )}
 
-        <div className="flex items-center gap-2 px-3 pb-2 pt-3">
-          {onCollapse && (
-            <button
-              type="button"
-              onClick={onCollapse}
-              aria-label="Hide sidebar"
-              title="Hide sidebar"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 max-[979px]:hidden"
-            >
-              <PanelLeftClose size={17} strokeWidth={1.75} />
-            </button>
-          )}
-          <label className="relative flex h-9 min-w-0 flex-1 items-center rounded-lg border border-line bg-panel transition focus-within:border-ink/30 focus-within:ring-2 focus-within:ring-ink/10">
-            <Search size={15} className="pointer-events-none absolute left-2.5 text-ink-3" aria-hidden="true" />
-            <input
-              ref={searchRef}
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search"
-              aria-label="Filter threads, projects, messages and team"
-              className="h-full w-full min-w-0 bg-transparent pl-8 pr-12 text-base text-ink outline-none placeholder:text-ink-3 sm:text-[14px]"
-            />
-            <kbd className="pointer-events-none absolute right-2 rounded border border-line px-1.5 py-px font-sans text-[10.5px] text-ink-3">⌘K</kbd>
-          </label>
+        <div className={`shrink-0 border-t border-line p-2 ${rail ? "flex justify-center" : ""}`}>
+          <AccountRow rail={rail} onSettings={openShellSettings} onAccount={() => openSettings(projectId, "signin")} />
         </div>
 
-        <div className="shell-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 pb-4 pt-1">
-          <QueryBoundary
-            fallback={
-              <Link href="/inbox" onClick={onCloseDrawer} className="flex h-7 items-center justify-between rounded-md px-2 text-[13px] text-ink-2 hover:text-ink">
-                Needs you <span className="text-ink-3">Open inbox ›</span>
-              </Link>
-            }
-          >
-            <NeedsYou open={open.needsYou} onToggle={() => toggleSection("needsYou")} onNavigate={onCloseDrawer} />
-          </QueryBoundary>
-          <QueryBoundary>
-            <Suspense fallback={null}>
-              <ThreadList filter={q} open={open.threads} onToggle={() => toggleSection("threads")} onNavigate={onCloseDrawer} />
-            </Suspense>
-          </QueryBoundary>
-          <ProjectList
-            filter={q}
-            currentId={projectId}
-            open={open.projects}
-            onToggle={() => toggleSection("projects")}
-            onAdd={openNewProject}
-            onSelect={(id) => onSelectProject?.(id)}
-            onRemove={askRemoveProject}
-          />
-          <QueryBoundary>
-            <PersonalList filter={q} open={open.personal} onToggle={() => toggleSection("personal")} onNavigate={onCloseDrawer} />
-          </QueryBoundary>
-          <TeamList
-            ref={teamRef}
-            projectId={projectId}
-            filter={q}
-            open={open.team}
-            onToggle={() => toggleSection("team")}
-            onAdd={() => setCreateOpen(true)}
-            onOpenAgent={(a) => setDetail(a)}
-          />
-        </div>
-
+        {activityOpen && projectId && <ActivityPopover anchor={activityRef.current} projectId={projectId} onClose={() => setActivityOpen(false)} />}
+        {createOpen && <CreateAgentModal agents={(agents ?? []) as never} onClose={() => setCreateOpen(false)} />}
         {detail && (
           <AgentDetailPanel
             agent={(agents ?? []).find((a) => a._id === detail._id) ?? detail}

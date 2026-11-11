@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Check, Copy, GitBranch, Menu, MoreHorizontal, PanelLeftOpen, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
+import { Bell, Check, Copy, GitBranch, Menu, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
 import { useState } from "react";
 import InitialAvatar from "../InitialAvatar";
 import OpenInMenu from "./OpenInMenu";
@@ -57,8 +57,6 @@ export default function ChatHeader({
   onCopyLink,
   onManage,
   onClearChat,
-  sidebarCollapsed,
-  onExpandSidebar,
   onOpenDrawer,
   formatTime,
 }: {
@@ -82,8 +80,6 @@ export default function ChatHeader({
   onCopyLink: () => Promise<boolean>;
   onManage: () => void;
   onClearChat: () => void;
-  sidebarCollapsed: boolean;
-  onExpandSidebar: () => void;
   onOpenDrawer: () => void;
   formatTime: (ms: number) => string;
 }) {
@@ -134,11 +130,6 @@ export default function ChatHeader({
         <button type="button" onClick={onOpenDrawer} aria-label="Open projects and team" className={`${iconButtonClass} -ml-1 min-[980px]:hidden`}>
           <Menu size={18} />
         </button>
-        {sidebarCollapsed && (
-          <button type="button" onClick={onExpandSidebar} aria-label="Show sidebar" title="Show sidebar" className={`${iconButtonClass} -ml-1 max-[979px]:hidden`}>
-            <PanelLeftOpen size={17} strokeWidth={1.75} />
-          </button>
-        )}
         <ProjectAvatar name={project?.name ?? "•"} size={34} />
         <div className="min-w-0">
           <h1 className="flex min-w-0 items-center gap-1.5 text-[16px] font-semibold leading-tight text-ink">

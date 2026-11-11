@@ -26,7 +26,7 @@ import {
   type McpPreset,
 } from "@/api/convex/lib/mcpPresets";
 import { ROLE_KEYS, roleLabel } from "@/api/convex/lib/roles";
-import IconRail from "@/components/IconRail";
+import Sidebar from "@/components/Sidebar";
 import GithubWebhookSetup from "@/components/GithubWebhookSetup";
 import GithubAccountRow from "@/components/GithubAccount";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
@@ -665,7 +665,7 @@ function IntegrationsPage() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
-      <IconRail projectId={projectId} />
+      <Sidebar projectId={projectId} />
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
         <div className="mx-auto max-w-3xl">
           <header className="flex flex-wrap items-end justify-between gap-3">

@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { useQuery } from "convex/react";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
-import IconRail from "@/components/IconRail";
+import Sidebar from "@/components/Sidebar";
 import Segmented from "@/components/ui/segmented";
 import PerformanceScoreSection from "@/components/team/PerformanceScoreSection";
 import { compact, duration, pct, usd } from "@/lib/metrics";
@@ -53,7 +53,7 @@ export default function AgentProfilePage() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
-      <IconRail />
+      <Sidebar />
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
         <div className="mx-auto max-w-3xl">
           <Link href="/team" className="inline-flex items-center gap-1 text-[13px] text-ink-3 outline-none transition hover:text-ink focus-visible:text-ink">

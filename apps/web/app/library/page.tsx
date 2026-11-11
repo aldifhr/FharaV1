@@ -19,7 +19,7 @@ import {
 } from "./SkillsV2";
 import { SKILL_PERMISSIONS, SKILL_PERMISSION_LABELS } from "@/api/convex/lib/skillGraph";
 import { api } from "@/api/convex/_generated/api";
-import IconRail from "@/components/IconRail";
+import Sidebar from "@/components/Sidebar";
 import Modal from "@/components/Modal";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { roleLabel } from "@/lib/agentRoles";
@@ -78,7 +78,7 @@ function LibraryInner() {
   };
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
-      <IconRail projectId={projectId} />
+      <Sidebar projectId={projectId} />
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
         <div className="mx-auto max-w-3xl">
           {tab === "browse" ? (

@@ -9,6 +9,11 @@
  *   POST /__mock/reset          clear the call log, the per-rule counters and disabled rules
  *   POST /__mock/disable?rule=  switch one rule off (…/enable to switch it back on)
  *
+ * A rule may also inject a wire fault (`fault`, see MockFault): a dropped
+ * stream mid-chunk, a reset, a stall, a malformed SSE chunk, an early EOF,
+ * a context-overflow 400 or a 5xx (a burst with `times`). The call log
+ * names the fault each request got.
+ *
  * Replies come from a JSON script (scripts/mock-llm/scripts/default.json):
  * rules matched in order on the request's text (a role is recognised from
  * the worker's own prompt wording) and, optionally, a scenario. The
@@ -21,6 +26,11 @@
  * writes a random token (0600) for its client, and refuses to touch real
  * data (here: it only ever binds to loopback). The OpenAI protocol, rules
  * and scenarios are Fhara's.
+ *
+ * The wire faults follow DeepSeek Harness (https://github.com/deepseek-ai/deepseek-harness,
+ * MIT License, Copyright (c) 2026 DeepSeek, commit e8f7b93),
+ * packages/test-support/llm-mock-server/README.md (behaviour table): the
+ * idea and fault names only, re-done for this OpenAI-compatible mock.
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -49,6 +59,61 @@ export interface MockRule {
   times?: number;
   /** Extra latency before answering (ms, divided by the speed; as given at --speed 0). */
   delayMs?: number;
+  /** Inject a wire fault instead of a clean answer (see MockFault). */
+  fault?: MockFault;
+  /** Content chunks sent before a stream fault strikes (default: half the reply, at least 1). */
+  faultAfterChunks?: number;
+  /** Provider wording of a `context_overflow` 400 (default "openai"). */
+  overflowWording?: OverflowWording;
+}
+
+/**
+ * Wire faults (the behaviour table of an LLM mock server, after DeepSeek
+ * Harness's test-support/llm-mock-server; the OpenAI wire shapes are Fhara's):
+ * - `partial_disconnect`: some deltas, then half an SSE frame and the socket
+ *   is destroyed (a non-stream reply: half the JSON body, then destroyed).
+ * - `connection_reset`: the socket is destroyed before any byte is sent.
+ * - `stall`: headers and some deltas, then nothing until the client gives up.
+ * - `malformed_chunk`: one SSE frame carries broken JSON (it holds the next
+ *   real piece of the reply, so a client that skips it loses that text);
+ *   the stream then finishes normally. A non-stream reply: a cut JSON body.
+ * - `stream_eof`: some deltas, then the stream ends cleanly with no
+ *   finish_reason and no `[DONE]`.
+ * - `context_overflow`: HTTP 400 (or `status`) with a provider's
+ *   context-length wording (`overflowWording`).
+ * - `server_error`: HTTP `status` (default 503); use `times` for a burst.
+ */
+export type MockFault =
+  | "partial_disconnect"
+  | "connection_reset"
+  | "stall"
+  | "malformed_chunk"
+  | "stream_eof"
+  | "context_overflow"
+  | "server_error";
+
+export const MOCK_FAULTS: readonly MockFault[] = [
+  "partial_disconnect",
+  "connection_reset",
+  "stall",
+  "malformed_chunk",
+  "stream_eof",
+  "context_overflow",
+  "server_error",
+];
+
+export type OverflowWording = "openai" | "deepseek" | "anthropic";
+
+/** Context-length error bodies as each provider words them (OpenAI-compatible envelope). */
+export function contextOverflowBody(wording: OverflowWording = "openai"): { error: { message: string; type: string; code?: string; param?: string } } {
+  switch (wording) {
+    case "deepseek":
+      return { error: { message: "This model's maximum context length is 65536 tokens. However, you requested 70214 tokens (66118 in the messages, 4096 in the completion). Please reduce the length of the messages or completion.", type: "invalid_request_error" } };
+    case "anthropic":
+      return { error: { message: "prompt is too long: 214031 tokens > 200000 maximum", type: "invalid_request_error" } };
+    default:
+      return { error: { message: "This model's maximum context length is 128000 tokens. However, your messages resulted in 131072 tokens. Please reduce the length of the messages.", type: "invalid_request_error", code: "context_length_exceeded", param: "messages" } };
+  }
 }
 
 export interface MockScript {
@@ -70,6 +135,8 @@ export interface MockCall {
   role: string;
   stream: boolean;
   status: number;
+  /** The wire fault this request got, when its rule injects one. */
+  fault?: MockFault;
   /** First characters of the request text (to write rules for unmatched prompts). */
   head?: string;
 }
@@ -94,6 +161,7 @@ export function loadScript(file: string = DEFAULT_SCRIPT_PATH, seen: string[] = 
   if (!Array.isArray(parsed.rules)) throw new Error(`mock-llm: ${file} has no "rules" array`);
   for (const rule of parsed.rules) {
     if (!rule.id) throw new Error(`mock-llm: a rule in ${file} has no id`);
+    if (rule.fault && !MOCK_FAULTS.includes(rule.fault)) throw new Error(`mock-llm: rule ${rule.id} in ${file} has an unknown fault "${rule.fault}"`);
     for (const re of rule.match ?? []) new RegExp(re, "i");
   }
   if (!parsed.extends) return { rules: parsed.rules, fallback: parsed.fallback ?? "Mock reply." };
@@ -213,42 +281,89 @@ export async function startMockLlm(options: MockLlmOptions = {}): Promise<{
     const scenario = (typeof header === "string" && header) || (model.startsWith("mock/") ? model.slice(5) : "") || options.scenario || "default";
     const text = textOf(body.messages ?? []);
     const { rule, reply } = pickRule(script, text, scenario, used, disabled);
-    const status = rule?.status ?? 200;
-    const call: MockCall = { n: calls.length + 1, at: Date.now(), model, scenario, rule: rule?.id ?? "fallback", role: rule?.role ?? "unknown", stream: Boolean(body.stream), status, head: text.slice(0, 400) };
+    const fault = rule?.fault;
+    const status = fault === "context_overflow" ? rule?.status ?? 400 : fault === "server_error" ? rule?.status ?? 503 : rule?.status ?? 200;
+    const call: MockCall = { n: calls.length + 1, at: Date.now(), model, scenario, rule: rule?.id ?? "fallback", role: rule?.role ?? "unknown", stream: Boolean(body.stream), status, ...(fault ? { fault } : {}), head: text.slice(0, 400) };
     calls.push(call);
     if (calls.length > 500) calls.shift();
-    log(`#${call.n} ${call.role} (${call.rule}) scenario=${scenario}${call.stream ? " stream" : ""}${status !== 200 ? ` → ${status}` : ""}`);
+    log(`#${call.n} ${call.role} (${call.rule}) scenario=${scenario}${call.stream ? " stream" : ""}${fault ? ` fault=${fault}` : ""}${status !== 200 ? ` → ${status}` : ""}`);
     // A scripted latency holds at --speed 0 too (a test needs the call in flight); speed only scales it.
     await sleep(speed > 0 ? (rule?.delayMs ?? 0) / speed : rule?.delayMs ?? 0);
 
+    let closed = false;
+    req.on("close", () => (closed = true));
+    res.on("close", () => (closed = true));
+    // Waits until the client gives up (a stall); the socket close ends it.
+    const hang = () => new Promise<void>((resolve) => (closed ? resolve() : res.once("close", () => resolve())));
+    const destroy = () => res.socket?.destroy();
+
+    if (fault === "connection_reset") return void destroy();
+    if (fault === "context_overflow") return json(status, contextOverflowBody(rule?.overflowWording));
     if (status !== 200) {
-      return json(status, { error: { message: reply || `mock-llm: scripted ${status}`, type: status === 429 ? "rate_limit_exceeded" : "mock_error" } });
+      const scripted = rule?.reply !== undefined || rule?.replies !== undefined;
+      return json(status, { error: { message: (fault && !scripted ? "" : reply) || `mock-llm: scripted ${status}`, type: status === 429 ? "rate_limit_exceeded" : "mock_error" } });
     }
     const id = `chatcmpl-mock-${call.n}`;
     const created = Math.floor(Date.now() / 1000);
     const usage = { prompt_tokens: tokensOf(text), completion_tokens: tokensOf(reply), total_tokens: tokensOf(text) + tokensOf(reply) };
     if (!body.stream) {
-      return json(200, {
+      const full = JSON.stringify({
         id, object: "chat.completion", created, model,
         choices: [{ index: 0, message: { role: "assistant", content: reply, ...(rule?.reasoning ? { reasoning_content: rule.reasoning } : {}) }, finish_reason: "stop" }],
         usage,
       });
+      if (!fault) return json(200, JSON.parse(full));
+      const half = full.slice(0, Math.floor(full.length / 2));
+      if (fault === "stall") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.flushHeaders();
+        return hang();
+      }
+      if (fault === "partial_disconnect") {
+        res.writeHead(200, { "content-type": "application/json", "content-length": String(Buffer.byteLength(full)) });
+        res.write(half);
+        return void setTimeout(destroy, 20);
+      }
+      // malformed_chunk / stream_eof: a cut body, sent as if complete.
+      res.writeHead(200, { "content-type": "application/json" });
+      return void res.end(half);
     }
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
     const send = (payload: unknown) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
     const frame = (delta: Record<string, unknown>, finish: string | null = null) => ({ id, object: "chat.completion.chunk", created, model, choices: [{ index: 0, delta, finish_reason: finish }] });
-    let closed = false;
-    req.on("close", () => (closed = true));
     send(frame({ role: "assistant", content: "" }));
     for (const piece of chunkText(rule?.reasoning ?? "")) {
       if (closed) return;
       send(frame({ reasoning_content: piece }));
       await sleep(tickMs);
     }
-    for (const piece of chunkText(reply)) {
+    const pieces = chunkText(reply);
+    const strikeAt = fault ? Math.min(pieces.length, Math.max(1, rule?.faultAfterChunks ?? Math.floor(pieces.length / 2))) : -1;
+    for (let i = 0; i < pieces.length; i++) {
       if (closed) return;
-      send(frame({ content: piece }));
+      if (i === strikeAt) {
+        if (fault === "partial_disconnect") {
+          const raw = `data: ${JSON.stringify(frame({ content: pieces[i] }))}\n\n`;
+          res.write(raw.slice(0, Math.floor(raw.length / 2)));
+          return void setTimeout(destroy, 20);
+        }
+        if (fault === "stall") return hang();
+        if (fault === "stream_eof") return void res.end();
+        if (fault === "malformed_chunk") {
+          res.write(`data: {"id":"${id}","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":${JSON.stringify(pieces[i])}}\n\n`);
+          await sleep(tickMs);
+          continue;
+        }
+      }
+      send(frame({ content: pieces[i] }));
       await sleep(tickMs);
+    }
+    if (closed) return;
+    // A fault striking after the last piece (faultAfterChunks ≥ the piece count).
+    if (strikeAt === pieces.length) {
+      if (fault === "partial_disconnect") return void setTimeout(destroy, 20);
+      if (fault === "stall") return hang();
+      if (fault === "stream_eof") return void res.end();
     }
     send({ ...frame({}, "stop"), usage });
     res.end("data: [DONE]\n\n");
@@ -265,7 +380,12 @@ export async function startMockLlm(options: MockLlmOptions = {}): Promise<{
     port,
     token: options.token,
     calls,
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        // A stalled reply holds its socket open until the client gives up; closing the mock ends it.
+        server.closeAllConnections();
+      }),
   };
 }
 

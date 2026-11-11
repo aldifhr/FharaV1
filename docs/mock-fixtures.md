@@ -92,6 +92,59 @@ real `OpenAICompatibleProvider` and checks the default replies against the
 worker's own parsers (plan validator, intent, file blocks, review), so a prompt
 change that would break the scripted run fails there first.
 
+### Wire faults
+
+A rule can break the wire instead of answering cleanly (`"fault": …`; the call
+log and `GET /__mock/calls` name the fault each request got). The idea and the
+names follow DeepSeek Harness's LLM mock server (MIT, see `THIRD_PARTY_NOTICES.md`).
+
+| `fault` | On the wire |
+| --- | --- |
+| `partial_disconnect` | Some deltas, half an SSE frame, then the socket is destroyed (non-stream: half the JSON body). |
+| `connection_reset` | The socket is destroyed before any byte. |
+| `stall` | Headers and some deltas, then silence until the client gives up. |
+| `malformed_chunk` | One SSE frame is broken JSON carrying the next piece of the reply; the stream then finishes normally (non-stream: a cut body). |
+| `stream_eof` | Some deltas, then a clean end with no `finish_reason` and no `[DONE]`. |
+| `context_overflow` | HTTP 400 (or `status`) with a provider's context-length text: `overflowWording` `openai` (default), `deepseek` or `anthropic`. |
+| `server_error` | HTTP `status` (default 503); `times: 3` makes a burst. |
+
+`faultAfterChunks` sets how many content deltas go out before a stream fault
+strikes (default: half the reply). `scripts/mock-llm/scripts/faults.json`
+extends the default script with one scenario per fault: model
+`mock/partial-disconnect` (`connection-reset`, `stall`, `malformed-chunk`,
+`stream-eof`, `context-overflow`, `server-error`) fails the first request that
+way (`server-error`: the first three), then the default rules answer.
+
+`packages/worker/tests/mockLlmFaults.test.ts` checks each fault on the raw
+wire. `packages/worker/tests/llmWireFaults.test.ts` records how the worker
+handles each one today (provider, `runLlmCall` retry, a direct thread's
+persisted events); the cases marked `[open bug D2]` pin a mishandling until the
+fix flips them:
+
+- a dropped stream rejects with undici's bare `terminated`, which the stall
+  classifier does not see as a connection failure;
+- a malformed SSE frame is skipped silently, so the reply loses text but still
+  ends `stop`; a cut non-stream body parses as an empty success;
+- a stream with no `finish_reason`/`[DONE]` is accepted, and a direct thread
+  persists the half reply as a completed answer;
+- a context overflow is a generic permanent 400 (no overflow class, no prune
+  or retry).
+
+Handled today: a stall is cut by the LLM timeout (a timeout, not a cancel); a
+reset is a `connection` failure; a 5xx burst is retried by `runLlmCall`; a
+failed direct-thread turn persists no half message and stays out of history.
+
+### Verify the world
+
+Check the files, not the agent's report. `packages/worker/tests/helpers/assertUntouched.ts`
+(`snapshotTree`, `changesOutside`, `assertUntouched`) fails when anything
+outside the allowed paths changed, was added or was removed since the
+snapshot (`.git`, `node_modules` and `.moagent-worktrees` are ignored).
+`e2e/fixtures-ui/world.mjs` is the same check for the live flows: with
+`--reset-repo`, `worker-flows.mjs` snapshots the repo before each flow and
+checks afterwards that nothing outside the `allowedPaths` of the flow script's
+plans changed (a flow with no plan must leave the repo byte-identical).
+
 ## UI checks and screenshots (`npm run test:fixtures-ui`)
 
 `e2e/fixtures-ui/run.mjs` drives the seeded screens the way threadbear's

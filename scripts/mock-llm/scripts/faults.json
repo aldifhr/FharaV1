@@ -1,0 +1,50 @@
+{
+  "$comment": "Wire faults: model mock/<fault> (partial-disconnect, connection-reset, stall, malformed-chunk, stream-eof, context-overflow, server-error) makes the first request in that scenario fail that way (server-error: the first three), then the default rules answer. See docs/mock-fixtures.md.",
+  "extends": "default.json",
+  "rules": [
+    {
+      "id": "fault-partial-disconnect",
+      "scenario": "partial-disconnect",
+      "fault": "partial_disconnect",
+      "times": 1
+    },
+    {
+      "id": "fault-connection-reset",
+      "scenario": "connection-reset",
+      "fault": "connection_reset",
+      "times": 1
+    },
+    {
+      "id": "fault-stall",
+      "scenario": "stall",
+      "fault": "stall",
+      "times": 1
+    },
+    {
+      "id": "fault-malformed-chunk",
+      "scenario": "malformed-chunk",
+      "fault": "malformed_chunk",
+      "times": 1
+    },
+    {
+      "id": "fault-stream-eof",
+      "scenario": "stream-eof",
+      "fault": "stream_eof",
+      "times": 1
+    },
+    {
+      "id": "fault-context-overflow",
+      "scenario": "context-overflow",
+      "fault": "context_overflow",
+      "times": 1,
+      "overflowWording": "openai"
+    },
+    {
+      "id": "fault-server-error",
+      "scenario": "server-error",
+      "fault": "server_error",
+      "times": 3,
+      "status": 503
+    }
+  ]
+}

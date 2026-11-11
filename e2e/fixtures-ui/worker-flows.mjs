@@ -15,7 +15,9 @@
 // a throwaway local git repo with no remote; --reset-repo resets it hard to
 // the commit it had when the run started before every flow (the scripted
 // changes are the same each run, and a change already merged is a no-op that
-// fails the node). Writes results.json and one or
+// fails the node). With --reset-repo each flow also checks the world, not the
+// task's self-report (world.mjs): no file outside the allowedPaths of the
+// flow script's plans changed in the repo. Writes results.json and one or
 // more PNGs per flow into --shots; exit 1 when any check fails.
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
@@ -24,6 +26,7 @@ import path from "node:path";
 import { ConvexHttpClient } from "convex/browser";
 import { anyApi } from "convex/server";
 import { chromium } from "playwright-core";
+import { allowedPathsOfScript, changesOutside, snapshotTree } from "./world.mjs";
 
 const repo = path.resolve(import.meta.dirname, "../..");
 const args = process.argv.slice(2);
@@ -471,8 +474,14 @@ for (const name of wanted) {
       if (!TERMINAL.has(t.status)) await convex.mutation(anyApi.tasks.cancel, { taskId: t._id }).catch(() => {});
     }
     resetTheRepo();
+    const world = repoPath ? snapshotTree(repoPath) : null;
     await startMock(name);
     await flows[name](results[name]);
+    if (world) {
+      const allowed = allowedPathsOfScript(path.join(repo, "scripts/mock-llm/scripts", `flow-${name}.json`));
+      const outside = changesOutside(world, repoPath, allowed);
+      check(`world: nothing outside [${allowed.join(", ")}] changed in the repo`, !outside.length, outside.map((c) => `${c.path} (${c.change})`).join(", "));
+    }
   } catch (e) {
     check("ran without error", false, e.message.split("\n")[0]);
     await shot("error").catch(() => {});

@@ -8,7 +8,8 @@ import { parseStoredRequirements } from "@/api/convex/lib/requirements";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { WorkerRunAgent, WorkerTask } from "@/workerApi";
-import type { SubtaskKind } from "@/types";
+import type { AgentDefinition, ExecutionPlan, SubtaskKind } from "@/types";
+import { pickResponseOwner, responseOwnerAgent } from "@/orchestrator/responseOwner";
 import { classifyCommand } from "@/orchestrator/classifier";
 import { policyForComplexity, subtaskTimeoutFor } from "@/orchestrator/policy";
 import { validateStoredPlan } from "@/orchestrator/planValidator";
@@ -48,6 +49,7 @@ import { createInitialPlan, type PlanningContext } from "./runner/planning";
 import { replanOnce, type ReplanLoopState } from "./runner/replan";
 import { planReviewGate } from "./runner/planReview";
 import { seedAllowedEscalations } from "./runner/escalation";
+import { archStopCancelled } from "./runner/archDecision";
 import { releaseAfterPause } from "./runner/pause";
 import {
   createBudgetGate,
@@ -363,11 +365,18 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
     };
     // Plan 022: the user's answer to an escalation question allows the
     // escalated action for this run (a declining answer keeps the guard).
+    const latestAnswer = [...sharedContext.decisions].reverse().find((entry) => entry.decision === "user_answer")?.reason;
     seedAllowedEscalations(
       state,
       (context.subtasks ?? []) as Array<{ acceptanceStatus?: string; escalation?: { kind: string; detail?: string } }>,
-      [...sharedContext.decisions].reverse().find((entry) => entry.decision === "user_answer")?.reason
+      latestAnswer
     );
+    // O2: the user answered a held CTO `stop` with cancel: the task ends
+    // cancelled here (a resume answer just continues the stored plan).
+    if (storedPlan && archStopCancelled(context.subtasks, latestAnswer)) {
+      await cancel();
+      return;
+    }
     const loop: ReplanLoopState = {
       plan: initial.plan,
       planVersion: initial.planVersion,
@@ -474,7 +483,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
         // rejected as a repeat; end as done with task.no_change instead.
         const unchangedFiles = alreadyDoneFiles(state);
         if (unchangedFiles) {
-          await finishAlreadyDone({ deps, taskId: task._id, projectId: project._id, files: unchangedFiles, agentId: ctoIdOf(runAgents) });
+          await finishAlreadyDone({ deps, taskId: task._id, projectId: project._id, files: unchangedFiles, agentId: ownerIdOf(loop.plan, runAgents) });
           return;
         }
         if (canReplan()) {
@@ -630,7 +639,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
       // already done: never replanned into a repeat-rejection failure.
       const unchangedFiles = alreadyDoneFiles(state);
       if (unchangedFiles) {
-        await finishAlreadyDone({ deps, taskId: task._id, projectId: project._id, files: unchangedFiles, agentId: ctoIdOf(runAgents) });
+        await finishAlreadyDone({ deps, taskId: task._id, projectId: project._id, files: unchangedFiles, agentId: ownerIdOf(loop.plan, runAgents) });
         return;
       }
       // A verify-fix loop that could change nothing (or repeated itself)
@@ -661,9 +670,9 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
   }
 }
 
-/** The CTO's agent id among the run's agents (the no-op message speaks as the CTO). */
-function ctoIdOf(agents: ReadonlyArray<{ _id: string; role: string }>): string | undefined {
-  return agents.find((candidate) => /^cto$/i.test(candidate.role))?._id;
+/** O2: the Response Owner's agent id (the no-op report speaks as the plan's primary role). */
+function ownerIdOf(plan: ExecutionPlan, agents: AgentDefinition[]): string | undefined {
+  return responseOwnerAgent(pickResponseOwner(plan, agents), agents)?._id;
 }
 
 export type { SubtaskKind };

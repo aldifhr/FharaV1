@@ -8,8 +8,9 @@ import type { WorkerAgent, WorkerTask } from "@/workerApi";
  * O1 end to end through processTask: the CTO's architecture decision node
  * gates the dependent work. go → the work runs; revise → one replan with
  * the CTO's text as planner feedback, the decision node frozen (not asked
- * again); stop → the task fails with the CTO's reason, never replanned; no
- * Decision line → go with a visible note.
+ * again); stop → the task is held (O2): it pauses for the user with the
+ * CTO's reason (resume or cancel), never replanned, and fails only when the
+ * pause is refused; no Decision line → go with a visible note.
  */
 const mock = vi.hoisted(() => ({
   plannerCalls: [] as Array<{ feedback?: string }>,
@@ -90,18 +91,47 @@ afterEach(async () => {
   await fs.rm(workspace, { recursive: true, force: true });
 });
 
-async function run(ctoAnswer: string) {
+type RunOptions = {
+  pause?: (input: { question: string; options?: string[] }) => Promise<unknown>;
+  /** A resumed run: the stored plan + rows, and the user's answer. */
+  resume?: { answer: string };
+};
+
+async function run(ctoAnswer: string, options: RunOptions = {}) {
   mock.ctoAnswer = ctoAnswer;
   const task = testTask({ command: "Status pesanan multi-tahap" });
   const project = { _id: "project-1", name: "Fixture", workspacePath: workspace, approvalMode: "auto" as const };
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const systemLines: string[] = [];
   let saves = 0;
+  const stored = options.resume
+    ? {
+        plan: { payload: (await import("../src/orchestrator/planner")).heuristicPlan({} as never), version: 1, createdBy: "orchestrator" },
+        subtasks: [
+          { key: "arch-decision", kind: "analysis", status: "completed", capability: "architecture", output: ctoAnswer },
+          { key: "implement", kind: "analysis", status: "pending", capability: "frontend-development" },
+        ],
+      }
+    : { plan: null, subtasks: [] as Array<{ key: string; status: string }> };
   const { api, completions } = createFakeApi({
-    getContext: async () => ({ task, project, agents: [CTO, IMPLEMENTER], plan: null, subtasks: [], approvalMode: "auto" as const }),
+    // The rows follow the run (finalize re-reads them): an executed node reads completed.
+    getContext: async () => ({
+      task,
+      project,
+      agents: [CTO, IMPLEMENTER],
+      plan: stored.plan,
+      subtasks: stored.subtasks.map((row) => (mock.executed.includes(row.key) ? { ...row, status: "completed" } : row)),
+      approvalMode: "auto" as const,
+    }),
     savePlan: async () => ++saves,
     logEvent: async (event: { type: string; payload?: Record<string, unknown> }) => {
       events.push(event);
     },
+    appendSystemLine: async (line: { content: string }) => void systemLines.push(line.content),
+    ...(options.pause ? { pauseForInput: options.pause } : {}),
+    ...(options.resume
+      ? { getTaskContext: async () => ({ decisions: [{ decision: "user_answer", reason: options.resume!.answer, createdAt: 1 }] }) }
+      : {}),
   });
   const policy = testPolicy({
     maxConcurrency: 1,
@@ -115,14 +145,21 @@ async function run(ctoAnswer: string) {
   });
   await processTask(task as unknown as WorkerTask, createRunnerDeps({ api, policy, workspaceRoot: workspace }));
   const decisionEvents = events.filter((event) => event.type === "architecture.decision").map((event) => event.payload);
-  return { completions, decisionEvents };
+  return { completions, decisionEvents, systemLines };
 }
 
 describe("O1: CTO architecture decision node in the runner", () => {
   it("go → the gated work runs and the task is not failed", async () => {
-    const { completions, decisionEvents } = await run("Use a status enum with a transitions table.\nDecision: go");
+    const { completions, decisionEvents, systemLines } = await run("Use a status enum with a transitions table.\nDecision: go");
     expect(mock.plannerCalls).toHaveLength(1);
     expect(mock.executed).toEqual(["arch-decision", "implement"]);
+    // O2: the orchestrator's status lines are neutral System lines.
+    expect(systemLines).toEqual([
+      "Planned 2 subtasks · architecture decision needed",
+      "Sent to CTO: Architecture decision: order status model",
+      "CTO decided: go",
+      "Sent to Frontend: Implement",
+    ]);
     expect(decisionEvents).toEqual([expect.objectContaining({ verdict: "go", parsed: true })]);
     expect(completions.at(-1)?.status).not.toBe("failed");
   });
@@ -137,14 +174,45 @@ describe("O1: CTO architecture decision node in the runner", () => {
     expect(completions.at(-1)?.status).not.toBe("failed");
   });
 
-  it("stop → the task fails with the CTO's reason and is never replanned", async () => {
-    const { completions } = await run("This duplicates the billing service's order model.\nDecision: stop");
+  it("stop → held: the task pauses with the CTO's reason and asks resume or cancel (O2)", async () => {
+    const asked: Array<{ question: string; options?: string[] }> = [];
+    const { completions, systemLines } = await run("This duplicates the billing service's order model.\nDecision: stop", {
+      pause: async (input) => {
+        asked.push(input);
+        return { applied: true, status: "waiting_input" };
+      },
+    });
     expect(mock.plannerCalls).toHaveLength(1);
     expect(mock.executed).toEqual(["arch-decision"]);
-    const last = completions.at(-1) as { status?: string; error?: string } | undefined;
+    expect(asked).toHaveLength(1);
+    expect(asked[0].question).toContain("duplicates the billing service");
+    expect(asked[0].options).toEqual(["Resume the plan", "Cancel the task"]);
+    // Held, not ended: no completeTask at all.
+    expect(completions).toHaveLength(0);
+    expect(systemLines).toContain("CTO decided: stop · waiting for you to resume or cancel");
+  });
+
+  it("stop with the pause refused (task already terminal) → fails with the CTO's reason", async () => {
+    const { completions } = await run("This duplicates the billing service's order model.\nDecision: stop", {
+      pause: async () => ({ applied: false, reason: "task_already_terminal" }),
+    });
+    expect(mock.plannerCalls).toHaveLength(1);
+    const last = completions.at(-1) as { status?: string } | undefined;
     expect(last?.status).toBe("failed");
     expect(JSON.stringify(last)).toContain("Architecture decision: stop");
-    expect(JSON.stringify(last)).toContain("duplicates the billing service");
+  });
+
+  it("held stop answered 'Resume the plan' → the gated work runs, the CTO is not asked again", async () => {
+    const { completions } = await run("Duplicate model.\nDecision: stop", { resume: { answer: "Resume the plan" } });
+    expect(mock.executed).toEqual(["implement"]);
+    expect(completions.at(-1)?.status).not.toBe("failed");
+    expect(completions.at(-1)?.status).not.toBe("cancelled");
+  });
+
+  it("held stop answered 'Cancel the task' → cancelled, nothing else runs", async () => {
+    const { completions } = await run("Duplicate model.\nDecision: stop", { resume: { answer: "Cancel the task" } });
+    expect(mock.executed).toEqual([]);
+    expect(completions.at(-1)?.status).toBe("cancelled");
   });
 
   it("no Decision line → go, with a note on the event", async () => {

@@ -287,7 +287,7 @@ export interface RunContext {
   };
   /** The question this invocation paused for (plan 013 step 4). */
   waitingForInput: string | null;
-  /** O1: a CTO architecture verdict that ends this invocation (revise → replan, stop → fail). */
+  /** O1/O2: a CTO architecture verdict that ends this invocation (revise → replan, stop → held for the user). */
   archDecision?: { verdict: "revise" | "stop"; reason: string } | null;
   /** Plan 022: an escalation was routed in this invocation (replan or question). */
   escalated: boolean;

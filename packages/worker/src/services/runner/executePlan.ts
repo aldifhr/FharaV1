@@ -98,9 +98,10 @@ export async function executePlan(input: ExecutePlanInput): Promise<ExecutePlanR
       // it could replan away.
       return { status: "cancelled" };
     }
-    // O1: the CTO's architecture verdict decides the exit: stop fails the
-    // task with the CTO's reason (never replanned), revise replans once.
-    if (ctx.archDecision?.verdict === "stop") return { status: "failed" };
+    // O1/O2: the CTO's architecture verdict decides the exit: stop holds the
+    // task for the user (waiting_input; failed only when the pause was
+    // refused), revise replans once.
+    if (ctx.archDecision?.verdict === "stop") return { status: ctx.waitingForInput !== null ? "waiting_input" : "failed" };
     if (ctx.archDecision?.verdict === "revise") {
       const exit = terminalExit(ctx);
       if (exit) return exit;

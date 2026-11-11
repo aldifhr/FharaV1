@@ -25,9 +25,27 @@ export const TASK_STATUS_LABEL: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-export function taskStatusLabel(status: string | undefined): string {
+/**
+ * Label for a task status. Pass the task when you have it: a direct thread
+ * (`mode: "direct"`) parks in `waiting_input` between turns, and with no
+ * pending question that is "Idle", not "Waiting for you" (same rule as the
+ * API's `isAwaitingUserAnswer`, which keeps it out of Needs you).
+ */
+export function taskStatusLabel(
+  status: string | undefined,
+  task?: { mode?: string | null; pendingQuestion?: string | null } | null,
+): string {
   if (!status) return "Unknown";
+  if (isIdleDirectThread(status, task)) return "Idle";
   return TASK_STATUS_LABEL[status] ?? status.replace(/_/g, " ");
+}
+
+/** A direct thread resting between turns, with nothing asked of the user. */
+export function isIdleDirectThread(
+  status: string | undefined,
+  task?: { mode?: string | null; pendingQuestion?: string | null } | null,
+): boolean {
+  return status === "waiting_input" && task?.mode === "direct" && !task.pendingQuestion?.trim();
 }
 
 /** Pill colours per task status (light + dark). */

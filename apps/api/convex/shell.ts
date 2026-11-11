@@ -10,6 +10,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { assertProjectAccess, canViewProject, getViewerId, visibleProjects } from "./lib/authz";
 import { isChatUserMessage } from "./lib/chat/replyLifecycle";
+import { isAwaitingUserAnswer } from "./lib/taskWaiting";
 
 const APPROVAL_LIMIT = 100;
 const TASK_STATUS_LIMIT = 100;
@@ -122,6 +123,7 @@ const openQuestions: NeedsYouSource = async ({ ctx, visible, agentRole }) => {
   for (const t of rows) {
     const project = visible.get(t.projectId as string);
     if (!project) continue;
+    if (!isAwaitingUserAnswer(t)) continue;
     const question = t.pendingQuestion?.trim();
     items.push({
       key: `question:${t._id}`,
@@ -346,7 +348,7 @@ const TRAY_APPROVAL_LIMIT = 50;
 const TRAY_QUEUE_LIMIT = 50;
 
 /**
- * Project-scoped "Needs you" for the chat's "Keputusan diperlukan" tray:
+ * Project-scoped "Needs you" for the chat's "Decision needed" tray:
  * the project's pending approvals (index by_project_and_status, never the
  * unfiltered pending scan), its tasks waiting on an answer (questions and
  * escalations), and whether queued work has a live worker to pick it up.
@@ -407,6 +409,7 @@ export const decisionsForProject = query({
     const questions = [];
     for (const t of waiting) {
       if (t.projectId !== args.projectId) continue;
+      if (!isAwaitingUserAnswer(t)) continue;
       questions.push({
         taskId: t._id,
         title: t.title,
@@ -607,6 +610,7 @@ export const teamStatus = query({
       .take(TASK_STATUS_LIMIT);
     for (const t of waiting) {
       if ((t.projectId as string) !== projectKey) continue;
+      if (!isAwaitingUserAnswer(t)) continue;
       for (const agentId of t.assignedAgentIds ?? []) {
         set(agentId as string, { status: "needs_you", taskId: t._id, taskTitle: t.title, projectName: null, subtaskKey: null });
       }

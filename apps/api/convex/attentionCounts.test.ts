@@ -87,6 +87,31 @@ describe("one definition of 'needs you'", () => {
     expect((await t.query(api.overview.get, {})).needsYou.total).toBe(needs.total);
   });
 
+  test("an idle direct thread is not a question; a direct thread with a pending question is", async () => {
+    const { t, projectId, otherId } = await seed();
+    const { idle, asking, fe } = await t.run(async (ctx) => {
+      const fe = (await ctx.db.query("agents").collect()).find((a) => a.role === "frontend")!._id;
+      const direct = { role: "frontend", agentId: fe, engine: "opencode-acp", status: "idle", lastSeq: 2, deliveredSeq: 2 } as const;
+      const idle = await ctx.db.insert("tasks", { projectId, title: "Blurry header logo", command: "", status: "waiting_input", mode: "direct", direct, assignedAgentIds: [fe], updatedAt: Date.now() });
+      const asking = await ctx.db.insert("tasks", { projectId: otherId, title: "Direct ask", command: "", status: "waiting_input", mode: "direct", direct, pendingQuestion: "Which logo file?", assignedAgentIds: [fe], updatedAt: Date.now() });
+      return { idle, asking, fe };
+    });
+    const needs = await t.query(api.shell.needsYou, {});
+    expect(needs.items.some((i) => i.taskId === idle)).toBe(false);
+    expect(needs.items.find((i) => i.taskId === asking)?.kind).toBe("question");
+    expect((await t.query(api.shell.needsYou, { projectId })).items.some((i) => i.taskId === idle)).toBe(false);
+    const inbox = await t.query(api.inbox.list, {});
+    expect(inbox.waitingCount).toBe(needs.total);
+    expect(inbox.questions.some((q) => q.taskId === idle)).toBe(false);
+    expect((await t.query(api.overview.get, {})).needsYou.total).toBe(needs.total);
+    const counts = await t.query(api.shell.projectCounts, {});
+    expect(counts[projectId as string]?.needsYou).toBe(1);
+    const tray = await t.query(api.shell.decisionsForProject, { projectId });
+    expect(tray!.questions.some((q) => q.taskId === idle)).toBe(false);
+    const team = await t.query(api.shell.teamStatus, { projectId });
+    expect(team[fe as string]?.status).not.toBe("needs_you");
+  });
+
   test("a legacy needs_approval task with no approval rows still needs the user", async () => {
     const { t, otherId } = await seed();
     const legacy = await t.run(async (ctx) =>

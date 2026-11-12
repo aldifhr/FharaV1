@@ -20,6 +20,7 @@ import type { RunnerDeps, RunState } from "./types";
 import { contentFingerprint } from "./applyLedger";
 import { pickResponseOwner, responseOwnerAgent } from "@/orchestrator/responseOwner";
 import { planSystemLine, postSystemLine } from "./systemLines";
+import { buildReportSummary } from "./reportSummary";
 import { runHostCheckAfterDone } from "./projectScriptHooks";
 import * as path from "node:path";
 import { resolveProjectPath } from "@fhara/config";
@@ -128,16 +129,16 @@ export async function finalize(input: {
     .every((synthesis) => input.subtasks.some((row) => row.key === synthesis.key && row.status === "completed"));
   const toleratedAngle = (subtask: { key: string; status: string }) =>
     subtask.status === "failed" && synthesisDone && feedsResearchSynthesis(input.plan.subtasks, subtask.key);
+  const reportRows = input.subtasks.map((subtask) => ({
+    ...subtask,
+    status: toleratedAngle(subtask) ? ("skipped" as const) : subtask.status,
+    error: toleratedAngle(subtask)
+      ? `research angle failed, the synthesis answered without it: ${(subtask.error ?? "failed").slice(0, 300)}`
+      : subtask.error,
+  }));
   const evaluation = await evaluateTask({
     workspacePath: input.workspacePath,
-    subtasks: input.subtasks.map((subtask) => ({
-      key: subtask.key,
-      kind: subtask.kind,
-      status: toleratedAngle(subtask) ? "skipped" : subtask.status,
-      error: toleratedAngle(subtask)
-        ? `research angle failed, the synthesis answered without it: ${(subtask.error ?? "failed").slice(0, 300)}`
-        : subtask.error,
-    })),
+    subtasks: reportRows.map(({ key, kind, status, error }) => ({ key, kind, status, error })),
     fileChanges: changes.map((change) => ({
       filePath: change.filePath,
       changeType: change.changeType,
@@ -191,29 +192,11 @@ export async function finalize(input: {
   }
 
   // O2: the ONE report message for the whole task, posted as the Response
-  // Owner (the plan's primary role, orchestrator/responseOwner.ts); the QA
-  // and review evidence is inside it. Plan details live in events.
-  const reviewVerdicts = Object.values(state.reviewVerdicts);
-  const reviewedFiles = reviewVerdicts.length > 0 ? state.fileChanges.size : 0;
-  const reviewLine =
-    reviewVerdicts.length === 0
-      ? ""
-      : reviewVerdicts.every((r) => r.verdict === "approved")
-        ? `Review: approved${reviewedFiles > 0 ? ` (${reviewedFiles} file${reviewedFiles === 1 ? "" : "s"} reviewed, no blocking findings)` : ""}.`
-        : `Review: changes requested.`;
-  const qaValues = Object.entries(state.qaVerdicts);
-  const blockedQa = qaValues.filter(([, verdict]) => verdict === "blocked");
-  const blockedDetail = blockedQa
-    .flatMap(([key]) => state.qaChecks?.[key] ?? [])
-    .find((check) => check.label === "qa-environment")?.details;
-  const qaLine =
-    qaValues.length === 0
-      ? ""
-      : blockedQa.length > 0
-        ? `QA blocked — ${blockedDetail ?? "the QA environment could not run browser checks"}. Browser checks did not run.`
-        : qaValues.every(([, verdict]) => verdict === "passed")
-          ? "QA: structural browser checks passed."
-          : "";
+  // Owner (the plan's primary role, orchestrator/responseOwner.ts). P2: the
+  // system-built cross-role summary (reportSummary.ts) carries what each
+  // role did plus the Review and QA evidence. Plan details live in events.
+  const summary = buildReportSummary({ plan, subtasks: reportRows, state, agents: input.agents, changes });
+  const blockedDetail = summary.qaBlockedDetail;
   const declined = declinedCommandsOf(input.subtasks);
   const ranNothing = declined.length > 0 && input.subtasks.every((subtask) => subtask.status === "skipped");
   const message = [
@@ -225,8 +208,10 @@ export async function finalize(input: {
     declined.length > 0
       ? `Declined by user: ${declined.map((line) => `\`${line}\``).join(", ")}. ${declined.length === 1 ? "That command was" : "Those commands were"} not run.`
       : "",
-    reviewLine,
-    qaLine,
+    ranNothing ? "" : summary.roleLines.join("\n"),
+    summary.reviewLine,
+    summary.qaLine,
+    summary.unfinishedLine,
     ranNothing
       ? "Verification: skipped (the command was declined)."
       : declined.length > 0
@@ -250,10 +235,9 @@ export async function finalize(input: {
   // QA that could not run (no browser, no deps) does not fail the task
   // (policy.qaRequired decides that), but the Done it ends in carries a
   // visible "QA blocked" warning instead of reading as fully checked.
-  const qaWarning =
-    blockedQa.length > 0
-      ? `QA blocked: ${blockedDetail ?? "the QA environment could not run browser checks"}`.slice(0, 500)
-      : undefined;
+  const qaWarning = summary.qaBlocked
+    ? `QA blocked: ${blockedDetail ?? "the QA environment could not run browser checks"}`.slice(0, 500)
+    : undefined;
   await deps.api.completeTask({ taskId: task._id, status: "done", ...(qaWarning ? { completionWarning: qaWarning } : {}) });
   // GOAT G9: the host's own check, after Done, beside what the run reported.
   // Never throws into the finished task; "No check configured" is not a pass.

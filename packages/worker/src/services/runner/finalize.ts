@@ -226,6 +226,8 @@ export async function finalize(input: {
     .filter(Boolean)
     .join("\n\n");
   const owner = responseOwnerAgent(pickResponseOwner(plan, input.agents), input.agents);
+  // P2: the same system-built lines on the task's events, for the Inspector.
+  await deps.api.logEvent({ taskId: task._id, projectId: project._id, type: "task.summary", payload: summary.eventPayload });
   await deps.api.appendAgentMessage({
     projectId: project._id,
     taskId: task._id,

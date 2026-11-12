@@ -200,13 +200,14 @@ describe("reportSummary: review, QA and unfinished evidence", () => {
 describe("finalize: the report carries the cross-role summary", () => {
   it("posts one message under the Response Owner with the role lines and evidence", async () => {
     const messages: Array<{ content: string; agentId?: string }> = [];
+    const events: Array<{ type: string; payload?: unknown }> = [];
     const deps = {
       policy: { verificationEnabled: false },
       api: {
         getApprovals: async () => [],
         getFileChanges: async () => [],
         recordEvaluation: async () => undefined,
-        logEvent: async () => undefined,
+        logEvent: async (e: { type: string; payload?: unknown }) => void events.push(e),
         appendAgentMessage: async (m: { content: string; agentId?: string }) => void messages.push(m),
         completeTask: async () => undefined,
       },
@@ -249,5 +250,38 @@ describe("finalize: the report carries the cross-role summary", () => {
       ].join("\n\n")
     );
     expect(messages[0].content).not.toContain("@");
+    expect(events.find((e) => e.type === "task.summary")?.payload).toEqual({
+      roles: ["Frontend: 1 subtask done, 1 file changed (index.html).", "Support: 1 subtask done."],
+      qa: "QA: structural browser checks passed. Tested 1 check: page-loads.",
+    });
+  });
+
+  it("a declined-only run says Not run and lists no role lines", async () => {
+    const messages: Array<{ content: string }> = [];
+    const deps = {
+      policy: { verificationEnabled: false },
+      api: {
+        getApprovals: async () => [],
+        getFileChanges: async () => [],
+        recordEvaluation: async () => undefined,
+        logEvent: async () => undefined,
+        appendAgentMessage: async (m: { content: string }) => void messages.push(m),
+        completeTask: async () => undefined,
+      },
+    };
+    await finalize({
+      deps: deps as any,
+      task: { _id: "t1" } as any,
+      project: { _id: "p1" } as any,
+      workspacePath: "/tmp",
+      plan: plan([node("run", "command", "backend-development")]),
+      planVersion: 1,
+      agents: TEAM,
+      subtasks: [{ key: "run", kind: "command", status: "skipped", error: "Declined by user: `rm -rf dist`" }] as any,
+      state: { ...state({}), priorOutputs: new Map(), feedback: [] } as any,
+    });
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content.startsWith("Not run.")).toBe(true);
+    expect(messages[0].content).not.toMatch(/Backend:|Not finished:/);
   });
 });

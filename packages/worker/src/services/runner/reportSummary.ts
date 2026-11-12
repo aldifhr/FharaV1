@@ -46,6 +46,8 @@ export interface ReportSummary {
   /** Short QA-blocked reason, when a QA node was blocked by its environment. */
   qaBlockedDetail?: string;
   qaBlocked: boolean;
+  /** The same lines for the `task.summary` event (Inspector). */
+  eventPayload: { roles: string[]; review?: string; qa?: string; unfinished?: string };
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -176,11 +178,20 @@ export function buildUnfinishedLine(subtasks: readonly SummaryRow[]): string {
 
 export function buildReportSummary(input: ReportSummaryInput): ReportSummary {
   const qa = buildQaLine(input.state);
+  const roleLines = buildRoleLines(input);
+  const reviewLine = buildReviewLine(input.state);
+  const unfinishedLine = buildUnfinishedLine(input.subtasks);
   return {
-    roleLines: buildRoleLines(input),
-    reviewLine: buildReviewLine(input.state),
+    roleLines,
+    reviewLine,
     qaLine: qa.line,
-    unfinishedLine: buildUnfinishedLine(input.subtasks),
+    unfinishedLine,
+    eventPayload: {
+      roles: roleLines,
+      ...(reviewLine ? { review: reviewLine } : {}),
+      ...(qa.line ? { qa: qa.line } : {}),
+      ...(unfinishedLine ? { unfinished: unfinishedLine } : {}),
+    },
     qaBlocked: qa.blocked,
     ...(qa.blockedDetail ? { qaBlockedDetail: qa.blockedDetail } : {}),
   };

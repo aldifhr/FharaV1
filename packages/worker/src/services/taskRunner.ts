@@ -1,5 +1,3 @@
-import { reconcileTaskMemory, summarizeRun } from "./runner/memoryReconcile";
-import { collectRoleLearnings } from "./runner/roleLearnings";
 import { runWithObservationScope } from "@/effects/observationContext";
 import { normalizeModelTiers } from "@/api/convex/lib/modelTiers";
 import type { LlmSelectionMode } from "@/api/convex/lib/llmSelection";
@@ -33,17 +31,15 @@ import {
 } from "./runner/setup";
 import { armTaskAbort } from "./runner/abort";
 import {
-  budgetReasonFromSummary,
   failStepLimit,
-  alreadyDoneFiles,
   failTaskWithError,
   finishAlreadyDone,
   finishBudgetExhaustedTask,
   finishCancelledTask,
-  findProviderHoldMessage,
   isTerminalTaskStatus,
-  summaryHasBudgetFailure,
 } from "./runner/terminal";
+import { decideReplan, type ReplanObservation } from "@/orchestrator/decisionEngine";
+import { settleCompletedRun } from "./runner/settleCompleted";
 import { finalize } from "./runner/finalize";
 import { runSetupOnWorktreeCreate } from "./runner/projectScriptHooks";
 import { executePlan } from "./runner/executePlan";
@@ -67,7 +63,9 @@ import { plainServerError } from "@/api/convex/lib/repoReadiness";
 // points (processTask / resumeTask) plus re-exports tests and
 // `src/index.ts` import. The stages live in `./runner/*`:
 //   planning.ts     initial plan (authoritative / legacy) + planner calls
-//   replan.ts       replanOnce — the ONE bounded re-plan path
+//   replan.ts       replanOnce — the ONE bounded re-plan path (whether to
+//                   replan is decisionEngine/replan.ts decideReplan)
+//   settleCompleted.ts  memory, role learnings, lifecycle after finalize
 //   executePlan.ts  stage driver (DAG → review → apply → verify → QA → merge)
 //   runContext.ts   per-invocation RunContext (latches, closures, applyStaged)
 //   applyStage.ts   approval request, permission broker, worktree commit/merge
@@ -413,7 +411,6 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
     // back to it for hand-built policies that omit the alias.
     const maxPlanningIterations =
       deps.policy.maxPlanningIterations ?? deps.policy.maxReplans;
-    const canReplan = () => loop.replans < maxPlanningIterations;
 
     // eslint-disable-next-line no-constant-condition -- the loop exits from inside
     while (true) {
@@ -486,49 +483,19 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
         return;
       }
 
-      // Engine replan (plan 013 step 3): the decision engine requested a
-      // re-plan with the objective missing list as feedback. Bounded by
-      // the same replans budget as the verification/execution replans;
-      // exhaustion fails the task with the missing list, never a
-      // silent done. Cancellation still wins (checked above).
+      // P1b phase 2 (one replan owner): every outcome below is reported to
+      // the Decision Engine as a replan trigger, and the ONE decideReplan
+      // call says what happens next (replan, fail or hold, no-op done,
+      // budget stop, cancel, or carry on).
+      let trigger: ReplanObservation["trigger"];
+      let reason: string | undefined;
+      let settleCompleted: (() => Promise<void>) | null = null;
       if (outcome.status === "replan") {
-        const missing = outcome.replanFeedback ?? "objective not satisfied";
-        // O3 (bug c): a provider hold (429, quota, offline, auth) behind
-        // the replan is not an unmet objective. Replanning would repeat the
-        // same node and be rejected; hold the task with the provider's
-        // own message instead (backend: paused, pausedBy "held").
-        const held = findProviderHoldMessage([missing, ...state.feedback]);
-        if (held) {
-          await fail(held);
-          return;
-        }
-        // A no-op ("No effective change …", nothing staged): the change is
-        // already there. A replan would ask for the same edit and be
-        // rejected as a repeat; end as done with task.no_change instead.
-        const unchangedFiles = alreadyDoneFiles(state);
-        if (unchangedFiles) {
-          await finishAlreadyDone({ deps, taskId: task._id, projectId: project._id, files: unchangedFiles, agentId: ownerIdOf(loop.plan, runAgents) });
-          return;
-        }
-        if (canReplan()) {
-          // Plan 022: escalation notes and failed acceptance gates are
-          // their own reasons, not an unmet objective.
-          const own = /^(Escalation from subtask|Acceptance gates failed|Requirements not covered|Architecture decision: revise)/.test(missing);
-          const result = await replanOnce(pctx, loop, state, {
-            reason: own ? missing : `Objective not satisfied: ${missing}`,
-          });
-          if (result === "ended") return;
-          if (result === "rejected") {
-            await fail(loop.rejection ?? "Replan rejected by the quality check");
-            return;
-          }
-          continue;
-        }
-        await fail(`Objective not satisfied after ${loop.replans} replan(s): ${missing}`);
-        return;
-      }
-
-      if (outcome.status === "completed") {
+        // Plan 013 step 3: the engine (or an executePlan gate) asked for a
+        // re-plan; the reason is the objective missing list or the gate's own.
+        trigger = "objective_unmet";
+        reason = outcome.replanFeedback;
+      } else if (outcome.status === "completed") {
         const after = await deps.api.getContext({ taskId: task._id });
         // Terminal guard (Phase 4 hardening): the cancellation may have
         // landed while the scheduler was finishing its last node (or the
@@ -554,18 +521,58 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
           openIssues: sharedContext.outstandingIssues,
           signal,
         });
-        if (verification.verdict === "failed" && canReplan()) {
-          // No replan after cancellation/deadline (Phase 4 hardening).
-          if (signal.aborted) {
-            await cancel();
-            return;
-          }
-          const result = await replanOnce(pctx, loop, state, {
-            reason: `Verification failed: ${verification.checks
-              .filter((check) => check.status === "failed")
-              .map((check) => `${check.name}: ${check.details ?? ""}`)
-              .join("; ")}`,
+        settleCompleted = () =>
+          settleCompletedRun({
+            deps, task, project, state, verdict: verification.verdict, agents: runAgents, subtasks: after?.subtasks ?? [],
+            llmResolver, assertBudgetForCall, llmTaskGate, recordUsage, signal,
           });
+        if (verification.verdict !== "failed") {
+          await settleCompleted();
+          return;
+        }
+        trigger = "verify_failed";
+        reason = `Verification failed: ${verification.checks
+          .filter((check) => check.status === "failed")
+          .map((check) => `${check.name}: ${check.details ?? ""}`)
+          .join("; ")}`;
+      } else {
+        // Execution failed before any approval.
+        trigger = "terminal_failure";
+      }
+
+      const next = decideReplan({
+        kind: "replan_trigger",
+        trigger,
+        reason,
+        facts: {
+          replansLeft: Math.max(0, maxPlanningIterations - loop.replans),
+          replans: loop.replans,
+          feedback: state.feedback,
+          fileChanges: state.fileChanges,
+          terminalFailure: state.terminalFailure,
+          aborted: signal.aborted,
+        },
+      });
+      switch (next.kind) {
+        case "proceed":
+          await settleCompleted?.();
+          return;
+        case "cancel":
+          await cancel();
+          return;
+        case "budget_exhausted":
+          await finishBudgetExhaustedTask({ deps, task, project, budget, reason: next.reason });
+          return;
+        case "already_done":
+          await finishAlreadyDone({ deps, taskId: task._id, projectId: project._id, files: next.files, agentId: ownerIdOf(loop.plan, runAgents) });
+          return;
+        case "fail":
+        case "block":
+          await fail(next.message);
+          return;
+        case "replan": {
+          const { kind: _kind, ...replanInput } = next;
+          const result = await replanOnce(pctx, loop, state, replanInput);
           if (result === "ended") return;
           if (result === "rejected") {
             await fail(loop.rejection ?? "Replan rejected by the quality check");
@@ -573,120 +580,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
           }
           continue;
         }
-        // Plan L5: memory suggestions from the finished task (best-effort,
-        // budget-gated, idempotent per task; never changes its status).
-        await reconcileTaskMemory({
-          deps,
-          taskId: task._id,
-          projectId: project._id,
-          task: {
-            title: task.title,
-            request: task.command,
-            status: verification.verdict === "failed" || verification.verdict === "inconclusive" ? "failed" : "done",
-            filesChanged: Array.from(state.fileChanges.keys()),
-            blockers: [...state.feedback],
-            summary: summarizeRun(state),
-          },
-          agent: runAgents.find((candidate) => /^cto$/i.test(candidate.role)) ?? runAgents[0] ?? null,
-          llmResolver,
-          assertBudgetForCall,
-          llmTaskGate,
-          onTokenUsage: recordUsage,
-          signal,
-        }).catch(() => undefined);
-        // Role memory: each role that finished work here writes its own
-        // notes for this project (one budget-gated call per role, no
-        // approval; off when the project turned "Role memory" off).
-        await collectRoleLearnings({
-          deps,
-          taskId: task._id,
-          projectId: project._id,
-          project: project as { roleMemoryDisabled?: boolean },
-          task: {
-            title: task.title,
-            request: task.command,
-            status: verification.verdict === "failed" || verification.verdict === "inconclusive" ? "failed" : "done",
-          },
-          agents: runAgents,
-          subtasks: after?.subtasks ?? [],
-          outputs: state.priorOutputs,
-          llmResolver,
-          assertBudgetForCall,
-          llmTaskGate,
-          onTokenUsage: recordUsage,
-          signal,
-        }).catch(() => undefined);
-        await deps.api
-          .recordLifecycle?.({
-            taskId: task._id,
-            projectId: project._id,
-            state: verification.verdict === "failed" ? "FAILED" : "COMPLETED",
-            prevState: "RUNNING",
-          })
-          ?.catch(() => undefined);
-        return;
       }
-
-      // Execution failed before any approval. A failure that is really
-      // a cancellation (the deadline fired mid-run and the scheduler
-      // settled as failed) ends as cancelled instead — and is never
-      // replanned (Phase 4 hardening).
-      if (signal.aborted) {
-        await cancel();
-        return;
-      }
-      const failureSummary =
-        state.feedback.filter(Boolean).join("; ") ||
-        "Execution failed without a detailed error. Check the task events for the failing subtask.";
-      // Budget exhausted mid-execution (Phase 5): a budget stop is
-      // terminal — it is never replanned (a replan would spend even
-      // more calls) and never reported as a generic failure.
-      if (summaryHasBudgetFailure(failureSummary)) {
-        await finishBudgetExhaustedTask({
-          deps,
-          task,
-          project,
-          budget,
-          reason: budgetReasonFromSummary(failureSummary),
-        });
-        return;
-      }
-      // O3 (bug c): a failed node whose error is a provider hold (429,
-      // quota, offline, every connection excluded) holds the task; a
-      // replan would repeat the node and be rejected as a repeat.
-      const heldFailure = findProviderHoldMessage(state.feedback);
-      if (heldFailure) {
-        await fail(heldFailure);
-        return;
-      }
-      // A no-op run (only "No effective change", nothing staged) is
-      // already done: never replanned into a repeat-rejection failure.
-      const unchangedFiles = alreadyDoneFiles(state);
-      if (unchangedFiles) {
-        await finishAlreadyDone({ deps, taskId: task._id, projectId: project._id, files: unchangedFiles, agentId: ownerIdOf(loop.plan, runAgents) });
-        return;
-      }
-      // A verify-fix loop that could change nothing (or repeated itself)
-      // ends here: a replan would rebuild the same loop (live test 4).
-      if (state.terminalFailure) {
-        await fail(state.terminalFailure);
-        return;
-      }
-      if (canReplan()) {
-        const result = await replanOnce(pctx, loop, state, {
-          reason: failureSummary,
-          eventFeedback: failureSummary,
-          timedOutFrom: failureSummary,
-        });
-        if (result === "ended") return;
-        if (result === "rejected") {
-          await fail(loop.rejection ?? "Replan rejected by the quality check");
-          return;
-        }
-        continue;
-      }
-      await fail(failureSummary);
-      return;
     }
     });
   } finally {

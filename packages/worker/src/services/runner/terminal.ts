@@ -3,6 +3,13 @@ import type { WorkerProject, WorkerTask } from "@/workerApi";
 import type { RunnerDeps } from "./types";
 import { isLeaseLostOrShutdown } from "./abort";
 import { classifyProviderHold } from "@/api/convex/lib/providerHold";
+// P1b phase 2: the replan trigger facts live with the replan decision.
+export {
+  alreadyDoneFiles,
+  budgetReasonFromSummary,
+  findProviderHoldMessage,
+  summaryHasBudgetFailure,
+} from "@/orchestrator/decisionEngine/replan";
 
 /** Terminal task statuses: a task in one of these is finished for good. */
 export function isTerminalTaskStatus(status: string | undefined): boolean {
@@ -47,28 +54,6 @@ export async function finishBudgetExhaustedTask(input: {
     status: "failed",
     errorMessage: `Budget exhausted: ${reason}`,
   });
-}
-
-/**
- * Whether a failure SUMMARY carries a budget stop. Failure summaries
- * are the per-subtask feedback entries joined with "; ", each entry
- * prefixed with its subtask key ("s3 (attempt 1): Budget exhausted:
- * ..."), so the raw summary never STARTS with the prefix — the
- * recognition scans for it at any entry boundary (Phase 5).
- */
-export function summaryHasBudgetFailure(summary: string): boolean {
-  return summary
-    .split("; ")
-    .some((entry) => entry.includes("Budget exhausted:"));
-}
-
-/** The budget reason carried by a failure summary (prefix stripped). */
-export function budgetReasonFromSummary(summary: string): string {
-  const entry = summary
-    .split("; ")
-    .find((candidate) => candidate.includes("Budget exhausted:"));
-  if (!entry) return summary;
-  return entry.slice(entry.indexOf("Budget exhausted: ") + "Budget exhausted: ".length);
 }
 
 /**
@@ -130,25 +115,6 @@ export async function finishCancelledTask(input: {
     status: timedOut ? "failed" : "cancelled",
     errorMessage,
   });
-}
-
-/**
- * O3 bug c: the provider error behind a replan, when there is one. A 429
- * (or an offline / out-of-quota / refused provider) on a subtask reaches
- * the decision step as a failed node, the engine asks for a replan, and
- * the replan is rejected as a repeat of the same node, so the task FAILED
- * instead of being held. The replan feedback and the run's feedback list
- * are checked here; the first provider failure found is returned as the
- * original provider message (the `node:` / `node (attempt n):` prefix the
- * runner adds is dropped) so the caller routes it to the hold path.
- */
-export function findProviderHoldMessage(texts: ReadonlyArray<string | null | undefined>): string | null {
-  for (const text of texts) {
-    if (!text || !classifyProviderHold(text)) continue;
-    const stripped = text.replace(/^[\w.:-]+(?: \(attempt \d+\))?: /, "");
-    return classifyProviderHold(stripped) ? stripped : text;
-  }
-  return null;
 }
 
 /**
@@ -234,40 +200,6 @@ export async function failStepLimit(input: {
     status: "failed",
     errorMessage: "Decision step limit reached",
   });
-}
-
-const NO_EFFECTIVE_CHANGE = /No effective change: (.+?) would be identical to the current content/;
-const NO_FILE_CHANGES = /^The implementation produced no file changes$/;
-
-/**
- * A run whose only failures are "No effective change" (every file the
- * executor wrote already had that content) and that staged nothing: the
- * requested change is already in the repository. Replanning would ask for
- * the same edit again and be rejected as a repeat (e2e mock round 2), so
- * the caller ends the task cleanly instead. Returns the files that were
- * already up to date, or null when any other failure is present, a change
- * is staged, or a verify-fix loop set its own terminal failure.
- */
-export function alreadyDoneFiles(state: {
-  feedback: ReadonlyArray<string>;
-  fileChanges: { size: number };
-  terminalFailure?: string;
-}): string[] | null {
-  if (state.terminalFailure || state.fileChanges.size > 0) return null;
-  const entries = state.feedback.filter((line) => line && line.trim());
-  if (entries.length === 0) return null;
-  const files = new Set<string>();
-  for (const line of entries) {
-    const stripped = line.replace(/^[\w.:-]+(?: \(attempt \d+\))?: /, "");
-    const noop = NO_EFFECTIVE_CHANGE.exec(stripped);
-    if (noop) {
-      for (const file of noop[1].split(",")) if (file.trim()) files.add(file.trim());
-      continue;
-    }
-    if (NO_FILE_CHANGES.test(stripped.trim())) continue;
-    return null;
-  }
-  return files.size > 0 ? [...files] : null;
 }
 
 /**

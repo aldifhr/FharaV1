@@ -1,0 +1,55 @@
+{
+  "events": [
+    "task.classified",
+    "orchestrator.plan",
+    "task.stage",
+    "subtask.routed",
+    {
+      "type": "orchestrator.objective_unmet",
+      "subtaskKey": "implement",
+      "level": "warn",
+      "payload": {
+        "missing": [
+          "implement: code_change completed with no applied file change"
+        ],
+        "evidence": []
+      }
+    },
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "implement",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "implement",
+        "action": "replan",
+        "reasoning": "objective not satisfied: implement: code_change completed with no applied file change",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 0,
+        "expectedOutcome": "recovery"
+      }
+    },
+    "task.error"
+  ],
+  "messages": [
+    "system: Planned 1 subtask",
+    "system: Sent to Frontend: implement"
+  ],
+  "delegations": [],
+  "pauses": [],
+  "replanFeedback": [
+    null
+  ],
+  "attempts": {
+    "implement": 1
+  },
+  "completion": {
+    "status": "failed",
+    "errorMessage": "Objective not satisfied after 0 replan(s): objective not satisfied: implement: code_change completed with no applied file change"
+  },
+  "lifecycle": [
+    "-->RUNNING",
+    "RUNNING->FAILED"
+  ]
+}

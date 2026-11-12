@@ -9,6 +9,7 @@ import { runReviewLoop } from "./reviewLoop";
 import { runQaLoop } from "./qaLoop";
 import { runVerificationLoop } from "./verifyLoop";
 import { blockRejected, runAcceptanceStage } from "./acceptance";
+import { decideReplan } from "@/orchestrator/decisionEngine";
 import { recordCoverage, runCoverageCheck } from "./coverage";
 import {
   brokerCheckAndApply,
@@ -281,14 +282,15 @@ export async function executePlan(input: ExecutePlanInput): Promise<ExecutePlanR
     // Plan 022 acceptance stage: executor "done" was only "delivered";
     // the contract's gates decide acceptance. A failed required gate is a
     // fix iteration (bounded replan) or, with none left, blocks the task.
+    // Replan or block is the Decision Engine's call (decideReplan).
+    const facts = { replansLeft: input.replansLeft ?? 0 };
     const acceptance = await runAcceptanceStage(ctx);
     if (acceptance.rejected.length > 0) {
       const reason = `Acceptance gates failed: ${acceptance.rejected
         .map((entry) => `${entry.key}: ${entry.reason}`)
         .join("; ")}`.slice(0, 1500);
-      if ((input.replansLeft ?? 0) > 0) {
-        return { status: "replan", replanFeedback: reason };
-      }
+      const next = decideReplan({ kind: "replan_trigger", trigger: "acceptance_rejected", reason, facts });
+      if (next.kind === "replan") return { status: "replan", replanFeedback: next.reason };
       await blockRejected(ctx, acceptance.rejected);
       state.feedback.push(reason);
       return { status: "failed" };
@@ -300,12 +302,10 @@ export async function executePlan(input: ExecutePlanInput): Promise<ExecutePlanR
     // task ends "completed with gaps" (status failed + coverage outcome).
     const coverage = await runCoverageCheck(ctx);
     if (coverage.status === "gaps") {
-      if ((input.replansLeft ?? 0) > 0) {
-        await recordCoverage(ctx, coverage.report, "gaps");
-        return { status: "replan", replanFeedback: coverage.note };
-      }
-      await recordCoverage(ctx, coverage.report, "completed_with_gaps");
-      state.feedback.push(`Completed with gaps. ${coverage.note}`);
+      const next = decideReplan({ kind: "replan_trigger", trigger: "coverage_gaps", reason: coverage.note, facts });
+      await recordCoverage(ctx, coverage.report, next.kind === "replan" ? "gaps" : "completed_with_gaps");
+      if (next.kind === "replan") return { status: "replan", replanFeedback: next.reason };
+      if (next.kind === "block") state.feedback.push(next.message);
       return { status: "failed" };
     }
     if (coverage.status === "covered") await recordCoverage(ctx, coverage.report, "covered");

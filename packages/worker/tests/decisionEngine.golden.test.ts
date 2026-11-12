@@ -35,6 +35,9 @@ const scenario = vi.hoisted(() => ({
   createPlanCalls: [] as Array<string | null>,
   /** When set, decide() returns this decision (as taskRunner.askUser does). */
   forced: null as Record<string, unknown> | null,
+  /** L6: evaluateTask verdicts per call (the last one repeats); empty = the real evaluator. */
+  evaluations: [] as Array<{ verdict: string; checks: Array<Record<string, unknown>> }>,
+  evaluateCalls: 0,
 }));
 
 vi.mock("../src/orchestrator/decision", async (importOriginal) => {
@@ -43,6 +46,18 @@ vi.mock("../src/orchestrator/decision", async (importOriginal) => {
     ...orig,
     decide: async (...args: Parameters<typeof orig.decide>) =>
       scenario.forced ? { decision: { ...scenario.forced, planVersion: 1, createdAt: 0 } } : orig.decide(...args),
+  };
+});
+
+vi.mock("../src/orchestrator/evaluator", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../src/orchestrator/evaluator")>();
+  return {
+    ...orig,
+    evaluateTask: async (...args: Parameters<typeof orig.evaluateTask>) => {
+      if (scenario.evaluations.length === 0) return orig.evaluateTask(...args);
+      const index = Math.min(scenario.evaluateCalls++, scenario.evaluations.length - 1);
+      return { notes: [], ...JSON.parse(JSON.stringify(scenario.evaluations[index])) };
+    },
   };
 });
 
@@ -117,6 +132,9 @@ interface Scenario {
   policy?: Partial<ExecutionPolicy>;
   pauseApplied?: boolean;
   forced?: Record<string, unknown>;
+  evaluations?: Array<{ verdict: string; checks: Array<Record<string, unknown>> }>;
+  /** L6: also record the lifecycle transitions (the L5 traces predate this field). */
+  traceLifecycle?: boolean;
 }
 
 const SCENARIOS: Scenario[] = [
@@ -239,6 +257,131 @@ const SCENARIOS: Scenario[] = [
     agents: [FRONTEND, BACKEND],
     forced: { id: "d-call", action: "call_agent", reasoning: "ask backend", target: { capability: "backend-development" }, decidedBy: "llm" },
   },
+  // --- L6 (one replan owner): every replan trigger, recorded BEFORE the
+  // replan decision moved into decisionEngine/replan.ts. ---
+  {
+    // No-op: the only failure is "No effective change" and nothing is staged → done (task.no_change).
+    name: "replan-noop-already-done",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "frontend-development")])],
+    steps: { implement: [{ outcome: { status: "failed", error: "No effective change: a.txt would be identical to the current content" } }] },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+    policy: { maxReplans: 1, maxPlanningIterations: 1 },
+  },
+  {
+    // Terminal failure with a replan left: one replan on a changed approach, which then completes.
+    name: "replan-terminal-failure",
+    command: "Implement the feature",
+    plans: [
+      plan("Implement the feature", [node("implement", "code_change", "frontend-development")]),
+      plan("Implement the feature", [{ ...node("implement-v2", "code_change", "frontend-development"), description: "Do it another way", replanReasoning: "changed the approach" }]),
+    ],
+    steps: {
+      implement: [{ outcome: { status: "failed", error: "Permission denied: cannot write" } }],
+      "implement-v2": [{ files: ["a.txt"], outcome: done("did it another way") }],
+    },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+    policy: { maxReplans: 1, maxPlanningIterations: 1 },
+  },
+  {
+    // A provider hold (429) behind a failure holds the task, never a replan.
+    name: "replan-provider-hold",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "frontend-development")])],
+    steps: { implement: [{ outcome: { status: "failed", error: "LLM request failed (429) for model m: Too Many Requests" } }] },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+    policy: { maxReplans: 1, maxPlanningIterations: 1 },
+  },
+  {
+    // A budget stop is terminal: budget.exhausted, never a replan.
+    name: "replan-budget-exhausted",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "frontend-development")])],
+    steps: { implement: [{ outcome: { status: "failed", error: "Budget exhausted: max LLM calls reached" } }] },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+    policy: { maxReplans: 1, maxPlanningIterations: 1 },
+  },
+  {
+    // Verification failed with a replan left: replan with the failed checks, then pass.
+    name: "replan-verify-failed",
+    command: "Implement the feature",
+    plans: [
+      plan("Implement the feature", [node("implement", "code_change", "frontend-development")]),
+      plan("Implement the feature", [{ ...node("implement-v2", "code_change", "frontend-development"), description: "Fix the tests", replanReasoning: "the tests failed" }]),
+    ],
+    byKind: { code_change: { files: ["a.txt"], outcome: done("did it") } },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+    policy: { maxReplans: 1, maxPlanningIterations: 1 },
+    evaluations: [
+      { verdict: "failed", checks: [{ name: "tests", status: "failed", details: "1 test failed" }, { name: "lint", status: "passed" }] },
+      { verdict: "passed", checks: [{ name: "tests", status: "passed" }] },
+    ],
+  },
+  {
+    // Verification failed with no replan left: the completion path records FAILED.
+    name: "replan-verify-failed-exhausted",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "frontend-development")])],
+    byKind: { code_change: { files: ["a.txt"], outcome: done("did it") } },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+    evaluations: [{ verdict: "failed", checks: [{ name: "tests", status: "failed", details: "1 test failed" }] }],
+  },
+  {
+    // A failed required acceptance gate with a replan left: executePlan hands a replan back.
+    name: "replan-acceptance-rejected",
+    command: "Implement the feature",
+    plans: [
+      plan("Implement the feature", [{ ...node("implement", "code_change", "frontend-development"), acceptance: [{ id: "spec", criterion: "spec.md exists", check: "file_exists", target: "spec.md" }] }]),
+      plan("Implement the feature", [{ ...node("implement-v2", "code_change", "frontend-development"), description: "Write spec.md too", replanReasoning: "the gate needs spec.md" }]),
+    ],
+    byKind: { code_change: { files: ["a.txt"], outcome: done("did it") } },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+    policy: { maxReplans: 1, maxPlanningIterations: 1 },
+  },
+  {
+    // ... and with no replan left the gate blocks the task.
+    name: "replan-acceptance-blocked",
+    command: "Implement the feature",
+    plans: [
+      plan("Implement the feature", [{ ...node("implement", "code_change", "frontend-development"), acceptance: [{ id: "spec", criterion: "spec.md exists", check: "file_exists", target: "spec.md" }] }]),
+    ],
+    byKind: { code_change: { files: ["a.txt"], outcome: done("did it") } },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+  },
+  {
+    // Objective unmet with no replan left: fails with the missing list.
+    name: "replan-objective-unmet-exhausted",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "frontend-development")])],
+    steps: { implement: [{ outcome: done("wrote nothing") }] },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+    policy: { orchestratorAuthoritative: false },
+  },
+  {
+    // Objective unmet with a replan left: the changed plan lands a file and completes.
+    name: "replan-objective-unmet-recovers",
+    command: "Implement the feature",
+    plans: [
+      plan("Implement the feature", [node("implement", "code_change", "frontend-development")]),
+      plan("Implement the feature", [{ ...node("implement-v2", "code_change", "frontend-development"), description: "Actually write the file", replanReasoning: "nothing was written" }]),
+    ],
+    steps: {
+      implement: [{ outcome: done("wrote nothing") }],
+      "implement-v2": [{ files: ["a.txt"], outcome: done("wrote a.txt") }],
+    },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+    policy: { maxReplans: 1, maxPlanningIterations: 1, orchestratorAuthoritative: false },
+  },
 ];
 
 let workspace: string;
@@ -260,10 +403,13 @@ async function run(s: Scenario) {
   scenario.attempts = new Map();
   scenario.createPlanCalls = [];
   scenario.forced = s.forced ?? null;
+  scenario.evaluations = s.evaluations ?? [];
+  scenario.evaluateCalls = 0;
   const events: unknown[] = [];
   const messages: string[] = [];
   const delegations: unknown[] = [];
   const pauses: unknown[] = [];
+  const lifecycle: string[] = [];
   const task = testTask({ title: s.command, command: s.command });
   const project = { _id: "project-1", name: "Fixture", workspacePath: workspace, approvalMode: "auto" as const };
   const { api, completions } = createFakeApi({
@@ -291,7 +437,9 @@ async function run(s: Scenario) {
       pauses.push(input.question);
       return s.pauseApplied ? { applied: true } : { applied: false, reason: "lease_lost" as const };
     },
-    recordLifecycle: async () => undefined,
+    recordLifecycle: async (input: { state: string; prevState?: string }) => {
+      lifecycle.push(`${input.prevState ?? "-"}->${input.state}`);
+    },
     upsertTaskContext: async () => undefined,
     getTaskContext: async () => null,
   });
@@ -316,6 +464,7 @@ async function run(s: Scenario) {
     replanFeedback: scenario.createPlanCalls,
     attempts: Object.fromEntries([...scenario.attempts.entries()].sort(([a], [b]) => a.localeCompare(b))),
     completion: last ? { status: last.status ?? null, errorMessage: last.errorMessage ?? null } : null,
+    ...(s.traceLifecycle ? { lifecycle } : {}),
   };
   return JSON.stringify(trace, null, 2).split(workspace).join("<workspace>").replace(/"createdAt": \d+/g, '"createdAt": 0');
 }

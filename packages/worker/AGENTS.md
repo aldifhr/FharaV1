@@ -68,6 +68,8 @@ import backend internals.
   fix suppression, QA deferral, replan deferral, completion/budget latches)
   live in `decisionEngine/overrides.ts` as pure functions. Add new decision
   points there, never inline in the runner, scheduler or stage loops.
+  Whether to replan is `decideReplan` (`decisionEngine/replan.ts`): one call
+  site in taskRunner, plus executePlan's acceptance / coverage gates.
   `tests/decisionEngine.golden.test.ts` pins the decision event sequences.
 - Dynamic subtasks must be persisted (`upsertDynamicSubtasks`) so recovery keeps
   them. In-memory-only plan mutation is a bug.

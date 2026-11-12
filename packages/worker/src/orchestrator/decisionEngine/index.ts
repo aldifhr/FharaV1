@@ -8,6 +8,7 @@ import {
   type OrchestratorDecision,
 } from "../decision";
 import { directiveFor, isStepLimit, resolveTargetAgent, type OverrideState, type RunnerDirective } from "./overrides";
+import type { ReplanObservation } from "./replan";
 
 /**
  * P1b phase 1: the Decision Engine seam.
@@ -29,9 +30,9 @@ import { directiveFor, isStepLimit, resolveTargetAgent, type OverrideState, type
  *
  * Later phases extend this seam rather than adding decision points
  * elsewhere (see `EngineObservation` / `NextStep` below):
- *   - L6 (one replan owner): `decisionEngine/replan.ts` exports
- *     `decideReplan(trigger)` and is re-exported here; taskRunner and
- *     executePlan call it instead of deciding inline.
+ *   - L6 (one replan owner, done): `decisionEngine/replan.ts` exports
+ *     `decideReplan(observation)`, re-exported here. taskRunner has one
+ *     call site; executePlan's acceptance / coverage gates ask it too.
  *   - L7 (stage-loop owners): `decisionEngine/fixOwner.ts` answers the
  *     fix-owner queries of the QA / verify / review loops.
  *   - L8 (scheduler purification): the scheduler and runNodes report an
@@ -53,6 +54,8 @@ export {
   vetoSpawn,
 } from "./overrides";
 export type { OverrideState, QaSpawnPlan, ReplanVeto, RunnerDirective, SpawnVerdict } from "./overrides";
+export { decideReplan } from "./replan";
+export type { ReplanDecision, ReplanFacts, ReplanObservation, ReplanTrigger } from "./replan";
 
 export interface DecideNextResult {
   decision: OrchestratorDecision;
@@ -109,7 +112,7 @@ export type EngineObservation =
   | { kind: "unroutable"; nodeKey: string; capability: string }
   | { kind: "prerequisite_missing"; nodeKey: string; missing: string[] }
   | { kind: "runtime_unavailable"; nodeKey: string; runtime: string }
-  | { kind: "replan_trigger"; trigger: "no_op" | "terminal_failure" | "verify_failed" | "acceptance_rejected" | "objective_unmet"; reason: string }
+  | ReplanObservation
   | { kind: "fix_needed"; stage: "qa" | "verify" | "review"; findingKeys: string[] };
 
 /** What the engine tells a caller to do next. */

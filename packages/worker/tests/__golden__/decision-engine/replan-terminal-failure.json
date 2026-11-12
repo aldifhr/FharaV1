@@ -1,0 +1,83 @@
+{
+  "events": [
+    "task.classified",
+    "orchestrator.plan",
+    "task.stage",
+    "subtask.routed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "implement",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "implement",
+        "action": "replan",
+        "reasoning": "Permission denied: cannot write",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 0,
+        "expectedOutcome": "recovery"
+      }
+    },
+    "plan.replanned",
+    "plan.replan_diff",
+    "task.stage",
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "implement-v2",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "implement-v2",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 2,
+        "step": 0,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    {
+      "type": "orchestrator.completed",
+      "subtaskKey": "implement-v2",
+      "level": "info",
+      "payload": {
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "task.policy_dry_run",
+    "fileChanges.applied",
+    "task.stage",
+    "acceptance.evaluated",
+    "task.summary",
+    "card.post_failed"
+  ],
+  "messages": [
+    "system: Planned 1 subtask",
+    "system: Sent to Frontend: implement",
+    "system: Replanned 1 subtask",
+    "system: Sent to Frontend: implement-v2",
+    "-: Done.\n\nVerification: passed."
+  ],
+  "delegations": [],
+  "pauses": [],
+  "replanFeedback": [
+    null,
+    "implement: Permission denied: cannot write\nOrchestrator evaluations: REVISE: Agent Frontend failed: Permission denied: cannot write; replan: Permission denied: cannot write\nREPLAN SCOPE — re-plan ONLY the affected branch:\nFailed nodes (replace with a DIFFERENT objective, agent or approach — never the same one again):\n- implement [code_change/frontend-development] objective: implement | approach: Do implement\nFailure facts:\n- implement: Permission denied: cannot write\nFor every node you ADD or CHANGE, set \"replanReasoning\": one sentence on why (what is different from the failed attempt). For every node you REMOVE, add {\"key\",\"reasoning\"} to the plan-level \"replanRemovals\" list. Keep the DAG acyclic."
+  ],
+  "attempts": {
+    "implement": 1,
+    "implement-v2": 1
+  },
+  "completion": {
+    "status": "done",
+    "errorMessage": null
+  },
+  "lifecycle": [
+    "-->RUNNING",
+    "RUNNING->COMPLETED"
+  ]
+}

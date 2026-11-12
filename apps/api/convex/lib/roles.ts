@@ -306,6 +306,19 @@ export const FIXED_TEAM_SEED_ORDER: readonly RoleKey[] = [
   "devops",
 ];
 
+/** The fixed team as the sidebar and Team list show it, top to bottom. */
+export const FIXED_TEAM_DISPLAY_ORDER: readonly RoleKey[] = [
+  "cto",
+  "designer",
+  "frontend",
+  "backend",
+  "qa",
+  "reviewer",
+  "devops",
+  "researcher",
+  "support",
+];
+
 /** Roles removed from the fixed team (matched on the normalized role key). */
 export const RETIRED_ROLE_KEYS = ["lead", "growth", "product-analyst", "ui-ux"] as const;
 

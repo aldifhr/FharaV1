@@ -1,16 +1,19 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
+import ConfirmDialog from "./ConfirmDialog";
 import AgentActivity, { type ActiveExecution } from "./agents/AgentActivity";
+import AgentPanelActions from "./agents/AgentPanelActions";
+import TeamStatusSource, { useDraftingAgentIds } from "./agents/TeamStatusSource";
 import AgentConfigureForm from "./agents/AgentConfigureForm";
 import AgentSkillsForm from "./agents/AgentSkillsForm";
 import { Inspector, InspectorTabs } from "./ui/inspector";
 import { StatusTag } from "./ui/status-tag";
-import { agentName, roleLabel } from "@/lib/agentRoles";
+import { agentName, fixedAgentIds, roleLabel } from "@/lib/agentRoles";
+import { agentStatusView, type StatusMap } from "@/lib/teamStatus";
 import { LEGACY_ROLE_SUCCESSORS, ROLES, isRoleKey } from "@/api/convex/lib/roles";
 
 /**
@@ -30,51 +33,51 @@ function roleFallback(roleKey: string) {
   };
 }
 
-/** Status from the backend execution lease — never the persisted `agents.status`. */
-export function statusFromActive(
-  active: { status: string; subtaskKey?: string } | undefined,
-): { label: string; avatar: "working" | "queued" | "needs_you" | "idle" } {
-  if (!active) return { label: "Idle", avatar: "idle" };
-  if (active.status === "waiting_approval") return { label: "Waiting", avatar: "needs_you" };
-  if (active.status === "queued") return { label: "Thinking", avatar: "queued" };
-  if (active.status === "blocked") return { label: "Blocked", avatar: "needs_you" };
-  if (active.status === "completed") return { label: "Completed", avatar: "idle" };
-  if (active.status === "failed") return { label: "Failed", avatar: "needs_you" };
-  if (active.subtaskKey?.includes("review") || active.status === "reviewing") return { label: "Reviewing", avatar: "working" };
-  return { label: "Working", avatar: "working" };
-}
-
 type Tab = "configure" | "skills" | "activity";
 
-const ACTION =
-  "inline-flex h-7 items-center rounded-field border border-line px-2.5 text-[12px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30";
-
-/** Agent inspector (dashboard F4): Configure / Skills / Activity in the right-hand panel. */
-export default function AgentDetailPanel({
-  agent,
-  onClose,
-  onRemove,
-}: {
+type PanelProps = {
   agent: any;
+  /** The open project, if any: the same scope the sidebar team list reads status with. */
+  projectId?: string;
   onClose: () => void;
-  /** Delete the agent (asks for confirmation upstream). */
+  /** Delete the agent (asks for confirmation upstream); offered only for agents outside the fixed team. */
   onRemove?: (agent: any) => void;
-}) {
+};
+
+/** Agent inspector (dashboard F4): Activity / Configure / Skills in the right-hand panel. */
+export default function AgentDetailPanel(props: PanelProps) {
+  // Keyed by agent: opening another team member starts again on Activity.
+  return (
+    <TeamStatusSource projectId={props.projectId}>
+      {(status) => <AgentDetail key={props.agent._id} {...props} status={status} />}
+    </TeamStatusSource>
+  );
+}
+
+function AgentDetail({ agent, onClose, onRemove, status: teamStatus }: PanelProps & { status: StatusMap | undefined }) {
   const detail = useQuery(api.agents.getDetail, { agentId: agent._id as never });
   // Plan 035: the OpenCode runtime is app-wide (Settings → LLM & Models).
   const opencode = useQuery(api.opencodeSettings.get, {});
   const history = useQuery(api.agents.getExecutionHistory, { agentId: agent._id as never, limit: 20 });
-  const activeByAgent = useQuery(api.executionView.activeByAgent, {});
-  const active = (activeByAgent as any)?.[agent._id as string] as ActiveExecution | undefined;
-  const status = statusFromActive(active);
+  const allAgents = useQuery(api.agents.list, {}) as Array<{ _id: string; role: string; _creationTime?: number }> | undefined;
+  const removable = useMemo(() => allAgents !== undefined && !fixedAgentIds(allAgents).has(agent._id), [allAgents, agent._id]);
+  const drafting = useDraftingAgentIds().includes(agent._id);
+  const entry = teamStatus?.[agent._id as string];
+  // Same helper and same source as the sidebar row, so both show the same word.
+  const status = agentStatusView(entry, { isEnabled: agent.isEnabled, drafting });
+  const active: ActiveExecution | undefined =
+    entry?.taskId && entry.taskTitle && status.kind !== "disabled"
+      ? { taskId: entry.taskId, taskTitle: entry.taskTitle, subtaskKey: entry.subtaskKey ?? undefined, status: entry.status }
+      : undefined;
 
-  const [tab, setTab] = useState<Tab>("configure");
+  const [tab, setTab] = useState<Tab>("activity");
+  const [discardOpen, setDiscardOpen] = useState(false);
   const [dirty, setDirty] = useState<Record<"configure" | "skills", boolean>>({ configure: false, skills: false });
   const onConfigureDirty = useCallback((d: boolean) => setDirty((prev) => (prev.configure === d ? prev : { ...prev, configure: d })), []);
   const onSkillsDirty = useCallback((d: boolean) => setDirty((prev) => (prev.skills === d ? prev : { ...prev, skills: d })), []);
   const close = () => {
-    if ((dirty.configure || dirty.skills) && !window.confirm("Discard unsaved changes?")) return;
-    onClose();
+    if (dirty.configure || dirty.skills) setDiscardOpen(true);
+    else onClose();
   };
 
   const rawRole = (agent.role ?? "").trim().toLowerCase();
@@ -113,7 +116,6 @@ export default function AgentDetailPanel({
     : opencode?.runtime === "opencode"
       ? `OpenCode${opencode.model ? ` · ${opencode.model}` : " · Fhara LLM"}`
       : "Built-in (Fhara host tools)";
-  const tone = status.avatar === "working" ? "active" : status.avatar === "needs_you" ? "warn" : "neutral";
 
   return (
     <Inspector
@@ -125,31 +127,18 @@ export default function AgentDetailPanel({
           {category ? <span className="capitalize">{` · ${category}`}</span> : null}
         </>
       }
-      icon={<AgentAvatar name={displayName} size={36} status={status.avatar === "idle" ? undefined : status.avatar} avatarParams={agent.avatarParams} />}
-      status={<StatusTag tone={tone}>{status.label}</StatusTag>}
-      actions={
-        <>
-          {agent?._id && (
-            <Link href={`/team/${agent._id}`} className={ACTION}>
-              Performance
-            </Link>
-          )}
-          {onRemove && (
-            <button type="button" onClick={() => onRemove(agent)} className={`${ACTION} hover:text-danger`}>
-              Remove
-            </button>
-          )}
-        </>
-      }
+      icon={<AgentAvatar name={displayName} size={36} status={status.avatar} avatarParams={agent.avatarParams} />}
+      status={<StatusTag tone={status.tone}>{status.label}</StatusTag>}
+      actions={<AgentPanelActions agent={agent} removable={removable} onRemove={onRemove} />}
       tabs={
         <InspectorTabs<Tab>
           label="Agent sections"
           value={tab}
           onChange={setTab}
           options={[
+            { value: "activity", label: "Activity" },
             { value: "configure", label: "Configure", dirty: dirty.configure },
             { value: "skills", label: "Skills", dirty: dirty.skills },
-            { value: "activity", label: "Activity" },
           ]}
         />
       }
@@ -184,6 +173,14 @@ export default function AgentDetailPanel({
           history={history as never}
         />
       )}
+      <ConfirmDialog
+        request={discardOpen ? { title: "Discard unsaved changes?", message: "Your edits to this agent will be lost.", confirmLabel: "Discard" } : null}
+        onCancel={() => setDiscardOpen(false)}
+        onConfirm={() => {
+          setDiscardOpen(false);
+          onClose();
+        }}
+      />
     </Inspector>
   );
 }

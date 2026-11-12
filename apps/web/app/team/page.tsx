@@ -184,6 +184,7 @@ function TeamPage() {
       {detail && (
         <AgentDetailPanel
           agent={(allAgents ?? []).find((a) => a._id === detail._id) ?? detail}
+          projectId={projectId}
           onClose={() => setDetail(null)}
           onRemove={askRemove}
         />

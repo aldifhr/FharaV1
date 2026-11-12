@@ -47,3 +47,22 @@ export function fixedAgentIds(
   }
   return ids;
 }
+
+/**
+ * The team in a fixed order that never depends on status: the fixed agents in
+ * `displayOrder` (by role), then every other agent oldest first.
+ */
+export function orderTeam<T extends AgentRow>(
+  agents: readonly T[],
+  fixedIds: ReadonlySet<string>,
+  displayOrder: readonly string[]
+): T[] {
+  const rank = new Map(displayOrder.map((role, index) => [normalizeRole(role), index]));
+  const fixedRank = (a: T) => (fixedIds.has(a._id) ? (rank.get(normalizeRole(a.role)) ?? displayOrder.length) : Infinity);
+  return [...agents].sort(
+    (a, b) =>
+      fixedRank(a) - fixedRank(b) ||
+      (a._creationTime ?? 0) - (b._creationTime ?? 0) ||
+      a._id.localeCompare(b._id)
+  );
+}

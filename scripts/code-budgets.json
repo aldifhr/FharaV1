@@ -177,9 +177,6 @@
   "apps/web/lib/taskStatus.ts": {
     "tint": 34
   },
-  "apps/web/lib/teamStatus.ts": {
-    "tint": 6
-  },
   "packages/worker/src/execution/agentExecutor.ts": {
     "lines": 2601
   },

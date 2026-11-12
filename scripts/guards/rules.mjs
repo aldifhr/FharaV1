@@ -8,7 +8,7 @@
 // Copyright 2026 Zeabur Inc., Apache License 2.0.
 // Modified by Fhara, 2026-11: oxlint/ESLint rules rewritten as plain source scans over text and the
 // TypeScript AST; Fhara's own UI rules (animate-pulse, pills/badges, palette tints, raw hex, the retired brand colour) added;
-// the line budget lowered to 800. See THIRD_PARTY_NOTICES.md (## GOAT, ## Nuphos).
+// the line budget lowered to 800; native confirm() banned. See THIRD_PARTY_NOTICES.md (## GOAT, ## Nuphos).
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -100,6 +100,9 @@ const BRAND = new RegExp(`(?<![\\w-])(?:${UTILITY})-brand(?:-(?:hover|soft|ink))
 const PULSE = /(?<![\w-])animate-pulse(?![\w-])/gu;
 const PILL_SHAPE = /(?<![\w-])rounded-full(?![\w-])[^"'`\n]*?(?<![\w-])px-|(?<![\w-])px-[\d.]+(?![\w-])[^"'`\n]*?(?<![\w-])rounded-full(?![\w-])/u;
 const PILL_CLASS = /["'`\s](?:pill|badge|chip)(?:-[\w-]+)?(?=["'`\s])/u;
+// The browser's blocking confirm()/window.confirm(): use ConfirmDialog instead. `onConfirm(` and
+// `dialog.confirm(` are not it (a lowercase identifier start, no member access before it).
+const NATIVE_CONFIRM = /(?<![\w$.])(?:(?:window|globalThis|self)\s*\.\s*)?confirm\s*\(/gu;
 const BADGE_COMPONENT = /from\s+["'][^"']*\/ui\/badge["']|<Badge[\s>]/u;
 
 const countMatches = (text, regex) => (text.match(regex) ?? []).length;
@@ -123,6 +126,7 @@ export function uiRuleCounts(text) {
     pill,
     tint: countMatches(code, TINT),
     hex: countMatches(code, RAW_HEX),
+    confirm: countMatches(code, NATIVE_CONFIRM),
   };
 }
 
@@ -201,6 +205,7 @@ export const RULE_HELP = {
   pill: "No pills or badges (rounded-full + px-, pill/badge/chip classes, ui/badge). Use plain text in text-ink-2/-3.",
   tint: "No palette tints (bg-rose-100, text-emerald-600, …). Use theme tokens: bg-canvas/panel/hover, border-line, text-ink/-2/-3.",
   brand: "No brand/accent colour. The primary is ink: bg-ink text-canvas, focus rings ring-ink/30, active rows bg-hover text-ink.",
+  confirm: "No window.confirm/confirm(). Use ConfirmDialog (components/ConfirmDialog.tsx), and only for destructive actions.",
   hex: "No raw hex colours in UI code. Use theme tokens defined in app/globals.css.",
   unawaited: "`expect(...).rejects/.resolves` settles asynchronously. Prefix it with `await` (or `return`).",
 };

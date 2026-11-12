@@ -523,15 +523,24 @@ export function runningWord(kind: string | undefined, capability: string, subtas
 }
 
 /**
- * Live status of every agent for one project, derived from executions,
- * subtasks, approvals and open questions — never the persisted (stale)
- * `agents.status`. Agents with nothing in flight are absent (= idle).
+ * Live status of every agent, derived from executions, subtasks, approvals
+ * and open questions — never the persisted (stale) `agents.status`. Agents
+ * with nothing in flight are absent (= idle). With `projectId`, work in other
+ * projects shows as "elsewhere"; without it, every project the viewer can see
+ * counts (the sidebar and the agent panel outside a project read this view).
  */
 export const teamStatus = query({
-  args: { projectId: v.id("projects") },
+  args: { projectId: v.optional(v.id("projects")) },
   handler: async (ctx, args) => {
-    await assertProjectAccess(ctx, args.projectId);
-    const projectKey = args.projectId as string;
+    const scoped = args.projectId ?? null;
+    let inScope: (projectId: Id<"projects">) => boolean;
+    if (scoped) {
+      await assertProjectAccess(ctx, scoped);
+      inScope = (id) => (id as string) === (scoped as string);
+    } else {
+      const visible = new Set((await visibleProjects(ctx)).map((p) => p._id as string));
+      inScope = (id) => visible.has(id as string);
+    }
     const out = new Map<string, TeamStatusEntry>();
     const set = (agentId: string, entry: TeamStatusEntry) => {
       const prev = out.get(agentId);
@@ -569,8 +578,9 @@ export const teamStatus = query({
           projectName: null,
           subtaskKey: exec.subtaskKey ?? null,
         };
-        if ((task.projectId as string) !== projectKey) {
-          set(exec.agentId as string, { ...base, status: "elsewhere", projectName: await projectName(task.projectId) });
+        if (!inScope(task.projectId)) {
+          // Global view: a project the viewer can't see is not shown at all.
+          if (scoped) set(exec.agentId as string, { ...base, status: "elsewhere", projectName: await projectName(task.projectId) });
           continue;
         }
         if (status === "waiting_approval") {
@@ -584,13 +594,19 @@ export const teamStatus = query({
       }
     }
 
-    const approvals = await ctx.db
-      .query("approvals")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .order("desc")
-      .take(APPROVAL_LIMIT);
+    const approvals = scoped
+      ? await ctx.db
+          .query("approvals")
+          .withIndex("by_project", (q) => q.eq("projectId", scoped))
+          .order("desc")
+          .take(APPROVAL_LIMIT)
+      : await ctx.db
+          .query("approvals")
+          .withIndex("by_status", (q) => q.eq("status", "pending"))
+          .order("desc")
+          .take(APPROVAL_LIMIT);
     for (const a of approvals) {
-      if (a.status !== "pending") continue;
+      if (a.status !== "pending" || !inScope(a.projectId)) continue;
       const agentId = a.requestedByAgentId ?? a.principalAgentId;
       if (!agentId) continue;
       const task = await getTask(a.taskId);
@@ -609,7 +625,7 @@ export const teamStatus = query({
       .order("desc")
       .take(TASK_STATUS_LIMIT);
     for (const t of waiting) {
-      if ((t.projectId as string) !== projectKey) continue;
+      if (!inScope(t.projectId)) continue;
       if (!isAwaitingUserAnswer(t)) continue;
       for (const agentId of t.assignedAgentIds ?? []) {
         set(agentId as string, { status: "needs_you", taskId: t._id, taskTitle: t.title, projectName: null, subtaskKey: null });

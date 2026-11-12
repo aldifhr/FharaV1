@@ -66,6 +66,16 @@ describe("shell.teamStatus", () => {
     expect(status[be as string]).toMatchObject({ status: "elsewhere", projectName: "Iqbola" });
   });
 
+  test("without a project: every visible project counts, nothing is 'elsewhere', other owners stay hidden", async () => {
+    const { t, qa, fe, cto, be } = await seed();
+    const status = await t.query(api.shell.teamStatus, {});
+    expect(status[qa as string]?.status).toBe("testing");
+    expect(status[fe as string]?.status).toBe("waiting_on_you");
+    expect(status[cto as string]?.status).toBe("needs_you");
+    expect(status[be as string]).toMatchObject({ status: "working", taskTitle: "Ledger API" });
+    expect(Object.values(status).some((e) => e.taskTitle === "Hidden")).toBe(false);
+  });
+
   test("runningWord maps subtask kinds", () => {
     expect(runningWord("review", "code")).toBe("reviewing");
     expect(runningWord("qa", "x")).toBe("testing");

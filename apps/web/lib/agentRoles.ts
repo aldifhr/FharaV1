@@ -4,8 +4,8 @@
  * seed and role registry also read; this file only adapts them to the
  * shapes the UI uses.
  */
-import { FIXED_TEAM_SEED_ORDER, RETIRED_ROLE_KEYS, ROLES, ROLE_KEYS, roleKeyForMention, type RoleKey } from "@/api/convex/lib/roles";
-import { fixedAgentIds as fixedAgentIdsFor, type AgentLike, type AgentRow } from "./agentIdentity";
+import { FIXED_TEAM_DISPLAY_ORDER, FIXED_TEAM_SEED_ORDER, RETIRED_ROLE_KEYS, ROLES, ROLE_KEYS, roleKeyForMention, type RoleKey } from "@/api/convex/lib/roles";
+import { fixedAgentIds as fixedAgentIdsFor, orderTeam, type AgentLike, type AgentRow } from "./agentIdentity";
 
 export { roleKeyForMention, roleLabel } from "@/api/convex/lib/roles";
 import { agentDisplayName, agentRoleCaption } from "./agentIdentity";
@@ -53,4 +53,9 @@ export { prefillPromptForRole, roleTemplateFor } from "@/api/convex/lib/prompts/
 /** Ids of the fixed-team agents in `agents` (they can't be removed). */
 export function fixedAgentIds(agents: readonly AgentRow[] | null | undefined): Set<string> {
   return fixedAgentIdsFor(agents, FIXED_TEAM_SEED_ORDER, RETIRED_ROLE_KEYS);
+}
+
+/** The team in its fixed display order (CTO first, extra agents last); never by status. */
+export function teamInDisplayOrder<T extends AgentRow>(agents: readonly T[], fixedIds: ReadonlySet<string>): T[] {
+  return orderTeam(agents, fixedIds, FIXED_TEAM_DISPLAY_ORDER);
 }

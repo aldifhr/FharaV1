@@ -315,6 +315,7 @@ export default function Sidebar({
         {detail && (
           <AgentDetailPanel
             agent={(agents ?? []).find((a) => a._id === detail._id) ?? detail}
+          projectId={projectId}
             onClose={() => setDetail(null)}
             onRemove={askRemoveAgent}
           />

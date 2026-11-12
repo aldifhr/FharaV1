@@ -52,6 +52,26 @@ test("pills and badges are caught", () => {
   assert.equal(uiRuleCounts(`<span className="h-2 w-2 rounded-full bg-ink-3" />`).pill, 0);
 });
 
+test("native confirm() is caught, ConfirmDialog handlers are not", () => {
+  // Built from parts so this file does not hold the call it bans.
+  const call = "con" + "firm(";
+  assert.equal(uiRuleCounts(`if (!window.${call}"Discard?")) return;`).confirm, 1);
+  assert.equal(uiRuleCounts(`if (${call}"Discard?")) return;`).confirm, 1);
+  assert.equal(uiRuleCounts(`globalThis.${call}"x")`).confirm, 1);
+  assert.equal(uiRuleCounts(`<ConfirmDialog onConfirm={() => confirmReq?.onOk()} />`).confirm, 0);
+  assert.equal(uiRuleCounts(`await dialog.${call})`).confirm, 0);
+  assert.equal(uiRuleCounts(`// never call window.${call}) here`).confirm, 0);
+});
+
+test("no web UI file calls native confirm() (none is baselined)", () => {
+  const baseline = readBaseline();
+  for (const [file, measures] of Object.entries(measureTree())) {
+    if (!isUiSource(file)) continue;
+    assert.equal(measures.confirm ?? 0, 0, `${file} calls confirm(); use ConfirmDialog`);
+    assert.equal(baseline[file]?.confirm ?? 0, 0, `${file} has a confirm() allowance in the baseline`);
+  }
+});
+
 test("palette tints are caught, theme tokens are not", () => {
   assert.equal(uiRuleCounts(`<div className="bg-rose-100 text-rose-700 dark:bg-rose-950" />`).tint, 3);
   assert.equal(uiRuleCounts(`<div className="border-emerald-500/40" />`).tint, 1);

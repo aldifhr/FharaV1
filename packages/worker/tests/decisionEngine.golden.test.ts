@@ -38,6 +38,11 @@ const scenario = vi.hoisted(() => ({
   /** L6: evaluateTask verdicts per call (the last one repeats); empty = the real evaluator. */
   evaluations: [] as Array<{ verdict: string; checks: Array<Record<string, unknown>> }>,
   evaluateCalls: 0,
+  /** L7: runVerification results per call (the last one repeats); empty = the real verifier. */
+  verifications: [] as Array<{ checks: Array<Record<string, unknown>> }>,
+  verifyCalls: 0,
+  /** L7: subtask key → name of the agent that executed it (last run). */
+  ranBy: {} as Record<string, string>,
 }));
 
 vi.mock("../src/orchestrator/decision", async (importOriginal) => {
@@ -61,6 +66,20 @@ vi.mock("../src/orchestrator/evaluator", async (importOriginal) => {
   };
 });
 
+vi.mock("../src/execution/verification", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../src/execution/verification")>();
+  return {
+    ...orig,
+    runVerification: async (...args: Parameters<typeof orig.runVerification>) => {
+      if (scenario.verifications.length === 0) return orig.runVerification(...args);
+      const index = Math.min(scenario.verifyCalls++, scenario.verifications.length - 1);
+      const checks = JSON.parse(JSON.stringify(scenario.verifications[index].checks));
+      for (const check of checks) await args[0].onCheck?.(check);
+      return { checks, ran: checks.map((check: { name: string }) => check.name), skipped: [] };
+    },
+  };
+});
+
 vi.mock("../src/orchestrator/planner", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/orchestrator/planner")>()),
   createPlan: async (input: { feedback?: string }) => {
@@ -74,11 +93,13 @@ vi.mock("../src/orchestrator/planner", async (importOriginal) => ({
 vi.mock("../src/execution/agentExecutor", () => ({
   executeSubtask: async (input: {
     subtask: { key: string; kind: string };
+    agent?: { name?: string };
     saveFileChange: (change: unknown) => Promise<void>;
   }) => {
     const key = input.subtask.key;
     const attempt = scenario.attempts.get(key) ?? 0;
     scenario.attempts.set(key, attempt + 1);
+    scenario.ranBy[key] = input.agent?.name ?? "?";
     const list = scenario.steps[key];
     const step = list ? list[Math.min(attempt, list.length - 1)] : scenario.byKind[input.subtask.kind] ?? { outcome: { status: "completed", output: `output-${key}` } };
     for (const file of step.files ?? []) {
@@ -122,6 +143,15 @@ const plan = (goal: string, subtasks: unknown[]) => ({
 
 const done = (output: string, meta?: Record<string, unknown>): Outcome => ({ status: "completed", output, ...(meta ? { meta } : {}) });
 
+const UI_NODE = { ...node("ui", "code_change", "frontend-development"), allowedPaths: ["web/"] };
+const API_NODE = { ...node("api", "code_change", "backend-development", [], 1), allowedPaths: ["api/"] };
+const QA_FAILED: Step = { outcome: done("QA verdict: failed", { verdict: "failed", checks: [{ label: "button renders", status: "failed", details: "button missing" }] }) };
+const QA_PASSED: Step = { outcome: done("QA verdict: passed", { verdict: "passed", checks: [{ label: "button renders", status: "passed" }] }) };
+const TYPECHECK_FAILED = { name: "typecheck", status: "failed", details: "api/server.ts(3,1): error TS2322", files: ["api/server.ts"] };
+const WRITES: Record<string, Step[]> = { ui: [{ files: ["web/page.tsx"], outcome: done("did ui") }], api: [{ files: ["api/server.ts"], outcome: done("did api") }] };
+const FIX_WRITES = { code_change: { files: ["api/server.ts"], outcome: done("fixed") } as Step };
+const REVIEW_CHANGES: Step = { outcome: done("changes requested", { verdict: "changes_requested", findings: [{ severity: "high", filePath: "api/server.ts", description: "Validate the input" }] }) };
+
 interface Scenario {
   name: string;
   command: string;
@@ -135,6 +165,10 @@ interface Scenario {
   evaluations?: Array<{ verdict: string; checks: Array<Record<string, unknown>> }>;
   /** L6: also record the lifecycle transitions (the L5 traces predate this field). */
   traceLifecycle?: boolean;
+  /** L7: verification results per call (enables the mocked verifier). */
+  verifications?: Array<{ checks: Array<Record<string, unknown>> }>;
+  /** L7: keep the stage-loop fix payloads and record who ran each node. */
+  traceFixes?: boolean;
 }
 
 const SCENARIOS: Scenario[] = [
@@ -382,6 +416,73 @@ const SCENARIOS: Scenario[] = [
     traceLifecycle: true,
     policy: { maxReplans: 1, maxPlanningIterations: 1, orchestratorAuthoritative: false },
   },
+  // --- L7 (stage-loop fix owners): every loop's fix and exhaustion path,
+  // recorded BEFORE the owner choice moved into decisionEngine/fixOwner.ts.
+  // Two writers with path scopes so the owner rule is visible in `ranBy`. ---
+  {
+    // QA fails once: the fix goes to the UI implementer (not the last code_change), then QA passes.
+    name: "fix-qa-ui-owner",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [UI_NODE, API_NODE, node("qa", "qa", "browser-testing", ["ui", "api"], 2)])],
+    steps: { ...WRITES, qa: [QA_FAILED, QA_PASSED] },
+    byKind: { code_change: { files: ["web/page.tsx"], outcome: done("fixed") } },
+    agents: [FRONTEND, BACKEND, QA],
+    traceFixes: true,
+  },
+  {
+    // QA still failing after its fix round: the loop stops (qa.loop_stopped) and the task fails.
+    name: "fix-qa-exhausted",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [UI_NODE, API_NODE, node("qa", "qa", "browser-testing", ["ui", "api"], 2)])],
+    steps: { ...WRITES, qa: [QA_FAILED, { outcome: done("QA verdict: failed", { verdict: "failed", checks: [{ label: "button renders", status: "failed", details: "button still missing" }] }) }] },
+    byKind: { code_change: { files: ["web/page.tsx"], outcome: done("fixed") } },
+    agents: [FRONTEND, BACKEND, QA],
+    traceFixes: true,
+  },
+  {
+    // A failed check naming an api file: the fix goes to the longest-prefix owner (Backend), then passes.
+    name: "fix-verify-path-owner",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [API_NODE, UI_NODE])],
+    steps: WRITES,
+    byKind: FIX_WRITES,
+    agents: [FRONTEND, BACKEND],
+    policy: { verificationEnabled: true },
+    verifications: [{ checks: [TYPECHECK_FAILED] }, { checks: [{ name: "typecheck", status: "passed" }] }],
+    traceFixes: true,
+  },
+  {
+    // Verification still failing after its fix round: the loop fails the task.
+    name: "fix-verify-exhausted",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [API_NODE, UI_NODE])],
+    steps: WRITES,
+    byKind: FIX_WRITES,
+    agents: [FRONTEND, BACKEND],
+    policy: { verificationEnabled: true },
+    verifications: [{ checks: [TYPECHECK_FAILED] }, { checks: [{ ...TYPECHECK_FAILED, details: "api/server.ts(9,1): error TS2304" }] }],
+    traceFixes: true,
+  },
+  {
+    // Review findings in an api file: the fix goes to its writer (Backend), then review approves.
+    name: "fix-review-writer-owner",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [API_NODE, UI_NODE, node("review", "review", "code-review", ["api", "ui"], 2)])],
+    byKind: FIX_WRITES,
+    steps: { ...WRITES, review: [REVIEW_CHANGES, { outcome: done("approved", { verdict: "approved", findings: [] }) }] },
+    agents: [FRONTEND, BACKEND, REVIEWER],
+    traceFixes: true,
+  },
+  {
+    // Review still requests changes after its fix round: review.loop_stopped, the task fails.
+    name: "fix-review-exhausted",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [API_NODE, UI_NODE, node("review", "review", "code-review", ["api", "ui"], 2)])],
+    byKind: FIX_WRITES,
+    steps: { ...WRITES, review: [REVIEW_CHANGES, { outcome: done("changes requested", { verdict: "changes_requested", findings: [{ severity: "high", filePath: "api/server.ts", description: "Still no validation" }] }) }] },
+    agents: [FRONTEND, BACKEND, REVIEWER],
+    traceFixes: true,
+  },
 ];
 
 let workspace: string;
@@ -394,6 +495,9 @@ afterEach(async () => {
   await fs.rm(workspace, { recursive: true, force: true });
 });
 
+/** L7: stage-loop fix events whose payload (owner, round, stop reason) is the parity evidence. */
+const FIX_PAYLOAD = new Set(["qa.fix_started", "qa.loop_stopped", "qa.fix_unowned", "verification.fix_started", "verification.fix_no_change", "review.fix_started", "review.loop_stopped", "review.fix_unowned"]);
+
 const KEEP_PAYLOAD = new Set(["orchestrator.decision", "orchestrator.objective_unmet", "orchestrator.completed", "orchestrator.budget_blocked", "orchestrator.decision_fallback", "orchestrator.evaluation_failed", "qa.deferred", "qa.suppressed"]);
 
 async function run(s: Scenario) {
@@ -405,6 +509,9 @@ async function run(s: Scenario) {
   scenario.forced = s.forced ?? null;
   scenario.evaluations = s.evaluations ?? [];
   scenario.evaluateCalls = 0;
+  scenario.verifications = s.verifications ?? [];
+  scenario.verifyCalls = 0;
+  scenario.ranBy = {};
   const events: unknown[] = [];
   const messages: string[] = [];
   const delegations: unknown[] = [];
@@ -415,7 +522,7 @@ async function run(s: Scenario) {
   const { api, completions } = createFakeApi({
     getContext: async () => ({ task, project, agents: s.agents, plan: null, subtasks: [], approvalMode: "auto" as const }),
     logEvent: async (input: { type: string; payload?: Record<string, unknown>; subtaskKey?: string; level?: string }) => {
-      if (!KEEP_PAYLOAD.has(input.type)) {
+      if (!KEEP_PAYLOAD.has(input.type) && !(s.traceFixes && FIX_PAYLOAD.has(input.type))) {
         events.push(input.type);
         return;
       }
@@ -465,6 +572,7 @@ async function run(s: Scenario) {
     attempts: Object.fromEntries([...scenario.attempts.entries()].sort(([a], [b]) => a.localeCompare(b))),
     completion: last ? { status: last.status ?? null, errorMessage: last.errorMessage ?? null } : null,
     ...(s.traceLifecycle ? { lifecycle } : {}),
+    ...(s.traceFixes ? { ranBy: Object.fromEntries(Object.entries(scenario.ranBy).sort(([a], [b]) => a.localeCompare(b))) } : {}),
   };
   return JSON.stringify(trace, null, 2).split(workspace).join("<workspace>").replace(/"createdAt": \d+/g, '"createdAt": 0');
 }

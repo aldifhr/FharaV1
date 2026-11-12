@@ -1,16 +1,16 @@
 import { repeatedOutputStop } from "./repeatGuard";
-import { VERIFY_FIX_INTRO } from "@/prompts/fix";
 import type { RunContext } from "./types";
 import type { PlanSubtask } from "@/types";
 import { implementerAgent } from "./setup";
-import { ownerForFix } from "@/orchestrator/ownership";
+import { attributeFinding, decideFixOwner, fixRoundsExhausted } from "@/orchestrator/decisionEngine";
 import { applyOrRequestFixApproval } from "./fixApply";
-import { buildFixSubtask } from "@/orchestrator/reviewLoop";
 import { runVerification } from "@/execution/verification";
 import { verificationStatus } from "@/execution/verifyEnv";
 import { contentFingerprint } from "./applyLedger";
 
 export { verificationStatus };
+// Moved to the Decision Engine (L7); re-exported for existing importers.
+export { attributeFinding, verifyFixKey } from "@/orchestrator/decisionEngine";
 import type { ReviewFinding } from "@/utils/json";
 import { buildVerificationCard, postStageCard } from "./cards";
 
@@ -134,7 +134,23 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
       state.terminalFailure ??= verifyRepeat;
       return "failed";
     }
-    if (verifyIteration >= maxVerifyIters) {
+    const changedPaths = Array.from(state.fileChanges.keys());
+    const findings: ReviewFinding[] = failedChecks.map((c) => ({
+      severity: "high" as const,
+      filePath: attributeFinding(c, changedPaths),
+      description: `${c.name}: ${c.details ?? "check failed"}`,
+      suggestion: "Fix the failing check and retry verification.",
+    }));
+    // L7: the Decision Engine owns "who fixes this, or does the loop stop?"
+    // (one shared owner rule; nobody owns it → stop with a reason).
+    const next = decideFixOwner(
+      {
+        kind: "fix_needed",
+        facts: { stage: "verify", round: verifyIteration, maxRounds: maxVerifyIters, findings, nodes: plan.subtasks, writerByKey: ctx.agentByKey, agents, verifyPhase: phase },
+      },
+      ctx.uniqueSubtaskKey
+    );
+    if (next.kind === "block" && next.reason === "exhausted") {
       const message = `Verification still failing after ${maxVerifyIters} fix attempt(s)${
         phase > 0 ? ` (after QA fix round ${phase})` : ""
       }${noChangeFixes > 0 ? `, ${noChangeFixes} of which changed nothing` : ""}: ${failedChecks
@@ -144,38 +160,16 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
       if (noChangeFixes > 0) state.terminalFailure ??= message;
       return "failed";
     }
-    const changedPaths = Array.from(state.fileChanges.keys());
-    const findings: ReviewFinding[] = failedChecks.map((c) => ({
-      severity: "high" as const,
-      filePath: attributeFinding(c, changedPaths),
-      description: `${c.name}: ${c.details ?? "check failed"}`,
-      suggestion: "Fix the failing check and retry verification.",
-    }));
-    // Plan 040: one shared owner rule; nobody owns it → stop with a reason.
-    const fixOwner = ownerForFix({ subtasks: plan.subtasks, findings, agents, writerByKey: ctx.agentByKey });
-    if (!fixOwner) {
+    if (next.kind === "block") {
       state.feedback.push("No implementer agent owns the code behind these verification failures, so no fix was attempted");
       return "cancelled";
     }
-    const owner = fixOwner.subtask;
-    const fixSubtask = {
-      ...buildFixSubtask({
-        key: ctx.uniqueSubtaskKey(verifyFixKey(phase, verifyIteration + 1)),
-        title: `Address verification failures (${phase > 0 ? `after QA fix ${phase}, ` : ""}iteration ${verifyIteration + 1})`,
-        intro: VERIFY_FIX_INTRO,
-        findings,
-        capability: owner.capability,
-        order: plan.subtasks.reduce((max, c) => Math.max(max, c.order), 0) + 1,
-      }),
-      // Scope the fix to the owner's files, like the QA fix path (live
-      // test 3: an unscoped verify fix edited tsconfig.json and README).
-      ...(owner.allowedPaths && owner.allowedPaths.length > 0
-        ? { allowedPaths: [...owner.allowedPaths] }
-        : {}),
-    };
+    // Scoped to the owner's files by the engine (live test 3: an unscoped
+    // verify fix edited tsconfig.json and README).
+    const fixSubtask = next.nodes[0];
     plan.subtasks.push(fixSubtask);
     dynamicKeys.add(fixSubtask.key);
-    ctx.agentByKey.set(fixSubtask.key, fixOwner.agent);
+    ctx.agentByKey.set(fixSubtask.key, next.agent);
     chainByKey.set(fixSubtask.key, [fixSubtask.capability]);
     fixDepthByKey.set(fixSubtask.key, 1);
     await persistDynamic([fixSubtask], "fix");
@@ -209,7 +203,7 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
           level: "warn",
         })
         .catch(() => undefined);
-      if (verifyIteration >= maxVerifyIters) {
+      if (fixRoundsExhausted(verifyIteration, maxVerifyIters)) {
         const message = `Verification failed: ${failedChecks.map((c) => c.name).join(", ")} still failing and the last of ${verifyIteration} fix attempt(s) produced no change (${error.slice(0, 200)})`;
         state.feedback.push(message);
         state.terminalFailure ??= message;
@@ -233,11 +227,6 @@ export function verificationPhase(subtasks: Pick<PlanSubtask, "key">[]): number 
   return subtasks.filter((s) => s.key.startsWith("fix_qa_")).length;
 }
 
-/** Fix key for the n-th verification fix of a phase (phase 0 keeps the legacy `fix_verify_<n>`). */
-export function verifyFixKey(phase: number, n: number): string {
-  return phase > 0 ? `fix_verify_qa${phase}_${n}` : `fix_verify_${n}`;
-}
-
 /** How many verification fixes the given phase already spent. Exported for tests. */
 export function verifyFixesInPhase(subtasks: Pick<PlanSubtask, "key">[], phase: number): number {
   const pattern = phase > 0
@@ -245,22 +234,3 @@ export function verifyFixesInPhase(subtasks: Pick<PlanSubtask, "key">[], phase: 
     : /^fix_verify_\d+(_\d+)?$/;
   return subtasks.filter((s) => pattern.test(s.key)).length;
 }
-
-/**
- * The file a failed check is about: a changed file its output names, else
- * the first file it names, else a changed file the details mention. Only
- * when nothing names a file does it fall back to the first changed file
- * (the old rule, which pinned a ThreeColumnLayout.tsx lint error on
- * src/app/search/page.tsx). Exported for tests.
- */
-export function attributeFinding(check: { details?: string; files?: string[] }, changedPaths: string[]): string {
-  const named = check.files ?? [];
-  return (
-    named.find((file) => changedPaths.includes(file)) ??
-    named[0] ??
-    changedPaths.find((p) => (check.details ?? "").includes(p)) ??
-    changedPaths[0] ??
-    ""
-  );
-}
-

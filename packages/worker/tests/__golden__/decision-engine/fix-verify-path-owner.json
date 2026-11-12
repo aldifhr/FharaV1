@@ -1,0 +1,116 @@
+{
+  "events": [
+    "task.classified",
+    "orchestrator.plan",
+    "task.stage",
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "api",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "api",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 0,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "ui",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "ui",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 1,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    {
+      "type": "orchestrator.completed",
+      "subtaskKey": "ui",
+      "level": "info",
+      "payload": {
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "task.policy_dry_run",
+    "fileChanges.applied",
+    "task.stage",
+    "task.check",
+    "card.post_failed",
+    {
+      "type": "verification.fix_started",
+      "subtaskKey": null,
+      "level": "warn",
+      "payload": {
+        "iteration": 1,
+        "phase": 0,
+        "findings": 1
+      }
+    },
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "fix_verify_1",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "fix_verify_1",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 2,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "fileChanges.applied",
+    "task.check",
+    "card.post_failed",
+    "acceptance.evaluated",
+    "task.summary",
+    "card.post_failed"
+  ],
+  "messages": [
+    "system: Planned 2 subtasks",
+    "system: Sent to Backend: api",
+    "system: Sent to Frontend: ui",
+    "system: Sent to Backend: Address verification failures (iteration 1)",
+    "-: Done.\n\nVerification: passed."
+  ],
+  "delegations": [],
+  "pauses": [],
+  "replanFeedback": [
+    null
+  ],
+  "attempts": {
+    "api": 1,
+    "fix_verify_1": 1,
+    "ui": 1
+  },
+  "completion": {
+    "status": "done",
+    "errorMessage": null
+  },
+  "ranBy": {
+    "api": "Backend",
+    "fix_verify_1": "Backend",
+    "ui": "Frontend"
+  }
+}

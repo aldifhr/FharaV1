@@ -1,8 +1,8 @@
 import { repeatedOutputStop } from "./repeatGuard";
 import type { RunContext } from "./types";
 import type { PlanSubtask } from "@/types";
-import { buildReviewFixSubtask, collectRequestedChanges, formatReviewFindings } from "@/orchestrator/reviewLoop";
-import { ownerForFix } from "@/orchestrator/ownership";
+import { collectRequestedChanges, formatReviewFindings } from "@/orchestrator/reviewLoop";
+import { decideFixOwner } from "@/orchestrator/decisionEngine";
 
 /**
  * The review correction loop (plan 012 step 2): corrections for a failing
@@ -108,48 +108,52 @@ export async function runReviewLoop(ctx: RunContext): Promise<boolean> {
         state.feedback.push(reviewRepeat);
         return false;
       }
-      if (iteration >= maxIterations) {
-        // Decision Outcome Calibration: the loop's stop decision.
-        await Promise.resolve(
-          deps.api.logEvent({
-            taskId,
-            projectId: project._id,
-            type: "review.loop_stopped",
-            payload: { iteration, maxIterations, findings: findings.length, reason: "max_iterations" },
-            level: "warn",
-          })
-        ).catch(() => undefined);
-        state.feedback.push(
-          `Review still requested changes after ${maxIterations} fix attempt(s): ${findings
-            .map((finding) => finding.description)
-            .join("; ")}`
-        );
-        return false;
+      // L7: the Decision Engine owns "who fixes this, or does the loop stop?"
+      // The fix goes to the agent that wrote the code the findings point at
+      // (plan 040, one shared rule), never a catch-all owner.
+      const next = decideFixOwner(
+        {
+          kind: "fix_needed",
+          facts: { stage: "review", round: iteration, maxRounds: maxIterations, findings, nodes: plan.subtasks, writerByKey: ctx.agentByKey, agents },
+        },
+        ctx.uniqueSubtaskKey
+      );
+      switch (next.kind) {
+        case "block":
+          if (next.reason === "exhausted") {
+            // Decision Outcome Calibration: the loop's stop decision.
+            await Promise.resolve(
+              deps.api.logEvent({
+                taskId,
+                projectId: project._id,
+                type: "review.loop_stopped",
+                payload: { iteration, maxIterations, findings: findings.length, reason: "max_iterations" },
+                level: "warn",
+              })
+            ).catch(() => undefined);
+            state.feedback.push(
+              `Review still requested changes after ${maxIterations} fix attempt(s): ${findings
+                .map((finding) => finding.description)
+                .join("; ")}`
+            );
+            return false;
+          }
+          await Promise.resolve(
+            deps.api.logEvent({
+              taskId,
+              projectId: project._id,
+              type: "review.fix_unowned",
+              payload: { iteration, findings: findings.length, reason: "no implementer owns the reviewed code" },
+              level: "warn",
+            })
+          ).catch(() => undefined);
+          state.feedback.push("No implementer agent owns the code these review findings point at, so no fix was attempted");
+          return false;
+        case "spawn_fix":
+          break;
       }
-
-      // Plan 040: the fix goes to the agent that wrote the code the
-      // findings point at (one shared rule), never a catch-all owner.
-      const owner = ownerForFix({ subtasks: plan.subtasks, findings, agents, writerByKey: ctx.agentByKey });
-      if (!owner) {
-        await Promise.resolve(
-          deps.api.logEvent({
-            taskId,
-            projectId: project._id,
-            type: "review.fix_unowned",
-            payload: { iteration, findings: findings.length, reason: "no implementer owns the reviewed code" },
-            level: "warn",
-          })
-        ).catch(() => undefined);
-        state.feedback.push("No implementer agent owns the code these review findings point at, so no fix was attempted");
-        return false;
-      }
-      const implementer = owner.agent;
-      const fixSubtask = buildReviewFixSubtask({
-        iteration: iteration + 1,
-        findings,
-        capability: owner.subtask.capability,
-        order: plan.subtasks.reduce((max, candidate) => Math.max(max, candidate.order), 0) + 1,
-      });
+      const implementer = next.agent;
+      const fixSubtask = next.nodes[0];
       plan.subtasks.push(fixSubtask);
       dynamicKeys.add(fixSubtask.key);
       // Pin the fix to the owner (assign() would re-route by capability).

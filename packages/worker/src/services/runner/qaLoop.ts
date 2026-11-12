@@ -1,33 +1,17 @@
 import { repeatedOutputStop } from "./repeatGuard";
-import { QA_FIX_INTRO } from "@/prompts/fix";
 import type { RunContext } from "./types";
 import type { PlanSubtask } from "@/types";
 import { qaFindings } from "./setup";
-import { buildFixSubtask, formatReviewFindings } from "@/orchestrator/reviewLoop";
-import { capabilitiesOf, normalizeCapability, routeCapability } from "@/orchestrator/capabilities";
+import { formatReviewFindings } from "@/orchestrator/reviewLoop";
+import { capabilitiesOf } from "@/orchestrator/capabilities";
 import { CAPABILITY } from "@/types";
 import { wantsVisualQa } from "@/orchestrator/planner";
-import { ownerForFix, pickFixOwner, type FixCandidate } from "@/orchestrator/ownership";
+import { decideFixOwner } from "@/orchestrator/decisionEngine";
 import { applyOrRequestFixApproval } from "./fixApply";
 import { buildQaCard, plannedQaRows, postStageCard } from "./cards";
 
-/**
- * Fix owner for QA findings: QA exercises the UI, so the UI owner
- * (a frontend/design code_change) is preferred; otherwise the shared
- * pickFixOwner (longest allowedPaths prefix, last code_change).
- */
-const QA_UI_CAPABILITIES = new Set<string>([CAPABILITY.FRONTEND, CAPABILITY.DESIGN]);
-
-export function pickQaFixOwner(
-  subtasks: FixCandidate[],
-  findings: Array<{ filePath?: string }>
-): FixCandidate | undefined {
-  const uiOwners = subtasks.filter(
-    (s) => s.kind === "code_change" && QA_UI_CAPABILITIES.has(normalizeCapability(s.capability))
-  );
-  if (uiOwners.length > 0) return pickFixOwner(uiOwners, findings);
-  return pickFixOwner(subtasks, findings);
-}
+// Moved to the Decision Engine (L7); re-exported for existing importers.
+export { pickQaFixOwner } from "@/orchestrator/decisionEngine";
 
 /**
  * The QA correction loop (plan 012 step 2): a failing QA verdict spawns a
@@ -298,64 +282,52 @@ export async function runQaLoop(ctx: RunContext): Promise<boolean> {
         state.feedback.push(qaRepeat);
         return false;
       }
-      if (iteration >= maxIterations) {
-        // Decision Outcome Calibration: the loop's stop decision.
-        await Promise.resolve(
-          deps.api.logEvent({
-            taskId,
-            projectId: project._id,
-            type: "qa.loop_stopped",
-            payload: { iteration, maxIterations, findings: findings.length, reason: "max_iterations" },
-            level: "warn",
-          })
-        ).catch(() => undefined);
-        state.feedback.push(
-          `QA still failing after ${maxIterations} fix attempt(s): ${findings
-            .map((finding) => finding.description)
-            .join("; ")}`
-        );
-        return false;
+      // L7: the Decision Engine owns "who fixes this, or does the loop stop?"
+      // (QA prefers UI implementers; one shared owner rule otherwise).
+      const next = decideFixOwner(
+        {
+          kind: "fix_needed",
+          facts: { stage: "qa", round: iteration, maxRounds: maxIterations, findings, nodes: plan.subtasks, writerByKey: ctx.agentByKey, agents },
+        },
+        ctx.uniqueSubtaskKey
+      );
+      switch (next.kind) {
+        case "block":
+          if (next.reason === "exhausted") {
+            // Decision Outcome Calibration: the loop's stop decision.
+            await Promise.resolve(
+              deps.api.logEvent({
+                taskId,
+                projectId: project._id,
+                type: "qa.loop_stopped",
+                payload: { iteration, maxIterations, findings: findings.length, reason: "max_iterations" },
+                level: "warn",
+              })
+            ).catch(() => undefined);
+            state.feedback.push(
+              `QA still failing after ${maxIterations} fix attempt(s): ${findings
+                .map((finding) => finding.description)
+                .join("; ")}`
+            );
+            return false;
+          }
+          // Nobody owns it: stop with a reason instead of guessing.
+          await Promise.resolve(
+            deps.api.logEvent({
+              taskId,
+              projectId: project._id,
+              type: "qa.fix_unowned",
+              payload: { iteration, findings: findings.length, reason: "no implementer owns the tested code" },
+              level: "warn",
+            })
+          ).catch(() => undefined);
+          state.feedback.push("No implementer agent owns the code behind these QA failures, so no fix was attempted");
+          return false;
+        case "spawn_fix":
+          break;
       }
-
-      // Plan 040: one shared owner rule (UI implementers first for QA).
-      const fixOwner = ownerForFix({
-        subtasks: plan.subtasks,
-        findings,
-        agents,
-        writerByKey: ctx.agentByKey,
-        prefer: (candidate) => QA_UI_CAPABILITIES.has(normalizeCapability(candidate.capability)),
-      });
-      if (!fixOwner) {
-        await Promise.resolve(
-          deps.api.logEvent({
-            taskId,
-            projectId: project._id,
-            type: "qa.fix_unowned",
-            payload: { iteration, findings: findings.length, reason: "no implementer owns the tested code" },
-            level: "warn",
-          })
-        ).catch(() => undefined);
-        state.feedback.push("No implementer agent owns the code behind these QA failures, so no fix was attempted");
-        return false;
-      }
-      const owner = fixOwner.subtask;
-      const fixCapability = owner.capability;
-      const implementer = fixOwner.agent;
-
-      const fixSubtask = {
-        ...buildFixSubtask({
-          key: ctx.uniqueSubtaskKey(`fix_qa_${iteration + 1}`),
-          title: `Address QA failures (iteration ${iteration + 1})`,
-          intro: QA_FIX_INTRO,
-          findings,
-          capability: fixCapability,
-          order: plan.subtasks.reduce((max, candidate) => Math.max(max, candidate.order), 0) + 1,
-        }),
-        // Scope the fix to the owner's files (QA findings carry no path).
-        ...(owner.allowedPaths && owner.allowedPaths.length > 0
-          ? { allowedPaths: [...owner.allowedPaths] }
-          : {}),
-      };
+      const implementer = next.agent;
+      const fixSubtask = next.nodes[0];
       plan.subtasks.push(fixSubtask);
       // Pin the fix to the owner (assign() would re-route by capability).
       ctx.agentByKey.set(fixSubtask.key, implementer);

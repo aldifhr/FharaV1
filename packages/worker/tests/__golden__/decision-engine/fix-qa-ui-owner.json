@@ -1,0 +1,148 @@
+{
+  "events": [
+    "task.classified",
+    "orchestrator.plan",
+    "task.stage",
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "ui",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "ui",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 0,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "api",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "api",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 1,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "task.policy_dry_run",
+    "fileChanges.applied",
+    "task.stage",
+    "task.stage",
+    "card.post_failed",
+    "subtask.routed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "qa",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "qa",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 2,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "card.post_failed",
+    "qa.failed",
+    {
+      "type": "qa.fix_started",
+      "subtaskKey": null,
+      "level": "warn",
+      "payload": {
+        "iteration": 1,
+        "findings": 1,
+        "agent": "Frontend"
+      }
+    },
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "fix_qa_1",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "fix_qa_1",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 3,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "fileChanges.applied",
+    "card.post_failed",
+    "subtask.routed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "qa",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "qa",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 4,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "qa.passed",
+    "card.post_failed",
+    "acceptance.evaluated",
+    "task.summary",
+    "card.post_failed"
+  ],
+  "messages": [
+    "system: Planned 3 subtasks",
+    "system: Sent to Frontend: ui",
+    "system: Sent to Backend: api",
+    "system: Sent to QA: qa",
+    "system: Sent to Frontend: Address QA failures (iteration 1)",
+    "system: Sent to QA: qa",
+    "-: QA checks passed. Checked the app — 1/1 checks ok: button renders. Structural checks only — no visual comparison. Task-specific behaviour was not asserted automatically.",
+    "-: Done.\n\nQA: structural browser checks passed. Tested 1 check: button renders.\n\nVerification: passed."
+  ],
+  "delegations": [],
+  "pauses": [],
+  "replanFeedback": [
+    null
+  ],
+  "attempts": {
+    "api": 1,
+    "fix_qa_1": 1,
+    "qa": 2,
+    "ui": 1
+  },
+  "completion": {
+    "status": "done",
+    "errorMessage": null
+  },
+  "ranBy": {
+    "api": "Backend",
+    "fix_qa_1": "Frontend",
+    "qa": "QA",
+    "ui": "Frontend"
+  }
+}

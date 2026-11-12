@@ -9,6 +9,7 @@ import {
 } from "../decision";
 import { directiveFor, isStepLimit, resolveTargetAgent, type OverrideState, type RunnerDirective } from "./overrides";
 import type { ReplanObservation } from "./replan";
+import type { FixNeededObservation } from "./fixOwner";
 
 /**
  * P1b phase 1: the Decision Engine seam.
@@ -33,8 +34,9 @@ import type { ReplanObservation } from "./replan";
  *   - L6 (one replan owner, done): `decisionEngine/replan.ts` exports
  *     `decideReplan(observation)`, re-exported here. taskRunner has one
  *     call site; executePlan's acceptance / coverage gates ask it too.
- *   - L7 (stage-loop owners): `decisionEngine/fixOwner.ts` answers the
- *     fix-owner queries of the QA / verify / review loops.
+ *   - L7 (stage-loop owners, done): `decisionEngine/fixOwner.ts` exports
+ *     `decideFixOwner(observation)`, re-exported here. The QA / verify /
+ *     review loops report `fix_needed` and switch on spawn_fix / block.
  *   - L8 (scheduler purification): the scheduler and runNodes report an
  *     `EngineObservation` and execute the `NextStep` they get back.
  */
@@ -56,6 +58,8 @@ export {
 export type { OverrideState, QaSpawnPlan, ReplanVeto, RunnerDirective, SpawnVerdict } from "./overrides";
 export { decideReplan } from "./replan";
 export type { ReplanDecision, ReplanFacts, ReplanObservation, ReplanTrigger } from "./replan";
+export { attributeFinding, decideFixOwner, fixRoundsExhausted, pickQaFixOwner, QA_UI_CAPABILITIES, verifyFixKey } from "./fixOwner";
+export type { FixNeededFacts, FixNeededObservation, FixOwnerDecision, FixStage } from "./fixOwner";
 
 export interface DecideNextResult {
   decision: OrchestratorDecision;
@@ -113,7 +117,7 @@ export type EngineObservation =
   | { kind: "prerequisite_missing"; nodeKey: string; missing: string[] }
   | { kind: "runtime_unavailable"; nodeKey: string; runtime: string }
   | ReplanObservation
-  | { kind: "fix_needed"; stage: "qa" | "verify" | "review"; findingKeys: string[] };
+  | FixNeededObservation;
 
 /** What the engine tells a caller to do next. */
 export type NextStep =

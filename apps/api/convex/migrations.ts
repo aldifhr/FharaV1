@@ -342,3 +342,72 @@ export const deletePersonalConversations = internalMutation({
     return { deletedConversations: rows.length, deletedMessages, done: rows.length < 20 };
   },
 });
+
+// ─── L4 (P1d): retire the per-agent LLM layers ────────────────────────────
+
+/** Agent fields the global chain replaced (L4). Kept `v.optional` in the schema for one release. */
+export const RETIRED_AGENT_LLM_FIELDS = [
+  "llmProviderId",
+  "llmModelId",
+  "llmFallbackProviderId",
+  "llmFallbackModelId",
+  "llmSelectionPolicy",
+  "executionRuntime",
+  "opencodeModel",
+] as const;
+
+/** Template fields the global chain replaced (L4). */
+export const RETIRED_TEMPLATE_LLM_FIELDS = ["llmProviderId", "llmModelId", "runtime", "opencodeModel"] as const;
+
+export interface ClearedLlmField {
+  table: "agents" | "agentTemplates";
+  name: string;
+  field: string;
+  oldValue: string;
+}
+
+/** The retired fields a row still carries, as log entries (pure; empty = nothing to clear). */
+export function retiredLlmFields(
+  table: ClearedLlmField["table"],
+  row: Record<string, unknown> & { name: string },
+  fields: readonly string[]
+): ClearedLlmField[] {
+  return fields
+    .filter((field) => row[field] !== undefined && row[field] !== null)
+    .map((field) => ({ table, name: row.name, field, oldValue: String(row[field]) }));
+}
+
+/**
+ * L4: clear the retired per-agent LLM fields (assignment, fallback,
+ * selection policy, runtime, OpenCode model) on every agent and template,
+ * and log each cleared value (table, name, field, old value). Idempotent:
+ * a second run finds nothing and clears nothing. Run once after deploy:
+ *   npx convex run migrations:clearPerAgentLlm
+ */
+export const clearPerAgentLlm = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ agentsCleared: number; templatesCleared: number; cleared: ClearedLlmField[] }> => {
+    const cleared: ClearedLlmField[] = [];
+    let agentsCleared = 0;
+    let templatesCleared = 0;
+    for (const agent of await ctx.db.query("agents").collect()) {
+      const found = retiredLlmFields("agents", agent, RETIRED_AGENT_LLM_FIELDS);
+      if (found.length === 0) continue;
+      await ctx.db.patch(agent._id, Object.fromEntries(found.map((entry) => [entry.field, undefined])));
+      cleared.push(...found);
+      agentsCleared++;
+    }
+    for (const template of await ctx.db.query("agentTemplates").collect()) {
+      const found = retiredLlmFields("agentTemplates", template, RETIRED_TEMPLATE_LLM_FIELDS);
+      if (found.length === 0) continue;
+      await ctx.db.patch(template._id, Object.fromEntries(found.map((entry) => [entry.field, undefined])));
+      cleared.push(...found);
+      templatesCleared++;
+    }
+    for (const entry of cleared) {
+      console.log(`[L4 clearPerAgentLlm] ${entry.table} "${entry.name}": ${entry.field} = ${entry.oldValue} (cleared)`);
+    }
+    console.log(`[L4 clearPerAgentLlm] ${agentsCleared} agent(s), ${templatesCleared} template(s), ${cleared.length} field(s) cleared`);
+    return { agentsCleared, templatesCleared, cleared };
+  },
+});

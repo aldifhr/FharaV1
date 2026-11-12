@@ -215,9 +215,10 @@ describe("API calls never see OpenCode entries", () => {
     expect(chat).toEqual(chain(worker));
   });
 
-  it("an agent assigned to OpenCode chats on the global API order", () => {
+  it("an agent that still carries a retired OpenCode assignment chats on the global API order", () => {
     const payload = mixedPool().map((c) => ({ ...c, isEnabled: true })) as unknown as PoolConnectionPayload[];
-    const chat = orderedChatPairs(payload, { llmProviderId: "oc" }, { next: () => 0 }).map((p) => p.model.modelId);
+    const legacy = { role: "backend", llmProviderId: "oc" } as { role: string };
+    const chat = orderedChatPairs(payload, legacy, { next: () => 0 }).map((p) => p.model.modelId);
     expect(chat).toEqual(["x", "y"]);
   });
 });
@@ -267,9 +268,10 @@ describe("executionRouteFor (the subtask route)", () => {
     expect(route.skipped).toHaveLength(1);
   });
 
-  it("a per-agent override pointing at OpenCode wins over the list", () => {
-    const route = resolver().executionRouteFor({ llmProviderId: "oc", llmModelId: "row-opencode/b" }, { available: true });
-    expect(route.runtime === "native-provider" && route.model).toBe("opencode/b");
+  it("L4: a retired per-agent override pointing at OpenCode is ignored; the list decides", () => {
+    const legacy = { role: "backend", llmProviderId: "oc", llmModelId: "row-opencode/b" } as { role: string };
+    const route = resolver().executionRouteFor(legacy, { available: true });
+    expect(route.runtime === "native-provider" && route.model).toBe("opencode/a");
   });
 
   it("round robin rotates through OpenCode and API entries alike", () => {

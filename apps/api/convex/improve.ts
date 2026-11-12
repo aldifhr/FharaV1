@@ -294,7 +294,7 @@ export const getSuggestionContext = internalQuery({
     return {
       projectId: task.projectId,
       prefs: identity.prefs,
-      providers: await loadProviderPool(ctx),
+      providers: await loadProviderPool(ctx, { projectId: task.projectId }),
       run: {
         taskTitle: task.title,
         command: task.command,

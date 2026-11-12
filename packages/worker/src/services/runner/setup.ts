@@ -32,6 +32,7 @@ import type { FileDiff } from "@/tools/gitDiff";
 import { taskAgentSkills } from "@/execution/skillLoading";
 import type { ModelTiers } from "@/api/convex/lib/modelTiers";
 import { appendMemoryToPrompt } from "@/api/convex/lib/memory";
+import { settingEnv } from "@/api/convex/lib/appSettings";
 import type {
   WorkerRunAgent,
   WorkerProject,
@@ -50,9 +51,9 @@ export { completedSubtasksFor, buildReplanFeedback, type CompletedSubtask } from
  * naming the provider — the caller fails the task with it rather than
  * silently calling an LLM with the wrong credential.
  *
- * Each agent then resolves independently (assignment → fallback
- * assignment → pool by priority/weight, circuit-open connections
- * excluded) — replacing the old single `llmProviders[0]` task config.
+ * Every call then resolves the one global chain (L4: the model list in
+ * Settings order, the mode, circuit-open connections excluded; the
+ * project's role model first only with FHARA_LLM_ROLE_OVERRIDE on).
  */
 export async function buildTaskLlmResolver(
   llmProviders: PoolConnectionRow[] | undefined,
@@ -69,7 +70,9 @@ export async function buildTaskLlmResolver(
     providerHealth.registerConnectionName(row._id, row.name);
   }
   const pool = await materializePool(llmProviders);
-  return new TaskLlmResolver(pool, providerHealth, { tiers, globalMode });
+  // L4: tiers apply only with FHARA_LLM_ROLE_OVERRIDE on (Settings override, then env).
+  const roleOverride = wenv("FHARA_LLM_ROLE_OVERRIDE", settingEnv);
+  return new TaskLlmResolver(pool, providerHealth, { tiers, globalMode, roleOverride });
 }
 
 /**
@@ -253,14 +256,9 @@ export function toAgentDefinition(agent: WorkerRunAgent): AgentDefinition {
     priority: agent.priority,
     maxConcurrency: agent.maxConcurrency,
     status: agent.status,
-    // LLM assignment for the Phase 2 resolver (ids only — never key material).
-    llmProviderId: agent.llmProviderId,
-    llmModelId: agent.llmModelId,
-    llmFallbackProviderId: agent.llmFallbackProviderId,
-    llmFallbackModelId: agent.llmFallbackModelId,
-    llmSelectionPolicy: agent.llmSelectionPolicy,
-    executionRuntime: agent.executionRuntime,
-    opencodeModel: agent.opencodeModel,
+    // L4: no per-agent model, fallback, policy or runtime. Every call
+    // resolves the global chain (lib/llmChain.ts); a row that still carries
+    // the retired fields is ignored until migrations:clearPerAgentLlm runs.
   };
 }
 

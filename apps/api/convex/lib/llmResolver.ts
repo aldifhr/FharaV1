@@ -4,6 +4,8 @@ import type { Id } from "../_generated/dataModel";
 import { decryptApiKey } from "./llmCrypto";
 import { normalizeSelectionMode, type LlmSelectionMode } from "./llmSelection";
 import { isOpencodeConnection } from "./opencodeProvider";
+import { normalizeModelTiers, type ModelTiers } from "./modelTiers";
+import { cenvParse, cenvRaw } from "@fhara/config/convex";
 
 /**
  * Backend provider-pool assembly (spec §4) — the single place where
@@ -64,6 +66,26 @@ export interface PoolConnectionPayload {
    * rotates it the same way the worker does. No credential material.
    */
   selectionMode?: LlmSelectionMode;
+  /**
+   * L4: the project's model per role, repeated on every row ONLY when
+   * FHARA_LLM_ROLE_OVERRIDE is on and the caller named a project. Absent
+   * means the global chain alone (lib/llmChain.ts orderChain).
+   */
+  roleTiers?: ModelTiers;
+}
+
+/** L4: FHARA_LLM_ROLE_OVERRIDE — the Settings value, else the Convex env (default off). */
+export async function roleOverrideOn(ctx: QueryCtx): Promise<boolean> {
+  const row = await ctx.db.query("appSettings").first();
+  const stored = row?.values?.find((entry) => entry.key === "FHARA_LLM_ROLE_OVERRIDE")?.value;
+  return cenvParse("FHARA_LLM_ROLE_OVERRIDE", stored || cenvRaw("FHARA_LLM_ROLE_OVERRIDE"));
+}
+
+/** L4: the project's tiers when the override is on, else undefined (tiers ignored). */
+export async function activeRoleTiers(ctx: QueryCtx, projectId: Id<"projects"> | undefined): Promise<ModelTiers | undefined> {
+  if (!projectId || !(await roleOverrideOn(ctx))) return undefined;
+  const tiers = normalizeModelTiers((await ctx.db.get(projectId))?.modelTiers);
+  return Object.keys(tiers).length > 0 ? tiers : undefined;
 }
 
 /**
@@ -79,7 +101,7 @@ export interface PoolConnectionPayload {
  */
 export async function loadProviderPool(
   ctx: QueryCtx,
-  options: { includeDisabled?: boolean; includeOpencode?: boolean } = {}
+  options: { includeDisabled?: boolean; includeOpencode?: boolean; projectId?: Id<"projects"> } = {}
 ): Promise<PoolConnectionPayload[]> {
   const providers = await ctx.db.query("llmProviders").collect();
   const modelDocs = await ctx.db.query("llmModels").collect();
@@ -103,6 +125,7 @@ export async function loadProviderPool(
 
   const settings = await ctx.db.query("llmSelectionSettings").first();
   const selectionMode = normalizeSelectionMode(settings?.mode);
+  const roleTiers = await activeRoleTiers(ctx, options.projectId);
   const pool: PoolConnectionPayload[] = [];
   for (const p of providers) {
     if (p.isEnabled === false && !options.includeDisabled) continue;
@@ -125,6 +148,7 @@ export async function loadProviderPool(
       isEnabled: p.isEnabled,
       models,
       selectionMode,
+      ...(roleTiers ? { roleTiers } : {}),
     });
   }
   pool.sort((a, b) => a.priority - b.priority);

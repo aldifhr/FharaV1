@@ -34,6 +34,8 @@ export const CONVEX_SYNC_KEYS = [
   "CONTEXT_SNAPSHOTS",
   "FHARA_GIT_AUTHOR_NAME",
   "FHARA_GIT_AUTHOR_EMAIL",
+  // L4: the per-role model override, read by chat and the Reviewer as well as the worker.
+  "FHARA_LLM_ROLE_OVERRIDE",
 ] as const;
 
 /** Convex-read vars deliberately left out of env:sync, each with its reason. */

@@ -1,4 +1,5 @@
 import { isOpencodeConnection } from "./lib/opencodeProvider";
+import { roleOverrideOn } from "./lib/llmResolver";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { holdsTaskLease } from "./orchestration";
@@ -84,8 +85,9 @@ export const recordSubtaskAcceptance = internalMutation({
 // ─── Model tier per role (project setting) ─────────────────────────────────
 
 /**
- * Plan 022: the project's model tiers and the configured models a tier
- * may point at (available registry rows, with their connection's name).
+ * Plan 022: the project's model tiers, whether they apply (L4 role
+ * override toggle) and the configured models a tier may point at
+ * (available registry rows, with their connection's name).
  */
 export const getProjectModelTiers = query({
   args: { projectId: v.id("projects") },
@@ -97,6 +99,8 @@ export const getProjectModelTiers = query({
     );
     return {
       tiers: normalizeModelTiers(project.modelTiers),
+      // L4: tiers apply (and Manage project shows them) only with FHARA_LLM_ROLE_OVERRIDE on.
+      roleOverride: await roleOverrideOn(ctx),
       options: models
         .filter(
           (model) =>

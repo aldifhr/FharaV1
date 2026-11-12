@@ -316,37 +316,22 @@ export const getProjectShadowDefault = query({
 
 // ─── Internal: the review run ──────────────────────────────────────────────
 
-type AgentPrefs = {
-  llmProviderId?: string;
-  llmModelId?: string;
-  llmFallbackProviderId?: string;
-  llmFallbackModelId?: string;
-  llmSelectionPolicy?: string;
-};
+/** What the review call tells the chain (L4): the Reviewer role, read only by the role override. */
+type AgentPrefs = { role: "reviewer"; callRole: "reviewer" };
 
-/** The enabled Reviewer agent and the LLM preference it runs with (agent > reviewer tier > pool). */
+/**
+ * The enabled Reviewer agent and the chain preference it runs with. L4: the
+ * global chain (lib/llmChain.ts); the project's reviewer model goes first
+ * only with FHARA_LLM_ROLE_OVERRIDE on, through the pool's `roleTiers`
+ * (loadProviderPool with the projectId). Per-agent fields are not read.
+ */
 export async function reviewerIdentity(
   ctx: QueryCtx,
-  projectId: Id<"projects">
-): Promise<{ agentId: Id<"agents"> | null; persona: string | undefined; prefs: AgentPrefs | undefined }> {
+  _projectId: Id<"projects">
+): Promise<{ agentId: Id<"agents"> | null; persona: string | undefined; prefs: AgentPrefs }> {
   const agents = await ctx.db.query("agents").collect();
   const reviewer = agents.find((a) => a.isEnabled !== false && a.role.trim().toLowerCase() === "reviewer") ?? null;
-  let prefs: AgentPrefs | undefined;
-  if (reviewer?.llmProviderId) {
-    prefs = {
-      llmProviderId: reviewer.llmProviderId,
-      llmModelId: reviewer.llmModelId,
-      llmFallbackProviderId: reviewer.llmFallbackProviderId,
-      llmFallbackModelId: reviewer.llmFallbackModelId,
-      llmSelectionPolicy: reviewer.llmSelectionPolicy,
-    };
-  } else {
-    const proj = await ctx.db.get(projectId);
-    const tierModelId = proj?.modelTiers?.reviewer;
-    const tierModel = tierModelId ? await ctx.db.get(tierModelId) : null;
-    if (tierModel) prefs = { llmProviderId: tierModel.providerId, llmModelId: tierModel._id };
-  }
-  return { agentId: reviewer?._id ?? null, persona: reviewer?.systemPrompt, prefs };
+  return { agentId: reviewer?._id ?? null, persona: reviewer?.systemPrompt, prefs: { role: "reviewer", callRole: "reviewer" } };
 }
 
 export const getReviewContext = internalQuery({
@@ -355,7 +340,7 @@ export const getReviewContext = internalQuery({
     const opinion = await ctx.db.get(args.opinionId);
     if (!opinion || opinion.status !== "running") return null;
     const identity = await reviewerIdentity(ctx, opinion.projectId);
-    const providers: PoolConnectionPayload[] = await loadProviderPool(ctx);
+    const providers: PoolConnectionPayload[] = await loadProviderPool(ctx, { projectId: opinion.projectId });
     let material = "";
     let shadowTokensUsed = 0;
     let shadowNotesUsed = 0;

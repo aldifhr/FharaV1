@@ -393,34 +393,36 @@ export default function ManageProjectModal({
               : "What each LLM call saw, for Inspect context and Replay. Older snapshots are deleted daily."}
           </span>
         </label>
-        <fieldset className="grid gap-2">
-          <legend className="font-medium">Model per role</legend>
-          <span className="text-[12.5px] text-ink-3">
-            An agent with its own model keeps it. Otherwise the tier for its role is used, then the default provider order.
-          </span>
-          {MODEL_TIER_KEYS.map((key: ModelTierKey) => (
-            <label key={key} className="grid gap-1">
-              <span>{MODEL_TIER_LABELS[key]}</span>
-              <select
-                value={tiers[key] ?? ""}
-                disabled={!tierState}
-                onChange={(e) => {
-                  setTiersTouched(true);
-                  setTiers((current) => ({ ...current, [key]: e.target.value || undefined }));
-                }}
-                className={field}
-              >
-                <option value="">Default</option>
-                {(tierState?.options ?? []).map((option) => (
-                  <option key={option._id} value={option._id}>
-                    {option.label} · {option.providerName}
-                  </option>
-                ))}
-              </select>
-              <span className="text-[12.5px] text-ink-3">{MODEL_TIER_HINTS[key]}</span>
-            </label>
-          ))}
-        </fieldset>
+        {tierState?.roleOverride ? (
+          <fieldset className="grid gap-2">
+            <legend className="font-medium">Model per role</legend>
+            <span className="text-[12.5px] text-ink-3">
+              The model for each role goes first; the global model list in Settings → LLM & Models is the fallback.
+            </span>
+            {MODEL_TIER_KEYS.map((key: ModelTierKey) => (
+              <label key={key} className="grid gap-1">
+                <span>{MODEL_TIER_LABELS[key]}</span>
+                <select
+                  value={tiers[key] ?? ""}
+                  disabled={!tierState}
+                  onChange={(e) => {
+                    setTiersTouched(true);
+                    setTiers((current) => ({ ...current, [key]: e.target.value || undefined }));
+                  }}
+                  className={field}
+                >
+                  <option value="">Default</option>
+                  {(tierState?.options ?? []).map((option) => (
+                    <option key={option._id} value={option._id}>
+                      {option.label} · {option.providerName}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[12.5px] text-ink-3">{MODEL_TIER_HINTS[key]}</span>
+              </label>
+            ))}
+          </fieldset>
+        ) : null}
         <fieldset className="grid gap-2">
           <legend className="font-medium">Project team</legend>
           <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-line p-2">

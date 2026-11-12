@@ -293,10 +293,7 @@ export const saveFromAgent = mutation({
       description: clean.description ?? "",
       systemPrompt: clean.systemPrompt || defaultSystemPromptForRole(clean.role!),
       ...(skillIds.length ? { skillIds } : {}),
-      ...(agent.llmProviderId ? { llmProviderId: agent.llmProviderId } : {}),
-      ...(agent.llmModelId ? { llmModelId: agent.llmModelId } : {}),
-      ...(agent.executionRuntime ? { runtime: agent.executionRuntime } : {}),
-      ...(agent.opencodeModel ? { opencodeModel: agent.opencodeModel } : {}),
+      // L4: no LLM preference or runtime (the global model list decides).
       ...(agent.avatarParams ? { avatarParams: agent.avatarParams } : {}),
       builtIn: false,
       createdAt: now,
@@ -310,8 +307,7 @@ export const saveFromAgent = mutation({
 /**
  * New agent from a template. The name is generated (role label, numbered
  * when taken); role defaults (capabilities, tools, scheduling) come from the
- * role; the template supplies instructions, skills, LLM preference, runtime
- * and avatar. With `projectId`, the agent also joins that project's team.
+ * role; the template supplies instructions, skills and avatar. With `projectId`, the agent also joins that project's team.
  */
 export const createAgentFromTemplate = mutation({
   args: { templateId: v.string(), projectId: v.optional(v.id("projects")) },
@@ -323,11 +319,6 @@ export const createAgentFromTemplate = mutation({
     const name = nextAgentName(template.role, agents);
     const role = template.role;
     const defaults = isRoleKey(role) ? ROLES[role] : null;
-    // A preference whose provider/model was deleted since is dropped.
-    const llmProviderId =
-      template.llmProviderId && (await ctx.db.get(template.llmProviderId)) ? template.llmProviderId : undefined;
-    const llmModelId =
-      template.llmModelId && (await ctx.db.get(template.llmModelId)) ? template.llmModelId : undefined;
     const agentId = await ctx.db.insert("agents", {
       name,
       role,
@@ -345,11 +336,8 @@ export const createAgentFromTemplate = mutation({
         : { priority: 0, maxConcurrency: 1 }),
       isEnabled: true,
       ...(template.skillIds.length ? { skillIds: template.skillIds } : {}),
-      ...(llmProviderId ? { llmProviderId } : {}),
-      ...(llmModelId ? { llmModelId } : {}),
-      // Plan 035: the OpenCode runtime and model are app-wide (Settings),
-      // so a template no longer carries them into a new agent. The template's
-      // own runtime/model fields stay as legacy data.
+      // L4: a template carries no LLM preference or runtime into a new agent;
+      // every agent resolves the global model list (lib/llmChain.ts).
     });
     if (project) {
       await ctx.db.patch(project._id, { agentIds: [...(project.agentIds ?? []), agentId] });

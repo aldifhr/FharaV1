@@ -18,8 +18,9 @@ import type { LLMProvider } from "@/llm";
 import { toPublicProvider } from "@/api/convex/llmProviders";
 
 /**
- * Provider Resolver scenarios (PLAN §C): per-agent assignment, pool
- * priority/weight, model patterns, health exclusion, in-task fallback.
+ * Provider Resolver scenarios (PLAN §C, L4): one global chain (per-agent
+ * fields ignored), the role override, pool order, model patterns, health
+ * exclusion, in-task fallback.
  */
 
 function model(modelId: string, extra: Partial<PoolModel> = {}): PoolModel {
@@ -45,83 +46,60 @@ function agent(partial: Record<string, unknown>): AgentLlmAssignment {
 
 const freshHealth = () => new ProviderHealthRegistry();
 
-describe("resolveForAgent — assignment", () => {
+describe("resolveForAgent — L4: one global chain, no per-agent layers", () => {
   const pool = [
     conn({ _id: "conn-a", name: "Alpha", priority: 1 }),
     conn({ _id: "conn-b", name: "Beta", priority: 5 }),
   ];
 
-  it("different agents resolve to different providers via assignment", () => {
-    const a = resolveForAgent(agent({ name: "A", llmProviderId: "conn-a" }), {}, pool, freshHealth());
-    const b = resolveForAgent(agent({ name: "B", llmProviderId: "conn-b" }), {}, pool, freshHealth());
-    expect(a.primary.connectionId).toBe("conn-a");
-    expect(b.primary.connectionId).toBe("conn-b");
-  });
-
-  it("different agents resolve to different models on one connection", () => {
-    const shared = conn({
-      _id: "conn-a",
-      name: "Alpha",
-      models: [model("fast"), model("deep", { supportsReasoning: true })],
-    });
-    const a = resolveForAgent(agent({ llmProviderId: "conn-a", llmModelId: "row-fast" }), {}, [shared], freshHealth());
-    const b = resolveForAgent(agent({ llmProviderId: "conn-a", llmModelId: "row-deep" }), {}, [shared], freshHealth());
-    expect(a.primary.model).toBe("fast");
-    expect(b.primary.model).toBe("deep");
-    expect(a.primary.connectionId).toBe(b.primary.connectionId);
-  });
-
-  it("two unassigned agents share the pool's primary connection", () => {
-    const a = resolveForAgent(agent({ name: "A" }), {}, pool, freshHealth());
-    const b = resolveForAgent(agent({ name: "B" }), {}, pool, freshHealth());
+  it("every agent resolves the same chain: the pool in list order", () => {
+    const a = resolveForAgent(agent({ name: "A", role: "cto" }), {}, pool, freshHealth());
+    const b = resolveForAgent(agent({ name: "B", role: "backend" }), {}, pool, freshHealth());
     expect(a.primary.connectionId).toBe("conn-a"); // lowest priority number
     expect(b.primary.connectionId).toBe("conn-a");
+    expect(a.fallbackChain.map((f) => f.connectionId)).toEqual(["conn-b"]);
+    expect(b.fallbackChain.map((f) => f.connectionId)).toEqual(["conn-b"]);
   });
 
-  it("fallback assignment comes first in the fallback chain", () => {
-    const res = resolveForAgent(
-      agent({ llmProviderId: "conn-a", llmFallbackProviderId: "conn-b" }),
-      {},
-      pool,
-      freshHealth()
-    );
+  it("an agent with old per-agent fields set still resolves the global chain", () => {
+    const legacy = agent({
+      name: "Legacy",
+      role: "backend",
+      llmProviderId: "conn-b",
+      llmModelId: "row-m1",
+      llmFallbackProviderId: "conn-b",
+      llmSelectionPolicy: "fixed",
+      executionRuntime: "opencode",
+      opencodeModel: "openrouter/x",
+    });
+    const res = resolveForAgent(legacy, {}, pool, freshHealth());
     expect(res.primary.connectionId).toBe("conn-a");
     expect(res.fallbackChain.map((f) => f.connectionId)).toEqual(["conn-b"]);
+    expect(res.routing.reason).toContain("model list order");
   });
 
-  it('policy "fixed" never falls through to pool candidates', () => {
-    expect(() =>
-      resolveForAgent(
-        agent({ llmProviderId: "conn-missing", llmSelectionPolicy: "fixed" }),
-        {},
-        pool,
-        freshHealth()
-      )
-    ).toThrow(/No LLM provider can serve/);
+  it("a tier model goes first, then the global list (no repeats); an unserved tier is ignored", () => {
+    const res = resolveForAgent(agent({ role: "backend" }), {}, pool, freshHealth(), { tierModelRowId: "row-m1" });
+    // Both connections serve row-m1: the tier entries lead in list order.
+    expect(res.primary.connectionId).toBe("conn-a");
+    const shared = [conn({ _id: "conn-a", name: "Alpha", models: [model("fast"), model("deep")] })];
+    const tiered = resolveForAgent(undefined, {}, shared, freshHealth(), { tierModelRowId: "row-deep" });
+    expect([tiered.primary.model, ...tiered.fallbackChain.map((f) => f.model)]).toEqual(["deep", "fast"]);
+    expect(tiered.routing.reason).toContain("role model");
+    const gone = resolveForAgent(undefined, {}, shared, freshHealth(), { tierModelRowId: "row-gone" });
+    expect(gone.primary.model).toBe("fast");
   });
 });
 
 describe("resolveForAgent — pool ordering", () => {
-  it("weighted pick among equal priorities is deterministic with injected random", () => {
-    const pool = [
-      conn({ _id: "conn-a", name: "Alpha", priority: 10, weight: 100 }),
-      conn({ _id: "conn-b", name: "Beta", priority: 10, weight: 100 }),
-    ];
-    const first = resolveForAgent(undefined, {}, pool, freshHealth(), { random: () => 0 });
-    const second = resolveForAgent(undefined, {}, pool, freshHealth(), { random: () => 0.99 });
-    expect(first.primary.connectionId).toBe("conn-a");
-    expect(second.primary.connectionId).toBe("conn-b");
-  });
-
-  it('policy "priority" ignores weights entirely', () => {
+  it("equal priorities: heavier weight first, then pool order (deterministic, no random draw)", () => {
     const pool = [
       conn({ _id: "conn-a", name: "Alpha", priority: 10, weight: 1 }),
       conn({ _id: "conn-b", name: "Beta", priority: 10, weight: 100 }),
     ];
-    const res = resolveForAgent(agent({ llmSelectionPolicy: "priority" }), {}, pool, freshHealth(), {
-      random: () => 0.99,
-    });
-    expect(res.primary.connectionId).toBe("conn-a");
+    const res = resolveForAgent(undefined, {}, pool, freshHealth());
+    expect(res.primary.connectionId).toBe("conn-b");
+    expect(res.fallbackChain.map((f) => f.connectionId)).toEqual(["conn-a"]);
   });
 
   it("unavailable models are never selected", () => {
@@ -147,88 +125,47 @@ describe("resolveForAgent — global selection mode", () => {
     conn({ _id: "conn-c", name: "Gamma", priority: 10 }),
   ];
 
-  it('mode "fallback" picks one provider and keeps the failover chain', () => {
-    const pick = (random: number) =>
-      resolveForAgent(undefined, {}, pool, freshHealth(), { globalMode: "fallback", random: () => random })
-        .primary.connectionId;
-    // The pool's own order: weight decides among equal priorities.
-    expect(pick(0)).toBe("conn-a");
-    expect(pick(0.99)).toBe("conn-c");
+  it('mode "fallback" starts on the list head and keeps the failover chain', () => {
     const res = resolveForAgent(undefined, {}, pool, freshHealth(), { globalMode: "fallback" });
-    expect(res.fallbackChain).toHaveLength(2);
-    expect(res.fallbackChain.map((f) => f.connectionId)).not.toContain(res.primary.connectionId);
-  });
-
-  it('mode "round_robin" rotates the starting connection', () => {
-    const rotation = new InMemoryRotationCursor();
-    const pick = () =>
-      resolveForAgent(undefined, {}, pool, freshHealth(), {
-        globalMode: "round_robin",
-        rotation,
-      }).primary.connectionId;
-    expect([pick(), pick(), pick(), pick()]).toEqual(["conn-a", "conn-b", "conn-c", "conn-a"]);
-  });
-
-  it("an agent's own policy still wins over the global mode", () => {
-    const rotation = new InMemoryRotationCursor();
-    const res = resolveForAgent(
-      agent({ llmSelectionPolicy: "fixed", llmProviderId: "conn-b" }),
-      {},
-      pool,
-      freshHealth(),
-      { globalMode: "round_robin", rotation }
-    );
-    expect(res.primary.connectionId).toBe("conn-b");
-    expect(res.fallbackChain).toEqual([]);
-  });
-
-  it("no mode and no agent policy keeps the pool's own pick", () => {
-    const res = resolveForAgent(undefined, {}, pool, freshHealth(), { random: () => 0.99 });
-    expect(res.primary.connectionId).toBe("conn-c");
-  });
-});
-
-describe("resolveForAgent — round robin", () => {
-  const pool = [
-    conn({ _id: "conn-a", name: "Alpha", priority: 10 }),
-    conn({ _id: "conn-b", name: "Beta", priority: 10 }),
-    conn({ _id: "conn-c", name: "Gamma", priority: 10 }),
-  ];
-
-  it('policy "round_robin" rotates the starting connection', () => {
-    const rotation = new InMemoryRotationCursor();
-    const pick = () =>
-      resolveForAgent(agent({ llmSelectionPolicy: "round_robin" }), {}, pool, freshHealth(), {
-        rotation,
-      }).primary.connectionId;
-    expect([pick(), pick(), pick(), pick()]).toEqual(["conn-a", "conn-b", "conn-c", "conn-a"]);
-  });
-
-  it('policy "round_robin" keeps the failover chain armed', () => {
-    const rotation = new InMemoryRotationCursor();
-    const res = resolveForAgent(agent({ llmSelectionPolicy: "round_robin" }), {}, pool, freshHealth(), {
-      rotation,
-    });
     expect(res.primary.connectionId).toBe("conn-a");
     expect(res.fallbackChain.map((f) => f.connectionId)).toEqual(["conn-b", "conn-c"]);
   });
 
-  it('policy "round_robin" with one candidate behaves like any other mode', () => {
-    const single = [conn({ _id: "conn-a", name: "Alpha" })];
+  it('mode "round_robin" rotates the starting connection and keeps the chain armed', () => {
     const rotation = new InMemoryRotationCursor();
-    const res = resolveForAgent(agent({ llmSelectionPolicy: "round_robin" }), {}, single, freshHealth(), {
-      rotation,
-    });
+    const resolve = () => resolveForAgent(undefined, {}, pool, freshHealth(), { globalMode: "round_robin", rotation });
+    const first = resolve();
+    expect(first.fallbackChain.map((f) => f.connectionId)).toEqual(["conn-b", "conn-c"]);
+    expect([first.primary.connectionId, resolve().primary.connectionId, resolve().primary.connectionId, resolve().primary.connectionId]).toEqual([
+      "conn-a",
+      "conn-b",
+      "conn-c",
+      "conn-a",
+    ]);
+  });
+
+  it("an agent's retired policy no longer overrides the global mode", () => {
+    const rotation = new InMemoryRotationCursor();
+    const pick = () =>
+      resolveForAgent(agent({ llmSelectionPolicy: "fixed", llmProviderId: "conn-b" }), {}, pool, freshHealth(), {
+        globalMode: "round_robin",
+        rotation,
+      }).primary.connectionId;
+    expect([pick(), pick()]).toEqual(["conn-a", "conn-b"]);
+  });
+
+  it("round robin with one candidate behaves like any other mode", () => {
+    const single = [conn({ _id: "conn-a", name: "Alpha" })];
+    const res = resolveForAgent(undefined, {}, single, freshHealth(), { globalMode: "round_robin", rotation: new InMemoryRotationCursor() });
     expect(res.primary.connectionId).toBe("conn-a");
     expect(res.fallbackChain).toEqual([]);
   });
 
   it("the Task Estimator does not consume a rotation", () => {
     const rotation = new InMemoryRotationCursor();
-    const resolver = new TaskLlmResolver(pool, freshHealth(), { rotation });
-    resolver.expectedModelFor(agent({ llmSelectionPolicy: "round_robin" }));
-    const res = resolver.resolutionFor(agent({ llmSelectionPolicy: "round_robin" }));
-    expect(res.primary.connectionId).toBe("conn-a");
+    const resolver = new TaskLlmResolver(pool, freshHealth(), { rotation, globalMode: "round_robin" });
+    resolver.expectedModelFor(agent({ role: "backend" }));
+    expect(resolver.resolutionFor(agent({ role: "backend" })).primary.connectionId).toBe("conn-a");
   });
 });
 
@@ -322,17 +259,34 @@ describe("materializePool", () => {
 });
 
 describe("TaskLlmResolver", () => {
-  it("configFor follows the agent assignment; defaultConfig uses the pool primary", () => {
-    const pool = [
-      conn({ _id: "conn-a", name: "Alpha", priority: 1 }),
-      conn({ _id: "conn-b", name: "Beta", priority: 5, models: [model("b-model")] }),
-    ];
-    const resolver = new TaskLlmResolver(pool, freshHealth(), { random: () => 0 });
+  const pool = [
+    conn({ _id: "conn-a", name: "Alpha", priority: 1 }),
+    conn({ _id: "conn-b", name: "Beta", priority: 5, models: [model("b-model")] }),
+  ];
+  const tiers = { planner: "row-b-model", reviewer: "row-b-model", worker: "row-b-model" };
+  const chainOf = (resolver: TaskLlmResolver, a: AgentLlmAssignment | undefined, callRole: string) =>
+    resolver.handlesFor(a, { callRole }).map((h) => `${h.connectionId}/${h.config.model}`);
+
+  it("toggle off: planner, decision, executor, reviewer, memory and commit resolve the identical chain", () => {
+    const resolver = new TaskLlmResolver(pool, freshHealth(), { tiers });
+    const cto = agent({ name: "CTO", role: "cto", llmProviderId: "conn-b" });
+    const be = agent({ name: "BE", role: "backend", llmModelId: "row-b-model" });
+    const reviewer = agent({ name: "Rev", role: "reviewer" });
+    const expected = ["conn-a/m1", "conn-b/b-model"];
     expect(resolver.defaultConfig().model).toBe("m1");
-    expect(resolver.configFor(agent({ llmProviderId: "conn-b" })).model).toBe("b-model");
-    const handles = resolver.handlesFor(agent({ llmProviderId: "conn-b" }));
-    expect(handles[0].connectionId).toBe("conn-b");
-    expect(handles.map((h) => h.connectionId)).toContain("conn-a");
+    for (const [a, role] of [[cto, "planner"], [cto, "decision"], [be, "executor"], [reviewer, "reviewer"], [be, "memory"], [be, "commit"]] as const) {
+      expect(chainOf(resolver, a, role)).toEqual(expected);
+    }
+  });
+
+  it("toggle on: the role's tier model first, then the global list as fallback", () => {
+    const resolver = new TaskLlmResolver(pool, freshHealth(), { tiers: { planner: "row-b-model" }, roleOverride: true });
+    const cto = agent({ name: "CTO", role: "cto" });
+    expect(chainOf(resolver, cto, "planner")).toEqual(["conn-b/b-model", "conn-a/m1"]);
+    // A team member serving the planner call still plans on the planner tier.
+    expect(chainOf(resolver, agent({ role: "backend" }), "planner")).toEqual(["conn-b/b-model", "conn-a/m1"]);
+    // No worker tier set: the executor walks the global list.
+    expect(chainOf(resolver, agent({ role: "backend" }), "executor")).toEqual(["conn-a/m1", "conn-b/b-model"]);
   });
 });
 

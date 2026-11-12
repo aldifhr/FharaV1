@@ -124,11 +124,11 @@ describe("agentTemplates functions", () => {
     const agent = await t.run((ctx) => ctx.db.get(made.agentId));
     expect(agent?.systemPrompt).toBe("Test everything twice.");
     expect(agent?.skillIds).toEqual([skillId]);
-    // Plan 035: the template keeps the runtime/model as legacy data, but a
-    // new agent does not inherit them - the app-wide setting decides.
+    // L4: neither the template nor the new agent carries a runtime or model -
+    // the app-wide setting and the global model list decide.
     const template = await t.run((ctx) => ctx.db.get(saved.templateId));
-    expect(template?.runtime).toBe("opencode");
-    expect(template?.opencodeModel).toBe("openrouter/some-model");
+    expect(template?.runtime).toBeUndefined();
+    expect(template?.opencodeModel).toBeUndefined();
     expect(agent?.executionRuntime).toBeUndefined();
     expect(agent?.opencodeModel).toBeUndefined();
     expect((agent?.avatarParams as { face: number }).face).toBe(1);

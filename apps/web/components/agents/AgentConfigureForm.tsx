@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { BookmarkPlus, Dices } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { AGENT_TOOL_OPTIONS } from "@/api/convex/lib/toolNames";
@@ -14,35 +14,28 @@ import { roleOptionsFor, type AgentDoc } from "../sidebar/AgentForms";
 import { INSPECTOR_INPUT, InspectorBody, InspectorField, InspectorFooter } from "../ui/inspector";
 import { useInspectorDraft } from "../ui/use-inspector-draft";
 
-type Option = { _id: string; name?: string; displayName?: string; modelId?: string; providerId?: string };
-
 function baseFor(agent: AgentDoc) {
   return {
     name: agent.name,
     role: agent.role,
     systemPrompt: agent.systemPrompt ?? "",
     tools: agent.supportedTools ?? roleDefaultTools(agent.role),
-    llmProviderId: agent.llmProviderId ?? "",
-    llmModelId: agent.llmModelId ?? "",
-    llmFallbackProviderId: agent.llmFallbackProviderId ?? "",
-    llmFallbackModelId: agent.llmFallbackModelId ?? "",
     avatar: null as string | null,
   };
 }
 
 /**
  * Inspector → Configure (dashboard F4): name, role, avatar, instructions, tool
- * permissions and the LLM assignment, edited as one draft with Discard / Save.
+ * permissions, edited as one draft with Discard / Save. The model is not per
+ * agent (L4): the global list in Settings → LLM & Models serves every call.
  */
 export default function AgentConfigureForm({ agent, onDirtyChange }: { agent: AgentDoc; onDirtyChange?: (dirty: boolean) => void }) {
   const updateAgent = useMutation(api.agents.update);
   const resetPrompt = useMutation(api.agentPrompts.resetToRoleTemplate);
   const saveAsTemplate = useMutation(api.agentTemplates.saveFromAgent);
-  const llmProviders = useQuery(api.llmProviders.list, {}) as Option[] | undefined;
-  const llmModels = useQuery(api.llmModels.list, {}) as Option[] | undefined;
   const toast = useToast();
   const form = useInspectorDraft(baseFor(agent));
-  const { draft, set, update } = form;
+  const { draft, set } = form;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -61,11 +54,6 @@ export default function AgentConfigureForm({ agent, onDirtyChange }: { agent: Ag
         name: draft.name,
         role: draft.role,
         systemPrompt: draft.systemPrompt,
-        // An id sets the assignment, null clears it (backend contract).
-        llmProviderId: (draft.llmProviderId || null) as never,
-        llmModelId: (draft.llmModelId || null) as never,
-        llmFallbackProviderId: (draft.llmFallbackProviderId || null) as never,
-        llmFallbackModelId: (draft.llmFallbackModelId || null) as never,
         // Only a changed list becomes a custom override; untouched agents keep role defaults.
         ...(form.isChanged("tools") ? { supportedTools: draft.tools } : {}),
         ...dicebearAvatarArgs(draft.avatar),
@@ -103,8 +91,6 @@ export default function AgentConfigureForm({ agent, onDirtyChange }: { agent: Ag
       setSavingTemplate(false);
     }
   }
-
-  const modelsFor = (providerId: string) => (llmModels ?? []).filter((m) => m.providerId === providerId);
 
   return (
     <>
@@ -189,47 +175,11 @@ export default function AgentConfigureForm({ agent, onDirtyChange }: { agent: Ag
           </div>
         </InspectorField>
 
-        <InspectorField
-          label="Model"
-          hint="Leave empty to use the global model order. The order, the mode and the OpenCode runtime live in Settings → LLM & Models."
-        >
-          <div className="grid gap-2 sm:grid-cols-2">
-            <select aria-label="Provider" value={draft.llmProviderId} onChange={(e) => update({ llmProviderId: e.target.value, llmModelId: "" })} className={INSPECTOR_INPUT}>
-              <option value="">Global order (default)</option>
-              {(llmProviders ?? []).map((p) => (
-                <option key={p._id} value={p._id}>{p.name}</option>
-              ))}
-            </select>
-            <select aria-label="Model" value={draft.llmModelId} onChange={(e) => set("llmModelId", e.target.value)} disabled={!draft.llmProviderId} className={INSPECTOR_INPUT}>
-              <option value="">First available</option>
-              {modelsFor(draft.llmProviderId).map((m) => (
-                <option key={m._id} value={m._id}>{m.displayName || m.modelId}</option>
-              ))}
-            </select>
-            <select
-              aria-label="Fallback provider"
-              value={draft.llmFallbackProviderId}
-              onChange={(e) => update({ llmFallbackProviderId: e.target.value, llmFallbackModelId: "" })}
-              className={INSPECTOR_INPUT}
-            >
-              <option value="">No fallback</option>
-              {(llmProviders ?? []).map((p) => (
-                <option key={p._id} value={p._id}>{p.name}</option>
-              ))}
-            </select>
-            <select
-              aria-label="Fallback model"
-              value={draft.llmFallbackModelId}
-              onChange={(e) => set("llmFallbackModelId", e.target.value)}
-              disabled={!draft.llmFallbackProviderId}
-              className={INSPECTOR_INPUT}
-            >
-              <option value="">First available</option>
-              {modelsFor(draft.llmFallbackProviderId).map((m) => (
-                <option key={m._id} value={m._id}>{m.displayName || m.modelId}</option>
-              ))}
-            </select>
-          </div>
+        <InspectorField label="Model">
+          <p className="text-[12px] text-ink-3">
+            Every agent uses the one model list in Settings → LLM & Models: its mode and its order decide the model and
+            the fallbacks.
+          </p>
         </InspectorField>
       </InspectorBody>
 

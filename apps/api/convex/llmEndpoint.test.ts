@@ -163,22 +163,20 @@ describe("completeWithAgent routing", () => {
     expect(result.primaryError).toContain("openai-compatible @ primary:1");
   });
 
-  test("resolveConfigChain: primary, the agent's fallback, then the rest of the list; no repeats", async () => {
+  test("resolveConfigChain (L4): the global list; retired per-agent fields are ignored; role tier first only when the pool carries it", async () => {
     const pool = [
       { _id: "p1", name: "A", provider: "openai-compatible", model: "a", baseUrl: "http://a/v1", apiKeyEnv: "X_A", priority: 0, weight: 1, models: [{ _id: "m1", modelId: "a", isAvailable: true }] },
       { _id: "p2", name: "B", provider: "openai-compatible", model: "b", baseUrl: "http://b/v1", apiKeyEnv: "X_B", priority: 1, weight: 1, models: [{ _id: "m2", modelId: "b", isAvailable: true }] },
     ] as unknown as PoolConnectionPayload[];
     const env = { provider: "openai", model: "g", baseUrl: "http://g/v1", apiKey: "global" };
-    const chain = await resolveConfigChain(pool, env, { llmProviderId: "p1", llmModelId: "m1", llmFallbackProviderId: "p2", llmFallbackModelId: "m2" });
-    expect(chain.map((c) => c.model)).toEqual(["a", "b"]);
-    // Same model as primary and fallback: listed once, then the rest of the
-    // pool (the worker's tier 2), so chat fails over like a task does.
-    const same = await resolveConfigChain(pool, env, { llmProviderId: "p1", llmModelId: "m1", llmFallbackProviderId: "p1", llmFallbackModelId: "m1" });
-    expect(same.map((c) => c.model)).toEqual(["a", "b"]);
-    expect((await resolveConfigChain(pool, env, { llmProviderId: "p2" })).map((c) => c.model)).toEqual(["b", "a"]);
-    // Policy "fixed" never leaves the agent's own assignment.
-    const fixed = await resolveConfigChain(pool, env, { llmProviderId: "p1", llmSelectionPolicy: "fixed" });
-    expect(fixed.map((c) => c.model)).toEqual(["a"]);
+    expect((await resolveConfigChain(pool, env)).map((c) => c.model)).toEqual(["a", "b"]);
+    // An agent that still carries the retired fields resolves the global chain.
+    const legacy = { role: "backend", llmProviderId: "p2", llmModelId: "m2", llmSelectionPolicy: "fixed" } as { role: string };
+    expect((await resolveConfigChain(pool, env, legacy)).map((c) => c.model)).toEqual(["a", "b"]);
+    // Override on (loadProviderPool attaches roleTiers): the role's model first, the list after.
+    const tiered = pool.map((row) => ({ ...row, roleTiers: { worker: "m2" } }));
+    expect((await resolveConfigChain(tiered, env, { role: "backend" })).map((c) => c.model)).toEqual(["b", "a"]);
+    expect((await resolveConfigChain(tiered, env, { role: "reviewer", callRole: "reviewer" })).map((c) => c.model)).toEqual(["a", "b"]);
   });
 });
 
@@ -196,7 +194,7 @@ describe("reviewer fallback model", () => {
     delete process.env.REVIEW_KEY_B;
   });
 
-  test("a primary that 404s falls back to the Reviewer's fallback model", async () => {
+  test("a primary that 404s falls back to the next model in the global list (retired per-agent fields ignored)", async () => {
     const t = convexTest(schema, modules);
     const { messageId } = await t.run(async (ctx) => {
       const now = Date.now();
@@ -233,6 +231,44 @@ describe("reviewer fallback model", () => {
     expect(row).toMatchObject({ status: "done", verdict: "agree", model: "gpt-backup" });
     expect(urls[0]).toBe("http://10.0.0.5:8080/v1/chat/completions");
     expect(urls[urls.length - 1]).toBe("https://backup.example/v1/chat/completions");
+  });
+
+  test("L4: the Reviewer's project tier goes first only with FHARA_LLM_ROLE_OVERRIDE on", async () => {
+    const run = async (override: string | null) => {
+      const t = convexTest(schema, modules);
+      const { messageId } = await t.run(async (ctx) => {
+        const now = Date.now();
+        const primary = await ctx.db.insert("llmProviders", {
+          name: "Gateway", provider: "openai-compatible", model: "qwen", baseUrl: "http://10.0.0.5:8080/v1",
+          apiKeyEnv: "REVIEW_KEY_A", priority: 0, weight: 1, isEnabled: true, createdAt: now,
+        });
+        const backup = await ctx.db.insert("llmProviders", {
+          name: "Backup", provider: "openai", model: "gpt-backup", baseUrl: "https://backup.example/v1",
+          apiKeyEnv: "REVIEW_KEY_B", priority: 1, weight: 1, isEnabled: true, createdAt: now,
+        });
+        await ctx.db.insert("llmModels", { providerId: primary, modelId: "qwen", isAvailable: true, createdAt: now, updatedAt: now });
+        const backupModel = await ctx.db.insert("llmModels", { providerId: backup, modelId: "gpt-backup", isAvailable: true, createdAt: now, updatedAt: now });
+        if (override) await ctx.db.insert("appSettings", { values: [{ key: "FHARA_LLM_ROLE_OVERRIDE", value: override }], updatedAt: now } as never);
+        const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p", modelTiers: { reviewer: backupModel } });
+        const asked = await ctx.db.insert("messages", { projectId, authorType: "user", content: "Is this right?" });
+        const messageId = await ctx.db.insert("messages", { projectId, authorType: "agent", content: "Yes.", replyToMessageId: asked });
+        return { messageId };
+      });
+      const urls: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => {
+          urls.push(String(url));
+          return ok('{"verdict":"agree","reason":"Fine.","evidence":[]}');
+        })
+      );
+      const opinionId = await t.mutation(api.reviewer.requestMessageOpinion, { messageId });
+      await t.action(internal.reviewerNode.runReview, { opinionId });
+      return urls[0];
+    };
+    expect(await run(null)).toBe("http://10.0.0.5:8080/v1/chat/completions");
+    expect(await run("false")).toBe("http://10.0.0.5:8080/v1/chat/completions");
+    expect(await run("true")).toBe("https://backup.example/v1/chat/completions");
   });
 
   test("when every model fails, the stored error names kind and host (no key)", async () => {

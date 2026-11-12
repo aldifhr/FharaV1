@@ -202,6 +202,20 @@
       "parse": "truthyNumber"
     },
     {
+      "name": "FHARA_LLM_ROLE_OVERRIDE",
+      "type": "bool",
+      "group": "llm",
+      "runtimes": [
+        "worker",
+        "convex"
+      ],
+      "doc": "1 puts the project's per-role model (planner, reviewer, workers) first, with the global model list as fallback; 0 (default) uses the global list for every call.",
+      "default": "false",
+      "knob": {
+        "reader": "both"
+      }
+    },
+    {
       "name": "ORCHESTRATOR_LLM_MAX_TOKENS",
       "type": "int",
       "group": "llm",
@@ -2173,7 +2187,8 @@
     "TASK_WATCHDOG_STUCK_MS",
     "CONTEXT_SNAPSHOTS",
     "FHARA_GIT_AUTHOR_NAME",
-    "FHARA_GIT_AUTHOR_EMAIL"
+    "FHARA_GIT_AUTHOR_EMAIL",
+    "FHARA_LLM_ROLE_OVERRIDE"
   ],
   "secrets": {
     "schema": [

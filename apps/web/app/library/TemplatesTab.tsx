@@ -177,15 +177,11 @@ function TemplateModal({
       if (template && !builtIn) {
         await update({ templateId: template.id as never, ...payload });
       } else {
-        // New template, or a built-in saved as a custom copy (keeps its avatar,
-        // runtime and model preference).
+        // New template, or a built-in saved as a custom copy (keeps its avatar).
+        // No model or runtime: the global model list serves every agent (L4).
         await create({
           ...payload,
           ...(template?.avatarParams ? { avatarParams: template.avatarParams } : {}),
-          ...(template?.runtime ? { runtime: template.runtime } : {}),
-          ...(template?.llmProviderId ? { llmProviderId: template.llmProviderId as never } : {}),
-          ...(template?.llmModelId ? { llmModelId: template.llmModelId as never } : {}),
-          ...(template?.opencodeModel ? { opencodeModel: template.opencodeModel } : {}),
         });
       }
       onClose();

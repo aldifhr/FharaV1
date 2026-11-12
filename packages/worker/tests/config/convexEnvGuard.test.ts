@@ -84,6 +84,6 @@ describe("B4: env:sync covers every var Convex reads", () => {
       "FHARA_GIT_AUTHOR_NAME",
       "FHARA_GIT_AUTHOR_EMAIL",
     ]) expect(CONVEX_SYNC_KEYS).toContain(key);
-    expect(CONVEX_SYNC_KEYS).toHaveLength(27);
+    expect(CONVEX_SYNC_KEYS).toHaveLength(28);
   });
 });

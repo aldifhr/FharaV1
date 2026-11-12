@@ -7,11 +7,10 @@
  *   3. Models — ONE ordered list across providers. The order is the
  *      fallback order; in round robin it is the rotation set and the order
  *      sets which model starts first (lib/llmOrder.ts, shared by chat and
- *      the worker).
- *   OpenCode (plan 038) is a special row in Providers: detected on the
- *   worker, enabled here, and its models take positions in the same list.
- *   An OpenCode entry runs a task's subtask on the OpenCode CLI; chat skips
- *   it. It replaces the plan 035 "OpenCode runtime" section.
+ *      the worker). Below it: the per-role override toggle (L4, off).
+ *   OpenCode (plan 038) is a special row in Providers: detected on the worker,
+ *   enabled here, its models take positions in the same list; an OpenCode
+ *   entry runs a subtask on the OpenCode CLI, chat skips it.
  *
  * Provider/model writes, discovery and tests go through the server-side
  * route (/api/llm-providers): the Convex mutations require the service
@@ -28,6 +27,7 @@ import Segmented from "./ui/segmented";
 import { useToast } from "./Toasts";
 import { OPENCODE_INSTALL_COMMAND, isOpencodeConnection } from "@/api/convex/lib/opencodeProvider";
 import { relativeTime } from "@/lib/runFormat";
+import { RoleOverrideKnob } from "./settings/RoleOverrideKnob";
 import { popoverClass, usePopover } from "./shell/usePopover";
 import {
   effectiveOrder,
@@ -978,7 +978,7 @@ export default function LlmSettingsSection({
             </ol>
           )}
         </section>
-
+        <RoleOverrideKnob />
       </div>
     </>
   );

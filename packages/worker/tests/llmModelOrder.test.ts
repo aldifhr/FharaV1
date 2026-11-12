@@ -214,8 +214,13 @@ describe("worker resolver walks the list", () => {
     expect(chainOf(resolveForAgent(undefined, {}, orderedPool(), health(), opts))).toEqual(["a/y", "b/z", "a/w", "b/x"]);
   });
 
-  it("an agent assignment still goes first; the list follows in order", () => {
+  it("L4: a retired agent assignment is ignored; the list order is the chain", () => {
     const r = resolveForAgent({ llmProviderId: "a", llmModelId: "row-w" } as AgentLlmAssignment, {}, orderedPool(), health());
+    expect(chainOf(r)).toEqual(["b/x", "a/y", "b/z", "a/w"]);
+  });
+
+  it("L4: the role override's tier model goes first; the list follows in order", () => {
+    const r = resolveForAgent({ role: "backend" }, {}, orderedPool(), health(), { tierModelRowId: "row-w" });
     expect(chainOf(r)).toEqual(["a/w", "b/x", "a/y", "b/z"]);
   });
 
@@ -253,13 +258,37 @@ describe("chat ↔ worker parity", () => {
     { llmProviderId: "a", llmModelId: "row-y", llmSelectionPolicy: "fixed" } as AgentLlmAssignment,
   ];
 
+  const listChain = ["b/x", "a/y", "b/z", "a/w"];
   for (const [index, assignment] of agents.entries()) {
-    it(`fallback mode, agent case ${index}: same chain`, () => {
+    it(`fallback mode, agent case ${index}: same chain, the global list (retired fields ignored)`, () => {
       const worker = chainOf(resolveForAgent(assignment, {}, orderedPool(), health(), { globalMode: "fallback" }));
       const chat = chatChain(orderedChatPairs(payload(), assignment as never, new StickyRotationCursor(1)));
       expect(chat).toEqual(worker);
+      expect(worker).toEqual(listChain);
     });
   }
+
+  it("a pool with no list positions: same chain (priority, then weight, no random draw)", () => {
+    const unordered = () => [
+      conn({ _id: "a", name: "A", priority: 5, weight: 1, models: [model("y")] }),
+      conn({ _id: "b", name: "B", priority: 5, weight: 9, models: [model("x")] }),
+      conn({ _id: "c", name: "C", priority: 1, models: [model("z")] }),
+    ];
+    const asPayload = unordered().map((c) => ({ ...c, model: c.models[0].modelId, selectionMode: "fallback" })) as unknown as PoolConnectionPayload[];
+    const worker = chainOf(resolveForAgent(undefined, {}, unordered(), health(), { globalMode: "fallback" }));
+    expect(worker).toEqual(["c/z", "b/x", "a/y"]);
+    expect(chatChain(orderedChatPairs(asPayload, undefined, new StickyRotationCursor(1)))).toEqual(worker);
+  });
+
+  it("override on: chat (roleTiers on the pool) and the worker (tierModelRowId) put the same tier first", () => {
+    const tiered = payload().map((c) => ({ ...c, roleTiers: { worker: "row-z", planner: "row-w" } }));
+    for (const [role, callRole, row] of [["backend", "executor", "row-z"], ["cto", "planner", "row-w"], ["reviewer", "reviewer", undefined]] as const) {
+      const worker = chainOf(resolveForAgent({ role }, { callRole }, orderedPool(), health(), { globalMode: "fallback", tierModelRowId: row }));
+      const chat = chatChain(orderedChatPairs(tiered, { role, callRole }, new StickyRotationCursor(1)));
+      expect(chat).toEqual(worker);
+    }
+    expect(chatChain(orderedChatPairs(tiered, { role: "backend" }, new StickyRotationCursor(1)))[0]).toBe("b/z");
+  });
 
   it("round robin: same rotation sequence for agent-less calls", () => {
     const rrPayload = payload().map((c) => ({ ...c, selectionMode: "round_robin" as const }));

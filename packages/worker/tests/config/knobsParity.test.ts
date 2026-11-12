@@ -53,6 +53,8 @@ const OLD_SETTING_KNOBS = {
   ORCHESTRATOR_LOAD_AWARE_ROUTING: { type: "bool", defaultValue: "false", reader: "worker" },
   ORCHESTRATOR_ROUTER_LLM: { type: "enum", defaultValue: "off", reader: "worker", options: ["off", "ambiguous", "always"] },
   ORCHESTRATOR_DECISION_LLM: { type: "enum", defaultValue: "ambiguous", reader: "worker", options: ["off", "ambiguous", "always"] },
+  // LLM & Models (L4: per-role model override, off by default)
+  FHARA_LLM_ROLE_OVERRIDE: { type: "bool", defaultValue: "false", reader: "both" },
   // Workspace
   WORKSPACE_ROOT: { type: "string", defaultValue: "./workspaces", reader: "worker", maxLength: 500 },
 } as const;

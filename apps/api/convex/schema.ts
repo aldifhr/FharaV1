@@ -361,9 +361,9 @@ export default defineSchema({
     llmBaseUrl: v.optional(v.string()),
     llmApiKeyEnv: v.optional(v.string()),
     llmApiKey: v.optional(v.string()),
-    // LLM assignment (Phase 2 resolver): optional per-agent provider/model
-    // preference. The resolver (worker llm/resolver.ts) tries the preferred
-    // connection/model first, then the fallback assignment, then the pool.
+    // L4 (P1d): retired per-agent model, fallback and policy. Never read:
+    // every call resolves the global chain (lib/llmChain.ts). Optional for
+    // one release; migrations:clearPerAgentLlm clears them.
     llmProviderId: v.optional(v.id("llmProviders")),
     llmModelId: v.optional(v.id("llmModels")),
     llmFallbackProviderId: v.optional(v.id("llmProviders")),
@@ -376,9 +376,9 @@ export default defineSchema({
         v.literal("round_robin")
       )
     ),
-    // Execution runtime override: "api" (Fhara host tools + gated LLM) or
-    // "opencode" (OpenCode CLI with native tools in the task worktree).
-    // Unset = the worker's global ORCHESTRATOR_EXECUTION_RUNTIME default.
+    // L4: retired per-agent runtime and OpenCode model. The runtime is the
+    // app-wide setting (Settings → LLM & Models); never read per agent.
+    // Optional for one release; migrations:clearPerAgentLlm clears them.
     executionRuntime: v.optional(v.union(v.literal("api"), v.literal("opencode"))),
     // Optional OpenCode model ("provider/model"); unset = Fhara's own LLM.
     opencodeModel: v.optional(v.string()),
@@ -1955,8 +1955,8 @@ export default defineSchema({
   }).index("by_skill", ["skillId", "version"]),
 
   // Custom agent templates (built-ins live in code: lib/agentTemplates.ts).
-  // A template prefills a new agent: role, instructions, library skills,
-  // optional LLM preference, runtime and avatar.
+  // A template prefills a new agent: role, instructions, library skills and
+  // avatar. L4: its LLM and runtime fields are retired (optional, cleared).
   agentTemplates: defineTable({
     name: v.string(),
     role: v.string(),

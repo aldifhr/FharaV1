@@ -8,7 +8,7 @@ import {
   routeEscalation,
   type Escalation,
 } from "@/api/convex/lib/subtaskContract";
-import { applyModelTier, tierForRole } from "@/api/convex/lib/modelTiers";
+import { tierForRole } from "@/api/convex/lib/modelTiers";
 import { detectEscalation, escalationFromAnswer, isEscalatedError, escalatedError } from "@/execution/escalation";
 import { isPermanentSubtaskError } from "@/scheduler/dagScheduler";
 import { handleEscalation, seedAllowedEscalations } from "@/services/runner/escalation";
@@ -407,24 +407,25 @@ describe("model tier precedence (plan 022)", () => {
     }
   });
 
-  it("explicit agent model > tier > default", () => {
-    const resolver = new TaskLlmResolver(pool, new ProviderHealthRegistry(), { tiers });
-    const resolvedDefault = new TaskLlmResolver(pool, new ProviderHealthRegistry()).resolutionFor({ role: "cto" }).primary.model;
-    expect(resolvedDefault).toBe("cheap");
+  it("L4: tiers apply only with the role override on; per-agent fields are ignored", () => {
+    const off = new TaskLlmResolver(pool, new ProviderHealthRegistry(), { tiers });
+    expect(off.resolutionFor({ role: "cto" }).primary.model).toBe("cheap");
+    expect(off.resolutionFor({ role: "frontend" }).primary.model).toBe("cheap");
+    const resolver = new TaskLlmResolver(pool, new ProviderHealthRegistry(), { tiers, roleOverride: true });
     expect(resolver.resolutionFor({ role: "cto", name: "CTO" }).primary.model).toBe("strong");
     expect(resolver.resolutionFor({ role: "reviewer" }).primary.model).toBe("strong");
     expect(resolver.resolutionFor({ role: "frontend" }).primary.model).toBe("mid");
-    expect(resolver.resolutionFor({ role: "frontend", llmModelId: "row-cheap" }).primary.model).toBe("cheap");
-    expect(applyModelTier({ role: "backend", llmProviderId: "conn" }, tiers).source).toBe("agent");
+    const legacy = { role: "frontend", llmModelId: "row-cheap" } as { role: string };
+    expect(resolver.resolutionFor(legacy).primary.model).toBe("mid");
   });
 
   it("a tier model missing from the pool resolves like no tier", () => {
-    const resolver = new TaskLlmResolver(pool, new ProviderHealthRegistry(), { tiers: { worker: "row-gone" } });
+    const resolver = new TaskLlmResolver(pool, new ProviderHealthRegistry(), { tiers: { worker: "row-gone" }, roleOverride: true });
     expect(resolver.resolutionFor({ role: "backend" }).primary.model).toBe("cheap");
   });
 
-  it("the estimator's expectedModelFor respects the tiers", () => {
-    const resolver = new TaskLlmResolver(pool, new ProviderHealthRegistry(), { tiers });
+  it("the estimator's expectedModelFor respects the tiers (override on)", () => {
+    const resolver = new TaskLlmResolver(pool, new ProviderHealthRegistry(), { tiers, roleOverride: true });
     expect(resolver.expectedModelFor({ role: "cto" })).toMatchObject({ model: "strong", inputPricePer1k: 1 });
     expect(resolver.expectedModelFor({ role: "qa" })?.model).toBe("mid");
   });

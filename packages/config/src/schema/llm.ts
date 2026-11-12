@@ -80,6 +80,15 @@ export const LLM_VARS = [
     readAt: "startup",
   },
   {
+    name: "FHARA_LLM_ROLE_OVERRIDE",
+    type: "bool",
+    default: false,
+    runtimes: ["worker", "convex"],
+    group: "llm",
+    doc: "1 puts the project's per-role model (planner, reviewer, workers) first, with the global model list as fallback; 0 (default) uses the global list for every call.",
+    knob: { reader: "both" },
+  },
+  {
     name: "ORCHESTRATOR_LLM_MAX_TOKENS",
     type: "int",
     parse: "clampBlank",

@@ -15,13 +15,6 @@ export type AgentDoc = {
   name: string;
   role: string;
   systemPrompt?: string;
-  llmProviderId?: string;
-  llmModelId?: string;
-  llmFallbackProviderId?: string;
-  llmFallbackModelId?: string;
-  llmSelectionPolicy?: string;
-  executionRuntime?: string;
-  opencodeModel?: string;
   avatarParams?: unknown;
   skillIds?: string[];
   skillPins?: Array<{ skillId: string; version: number }>;
@@ -39,10 +32,6 @@ export type TemplateView = {
   systemPrompt: string;
   skillIds: string[];
   suggestedSkills: string[];
-  llmProviderId?: string;
-  llmModelId?: string;
-  runtime?: "api" | "opencode";
-  opencodeModel?: string;
   avatarParams?: unknown;
   tags: string[];
   updatedAt?: number;

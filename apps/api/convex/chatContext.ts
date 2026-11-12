@@ -518,7 +518,7 @@ export const getContext = internalQuery({
 
     // Shared pool assembly (connections + models, encrypted key only) —
     // see lib/llmResolver.ts. chat.ts decrypts on the backend for its own call.
-    const llmProviders = await loadProviderPool(ctx);
+    const llmProviders = await loadProviderPool(ctx, { projectId: project._id });
 
     return {
       agents: await Promise.all(selected.map(agentShape)),
@@ -604,7 +604,7 @@ export const getPersonalContext = internalQuery({
       history,
       contextSummary: summaries[0]?.summary,
       activeTask: null,
-      llmProviders: await loadProviderPool(ctx),
+      llmProviders: await loadProviderPool(ctx, { projectId: project?._id }),
     };
   },
 });

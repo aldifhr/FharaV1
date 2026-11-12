@@ -7,7 +7,7 @@ import { withoutOpencode } from "../opencodeProvider";
 import { resolveConnectionKey, type PoolConnectionPayload, type PoolModelPayload } from "../llmResolver";
 
 import { getGlobalLLMConfig, type LlmEndpointConfig } from "../llmConfig";
-import { applySelectionMode, orderPoolPairs } from "../llmOrder";
+import { orderChain, overrideModelFor } from "../llmChain";
 import { cooldownForFailure, errorStatus, isEmptyCompletion, StickyRotationCursor } from "../llmRotation";
 import { describeEndpoint, endpointCandidates, llmHttpError, wireProtocolFor } from "./llmEndpoint";
 import { ChatStreamError, chatStreamLimits, readWithLimits, withPartial, type ChatStreamLimits, type PartialReply } from "./streamLimits";
@@ -514,39 +514,21 @@ function jsonUsage(raw: string): unknown {
   }
 }
 
-type AgentLlmPrefs = {
-  llmProviderId?: string;
-  llmModelId?: string;
-  llmFallbackProviderId?: string;
-  llmFallbackModelId?: string;
-  llmSelectionPolicy?: string;
-};
+/**
+ * What a chat or review call tells the chain (L4): the agent's role and the
+ * call's role, read only by the role override. Per-agent model fields are
+ * retired: an agent that still carries them resolves the global chain.
+ */
+type AgentLlmPrefs = { role?: string; callRole?: string };
 
 type PoolPair = { connection: PoolConnectionPayload; model: PoolModelPayload };
 
-/** The pair an agent assignment names (model row, else the connection's first available model). */
-function assignedPair(
-  providers: PoolConnectionPayload[],
-  providerId: string | undefined,
-  modelRowId: string | undefined
-): PoolPair | null {
-  if (!providerId) return null;
-  const connection = providers.find((p) => String(p._id) === String(providerId));
-  if (!connection) return null;
-  const model =
-    (modelRowId ? connection.models.find((m) => String(m._id) === String(modelRowId)) : undefined) ??
-    connection.models.find((m) => m.isAvailable) ??
-    connection.models[0];
-  return model ? { connection, model } : null;
-}
-
 /**
- * The ordered candidate pairs for one call: the agent's assignment, its
- * fallback, then (unless the agent's policy is "fixed") the model list in
- * order, rotated in round robin. Same order as the worker resolver
- * (packages/worker/src/llm/resolver.ts) for a pool with an explicit order;
- * the parity test pins that. An empty value on the agent means "use the
- * global order".
+ * The ordered candidate pairs for one call: the shared orderChain
+ * (lib/llmChain.ts) over the enabled pool — the global model list rotated
+ * in round robin, or, with FHARA_LLM_ROLE_OVERRIDE on (the pool then
+ * carries `roleTiers`), the role's model first and the list after it. Same
+ * chain as the worker resolver for the same pool; the parity test pins it.
  */
 export function orderedChatPairs(
   providers: PoolConnectionPayload[] | undefined,
@@ -557,45 +539,12 @@ export function orderedChatPairs(
   // Plan 038: OpenCode entries run only on the worker (tasks); the backend
   // cannot run the CLI, so chat walks the API models of the same list.
   const enabled = withoutOpencode(providers).filter((p) => p.isEnabled !== false);
-  const out: PoolPair[] = [];
-  const seen = new Set<string>();
-  const push = (pair: PoolPair | null) => {
-    if (!pair) return;
-    const key = `${pair.connection._id}::${pair.model.modelId}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(pair);
-  };
-  const ordered = orderPoolPairs(enabled);
-  // An assignment is every listed model it names (one model, or all of the
-  // connection's models when no model is set), in list order. A model the
-  // list does not offer (unavailable / filtered) falls back to the
-  // connection's first model, as chat always did.
-  const assignment = (providerId?: string, modelRowId?: string) => {
-    if (!providerId) return [];
-    const listed = ordered.filter(
-      (pair) =>
-        String(pair.connection._id) === String(providerId) &&
-        (!modelRowId || String(pair.model._id) === String(modelRowId))
-    );
-    if (listed.length > 0) return listed;
-    const legacy = assignedPair(enabled, providerId, modelRowId);
-    return legacy ? [legacy] : [];
-  };
-  for (const pair of assignment(agent?.llmProviderId, agent?.llmModelId)) push(pair);
-  for (const pair of assignment(agent?.llmFallbackProviderId, agent?.llmFallbackModelId)) push(pair);
-  if (agent?.llmSelectionPolicy === "fixed" && out.length > 0) return out;
-  // An agent's own policy wins over the global mode, like in the worker.
-  const mode = agent?.llmSelectionPolicy
-    ? agent.llmSelectionPolicy === "round_robin"
-      ? "round_robin"
-      : "fallback"
-    : enabled[0]?.selectionMode ?? "fallback";
-  const pool = ordered.filter((pair) => !seen.has(`${pair.connection._id}::${pair.model.modelId}`));
-  // Rotation applies to the pool part only: an explicit agent assignment
-  // always goes first, exactly like the worker's tiers 0 and 1.
-  for (const pair of out.length === 0 ? applySelectionMode(pool, mode, cursor) : pool) push(pair);
-  return out;
+  const roleTiers = enabled[0]?.roleTiers;
+  return orderChain(enabled, {
+    mode: enabled[0]?.selectionMode ?? "fallback",
+    cursor,
+    tierModelRowId: overrideModelFor(Boolean(roleTiers), roleTiers, agent?.callRole, agent?.role),
+  });
 }
 
 async function pairConfig(pair: PoolPair, fallback: ChatLlmConfig): Promise<LlmEndpointConfig & ServedIdentity & { connectionId: string }> {
@@ -635,28 +584,8 @@ export async function resolveConfigFromProviders(
 }
 
 /**
- * The agent's configured fallback (llmFallbackProviderId + optional
- * llmFallbackModelId) as a concrete config, or null when none is set or the
- * connection is not in the enabled pool.
- */
-export async function resolveFallbackConfigFromProviders(
-  providers: PoolConnectionPayload[] | undefined,
-  fallback: ChatLlmConfig,
-  agent?: AgentLlmPrefs
-): Promise<ChatLlmConfig | null> {
-  if (!providers) return null;
-  const pair = assignedPair(
-    withoutOpencode(providers).filter((p) => p.isEnabled !== false),
-    agent?.llmFallbackProviderId,
-    agent?.llmFallbackModelId
-  );
-  return pair ? await pairConfig(pair, fallback) : null;
-}
-
-/**
  * The whole ordered chain as separate configs (no nested `fallbacks`),
- * in the order they should be tried: the agent's primary, its fallback,
- * then the rest of the model list.
+ * in the order they should be tried (orderedChatPairs).
  */
 export async function resolveConfigChain(
   providers: PoolConnectionPayload[] | undefined,

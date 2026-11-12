@@ -4,19 +4,13 @@ import {
   type GlobalLLMConfig,
   type LLMProvider,
 } from "@/llm";
-import type { AgentDefinition } from "@/types";
 import { decryptApiKey } from "./crypto";
 import { providerHealth, type ProviderHealthRegistry } from "./health";
 import { fixedRotationCursor, rotationCursor, type RotationCursor } from "./roundRobin";
-import { applyModelTier, type ModelTiers } from "@/api/convex/lib/modelTiers";
-import { policyForMode, type LlmSelectionMode } from "@/api/convex/lib/llmSelection";
-import {
-  applySelectionMode,
-  connectionServesModel,
-  hasExplicitOrder,
-  matchesModelPattern,
-  orderPoolPairs,
-} from "@/api/convex/lib/llmOrder";
+import type { ModelTiers } from "@/api/convex/lib/modelTiers";
+import { orderChain, overrideModelFor } from "@/api/convex/lib/llmChain";
+import type { LlmSelectionMode } from "@/api/convex/lib/llmSelection";
+import { matchesModelPattern, orderPoolPairs } from "@/api/convex/lib/llmOrder";
 import { isOpencodeConnection, withoutOpencode } from "@/api/convex/lib/opencodeProvider";
 import { registerSecretValues } from "@/utils/redact";
 
@@ -24,24 +18,20 @@ export { matchesModelPattern };
 
 /**
  * LLM Resolver (spec §4) — turns the backend provider pool (connections +
- * model registry) into a per-agent LLM choice.
+ * model registry) into the ordered chain for one call.
  *
- * Selection order for an agent (PLAN Phase 2):
- *   1. The agent's own assignment (llmProviderId/llmModelId).
- *   2. The agent's fallback assignment (llmFallbackProviderId/...ModelId).
- *   3. The pool: connections whose `modelPatterns` allow the model
- *      (patterns are finally CONSUMED here), lowest priority first;
- *      among equal priorities the choice is weighted by `weight`
- *      (also finally consumed) unless the agent's selection policy is
- *      "priority" (deterministic) or "round_robin" (rotates the starting
- *      connection) — policy "fixed" never leaves steps 1–2.
- *      Once the user has ordered the model list (llmModels.position),
- *      step 3 walks that list instead (lib/llmOrder.ts, shared with
- *      backend chat): the list order is the fallback order, and round
- *      robin rotates its start with the sticky cursor.
+ * L4 (P1d): one source. The global mode and the ordered model list
+ * (Settings → LLM & Models, llmModels.position) decide the chain for every
+ * call — planner, decision advisor, executor, reviewer, memory, commit —
+ * through the shared orderChain (lib/llmChain.ts), which backend chat and
+ * the Reviewer action use too. Per-agent assignments, fallbacks, selection
+ * policies and runtimes are retired. The one optional override is
+ * FHARA_LLM_ROLE_OVERRIDE: on, the project's model for the call's role
+ * (projects.modelTiers) goes first and the global list follows.
  * Connections whose circuit is open (health registry) are excluded; if
  * that exhausts every candidate the resolver throws an explicit error
- * naming the providers instead of silently returning something wrong.
+ * naming the providers instead of silently returning something wrong. An
+ * empty pool falls back to the worker env (LLM_*).
  *
  * Credentials: pool rows carry only `apiKeyCiphertext`; `materializePool`
  * decrypts it (hard error naming the provider on failure) or falls back to
@@ -137,14 +127,16 @@ export interface ModelRoutingInfo {
   reason: string;
 }
 
-export type AgentLlmAssignment = Pick<
-  AgentDefinition,
-  | "llmProviderId"
-  | "llmModelId"
-  | "llmFallbackProviderId"
-  | "llmFallbackModelId"
-  | "llmSelectionPolicy"
-> & { name?: string; role?: string };
+/**
+ * What the resolver reads from an agent (L4): its name (error messages) and
+ * its role (the role override's tier). Per-agent model fields are retired
+ * and never read, so an agent that still carries them resolves the global
+ * chain.
+ */
+export interface AgentLlmAssignment {
+  name?: string;
+  role?: string;
+}
 
 function modelMatchesNeed(model: PoolModel, need: ResolveNeed): boolean {
   if (need.modelId && model.modelId !== need.modelId) return false;
@@ -203,7 +195,6 @@ export async function materializePool(
 interface CandidatePair {
   connection: PoolConnection;
   model: PoolModel;
-  tier: number;
 }
 
 function toResolved(pair: CandidatePair): ResolvedLlm {
@@ -227,39 +218,31 @@ function toResolved(pair: CandidatePair): ResolvedLlm {
   };
 }
 
-/** Weighted index pick: `random` in [0,1); non-positive weights count as 0. */
-export function pickWeightedIndex(weights: number[], random: number): number {
-  const total = weights.reduce((sum, w) => sum + Math.max(0, w), 0);
-  if (total <= 0) return 0;
-  let cursor = random * total;
-  for (let i = 0; i < weights.length; i++) {
-    cursor -= Math.max(0, weights[i]);
-    if (cursor < 0) return i;
-  }
-  return weights.length - 1;
-}
-
-function assignmentTier(
-  pairs: CandidatePair[],
-  providerId: string | undefined,
-  modelRowId: string | undefined,
-  tier: number
-): CandidatePair[] {
-  if (!providerId && !modelRowId) return [];
-  return pairs
-    .filter(
-      (pair) =>
-        (!providerId || pair.connection._id === providerId) &&
-        (!modelRowId || pair.model._id === modelRowId)
-    )
-    .map((pair) => ({ ...pair, tier }));
+/** The worker env as the only "connection" (no providers in Settings). */
+function envResolution(need: ResolveNeed): AgentResolution {
+  const config = getGlobalLLMConfig();
+  return {
+    primary: {
+      connectionId: "",
+      connectionName: "(worker env)",
+      provider: config.provider,
+      baseUrl: config.baseUrl,
+      model: config.model,
+      apiKey: config.apiKey,
+      config,
+    },
+    fallbackChain: [],
+    routing: { model: config.model, connection: "(worker env)", callRole: need.callRole, reason: "worker env model (no providers configured)" },
+  };
 }
 
 /**
- * Resolve the LLM for one agent. Pure with respect to the pool + health
- * registry (decryption happened in materializePool), so it is directly
- * unit-testable. Throws an explicit error naming the candidate providers
- * when nothing can serve the agent.
+ * Resolve the chain for one call (L4): the global model list through the
+ * shared orderChain (lib/llmChain.ts, the same order backend chat and the
+ * Reviewer use), rotated in round robin; with the role override on, the
+ * tier model first. Pure with respect to the pool + health registry
+ * (decryption happened in materializePool). Throws an explicit error
+ * naming the candidate providers when nothing can serve the call.
  */
 export function resolveForAgent(
   agent: AgentLlmAssignment | undefined,
@@ -267,10 +250,11 @@ export function resolveForAgent(
   pool: PoolConnection[],
   health: ProviderHealthRegistry,
   options: {
-    random?: () => number;
     rotation?: RotationCursor;
     /** Plan 032: the app-wide selection mode from the run context. */
     globalMode?: LlmSelectionMode;
+    /** L4: the model row the role override puts first (undefined = toggle off / no tier). */
+    tierModelRowId?: string;
     /**
      * Plan 038: keep the OpenCode row's entries in the chain. Only the
      * subtask route (executionRouteFor) sets it; every API call resolves
@@ -279,186 +263,44 @@ export function resolveForAgent(
     includeOpencode?: boolean;
   } = {}
 ): AgentResolution {
-  const random = options.random ?? Math.random;
   const rotation = options.rotation ?? rotationCursor;
   if (!options.includeOpencode) pool = withoutOpencode(pool);
+  // Empty pool: the worker env is the configuration (Settings has no providers).
+  if (pool.length === 0) return envResolution(need);
 
-  // Empty pool: preserve the historical env-based behavior (Settings has
-  // no providers configured; the worker env is the configuration).
-  if (pool.length === 0) {
-    const config = getGlobalLLMConfig();
-    const envConnection: PoolConnection = {
-      _id: "", name: "(worker env)", provider: config.provider, baseUrl: config.baseUrl,
-      apiKeyEnv: "", apiKey: config.apiKey, priority: 0, weight: 1, models: [],
-    };
-    return {
-      primary: {
-        connectionId: "",
-        connectionName: "(worker env)",
-        provider: config.provider,
-        baseUrl: config.baseUrl,
-        model: config.model,
-        apiKey: config.apiKey,
-        config,
-      },
-      fallbackChain: [],
-      routing: {
-        model: config.model,
-        connection: "(worker env)",
-        callRole: need.callRole,
-        reason: "worker env model (no providers configured)",
-      },
-    };
-  }
-
-  const allPairs: CandidatePair[] = [];
-  for (const connection of pool) {
-    for (const model of connection.models) {
-      if (!model.isAvailable) continue;
-      if (!modelMatchesNeed(model, need)) continue;
-      if (!connectionServesModel(connection, model)) continue;
-      allPairs.push({ connection, model, tier: 2 });
-    }
-  }
-  // The user's list order (Settings → LLM & Models), when one is set.
-  const explicitOrder = hasExplicitOrder(allPairs);
-
-  const tiers: CandidatePair[][] = [[], [], []];
-  tiers[0] = assignmentTier(allPairs, agent?.llmProviderId, agent?.llmModelId, 0);
-  tiers[1] = assignmentTier(
-    allPairs,
-    agent?.llmFallbackProviderId,
-    agent?.llmFallbackModelId,
-    1
-  );
-  const assignedKeys = new Set(
-    [...tiers[0], ...tiers[1]].map((p) => `${p.connection._id}::${p.model.modelId}`)
-  );
-  tiers[2] = (
-    explicitOrder
-      ? orderPoolPairs(pool, (pair) => modelMatchesNeed(pair.model, need)).map(
-          (pair): CandidatePair => ({ connection: pair.connection, model: pair.model, tier: 2 })
-        )
-      : allPairs
-  ).filter((p) => !assignedKeys.has(`${p.connection._id}::${p.model.modelId}`));
-
-  // Plan 032: the app-wide mode decides the pick; an agent's own policy
-  // (legacy / explicit) still wins over it.
-  const policy = agent?.llmSelectionPolicy ?? policyForMode(options.globalMode);
-  const consideredTiers = policy === "fixed" ? [tiers[0], tiers[1]] : tiers;
-
-  // Health filter: circuit-open connections are excluded. If exclusion
-  // empties a tier, fall through to the next; if it empties everything,
-  // that is an explicit error, not a silent pick of a dead provider.
-  const healthyTiers = consideredTiers.map((tier) =>
-    tier.filter((pair) => health.isAvailable(pair.connection._id))
-  );
-  const totalCandidates = consideredTiers.reduce((n, t) => n + t.length, 0);
-  const healthyTotal = healthyTiers.reduce((n, t) => n + t.length, 0);
-
+  const matches = (pair: CandidatePair) => modelMatchesNeed(pair.model, need);
+  const candidates = orderPoolPairs(pool, matches);
   const candidateNames = [...new Set(pool.map((c) => `"${c.name}"`))].join(", ");
   const agentLabel = agent?.name ? ` for agent "${agent.name}"` : "";
-  if (totalCandidates === 0) {
+  if (candidates.length === 0) {
     throw new Error(
       `No LLM provider can serve${agentLabel}: no enabled connection offers a matching model (need: ${JSON.stringify(need)}). Candidates: ${candidateNames || "(none)"}.`
     );
   }
-  if (healthyTotal === 0) {
+  // Health filter: circuit-open connections are excluded before the mode
+  // rotates the list; if that empties it, the error is explicit.
+  const chain = orderChain(pool, {
+    mode: options.globalMode,
+    cursor: rotation,
+    tierModelRowId: options.tierModelRowId,
+    accept: (pair) => matches(pair) && health.isAvailable(pair.connection._id),
+  });
+  const [primaryPair, ...rest] = chain;
+  if (!primaryPair) {
     throw new Error(
       `No LLM provider available${agentLabel}: every candidate connection is temporarily excluded by the circuit breaker after repeated transient failures. Candidates: ${candidateNames}.`
     );
   }
-
-  // Primary selection: first non-empty healthy tier; lowest priority in
-  // it; among equal priorities, weight decides (unless policy="priority").
-  let primaryPair: CandidatePair | undefined;
-  // Explicit list order (Settings → LLM & Models): every tier is walked in
-  // list order, and round robin rotates the start of the list when no
-  // agent assignment applies. Same rule as backend chat
-  // (lib/chat/llm.ts orderedChatPairs).
-  const pairKey = (p: { connection: { _id: string }; model: { modelId: string } }) =>
-    `${p.connection._id}::${p.model.modelId}`;
-  let explicitChain: CandidatePair[] | null = null;
-  if (explicitOrder) {
-    const baseRank = new Map(orderPoolPairs(pool).map((pair, index) => [pairKey(pair), index]));
-    const rank = (p: CandidatePair) => baseRank.get(pairKey(p)) ?? Number.MAX_SAFE_INTEGER;
-    const firstTier = healthyTiers.findIndex((tier) => tier.length > 0);
-    explicitChain = healthyTiers.flatMap((tier, tierIndex) => {
-      const sorted = [...tier].sort((a, b) => rank(a) - rank(b));
-      return tierIndex === 2 && firstTier === 2
-        ? applySelectionMode(sorted, policy === "round_robin" ? "round_robin" : undefined, rotation)
-        : sorted;
-    });
-    primaryPair = explicitChain[0];
-  }
-  for (const tier of explicitChain ? [] : healthyTiers) {
-    if (tier.length === 0) continue;
-    const minPriority = Math.min(...tier.map((p) => p.connection.priority));
-    const topPairs = tier.filter((p) => p.connection.priority === minPriority);
-    const connections: PoolConnection[] = [];
-    for (const pair of topPairs) {
-      if (!connections.some((c) => c._id === pair.connection._id)) {
-        connections.push(pair.connection);
-      }
-    }
-    let chosen = connections[0];
-    if (connections.length > 1 && policy === "round_robin") {
-      // Round robin: rotate the starting connection. The failover chain
-      // stays armed, so a rotated-to connection that fails still lands on
-      // the next candidate.
-      chosen = connections[rotation.next(connections.length)];
-    } else if (connections.length > 1 && policy !== "priority") {
-      const index = pickWeightedIndex(
-        connections.map((c) => c.weight),
-        random()
-      );
-      chosen = connections[index];
-    }
-    primaryPair = topPairs.find((p) => p.connection._id === chosen._id);
-    break;
-  }
-  if (!primaryPair) {
-    // Unreachable given healthyTotal > 0, but keep the failure explicit.
-    throw new Error(`No LLM provider available${agentLabel}. Candidates: ${candidateNames}.`);
-  }
-
-  // Fallback chain: every other healthy candidate, ordered by tier, then
-  // priority, then weight (heavier first), for deterministic behavior.
-  const chainPairs = explicitChain
-    ? explicitChain.slice(1)
-    : healthyTiers
-        .flat()
-        .filter(
-          (p) =>
-            !(
-              p.connection._id === primaryPair!.connection._id &&
-              p.model.modelId === primaryPair!.model.modelId
-            )
-        )
-        .sort(
-          (a, b) =>
-            a.tier - b.tier ||
-            a.connection.priority - b.connection.priority ||
-            b.connection.weight - a.connection.weight
-        );
-  const seen = new Set<string>([pairKey(primaryPair)]);
-  const fallbackChain: ResolvedLlm[] = [];
-  for (const pair of chainPairs) {
-    const key = `${pair.connection._id}::${pair.model.modelId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    fallbackChain.push(toResolved(pair));
-  }
-
+  const viaTier = Boolean(options.tierModelRowId) && primaryPair.model._id === options.tierModelRowId;
   const label = `${primaryPair.model.modelId} on ${primaryPair.connection.name}`;
   return {
     primary: toResolved(primaryPair),
-    fallbackChain,
+    fallbackChain: rest.map(toResolved),
     routing: {
       model: primaryPair.model.modelId,
       connection: primaryPair.connection.name,
       callRole: need.callRole,
-      reason: `${label}: ${explicitOrder ? "model list order" : "pool order"}`,
+      reason: `${label}: ${viaTier ? "project role model (override on), then the model list" : "model list order"}`,
     },
   };
 }
@@ -499,15 +341,17 @@ function lazyProvider(config: GlobalLLMConfig): LLMProvider {
 
 /**
  * Per-task resolver facade: holds the materialized pool + the shared
- * health registry and hands out per-agent configs and provider chains.
+ * health registry and hands out the chain for each call.
  */
 export interface TaskLlmResolverOptions {
-  random?: () => number;
-  /** Rotation cursor for policy "round_robin" (default: process-wide). */
+  /** Rotation cursor for round robin (default: process-wide). */
   rotation?: RotationCursor;
   /** Plan 032: the app-wide selection mode ("fallback" | "round_robin"). */
   globalMode?: LlmSelectionMode;
+  /** Plan 022: the project's model per role; read only when roleOverride is on. */
   tiers?: ModelTiers;
+  /** L4: FHARA_LLM_ROLE_OVERRIDE. Off (default): tiers are ignored. */
+  roleOverride?: boolean;
 }
 
 export class TaskLlmResolver {
@@ -517,28 +361,26 @@ export class TaskLlmResolver {
     private readonly options: TaskLlmResolverOptions = {}
   ) {}
 
-  /**
-   * Plan 022 precedence: an explicit agent assignment beats the project's
-   * model tier for the agent's role, which beats the default pool order.
-   * A tier model that is not in the pool resolves like no tier at all.
-   */
-  assignmentFor(agent?: AgentLlmAssignment): AgentLlmAssignment | undefined {
-    const tiered = applyModelTier(agent, this.options.tiers);
-    if (tiered.source !== "tier") return agent;
-    const modelRowId = tiered.assignment?.llmModelId;
-    const served = this.pool.some((connection) => connection.models.some((model) => model._id === modelRowId));
-    return served ? tiered.assignment : agent;
+  /** L4: the model row the role override puts first for this call, if any. */
+  tierModelFor(agent: AgentLlmAssignment | undefined, need: ResolveNeed = {}): string | undefined {
+    return overrideModelFor(this.options.roleOverride, this.options.tiers, need.callRole, agent?.role);
   }
 
-  resolutionFor(
-    agent?: AgentLlmAssignment,
-    need: ResolveNeed = {}
+  private resolve(
+    agent: AgentLlmAssignment | undefined,
+    need: ResolveNeed,
+    extra: { rotation?: RotationCursor; includeOpencode?: boolean } = {}
   ): AgentResolution {
-    return resolveForAgent(this.assignmentFor(agent), need, this.pool, this.health, {
-      random: this.options.random,
-      rotation: this.options.rotation,
+    return resolveForAgent(agent, need, this.pool, this.health, {
+      rotation: extra.rotation ?? this.options.rotation,
       globalMode: this.options.globalMode,
+      tierModelRowId: this.tierModelFor(agent, need),
+      ...(extra.includeOpencode ? { includeOpencode: true } : {}),
     });
+  }
+
+  resolutionFor(agent?: AgentLlmAssignment, need: ResolveNeed = {}): AgentResolution {
+    return this.resolve(agent, need);
   }
 
   configFor(agent?: AgentLlmAssignment, need: ResolveNeed = {}): GlobalLLMConfig {
@@ -556,8 +398,7 @@ export class TaskLlmResolver {
   }
 
   /**
-   * The model an agent's first call would use, picked WITHOUT the weighted
-   * random draw (first candidate of the winning tier) and without consuming
+   * The model an agent's first call would use, picked without consuming
    * a round-robin rotation, for the Task Estimator. Deterministic for a
    * given pool + health state. Null when nothing can serve the agent.
    */
@@ -566,12 +407,8 @@ export class TaskLlmResolver {
     need: ResolveNeed = {}
   ): { model: string; inputPricePer1k?: number; outputPricePer1k?: number } | null {
     try {
-      const { primary } = resolveForAgent(this.assignmentFor(agent), need, this.pool, this.health, {
-        random: () => 0,
-        // The estimator must not consume a rotation.
-        rotation: fixedRotationCursor,
-        globalMode: this.options.globalMode,
-      });
+      // The estimator must not consume a rotation.
+      const { primary } = this.resolve(agent, need, { rotation: fixedRotationCursor });
       return {
         model: primary.model,
         inputPricePer1k: primary.inputPricePer1k,
@@ -598,23 +435,10 @@ export class TaskLlmResolver {
     gate: OpencodeGate,
     need: ResolveNeed = { callRole: "executor" }
   ): ExecutionRoute {
-    const assignment = this.assignmentFor(agent);
-    const resolveOptions = {
-      random: this.options.random,
-      rotation: this.options.rotation,
-      globalMode: this.options.globalMode,
-    };
-    const withOpencode = resolveForAgent(assignment, need, this.pool, this.health, {
-      ...resolveOptions,
-      includeOpencode: true,
-    });
+    const withOpencode = this.resolve(agent, need, { includeOpencode: true });
     const picked = routeFromResolution(withOpencode, gate, need);
-    const apiOnly = () =>
-      resolveForAgent(assignment, need, this.pool, this.health, {
-        ...resolveOptions,
-        // The HTTP-only fallback must not consume a second rotation.
-        rotation: fixedRotationCursor,
-      });
+    // The HTTP-only fallback must not consume a second rotation.
+    const apiOnly = () => this.resolve(agent, need, { rotation: fixedRotationCursor });
     if (picked.route === "native") {
       let apiResolution: AgentResolution | undefined;
       try {
@@ -670,7 +494,8 @@ export interface SkippedOpencodeEntry {
 
 /**
  * Plan 038: how one subtask runs. The first entry of the agent's ordered
- * chain (assignment → fallback → the list, rotated in round robin) decides:
+ * chain (the role model when the override is on, then the list, rotated in
+ * round robin) decides:
  * an OpenCode entry = the native runtime with that model; an HTTP entry =
  * the API runtime with the rest of the HTTP chain as its failover. OpenCode
  * entries the gate refuses are skipped, which is the fallback.

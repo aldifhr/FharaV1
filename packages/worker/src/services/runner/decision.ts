@@ -1,21 +1,18 @@
 import { observationFromOutcome } from "@/api/convex/lib/observations";
 import type { RunContext, RunState } from "./types";
 import type { SchedulerNode, NodeOutcome } from "@/scheduler/dagScheduler";
-import type { PlanSubtask } from "@/types";
 import type { ReviewResult } from "@/utils/json";
 import { evaluateAfterExecution } from "@/orchestrator/orchestrator";
-import { decide, applyDecision, evaluateObjective, type DecisionContext, type DecisionObservation } from "@/orchestrator/decision";
+import type { DecisionContext, DecisionObservation } from "@/orchestrator/decision";
+import { decideNext, directNext, judgeObjective, targetAgent } from "@/orchestrator/decisionEngine";
 import { decideWithLlm } from "@/orchestrator/decisionLlm";
 import { toAgentResult } from "./setup";
-import { normalizeCapability, routeCapability } from "@/orchestrator/capabilities";
-import { CAPABILITY } from "@/types";
 import { resolveIssuesForApproval, resolveIssuesForQaPass } from "@/orchestrator/taskContext";
 import type { Escalation } from "@/api/convex/lib/subtaskContract";
 import { handleEscalation } from "./escalation";
 import { handleArchDecision } from "./archDecision";
 import { agentRoleLabel, postSystemLine } from "./systemLines";
 import { captureRunCheckpoint } from "./checkpoints";
-import { feedsResearchSynthesis } from "@/prompts/research";
 
 export async function handleNodeOutcome(
   ctx: RunContext,
@@ -241,95 +238,37 @@ export async function handleNodeOutcome(
           activeByAgent,
         };
         // Plan 013 step 5: the objective state travels with the
-        // observation. decide() consults the advisor where the
-        // objective is unmet and, without one, applies the recovery
-        // rule (missing work → replan, no path → ask_user); the
-        // retired post-hoc downgrade used to reclassify here.
-        //
-        // Only a node that EXECUTED in this run may be judged.
-        // A node skipped as "Previously completed" on resume /
-        // recovery has no executionId this run; evaluating its
-        // objective here compares against rebuilt in-memory
-        // evidence, which is incomplete for that node, so any
-        // verdict would be fabricated. The previous run already
-        // decided these nodes. While a review or QA loop is in
-        // flight its open findings are EXPECTED (the loop owns
-        // them), so the objective is not judgeable either. All
-        // three non-judgeable cases defer as met with evidence.
-        const reviewQaInFlight = plan.subtasks.some(
-          (candidate) =>
-            (candidate.kind === "review" || candidate.kind === "qa") &&
-            !dynamicKeys.has(candidate.key) &&
-            !runCompleted.has(candidate.key)
-        );
-        let objectiveState: DecisionObservation["objective"];
-        // Live test 3: a planned code_change that executed THIS run and
-        // staged nothing was deferred as "met" (review/QA still pending),
-        // so the run completed it as objective:met and only failed later
-        // in executePlan ("no file changes"). It is never met: the
-        // missing work goes to the recovery rule now.
-        const executedSubtask = plan.subtasks.find((candidate) => candidate.key === node.id);
-        const emptyCodeChange =
-          Boolean(executionId) &&
-          !ctx.inStageLoop &&
-          outcome.status === "completed" &&
-          executedSubtask?.kind === "code_change" &&
-          (state.appliedFilesBySubtask.get(node.id)?.length ?? 0) === 0;
-        if (emptyCodeChange) {
-          objectiveState = {
-            met: false,
-            missing: [`${node.id}: code_change completed with no applied file change`],
-            evidence: [],
-          };
-          await deps.api
-            .logEvent({
-              taskId: task._id,
-              projectId: project._id,
-              type: "orchestrator.objective_unmet",
-              payload: { missing: objectiveState.missing, evidence: [] },
-              executionId,
-              subtaskKey: node.id,
-              level: "warn",
-            })
-            .catch(() => undefined);
-        } else if (!executionId || ctx.inStageLoop || reviewQaInFlight) {
-          objectiveState = {
-            met: true,
-            missing: [],
-            evidence: ["objective evaluation deferred (skipped node, review/QA loop in flight, or loop fix)"],
-          };
-        } else {
-          const objective = evaluateObjective({
-            ...decisionContext,
-            dynamicKeys,
-            objectiveEvidence: {
-              appliedFiles: Object.fromEntries(state.appliedFilesBySubtask),
-              qaVerdicts: state.qaVerdicts,
-              verification: state.verification,
-            },
+        // observation (decisionEngine.judgeObjective owns when it is
+        // judgeable: empty code change → unmet; skipped node, stage-loop
+        // fix or review/QA in flight → deferred as met; else evaluated).
+        const judgment = judgeObjective({
+          context: decisionContext,
+          nodeKey: node.id,
+          executed: Boolean(executionId),
+          inStageLoop: ctx.inStageLoop,
+          completed: outcome.status === "completed",
+          dynamicKeys,
+          appliedFilesBySubtask: state.appliedFilesBySubtask,
+          qaVerdicts: state.qaVerdicts,
+          verification: state.verification,
+        });
+        if (judgment.unmet) {
+          const logged = deps.api.logEvent({
+            taskId: task._id,
+            projectId: project._id,
+            type: "orchestrator.objective_unmet",
+            payload: judgment.unmet,
+            executionId,
+            subtaskKey: node.id,
+            level: "warn",
           });
-          objectiveState = {
-            met: objective.satisfied,
-            missing: objective.missing,
-            evidence: objective.evidence,
-          };
-          if (!objective.satisfied) {
-            await deps.api.logEvent({
-              taskId: task._id,
-              projectId: project._id,
-              type: "orchestrator.objective_unmet",
-              payload: {
-                missing: objective.missing,
-                evidence: objective.evidence,
-              },
-              executionId,
-              subtaskKey: node.id,
-              level: "warn",
-            });
-          }
+          // An unmet evaluated objective propagates a logging failure
+          // (orchestrator.evaluation_failed), as before; the empty
+          // code-change event is best effort.
+          await (judgment.source === "empty_code_change" ? logged.catch(() => undefined) : logged);
         }
-        observation.objective = objectiveState;
-        const { decision: decided, fallback } = await decide(
+        observation.objective = judgment.state;
+        const { decision: decided, fallback, stepLimit } = await decideNext(
           decisionContext,
           observation,
           {
@@ -349,10 +288,9 @@ export async function handleNodeOutcome(
           }
         );
         // Plan 005 Step 5.4: the step bound is terminal — fail the
-        // task explicitly, never silently mark it done. `decide`
-        // already returned the `decision:step_limit` outcome; latch
-        // the halt so the scheduler drains instead of starting more.
-        if (decided.expectedOutcome === "decision:step_limit") {
+        // task explicitly, never silently mark it done. Latch the halt
+        // so the scheduler drains instead of starting more.
+        if (stepLimit) {
           ctx.stepLimitHit = true;
           await deps.api.logEvent({
             taskId: task._id,
@@ -430,27 +368,30 @@ export async function handleNodeOutcome(
         // "Please revise" chat line per decision was the remaining
         // spam source (the delegation/revise itself, via applyDecision,
         // is unaffected).
-        const applied = applyDecision(
-          {
-            taskId,
-            objective: input.sharedContext.objective,
-            classification: input.classification,
-            planVersion: input.planVersion ?? plan.version,
-            plan,
-            results: input.sharedContext.agentExecutions,
-            openIssues: input.sharedContext.outstandingIssues,
-            budget: input.budget.snapshot(),
-            policy: deps.policy,
-            agents: input.agents,
-            completedKeys: runCompleted,
-            step: ctx.decisionStep,
-            chainCapabilities: chain,
-            activeByAgent,
-          },
+        // P1b phase 1: the engine applies the decision and every runner
+        // veto (decisionEngine/overrides.ts) and returns one directive;
+        // this switch only performs it.
+        const directive = directNext(
+          decisionContext,
           decision,
+          {
+            plan,
+            nodeKey: node.id,
+            nodeKind: subtaskDef.kind,
+            completedKeys: runCompleted,
+            dynamicKeys,
+            executed: Boolean(executionId),
+            inStageLoop: ctx.inStageLoop,
+            plannedQaCount: ctx.qaNodes.length,
+            qaMode: deps.policy.qaMode,
+            budgetEnforced,
+            budgetHalted: ctx.budgetHalt,
+            waitingForInput: ctx.waitingForInput !== null,
+          },
+          ctx.replanFeedback,
           (base) => uniqueSubtaskKey(`${base}_${ctx.decisionStep}`)
         );
-        // Plan 013 step 3: the applied outcome is real. `nodes`
+        // Plan 013 step 3: the applied outcome is real (vetoes applied). `nodes`
         // spawns dynamic subtasks; `halt` is a budget BLOCKED and
         // stops scheduling on the budget-exhausted path; `complete`
         // latches the terminal flag ONLY when no planned node
@@ -459,52 +400,30 @@ export async function handleNodeOutcome(
         // `replan` latches too and `ctx.replanFeedback` carries the
         // objective missing list back to processTask's bounded
         // re-plan; `ask_user` is a recorded no-op until step 4.
-        switch (applied.kind) {
-          case "nodes": {
-            // Review-kind nodes are owned by the review loop: a
-            // REVISE (execute) here never spawns a fix subtask —
-            // the loop already builds its own per-iteration fixes,
-            // and a second fix loop would double the work. (The
-            // retired legacy branch enforced the same exclusion.)
-            if (subtaskDef.kind === "review" && decision.action === "execute") break;
-            // Dynamic QA (browser-testing delegation) is stage-managed
-            // (QA audit P0-3): suppressed entirely under qaMode=never, and
-            // otherwise DEFERRED to the post-apply QA stage instead of
-            // running now against the unapplied workspace. When the plan
-            // already has QA nodes they cover it, so it is dropped.
-            const isQaNode = (n: PlanSubtask) =>
-              n.kind === "qa" || normalizeCapability(n.capability) === CAPABILITY.BROWSER_TESTING;
-            const qaSpawned = applied.nodes.filter(isQaNode);
-            const spawnNodes = applied.nodes.filter((n) => !isQaNode(n));
-            if (qaSpawned.length > 0) {
-              const keepQa = deps.policy.qaMode !== "never" && ctx.qaNodes.length === 0;
+        switch (directive.kind) {
+          case "spawn": {
+            if (directive.qa) {
+              const qa = directive.qa;
               await deps.api
                 .logEvent({
                   taskId: task._id,
                   projectId: project._id,
-                  type: keepQa ? "qa.deferred" : "qa.suppressed",
-                  payload: {
-                    keys: qaSpawned.map((n) => n.key),
-                    reason: keepQa
-                      ? "dynamic QA runs in the post-apply QA stage"
-                      : deps.policy.qaMode === "never"
-                        ? "qaMode=never"
-                        : "plan already has QA nodes",
-                  },
+                  type: qa.keep ? "qa.deferred" : "qa.suppressed",
+                  payload: { keys: qa.keys, reason: qa.reason },
                 })
                 .catch(() => undefined);
-              if (keepQa) {
-                const deferred = qaSpawned.map((n) => ({ ...n, kind: "qa" as const }));
-                for (const node of deferred) {
+              if (qa.keep) {
+                for (const node of qa.deferred) {
                   plan.subtasks.push(node);
                   dynamicKeys.add(node.key);
                   chainByKey.set(node.key, [...chain, node.capability]);
                   fixDepthByKey.set(node.key, 0);
                   ctx.qaNodes.push(node);
                 }
-                await persistDynamic(deferred, "delegation");
+                await persistDynamic(qa.deferred, "delegation");
               }
             }
+            const spawnNodes = directive.nodes;
             if (spawnNodes.length > 0) {
               for (const dynamic of spawnNodes) {
                 plan.subtasks.push(dynamic);
@@ -512,7 +431,7 @@ export async function handleNodeOutcome(
                 chainByKey.set(dynamic.key, [...chain, dynamic.capability]);
                 fixDepthByKey.set(dynamic.key, 0);
               }
-              await persistDynamic(spawnNodes, decision.action === "execute" ? "fix" : "delegation");
+              await persistDynamic(spawnNodes, directive.origin);
               dynamicNodes = spawnNodes.map((dynamic) => ({
                 id: dynamic.key,
                 dependencies: dynamic.dependencies,
@@ -522,115 +441,66 @@ export async function handleNodeOutcome(
             }
             break;
           }
-          case "halt": {
-            // Warn mode: the BLOCKED evaluation is advisory only
-            // (same rule as the legacy evaluation branch — the
-            // budget.warning event from the pre-call gate is the
-            // visible signal and the run continues). Only enforce
-            // mode latches the halt.
-            if (budgetEnforced && !ctx.budgetHalt) {
-              ctx.budgetHalt = true;
-              await deps.api.logEvent({
-                taskId: task._id,
-                projectId: project._id,
-                type: "orchestrator.budget_blocked",
-                payload: {
-                  subtaskKey: node.id,
-                  reason: applied.reason.slice(0, 500),
-                  budget: input.budget.snapshot(),
-                },
-                executionId,
+          case "halt_budget": {
+            ctx.budgetHalt = true;
+            await deps.api.logEvent({
+              taskId: task._id,
+              projectId: project._id,
+              type: "orchestrator.budget_blocked",
+              payload: {
                 subtaskKey: node.id,
-                level: "warn",
-              });
-            }
+                reason: directive.reason.slice(0, 500),
+                budget: input.budget.snapshot(),
+              },
+              executionId,
+              subtaskKey: node.id,
+              level: "warn",
+            });
             break;
           }
           case "complete": {
-            const noPlannedPending = plan.subtasks.every(
-              (candidate) => candidate.key === node.id || runCompleted.has(candidate.key)
-            );
-            // The latch only honors the objective judged for work THIS
-            // run executed: a resumed/skipped node settled on store
-            // state only, and halting would block its resumable dynamic
-            // siblings (Phase 4 recovery, plan 011 step 4).
-            if (applied.expectedOutcome === "objective:met" && executionId && noPlannedPending && !ctx.inStageLoop) {
-              ctx.decisionTerminal = true;
-              await deps.api.logEvent({
-                taskId: task._id,
-                projectId: project._id,
-                type: "orchestrator.completed",
-                payload: { expectedOutcome: applied.expectedOutcome },
-                executionId,
-                subtaskKey: node.id,
-                level: "info",
-              });
-            }
+            ctx.decisionTerminal = true;
+            await deps.api.logEvent({
+              taskId: task._id,
+              projectId: project._id,
+              type: "orchestrator.completed",
+              payload: { expectedOutcome: directive.expectedOutcome },
+              executionId,
+              subtaskKey: node.id,
+              level: "info",
+            });
             break;
           }
           case "replan": {
-            // Objective-recovery replans defer while spawned recovery
-            // work is still pending: re-planning mid-recovery would
-            // discard the very fix meant to close the objective gap
-            // (plan 013 step 7). The recovery's later decisions re-run
-            // the recovery rule once nothing dynamic is outstanding.
-            const recoveryPending = plan.subtasks.some(
-              (candidate) => dynamicKeys.has(candidate.key) && !runCompleted.has(candidate.key)
-            );
-            if (recoveryPending) break;
-            // A staged loop (review / verification / QA) owns recovery
-            // of its own nodes: a failing QA verdict or verify fix is
-            // handled by the loop's bounded fix rounds, which fail the
-            // task on exhaustion. Latching a replan here would halt the
-            // loop's own fix node before it can run.
-            if (ctx.inStageLoop) break;
-            // O7: a failed /research angle does not halt the fan-out; the
-            // synthesis runs on the angles that succeeded (the scheduler's
-            // partialDependencies node) and is blocked only if all fail.
-            if (feedsResearchSynthesis(plan.subtasks, node.id)) break;
             ctx.decisionTerminal = true;
-            // First request wins: the earliest missing list is the
-            // feedback the bounded re-plan will address.
-            if (ctx.replanFeedback === null) {
-              ctx.replanFeedback = applied.reason;
-            }
+            ctx.replanFeedback = directive.feedback;
             break;
           }
           case "ask_user": {
-            // Plan 013 step 4: pause the task in `waiting_input`
-            // with the question visible. The first applied pause
-            // wins; a refused pause (lease lost / task already
+            // Plan 013 step 4: pause in `waiting_input` with the question
+            // visible; a refused pause (lease lost / task already
             // terminal) is recorded and the run continues.
-            if (ctx.waitingForInput === null) {
-              const paused = await deps.api
-                .pauseForInput({
-                  taskId,
-                  question: applied.question,
-                  options: applied.options,
-                  workerId: deps.workerId,
-                })
-                .catch(() => null);
-              if (paused?.applied) {
-                ctx.waitingForInput = applied.question;
-                ctx.decisionTerminal = true;
-              }
+            const paused = await deps.api
+              .pauseForInput({
+                taskId,
+                question: directive.question,
+                options: directive.options,
+                workerId: deps.workerId,
+              })
+              .catch(() => null);
+            if (paused?.applied) {
+              ctx.waitingForInput = directive.question;
+              ctx.decisionTerminal = true;
             }
             break;
           }
           case "call_agent": {
-            // Ephemeral invocation: the runner's LLM call path invoked the
-            // routed agent directly — no subtask row, no DAG change, no
-            // persistence. The answer already exists in the agent output; we
-            // just log the call for the trace.
+            // Ephemeral invocation: no subtask row, no DAG change; the
+            // answer already exists in the agent output. O2: a neutral
+            // System line (the reasoning stays in the decision events).
             input.budget.incrementDelegation();
-            const invoked = decision.target?.capability
-              ? routeCapability(decision.target.capability, input.agents, {
-                  allowFallback: deps.policy.allowFallback,
-                })
-              : undefined;
-            // O2: the orchestrator's own note is a neutral System line (the
-            // reasoning stays in the decision events, not in the thread).
-            await postSystemLine(deps, { taskId, projectId: project._id, content: `Consulted ${invoked ? agentRoleLabel(invoked) : applied.capability}` });
+            const invoked = targetAgent(decision, input.agents, deps.policy.allowFallback);
+            await postSystemLine(deps, { taskId, projectId: project._id, content: `Consulted ${invoked ? agentRoleLabel(invoked) : directive.capability}` });
             break;
           }
         }
@@ -642,15 +512,7 @@ export async function handleNodeOutcome(
         // validateDecision.
         if (decision.action === "delegate") {
           input.budget.incrementDelegation();
-          const nextAgent = decision.target?.agentId
-            ? input.agents.find((candidate) => candidate._id === decision.target!.agentId) as
-              | (typeof input.agents)[number]
-              | undefined
-            : decision.target?.capability
-              ? routeCapability(decision.target.capability, input.agents, {
-                  allowFallback: deps.policy.allowFallback,
-                })
-              : undefined;
+          const nextAgent = targetAgent(decision, input.agents, deps.policy.allowFallback);
           await deps.api
             .recordDelegation?.({
               taskId,

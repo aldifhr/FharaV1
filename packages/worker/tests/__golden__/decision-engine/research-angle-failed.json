@@ -1,0 +1,77 @@
+{
+  "events": [
+    "task.classified",
+    "orchestrator.plan",
+    "task.stage",
+    "subtask.routed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "ra-1",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "ra-1",
+        "action": "complete",
+        "reasoning": "Read-only task completed; no follow-up is started automatically",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 0,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "subtask.routed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "ra-2",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "ra-2",
+        "action": "replan",
+        "reasoning": "Permission denied: source unavailable",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 1,
+        "expectedOutcome": "recovery"
+      }
+    },
+    "subtask.routed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "synthesis",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "synthesis",
+        "action": "complete",
+        "reasoning": "Read-only task completed; no follow-up is started automatically",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 2,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "acceptance.evaluated",
+    "task.error"
+  ],
+  "messages": [
+    "system: Planned 3 subtasks",
+    "system: Sent to Researcher: ra-1",
+    "system: Sent to Researcher: ra-2",
+    "system: Sent to Researcher: synthesis"
+  ],
+  "delegations": [],
+  "pauses": [],
+  "replanFeedback": [
+    null
+  ],
+  "attempts": {
+    "ra-1": 1,
+    "ra-2": 1,
+    "synthesis": 1
+  },
+  "completion": {
+    "status": "failed",
+    "errorMessage": "Acceptance gates failed: ra-1: The answer cites its sources (files or URLs): No file or URL is cited; synthesis: The answer cites its sources (files or URLs): No file or URL is cited"
+  }
+}

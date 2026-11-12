@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { classifyCommand, isExplicitNoCode } from "@/orchestrator/classifier";
 import { validatePlan } from "@/orchestrator/planValidator";
-import { requiresScaffold } from "@/orchestrator/decision";
+import { requiresScaffold } from "@/orchestrator/decisionEngine";
 import { evaluateDelegation } from "@/orchestrator/delegation";
 import { BudgetTracker } from "@/orchestrator/budget";
 import { loadPolicy } from "@/orchestrator/policy";

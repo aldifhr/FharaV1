@@ -1,0 +1,40 @@
+{
+  "events": [
+    "task.classified",
+    "orchestrator.plan",
+    "task.stage",
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "impl",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "impl",
+        "action": "ask_user",
+        "reasoning": "no other path",
+        "target": null,
+        "decidedBy": "llm",
+        "planVersion": 1,
+        "step": 0,
+        "expectedOutcome": null
+      }
+    }
+  ],
+  "messages": [
+    "system: Planned 1 subtask",
+    "system: Sent to Frontend: impl"
+  ],
+  "delegations": [],
+  "pauses": [
+    "Which style?"
+  ],
+  "replanFeedback": [
+    null
+  ],
+  "attempts": {
+    "impl": 1
+  },
+  "completion": null
+}

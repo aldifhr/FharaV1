@@ -4,7 +4,7 @@ import type { AgentDefinition } from "@/orchestrator/types";
 import { validateDecision } from "@/orchestrator/decision";
 import { createSharedTaskContext } from "@/orchestrator/taskContext";
 import { heuristicPlan, applyPlanningHints } from "@/orchestrator/planner";
-import { evaluateObjective } from "@/orchestrator/decision";
+import { evaluateObjective } from "@/orchestrator/decisionEngine";
 import { loadPolicy } from "@/orchestrator/policy";
 
 const AGENTS: AgentDefinition[] = [

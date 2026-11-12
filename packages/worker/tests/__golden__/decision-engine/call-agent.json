@@ -1,0 +1,51 @@
+{
+  "events": [
+    "task.classified",
+    "orchestrator.plan",
+    "task.stage",
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "impl",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "impl",
+        "action": "call_agent",
+        "reasoning": "ask backend",
+        "target": {
+          "capability": "backend-development"
+        },
+        "decidedBy": "llm",
+        "planVersion": 1,
+        "step": 0,
+        "expectedOutcome": null
+      }
+    },
+    "task.policy_dry_run",
+    "fileChanges.applied",
+    "task.stage",
+    "acceptance.evaluated",
+    "task.summary",
+    "card.post_failed"
+  ],
+  "messages": [
+    "system: Planned 1 subtask",
+    "system: Sent to Frontend: impl",
+    "system: Consulted Backend",
+    "-: Done.\n\nVerification: passed."
+  ],
+  "delegations": [],
+  "pauses": [],
+  "replanFeedback": [
+    null
+  ],
+  "attempts": {
+    "impl": 1
+  },
+  "completion": {
+    "status": "done",
+    "errorMessage": null
+  }
+}

@@ -1,0 +1,126 @@
+import type { AgentDefinition, PlanSubtask } from "@/types";
+import {
+  applyDecision,
+  decide,
+  type DecideOptions,
+  type DecisionContext,
+  type DecisionObservation,
+  type OrchestratorDecision,
+} from "../decision";
+import { directiveFor, isStepLimit, resolveTargetAgent, type OverrideState, type RunnerDirective } from "./overrides";
+
+/**
+ * P1b phase 1: the Decision Engine seam.
+ *
+ * The single place the runner asks "given this observation, what next?".
+ * A settled node goes through three calls, in this order:
+ *
+ *   1. `judgeObjective`  — is the objective judgeable now, and is it met?
+ *                          (the runner logs `orchestrator.objective_unmet`
+ *                          from `judgment.unmet` before deciding)
+ *   2. `decideNext`      — deterministic decision, optional LLM advisor,
+ *                          validation, fallback; flags the step bound.
+ *   3. `directNext`      — apply the decision and every runner veto, and
+ *                          return the one `RunnerDirective` to perform.
+ *
+ * The runner (`services/runner/decision.ts`) keeps only side effects:
+ * events, persistence, latches, messages. Everything here is pure except
+ * the advisor call `decide()` already owned.
+ *
+ * Later phases extend this seam rather than adding decision points
+ * elsewhere (see `EngineObservation` / `NextStep` below):
+ *   - L6 (one replan owner): `decisionEngine/replan.ts` exports
+ *     `decideReplan(trigger)` and is re-exported here; taskRunner and
+ *     executePlan call it instead of deciding inline.
+ *   - L7 (stage-loop owners): `decisionEngine/fixOwner.ts` answers the
+ *     fix-owner queries of the QA / verify / review loops.
+ *   - L8 (scheduler purification): the scheduler and runNodes report an
+ *     `EngineObservation` and execute the `NextStep` they get back.
+ */
+
+export { evaluateObjective, isRecoveryNode, requiresScaffold, judgeObjective, reviewQaInFlight } from "./objective";
+export type { ObjectiveEvaluation, ObjectiveEvidence, ObjectiveJudgment, ObjectiveJudgeInput, ObjectiveState } from "./objective";
+export {
+  canPauseForInput,
+  directiveFor,
+  firstReplanFeedback,
+  isQaNode,
+  isStepLimit,
+  resolveTargetAgent,
+  shouldLatchBudgetHalt,
+  shouldLatchComplete,
+  vetoReplan,
+  vetoSpawn,
+} from "./overrides";
+export type { OverrideState, QaSpawnPlan, ReplanVeto, RunnerDirective, SpawnVerdict } from "./overrides";
+
+export interface DecideNextResult {
+  decision: OrchestratorDecision;
+  /** Set when the advisor failed and the deterministic decision was used. */
+  fallback?: string;
+  /** The step bound fired: terminal, the runner latches the halt and stops here. */
+  stepLimit: boolean;
+}
+
+/** Step 2: one decision for an observation that already carries its objective state. */
+export async function decideNext(
+  context: DecisionContext,
+  observation: DecisionObservation,
+  options: DecideOptions
+): Promise<DecideNextResult> {
+  const { decision, fallback } = await decide(context, observation, options);
+  return { decision, fallback, stepLimit: isStepLimit(decision) };
+}
+
+/** Step 3: the applied decision after every runner veto. */
+export function directNext(
+  context: DecisionContext,
+  decision: OrchestratorDecision,
+  state: OverrideState,
+  replanFeedback: string | null,
+  uniqueKey: (base: string) => string
+): RunnerDirective {
+  return directiveFor(applyDecision(context, decision, uniqueKey), decision, state, replanFeedback);
+}
+
+/** The agent a delegate / call_agent decision addresses (one routing rule for both). */
+export function targetAgent<A extends AgentDefinition>(
+  decision: OrchestratorDecision,
+  agents: A[],
+  allowFallback: boolean | undefined
+): A | undefined {
+  return resolveTargetAgent(decision, agents, { allowFallback });
+}
+
+// ---------------------------------------------------------------------------
+// The target vocabulary (P1b "Target"). Phase 1 only emits RunnerDirective;
+// these types are the contract L6-L8 implement against, so every later
+// decision point speaks the same language.
+// ---------------------------------------------------------------------------
+
+/** Error class a failed node reports (L8 replaces the scheduler's regexes with this). */
+export type FailureClass = "permanent" | "transient" | "budget" | "escalation" | "unknown";
+
+/** A typed observation a mechanical layer reports to the engine. */
+export type EngineObservation =
+  | { kind: "settled"; nodeKey: string; status: "completed" | "failed" }
+  | { kind: "failed"; nodeKey: string; errorClass: FailureClass; attempt: number; error: string }
+  | { kind: "stalled"; nodeKey: string; attempt: number }
+  | { kind: "unroutable"; nodeKey: string; capability: string }
+  | { kind: "prerequisite_missing"; nodeKey: string; missing: string[] }
+  | { kind: "runtime_unavailable"; nodeKey: string; runtime: string }
+  | { kind: "replan_trigger"; trigger: "no_op" | "terminal_failure" | "verify_failed" | "acceptance_rejected" | "objective_unmet"; reason: string }
+  | { kind: "fix_needed"; stage: "qa" | "verify" | "review"; findingKeys: string[] };
+
+/** What the engine tells a caller to do next. */
+export type NextStep =
+  | { kind: "execute"; nodeKey: string }
+  | { kind: "retry"; nodeKey: string; afterMs: number }
+  | { kind: "delegate"; capability: string; agentId?: string }
+  | { kind: "spawn_fix"; ownerAgentId: string; nodes: PlanSubtask[] }
+  | { kind: "replan"; reason: string }
+  | { kind: "ask_user"; question: string; options?: string[] }
+  | { kind: "ask_cto"; reason: string }
+  | { kind: "block"; reason: string }
+  | { kind: "complete" }
+  | { kind: "halt"; reason: string };

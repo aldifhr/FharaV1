@@ -1,0 +1,87 @@
+{
+  "events": [
+    "task.classified",
+    "orchestrator.plan",
+    "task.stage",
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "ui",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "ui",
+        "action": "delegate",
+        "reasoning": "The API endpoint is missing",
+        "target": {
+          "agentId": "agent-backend",
+          "capability": "backend-development"
+        },
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 0,
+        "expectedOutcome": "delegated"
+      }
+    },
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "decision_delegate_0",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "decision_delegate_0",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 1,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    {
+      "type": "orchestrator.completed",
+      "subtaskKey": "decision_delegate_0",
+      "level": "info",
+      "payload": {
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "task.policy_dry_run",
+    "fileChanges.applied",
+    "task.stage",
+    "acceptance.evaluated",
+    "task.summary",
+    "card.post_failed"
+  ],
+  "messages": [
+    "system: Planned 1 subtask",
+    "system: Sent to Frontend: ui",
+    "decision_delegate_0: @Backend The API endpoint is missing",
+    "system: Sent to Backend: Delegated work",
+    "-: Done.\n\nVerification: passed."
+  ],
+  "delegations": [
+    {
+      "from": "agent-frontend",
+      "to": "agent-backend",
+      "capability": "backend-development",
+      "decision": "APPROVE"
+    }
+  ],
+  "pauses": [],
+  "replanFeedback": [
+    null
+  ],
+  "attempts": {
+    "decision_delegate_0": 1,
+    "ui": 1
+  },
+  "completion": {
+    "status": "done",
+    "errorMessage": null
+  }
+}

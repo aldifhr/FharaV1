@@ -53,7 +53,7 @@ describe("failure injection", () => {
   });
 
   it("partial execution failure does not mark task completed (decision evidence)", async () => {
-    const { evaluateObjective } = await import("@/orchestrator/decision");
+    const { evaluateObjective } = await import("@/orchestrator/decisionEngine");
     const ctx: any = {
       taskId: "t1", objective: "o", classification: { kind: "code_change", strategy: "single", reasons: [], suggestedCapabilities: [] },
       planVersion: 1,

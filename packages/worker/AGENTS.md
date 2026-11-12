@@ -58,9 +58,17 @@ import backend internals.
   default 20): a step-limit hit fails the task explicitly, never a replan. The LLM advisor (`ORCHESTRATOR_DECISION_LLM`,
   default `ambiguous`) is consulted on ambiguous proposals and unmet objectives; deterministic
   policy rejections always win. Completed work is judged by
-  `evaluateObjective` — a `complete` decision with unmet explicit outcomes
-  (`recovery` / `policy:budget` / `decision:step_limit`) is converted to a
-  replan or a question, never a silent done.
+  `evaluateObjective` (`orchestrator/decisionEngine/objective.ts`) — a
+  `complete` decision with unmet explicit outcomes (`recovery` /
+  `policy:budget` / `decision:step_limit`) is converted to a replan or a
+  question, never a silent done.
+- `orchestrator/decisionEngine/` is the single seam for "what happens next"
+  (P1b): the runner calls `judgeObjective` → `decideNext` → `directNext` and
+  performs the one `RunnerDirective` it gets back; the runner vetoes (review
+  fix suppression, QA deferral, replan deferral, completion/budget latches)
+  live in `decisionEngine/overrides.ts` as pure functions. Add new decision
+  points there, never inline in the runner, scheduler or stage loops.
+  `tests/decisionEngine.golden.test.ts` pins the decision event sequences.
 - Dynamic subtasks must be persisted (`upsertDynamicSubtasks`) so recovery keeps
   them. In-memory-only plan mutation is a bug.
 - Review/QA nodes are conditional (plan 005 Phase 3): `reviewMode` defaults to

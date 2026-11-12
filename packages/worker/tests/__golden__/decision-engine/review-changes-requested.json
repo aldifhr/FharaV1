@@ -1,0 +1,108 @@
+{
+  "events": [
+    "task.classified",
+    "orchestrator.plan",
+    "task.stage",
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "impl",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "impl",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 0,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "task.stage",
+    "subtask.routed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "review",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "review",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 1,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "review.requested_changes",
+    "review.fix_started",
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "review_fix_1",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "review_fix_1",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 2,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "task.stage",
+    "subtask.routed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "review",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "review",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 3,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "review.approved",
+    "task.policy_dry_run",
+    "fileChanges.applied",
+    "task.stage",
+    "acceptance.evaluated",
+    "task.summary",
+    "card.post_failed"
+  ],
+  "messages": [
+    "system: Planned 2 subtasks",
+    "system: Sent to Frontend: impl",
+    "system: Sent to Reviewer: review",
+    "system: Sent to Frontend: Address review findings (iteration 1)",
+    "system: Sent to Reviewer: review",
+    "-: Done.\n\nReview: approved (1 file reviewed, no blocking findings).\n\nVerification: passed."
+  ],
+  "delegations": [],
+  "pauses": [],
+  "replanFeedback": [
+    null
+  ],
+  "attempts": {
+    "impl": 1,
+    "review": 2,
+    "review_fix_1": 1
+  },
+  "completion": {
+    "status": "done",
+    "errorMessage": null
+  }
+}

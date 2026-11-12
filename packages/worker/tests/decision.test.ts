@@ -5,11 +5,11 @@ import { CAPABILITY } from "@/orchestrator/types";
 import {
   validateDecision,
   decide,
-  evaluateObjective,
   nextDeterministicDecision,
   type DecisionContext,
   type DecisionObservation,
 } from "@/orchestrator/decision";
+import { evaluateObjective } from "@/orchestrator/decisionEngine";
 import type { Classification } from "@/orchestrator/types";
 
 const dev: AgentDefinition = {

@@ -48,7 +48,7 @@ const node = (key: string, kind: PlanSubtask["kind"], capability: string): PlanS
 });
 
 const plan = (subtasks: PlanSubtask[]): ExecutionPlan =>
-  ({ goal: "g", strategy: "sequential", requiresApproval: false, subtasks: subtasks.map((s, i) => ({ ...s, order: i })) }) as ExecutionPlan;
+  ({ version: 1, maxConcurrency: 1, goal: "g", strategy: "dag", requiresApproval: false, subtasks: subtasks.map((s, i) => ({ ...s, order: i })) }) as ExecutionPlan;
 
 const state = (over: Partial<ReportSummaryInput["state"]> = {}): ReportSummaryInput["state"] => ({
   qaVerdicts: {},
@@ -274,10 +274,10 @@ describe("finalize: the report carries the cross-role summary", () => {
       task: { _id: "t1" } as any,
       project: { _id: "p1" } as any,
       workspacePath: "/tmp",
-      plan: plan([node("run", "command", "backend-development")]),
+      plan: plan([node("run", "shell", "backend-development")]),
       planVersion: 1,
       agents: TEAM,
-      subtasks: [{ key: "run", kind: "command", status: "skipped", error: "Declined by user: `rm -rf dist`" }] as any,
+      subtasks: [{ key: "run", kind: "shell", status: "skipped", error: "Declined by user: `rm -rf dist`" }] as any,
       state: { ...state({}), priorOutputs: new Map(), feedback: [] } as any,
     });
     expect(messages).toHaveLength(1);

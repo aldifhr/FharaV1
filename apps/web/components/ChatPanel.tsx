@@ -1,8 +1,9 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
-import { newClientId, optimisticUserRow, reconcileOptimistic, withOptimisticRow } from "@/lib/optimisticChat";
+import { reconcileOptimistic } from "@/lib/optimisticChat";
 import { X } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import TaskBoard from "./TaskBoard";
@@ -12,7 +13,6 @@ import QueryBoundary from "./shell/QueryBoundary";
 import { roleLabel } from "@/lib/agentRoles";
 import { dispatchChatTyping } from "@/lib/chatTyping";
 import { isClosedStatus } from "@/lib/taskStatus";
-import { readLastRead, writeLastRead } from "@/lib/lastRead";
 import { statusFromLeases, type LeaseEntry, type StatusMap } from "@/lib/teamStatus";
 import ChatComposer from "./chat/ChatComposer";
 import { useProjectSlash } from "./chat/useProjectSlash";
@@ -34,6 +34,9 @@ import { parseOptions } from "@/lib/options";
 import DecisionsTray, { trayPlaceholder, useDecisionTray } from "./chat/DecisionsTray";
 import HeldTasksLine, { AutomationHoldLine } from "./chat/HeldTasksLine";
 import { useMessageHistory } from "@/lib/useMessageHistory";
+import { useApprovalBinding } from "./chat/useApprovalBinding";
+import { useProjectSend } from "./chat/useProjectSend";
+import { useUnreadDivider } from "./chat/useUnreadDivider";
 
 type Props = {
   projectId: string;
@@ -42,6 +45,10 @@ type Props = {
   onSelectTask: (taskId: string) => void;
   onOpenAgent?: (agentId: string) => void;
   selectedTaskId: string | null;
+  /** A conversation deep link: the timeline shows this conversation only. */
+  conversationId?: string | null;
+  /** The linked conversation is closed: no composer. */
+  conversationClosed?: boolean;
 };
 
 /** Lifts the live team status out of a boundary-protected query. */
@@ -65,7 +72,7 @@ function LegacyPinsFeed({ projectId, onChange }: { projectId: string; onChange: 
 
 const TARGET_KEY = (projectId: string) => `fhara-chat-target-${projectId}`;
 
-export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpenAgent, selectedTaskId }: Props) {
+export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpenAgent, selectedTaskId, conversationId = null, conversationClosed = false }: Props) {
   const { openSidebar } = useWorkspace();
   const toast = useToast();
   const project = useQuery(api.projects.get, { projectId: projectId as any });
@@ -84,50 +91,12 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const reject = useMutation(api.approvals.reject);
   const hold = useMutation(api.approvals.hold);
   const respondCommand = useMutation(api.commandApprovals.respond);
-  // O6: decisions carry the fingerprint of the approval this chat showed and
-  // when it first showed it; the backend refuses a changed or stale one.
-  const shownAtRef = useRef(new Map<string, number>());
-  const boundTo = (approvalId: unknown): { fingerprint?: string; shownAt?: number } => {
-    const row = approvals?.find((a) => a._id === approvalId);
-    if (!row?.fingerprint) return {};
-    const key = `${row._id}:${row.fingerprint}`;
-    if (!shownAtRef.current.has(key)) shownAtRef.current.set(key, Date.now());
-    return { fingerprint: row.fingerprint, shownAt: shownAtRef.current.get(key)! };
-  };
-  useEffect(() => {
-    for (const row of approvals ?? []) {
-      const key = `${row._id}:${row.fingerprint}`;
-      if (!shownAtRef.current.has(key)) shownAtRef.current.set(key, Date.now());
-    }
-  }, [approvals]);
+  const boundTo = useApprovalBinding(approvals as any[] | undefined);
   const answerQuestion = useMutation(api.tasks.answerQuestion);
   const togglePin = useMutation(api.messages.togglePin);
   const clearChat = useMutation(api.conversations.clearChat);
   const createTask = useMutation(api.tasks.createFromCommand);
-  // Idempotent, optimistic send (t3code idea #2): every send carries a
-  // client id; the bubble draws at once and the server row with the same
-  // clientId replaces it (reconcileOptimistic in the timeline below).
-  const sendMutation = useMutation(api.messages.send).withOptimisticUpdate((store, args) => {
-    if (!args.clientId) return;
-    const listArgs = { projectId: args.projectId };
-    const current = store.getQuery(api.messages.listByProject, listArgs);
-    if (current === undefined) return;
-    const row = optimisticUserRow(
-      {
-        projectId: args.projectId as string,
-        content: args.content,
-        clientId: args.clientId,
-        ...(args.quotedMessageId ? { quotedMessageId: args.quotedMessageId as string } : {}),
-      },
-      Date.now(),
-    );
-    store.setQuery(api.messages.listByProject, listArgs, withOptimisticRow(current as any[], row as any) as any);
-  });
-  const sendMessage = useCallback(
-    (args: Omit<Parameters<typeof sendMutation>[0], "clientId"> & { clientId?: string }) =>
-      sendMutation({ ...args, clientId: args.clientId ?? newClientId() }),
-    [sendMutation],
-  );
+  const sendMessage = useProjectSend();
 
   // Plan 020: permission mode for tasks dispatched from this composer.
   // Starts at the project's default; a pick holds until the project changes.
@@ -174,8 +143,10 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         // verification, QA, push) carry taskId AND conversationId — they
         // belong in the chat as well as in the task thread.
         .filter((message: any) => !message.taskId || (message.card && message.conversationId))
+        // A conversation deep link shows that conversation alone.
+        .filter((message: any) => !conversationId || message.conversationId === conversationId)
         .sort((a: any, b: any) => a._creationTime - b._creationTime),
-    [messages],
+    [messages, conversationId],
   );
   const lastMessage = timeline[timeline.length - 1];
 
@@ -199,36 +170,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const [trayBusy, setTrayBusy] = useState<string | null>(null);
   const [trayConfirm, setTrayConfirm] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
 
-  // ── Unread "• New" divider: last-read timestamp per conversation. ──────
-  // `lastReadAt` advances (and persists) as the user reads to the bottom;
-  // the divider stays where it was when the conversation was opened, so it
-  // does not vanish the moment the view auto-scrolls. Sending a message
-  // means the user caught up: the divider goes away.
+  // ── Unread "• New" divider (see useUnreadDivider). ──────
   const conversationKey = (activeConversation as any)?.conversation?._id ?? projectId;
-  const lastReadRef = useRef<number>(0);
-  const [dividerAt, setDividerAt] = useState<number | null>(null);
-  useEffect(() => {
-    // The pre-conversation per-project key stays readable after the switch.
-    const stored = readLastRead(conversationKey) ?? readLastRead(projectId);
-    lastReadRef.current = stored ?? 0;
-    // First visit (nothing stored): the backlog is not "new".
-    setDividerAt(stored ?? Number.POSITIVE_INFINITY);
-  }, [conversationKey, projectId]);
-  const markSeen = () => {
-    const seen = lastMessage?._creationTime ?? 0;
-    if (!seen || seen <= lastReadRef.current) return;
-    lastReadRef.current = seen;
-    writeLastRead(conversationKey, seen);
-  };
-  useEffect(() => {
-    if (timeline.length === 0 || dividerAt === null) return;
-    const el = scrollRef.current;
-    const atBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight <= 120;
-    if ((atBottom && document.visibilityState === "visible") || dividerAt === Number.POSITIVE_INFINITY) markSeen();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- markSeen is recreated each render; these are the triggers
-  }, [timeline, conversationKey, dividerAt]);
-  const firstNewIndex =
-    dividerAt === null ? -1 : timeline.findIndex((m: any) => m._creationTime > dividerAt && m.authorType !== "user");
+  const { firstNewIndex, markSeen, clearDivider } = useUnreadDivider({ conversationKey, projectId, timeline, lastMessage, scrollRef });
 
   // ── Scrolling ───────────────────────────────────────────────────────────
   useEffect(() => void (nearBottomRef.current = true), [projectId]);
@@ -431,7 +375,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         });
       }
       setQuote(null);
-      setDividerAt(Number.POSITIVE_INFINITY);
+      clearDivider();
       return clearDraft();
     } catch (err) {
       setChatError(err instanceof Error ? err.message : "Failed to send");
@@ -760,7 +704,12 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             qaUrl={(project as any)?.qaUrl ?? (project as any)?.devUrl}
           />
           <DecisionsTray tray={tray} busy={trayBusy} onAction={(item, action) => void runTrayAction(item, action)} />
-          <ChatComposer
+          {conversationId && (conversationClosed || conversationId !== currentConversationId) ? (
+            <p role="status" className="shrink-0 border-t border-line bg-panel px-4 py-3 text-[13px] text-ink-3 sm:px-9 lg:px-11">
+              This conversation is no longer active.{" "}
+              <Link href={`/project/${projectId}`} className="text-ink-2 hover:text-ink">Open the project chat</Link>
+            </p>
+          ) : <ChatComposer
             placeholder={tray.active ? trayPlaceholder(tray.current) : undefined}
             onKeyIntercept={(e) => {
               if (!tray.active || !tray.current) return false;
@@ -810,7 +759,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             quote={quote}
             onCancelQuote={() => setQuote(null)}
             slashCommands={slashEntries}
-          />
+          />}
           {decisions?.pickup && !decisions.pickup.workerOnline && decisions.pickup.queuedTasks + decisions.pickup.pendingMessages > 0 && (
             <p role="status" className="-mt-2 shrink-0 bg-panel px-4 pb-2 text-[12.5px] text-ink-3 sm:px-9 lg:px-11">
               Waiting for a worker to pick this up… no worker is online yet.

@@ -1,9 +1,9 @@
 // Paradev C3: skills the user invoked ("/<skill>") reach every task run inline.
-import { describe, expect, test } from "vitest";
-import type { PromptSkill } from "@/api/convex/lib/skills";
+import { describe, expect, test, vi } from "vitest";
+import type { LibrarySkillRef, PromptSkill } from "@/api/convex/lib/skills";
 import { INVOKED_SKILLS_NOTE } from "@/api/convex/lib/skillRuntime";
 import { toAgentDefinition } from "@/services/runner/setup";
-import { taskAgentSkills } from "@/execution/skillLoading";
+import { preloadOnDemandSkills, SKILL_PRELOAD_DONE, taskAgentSkills } from "@/execution/skillLoading";
 import type { WorkerRunAgent } from "@/workerApi";
 
 const FRONTEND: PromptSkill = { name: "frontend-design", description: "UI", instructions: "FRONTEND BODY", fullInstructions: "FRONTEND BODY" };
@@ -55,28 +55,41 @@ describe("task invokedSkills → inline", () => {
 });
 
 describe("shared library on demand", () => {
-  test("inline agent: library index in the prompt, body only through load_skill", () => {
-    const deploy: PromptSkill = {
-      name: "Deploy",
-      description: "Ship it",
-      instructions: "DEPLOY BODY",
-      fullInstructions: "DEPLOY BODY",
-    };
+  test("inline agent: library index in the prompt, no body anywhere, loadable by name", () => {
+    const deploy: LibrarySkillRef = { name: "Deploy", description: "Ship it", version: 2 };
     const def = toAgentDefinition(agent({ librarySkills: [deploy] } as Partial<WorkerRunAgent>));
     expect(def.systemPrompt).toContain("## Library skills (load on demand)");
-    expect(def.systemPrompt).toContain("- Deploy: Ship it");
-    expect(def.systemPrompt).not.toContain("DEPLOY BODY");
-    expect(def.onDemandSkills?.map((s) => s.name)).toContain("Deploy");
+    expect(def.systemPrompt).toContain("- Deploy: Ship it (v2)");
+    expect(def.onDemandSkills).toBeUndefined();
+    expect(def.librarySkills).toEqual([deploy]);
     // Still guidance only: no tool is granted.
     expect(def.supportedTools).toEqual(["read_file"]);
   });
 
   test("a library skill the agent already carries is not listed twice", () => {
     const def = toAgentDefinition(
-      agent({ skillLoading: "on_demand", librarySkills: [FRONTEND, OTHER] } as Partial<WorkerRunAgent>)
+      agent({ skillLoading: "on_demand", librarySkills: [{ name: "frontend-design" }, { name: "release-notes" }] } as Partial<WorkerRunAgent>)
     );
     expect(count(def.systemPrompt, "frontend-design")).toBe(1);
     expect(count(def.systemPrompt, "release-notes")).toBe(1);
     expect(def.onDemandSkills?.map((s) => s.name)).toEqual(["frontend-design", "release-notes"]);
+    expect(def.librarySkills).toBeUndefined();
+  });
+
+  test("preload fetches a library body only when the model asks for it", async () => {
+    const fetchBody = vi.fn(async (ref: LibrarySkillRef) => ({ body: `${ref.name} BODY`, version: 4 }));
+    const replies = ['{"tool":"load_skill","arguments":{"name":"deploy"}}', SKILL_PRELOAD_DONE];
+    const result = await preloadOnDemandSkills({
+      systemPrompt: "base",
+      skills: undefined,
+      library: [{ name: "Deploy" }, { name: "Unused" }],
+      fetchBody,
+      assignment: "ship it",
+      call: async () => replies.shift() ?? SKILL_PRELOAD_DONE,
+    });
+    expect(fetchBody).toHaveBeenCalledTimes(1);
+    expect(fetchBody).toHaveBeenCalledWith({ name: "Deploy" });
+    expect(result.loaded).toEqual(["Deploy"]);
+    expect(result.systemPrompt).toContain("## Skill: Deploy (v4)\nDeploy BODY");
   });
 });

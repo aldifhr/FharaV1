@@ -13,6 +13,7 @@ import { conversationKind, conversationShapeError, isPersonalConversation } from
 import { projectTeamIds } from "./lib/projectTeam";
 import { isSystemLine } from "./lib/systemLine";
 import { syncConversationThread } from "./lib/threadIndex";
+import { deleteConversationCascade } from "./lib/conversationCascade";
 
 /**
  * Plan 007 (addendum §2): conversation participation as a persisted concept,
@@ -698,35 +699,21 @@ export const removePersonal = mutation({
     }
     const agent = conversation.agentId ? await ctx.db.get(conversation.agentId) : null;
     // One mutation = one transaction: either the whole chat goes or none of it.
-    const messages = await ctx.db
-      .query("messages")
-      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
-      .collect();
-    for (const message of messages) await ctx.db.delete(message._id);
-    const participants = await ctx.db
-      .query("conversationParticipants")
-      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
-      .collect();
-    for (const row of participants) await ctx.db.delete(row._id);
-    const summaries = await ctx.db
-      .query("contextSummaries")
-      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
-      .collect();
-    for (const row of summaries) await ctx.db.delete(row._id);
-    await ctx.db.delete(conversation._id);
+    const { messages } = await deleteConversationCascade(ctx, conversation);
     await recordAudit(ctx, {
       action: "conversation.remove_personal",
       target: agent?.name ?? "personal chat",
-      details: { conversationId: conversation._id, messages: messages.length },
+      details: { conversationId: conversation._id, messages },
     });
     return { deleted: true };
   },
 });
 
 /**
- * Delete one project conversation from the sidebar Threads section: its
- * messages, participant rows, context summaries, the `threadIndex` row and
- * the conversation itself. Personal chats (plan 039) and a task's own chat
+ * Delete one project conversation with everything that belongs to it
+ * (lib/conversationCascade.ts: messages, participants, summaries, agent
+ * events, context snapshots, scheduled tasks bound to it, the `threadIndex`
+ * row). Personal chats (plan 039) and a task's own chat
  * are refused: the first has `removePersonal`, the second lives and dies
  * with its task. Tasks dispatched from the chat keep living on the project
  * board; their `conversationId` dangles, which `taskCardConversationId`
@@ -746,32 +733,12 @@ export const remove = mutation({
       throw new Error("This chat belongs to a task; delete the task instead");
     }
     // One mutation = one transaction: either the whole conversation goes or none of it.
-    const messages = await ctx.db
-      .query("messages")
-      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
-      .collect();
-    for (const message of messages) await ctx.db.delete(message._id);
-    const participants = await ctx.db
-      .query("conversationParticipants")
-      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
-      .collect();
-    for (const row of participants) await ctx.db.delete(row._id);
-    const summaries = await ctx.db
-      .query("contextSummaries")
-      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
-      .collect();
-    for (const row of summaries) await ctx.db.delete(row._id);
-    const threadRow = await ctx.db
-      .query("threadIndex")
-      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
-      .unique();
-    if (threadRow) await ctx.db.delete(threadRow._id);
-    await ctx.db.delete(conversation._id);
+    const { messages } = await deleteConversationCascade(ctx, conversation);
     await recordAudit(ctx, {
       action: "conversation.remove",
       target: conversation.title?.trim() || "project chat",
       projectId: conversation.projectId,
-      details: { conversationId: conversation._id, messages: messages.length },
+      details: { conversationId: conversation._id, messages },
     });
     return { deleted: true };
   },

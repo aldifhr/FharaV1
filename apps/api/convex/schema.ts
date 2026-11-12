@@ -2041,8 +2041,7 @@ export default defineSchema({
     .index("by_status", ["status", "createdAt"])
     .index("by_task", ["taskId"]),
 
-  // Plan L5 (additive): one row per task whose memory reconciliation ran
-  // (idempotency: a second finalize of the same task never re-runs it).
+  // Plan L5 (additive): one row per task whose memory reconciliation ran (idempotent: never re-runs).
   memoryReconciliations: defineTable({
     projectId: v.id("projects"),
     taskId: v.id("tasks"),
@@ -2050,14 +2049,13 @@ export default defineSchema({
     reason: v.optional(v.string()),
     suggestions: v.number(),
     createdAt: v.number(),
-  })
-    .index("by_task", ["taskId"])
-    .index("by_project", ["projectId"]),
+  }).index("by_task", ["taskId"]).index("by_project", ["projectId"]),
 
   // Context Snapshot (additive): one light row per LLM call — who, what for,
   // model, tokens, per-section token estimates, error. The prompt and
   // response text live in contextSnapshotBodies so list queries stay light.
-  // Pruned by the daily cron after the project's retention (default 14 days).
+  // Pruned by the daily cron after the project's retention (default 14 days);
+  // deleting a conversation takes its rows (by_conversation, lib/conversationCascade.ts).
   contextSnapshots: defineTable({
     projectId: v.id("projects"),
     taskId: v.optional(v.id("tasks")),
@@ -2092,6 +2090,7 @@ export default defineSchema({
   })
     .index("by_task", ["taskId", "createdAt"])
     .index("by_message", ["messageId"])
+    .index("by_conversation", ["conversationId"])
     .index("by_project_created", ["projectId", "createdAt"])
     .index("by_created", ["createdAt"]),
 

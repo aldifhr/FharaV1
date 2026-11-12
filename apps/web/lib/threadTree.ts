@@ -1,24 +1,15 @@
 /**
- * Sidebar Threads section (Paradev B2): pure grouping, filtering and
- * sorting over `threads.list` rows. No React, no Convex, so it is unit
- * tested in tests/unit/threadTree.test.mjs.
+ * Pure thread helpers: the `threads.list` row shape the command menu's recent
+ * threads read (lib/commandMenu.ts), their order, where a thread opens, and
+ * what a thread deep link names. No React, no Convex, so it is unit tested
+ * in tests/unit/threadTree.test.mjs.
  *
- * The rules follow Paradev's dashboard sidebar (pattern, not copied):
- *   - Sort: newest activity first; ties by title, then id; a row without
- *     a timestamp sinks to the bottom.
- *   - Text filter: case-insensitive substring. A group whose label matches
- *     is kept whole; otherwise it is pruned to the matching rows, and a
- *     group left empty is dropped. Unlike Paradev, branch names match too,
- *     because Fhara shows them.
- *   - Fix and review-round tasks (`ownerTaskId`) sit right under their
- *     owner when the owner is in the same group, so a PR's history reads as
- *     one block.
+ * (The sidebar Threads section that grouped, filtered and keyboard-walked
+ * these rows was removed; threads open from the board, Needs you, Inbox,
+ * ⌘K and deep links.)
  */
 
 export type ThreadKind = "task" | "conversation";
-export type ThreadGroupBy = "project" | "kind" | "status";
-export type ThreadFilter = "all" | "needsYou" | "unread";
-export type ThreadStatusBucket = "needsYou" | "active" | "idle" | "done";
 
 /** One `threads.list` row plus the project it came from. */
 export type ThreadItem = {
@@ -37,54 +28,6 @@ export type ThreadItem = {
   projectName: string;
 };
 
-/** A row as shown: `nested` when it sits under its owner task. */
-export type ThreadRowView = ThreadItem & { nested: boolean };
-
-export type ThreadGroup = {
-  key: string;
-  label: string;
-  rows: ThreadRowView[];
-  lastActivityAt: number;
-};
-
-const KIND_ORDER: readonly { key: ThreadKind; label: string }[] = [
-  { key: "task", label: "Tasks" },
-  { key: "conversation", label: "Conversations" },
-];
-
-const STATUS_ORDER: readonly { key: ThreadStatusBucket; label: string }[] = [
-  { key: "needsYou", label: "Needs you" },
-  { key: "active", label: "Active" },
-  { key: "idle", label: "Idle" },
-  { key: "done", label: "Done" },
-];
-
-const ACTIVE = new Set(["running", "queued", "paused", "held"]);
-const DONE = new Set(["done", "rejected", "failed", "cancelled", "closed"]);
-
-/** Which status group a row falls in. needsYou wins over its status word. */
-export function statusBucket(row: Pick<ThreadItem, "status" | "needsYou">): ThreadStatusBucket {
-  if (row.needsYou) return "needsYou";
-  if (ACTIVE.has(row.status)) return "active";
-  if (DONE.has(row.status)) return "done";
-  return "idle";
-}
-
-export function matchesThreadFilter(row: Pick<ThreadItem, "needsYou" | "unread">, filter: ThreadFilter): boolean {
-  if (filter === "needsYou") return row.needsYou;
-  if (filter === "unread") return row.unread;
-  return true;
-}
-
-const norm = (text: string) => text.trim().toLowerCase();
-
-/** Title or branch contains the query (case-insensitive). An empty query matches. */
-export function matchesThreadQuery(row: Pick<ThreadItem, "title" | "branchName">, query: string): boolean {
-  const q = norm(query);
-  if (!q) return true;
-  return row.title.toLowerCase().includes(q) || (row.branchName ?? "").toLowerCase().includes(q);
-}
-
 const activity = (row: { lastActivityAt: number }) =>
   Number.isFinite(row.lastActivityAt) && row.lastActivityAt > 0 ? row.lastActivityAt : null;
 
@@ -101,111 +44,6 @@ export function compareThreads(a: ThreadItem, b: ThreadItem): number {
 }
 
 /**
- * Sorted rows with fix tasks placed right after their owner (when the owner
- * is in the same list). Children keep their own order; an orphan stays a
- * top-level row in its sorted place.
- */
-export function sortThreads(rows: readonly ThreadItem[]): ThreadRowView[] {
-  const sorted = [...rows].sort(compareThreads);
-  const ownerIds = new Set(sorted.map((r) => r.taskId).filter((id): id is string => !!id));
-  const children = new Map<string, ThreadItem[]>();
-  const top: ThreadItem[] = [];
-  for (const row of sorted) {
-    const owner = row.ownerTaskId;
-    if (owner && owner !== row.taskId && ownerIds.has(owner)) {
-      const list = children.get(owner) ?? [];
-      list.push(row);
-      children.set(owner, list);
-    } else top.push(row);
-  }
-  const out: ThreadRowView[] = [];
-  for (const row of top) {
-    out.push({ ...row, nested: false });
-    for (const child of (row.taskId && children.get(row.taskId)) || []) out.push({ ...child, nested: true });
-  }
-  return out;
-}
-
-const newest = (rows: readonly ThreadItem[]) => rows.reduce((max, r) => Math.max(max, activity(r) ?? 0), 0);
-
-/** Groups for the chosen axis. Empty groups are left out. */
-export function groupThreads(rows: readonly ThreadItem[], groupBy: ThreadGroupBy): ThreadGroup[] {
-  if (groupBy === "kind" || groupBy === "status") {
-    const order = groupBy === "kind" ? KIND_ORDER : STATUS_ORDER;
-    const keyOf = (r: ThreadItem): string => (groupBy === "kind" ? r.kind : statusBucket(r));
-    return order
-      .map(({ key, label }) => {
-        const members = rows.filter((r) => keyOf(r) === key);
-        return { key: `${groupBy}:${key}`, label, rows: sortThreads(members), lastActivityAt: newest(members) };
-      })
-      .filter((g) => g.rows.length > 0);
-  }
-  const byProject = new Map<string, ThreadItem[]>();
-  for (const row of rows) {
-    const list = byProject.get(row.projectId) ?? [];
-    list.push(row);
-    byProject.set(row.projectId, list);
-  }
-  return [...byProject.entries()]
-    .map(([projectId, members]) => ({
-      key: `project:${projectId}`,
-      label: members[0].projectName,
-      rows: sortThreads(members),
-      lastActivityAt: newest(members),
-    }))
-    .sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.label.localeCompare(b.label) || (a.key < b.key ? -1 : 1));
-}
-
-/**
- * Text filter over groups: a group whose label matches stays whole, other
- * groups keep only matching rows, and empty groups are dropped. A nested
- * fix task that matches keeps its row; its owner is not pulled back in.
- */
-export function filterThreadGroups(groups: readonly ThreadGroup[], query: string): ThreadGroup[] {
-  const q = norm(query);
-  if (!q) return [...groups];
-  const out: ThreadGroup[] = [];
-  for (const group of groups) {
-    if (group.label.toLowerCase().includes(q)) {
-      out.push(group);
-      continue;
-    }
-    const rows = group.rows.filter((r) => matchesThreadQuery(r, q));
-    if (rows.length) out.push({ ...group, rows });
-  }
-  return out;
-}
-
-/** Status filter, then grouping and sorting, then the text filter. */
-export function buildThreadTree(
-  rows: readonly ThreadItem[],
-  opts: { groupBy: ThreadGroupBy; filter: ThreadFilter; query: string },
-): ThreadGroup[] {
-  const kept = rows.filter((r) => matchesThreadFilter(r, opts.filter));
-  return filterThreadGroups(groupThreads(kept, opts.groupBy), opts.query);
-}
-
-/** Row ids in screen order, skipping collapsed groups (none are collapsed while filtering). */
-export function visibleThreadIds(
-  groups: readonly ThreadGroup[],
-  collapsed: ReadonlySet<string>,
-  forceExpanded = false,
-): string[] {
-  return groups.flatMap((g) => (!forceExpanded && collapsed.has(g.key) ? [] : g.rows.map((r) => r.id)));
-}
-
-/**
- * The next (+1) or previous (-1) id. With no current row (or one no longer
- * shown) it starts at the first or the last; it stops at the ends.
- */
-export function adjacentThreadId(ids: readonly string[], currentId: string | null, step: 1 | -1): string | null {
-  if (ids.length === 0) return null;
-  const at = currentId ? ids.indexOf(currentId) : -1;
-  if (at === -1) return step === 1 ? ids[0] : ids[ids.length - 1];
-  return ids[Math.min(ids.length - 1, Math.max(0, at + step))];
-}
-
-/**
  * The project workspace page (`/project/:projectId`) every thread opens in. */
 export function projectHref(projectId: string): string {
   return `/project/${projectId}`;
@@ -214,10 +52,34 @@ export function projectHref(projectId: string): string {
 /**
  * Where a row opens. Threads carry their id in the path
  * (`/project/:projectId/:threadId`) so the link is shareable and a reload
- * lands on the same thread: a task is, a
- * conversation (project chat) is not and falls back to the chat view.
+ * lands on the same thread: a task opens its thread, a project conversation
+ * shows that conversation (see `threadLinkView`).
  */
 export function threadHref(row: Pick<ThreadItem, "projectId" | "taskId" | "conversationId">): string {
   const id = row.taskId ?? row.conversationId;
   return id ? `/project/${row.projectId}/${id}` : projectHref(row.projectId);
+}
+
+/** `threads.resolveLink`: what a deep link's id names (`projectId` is null for another project's row). */
+export type ThreadLink = {
+  kind: "task" | "conversation";
+  projectId: string | null;
+  personal: boolean;
+  taskChat: boolean;
+  status: string | null;
+} | null;
+
+export type ThreadLinkView = "loading" | "task" | "conversation" | "not_found";
+
+/**
+ * The main view for `/project/:projectId/:threadId`. A task of this project
+ * opens its thread; a project conversation of this project shows that
+ * conversation. Anything else (an unknown id, another project's row, a
+ * personal chat, a task's own chat) is "Thread not found".
+ */
+export function threadLinkView(projectId: string, link: ThreadLink | undefined): ThreadLinkView {
+  if (link === undefined) return "loading";
+  if (!link || link.projectId !== projectId) return "not_found";
+  if (link.kind === "task") return "task";
+  return link.personal || link.taskChat ? "not_found" : "conversation";
 }

@@ -78,13 +78,27 @@ describe("lib/schedule next run", () => {
   });
 });
 
-async function setup() {
+/** 2026-11-12 08:00 WIB: the clock every tick test starts on. */
+const START = Date.UTC(2026, 10, 12, 1, 0);
+
+/**
+ * convex-test gives each transaction `max(Date.now(), last commit time)` as
+ * its clock, and a commit on a frozen clock moves the commit time 1 ns past
+ * it (rounded up to the next millisecond for the next transaction). So the
+ * fixtures are written one second before the test's clock: a fixture
+ * committed at the real time (later than START) used to leave every mutation
+ * on the fixture's commit time, and one committed at START itself would put
+ * the second mutation of a test 1 ms past `Date.now()`.
+ */
+async function setup(now = START) {
+  vi.setSystemTime(now - 1_000);
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
     const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p" });
     const conversationId = await ctx.db.insert("conversations", { projectId, kind: "project", status: "active", createdAt: 1 });
     return { projectId, conversationId };
   });
+  vi.setSystemTime(now);
   return { t, ...ids };
 }
 type T = Awaited<ReturnType<typeof setup>>["t"];
@@ -96,7 +110,6 @@ const nextOf = (t: T, id: Id<"scheduledTasks">) => t.run(async (ctx) => (await c
 describe("scheduledTasks tick", () => {
   test("a due task creates one task; a double tick dispatches once", async () => {
     const { t, projectId } = await setup();
-    vi.setSystemTime(Date.UTC(2026, 10, 12, 1, 0));
     const id = await t.mutation(api.scheduledTasks.create, {
       projectId,
       name: "Nightly deps",
@@ -126,7 +139,6 @@ describe("scheduledTasks tick", () => {
 
   test("held = no fire: the occurrence records held and is skipped; resuming fires the next", async () => {
     const { t, projectId } = await setup();
-    vi.setSystemTime(Date.UTC(2026, 10, 12, 1, 0));
     const id = await t.mutation(api.scheduledTasks.create, {
       projectId,
       name: "Hourly",
@@ -147,7 +159,6 @@ describe("scheduledTasks tick", () => {
 
   test("a fixed-time run more than 10 minutes late is recorded missed, not fired", async () => {
     const { t, projectId } = await setup();
-    vi.setSystemTime(Date.UTC(2026, 10, 12, 1, 0)); // 08:00 WIB
     const id = await t.mutation(api.scheduledTasks.create, {
       projectId,
       name: "Standup",
@@ -164,7 +175,6 @@ describe("scheduledTasks tick", () => {
 
   test("a conversation target sends once into the bound chat and starts no task", async () => {
     const { t, projectId, conversationId } = await setup();
-    vi.setSystemTime(Date.UTC(2026, 10, 12, 1, 0));
     const id = await t.mutation(api.scheduledTasks.create, {
       projectId,
       name: "Morning brief",
@@ -183,7 +193,6 @@ describe("scheduledTasks tick", () => {
 
   test("a failing target records failed and does not block other rows", async () => {
     const { t, projectId, conversationId } = await setup();
-    vi.setSystemTime(Date.UTC(2026, 10, 12, 1, 0));
     const bad = await t.mutation(api.scheduledTasks.create, {
       projectId,
       name: "Closed chat",

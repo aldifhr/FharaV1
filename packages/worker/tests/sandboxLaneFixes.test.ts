@@ -13,7 +13,7 @@ import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/orchestrator
 import type { RunContext } from "@/services/runner/types";
 import { extractRequirementsFallback } from "@/api/convex/lib/requirements";
 import { sandboxInstructionSpan } from "@/api/convex/lib/sandboxBrief";
-import { approvalDeciderLabel, defaultSandboxConfig, sandboxCommand } from "../../../apps/web/lib/sandbox";
+import { approvalDeciderLabel } from "../../../apps/web/lib/approvalDecider";
 import { createTempGitRepo } from "./helpers/tempRepo";
 
 /**
@@ -23,8 +23,14 @@ import { createTempGitRepo } from "./helpers/tempRepo";
  * extraction, empty code_change never "met", OpenCode file tracking.
  */
 
+/** The Sandbox brief format (the Sandbox page is gone; tasks it started still carry this wrapper). */
 function brief(instruction: string, mode: "supervised" | "auto_edits" | "full_access" = "auto_edits"): string {
-  return sandboxCommand({ ...defaultSandboxConfig("p1"), name: "live", instruction, permissionMode: mode });
+  return (
+    `Sandbox experiment "live" (isolated from production, ${mode} mode).\n` +
+    `Instruction: ${instruction.trim()}\n` +
+    "Guardrails: do not touch production code paths or secrets; never push to a remote or open a PR. Advisory time box: 30 minutes.\n" +
+    "Everything you change stays in this worktree until a human approves it."
+  );
 }
 
 // ─── 1. classifier reads the user's request, not the wrapper ─────────────
@@ -197,13 +203,10 @@ describe("4 merge after acceptance", () => {
     }
   });
 
-  it("an auto approval is labelled Auto, never You; the brief matches the mode", () => {
+  it("an auto approval is labelled Auto, never You", () => {
     expect(approvalDeciderLabel("auto")).toBe("Auto");
     expect(approvalDeciderLabel("user")).toBe("You");
     expect(approvalDeciderLabel(undefined)).toBe("You");
-    expect(brief("x", "supervised")).toContain("until a human approves it");
-    expect(brief("x", "auto_edits")).toContain("merged automatically");
-    expect(brief("x", "auto_edits")).not.toContain("until a human approves it");
   });
 });
 

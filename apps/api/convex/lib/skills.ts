@@ -59,6 +59,18 @@ export type PromptSkill = {
   version?: number;
 };
 
+/**
+ * A shared-library skill as the prompt context carries it: no body. The
+ * index lists it, and `load_skill` fetches the text on demand (chat:
+ * internal.skillLibrary.body; worker: api.skillLibrary.bodyForWorker).
+ */
+export type LibrarySkillRef = {
+  name: string;
+  description?: string;
+  /** Version this agent reads (its pin, else the latest). */
+  version?: number;
+};
+
 const TRUNCATED = "\n…(truncated)";
 
 /**

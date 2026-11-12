@@ -18,6 +18,8 @@ export type ChatAgent = {
    * (`skillsSection`) and the reply loop serves load_skill from these.
    */
   onDemandSkills?: Array<{ name: string; instructions: string; description?: string; fullInstructions?: string; version?: number }>;
+  /** The shared library skills this agent may use: no bodies; load_skill fetches one (skillLibrary.body). */
+  librarySkills?: Array<{ name: string; description?: string; version?: number }>;
 };
 
 /** The chat orchestrator: role exactly "cto" (legacy "architect"). */

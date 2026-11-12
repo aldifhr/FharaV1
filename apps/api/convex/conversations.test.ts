@@ -336,16 +336,76 @@ describe("remove: deleting one project chat", () => {
         messageCountBefore: 1,
       });
       await syncConversationThread(ctx, conversationId, { seen: true });
+      await ctx.db.insert("agentEvents", { projectId, conversationId, type: "chat.reply", sequence: 1, createdAt: 1 });
+      const snapshotId = await ctx.db.insert("contextSnapshots", {
+        projectId,
+        conversationId,
+        callRole: "chat",
+        source: "chat",
+        sectionStats: [],
+        promptTokens: 1,
+        toolNames: [],
+        skillNames: [],
+        memoryIncluded: false,
+        historyMessages: 1,
+        truncated: false,
+        bytes: 1,
+        createdAt: 1,
+      });
+      await ctx.db.insert("contextSnapshotBodies", { snapshotId, sections: [], response: "ok" });
+      const boundId = await ctx.db.insert("scheduledTasks", {
+        projectId,
+        name: "Morning brief",
+        enabled: true,
+        schedule: { type: "interval", everyMs: 3_600_000 },
+        target: { kind: "conversation", conversationId, content: "What changed?" },
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      await ctx.db.insert("scheduledTaskRuns", { scheduledTaskId: boundId, projectId, fireKey: "k", dueAt: 1, firedAt: 1, status: "dispatched" });
+      // A scheduled task that creates tasks is not bound to the chat and stays.
+      await ctx.db.insert("scheduledTasks", {
+        projectId,
+        name: "Nightly",
+        enabled: true,
+        schedule: { type: "interval", everyMs: 3_600_000 },
+        target: { kind: "task", command: "check" },
+        createdAt: 1,
+        updatedAt: 1,
+      });
     });
     expect(await t.run((ctx) => ctx.db.get(conversationId))).not.toBeNull();
 
     expect(await t.mutation(api.conversations.remove, { conversationId })).toEqual({ deleted: true });
+
+    expect(await t.run((ctx) => ctx.db.query("agentEvents").collect())).toHaveLength(0);
+    expect(await t.run((ctx) => ctx.db.query("contextSnapshots").collect())).toHaveLength(0);
+    expect(await t.run((ctx) => ctx.db.query("contextSnapshotBodies").collect())).toHaveLength(0);
+    expect(await t.run((ctx) => ctx.db.query("scheduledTaskRuns").collect())).toHaveLength(0);
+    expect((await t.run((ctx) => ctx.db.query("scheduledTasks").collect())).map((row) => row.name)).toEqual(["Nightly"]);
 
     expect(await t.run((ctx) => ctx.db.get(conversationId))).toBeNull();
     expect(await t.run((ctx) => ctx.db.query("messages").collect())).toHaveLength(0);
     expect(await participantRows(t, conversationId)).toHaveLength(0);
     expect(await t.run((ctx) => ctx.db.query("contextSummaries").collect())).toHaveLength(0);
     expect(await t.run((ctx) => ctx.db.query("threadIndex").collect())).toHaveLength(0);
+  });
+
+  test("a reply that lands after the delete is dropped, not stored", async () => {
+    const { t, projectId, leadId } = await setup();
+    const conversationId = await t.mutation(internal.conversations.ensureForChat, {
+      projectId,
+      preferredAgentIds: [leadId],
+    });
+    await t.mutation(api.conversations.remove, { conversationId });
+    const id = await t.mutation(internal.chatContext.insertAgentMessage, {
+      projectId,
+      agentId: leadId,
+      conversationId,
+      content: "late reply",
+    });
+    expect(id).toBeNull();
+    expect(await t.run((ctx) => ctx.db.query("messages").collect())).toHaveLength(0);
   });
 
   test("refuses a personal chat and a task's own chat", async () => {

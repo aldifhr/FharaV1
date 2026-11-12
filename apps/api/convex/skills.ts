@@ -13,13 +13,13 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { assertAgentAccess, assertRegistryWriteAccess, getViewerId } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
+import { versionRow } from "./skillLibrary";
 import {
   DEFAULT_SKILLS,
   SKILL_INSTRUCTIONS_MAX,
   SKILL_NAME_MAX,
   SKILL_STORED_MAX,
   validateSkillInput,
-  type PromptSkill,
 } from "./lib/skills";
 import {
   brokenDependencies,
@@ -36,7 +36,6 @@ import { roleLabel } from "./lib/roles";
 import {
   fitSkillBody,
   githubFileUrls,
-  inlineSkillBody,
   GITHUB_SKILL_SCAN_MAX,
   isSkillPath,
   parseGithubSkillUrl,
@@ -82,13 +81,6 @@ async function versionRowsOf(ctx: Ctx, skillId: Id<"skills">): Promise<Doc<"skil
     .query("skillVersions")
     .withIndex("by_skill", (q) => q.eq("skillId", skillId))
     .collect();
-}
-
-async function versionRow(ctx: Ctx, skillId: Id<"skills">, version: number): Promise<Doc<"skillVersions"> | null> {
-  return await ctx.db
-    .query("skillVersions")
-    .withIndex("by_skill", (q) => q.eq("skillId", skillId).eq("version", version))
-    .first();
 }
 
 async function latestVersionNumber(ctx: Ctx, skillId: Id<"skills">): Promise<number> {
@@ -170,57 +162,6 @@ function contentChanged(before: Doc<"skills">, after: Doc<"skills">): boolean {
     !sameList(before.requires, after.requires) ||
     !sameList(before.permissions, after.permissions)
   );
-}
-
-// ---------------------------------------------------------------------------
-// Prompt loading
-// ---------------------------------------------------------------------------
-
-/**
- * Attached skills in the agent's own order, missing rows skipped. A pinned
- * skill reads its pinned version; others the latest. `instructions` is the
- * inline text (a long imported body fitted under the inline cap at heading
- * boundaries); `fullInstructions` is the untrimmed body load_skill returns.
- */
-export async function loadPromptSkills(
-  ctx: Ctx,
-  agent: Pick<Doc<"agents">, "skillIds" | "skillPins">
-): Promise<PromptSkill[]> {
-  if (!agent.skillIds?.length) return [];
-  const rows = await Promise.all(agent.skillIds.map((id) => ctx.db.get(id)));
-  const out: PromptSkill[] = [];
-  for (const row of rows) {
-    if (!row) continue;
-    const pin = agent.skillPins?.find((p) => p.skillId === row._id);
-    const pinned = pin ? await versionRow(ctx, row._id, pin.version) : null;
-    const name = pinned?.name ?? row.name;
-    const description = pinned?.description ?? row.description;
-    const body = pinned?.instructions ?? row.instructions;
-    out.push({
-      name,
-      description,
-      instructions: inlineSkillBody(body, row.source?.url),
-      fullInstructions: body,
-      ...(pinned ? { version: pinned.version } : row.version ? { version: row.version } : {}),
-    });
-  }
-  return out;
-}
-
-/**
- * Every skill in the shared library, in one loadable shape. The prompt shows
- * only an index; `load_skill` returns the full body. Any agent may read any of
- * these on demand, with or without them attached.
- */
-export async function loadLibrarySkills(ctx: Ctx, limit = 200): Promise<PromptSkill[]> {
-  const rows = await ctx.db.query("skills").take(limit);
-  return rows.map((row) => ({
-    name: row.name,
-    description: row.description,
-    instructions: inlineSkillBody(row.instructions, row.source?.url),
-    fullInstructions: row.instructions,
-    ...(row.version ? { version: row.version } : {}),
-  }));
 }
 
 // ---------------------------------------------------------------------------

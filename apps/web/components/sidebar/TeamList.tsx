@@ -5,7 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import InitialAvatar from "../InitialAvatar";
 import QueryBoundary from "../shell/QueryBoundary";
-import { agentName, agentRoleText, roleLabel } from "@/lib/agentRoles";
+import { agentName, agentRoleText, fixedAgentIds, roleLabel } from "@/lib/agentRoles";
 import { useToast } from "../Toasts";
 import { Trash2 } from "lucide-react";
 import ConfirmDialog, { type ConfirmRequest } from "../ConfirmDialog";
@@ -21,7 +21,7 @@ import {
 } from "@/lib/teamStatus";
 import { SectionToggle } from "./SectionToggle";
 
-export type TeamAgent = { _id: string; name: string; role: string; isEnabled?: boolean; avatarParams?: unknown };
+export type TeamAgent = { _id: string; _creationTime?: number; name: string; role: string; isEnabled?: boolean; avatarParams?: unknown };
 
 const SHOWN = 7;
 
@@ -31,12 +31,15 @@ function TeamRows({
   drafting,
   onOpenAgent,
   onDeleteAgent,
+  fixedIds,
 }: {
   agents: TeamAgent[];
   status?: StatusMap;
   drafting: string[];
   onOpenAgent: (agent: TeamAgent) => void;
   onDeleteAgent: (agent: TeamAgent) => void;
+  /** The nine fixed-team agents: the server refuses to delete them, so no trash control. */
+  fixedIds: ReadonlySet<string>;
 }) {
   const [showAll, setShowAll] = useState(false);
   const sorted = useMemo(() => {
@@ -70,12 +73,12 @@ function TeamRows({
                   {roleText && <span className="text-[13px] text-ink-3">{` · ${roleText}`}</span>}
                 </span>
                 <span
-                  className={`max-w-[46%] shrink-0 truncate text-right text-[13px] transition-opacity group-hover:opacity-0 ${disabled ? "text-ink-3" : teamStatusTone(word)}`}
+                  className={`max-w-[46%] shrink-0 truncate text-right text-[13px] transition-opacity ${fixedIds.has(a._id) ? "" : "group-hover:opacity-0"} ${disabled ? "text-ink-3" : teamStatusTone(word)}`}
                 >
                   {label}
                 </span>
               </button>
-              <button
+              {!fixedIds.has(a._id) && <button
                 type="button"
                 onClick={() => onDeleteAgent(a)}
                 aria-label={`Delete ${name}`}
@@ -83,7 +86,7 @@ function TeamRows({
                 className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-md p-1 text-ink-3 opacity-0 transition hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ink/30 group-hover:opacity-100"
               >
                 <Trash2 size={14} />
-              </button>
+              </button>}
             </li>
           );
         })}
@@ -163,7 +166,8 @@ const TeamList = forwardRef<
   const agents = (allAgents ?? []).filter(
     (a) => !q || roleLabel(a.role).toLowerCase().includes(q) || a.name.toLowerCase().includes(q),
   );
-  const rowProps = { agents, drafting, onOpenAgent, onDeleteAgent: askRemove };
+  const fixedIds = useMemo(() => fixedAgentIds(allAgents), [allAgents]);
+  const rowProps = { agents, drafting, onOpenAgent, onDeleteAgent: askRemove, fixedIds };
 
   return (
     <section ref={ref} aria-label="Team" className="scroll-mt-4">

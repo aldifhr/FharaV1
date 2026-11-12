@@ -6,8 +6,10 @@
  * step gives the agent the read-only `load_skill` tool in a short bounded
  * loop: the model asks for the skills that bear on the subtask (one JSON
  * call per reply), each answer comes from the agent's own attached skills
- * plus the shared library (createSkillLoader: full untrimmed text, LOAD_SKILL_MAX_CHARS per call,
- * LOAD_SKILL_MAX_CALLS per run), and the loaded text is appended to the
+ * or the shared library skills it was offered, whose bodies are fetched
+ * only now (api.skillLibrary.bodyForWorker, token-gated; createSkillLoader:
+ * full untrimmed text, LOAD_SKILL_MAX_CHARS per call, LOAD_SKILL_MAX_CALLS
+ * per run), and the loaded text is appended to the
  * system prompt that every executor path (API, OpenCode, review, QA)
  * then reads.
  *
@@ -24,8 +26,17 @@ import {
   mergeLoadableSkills,
   normalizeSkillLoading,
   withoutInvoked,
+  type LibraryBodyFetcher,
 } from "@/api/convex/lib/skillRuntime";
-import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_MAX_CHARS, LOAD_SKILL_TOOL, type PromptSkill } from "@/api/convex/lib/skills";
+import {
+  LOAD_SKILL_MAX_CALLS,
+  LOAD_SKILL_MAX_CHARS,
+  LOAD_SKILL_TOOL,
+  type LibrarySkillRef,
+  type PromptSkill,
+} from "@/api/convex/lib/skills";
+
+export type { LibraryBodyFetcher };
 
 /**
  * Paradev C3: an agent's skills for a task run. Skills the user invoked on
@@ -42,9 +53,9 @@ export function taskAgentSkills(agent: {
   systemPrompt?: string;
   attachedSkills?: PromptSkill[];
   invokedSkills?: PromptSkill[];
-  librarySkills?: PromptSkill[];
+  librarySkills?: LibrarySkillRef[];
   skillLoading?: unknown;
-}): { systemPrompt: string | undefined; onDemandSkills?: PromptSkill[] } {
+}): { systemPrompt: string | undefined; onDemandSkills?: PromptSkill[]; librarySkills?: LibrarySkillRef[] } {
   const mode = normalizeSkillLoading(agent.skillLoading);
   const systemPrompt = appendAgentSkills(
     agent.systemPrompt,
@@ -53,9 +64,16 @@ export function taskAgentSkills(agent: {
     agent.invokedSkills,
     agent.librarySkills
   );
-  const loadable = mergeLoadableSkills(mode === "on_demand" ? agent.attachedSkills : undefined, agent.librarySkills);
+  const loadable = mergeLoadableSkills(mode === "on_demand" ? agent.attachedSkills : undefined);
   const onDemand = withoutInvoked(loadable, agent.invokedSkills);
-  return { systemPrompt, ...(onDemand.length ? { onDemandSkills: onDemand } : {}) };
+  // Library refs not already in the prompt (attached or invoked) stay loadable by name.
+  const inPrompt = new Set([...(agent.attachedSkills ?? []), ...(agent.invokedSkills ?? [])].map((s) => s.name.trim().toLowerCase()));
+  const library = (agent.librarySkills ?? []).filter((s) => s.name.trim() && !inPrompt.has(s.name.trim().toLowerCase()));
+  return {
+    systemPrompt,
+    ...(onDemand.length ? { onDemandSkills: onDemand } : {}),
+    ...(library.length ? { librarySkills: library } : {}),
+  };
 }
 
 export type SkillPreloadMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -63,6 +81,9 @@ export type SkillPreloadMessage = { role: "system" | "user" | "assistant"; conte
 export interface SkillPreloadParams {
   systemPrompt: string | undefined;
   skills: readonly PromptSkill[] | undefined;
+  /** Library skills the agent may load; bodies come from `fetchBody`. */
+  library?: readonly LibrarySkillRef[];
+  fetchBody?: LibraryBodyFetcher;
   /** What the agent is about to do (subtask title + description + task command). */
   assignment: string;
   /** One LLM call; returns the reply text. */
@@ -105,8 +126,13 @@ export async function preloadOnDemandSkills(params: SkillPreloadParams): Promise
     llmCalls: 0,
     failed: [],
   };
-  if (!hasLoadableSkills(params.skills)) return result;
-  const loader = createSkillLoader(params.skills, { maxCalls, maxChars: params.maxChars ?? LOAD_SKILL_MAX_CHARS });
+  const canFetch = Boolean(params.fetchBody && params.library?.some((s) => s.name.trim()));
+  if (!hasLoadableSkills(params.skills) && !canFetch) return result;
+  const loader = createSkillLoader(params.skills, {
+    maxCalls,
+    maxChars: params.maxChars ?? LOAD_SKILL_MAX_CHARS,
+    ...(canFetch ? { library: params.library, fetchBody: params.fetchBody } : {}),
+  });
   const messages: SkillPreloadMessage[] = [
     ...(params.systemPrompt ? [{ role: "system" as const, content: params.systemPrompt }] : []),
     { role: "user", content: skillPreloadInstruction(params.assignment, maxCalls) },
@@ -120,7 +146,7 @@ export async function preloadOnDemandSkills(params: SkillPreloadParams): Promise
     const call = found.calls.find((c) => c.tool === LOAD_SKILL_TOOL);
     if (!call) break;
     const name = call.args?.name ?? call.args?.skill;
-    const loaded = loader.load(name);
+    const loaded = await loader.loadAsync(name);
     if (loaded.ok && loaded.name && !result.loaded.includes(loaded.name)) {
       result.loaded.push(loaded.name);
       texts.push(loaded.text);

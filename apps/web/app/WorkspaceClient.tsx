@@ -11,6 +11,8 @@ import { useToast } from "@/components/Toasts";
 import { api } from "@/api/convex/_generated/api";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { takeRequestedThread } from "@/lib/pendingThread";
+import { threadLinkView, type ThreadLink } from "@/lib/threadTree";
+import ThreadNotFound from "@/components/shell/ThreadNotFound";
 import { SectionLoading, WorkspaceProvider, type Agent, type Task, type WorkspaceContextValue } from "./WorkspaceContext";
 
 function WorkspaceShell({
@@ -35,6 +37,8 @@ function WorkspaceShell({
   const [highlightAgentId, setHighlightAgentId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const userClosedRef = useRef(false);
+  /** The deep link (`project:thread`) whose selection was applied; see the deep-link effect. */
+  const appliedLinkRef = useRef<string | null>(null);
   /** Thread handed over by the link that opened this project (see `lib/pendingThread.ts`). */
   const requestedThread = useRef<{ projectId: string; taskId: string | null } | null>(null);
 
@@ -50,6 +54,11 @@ function WorkspaceShell({
     api.tasks.listByProject,
     project ? { projectId: project._id } : "skip",
   );
+  // What the deep link's id names in this project: a task, a conversation, or nothing.
+  const link = useQuery(api.threads.resolveLink, project && threadId ? { projectId: project._id, threadId } : "skip") as
+    | ThreadLink
+    | undefined;
+  const linkView = threadId ? threadLinkView(projectId, project === null ? null : link) : null;
   const allAgents = useQuery(api.agents.list, {});
   const projectAgentIds = project?.agentIds;
   const agents = projectAgentIds
@@ -107,16 +116,19 @@ function WorkspaceShell({
   }, [projectId, taskParam]);
 
   // Deep link (`/project/:projectId/:threadId`): a task id opens its thread
-  // once the project's task list is known. A conversation id matches no task,
-  // so the project chat stays open. `userClosedRef` stops a task-list refresh
-  // from re-opening a thread the user just closed.
+  // once the link is resolved. Applied once per thread id: a later task-list
+  // or link refresh must not re-open a thread the user closed or replace one
+  // they opened since. A conversation id shows that conversation (ChatSection);
+  // an unknown or foreign id shows "Thread not found".
   useEffect(() => {
-    if (!threadId || tasks === undefined || userClosedRef.current) return;
-    const match = (tasks as Task[] | undefined)?.find((t) => t._id === threadId);
-    if (!match) return;
+    if (!threadId || linkView === null || linkView === "loading") return;
+    const key = `${projectId}:${threadId}`;
+    if (appliedLinkRef.current === key) return;
+    appliedLinkRef.current = key;
+    if (linkView !== "task") return;
     setThreadCollapsed(false);
-    setSelectedTaskId(match._id);
-  }, [threadId, tasks]);
+    setSelectedTaskId(threadId);
+  }, [projectId, threadId, linkView]);
 
   const closeThread = () => {
     userClosedRef.current = true;
@@ -138,6 +150,8 @@ function WorkspaceShell({
     openAgent,
     deleteTask,
     openSidebar: () => setSidebarOpen(true),
+    linkedConversationId: linkView === "conversation" && threadId ? threadId : null,
+    linkedConversationClosed: linkView === "conversation" && link?.status !== "active",
   };
 
   const thread = selectedTaskId ? (
@@ -169,7 +183,9 @@ function WorkspaceShell({
             onCloseDrawer={() => setSidebarOpen(false)}
             onSelectProject={() => setSidebarOpen(false)}
           />
-          {deepLinked && isDesktop ? (
+          {linkView === "not_found" ? (
+            <ThreadNotFound projectId={projectId} />
+          ) : deepLinked && isDesktop ? (
             // A deep-linked thread replaces the project chat as the main view.
             // Phones keep the chat and show the thread as a full-screen sheet.
             <main className="min-h-0 min-w-0 flex-1 overflow-hidden bg-dots">

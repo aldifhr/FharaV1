@@ -17,6 +17,7 @@ import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT } from ".
 import { isUneditedSeed } from "./lib/prompts/roleTemplate";
 import { applyAgentSkills, applyBuiltinSkills, seedBuiltinSkills } from "./skills";
 import { effectiveTeamIds } from "./lib/projectTeam";
+import { deleteConversationCascade } from "./lib/conversationCascade";
 
 /**
  * Plan 007: browser-safe agent projection — the same shape `list` has always
@@ -414,10 +415,41 @@ export function normalizeOpencodeModel(value: string | null): string | undefined
   return trimmed;
 }
 
+/**
+ * The fixed team's agent for each of the nine roles: the oldest agent of
+ * that (not retired) role, the row `syncFixedTeam` matches and re-seeds when
+ * missing. The web mirrors this in `fixedAgentIds` (lib/agentRoles.ts) to
+ * hide the delete control. Returns the role label, or null for any other agent.
+ */
+export function fixedTeamRoleOf(
+  agentId: Id<"agents">,
+  allAgents: readonly Pick<Doc<"agents">, "_id" | "_creationTime" | "role">[]
+): string | null {
+  if (!effectiveTeamIds(undefined, allAgents).includes(agentId)) return null;
+  const key = normalizeRoleKey(allAgents.find((a) => a._id === agentId)?.role);
+  return (ROLES as Record<string, { label: string }>)[key]?.label ?? key;
+}
+
 export const remove = mutation({
   args: { agentId: v.id("agents") },
   handler: async (ctx, args) => {
     const agent = await assertAgentAccess(ctx, args.agentId);
+    const fixedRole = fixedTeamRoleOf(agent._id, await ctx.db.query("agents").collect());
+    if (fixedRole) {
+      throw new Error(`${fixedRole} is part of the fixed team and can't be deleted. Disable it instead.`);
+    }
+    // Its personal chats go with it (plan 039): nothing could open them again.
+    const personal = await ctx.db
+      .query("conversations")
+      .withIndex("by_agent_kind_status", (q) => q.eq("agentId", args.agentId).eq("kind", "personal"))
+      .collect();
+    for (const conversation of personal) await deleteConversationCascade(ctx, conversation);
+    // It leaves every project conversation it took part in.
+    const seats = await ctx.db
+      .query("conversationParticipants")
+      .withIndex("by_agent", (q) => q.eq("agentId", args.agentId))
+      .collect();
+    for (const seat of seats) await ctx.db.delete(seat._id);
     const projects = await ctx.db.query("projects").collect();
     for (const project of projects) {
       if (!project.agentIds?.includes(args.agentId)) continue;
@@ -685,4 +717,28 @@ export const ensureFixedTeam = mutation({
 export const syncFixedTeamInternal = internalMutation({
   args: {},
   handler: async (ctx) => await syncFixedTeam(ctx),
+});
+
+/**
+ * One-off and idempotent: personal chats whose agent was deleted before
+ * `remove` took them along. Capped per run; rerun until `more` is false
+ * (`npx convex run agents:pruneOrphanPersonalChats`).
+ */
+export const pruneOrphanPersonalChats = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ deleted: number; more: boolean }> => {
+    const LIMIT = 25;
+    let deleted = 0;
+    const rows = await ctx.db
+      .query("conversations")
+      .withIndex("by_kind_and_last_message", (q) => q.eq("kind", "personal"))
+      .collect();
+    for (const conversation of rows) {
+      if (conversation.agentId && (await ctx.db.get(conversation.agentId))) continue;
+      if (deleted >= LIMIT) return { deleted, more: true };
+      await deleteConversationCascade(ctx, conversation);
+      deleted += 1;
+    }
+    return { deleted, more: false };
+  },
 });

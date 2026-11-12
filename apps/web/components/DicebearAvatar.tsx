@@ -1,30 +1,29 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { dicebearBackgroundFor } from "@/lib/dicebearAvatar";
+import { avatarInitial, dicebearBackgroundFor, memoizeUntilFailure } from "@/lib/dicebearAvatar";
 
 /**
  * Renders a DiceBear "Lorelei" avatar (Pastel Wall preset) from a seed.
+ * Lorelei is by Lisa Wischofsky, CC0 1.0 (THIRD_PARTY_NOTICES.md, ## DiceBear).
  *
  * The style definition is ~120 KB, so it is imported on demand and cached per
  * seed; the avatar stands on its pastel background from the first paint, with
- * the initial as a fallback until the SVG is ready.
+ * the agent's initial (from `name`, not the seed) until the SVG is ready.
  */
 type Renderer = (seed: string, background: string) => string;
 
 const uriCache = new Map<string, string>();
-let rendererPromise: Promise<Renderer> | null = null;
 
-function loadRenderer(): Promise<Renderer> {
-  rendererPromise ??= (async () => {
-    const [{ Avatar, Style }, { default: definition }] = await Promise.all([
-      import("@dicebear/core"),
-      import("@dicebear/styles/lorelei.json"),
-    ]);
-    const style = new Style(definition);
-    return (seed, background) => new Avatar(style, { seed, backgroundColor: [background] }).toDataUri();
-  })();
-  return rendererPromise;
+const loadRenderer = memoizeUntilFailure(defaultRenderer);
+
+async function defaultRenderer(): Promise<Renderer> {
+  const [{ Avatar, Style }, { default: definition }] = await Promise.all([
+    import("@dicebear/core"),
+    import("@dicebear/styles/lorelei.json"),
+  ]);
+  const style = new Style(definition);
+  return (seed, background) => new Avatar(style, { seed, backgroundColor: [background] }).toDataUri();
 }
 
 async function avatarUri(seed: string): Promise<string> {
@@ -42,8 +41,11 @@ export default function DicebearAvatar({
   className = "",
   rounded = "rounded-full",
   label,
+  name,
 }: {
   seed: string;
+  /** The agent's name: its first letter is the fallback (a shuffled seed is random text). */
+  name?: string;
   size?: number;
   className?: string;
   rounded?: string;
@@ -73,7 +75,7 @@ export default function DicebearAvatar({
     };
   }, [seed]);
 
-  const initial = (seed.trim().charAt(0) || "•").toUpperCase();
+  const initial = avatarInitial(name, seed);
 
   return (
     <span

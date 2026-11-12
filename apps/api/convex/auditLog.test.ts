@@ -10,6 +10,8 @@ const modules = import.meta.glob("./**/*.ts");
 describe("config changes write audit rows", () => {
   test("agents create/update/remove record field names only", async () => {
     const t = convexTest(schema, modules);
+    // The oldest Backend is the fixed team's and can't be deleted; Bea is an extra one.
+    await t.run((ctx) => ctx.db.insert("agents", { name: "Backend", role: "backend", status: "idle", isEnabled: true }));
     const agentId = await t.mutation(api.agents.create, { name: "Bea", role: "backend" });
     await t.mutation(api.agents.update, {
       agentId,

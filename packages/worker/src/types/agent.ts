@@ -1,4 +1,4 @@
-import type { PromptSkill } from "@/api/convex/lib/skills";
+import type { LibrarySkillRef, PromptSkill } from "@/api/convex/lib/skills";
 /** Agent definitions as the worker routes and executes them. */
 
 export interface AgentDefinition {
@@ -34,6 +34,8 @@ export interface AgentDefinition {
    * Never widens supportedTools.
    */
   onDemandSkills?: PromptSkill[];
+  /** Shared library skills this agent may load (no bodies; load_skill fetches one). */
+  librarySkills?: LibrarySkillRef[];
 }
 
 export type AgentStatus = "idle" | "working" | "queued" | "needs_you";

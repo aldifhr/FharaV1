@@ -5,7 +5,7 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { patchTask, syncConversationThread, syncTaskThread, taskThreadStatus } from "./lib/threadIndex";
 
-/** Paradev B1: threadIndex, threads.list / rename / markSeen / backfill. */
+/** Paradev B1: threadIndex, threads.list / rename / backfill. */
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -108,14 +108,6 @@ describe("threadIndex", () => {
     const list = await t.query(api.threads.list, { projectId });
     expect(list.find((row) => row.taskId === ownerId)?.title).toBe("Auth flow");
     expect(list.find((row) => row.conversationId === conversationId)?.title).toBe("Roadmap");
-  });
-
-  test("markSeen clears unread", async () => {
-    const { t, projectId, fixId } = await seed();
-    await t.run((ctx) => syncTaskThread(ctx, fixId));
-    expect((await t.query(api.threads.list, { projectId }))[0].unread).toBe(true);
-    await t.mutation(api.threads.markSeen, { taskId: fixId });
-    expect((await t.query(api.threads.list, { projectId }))[0].unread).toBe(false);
   });
 
   test("deleting a task takes its thread row with it", async () => {

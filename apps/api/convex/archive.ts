@@ -12,6 +12,7 @@ import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { assertConversationAccess, assertRegistryWriteAccess } from "./lib/authz";
+import { deleteConversationCascade } from "./lib/conversationCascade";
 import { recordAudit } from "./lib/recordAudit";
 import { isPersonalConversation } from "./lib/conversationShape";
 
@@ -117,17 +118,9 @@ export const remove = mutation({
     }
     // A very long thread is deleted in batches: the caller runs it again.
     if (messages.length === 2000) return { deletedMessages, more: true };
-    const participants = await ctx.db
-      .query("conversationParticipants")
-      .withIndex("by_conversation", (q) => q.eq("conversationId", row._id))
-      .collect();
-    for (const p of participants) await ctx.db.delete(p._id);
-    const summaries = await ctx.db
-      .query("contextSummaries")
-      .withIndex("by_conversation", (q) => q.eq("conversationId", row._id))
-      .collect();
-    for (const s of summaries) await ctx.db.delete(s._id);
-    await ctx.db.delete(row._id);
+    // The rest of the conversation (participants, summaries, agent events,
+    // snapshots, bound scheduled tasks, thread row) goes with it.
+    await deleteConversationCascade(ctx, row);
     await recordAudit(ctx, {
       action: "conversation.delete",
       target: row.title ?? String(row._id),

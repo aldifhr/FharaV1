@@ -311,7 +311,7 @@ describe("importFromGithub", () => {
     const agentId = await t.run((ctx) => ctx.db.insert("agents", { name: "designer", role: "designer", status: "idle", isEnabled: true }));
     await t.mutation(api.agents.setSkills, { agentId, skillIds: [big._id] });
     const run = await t.run(async (ctx) => {
-      const { loadPromptSkills } = await import("./skills");
+      const { loadPromptSkills } = await import("./skillLibrary");
       return await loadPromptSkills(ctx, (await ctx.db.get(agentId))!);
     });
     expect(run[0].instructions.length).toBeLessThanOrEqual(SKILL_IMPORT_MAX);
@@ -444,7 +444,7 @@ describe("Skill v2 import: dependencies, permissions, versions, update all", () 
     ]);
     // The pinned agent still runs v1.
     const skills = await t.run(async (ctx) => {
-      const { loadPromptSkills } = await import("./skills");
+      const { loadPromptSkills } = await import("./skillLibrary");
       return await loadPromptSkills(ctx, (await ctx.db.get(reviewer))!);
     });
     expect(skills[0]).toMatchObject({ name: "top", version: 1 });

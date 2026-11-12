@@ -101,13 +101,13 @@ function presetFor(server: Server): McpPreset {
 }
 
 function statusInfo(server: Server): { dot: string; label: string } {
-  if (server.testPending) return { dot: "bg-amber-500 animate-pulse", label: "Testing…" };
+  if (server.testPending) return { dot: "bg-warn", label: "Testing…" };
   if (server.enabled === false) return { dot: "bg-ink-3/40", label: "Off" };
   switch (server.status) {
     case "connected":
-      return { dot: "bg-emerald-500", label: server.toolCount !== undefined ? `Connected · ${server.toolCount} tools` : "Connected" };
+      return { dot: "bg-ok", label: server.toolCount !== undefined ? `Connected · ${server.toolCount} tools` : "Connected" };
     case "error":
-      return { dot: "bg-red-500", label: "Error" };
+      return { dot: "bg-danger", label: "Error" };
     case "untested":
       return { dot: "bg-ink-3", label: "Untested" };
     default:
@@ -556,7 +556,7 @@ function ServerModal({
                     type="button"
                     aria-pressed={on}
                     onClick={() => setRoles((prev) => (on ? prev.filter((entry) => entry !== role) : [...prev, role]))}
-                    className={`rounded-full border px-2.5 py-1 text-[12.5px] transition ${
+                    className={`rounded-md border px-2.5 py-1 text-[12.5px] transition ${
                       on ? "border-transparent bg-ink text-canvas" : "border-line text-ink-2 hover:bg-hover"
                     }`}
                   >
@@ -591,7 +591,7 @@ function ServerModal({
             <>
               <button
                 type="button"
-                className={`${GHOST_BTN} text-red-600 dark:text-red-400`}
+                className={`${GHOST_BTN} text-danger`}
                 onClick={() =>
                   setConfirm({
                     title: `Remove ${server.name}?`,
@@ -696,7 +696,7 @@ export function IntegrationsPanel({ embedded = false }: { embedded?: boolean }) 
           {servers === undefined ? (
             <div className="space-y-3" aria-label="Loading integrations">
               {[0, 1].map((i) => (
-                <div key={i} className="h-14 animate-pulse rounded-xl bg-hover" />
+                <div key={i} className="h-14 rounded-xl bg-hover" />
               ))}
             </div>
           ) : !projectId && servers.length === 0 ? null : (

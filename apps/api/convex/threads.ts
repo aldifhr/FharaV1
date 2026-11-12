@@ -10,6 +10,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { assertProjectAccess, assertTaskAccess, getAccessibleConversation } from "./lib/authz";
 import { normaliseTitle, syncConversationThread, syncTaskThread } from "./lib/threadIndex";
+import { isPersonalConversation } from "./lib/conversationShape";
 
 const LIST_DEFAULT = 100;
 const LIST_MAX = 300;
@@ -50,6 +51,35 @@ export const list = query({
   },
 });
 
+/**
+ * What a deep link's `:threadId` (`/project/:projectId/:threadId`) names in
+ * this project: a task, a conversation, or nothing. The id is free text from
+ * the address bar, so it is normalised first. A row from another project
+ * comes back with `projectId: null` (the caller learns nothing about it);
+ * the web decides the view in `threadLinkView` (lib/threadTree.ts).
+ */
+export const resolveLink = query({
+  args: { projectId: v.id("projects"), threadId: v.string() },
+  handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
+    const own = (projectId: string | undefined) => (projectId === args.projectId ? args.projectId : null);
+    const taskId = ctx.db.normalizeId("tasks", args.threadId);
+    const task = taskId ? await ctx.db.get(taskId) : null;
+    if (task) return { kind: "task" as const, projectId: own(task.projectId), personal: false, taskChat: false, status: own(task.projectId) ? task.status : null };
+    const conversationId = ctx.db.normalizeId("conversations", args.threadId);
+    const conversation = conversationId ? await ctx.db.get(conversationId) : null;
+    if (!conversation) return null;
+    const projectId = own(conversation.projectId);
+    return {
+      kind: "conversation" as const,
+      projectId,
+      personal: projectId ? isPersonalConversation(conversation) : false,
+      taskChat: projectId ? Boolean(conversation.taskId) : false,
+      status: projectId ? conversation.status : null,
+    };
+  },
+});
+
 const threadRef = {
   taskId: v.optional(v.id("tasks")),
   conversationId: v.optional(v.id("conversations")),
@@ -72,20 +102,6 @@ export const rename = mutation({
     await ctx.db.patch(conversation._id, { title, updatedAt: Date.now() });
     await syncConversationThread(ctx, conversation._id);
     return { title };
-  },
-});
-
-/** The viewer opened the thread: it stops counting as unread. */
-export const markSeen = mutation({
-  args: threadRef,
-  handler: async (ctx, args) => {
-    if (args.taskId) await assertTaskAccess(ctx, args.taskId);
-    else if (args.conversationId) await getAccessibleConversation(ctx, args.conversationId);
-    else throw new Error("Pass taskId or conversationId");
-    const row = args.taskId
-      ? await ctx.db.query("threadIndex").withIndex("by_task", (q) => q.eq("taskId", args.taskId)).unique()
-      : await ctx.db.query("threadIndex").withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId)).unique();
-    if (row && (row.seenAt ?? 0) < row.lastActivityAt) await ctx.db.patch(row._id, { seenAt: row.lastActivityAt });
   },
 });
 

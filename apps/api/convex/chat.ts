@@ -77,9 +77,8 @@ import {
   type RepoToolCall,
   type RepoToolResult,
 } from "./lib/chat/repoTools";
-import { createSkillLoader, wantsLoadSkillTool, type SkillLoader } from "./lib/skillRuntime";
-import { chatLocalTools, pastWorkRunner } from "./lib/chat/localTools";
-import { LOAD_SKILL_MAX_CALLS } from "./lib/skills";
+import type { SkillLoader } from "./lib/skillRuntime";
+import { chatLocalTools, chatSkillLoader, pastWorkRunner } from "./lib/chat/localTools";
 import {
   NO_TOOLS_RETRY_LINE,
   hasToolCallText,
@@ -1132,9 +1131,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       const personalWrite = planWriteOffer({ speaker: agent, isCto: ORCHESTRATOR_ROLE.test(agent.role.trim()), addressed: true, team: [agent], text: lastText, taskIntent: { kind: !hasAskShape(lastText) ? classifyChatIntent(lastText).kind : "chat", runCommands: detectChatRunCommands(lastText) ?? undefined }, optionPick, repoSnapshot });
       const repoTools = scopeProjectId ? await repoToolsAvailability(ctx, scopeProjectId) : null;
       const useRepoTools = repoTools?.available === true;
-      const skillLoader = wantsLoadSkillTool(agent.onDemandSkills, "on_demand")
-        ? createSkillLoader(agent.onDemandSkills, { maxCalls: LOAD_SKILL_MAX_CALLS })
-        : undefined;
+      const skillLoader = chatSkillLoader(ctx, agent);
       const useToolLoop = useRepoTools || skillLoader !== undefined;
       const offNote = repoTools && !repoTools.available ? repoToolsOffNote(repoTools.reason) : undefined;
       const system = [
@@ -1402,11 +1399,8 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       const write = planWriteOffer({ speaker: agent, isCto, addressed: isRouted || mentionedAgents.some((a) => String(a._id) === String(agent._id)), team, text: lastUserContent, taskIntent, optionPick: isOptionPick, repoSnapshot });
       const callCap = toolBudget.capForNextReply();
       const useRepoTools = repoTools?.available === true && !workerGone && callCap > 0;
-      // Skill v2: an on_demand agent reads its skills through load_skill,
-      // served here (no worker needed), with or without repo tools.
-      const skillLoader = wantsLoadSkillTool(agent.onDemandSkills, "on_demand")
-        ? createSkillLoader(agent.onDemandSkills, { maxCalls: LOAD_SKILL_MAX_CALLS })
-        : undefined;
+      // Skill v2: load_skill is served here (no worker needed), with or without repo tools.
+      const skillLoader = chatSkillLoader(ctx, agent);
       const useToolLoop = useRepoTools || skillLoader !== undefined;
       // Why this agent answers without repo tools, quietly in its trace.
       // "Off for the whole turn" is noted once, on the agents the user

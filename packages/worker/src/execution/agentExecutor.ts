@@ -83,7 +83,7 @@ import { buildChildEnv } from "@/api/convex/lib/childEnv";
 import { promisify } from "node:util";
 import { extractUrls, type WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
-import { preloadOnDemandSkills } from "./skillLoading";
+import { preloadOnDemandSkills, type LibraryBodyFetcher } from "./skillLoading";
 import { contentReader, detectEscalation, escalatedError, escalationFromAnswer } from "./escalation";
 import { MAX_EDIT_REFLECTIONS, failedEditPaths, resolveEditAnswer, type EditWorkingSet } from "./editAnswer";
 import { editFailureFeedback, type EditFailure } from "@/utils/editBlocks";
@@ -190,6 +190,8 @@ export interface SubtaskExecutionInput {
    * call proceeds. Absent: no gate (legacy callers/tests).
    */
   assertBudgetForCall?: () => void;
+  /** load_skill over the agent's library index (api.skillLibrary.bodyForWorker); absent: library not loadable. */
+  loadLibrarySkill?: LibraryBodyFetcher;
   /**
    * Plan 009: MCP tool provider for this subtask. `sessions` are the
    * registry sessions seeded by the runner for this task's workspace
@@ -757,19 +759,19 @@ export function canAffordRetry(
 }
 
 /**
- * Skill v2: an on_demand agent first gets the read-only load_skill tool
- * (execution/skillLoading.ts); the skills it loads are appended to its
- * system prompt for the rest of this subtask. Best effort: a failed loop
- * leaves the index-only prompt. Budget exhaustion still propagates.
+ * Skill v2: read-only load_skill over own on_demand skills + the library index (skillLoading.ts); loaded
+ * text joins the system prompt for this subtask. Best effort; budget exhaustion still propagates.
  */
 async function withOnDemandSkills(input: SubtaskExecutionInput): Promise<SubtaskExecutionInput> {
-  const skills = input.agent.onDemandSkills;
-  if (!skills?.length) return input;
+  const { onDemandSkills: skills, librarySkills: library } = input.agent;
+  if (!skills?.length && !(library?.length && input.loadLibrarySkill)) return input;
   const handles = handlesFor(input);
   try {
     const preload = await preloadOnDemandSkills({
       systemPrompt: input.agent.systemPrompt,
       skills,
+      library,
+      fetchBody: input.loadLibrarySkill,
       assignment: [`${input.subtask.title} — ${input.subtask.description}`, `Task: ${input.command}`].join("\n"),
       call: async (messages) => {
         input.assertBudgetForCall?.();
@@ -801,11 +803,8 @@ async function withOnDemandSkills(input: SubtaskExecutionInput): Promise<Subtask
     return { ...input, agent: { ...input.agent, systemPrompt: preload.systemPrompt } };
   } catch (error) {
     if (isBudgetExhaustedError(error) || input.signal.aborted) throw error;
-    await input.onEvent(
-      "agent.skills_loaded",
-      { capability: input.subtask.capability, error: error instanceof Error ? error.message.slice(0, 200) : "load failed" },
-      "warn"
-    );
+    const message = error instanceof Error ? error.message.slice(0, 200) : "load failed";
+    await input.onEvent("agent.skills_loaded", { capability: input.subtask.capability, error: message }, "warn");
     return input;
   }
 }

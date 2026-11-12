@@ -44,3 +44,27 @@ export function dicebearBackgroundFor(seed: string): string {
   for (const character of seed) hash = (hash * 31 + character.charCodeAt(0)) | 0;
   return PASTEL_WALL_BACKGROUNDS[Math.abs(hash) % PASTEL_WALL_BACKGROUNDS.length];
 }
+
+/** Fallback letter: the agent's name first, the seed only when there is no name. */
+export function avatarInitial(name: string | undefined, seed: string): string {
+  return ((name?.trim() || seed.trim()).charAt(0) || "•").toUpperCase();
+}
+
+/**
+ * One shared in-flight load (the ~120 KB style chunk), kept once it
+ * succeeds. A failed load is dropped, so the next avatar tries again instead
+ * of every avatar staying on its initial until a reload.
+ */
+export function memoizeUntilFailure<T>(load: () => Promise<T>): () => Promise<T> {
+  let promise: Promise<T> | null = null;
+  return () => {
+    if (!promise) {
+      const pending = load();
+      promise = pending;
+      pending.catch(() => {
+        if (promise === pending) promise = null;
+      });
+    }
+    return promise;
+  };
+}

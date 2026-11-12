@@ -33,7 +33,7 @@ export default function AgentAvatar({ name, size = 32, status, avatarParams }: P
       className={`relative inline-flex shrink-0 transition-transform ${status === "working" ? "scale-110" : ""}`}
       style={{ width: size, height: size }}
     >
-      <DicebearAvatar seed={seed} size={size} className="h-full w-full" />
+      <DicebearAvatar seed={seed} name={name} size={size} className="h-full w-full" />
       {status && (
         <>
           <span

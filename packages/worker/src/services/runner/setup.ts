@@ -245,6 +245,7 @@ export function toAgentDefinition(agent: WorkerRunAgent): AgentDefinition {
     ),
     // Paradev C3: invoked skills are inline (above) and leave this list.
     ...(skills.onDemandSkills ? { onDemandSkills: skills.onDemandSkills } : {}),
+    ...(skills.librarySkills ? { librarySkills: skills.librarySkills } : {}),
     description: agent.description,
     capabilities: agent.capabilities,
     supportedTools: agent.supportedTools,

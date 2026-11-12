@@ -29,6 +29,10 @@ export interface WorkspaceContextValue {
   deleteTask: (task: Task) => void;
   /** Open the project/team sidebar (a drawer below 980px). */
   openSidebar: () => void;
+  /** A conversation deep link (`/project/:projectId/:conversationId`): the chat shows that conversation. */
+  linkedConversationId?: string | null;
+  /** True when the linked conversation is closed (read-only). */
+  linkedConversationClosed?: boolean;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);

@@ -2,14 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   RENAME_TITLE_MAX,
-  isRenameKey,
   normaliseRenameTitle,
   renameDraft,
-  renameRefOf,
   withRenamedRow,
 } from "../../lib/threadRename.ts";
-
-const key = (k, mods = {}) => ({ key: k, altKey: false, metaKey: false, ctrlKey: false, shiftKey: false, ...mods });
 
 test("empty and whitespace titles are refused", () => {
   assert.deepEqual(renameDraft("", "Old"), { kind: "empty" });
@@ -26,12 +22,6 @@ test("the same title (after normalising) saves nothing", () => {
   assert.deepEqual(renameDraft("Old  title", "Old title"), { kind: "unchanged" });
 });
 
-test("renameRefOf prefers the task, then the conversation", () => {
-  assert.deepEqual(renameRefOf({ taskId: "t1", conversationId: "c1" }), { taskId: "t1" });
-  assert.deepEqual(renameRefOf({ taskId: null, conversationId: "c1" }), { conversationId: "c1" });
-  assert.equal(renameRefOf({ taskId: null, conversationId: null }), null);
-});
-
 test("withRenamedRow replaces only the matching thread", () => {
   const rows = [
     { id: "a", taskId: "t1", conversationId: null, title: "One" },
@@ -43,13 +33,4 @@ test("withRenamedRow replaces only the matching thread", () => {
   assert.deepEqual(byConversation.map((r) => r.title), ["One", "Planning"]);
   assert.equal(withRenamedRow(rows, { taskId: "nope" }, "X"), rows, "no match keeps the same array");
   assert.deepEqual(rows.map((r) => r.title), ["One", "Chat"], "input is not mutated");
-});
-
-test("F2 always starts a rename; Enter only on the open thread; modifiers never", () => {
-  assert.equal(isRenameKey(key("F2"), false), true);
-  assert.equal(isRenameKey(key("Enter"), true), true);
-  assert.equal(isRenameKey(key("Enter"), false), false);
-  assert.equal(isRenameKey(key("F2", { metaKey: true }), true), false);
-  assert.equal(isRenameKey(key("Enter", { shiftKey: true }), true), false);
-  assert.equal(isRenameKey(key("ArrowDown"), true), false);
 });

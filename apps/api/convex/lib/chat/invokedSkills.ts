@@ -8,7 +8,7 @@
  */
 import type { Doc } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
-import { loadPromptSkills } from "../../skills";
+import { loadPromptSkills } from "../../skillLibrary";
 import type { PromptSkill } from "../skills";
 import { missingSkillError, normalizeInvokedSkills } from "../invokedSkillsSchema";
 

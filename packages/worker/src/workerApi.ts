@@ -2,7 +2,7 @@ import type { ConvexClient, ConvexHttpClient } from "convex/browser";
 import { api } from "@/api/convex/_generated/api";
 import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
 import type { Doc } from "@/api/convex/_generated/dataModel";
-import type { PromptSkill } from "@/api/convex/lib/skills";
+import type { LibrarySkillRef, PromptSkill } from "@/api/convex/lib/skills";
 import { redactDeep } from "@/utils/redact";
 
 /** Convex document shapes returned by the worker API. */
@@ -15,8 +15,8 @@ export type WorkerAgent = Doc<"agents">;
  */
 export type WorkerRunAgent = WorkerAgent & {
   attachedSkills?: PromptSkill[];
-  /** The shared library, reachable on demand by any agent (never installed). */
-  librarySkills?: PromptSkill[];
+  /** The shared library skills this agent may use: no bodies (loadLibrarySkill fetches one). */
+  librarySkills?: LibrarySkillRef[];
   invokedSkills?: PromptSkill[];
   memorySection?: string;
   recalledMemorySection?: string; // Plan L4: unpinned memories recalled for this task (after the pinned section).
@@ -72,6 +72,13 @@ export class WorkerApi {
 
   async syncFixedTeam(): Promise<FunctionReturnType<typeof api.worker.syncFixedTeam>> {
     return await this.client.action(api.worker.syncFixedTeam, this.args({}));
+  }
+
+  /** load_skill over a library skill: its body, re-checked against the agent (null: not allowed / gone). */
+  async loadLibrarySkill(
+    input: ActionInput<typeof api.skillLibrary.bodyForWorker>
+  ): Promise<FunctionReturnType<typeof api.skillLibrary.bodyForWorker>> {
+    return await this.client.action(api.skillLibrary.bodyForWorker, this.args(input));
   }
 
   async claimTask(

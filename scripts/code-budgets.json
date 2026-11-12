@@ -1,6 +1,6 @@
 {
   "apps/api/convex/chat.ts": {
-    "lines": 1522
+    "lines": 1516
   },
   "apps/api/convex/githubPush.ts": {
     "lines": 846
@@ -9,13 +9,13 @@
     "lines": 1066
   },
   "apps/api/convex/orchestration.ts": {
-    "lines": 3078
+    "lines": 3075
   },
   "apps/api/convex/schema.ts": {
-    "lines": 2246
+    "lines": 2245
   },
   "apps/api/convex/skills.ts": {
-    "lines": 1316
+    "lines": 1257
   },
   "apps/api/convex/worker.ts": {
     "lines": 1538
@@ -62,7 +62,6 @@
     "hex": 3
   },
   "apps/web/components/ChatPanel.tsx": {
-    "lines": 823,
     "tint": 8
   },
   "apps/web/components/ConfirmDialog.tsx": {
@@ -111,9 +110,6 @@
   "apps/web/components/chat/ManageProjectModal.tsx": {
     "tint": 1
   },
-  "apps/web/components/chat/MessageList.tsx": {
-    "lines": 870
-  },
   "apps/web/components/chat/OptionCards.tsx": {
     "tint": 3,
     "hex": 3
@@ -144,11 +140,6 @@
   "apps/web/components/context/ContextInspector.tsx": {
     "tint": 4
   },
-  "apps/web/components/integrations/IntegrationsPanel.tsx": {
-    "pulse": 2,
-    "pill": 1,
-    "tint": 5
-  },
   "apps/web/components/runs/Contracts.tsx": {
     "tint": 11
   },
@@ -161,12 +152,8 @@
   "apps/web/components/runs/Requirements.tsx": {
     "pulse": 1
   },
-  "apps/web/components/sandbox/SandboxStudio.tsx": {
-    "pill": 1,
-    "tint": 5
-  },
   "apps/web/components/settings/tabs.tsx": {
-    "lines": 1261
+    "lines": 1260
   },
   "apps/web/components/shell/ProjectAvatar.tsx": {
     "tint": 27
@@ -194,7 +181,7 @@
     "tint": 6
   },
   "packages/worker/src/execution/agentExecutor.ts": {
-    "lines": 2602
+    "lines": 2601
   },
   "packages/worker/src/execution/nativeProvider.ts": {
     "lines": 1099

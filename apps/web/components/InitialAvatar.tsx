@@ -75,7 +75,7 @@ export default function InitialAvatar({
         className="relative inline-flex shrink-0"
         style={{ width: size, height: size }}
       >
-        <DicebearAvatar seed={seed} size={size} className="h-full w-full" />
+        <DicebearAvatar seed={seed} name={name} size={size} className="h-full w-full" />
         {status && (
           <span
             className={`absolute -bottom-px -right-px h-2 w-2 rounded-full ring-2 ring-panel ${DOT[status] ?? "bg-gray-400"}`}

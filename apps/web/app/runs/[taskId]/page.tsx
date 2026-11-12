@@ -40,7 +40,7 @@ import {
   statusTone,
 } from "@/lib/runFormat";
 import { PERMISSION_MODE_LABELS, normalizePermissionMode } from "@/api/convex/lib/permissionModes";
-import { approvalDeciderLabel } from "@/lib/sandbox";
+import { approvalDeciderLabel } from "@/lib/approvalDecider";
 
 type Run = NonNullable<FunctionReturnType<typeof api.runs.get>>;
 type Step = Run["steps"][number];

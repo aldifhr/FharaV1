@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { Activity, FolderKanban, Inbox, Menu, MessageCircle, Users, X } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
@@ -13,7 +13,6 @@ import { useSettings } from "./Settings";
 import { useToast } from "./Toasts";
 import QueryBoundary from "./shell/QueryBoundary";
 import NeedsYou from "./sidebar/NeedsYou";
-import ThreadList from "./sidebar/ThreadList";
 import ProjectList from "./sidebar/ProjectList";
 import TeamList, { type TeamAgent } from "./sidebar/TeamList";
 import { CreateAgentModal } from "./sidebar/AgentForms";
@@ -27,11 +26,11 @@ import { onFocusTeam } from "@/lib/shellEvents";
 import { useUiPref } from "@/lib/uiPrefs";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 
-type Sections = { needsYou: boolean; threads: boolean; projects: boolean; team: boolean };
+type Sections = { needsYou: boolean; projects: boolean; team: boolean };
 
 /**
  * The one app sidebar (dashboard restyle F2): logo and collapse, search (⌘K),
- * Threads, then Inbox / Personal messages / Needs you, then WORK (projects,
+ * Inbox / Personal messages / Needs you, then WORK (projects,
  * team), BUILD, DEVELOPMENT and OBSERVE, with the account row at the bottom.
  * Collapses to an icon rail on desktop (remembered in uiPrefs); below 980px it
  * is a drawer.
@@ -70,7 +69,7 @@ export default function Sidebar({
   const closeDrawer = useCallback(() => (ownsDrawer ? setOwnDrawerOpen(false) : onCloseDrawerProp?.()), [ownsDrawer, onCloseDrawerProp]);
   const isDrawer = mobile === "drawer";
 
-  const [open, setOpen] = useState<Sections>({ needsYou: true, threads: true, projects: true, team: true });
+  const [open, setOpen] = useState<Sections>({ needsYou: true, projects: true, team: true });
   const [commandOpen, setCommandOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -243,11 +242,6 @@ export default function Sidebar({
         ) : (
           <nav aria-label="Workspace" className="shell-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-4 pt-1">
             <div className="flex flex-col gap-3">
-              <QueryBoundary>
-                <Suspense fallback={null}>
-                  <ThreadList filter="" open={open.threads} onToggle={() => toggleSection("threads")} onNavigate={closeDrawer} />
-                </Suspense>
-              </QueryBoundary>
               <QueryBoundary
                 fallback={<NavRow icon={Inbox} label="Inbox" href="/inbox" onClick={closeDrawer} />}
               >

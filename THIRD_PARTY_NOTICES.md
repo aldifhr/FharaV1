@@ -1024,3 +1024,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## DiceBear
+
+- Used (npm dependencies, not copied): `@dicebear/core` 10.x (MIT, Copyright (c) 2026 Florian Körner) renders the
+  agent avatars in `apps/web/components/DicebearAvatar.tsx`; the avatar style is `@dicebear/styles/lorelei.json`
+  (`@dicebear/styles` 10.x).
+- **Lorelei** avatar style by [Lisa Wischofsky](https://www.instagram.com/lischi_art/), licensed
+  [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (source:
+  [Lorelei on Figma](https://www.figma.com/community/file/1198749693280469639); license as listed in
+  `@dicebear/styles/LICENSE.md` and the style's `meta` block). CC0 asks for no attribution; it is given here anyway.
+  Fhara ships no other `@dicebear/styles` style. The package's non-artwork code (manifests, shims, build scripts) is
+  MIT, Copyright (c) 2026 Florian Körner.

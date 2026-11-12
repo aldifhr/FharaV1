@@ -1,6 +1,6 @@
 /**
- * Thread rename (Paradev B3): the pure parts shared by the sidebar row, the
- * task header and the chat header. The server (`threads.rename`) normalises
+ * Thread rename (Paradev B3): the pure parts shared by the task header and
+ * the chat header. The server (`threads.rename`) normalises
  * the same way and refuses blanks; this mirrors it so the UI can refuse an
  * empty title before a round trip and show the new title at once.
  */
@@ -28,13 +28,6 @@ export function renameDraft(input: string, current: string): RenameDraft {
   return { kind: "save", title };
 }
 
-/** The ref a `threads.rename` call takes for a thread row, or null when the row has neither. */
-export function renameRefOf(row: { taskId?: string | null; conversationId?: string | null }): RenameRef | null {
-  if (row.taskId) return { taskId: row.taskId };
-  if (row.conversationId) return { conversationId: row.conversationId };
-  return null;
-}
-
 const sameThread = (row: { taskId?: unknown; conversationId?: unknown }, ref: RenameRef) =>
   "taskId" in ref ? String(row.taskId ?? "") === ref.taskId : String(row.conversationId ?? "") === ref.conversationId;
 
@@ -49,17 +42,4 @@ export function withRenamedRow<T extends { taskId?: unknown; conversationId?: un
 ): T[] {
   if (!rows.some((row) => sameThread(row, ref))) return rows;
   return rows.map((row) => (sameThread(row, ref) ? { ...row, title } : row));
-}
-
-/**
- * Keys that start a rename from a focused sidebar row, with no modifier: F2
- * always, Enter only on the thread already open (Enter on any other row
- * still opens it, so keyboard navigation keeps working).
- */
-export function isRenameKey(
-  event: { key: string; altKey: boolean; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean },
-  current: boolean,
-): boolean {
-  if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return false;
-  return event.key === "F2" || (event.key === "Enter" && current);
 }

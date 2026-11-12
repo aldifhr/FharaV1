@@ -6,7 +6,7 @@ import ChatPanel from "@/components/ChatPanel";
 import { useWorkspace } from "@/app/WorkspaceContext";
 
 function ChatSection() {
-  const { projectId, openAgent, selectTask, selectedTaskId } = useWorkspace();
+  const { projectId, openAgent, selectTask, selectedTaskId, linkedConversationId, linkedConversationClosed } = useWorkspace();
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<"chat" | "tasks" | "files">("chat");
 
@@ -27,6 +27,8 @@ function ChatSection() {
       onSelectTask={selectTask}
       onOpenAgent={openAgent}
       selectedTaskId={selectedTaskId}
+      conversationId={linkedConversationId ?? null}
+      conversationClosed={linkedConversationClosed ?? false}
     />
   );
 }

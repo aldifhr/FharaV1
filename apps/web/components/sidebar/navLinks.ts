@@ -1,4 +1,4 @@
-import { BookOpen, Brain, GitBranch, ScrollText, Sparkles, TestTubes } from "lucide-react";
+import { BookOpen, Brain, GitBranch, ScrollText, Sparkles } from "lucide-react";
 import type { NavIcon } from "./SidebarNav";
 
 export type NavLink = { icon: NavIcon; label: string; href?: string; onClick?: () => void; active: boolean };
@@ -6,8 +6,7 @@ export type NavLink = { icon: NavIcon; label: string; href?: string; onClick?: (
 /**
  * The BUILD, DEVELOPMENT and OBSERVE rows of the sidebar, shared with the
  * command menu so both always list the same destinations (dashboard restyle
- * F2/F6). Development holds the internal-testing surfaces (Agent Sandbox,
- * Runs). LLM & Models and Integrations are not here: they live in Settings
+ * F2/F6). Development holds Runs. LLM & Models and Integrations are not here: they live in Settings
  * (tabs "models" and "integrations").
  */
 export function sidebarNavLinks({
@@ -23,7 +22,6 @@ export function sidebarNavLinks({
     { icon: Brain, label: "Memory", href: projectId ? `/memory?scope=project&project=${projectId}` : "/memory", active: pathname === "/memory" },
   ];
   const development: NavLink[] = [
-    { icon: TestTubes, label: "Agent Sandbox", href: "/playground", active: pathname === "/playground" },
     { icon: GitBranch, label: "Runs", href: withProject("/runs"), active: pathname.startsWith("/runs") },
   ];
   const observe: NavLink[] = [

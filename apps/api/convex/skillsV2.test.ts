@@ -3,7 +3,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
-import { loadPromptSkills } from "./skills";
+import { loadPromptSkills } from "./skillLibrary";
 import {
   formatSkillsSection,
   LOAD_SKILL_MAX_CALLS,
@@ -418,9 +418,12 @@ describe("on-demand loading", () => {
     expect(byRole.get("frontend").skillsSection).toContain("## Skill: Guide\nfull guide text");
     expect(byRole.get("frontend").skillsSection).toContain("- Release: Release steps");
     expect(byRole.get("frontend").skillsSection).not.toContain("release body");
-    expect(byRole.get("frontend").onDemandSkills.map((s: { name: string }) => s.name)).toEqual(
-      expect.arrayContaining(["Guide", "Release"])
-    );
+    expect(byRole.get("frontend").onDemandSkills).toBeUndefined();
+    // The library rides bodiless; load_skill fetches a body (skillLibrary.body).
+    expect(byRole.get("frontend").librarySkills).toEqual([
+      { name: "Guide", description: "How we work", version: 1 },
+      { name: "Release", description: "Release steps", version: 1 },
+    ]);
   });
 
   test("agents.update sets and resets skillLoading", async () => {

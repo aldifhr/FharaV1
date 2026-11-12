@@ -1,5 +1,5 @@
 /**
- * The Sandbox brief (apps/web/lib/sandbox.ts sandboxCommand) wraps the
+ * The Sandbox brief (written by the retired Sandbox page) wraps the
  * user's instruction: a header line, "Instruction: <the user's words>",
  * then a "Guardrails:" line and a closing line about the worktree. Only the
  * instruction is the request: classification, requirement extraction and

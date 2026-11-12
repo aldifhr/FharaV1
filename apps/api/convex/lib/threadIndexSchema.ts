@@ -31,7 +31,7 @@ export const threadIndexTable = defineTable({
   worktreeKey: v.optional(v.string()),
   preview: v.optional(v.string()),
   lastActivityAt: v.number(),
-  // Unread = lastActivityAt > seenAt (threads.markSeen).
+  // Unread = lastActivityAt > seenAt. Nothing marks rows seen since the sidebar Threads section was removed; kept for existing rows.
   seenAt: v.optional(v.number()),
   archivedAt: v.optional(v.number()),
   updatedMs: v.number(),

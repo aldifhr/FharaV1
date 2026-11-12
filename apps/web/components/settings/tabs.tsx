@@ -941,7 +941,6 @@ const WORKSPACE_LINKS = [
   { id: "library", label: "Library", description: "Agent skills and templates.", href: "/library" },
   { id: "memory", label: "Memory", description: "Saved facts and context.", href: "/memory" },
   { id: "team", label: "Team", description: "Agents, roles and performance.", href: "/team" },
-  { id: "sandbox", label: "Agent sandbox", description: "Try tools without a task.", href: "/playground" },
   { id: "audit", label: "Audit log", description: "Every action the app took.", href: "/audit" },
 ];
 

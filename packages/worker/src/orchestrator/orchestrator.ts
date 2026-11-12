@@ -210,6 +210,8 @@ export interface AuthoritativePlanInput {
   plannerAgent?: AgentDefinition | null;
   plannerFallbackReason?: string | null;
   classification?: Classification;
+  /** P1a: the task's routing hint (a planner prior). */
+  routingHint?: PlannerInput["routingHint"];
   /** The runner's budget tracker — never a throwaway instance. */
   budget: BudgetTracker;
   /** The runner's shared context — the one execution keeps updating. */
@@ -349,6 +351,7 @@ export async function createAuthoritativePlan(
       timeLine: input.timeLine,
       request: input.request,
       requirements: input.requirements,
+      routingHint: input.routingHint,
     });
     plan = created.plan;
     createdBy = created.createdBy;

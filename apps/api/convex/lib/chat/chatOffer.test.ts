@@ -33,7 +33,13 @@ describe("a chat write request produces an offer with a brief", () => {
   test("routed to Frontend: offer assigned to Frontend with a plain HTML brief", () => {
     const write = planWriteOffer({ speaker: fe, isCto: false, addressed: true, team, text: ASK, taskIntent: { kind: classifyChatIntent(ASK).kind }, optionPick: false, repoSnapshot: EMPTY_SNAPSHOT });
     expect(write.plan).toBe("I'll add a plain HTML index.html at the repo root.");
-    expect(write.offer).toEqual({ kind: "implementation", assigneeAgentId: "fe", brief: `Add a plain HTML index.html at the repo root.\n\nRequest: ${ASK}` });
+    expect(write.offer).toEqual({
+      kind: "implementation",
+      assigneeAgentId: "fe",
+      brief: `Add a plain HTML index.html at the repo root.\n\nRequest: ${ASK}`,
+      // P1a: the routing hint the task inherits (owner, intent, plan line, files).
+      hint: { source: "offer", role: "frontend", kind: "implementation", brief: "I'll add a plain HTML index.html at the repo root.", files: ["index.html"] },
+    });
   });
 
   test("the stack comes from the repo; no framework means plain HTML", () => {
@@ -50,7 +56,11 @@ describe("a chat write request produces an offer with a brief", () => {
   test("the reply offers the task when the classifier missed the request", () => {
     const write = planWriteOffer({ speaker: fe, isCto: false, addressed: true, team, text: "tolong rapikan halaman login", taskIntent: { kind: "chat" }, optionPick: false });
     expect(write.offer).toBeNull();
-    expect(offerForReply(write, "I'll tidy the login page. Chat can't change files. Want me to create a task for it?")).toEqual({ kind: "implementation", assigneeAgentId: "fe" });
+    expect(offerForReply(write, "I'll tidy the login page. Chat can't change files. Want me to create a task for it?")).toEqual({
+      kind: "implementation",
+      assigneeAgentId: "fe",
+      hint: { source: "offer", role: "frontend", kind: "implementation" },
+    });
     expect(offerForReply(write, "Flexbox lays items out in one direction.")).toBeNull();
     expect(replyNeedsTask("I can't write files from this read-only session. Create a task for the worker to add index.html.")).toBe(true);
   });

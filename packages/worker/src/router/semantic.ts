@@ -1,4 +1,31 @@
-import type { IntentResult, IntentSubtype } from "./route";
+/** Structured LLM intent output (plan 016). */
+export type Intent = "ask" | "task" | "continue" | "pause" | "cancel" | "status" | "approve" | "reject";
+
+export type IntentSubtype =
+  | "explanation"
+  | "recommendation"
+  | "research"
+  | "audit"
+  | "implementation"
+  | "debugging"
+  | "testing"
+  | "continue"
+  | "pause"
+  | "cancel"
+  | "status"
+  | "approve"
+  | "reject"
+  | "other";
+
+export interface IntentResult {
+  intent: Intent;
+  subtype: IntentSubtype;
+  requiresWorkspace: boolean;
+  requiresExecution: boolean;
+  target?: string;
+  confidence: number;
+  reasoning: string;
+}
 
 // Prompt text lives in `@/prompts/classifier`; re-exported for existing importers.
 export { buildSemanticPrompt } from "@/prompts/classifier";

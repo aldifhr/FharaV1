@@ -329,7 +329,12 @@ describe("O3 routing (no @mention): System routes, the owner answers, no CTO wra
     expect(replies.map((r) => r.agentId)).toEqual([SYS, qaId]);
     expect(callsBy("QA")[0].system).toContain("Create task button under this reply runs `npm run test`");
     expect(callsBy("QA")[0].system).toContain("Never say you have no shell or terminal access");
-    expect(replies[1].taskOffer).toEqual({ kind: "testing", commands: ["npm run test"] });
+    expect(replies[1].taskOffer).toEqual({
+      kind: "testing",
+      commands: ["npm run test"],
+      // P1a: the route System computed (QA owns tests) rides on the offer.
+      hint: { source: "offer", role: "qa", domain: "qa", kind: "testing" },
+    });
     const tasks = await t.run(async (ctx) => ctx.db.query("tasks").collect());
     expect(tasks).toHaveLength(0);
   });

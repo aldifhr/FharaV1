@@ -28,6 +28,7 @@ import { resolveQaBaseUrl, resolveWorkspacePath } from "./setup";
 import { failTaskWithError, finishBudgetExhaustedTask, finishCancelledTask } from "./terminal";
 import { persistPlan } from "./finalize";
 import { computePlanEstimate, type PlanCreator } from "./planReview";
+import { hintOverride, taskRoutingHint } from "@/orchestrator/planningHint";
 
 export type { AuthoritativePlanResult };
 
@@ -207,6 +208,7 @@ async function callPlanner(
     plannerAgent: pctx.plannerAgent,
     plannerFallbackReason: pctx.plannerFallbackReason,
     classification: pctx.classification,
+    routingHint: taskRoutingHint(task),
     budget: pctx.budget,
     sharedContext: pctx.sharedContext,
     policy: deps.policy,
@@ -393,6 +395,8 @@ export async function createInitialPlan(
       });
     }
     if (plan.requirements?.length) pctx.requirements = plan.requirements;
+    const overridden = storedPlan ? null : hintOverride(plan, taskRoutingHint(task));
+    if (overridden) await deps.api.logEvent({ taskId: task._id, projectId: project._id, type: "plan.hint_overridden", payload: overridden, level: "info" });
     return { plan, createdBy, planVersion };
   }
 

@@ -148,24 +148,28 @@ describe("write requests in chat get a short reply and a routed Create task offe
       assigneeAgentId: String(frontendId),
       brief:
         "Add a plain HTML bold.html at the repo root.\n\nRequest: @Frontend tolong buatkan bold.html dengan teks 'Hello World' dengan menggunakan css dan js serta teksnya bold",
+      // The user @mentioned Frontend: the only binding hint.
+      hint: { source: "mention", role: "frontend", kind: "implementation", brief: "I'll add a plain HTML bold.html at the repo root.", files: ["bold.html"], hard: true },
     });
     expect(replies[0].unverifiedRefs).toBeUndefined();
     expect(await t.run(async (ctx) => ctx.db.query("tasks").collect())).toHaveLength(0);
   });
 
-  test("'gas' after the Frontend offer starts the task, assigned to Frontend", async () => {
-    const { t, projectId, frontendId } = await setup({ worker: "none" });
+  test("'gas' after the Frontend offer starts the task: Frontend owns it, CTO and QA stay in the pool, the hint is stored", async () => {
+    const { t, projectId, frontendId, ctoId, qaId } = await setup({ worker: "none" });
     reply = () => "Siap, saya kerjakan lewat task.";
     await ask(t, projectId, "@Frontend tolong buatkan bold.html dengan teks 'Hello World'", [frontendId]);
     await ask(t, projectId, "gas");
     const tasks = await t.run(async (ctx) => ctx.db.query("tasks").collect());
     expect(tasks).toHaveLength(1);
     expect(tasks[0].command).toContain("bold.html");
-    expect(tasks[0].assignedAgentIds).toEqual([frontendId]);
+    // P1a: the pool keeps the review/QA roles the team has (this team has no Reviewer), so their nodes stay routable.
+    expect(tasks[0].assignedAgentIds).toEqual([ctoId, frontendId, qaId]);
+    expect(tasks[0].routingHint).toMatchObject({ source: "mention", role: "frontend", kind: "implementation", files: ["bold.html"], hard: true });
   });
 
   test("an un-mentioned HTML file request goes to Frontend directly (System line, no CTO); the offer still appears", async () => {
-    const { t, projectId, frontendId } = await setup({ worker: "none" });
+    const { t, projectId, frontendId, ctoId, qaId } = await setup({ worker: "none" });
     reply = () => "Siap, ini dikerjakan lewat task — balas gas atau tekan Create task.";
     const all = await ask(t, projectId, "buatkan file ultimate.html dengan teks 'Ultimate is a new vision' dengan background yang menarik");
     const system = all.filter((r) => r.voice === "system");
@@ -177,16 +181,19 @@ describe("write requests in chat get a short reply and a routed Create task offe
     const prompt = calls.find((c) => speaker(c) === "Frontend")!.system;
     expect(prompt).toContain("Do not paste the file, its contents or any code block");
     expect(prompt).not.toContain("To execute this plan");
-    expect(replies[0].taskOffer).toEqual({
+    expect(replies[0].taskOffer).toMatchObject({
       kind: "implementation",
       assigneeAgentId: String(frontendId),
       brief:
         "Add a plain HTML ultimate.html at the repo root.\n\nRequest: buatkan file ultimate.html dengan teks 'Ultimate is a new vision' dengan background yang menarik",
+      hint: { source: "offer", role: "frontend", kind: "implementation", files: ["ultimate.html"] },
     });
+    expect(replies[0].taskOffer?.hint?.hard).toBeUndefined();
     expect(replies[0].unverifiedRefs).toBeUndefined();
     await ask(t, projectId, "gas");
     const tasks = await t.run(async (ctx) => ctx.db.query("tasks").collect());
-    expect(tasks.map((task) => task.assignedAgentIds)).toEqual([[frontendId]]);
+    expect(tasks.map((task) => task.assignedAgentIds)).toEqual([[ctoId, frontendId, qaId]]);
+    expect(tasks[0].routingHint).toMatchObject({ source: "offer", role: "frontend" });
   });
 
   test("a question to @Frontend stays a normal answer with no offer", async () => {

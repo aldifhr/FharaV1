@@ -9,7 +9,6 @@ import { classifyCommand, detectRunCommands } from "@/orchestrator/classifier";
 import { validatePlan } from "@/orchestrator/planValidator";
 import { buildPlanningPrompt, heuristicPlan } from "@/orchestrator/planner";
 import { loadPolicy } from "@/orchestrator/policy";
-import { routeMessage } from "@/router/route";
 import { executeSubtask, type SubtaskExecutionInput } from "@/execution/agentExecutor";
 import type { FallbackHandle } from "@/effects/llmCall";
 import type { GlobalLLMConfig, LLMProvider } from "@/llm";
@@ -253,16 +252,6 @@ describe("classifier: run requests become command tasks", () => {
 
   it("attached file contexts do not count as the request", () => {
     expect(classifyCommand("add a footer\nAttached file context:\nrun npm test").kind).toBe("code_change");
-  });
-});
-
-describe("router: a run request is a task", () => {
-  it("routes run requests (EN + ID) to a task", async () => {
-    for (const text of ["run npm test", "jalankan tes", "can you run the tests?"]) {
-      const result = await routeMessage({ text, agents: [] });
-      expect(result.intent).toBe("task");
-      expect(result.classification.kind).toBe("command");
-    }
   });
 });
 

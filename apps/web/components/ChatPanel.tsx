@@ -305,7 +305,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   };
 
   /** "Create task" under a reply: the pick (if any) plus the reply become the task;
-   *  its @Role mentions (else the offer's assignee) become the assignees. */
+   *  its @Role mentions and the offer's assignee own it (pool resolved by the server). */
   const createTaskFromMessage = async (messageId: string) => {
     const list = timeline as any[];
     const at = list.findIndex((m) => String(m._id) === messageId);
@@ -321,8 +321,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       })),
       at,
     );
-    const mentioned = mentions.mentionedAgentIds(reply.content);
-    const assignees = mentioned.length ? mentioned : reply.taskOffer?.assigneeAgentId ? [reply.taskOffer.assigneeAgentId] : [];
+    // The server adds the offer's assignee, its hint and CTO/Reviewer/QA (lib/taskPool.ts).
+    const assignees = mentions.mentionedAgentIds(reply.content);
     try {
       const taskId = await createTask({
         projectId: projectId as never,

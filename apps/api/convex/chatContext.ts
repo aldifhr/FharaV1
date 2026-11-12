@@ -16,6 +16,7 @@ import { isContinueRequest } from "./lib/chat/continueReply";
 import { chatScopeOf, type ChatScope } from "./lib/conversationShape";
 import { effectiveTeamIds, projectTeamIds } from "./lib/projectTeam";
 import { isSystemLine, normalizeSystemLine, SYSTEM_VOICE } from "./lib/systemLine";
+import { routingHintValidator } from "./lib/routingHint";
 
 /** Drop the `--- File: <path> ---` blocks `attachMentionedFiles` appends so
  *  repeated file context does not accumulate in the chat prompt. */
@@ -245,7 +246,7 @@ export const updateStreamingAgentMessage = internalMutation({
     checkedFiles: v.optional(v.array(v.string())),
     unverifiedRefs: v.optional(v.array(v.string())),
     intentLine: v.optional(v.string()),
-    taskOffer: v.optional(v.object({ kind: v.string(), commands: v.optional(v.array(v.string())), assigneeAgentId: v.optional(v.string()), brief: v.optional(v.string()) })),
+    taskOffer: v.optional(v.object({ kind: v.string(), commands: v.optional(v.array(v.string())), assigneeAgentId: v.optional(v.string()), brief: v.optional(v.string()), hint: v.optional(routingHintValidator) })),
     // A reply kept with partial text (lib/chat/continueReply.ts); clearCutOff drops the marker (Continue started).
     cutOff: v.optional(v.object({ kind: v.union(v.literal("interrupted"), v.literal("truncated")), reason: v.string() })),
     clearCutOff: v.optional(v.boolean()),

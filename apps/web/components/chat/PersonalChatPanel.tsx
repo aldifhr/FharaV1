@@ -218,9 +218,8 @@ export default function PersonalChatPanel({
         title,
         conversationContext: false,
         conversationId: conversationId as never,
-        // Marks the reply's offer used: the button becomes "Task created".
+        // Marks the reply's offer used ("Task created"); the server takes its assignee and hint from it.
         offerMessageId: messageId as never,
-        ...(list[at].taskOffer?.assigneeAgentId ? { assignedAgentIds: [list[at].taskOffer.assigneeAgentId] as never[] } : {}),
       });
       toast("success", "Task created", pick ?? undefined);
       openTask(taskId as string);

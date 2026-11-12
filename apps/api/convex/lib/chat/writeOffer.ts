@@ -14,6 +14,7 @@
 import { codeRoleForRequest, wantsCodeInChat, type ChatTaskOffer } from "./intent";
 import { isCodeWritingRole, normalizeRoleKey } from "../roles";
 import { buildOfferBrief, inferStack, offerPlanLine, replyNeedsTask } from "./offerBrief";
+import { buildRoutingHint } from "../routingHint";
 
 export interface WriteOfferPlan<A> {
   /** The offer to store on the reply, or null (no offer from this speaker). */
@@ -43,6 +44,10 @@ export function planWriteOffer<A extends { _id: string; name: string; role: stri
   optionPick: boolean;
   /** What the speaker can see of the repo (snapshot text), for the stack and the brief. */
   repoSnapshot?: string | null;
+  /** The user @mentioned this speaker (binding), as opposed to System routing it here. */
+  mentioned?: boolean;
+  /** The route System computed for this turn (lib/chat/owner.ts), carried on the offer's hint. */
+  route?: { domain?: string | null; topic?: string } | null;
 }): WriteOfferPlan<A> {
   const codeInChat = wantsCodeInChat(opts.text);
   const plan = offerPlanLine(opts.text, inferStack(opts.repoSnapshot));
@@ -53,13 +58,27 @@ export function planWriteOffer<A extends { _id: string; name: string; role: stri
   const byFiles = codeRoleForRequest(opts.text);
   const roleAgent = byFiles ? opts.team.find((a) => normalizeRoleKey(a.role) === byFiles) ?? null : null;
   const assignee = !opts.isCto && isCodeWritingRole(opts.speaker.role) ? opts.speaker : roleAgent;
+  // P1a: what chat decided rides on the offer; the task inherits it as a planner prior.
+  const hintFor = (kind: string) =>
+    buildRoutingHint({
+      source: opts.mentioned ? "mention" : "offer",
+      role: (assignee ?? opts.speaker).role,
+      domain: opts.route?.domain,
+      topic: opts.route?.topic,
+      kind,
+      brief: plan,
+      text: opts.text,
+      hard: opts.mentioned === true,
+    });
   if (opts.taskIntent.kind !== "task") {
     if (runCommands?.length) return none;
-    const fallback: ChatTaskOffer = { kind: "implementation", ...(assignee ? { assigneeAgentId: String(assignee._id) } : {}), ...(brief ? { brief } : {}) };
+    const fallback: ChatTaskOffer = { kind: "implementation", ...(assignee ? { assigneeAgentId: String(assignee._id) } : {}), ...(brief ? { brief } : {}), hint: hintFor("implementation") };
     return { ...none, fallback };
   }
+  const kind = opts.taskIntent.subtype ?? "implementation";
   const offer: ChatTaskOffer = {
-    kind: opts.taskIntent.subtype ?? "implementation",
+    kind,
+    hint: hintFor(kind),
     ...(runCommands?.length ? { commands: runCommands } : {}),
     ...(assignee && !runCommands?.length ? { assigneeAgentId: String(assignee._id) } : {}),
     ...(brief && !runCommands?.length ? { brief } : {}),

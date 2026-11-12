@@ -144,7 +144,7 @@ describe("(1) a go reply starts the task the CTO offered", () => {
   });
 
   test("end to end: 'gas' after the offer creates the FAQ task with no appended turns", async () => {
-    const { t, projectId, ctoId, frontendId } = await setup();
+    const { t, projectId, ctoId, frontendId, qaId } = await setup();
     // O3: the CTO is no longer the chat default, so the night run's CTO turns
     // are seeded as they were stored (pre-O3 rows without a stored offer);
     // "gas" must still start the offer they carry.
@@ -166,7 +166,8 @@ describe("(1) a go reply starts the task the CTO offered", () => {
     expect(tasks[0].title).toBe("buat halaman FAQ");
     expect(tasks[0].command).toBe(`dia bilang: buat halaman FAQ\n\n${CTO_FAQ_OFFER}`);
     expect(tasks[0].command).not.toContain("--- Conversation context ---");
-    expect(tasks[0].assignedAgentIds).toEqual([frontendId]);
+    // P1a: the offer's @Frontend owns it; CTO and QA stay in the pool (review/QA nodes stay routable).
+    expect(tasks[0].assignedAgentIds).toEqual([ctoId, frontendId, qaId]);
     // System posts the status line; the CTO writes no assignment reply.
     const system = await t.run(async (ctx) => ctx.db.query("messages").filter((q) => q.eq(q.field("voice"), "system")).collect());
     expect(system.map((m) => m.content)).toEqual(["Task created · planning"]);

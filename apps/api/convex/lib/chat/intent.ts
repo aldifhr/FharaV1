@@ -8,10 +8,10 @@ import { isSystemLine } from "../systemLine";
 import { detectChatRunCommands, explicitRunCommand } from "./runRequest";
 import { findBuiltinSlash } from "../slashCommands";
 import { isPoliteWriteRequest } from "./offerBrief";
+import type { RoutingHint } from "../routingHint";
 
-// Mirrored from packages/worker/src/router/route.ts (Convex cannot import
-// worker code). The backend chat auto-dispatch must honor the same platform
-// rule: questions, advice and analysis never become tasks.
+// Platform rule for chat dispatch: questions, advice and analysis never
+// become tasks.
 const QUESTION_SHAPE =
   /\b(how do i|how to|how can|how does|why|what is|what are|what's|what does|what do|where is|explain|describe|summari[sz]e|document|understand)\b/i;
 // Indonesian questions, comparisons and opinion asks ("mana yang cocok?",
@@ -303,6 +303,8 @@ export interface OfferedTask {
   assigneeAgentId?: string;
   /** The prefilled task brief (plan line + request, lib/chat/offerBrief.ts); the task command when set. */
   brief?: string;
+  /** P1a: chat's routing decision, inherited by the task (lib/routingHint.ts). */
+  hint?: RoutingHint;
 }
 
 /**
@@ -400,6 +402,8 @@ export interface ChatTaskOffer {
   assigneeAgentId?: string;
   /** The prefilled task brief (plan line + request, lib/chat/offerBrief.ts); the task command when set. */
   brief?: string;
+  /** P1a: chat's routing decision, inherited by the task (lib/routingHint.ts). */
+  hint?: RoutingHint;
 }
 
 /** Whether a reply's Create task offer already produced a task. */
@@ -487,7 +491,8 @@ export function findOfferedTask(
     if (!pick && !m.taskOffer && !(isCto && OFFERS_CREATE_TASK.test(m.content))) return null;
     const { command, title } = composeOfferedTask(history, i);
     const assigneeAgentId = m.taskOffer?.assigneeAgentId ?? (isCto ? undefined : m.agentId);
-    return { index: i, command, title, reply: m.content, ...(assigneeAgentId ? { assigneeAgentId } : {}) };
+    const hint = m.taskOffer?.hint;
+    return { index: i, command, title, reply: m.content, ...(assigneeAgentId ? { assigneeAgentId } : {}), ...(hint ? { hint } : {}) };
   }
   return null;
 }

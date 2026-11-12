@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { routeMessage } from "@/router/route";
 import { parseIntentResult } from "@/router/semantic";
 import { classifyCommand } from "@/orchestrator/classifier";
 
@@ -26,44 +25,5 @@ describe("semantic: Stage B", () => {
     expect(cancel?.requiresExecution).toBe(false);
     const approve = parseIntentResult('{"intent":"approve","subtype":"approve","confidence":0.9}');
     expect(approve?.requiresExecution).toBe(true);
-  });
-  it("advisor IntentResult task → task intent", async () => {
-    const r = await routeMessage({
-      text: "something-weird-xyz",
-      agents: [],
-      advise: async () => ({
-        intent: "task" as const,
-        subtype: "implementation" as const,
-        requiresWorkspace: true,
-        requiresExecution: true,
-        confidence: 0.92,
-        reasoning: "migrate",
-      }),
-    });
-    expect(r.intent).toBe("task");
-  });
-  it("advisor ask stays chat", async () => {
-    const r = await routeMessage({
-      text: "something-weird-xyz",
-      agents: [],
-      advise: async () => ({
-        intent: "ask" as const,
-        subtype: "explanation" as const,
-        requiresWorkspace: false,
-        requiresExecution: false,
-        confidence: 0.4,
-        reasoning: "capability question",
-      }),
-    });
-    expect(r.intent).toBe("question");
-    expect(r.reasons.join(" ")).toContain("ask/explanation");
-  });
-  it("advisor invalid output fails closed to chat", async () => {
-    const r = await routeMessage({
-      text: "something-weird-xyz",
-      agents: [],
-      advise: async () => "TASK", // uppercase — not a valid legacy intent
-    });
-    expect(r.intent).toBe("chat");
   });
 });

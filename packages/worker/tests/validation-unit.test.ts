@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { classifyCommand, isGreeting } from "@/orchestrator/classifier";
-import { routeMessage, type RouterInput } from "@/router/route";
 import type { AgentDefinition } from "@/orchestrator/types";
 import { applyDecision, validateDecision, type DecisionContext, type DecisionObservation } from "@/orchestrator/decision";
 import { loadPolicy } from "@/orchestrator/policy";
@@ -33,39 +32,8 @@ describe("validation-unit: classifier edges", () => {
     const r = classifyCommand("add a security audit to the auth flow");
     expect(r.kind).not.toBe("audit");
   });
-  it("a how-to question with a change verb is research in classifier and a question in router", async () => {
-    const r = classifyCommand("How do I create a new API endpoint?");
-    expect(r.kind).toBe("research"); // pure question: asks how, requests nothing
-    const { routeMessage } = await import("@/router/route");
-    const routed = await routeMessage({ text: "How do I create a new API endpoint?", agents });
-    expect(routed.intent).toBe("question");
-  });
-});
-
-describe("validation-unit: router edges", () => {
-  it("advisor is NOT called for clear intents", async () => {
-    const advise = vi.fn(async () => "task");
-    await routeMessage({ text: "Add a login form", agents, advise });
-    expect(advise).not.toHaveBeenCalled();
-    await routeMessage({ text: "hello!", agents, advise });
-    expect(advise).not.toHaveBeenCalled();
-  });
-  it("chatMaxAgents clamps to >=1", async () => {
-    const r = await routeMessage({ text: "hello!", agents, chatMaxAgents: 0 });
-    expect(r.agentIds.length).toBeGreaterThanOrEqual(1);
-    expect(r.agentIds.length).toBe(1);
-  });
-  it("advisor returning uppercase TASK is invalid → chat fallback", async () => {
-    const r = await routeMessage({ text: "kadas aksjfd", agents, advise: async () => "TASK" });
-    expect(r.intent).toBe("chat");
-  });
-  it("advisor returning empty string → chat fallback", async () => {
-    const r = await routeMessage({ text: "kadas aksjfd", agents, advise: async () => "" });
-    expect(r.intent).toBe("chat");
-  });
-  it("empty text → chat", async () => {
-    const r = await routeMessage({ text: "", agents });
-    expect(r.intent).toBe("chat");
+  it("a how-to question with a change verb is research", () => {
+    expect(classifyCommand("How do I create a new API endpoint?").kind).toBe("research"); // pure question: asks how, requests nothing
   });
 });
 

@@ -2,7 +2,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test, it } from "vitest";
 import { classifyChatIntent, explicitTaskCommand, parseIntentResult } from "./lib/chat/intent";
-import { resolveAssignees, suggestAssigneesByKeywords, extractAgentMentions, selectHandoffs, handoffRequestFor, parseResponderSelection, pickConversationalAgent, pickGreetingResponders } from "./lib/chat/team";
+import { resolveAssignees, extractAgentMentions, selectHandoffs, handoffRequestFor, parseResponderSelection, pickConversationalAgent, pickGreetingResponders } from "./lib/chat/team";
 import { stripToolCallMarkup } from "./lib/chat/strip";
 import { buildHandoffGuidance } from "./lib/prompts/chat";
 import schema from "./schema";
@@ -150,16 +150,6 @@ describe("stripToolCallMarkup", () => {
   });
 });
 
-describe("suggestAssigneesByKeywords", () => {
-  const team = ["Frontend", "Backend", "Designer", "DevOps", "Researcher", "Support", "QA", "Reviewer"].map((r) => ({ _id: r, name: r, role: r.toLowerCase() }));
-  it("picks owners from the request", () => {
-    expect(suggestAssigneesByKeywords("Implement helper countGraphemes di src/lib/resume", team).map((a) => a.name)).toEqual(["Backend"]);
-    expect(suggestAssigneesByKeywords("ubah tampilan halaman login dan update README", team).map((a) => a.name)).toEqual(["Frontend", "Support"]);
-  });
-  it("falls back to Backend, never the whole team", () => {
-    expect(suggestAssigneesByKeywords("kerjain ini dong", team).map((a) => a.name)).toEqual(["Backend"]);
-  });
-});
 
 describe("chat dispatch safety (e2e safety probe)", () => {
   test("paths outside the repository are detected", async () => {

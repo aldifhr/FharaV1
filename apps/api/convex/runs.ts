@@ -35,6 +35,7 @@ const ROUTING_TYPES = new Set([
   "plan.created",
   "plan.planner_fallback",
   "plan.degraded",
+  "plan.hint_overridden",
   "subtask.routed",
   "orchestrator.decision",
   "orchestrator.decision_fallback",

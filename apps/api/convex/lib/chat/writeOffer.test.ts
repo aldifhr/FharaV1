@@ -44,7 +44,10 @@ describe("planWriteOffer", () => {
   });
   test("a non-code role routes by files; unclear requests carry no assignee", () => {
     expect(plan(team[3], "buatkan landing.html").offer?.assigneeAgentId).toBe("fe");
-    expect(plan(team[0], "tambahkan tes untuk main.js").offer).toEqual({ kind: "implementation" });
+    expect(plan(team[0], "tambahkan tes untuk main.js").offer).toEqual({
+      kind: "implementation",
+      hint: { source: "offer", kind: "implementation", files: ["main.js"] },
+    });
   });
   test("no offer for chat, option picks, or a teammate the user did not address", () => {
     expect(plan(team[1], "bold.html?", { taskIntent: { kind: "chat" } }).offer).toBeNull();
@@ -55,6 +58,7 @@ describe("planWriteOffer", () => {
     expect(plan(team[0], "tolong jalankan tes", { taskIntent: { kind: "task", subtype: "testing", runCommands: ["npm run test"] } }).offer).toEqual({
       kind: "testing",
       commands: ["npm run test"],
+      hint: { source: "offer", kind: "testing" },
     });
   });
 });

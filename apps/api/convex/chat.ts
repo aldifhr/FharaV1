@@ -44,13 +44,11 @@ import { buildTaskStatusLine, resolveChatOwner } from "./lib/chat/owner";
 import { detectChatRunCommands } from "./lib/chat/runRequest";
 import {
   ORCHESTRATOR_ROLE,
-  extractAgentMentions,
   pickConversationalAgent,
   pickGreetingResponders,
-  resolveAssignees,
-  suggestAssigneesByKeywords,
   type ChatAgent,
 } from "./lib/chat/team";
+import { TERMINAL_TASK_STATUSES, dispatchTaskFromChat, outsideRepoReply, startOfferedTask } from "./lib/chat/startTask";
 import {
   completeWithAgent,
   getGlobalLLMConfig,
@@ -151,8 +149,6 @@ type ReplyArgs = {
   /** Plan 020: permission mode for the task this message may dispatch. */
   permissionMode?: PermissionMode;
 };
-
-const TERMINAL_TASK_STATUSES = ["done", "rejected", "failed", "cancelled"];
 
 /** How long one repo tool call may wait for a worker before it counts as not checked. */
 const REPO_TOOL_WAIT_MS = 20_000;
@@ -423,14 +419,6 @@ async function taskStatusLine(ctx: ActionCtx, projectId: Id<"projects">, team: C
   );
 }
 
-/** Refusal copy for a request that targets a path outside the repository. */
-function outsideRepoReply(text: string, outsidePath: string): string {
-  const indonesian = /\b(hapus|ubah|edit|tambah\w*|buat\w*|dan|yang|tolong|jangan)\b/i.test(text) && /\b(dan|yang|tolong|hapus|buat\w*)\b/i.test(text);
-  return indonesian
-    ? `Saya tidak membuat task untuk ini: \`${outsidePath}\` ada di luar repository project. Tim hanya mengubah file di dalam folder project.`
-    : `I won't create a task for this: \`${outsidePath}\` is outside the project repository. The team only changes files inside the project folder.`;
-}
-
 type StreamReplyResult = CompleteResult & {
   /** The persisted bubble (absent when it was removed as empty). */
   messageId?: Id<"messages">;
@@ -454,157 +442,6 @@ type StreamReply = (
     intentLine?: string;
   },
 ) => Promise<StreamReplyResult>;
-
-/**
- * Explicit dispatch: an explicit command ("/task …", "kerjakan …") creates
- * the task row and skips the chat loop. Never reached from the classifier.
- * Idempotent per message: the same command can only create one live task.
- * O3: no CTO assignment reply. Assignees come from the user's @mentions and
- * the request's keywords (the planner decides the rest); System posts
- * "Task created · planning" with the assignment card.
- */
-async function dispatchTaskFromChat(
-  ctx: ActionCtx,
-  args: ReplyArgs,
-  opts: {
-    text: string;
-    team: ChatAgent[];
-    orchestrator: ChatAgent | null;
-    /** Set when the command was composed from an offer ("kerjakan itu"). */
-    title?: string;
-    conversationContext?: boolean;
-  }
-): Promise<void> {
-  const { text, team, orchestrator } = opts;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- lazy import of the generated api (avoids an import cycle)
-  const { api } = await import("./_generated/api.js") as any;
-  const existing = await (ctx as any).runQuery(api.tasks.listByProject, { projectId: args.projectId });
-  const dupe = (existing as any[]).find(
-    (t: any) =>
-      t.command === text &&
-      !TERMINAL_TASK_STATUSES.includes(t.status)
-  );
-  if (dupe) {
-    return; // already dispatched; UI shows the task
-  }
-  const systemLine = (content: string, extra: { taskId?: Id<"tasks">; card?: { kind: "assignment"; data: unknown } } = {}) =>
-    ctx.runMutation(internal.chatContext.insertSystemLine, {
-      projectId: args.projectId,
-      conversationId: args.conversationId,
-      replyToMessageId: args.userMessageId,
-      content,
-      ...extra,
-    });
-  // Safety: a request aimed at paths outside the repository is never
-  // turned into a task — the worker would only refuse it later, after
-  // planning and approvals (e2e safety probe).
-  const outsidePath = targetsOutsideRepo(text);
-  if (outsidePath) {
-    await systemLine(outsideRepoReply(text, outsidePath));
-    return;
-  }
-  try {
-    // Explicit @mentions from the user are assignees too.
-    const userAssignees = (args.preferredAgentIds ?? [])
-      .map((id) => team.find((a) => a._id === String(id)))
-      .filter((a): a is ChatAgent => Boolean(a) && a!._id !== orchestrator?._id);
-    // Nobody named: pick owners from the request itself instead of handing
-    // it to everyone.
-    const keywordAssignees = userAssignees.length
-      ? []
-      : suggestAssigneesByKeywords(text, team.filter((a) => a._id !== orchestrator?._id));
-    const assignees = resolveAssignees(team, orchestrator, [...userAssignees, ...keywordAssignees]);
-    const title = opts.title ?? text.slice(0, 80);
-    const taskId = await (ctx as any).runMutation(api.tasks.createFromCommand, {
-      projectId: args.projectId,
-      command: text,
-      title,
-      conversationId: args.conversationId,
-      ...(opts.conversationContext === false ? { conversationContext: false } : {}),
-      ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
-      ...(assignees.length ? { assignedAgentIds: assignees.map((a) => a._id) } : {}),
-    });
-    await systemLine("Task created · planning", {
-      taskId: taskId as any,
-      card: {
-        kind: "assignment",
-        data: {
-          taskId: String(taskId),
-          title,
-          assignees: (assignees.length ? assignees : team)
-            .filter((a) => a._id !== orchestrator?._id)
-            .map((a) => ({ agentId: String(a._id), name: a.name, role: a.role })),
-          assignedBy: "System",
-        },
-      },
-    });
-  } catch (e: any) {
-    console.error("Auto-dispatch failed:", e?.message ?? e);
-    await systemLine(`Task not created: ${e?.message ?? "unknown error"}. Try again or create it manually.`);
-    // do not pretend execution is running
-  }
-}
-
-/**
- * A bare go reply ("gas", "lanjut") right after a CTO reply that offered
- * Create task starts that offered task — the same command and assignees as
- * clicking the button (apps/web ChatPanel createTaskFromMessage).
- */
-async function startOfferedTask(
-  ctx: ActionCtx,
-  args: ReplyArgs,
-  opts: {
-    offer: { command: string; title?: string; reply: string; messageId?: Id<"messages">; assigneeAgentId?: string };
-    team: ChatAgent[];
-    orchestrator: ChatAgent | null;
-  }
-): Promise<void> {
-  const { offer, team, orchestrator } = opts;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- lazy import of the generated api (avoids an import cycle)
-  const { api } = (await import("./_generated/api.js")) as any;
-  const existing = (await ctx.runQuery(api.tasks.listByProject, { projectId: args.projectId })) as any[];
-  if (existing.some((t: any) => t.command === offer.command && !TERMINAL_TASK_STATUSES.includes(t.status))) return;
-  const mentioned = extractAgentMentions(offer.reply, team, String(orchestrator?._id ?? ""));
-  const assignees = mentioned.length ? mentioned : team.filter((a) => String(a._id) === offer.assigneeAgentId);
-  const title = offer.title ?? offer.command.split("\n")[0].slice(0, 80);
-  const scope = { projectId: args.projectId, conversationId: args.conversationId, replyToMessageId: args.userMessageId };
-  try {
-    const taskId = await ctx.runMutation(api.tasks.createFromCommand, {
-      projectId: args.projectId,
-      command: offer.command,
-      title,
-      conversationId: args.conversationId,
-      // Built from the offer and the request it answered: no other turns.
-      conversationContext: false,
-      ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
-      ...(assignees.length ? { assignedAgentIds: assignees.map((a) => a._id) } : {}),
-      // Marks the offer used: its button shows "Task created".
-      ...(offer.messageId ? { offerMessageId: offer.messageId } : {}),
-    });
-    await ctx.runMutation(internal.chatContext.insertSystemLine, {
-      ...scope,
-      taskId: taskId as any,
-      content: "Task created · planning",
-      card: {
-        kind: "assignment",
-        data: {
-          taskId: String(taskId),
-          title,
-          assignees: (assignees.length ? assignees : team)
-            .filter((a) => a._id !== orchestrator?._id)
-            .map((a) => ({ agentId: String(a._id), name: a.name, role: a.role })),
-          assignedBy: "System",
-        },
-      },
-    });
-  } catch (e: any) {
-    console.error("Offered task start failed:", e?.message ?? e);
-    await ctx.runMutation(internal.chatContext.insertSystemLine, {
-      ...scope,
-      content: `Task not created: ${e?.message ?? "unknown error"}. Use the Create task button instead.`,
-    });
-  }
-}
 
 /**
  * Explicit task from an ATTACHED personal chat (plan 039 D5): the task is
@@ -1266,7 +1103,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       const backOffer = commandNeedsChatContext(explicitCommand) ? findOfferedTask(history, roleOf) : null;
       await dispatchTaskFromChat(ctx, projectArgs, {
         text: backOffer ? `${explicitCommand}\n\n${backOffer.command}` : explicitCommand,
-        ...(backOffer ? { title: backOffer.title, conversationContext: false } : {}),
+        ...(backOffer ? { title: backOffer.title, conversationContext: false, offer: backOffer } : {}),
         team,
         orchestrator,
       });
@@ -1317,6 +1154,8 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // O3 routing (lib/chat/owner.ts): a message nobody was @mentioned in is routed by System to the role that owns
     // its topic; System posts "Sent to <Role>" and the owner answers. No CTO default and no CTO wrap-up.
     let routed: ChatAgent | null = null;
+    // The route's domain and code topic ride on the Create task offer's hint (P1a).
+    let routeInfo: { domain: string | null; topic?: string } | null = null;
     if (mentionedAgents.length === 0) {
       const owner = await resolveChatOwner<ChatAgent>({
         text: lastUserContent,
@@ -1337,6 +1176,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       }
       if (owner?.kind === "agent") {
         routed = owner.agent;
+        routeInfo = { domain: owner.domain, ...(owner.topic ? { topic: owner.topic } : {}) };
         // A one-agent team has no routing decision to show.
         const line = team.length > 1 ? systemRoutingLine([owner.agent]) : "";
         const handoffMessageId = line && await ctx.runMutation(internal.chatContext.insertSystemLine, {
@@ -1396,7 +1236,8 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       // Write request: a short reply plus the Create task offer (lib/chat/writeOffer.ts).
       // O3: routed = addressed, so the owner System routed to can offer Create task.
       const isRouted = routed !== null && String(routed._id) === String(agent._id);
-      const write = planWriteOffer({ speaker: agent, isCto, addressed: isRouted || mentionedAgents.some((a) => String(a._id) === String(agent._id)), team, text: lastUserContent, taskIntent, optionPick: isOptionPick, repoSnapshot });
+      const isMentioned = mentionedAgents.some((a) => String(a._id) === String(agent._id));
+      const write = planWriteOffer({ speaker: agent, isCto, addressed: isRouted || isMentioned, mentioned: isMentioned, route: isRouted ? routeInfo : null, team, text: lastUserContent, taskIntent, optionPick: isOptionPick, repoSnapshot });
       const callCap = toolBudget.capForNextReply();
       const useRepoTools = repoTools?.available === true && !workerGone && callCap > 0;
       // Skill v2: load_skill is served here (no worker needed), with or without repo tools.

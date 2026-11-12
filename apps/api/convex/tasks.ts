@@ -24,6 +24,8 @@ import { invokedSkillsField } from "./lib/invokedSkillsSchema";
 import { assertInvokedSkills, resolveInvokedSkills } from "./lib/chat/invokedSkills";
 import { appendAgentEvent, appendTaskEvent } from "./lib/taskEvents";
 import { patchTask, syncTaskThread } from "./lib/threadIndex";
+import { routingHintValidator } from "./lib/routingHint";
+import { resolveNewTaskRouting } from "./lib/taskPool";
 
 /** A worker currently holds an unexpired lease on the task (e.g. resuming it). */
 function holdsLiveLease(task: Doc<"tasks">): boolean {
@@ -155,6 +157,8 @@ export const createFromCommand = mutation({
     offerMessageId: v.optional(v.id("messages")),
     /** Paradev C3: skills to inline in every run (a "/task" from a skill message). */
     invokedSkills: invokedSkillsField,
+    /** P1a: chat's routing decision (lib/routingHint.ts); an offer's own hint is used when absent. */
+    routingHint: v.optional(routingHintValidator),
   },
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
@@ -260,6 +264,13 @@ export const createFromCommand = mutation({
       ? await assertInvokedSkills(ctx, args.invokedSkills, skillTeam)
       : (await resolveInvokedSkills(ctx, sourceMessage?.invokedSkills, skillTeam)).skills.map((s) => s.name);
 
+    // P1a: one pool rule for every creation path (CTO + owners + Reviewer + QA), and the routing hint.
+    const routing = await resolveNewTaskRouting(ctx, project, {
+      command: rawCommand,
+      requested: args.assignedAgentIds,
+      hint: args.routingHint,
+      offer: offerMessage?.taskOffer,
+    });
     const now = Date.now();
     const taskId = await ctx.db.insert("tasks", {
       projectId: args.projectId,
@@ -267,7 +278,8 @@ export const createFromCommand = mutation({
       command,
       ...(invokedSkills.length ? { invokedSkills } : {}),
       status: "queued",
-      assignedAgentIds: args.assignedAgentIds,
+      assignedAgentIds: routing.assignedAgentIds,
+      ...(routing.routingHint ? { routingHint: routing.routingHint } : {}),
       ...(args.conversationId ? { conversationId: args.conversationId } : {}),
       permissionMode: args.permissionMode ?? projectDefaultPermissionMode(project),
       ...(args.shadowAgent ?? project.shadowAgentDefault ? { shadowAgent: true } : {}),

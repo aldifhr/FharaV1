@@ -142,9 +142,11 @@ describe("task invokedSkills", () => {
     expect((task as { invokedSkills?: string[] }).invokedSkills).toEqual(["frontend-design"]);
 
     const run = await t.query(internal.orchestration.getRunContext, { taskId: taskId as never });
-    // Frontend does not carry the skill; the invoked copy still reaches it.
-    expect(run!.agents.map((a) => a.invokedSkills?.map((s) => s.name))).toEqual([["frontend-design"]]);
-    expect(run!.agents[0].invokedSkills![0].instructions).toBe(BODY);
+    // P1a: the pool is CTO + Frontend (lib/taskPool.ts). Frontend does not carry the skill; the invoked copy still reaches it.
+    expect(run!.agents.map((a) => String(a._id)).sort()).toEqual([String(ctoId), String(frontendId)].sort());
+    expect(run!.agents.map((a) => a.invokedSkills?.map((s) => s.name))).toEqual([["frontend-design"], ["frontend-design"]]);
+    const frontend = run!.agents.find((a) => String(a._id) === String(frontendId))!;
+    expect(frontend.invokedSkills![0].instructions).toBe(BODY);
   });
 
   test("/task with an unknown skill is refused; a plain task carries none", async () => {

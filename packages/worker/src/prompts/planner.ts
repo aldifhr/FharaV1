@@ -1,6 +1,7 @@
 import type { Classification } from "@/types";
 import { isReadOnlyTaskKind } from "@/api/convex/lib/planValidation";
 import { assemblePrompt } from "@/api/convex/lib/assemblePrompt";
+import { routingHintPromptLines, type RoutingHintFacts } from "./routingHint";
 
 /** What the planning prompt is built from (neutral planner, no persona). */
 export interface PlanningPromptInput {
@@ -28,6 +29,8 @@ export interface PlanningPromptInput {
   projectInstructions?: string;
   /** D4: the time line, appended last (the volatile tail). */
   timeLine?: string;
+  /** P1a: chat's routing decision for this task (a prior; orchestrator/planningHint.ts). */
+  routingHint?: RoutingHintFacts | null;
 }
 
 /**
@@ -133,6 +136,7 @@ export function planningPromptParts(input: PlanningPromptInput): PlanningPromptP
     `User task: ${command}`,
     `Classification: ${classification.kind} (${classification.reasons.join("; ")})`,
     `Suggested capabilities: ${classification.suggestedCapabilities.join(", ")}`,
+    ...routingHintPromptLines(input.routingHint),
     policy.maxReplans > 0 && input.feedback
       ? `A previous attempt failed. Feedback to address:\n${input.feedback}`
       : "",

@@ -11,6 +11,7 @@ import type { WorkerRunAgent, WorkerTask } from "@/workerApi";
 import type { AgentDefinition, ExecutionPlan, SubtaskKind } from "@/types";
 import { pickResponseOwner, responseOwnerAgent } from "@/orchestrator/responseOwner";
 import { classifyCommand } from "@/orchestrator/classifier";
+import { applyRoutingHint, taskRoutingHint } from "@/orchestrator/planningHint";
 import { policyForComplexity, subtaskTimeoutFor } from "@/orchestrator/policy";
 import { validateStoredPlan } from "@/orchestrator/planValidator";
 import { BudgetTracker } from "@/orchestrator/budget";
@@ -210,7 +211,8 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
     })
     .map(({ agent }) => agent);
   const command = await withFileContexts(deps.workspaceRoot, project.workspacePath, task.command);
-  const classification = classifyCommand(command);
+  // P1a: chat's routing hint is the prior; the text classifier keeps its hard rules.
+  const classification = applyRoutingHint(classifyCommand(command), command, taskRoutingHint(task));
   // High/ultra changes run under the larger subtask timeout / deadline.
   deps = { ...deps, policy: policyForComplexity(deps.policy, classification.complexity) };
   await deps.api.logEvent({

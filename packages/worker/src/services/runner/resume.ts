@@ -3,6 +3,7 @@ import type { LlmSelectionMode } from "@/api/convex/lib/llmSelection";
 import { withSnapshotScope } from "@/llm/snapshots";
 import * as fs from "node:fs/promises";
 import { classifyCommand } from "@/orchestrator/classifier";
+import { applyRoutingHint, taskRoutingHint } from "@/orchestrator/planningHint";
 import { policyForComplexity } from "@/orchestrator/policy";
 import { validateStoredPlan } from "@/orchestrator/planValidator";
 import { BudgetTracker } from "@/orchestrator/budget";
@@ -185,7 +186,7 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
     context.project.workspacePath,
     context.task.command
   );
-  const classification = classifyCommand(command);
+  const classification = applyRoutingHint(classifyCommand(command), command, taskRoutingHint(context.task));
   const budget = new BudgetTracker(deps.policy);
   // Phase 5: resume seeds the FULL persisted budget state (usage totals
   // + snapshot extras) with visible failure.

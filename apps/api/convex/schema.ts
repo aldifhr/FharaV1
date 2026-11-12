@@ -27,6 +27,7 @@ import { mcpWriteTables } from "./lib/mcpWriteSchema";
 import { decisionTurnTables } from "./lib/decisionTurnSchema";
 import { threadIndexTable, titleSetByValidator } from "./lib/threadIndexSchema";
 import { projectScriptsValidator } from "./lib/projectScriptsSchema";
+import { routingHintValidator, taskOfferValidator } from "./lib/routingHint";
 
 export const taskStatus = v.union(
   v.literal("queued"),
@@ -433,6 +434,7 @@ export default defineSchema({
     branchName: v.optional(v.string()),
     worktreePath: v.optional(v.string()),
     assignedAgentIds: v.optional(v.array(v.id("agents"))),
+    routingHint: v.optional(routingHintValidator), // P1a (additive): chat's routing decision, a prior for the planner.
     // O2 (additive): the Response Owner role key (e.g. "frontend") that reports the outcome; set per plan version.
     responseOwner: v.optional(v.string()),
     // Plan 013 step 4 (additive): the question asked while the task is `waiting_input`. The answer travels
@@ -783,22 +785,8 @@ export default defineSchema({
     // One sanitized sentence of what the agent is about to do ("Bekerja"
     // line): the classifier's intent or the first reasoning sentence.
     intentLine: v.optional(v.string()),
-    // Create task offer (additive): set on a CTO chat reply when the server
-    // read the user's message as work (intent "task"); `kind` is the intent
-    // subtype ("testing", "implementation", …) and `commands` the
-    // allowlisted command lines a run request asked for ("npm run test"); the web button keys on this.
-    taskOffer: v.optional(
-      v.object({
-        kind: v.string(),
-        commands: v.optional(v.array(v.string())),
-        // Who the task goes to (an @mentioned code role, or the role the files belong to); brief = prefilled task text.
-        assigneeAgentId: v.optional(v.string()),
-        brief: v.optional(v.string()),
-        // Set once a task was created from it: "Task created" link, never a second task.
-        usedTaskId: v.optional(v.id("tasks")),
-        usedAt: v.optional(v.number()),
-      })
-    ),
+    // Create task offer (additive, lib/routingHint.ts): set on a chat reply the server read as work; the web button keys on it.
+    taskOffer: v.optional(taskOfferValidator),
     // Collaboration graph (additive): this agent reply was a CTO @mention
     // handoff; the CTO agent that handed the turn over.
     handoffFromAgentId: v.optional(v.id("agents")),

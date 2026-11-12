@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { routeMessage } from "@/router/route";
 import { classifyCommand } from "@/orchestrator/classifier";
 import type { AgentDefinition } from "@/orchestrator/types";
 import { validateDecision } from "@/orchestrator/decision";
@@ -17,38 +16,7 @@ const AGENTS: AgentDefinition[] = [
   { _id: "a-gen", name: "General", role: "assistant", capabilities: ["general"] },
 ];
 
-describe("integration #1-4: no task from conversation", () => {
-  it("#1 greeting never creates task", async () => {
-    const r = await routeMessage({ text: "hello!", agents: AGENTS });
-    expect(r.intent).not.toBe("task");
-  });
-  it("#2 general question never creates task", async () => {
-    const r = await routeMessage({ text: "What is the weather today?", agents: AGENTS, advise: async () => "chat" });
-    expect(r.intent).not.toBe("task");
-  });
-  it("#3 technical question routes to appropriate agent", async () => {
-    const r = await routeMessage({ text: "How do I style a React button?", agents: AGENTS });
-    expect(r.intent).toBe("question");
-    expect(r.agentIds).toContain("a-fe");
-  });
-  it("#4 advice does not authorize execution", async () => {
-    const r = await routeMessage({ text: "Should I use Zustand or Redux?", agents: AGENTS });
-    expect(r.intent).toBe("advice");
-    expect(r.agentIds).not.toEqual([]);
-  });
-});
-
 describe("integration #6-8: registry / consulting / orchestrator", () => {
-  it("#6 asking about an agent returns registry info (capability match)", async () => {
-    // Registry is project-based: agents have capabilities; route selects by capability
-    const r = await routeMessage({ text: "Who can do backend security audit?", agents: AGENTS, advise: async () => "audit" });
-    // audit intent is chat-class; selection is by suggestedCapabilities
-    expect(r.agentIds.length).toBeGreaterThanOrEqual(1);
-  });
-  it("#7 consulting an agent does not create execution task", async () => {
-    const r = await routeMessage({ text: "How does auth work?", agents: AGENTS });
-    expect(r.intent).not.toBe("task");
-  });
   it("#8 non-orchestrator role match is required for planning guidance", async () => {
     // chat.ts role regex: architect|lead|orchestrator|planner
     const re = /architect|lead|orchestrator|planner/i;

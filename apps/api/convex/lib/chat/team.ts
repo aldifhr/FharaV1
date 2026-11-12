@@ -146,37 +146,6 @@ export function resolveAssignees<T extends { _id: string; role: string }>(
   return [...pool.values()];
 }
 
-const ROLE_KEYWORDS: Array<[RegExp, RegExp]> = [
-  [/^frontend$/i, /\b(ui|ux|component|komponen|page|halaman|tampilan|css|tailwind|react|layout|button|tombol|form|modal|frontend|next\.?js)\b/i],
-  [/^backend$/i, /\b(api|endpoint|helper|util|lib|function|fungsi|database|db|schema|server|convex|query|mutation|backend|parser|algorithm|logic|logika)\b/i],
-  [/^designer$/i, /\b(design|desain|mockup|wireframe|warna|color|palette|typography|font|logo|branding)\b/i],
-  [/^devops$/i, /\b(deploy|docker|ci|cd|pipeline|github actions|workflow|infra|kubernetes|nginx)\b/i],
-  [/^researcher$/i, /\b(riset|research|bandingkan|compare|cari tahu|investigate|analisis|analysis|benchmark)\b/i],
-  [/^support$/i, /\b(docs|dokumentasi|documentation|readme|faq|panduan|guide|changelog)\b/i],
-];
-
-/**
- * Deterministic assignee pick from the request text, used when the CTO's
- * reply names nobody (empty reply, or no @mentions). Falls back to Backend
- * for code work so a task never silently goes to the whole team.
- */
-export function suggestAssigneesByKeywords<T extends { _id: string; name: string; role: string }>(
-  text: string,
-  team: T[]
-): T[] {
-  const picked: T[] = [];
-  for (const [roleRe, wordRe] of ROLE_KEYWORDS) {
-    if (!wordRe.test(text)) continue;
-    const agent = team.find((a) => roleRe.test(a.role) || roleRe.test(a.name));
-    if (agent && !picked.includes(agent)) picked.push(agent);
-  }
-  if (picked.length === 0) {
-    const fallback = team.find((a) => /^backend$/i.test(a.role) || /^backend$/i.test(a.name));
-    if (fallback) picked.push(fallback);
-  }
-  return picked;
-}
-
 /** Parse the CTO chooser's reply: the chosen candidate id, or null. */
 export function parseResponderSelection(raw: string, candidateIds: string[]): string | null {
   const text = raw.trim();

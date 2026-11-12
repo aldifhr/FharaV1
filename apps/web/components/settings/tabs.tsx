@@ -44,6 +44,7 @@ import {
   Toggle,
   useAppSettings,
 } from "./controls";
+import { IsolationKnob } from "./IsolationKnob";
 
 /** Shared confirm state for destructive actions in a tab. */
 function useConfirm() {
@@ -767,11 +768,7 @@ export function WorktreesTab() {
   return (
     <>
       <Section title="Worktrees" description="Each task can run in its own git worktree so your checkout is never touched.">
-        <KnobToggle
-          knob="ORCHESTRATOR_WORKTREE_ISOLATION"
-          label="Isolate tasks in worktrees"
-          description={workerEnvNote("ORCHESTRATOR_WORKTREE_ISOLATION", "off; needs a git repository")}
-        />
+        <IsolationKnob />
         <KnobNumber
           knob="FHARA_WORKTREE_RETENTION_HOURS"
           label="Keep finished worktrees for"

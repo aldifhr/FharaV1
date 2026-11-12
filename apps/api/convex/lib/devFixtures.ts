@@ -12,6 +12,7 @@
  */
 
 import type { TableNames } from "../_generated/dataModel";
+import { backendLocality } from "./backendLocality";
 
 export const FIXTURE_FORMAT = 1;
 
@@ -78,9 +79,6 @@ export type FixtureEvent = Record<string, unknown> & { table: FixtureEventTable 
 
 // ── Guard ───────────────────────────────────────────────────────────────
 
-const LOOPBACK = /^(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[?::1\]?|[\w.-]+\.localhost)$/i;
-const CONVEX_CLOUD = /\.convex\.(?:cloud|site)$/i;
-
 /**
  * May fixtures be written to this deployment? Yes for a local or
  * self-hosted backend (its URL is not a *.convex.cloud host), or when the
@@ -90,15 +88,16 @@ export function fixturesAllowed(input: { cloudUrl: string | undefined; flag: boo
   if (input.flag) return { ok: true, reason: "FHARA_FIXTURES=1" };
   const raw = input.cloudUrl?.trim();
   if (!raw) return { ok: false, reason: "unknown deployment URL (set FHARA_FIXTURES=1 on a dev deployment)" };
-  let host: string;
-  try {
-    host = new URL(raw).hostname;
-  } catch {
-    return { ok: false, reason: `unparseable deployment URL` };
+  switch (backendLocality(raw)) {
+    case "unknown":
+      return { ok: false, reason: `unparseable deployment URL` };
+    case "local":
+      return { ok: true, reason: "local backend" };
+    case "self_hosted":
+      return { ok: true, reason: "self-hosted backend" };
+    case "cloud":
+      return { ok: false, reason: "Convex cloud deployment (set FHARA_FIXTURES=1 on a dev deployment to allow)" };
   }
-  if (LOOPBACK.test(host)) return { ok: true, reason: "local backend" };
-  if (!CONVEX_CLOUD.test(host)) return { ok: true, reason: "self-hosted backend" };
-  return { ok: false, reason: "Convex cloud deployment (set FHARA_FIXTURES=1 on a dev deployment to allow)" };
 }
 
 // ── Refs ────────────────────────────────────────────────────────────────

@@ -85,8 +85,9 @@ answer, not a task.
 6. **QA** — for applied UI changes in a browser-runnable project, Chromium
    opens the app and checks it (live QA card). An environment problem
    (no Chromium) is reported as "QA skipped", not as a code defect.
-7. **Commit** — with worktree isolation on (`ORCHESTRATOR_WORKTREE_ISOLATION=1`)
-   the task runs on its own branch, which is committed and merged.
+7. **Commit** — with worktree isolation on (`auto` turns it on for a clean git
+   checkout, or `ORCHESTRATOR_WORKTREE_ISOLATION=1`) the task runs on its own
+   branch, which is committed and merged.
 8. **Push card / draft PR** — the commit shows up as a push card. Clicking
    Push is the approval: the worker pushes the branch and opens a **draft PR**.
 
@@ -157,10 +158,10 @@ deployment env. All are listed in `.env.example`.
 | `ORCHESTRATOR_QA_REQUIRED` | `.env` | `0` | `1` = environment-blocked QA fails the task |
 | `QA_CHROMIUM_PATH` | `.env` | Playwright's Chromium | System Chromium (fallback `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`) |
 | `QA_CHROMIUM_NO_SANDBOX` | `.env` | auto | `1` = `--no-sandbox` (auto as root / in containers) |
-| `ORCHESTRATOR_WORKTREE_ISOLATION` | `.env` | `0` | Run each task on its own branch (needed for push / PR, and for OpenCode entries) |
+| `ORCHESTRATOR_WORKTREE_ISOLATION` | `.env` | `auto` | Run each task on its own branch (needed for push / PR, and for OpenCode entries). `auto` decides per task: on, with `ORCHESTRATOR_PARALLEL_DEFAULT` parallel subtasks, for a git repo with a commit, a clean checkout and a local or self-hosted backend; otherwise one step at a time in the checkout. `1` = always (holds non-repos), `0` = never. See [docs/worktree-isolation.md](docs/worktree-isolation.md) |
 | `ORCHESTRATOR_OPENCODE_ALLOW_UNISOLATED` | `.env` | unset | `1` lets OpenCode run without worktree isolation (in the real checkout) |
 | `WORKER_OPENCODE_CATALOG_POLL_MS` | `.env` | `15000` | How often the worker checks for an OpenCode Check again / Test request |
-| `ORCHESTRATOR_PARALLEL_DEFAULT` | `.env` | `2` | Parallel subtasks (1–3) when worktree isolation is on; `1` without it |
+| `ORCHESTRATOR_PARALLEL_DEFAULT` | `.env` | `2` | Parallel subtasks (1–3) when worktree isolation is on (also when `auto` turns it on); `1` without it |
 | `FHARA_ALLOW_BASE_BRANCH_PUSH` | `.env` | `0` | Allow pushes to the base branch / main / master |
 | `FHARA_ALLOW_FORCE_PUSH` | `.env` | `0` | Allow force pushes |
 | `FHARA_WORKTREE_RETENTION_HOURS` | Convex env | `72` | Remove finished tasks' worktrees after this (kept while the PR is open) |
@@ -214,8 +215,8 @@ OpenCode entry, that subtask runs on the OpenCode CLI with that model; an API
 entry runs on the built-in runtime. Chat always skips OpenCode entries. A
 disabled or undetected OpenCode is skipped, and the next entry runs.
 
-OpenCode only runs with worktree isolation on
-(`ORCHESTRATOR_WORKTREE_ISOLATION=1`): without it the worker skips OpenCode
+OpenCode only runs with worktree isolation on (`ORCHESTRATOR_WORKTREE_ISOLATION=1`,
+or a task `auto` isolated): without it the worker skips OpenCode
 entries (event `opencode.skipped`) so the CLI never edits the real checkout.
 `ORCHESTRATOR_OPENCODE_ALLOW_UNISOLATED=1` is the explicit opt-out.
 
@@ -326,8 +327,8 @@ The knobs live in the root `.env`; see `.env.example`.
 2. `npx convex env set GITHUB_CLIENT_ID …` and `GITHUB_CLIENT_SECRET …` in
    `apps/api`. For a non-cloud backend set `CONVEX_SITE_URL` in
    `apps/web/.env.local` if the HTTP actions do not run on the API port + 1.
-3. Turn on `ORCHESTRATOR_WORKTREE_ISOLATION=1` so every task gets a
-   committed branch.
+3. Keep `ORCHESTRATOR_WORKTREE_ISOLATION=auto` (the default; a clean checkout gets
+   a committed branch) or set `1` so every task gets one.
 4. **Integrations → Account → GitHub account → Connect** (once, for every
    project). The token is stored encrypted with `PROVIDER_ENCRYPTION_KEY`.
 5. In each project's **Manage project → GitHub**, pick the repo and base

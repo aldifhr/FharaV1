@@ -9,6 +9,9 @@
  * Exception, B3 (validated numbers): the index.ts constants and the LLM
  * ints call b3Int. Exception, B5: legacyGlobalLLMConfig is the
  * unified LLM fallback (b5GlobalLLMConfig).
+ * Exception, L3: ORCHESTRATOR_WORKTREE_ISOLATION is a tristate (auto by
+ * default, l3Isolation); auto sizes the LLM gate at the parallel default
+ * and adds the per-task fields the runner needs.
  */
 /* eslint-disable */
 import * as nodePath from "node:path";
@@ -31,6 +34,14 @@ export function b2Bool(raw: string | undefined, d: boolean): boolean {
   if (["1", "true", "yes", "on"].includes(v)) return true;
   if (["0", "false", "no", "off"].includes(v)) return false;
   return d;
+}
+
+/** L3 reference: blank/auto/garbage → undefined (auto); bool words → on/off. */
+export function l3Isolation(raw: string | undefined): boolean | undefined {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(v)) return true;
+  if (["0", "false", "no", "off"].includes(v)) return false;
+  return undefined;
 }
 
 export function legacyExecutionRuntime(env: Env): "api" | "native-provider" {
@@ -68,7 +79,8 @@ export function legacyLoadPolicy(get: Get, rawEnv: Env): Record<string, unknown>
     const maxReplans = intFromEnv("ORCHESTRATOR_MAX_REPLANS", 1, 0, 3);
     // Off by default: isolation fails tasks whose workspace is not a git
     // repo, and needs the Convex node action to share the worker's disk.
-    const worktreeIsolation = boolFromEnv("ORCHESTRATOR_WORKTREE_ISOLATION", false);
+    const isolationSetting = l3Isolation(get("ORCHESTRATOR_WORKTREE_ISOLATION"));
+    const worktreeIsolation = isolationSetting === true;
     const parallelism = defaultParallelism(worktreeIsolation);
     return {
       maxSubtasks: intFromEnv("ORCHESTRATOR_MAX_SUBTASKS", 8, 1, 20),
@@ -146,7 +158,7 @@ export function legacyLoadPolicy(get: Get, rawEnv: Env): Record<string, unknown>
       // provider-parallel work.
       // Follows the parallel default so side-by-side nodes do not queue on
       // the LLM gate (1 unless worktree isolation is on).
-      maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", parallelism, 1, 8),
+      maxConcurrentLLMCalls: intFromEnv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", defaultParallelism(isolationSetting !== false), 1, 8),
       maxTokenBudgetPerTask: intFromEnv("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK", 2_000_000, 1_000, 100_000_000),
       // Plan 040 (D8): off by default; unmatched work is BLOCKED, never the CTO.
       allowFallback: boolFromEnv("ORCHESTRATOR_ALLOW_FALLBACK", false),
@@ -167,6 +179,10 @@ export function legacyLoadPolicy(get: Get, rawEnv: Env): Record<string, unknown>
       // the legacy ORCHESTRATOR_RUNTIME; "opencode" aliases "native-provider".
       executionRuntime: legacyExecutionRuntime(rawEnv),
       worktreeIsolation,
+      worktreeIsolationAuto: isolationSetting === undefined,
+      parallelDefault: intFromEnv("ORCHESTRATOR_PARALLEL_DEFAULT", 2, 1, 3),
+      maxConcurrencyExplicit: Boolean(get("ORCHESTRATOR_MAX_CONCURRENCY")),
+      maxConcurrentLLMCallsExplicit: Boolean(get("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS")),
       // Plan 013 step 7: the decision engine is the only orchestrator path
       // (flag deleted; default is irrevocably on).
       // Plan 005 Phase 4 Step 4.3 (enabled once Phase 4 tests went green):

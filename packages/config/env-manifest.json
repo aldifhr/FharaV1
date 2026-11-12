@@ -697,15 +697,16 @@
     },
     {
       "name": "ORCHESTRATOR_WORKTREE_ISOLATION",
-      "type": "bool",
+      "type": "tristate",
       "group": "policy",
       "runtimes": [
         "worker"
       ],
-      "doc": "Run each task in its own git worktree.",
-      "default": "false",
+      "doc": "Run each task in its own git worktree: auto (default; on for a clean git checkout with a commit and a local or self-hosted backend), 1 = always, 0 = never.",
+      "default": null,
       "knob": {
-        "reader": "worker"
+        "reader": "worker",
+        "defaultValue": "auto"
       }
     },
     {
@@ -715,7 +716,7 @@
       "runtimes": [
         "worker"
       ],
-      "doc": "Default parallel DAG nodes when worktree isolation is on (1–3).",
+      "doc": "Default parallel DAG nodes when worktree isolation is on (1–3), including when auto turns it on.",
       "default": "2",
       "parse": "clamp",
       "min": 1,

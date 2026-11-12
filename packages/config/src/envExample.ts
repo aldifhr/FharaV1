@@ -54,7 +54,9 @@ export const ENV_SECTIONS: readonly Section[] = [
     title: "Task limits and orchestration (worker)",
     intro: [
       "With ORCHESTRATOR_WORKTREE_ISOLATION on, up to ORCHESTRATOR_PARALLEL_DEFAULT non-conflicting",
-      "subtasks run side by side; without it the default is 1. Agent Reach (read-only public web):",
+      "subtasks run side by side; without it the default is 1. auto (the default) turns it on per task",
+      "when the project is a clean git checkout with a commit and the backend shares the worker's disk;",
+      "otherwise the task runs one step at a time. Agent Reach (read-only public web):",
       "  uv tool install https://github.com/Panniantong/Agent-Reach/releases/latest/download/agent-reach.zip",
     ],
   },
@@ -107,7 +109,8 @@ function readers(def: EnvVar): string {
 
 /** The value written after `NAME=`. Bools as 1/0, derived or non-finite defaults blank. */
 export function exampleValue(def: EnvVar): string {
-  if (def.type === "tristate" || !("default" in def)) return "";
+  if (def.type === "tristate") return def.exampleValue ?? "";
+  if (!("default" in def)) return "";
   const value = def.default as unknown;
   if (value === undefined || typeof value === "function") return "";
   if (typeof value === "boolean") return value ? "1" : "0";

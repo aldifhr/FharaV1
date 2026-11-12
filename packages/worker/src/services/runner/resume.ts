@@ -36,6 +36,7 @@ import {
   summaryHasBudgetFailure,
 } from "./terminal";
 import { postSystemLine } from "./systemLines";
+import { policyForResume } from "./isolationPolicy";
 import { finalize } from "./finalize";
 import { executePlan } from "./executePlan";
 import { releaseAfterPause } from "./pause";
@@ -111,6 +112,8 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
   // High/ultra changes keep their larger subtask timeout / deadline on
   // resume (scaled before the deadline is armed below).
   deps = { ...deps, policy: policyForComplexity(deps.policy, classifyCommand(context.task.command).complexity) };
+  // L3: an auto task resumes the way it ran (isolated iff it has a worktree).
+  deps = { ...deps, policy: policyForResume(deps.policy, Boolean(context.task.worktreePath)) };
   // Phase 4 hardening: the resumed run gets its OWN per-task LLM gate
   // and its deadline is armed before execution setup begins (the
   // timer is disposed on every exit path below — the resolver-failure

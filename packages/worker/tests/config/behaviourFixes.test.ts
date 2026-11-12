@@ -66,8 +66,11 @@ describe("B2: one bool dialect for every bool var", () => {
   it("the edge cases that changed (pre-B2 → now)", () => {
     // falsyList: "" was true, garbage was true.
     expect(readVar("ORCHESTRATOR_VERIFICATION_ENABLED", { ORCHESTRATOR_VERIFICATION_ENABLED: "maybe" })).toBe(true);
-    expect(readVar("ORCHESTRATOR_WORKTREE_ISOLATION", { ORCHESTRATOR_WORKTREE_ISOLATION: "" })).toBe(false);
-    expect(readVar("ORCHESTRATOR_WORKTREE_ISOLATION", { ORCHESTRATOR_WORKTREE_ISOLATION: "maybe" })).toBe(false);
+    // L3: isolation is a tristate now; blank and garbage read as auto (undefined).
+    expect(readVar("ORCHESTRATOR_WORKTREE_ISOLATION", { ORCHESTRATOR_WORKTREE_ISOLATION: "" })).toBeUndefined();
+    expect(readVar("ORCHESTRATOR_WORKTREE_ISOLATION", { ORCHESTRATOR_WORKTREE_ISOLATION: "maybe" })).toBeUndefined();
+    expect(readVar("ORCHESTRATOR_WORKTREE_ISOLATION", { ORCHESTRATOR_WORKTREE_ISOLATION: "1" })).toBe(true);
+    expect(readVar("ORCHESTRATOR_WORKTREE_ISOLATION", { ORCHESTRATOR_WORKTREE_ISOLATION: "0" })).toBe(false);
     // neq0: "false" / "off" used to read as ON.
     expect(readVar("WORKER_SUBSCRIBE", { WORKER_SUBSCRIBE: "false" })).toBe(false);
     expect(readVar("FHARA_COMMIT_MESSAGE_LLM", { FHARA_COMMIT_MESSAGE_LLM: "off" })).toBe(false);

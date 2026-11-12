@@ -127,6 +127,8 @@ export interface BoolVar extends VarBase {
 /** QA_CHROMIUM_NO_SANDBOX: unset/blank/auto = auto (undefined), bool words = on/off. Settings shows it as auto / true / false. */
 export interface TristateVar extends VarBase {
   type: "tristate";
+  /** Written after `NAME=` in .env.example; blank (unset = auto) unless set. */
+  exampleValue?: string;
 }
 
 export interface EnumVar extends VarBase {

@@ -27,7 +27,8 @@ const OLD_SETTING_KNOBS = {
   FHARA_AUTO_MERGE_METHOD: { type: "enum", defaultValue: "squash", reader: "api", options: ["squash", "merge", "rebase"] },
   // Worktrees
   FHARA_WORKTREE_RETENTION_HOURS: { type: "int", defaultValue: "72", reader: "api", min: 1, max: 720 },
-  ORCHESTRATOR_WORKTREE_ISOLATION: { type: "bool", defaultValue: "false", reader: "worker" },
+  // L3: tristate, auto by default (was a bool, off).
+  ORCHESTRATOR_WORKTREE_ISOLATION: { type: "enum", defaultValue: "auto", reader: "worker", options: ["auto", "true", "false"] },
   // Snapshots
   CONTEXT_SNAPSHOTS: { type: "bool", defaultValue: "true", reader: "both" },
   FHARA_SNAPSHOT_RETENTION_DAYS: { type: "int", defaultValue: "14", reader: "api", min: 1, max: 365 },
@@ -74,7 +75,7 @@ describe("knobs parity (E1)", () => {
   it("each worker knob's UI default equals the code default (except the documented D11 case)", () => {
     for (const def of ENV_SCHEMA as readonly EnvVar[]) {
       if (!def.knob || def.knob.defaultValue === undefined) continue;
-      expect(["QA_CHROMIUM_NO_SANDBOX", "QA_CHROMIUM_PATH", "ORCHESTRATOR_QA_REQUIRED"]).toContain(def.name);
+      expect(["QA_CHROMIUM_NO_SANDBOX", "QA_CHROMIUM_PATH", "ORCHESTRATOR_QA_REQUIRED", "ORCHESTRATOR_WORKTREE_ISOLATION"]).toContain(def.name);
     }
   });
 });

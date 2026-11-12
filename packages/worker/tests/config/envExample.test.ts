@@ -57,6 +57,9 @@ describe(".env.example content (E4)", () => {
     expect(text).toContain("# ORCHESTRATOR_SUBTASK_TIMEOUT_MS=900000");
     expect(text).toContain("# WORKER_POLL_INTERVAL_MS=1500");
     expect(text).not.toContain("MODEL_CAPABILITY_ROUTING");
+    // Only the isolation tristate writes auto; other tristates stay blank (unset = auto).
+    expect(text).toContain("# ORCHESTRATOR_WORKTREE_ISOLATION=auto\n");
+    expect(text).toContain("# QA_CHROMIUM_NO_SANDBOX=\n");
   });
 
   it("only required vars are uncommented; secrets never carry a value", () => {

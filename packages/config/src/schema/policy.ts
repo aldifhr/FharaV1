@@ -66,17 +66,27 @@ function penum<const N extends string, const O extends readonly string[]>(
 }
 
 const num = (get: EnvGet, name: string) => get(name) as number;
-/** Sequential unless worktree isolation is on (policy.ts defaultParallelism). */
-const parallelism = (get: EnvGet) => (get("ORCHESTRATOR_WORKTREE_ISOLATION") ? num(get, "ORCHESTRATOR_PARALLEL_DEFAULT") : 1);
+/** Isolation is a tristate: true (1), false (0) or undefined (auto, decided per task). */
+const isolation = (get: EnvGet) => get("ORCHESTRATOR_WORKTREE_ISOLATION") as boolean | undefined;
+/** Sequential unless worktree isolation is on; auto starts at 1 and the runner widens it per task (policy.ts defaultParallelism). */
+const parallelism = (get: EnvGet) => (isolation(get) === true ? num(get, "ORCHESTRATOR_PARALLEL_DEFAULT") : 1);
+/** The LLM gate is sized for the widest a task may run: only an explicit 0 pins it to 1. */
+const llmParallelism = (get: EnvGet) => (isolation(get) === false ? 1 : num(get, "ORCHESTRATOR_PARALLEL_DEFAULT"));
 
 export const DEFAULT_SUBTASK_TIMEOUT_MS = 900_000;
 
 export const POLICY_VARS = [
   pint("ORCHESTRATOR_MAX_REPLANS", 1, 0, 3, "Max replans per task (0–3)."),
-  pbool("ORCHESTRATOR_WORKTREE_ISOLATION", false, "Run each task in its own git worktree.", {
-    knob: { reader: "worker" },
-  }),
-  pint("ORCHESTRATOR_PARALLEL_DEFAULT", 2, 1, 3, "Default parallel DAG nodes when worktree isolation is on (1–3)."),
+  {
+    name: "ORCHESTRATOR_WORKTREE_ISOLATION",
+    type: "tristate",
+    runtimes: ["worker"],
+    group: "policy",
+    doc: "Run each task in its own git worktree: auto (default; on for a clean git checkout with a commit and a local or self-hosted backend), 1 = always, 0 = never.",
+    knob: { reader: "worker", defaultValue: "auto" },
+    exampleValue: "auto",
+  },
+  pint("ORCHESTRATOR_PARALLEL_DEFAULT", 2, 1, 3, "Default parallel DAG nodes when worktree isolation is on (1–3), including when auto turns it on."),
   pint("ORCHESTRATOR_MAX_SUBTASKS", 8, 1, 20, "Max subtasks per plan (1–20)."),
   pint("ORCHESTRATOR_MAX_CONCURRENCY", parallelism, 1, 8, "Max subtasks running at once (1–8); defaults to the parallel default."),
   pint(
@@ -137,7 +147,7 @@ export const POLICY_VARS = [
   penum("ORCHESTRATOR_BUDGET_MODE", ["warn", "enforce"] as const, "warn", "Budget exhaustion: warn (default) or enforce."),
   pint(
     "ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS",
-    parallelism,
+    llmParallelism,
     1,
     8,
     "Per-task LLM gate (1–8); defaults to the parallel default."

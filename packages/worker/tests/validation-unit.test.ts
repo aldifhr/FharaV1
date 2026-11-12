@@ -110,12 +110,16 @@ describe("validation-unit: policy env parsing", () => {
     expect(loadPolicy().maxSubtasks).toBe(3);
     delete process.env.ORCHESTRATOR_MAX_SUBTASKS;
   });
-  it("defaults to sequential: one subtask and one LLM call at a time", () => {
+  it("defaults to sequential: one subtask at a time until auto isolation widens a task", () => {
     delete process.env.ORCHESTRATOR_MAX_CONCURRENCY;
     delete process.env.ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS;
     const p = loadPolicy();
     expect(p.maxConcurrency).toBe(1);
-    expect(p.maxConcurrentLLMCalls).toBe(1);
+    // L3: the LLM bound is sized for an auto-isolated task; the per-task gate narrows it.
+    expect(p.maxConcurrentLLMCalls).toBe(2);
+    process.env.ORCHESTRATOR_WORKTREE_ISOLATION = "0";
+    expect(loadPolicy().maxConcurrentLLMCalls).toBe(1);
+    delete process.env.ORCHESTRATOR_WORKTREE_ISOLATION;
   });
   it("boolFromEnv false vocab", () => {
     process.env.ORCHESTRATOR_VERIFICATION_ENABLED = "off";

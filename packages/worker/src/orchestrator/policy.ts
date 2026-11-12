@@ -119,6 +119,16 @@ export interface ExecutionPolicy {
   executionRuntime?: "api" | "native-provider";
   worktreeIsolation?: boolean;
   /**
+   * L3: ORCHESTRATOR_WORKTREE_ISOLATION=auto (the default). The runner
+   * decides isolation per task (services/runner/isolationPolicy.ts) and
+   * then sizes maxConcurrency / maxConcurrentLLMCalls from parallelDefault,
+   * unless those were set explicitly (the *Explicit flags).
+   */
+  worktreeIsolationAuto?: boolean;
+  parallelDefault?: number;
+  maxConcurrencyExplicit?: boolean;
+  maxConcurrentLLMCallsExplicit?: boolean;
+  /**
    * Plan 006 Phase 2: when the decision advisor is consulted.
    *  - "off": never (pure deterministic engine).
    *  - "ambiguous": only when the deterministic engine returns "ambiguous".
@@ -271,10 +281,13 @@ export function defaultParallelism(worktreeIsolation: boolean): number {
 
 export function loadPolicy(): ExecutionPolicy {
   const maxReplans = setting("ORCHESTRATOR_MAX_REPLANS");
-  // Off by default: isolation fails tasks whose workspace is not a git
-  // repo, and needs the Convex node action to share the worker's disk.
-  const worktreeIsolation = setting("ORCHESTRATOR_WORKTREE_ISOLATION");
+  // Tristate (L3): true = always (fails tasks whose workspace is not a git
+  // repo, and needs the Convex node action to share the worker's disk),
+  // false = never, undefined = auto (decided per task by the runner).
+  const isolationSetting = setting("ORCHESTRATOR_WORKTREE_ISOLATION");
+  const worktreeIsolation = isolationSetting === true;
   const parallelism = defaultParallelism(worktreeIsolation);
+  const explicit = (name: "ORCHESTRATOR_MAX_CONCURRENCY" | "ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS") => Boolean(settingEnv(name));
   return {
     maxSubtasks: setting("ORCHESTRATOR_MAX_SUBTASKS"),
     // Defaults to the parallel default (schema-derived, = parallelism).
@@ -337,7 +350,10 @@ export function loadPolicy(): ExecutionPolicy {
     // provider-parallel work.
     // Follows the parallel default so side-by-side nodes do not queue on
     // the LLM gate (1 unless worktree isolation is on).
-    maxConcurrentLLMCalls: wenv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", settingEnv, { fallback: parallelism }),
+    // Auto sizes it for the widest a task may run (the per-task gate narrows it).
+    maxConcurrentLLMCalls: wenv("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", settingEnv, {
+      fallback: defaultParallelism(isolationSetting !== false),
+    }),
     maxTokenBudgetPerTask: setting("ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK"),
     // Plan 040 (D8): off by default; unmatched work is BLOCKED, never the CTO.
     allowFallback: setting("ORCHESTRATOR_ALLOW_FALLBACK"),
@@ -351,6 +367,10 @@ export function loadPolicy(): ExecutionPolicy {
     // the legacy ORCHESTRATOR_RUNTIME; "opencode" aliases "native-provider".
     executionRuntime: executionRuntimeFromEnv(),
     worktreeIsolation,
+    worktreeIsolationAuto: isolationSetting === undefined,
+    parallelDefault: setting("ORCHESTRATOR_PARALLEL_DEFAULT"),
+    maxConcurrencyExplicit: explicit("ORCHESTRATOR_MAX_CONCURRENCY"),
+    maxConcurrentLLMCallsExplicit: explicit("ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS"),
     // Plan 013 step 7: the decision engine is the only orchestrator path
     // (flag deleted; default is irrevocably on).
     // Plan 005 Phase 4 Step 4.3 (enabled once Phase 4 tests went green):

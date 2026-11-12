@@ -53,6 +53,7 @@ import { planReviewGate } from "./runner/planReview";
 import { seedAllowedEscalations } from "./runner/escalation";
 import { archStopCancelled } from "./runner/archDecision";
 import { releaseAfterPause } from "./runner/pause";
+import { resolveTaskIsolation } from "./runner/isolationPolicy";
 import {
   createBudgetGate,
   createUsageRecorder,
@@ -152,6 +153,8 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
   let branchName: string | undefined;
   let worktreePath: string | undefined;
   const workspacePathBefore = workspacePath;
+  // L3: isolation "auto" is decided per task (git repo, commit, clean checkout, local backend).
+  deps = await resolveTaskIsolation(deps, { taskId: task._id, projectId: project._id, workspacePath });
   if (deps.policy.worktreeIsolation) {
     try {
       const created = await deps.api.createBranch({

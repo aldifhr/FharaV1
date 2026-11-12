@@ -7,7 +7,7 @@ import { POLICY_VARS } from "./policy";
 import { QA_VARS, SNAPSHOT_VARS, THREAD_VARS, WORKSPACE_VARS } from "./qa";
 import type { EnvVar, Runtime } from "./types";
 import { ELECTRON_VARS, SCRIPT_VARS, WEB_VARS } from "./web";
-import { DIRECT_VARS, WORKER_VARS } from "./worker";
+import { MCP_VARS, WORKER_VARS } from "./worker";
 import { FIXTURE_VARS } from "./fixtures";
 
 export * from "./types";
@@ -21,7 +21,7 @@ export const ENV_SCHEMA = [
   ...USAGE_VARS,
   ...WEB_VARS,
   ...WORKER_VARS,
-  ...DIRECT_VARS,
+  ...MCP_VARS,
   ...POLICY_VARS,
   ...EXEC_VARS,
   ...GIT_VARS,

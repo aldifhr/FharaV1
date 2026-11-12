@@ -14,7 +14,6 @@ import {
   type FixtureEvent,
   type FixtureScenario,
 } from "./lib/devFixtures";
-import { DIRECT_EVENT_TYPES } from "./lib/directThreads";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -55,7 +54,7 @@ async function dump(t: ReturnType<typeof convexTest>) {
 describe("committed fixtures", () => {
   test("the expected scenarios exist", () => {
     expect(fixtures.map((f) => f.scenario.id).sort()).toEqual(
-      ["command-approval", "direct-idle", "held-resume", "personal-chat", "planned-push", "research-fanout", "verify-loop-failed"].sort()
+      ["command-approval", "held-resume", "personal-chat", "planned-push", "research-fanout", "verify-loop-failed"].sort()
     );
   });
 
@@ -79,17 +78,6 @@ describe("committed fixtures", () => {
       const seqs = rows.taskEvents.filter((e) => e.taskId === task._id).map((e) => Number(e.sequence));
       expect(task.eventSequence ?? 0).toBe(seqs.length ? Math.max(...seqs) : 0);
     }
-  });
-
-  test("direct-idle uses only direct thread event types and lastSeq is the last event", async () => {
-    const f = byId("direct-idle");
-    const types = new Set(f.events.map((e) => String(e.type)));
-    for (const type of types) expect(type === "thread.created" || (DIRECT_EVENT_TYPES as readonly string[]).includes(type)).toBe(true);
-    const t = allowed();
-    await t.mutation(internal.devFixtures.seed, { scenario: f.scenario, events: f.events, now: NOW });
-    const [task] = (await dump(t)).tasks;
-    expect(task.mode).toBe("direct");
-    expect((task.direct as { lastSeq: number }).lastSeq).toBe(f.events.length);
   });
 
   test("held-resume: resumeAt is in the future after the shift", async () => {

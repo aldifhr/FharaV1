@@ -504,7 +504,7 @@ export function desiredNotifications(input: {
 
 // ---------------------------------------------------------------------------
 // Review rounds (Paradev A3): the user's line comments on a task's changes,
-// sent back as one message (direct thread) or one fix task (orchestrated).
+// sent back as one fix task.
 // ---------------------------------------------------------------------------
 
 export type LineCommentSide = "additions" | "deletions" | "mixed";
@@ -541,9 +541,8 @@ export function reviewFixTitle(round: number, ownerTitle: string): string {
 }
 
 /**
- * The review round as one prompt. A direct thread gets just the comments
- * (the agent already holds the context); an orchestrated fix task also
- * gets the branch and the rules a fix task works by.
+ * The review round as one prompt: the comments, plus the branch and the
+ * rules a fix task works by when the owner is known.
  */
 export function buildReviewRoundPrompt(input: {
   round: number;

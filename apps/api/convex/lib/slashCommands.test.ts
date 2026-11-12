@@ -100,7 +100,7 @@ describe("findSlashCommandByNameOrAlias", () => {
 
 describe("Fhara builtins", () => {
   it("lists the six builtins in menu order, each with a description", () => {
-    expect(FHARA_BUILTIN_COMMANDS.map((c) => c.name)).toEqual(["task", "research", "memory", "qa", "review", "push", "goal"]);
+    expect(FHARA_BUILTIN_COMMANDS.map((c) => c.name)).toEqual(["task", "research", "memory", "qa", "review", "push"]);
     for (const c of FHARA_BUILTIN_COMMANDS) {
       expect(c.kind).toBe("builtin");
       expect(c.description.length).toBeGreaterThan(0);
@@ -112,7 +112,6 @@ describe("Fhara builtins", () => {
     expect(builtinCommandsForScope("project").map((c) => c.name)).toEqual(["task", "research", "memory", "qa", "review", "push"]);
     expect(builtinCommandsForScope("personal").map((c) => c.name)).toEqual([]);
     expect(builtinCommandsForScope("personal", { attached: true }).map((c) => c.name)).toEqual(["task"]);
-    expect(builtinCommandsForScope("direct").map((c) => c.name)).toEqual(["goal"]);
   });
 
   it("builds a skill entry from a skill row", () => {

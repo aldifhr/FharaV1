@@ -4,7 +4,7 @@
 // one plain script, a check() per visible state, a numbered PNG per screen,
 // exit 1 on any failed check.
 //
-//   npm run test:fixtures-ui -- [--shots DIR] [--base http://127.0.0.1:3010] [--only held-resume,direct-idle]
+//   npm run test:fixtures-ui -- [--shots DIR] [--base http://127.0.0.1:3010] [--only held-resume,planned-push]
 //
 // Needs, already running: a local Convex backend with the fixtures seeded
 // (`npm run fixtures:seed`, CONVEX_SELF_HOSTED_URL + _ADMIN_KEY in the shell),
@@ -142,22 +142,6 @@ const scenarios = {
     check("RA-2 failed", /RA-2: Redis queue failed/.test(t));
     check("synthesis completed", /Synthesis completed/.test(t));
     await shot(page, "research-fanout-run");
-  },
-  async "direct-idle"() {
-    const task = idOf("direct-idle", "tasks");
-    await open(`/runs/${task}`, "Blurry header logo");
-    const t = await bodyText();
-    check("thread events replayed", t.includes("turn.completed") && t.includes("edit.diff"));
-    check("idle thread not labelled 'Waiting for you'", !t.includes("Waiting for you"), "run header says Waiting for you");
-    check("idle thread labelled Idle", /\bIdle\b/.test(t), "no Idle label");
-    await shot(page, "direct-idle-run");
-    await open("/", "Needs you");
-    const needs = page.locator("section,div").filter({ has: page.getByText(/^Needs you$/) }).first();
-    const home = await bodyText();
-    const inNeeds = /Needs you.*Answer: Blurry header logo.*Recent failures/.test(home);
-    check("idle direct thread NOT in Needs you", !inNeeds, "home Needs you lists 'Answer: Blurry header logo'");
-    await shot(page, "direct-idle-home-needs-you");
-    void needs;
   },
   async "personal-chat"() {
     check("CTO agent found", !!ctoId);

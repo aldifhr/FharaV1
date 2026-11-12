@@ -111,7 +111,7 @@ export default function PlanCard({ data }: { data: PlanCardData }) {
     for (const s of plan.subtasks) next[s.key] = draftOf(s);
     setDraft(next);
     setErrors([]);
-  }, [plan?.version]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [plan?.version]); // eslint-disable-line react-hooks/exhaustive-deps -- reset only when the plan version changes
 
   const titleByKey = useMemo(() => new Map((plan?.subtasks ?? []).map((s) => [s.key, s.title])), [plan]);
 

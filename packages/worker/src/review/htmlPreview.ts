@@ -39,7 +39,7 @@ const IMAGE_DATA_URI = /^data:image\/(?:png|jpe?g|gif|webp|svg\+xml)(?:;[a-z0-9=
 const ACTIVE_URL_RAW = /^(?:javascript|vbscript|livescript|mocha):/i;
 /** Browsers drop ASCII whitespace and control chars inside a URL scheme (`java\tscript:`). */
 function stripUrlNoise(value: string): string {
-  // eslint-disable-next-line no-control-regex
+  // eslint-disable-next-line no-control-regex -- strips control characters on purpose
   return value.replace(/[\u0000-\u0020\u007f-\u009f\u00ad\u200b-\u200f\u2028\u2029\ufeff]/g, "");
 }
 const ACTIVE_URL = { test: (value: string): boolean => ACTIVE_URL_RAW.test(stripUrlNoise(value)) };

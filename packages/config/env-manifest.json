@@ -612,109 +612,6 @@
       "default": "true"
     },
     {
-      "name": "DIRECT_POLL_MS",
-      "type": "int",
-      "group": "direct",
-      "runtimes": [
-        "worker"
-      ],
-      "doc": "Direct-thread poll interval (ms).",
-      "default": "750",
-      "parse": "clampBlank",
-      "min": 250
-    },
-    {
-      "name": "DIRECT_IDLE_MIN",
-      "type": "int",
-      "group": "direct",
-      "runtimes": [
-        "worker"
-      ],
-      "doc": "Minutes before an idle direct thread is closed.",
-      "default": "10",
-      "parse": "nullishNumber",
-      "min": 1
-    },
-    {
-      "name": "DIRECT_MAX_LIVE",
-      "type": "int",
-      "group": "direct",
-      "runtimes": [
-        "worker"
-      ],
-      "doc": "Max live direct threads (agent sessions) per worker (1–8). At the cap, a new thread releases the oldest idle session, which resumes on its next message; a thread with a turn running or waiting on an approval is never released.",
-      "default": "4",
-      "parse": "nullishNumber",
-      "min": 1,
-      "max": 8
-    },
-    {
-      "name": "DIRECT_ENGINE",
-      "type": "enum",
-      "group": "direct",
-      "runtimes": [
-        "worker"
-      ],
-      "doc": "api-loop forces the API loop engine; auto prefers OpenCode ACP.",
-      "default": "auto",
-      "options": [
-        "api-loop",
-        "auto"
-      ]
-    },
-    {
-      "name": "DIRECT_INACTIVITY_MIN",
-      "type": "int",
-      "group": "direct",
-      "runtimes": [
-        "worker"
-      ],
-      "doc": "Turn watchdog: minutes with no frame at all from the ACP agent before the turn is stopped as timed out (0 = off). Generous: a slow model can think for several minutes between frames.",
-      "default": "20",
-      "parse": "clampBlank",
-      "min": 0,
-      "max": 1440
-    },
-    {
-      "name": "DIRECT_PROGRESS_MIN",
-      "type": "int",
-      "group": "direct",
-      "runtimes": [
-        "worker"
-      ],
-      "doc": "Turn watchdog: minutes with no real progress (text, tool or plan updates; heartbeats don't count) before the turn is stopped as timed out (0 = off).",
-      "default": "30",
-      "parse": "clampBlank",
-      "min": 0,
-      "max": 1440
-    },
-    {
-      "name": "DIRECT_WATCHDOG_APPROVAL_MIN",
-      "type": "int",
-      "group": "direct",
-      "runtimes": [
-        "worker"
-      ],
-      "doc": "Turn watchdog: a turn waiting on an approval card is exempt for up to this many minutes (0 = no cap). Kept at least DIRECT_APPROVAL_MAX_MIN + 1, so the card expires first; this is only the backstop.",
-      "default": "60",
-      "parse": "clampBlank",
-      "min": 0,
-      "max": 1440
-    },
-    {
-      "name": "DIRECT_APPROVAL_MAX_MIN",
-      "type": "int",
-      "group": "direct",
-      "runtimes": [
-        "worker"
-      ],
-      "doc": "Minutes an approval card in a direct thread waits for an answer. Unanswered past this, the card expires (reason expired), the agent is told no and the turn goes on.",
-      "default": "30",
-      "parse": "clampBlank",
-      "min": 1,
-      "max": 1440
-    },
-    {
       "name": "FHARA_MCP_PORT",
       "type": "int",
       "group": "worker",
@@ -769,7 +666,7 @@
       "runtimes": [
         "worker"
       ],
-      "doc": "CTO-first questions (GOAT G13): a technical question inside the CTO's ceiling (an executor escalation, or question.ask from a direct thread) goes to the CTO's decision turn first. Secrets, push and destructive questions always reach the user. 0 = every question goes to the user.",
+      "doc": "CTO-first questions (GOAT G13): a technical question inside the CTO's ceiling (an executor escalation, or question.ask through the Fhara MCP server) goes to the CTO's decision turn first. Secrets, push and destructive questions always reach the user. 0 = every question goes to the user.",
       "default": "true"
     },
     {

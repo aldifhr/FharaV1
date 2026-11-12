@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { buildDecisionTray } from "@/api/convex/lib/decisionTray";
-import { isDirectEventType } from "@/api/convex/lib/directThreads";
 import { hasGap, highWater, mergeSequenced } from "@/api/convex/lib/eventResume";
 import { holdNoticeText } from "@/api/convex/lib/providerHold";
 import { buildReplaySteps } from "@/api/convex/lib/replay";
@@ -74,7 +73,6 @@ function derive(f: BuiltFixture) {
       mode: task.mode ?? "orchestrated",
       replay: { failureIndex: replay.failureIndex, steps: replay.steps.map((st) => `${st.kind}${st.failed ? "!" : ""} ${st.label}${st.subtaskKey ? ` [${st.subtaskKey}]` : ""}`) },
       ...(hold ? { holdNotice: holdNoticeText(hold, now) } : {}),
-      ...(task.mode === "direct" ? { directTypesOk: taskEvents.every((e) => e.type === "thread.created" || isDirectEventType(String(e.type))) } : {}),
     };
   });
 
@@ -107,7 +105,6 @@ describe("fixture replay through the UI selectors (golden)", () => {
     expect(d["verify-loop-failed"].tasks[0].replay.failureIndex).toBeGreaterThan(0);
     expect(d["verify-loop-failed"].activity.some((g) => g.failed && g.expanded)).toBe(true);
     expect(d["held-resume"].tasks[0].holdNotice).toMatch(/^On hold: .*Retrying automatically in 3 min\.$/);
-    expect(d["direct-idle"].tasks[0]).toMatchObject({ mode: "direct", directTypesOk: true });
     expect(d["research-fanout"].tasks[0].replay.steps.some((s) => s.startsWith("subtask! subtask.failed [ra-2]"))).toBe(true);
     expect(d["planned-push"].tasks[0].replay.failureIndex).toBe(-1);
   });

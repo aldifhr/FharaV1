@@ -15,7 +15,7 @@
  *     one block.
  */
 
-export type ThreadKind = "task" | "direct" | "conversation";
+export type ThreadKind = "task" | "conversation";
 export type ThreadGroupBy = "project" | "kind" | "status";
 export type ThreadFilter = "all" | "needsYou" | "unread";
 export type ThreadStatusBucket = "needsYou" | "active" | "idle" | "done";
@@ -49,7 +49,6 @@ export type ThreadGroup = {
 
 const KIND_ORDER: readonly { key: ThreadKind; label: string }[] = [
   { key: "task", label: "Tasks" },
-  { key: "direct", label: "Direct" },
   { key: "conversation", label: "Conversations" },
 ];
 
@@ -215,7 +214,7 @@ export function projectHref(projectId: string): string {
 /**
  * Where a row opens. Threads carry their id in the path
  * (`/project/:projectId/:threadId`) so the link is shareable and a reload
- * lands on the same thread: tasks and direct threads are tasks, a
+ * lands on the same thread: a task is, a
  * conversation (project chat) is not and falls back to the chat view.
  */
 export function threadHref(row: Pick<ThreadItem, "projectId" | "taskId" | "conversationId">): string {

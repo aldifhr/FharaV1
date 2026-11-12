@@ -32,11 +32,6 @@
       "id": "research-fanout",
       "title": "Research fan-out with one failed angle",
       "events": 14
-    },
-    {
-      "id": "direct-idle",
-      "title": "Direct OpenCode thread (idle)",
-      "events": 13
     }
   ]
 }

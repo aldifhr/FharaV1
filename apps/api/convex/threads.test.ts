@@ -88,7 +88,7 @@ describe("threadIndex", () => {
     expect(await t.run((ctx) => syncConversationThread(ctx, conversationId))).toBe("patched");
   });
 
-  test("direct threads in waiting_input read as idle, not needs you", () => {
+  test("legacy direct threads in waiting_input read as idle, not needs you", () => {
     expect(taskThreadStatus({ status: "waiting_input", mode: "direct" })).toEqual({ status: "idle", needsYou: false });
     expect(taskThreadStatus({ status: "waiting_input" })).toEqual({ status: "needs you", needsYou: true });
     expect(taskThreadStatus({ status: "paused", pausedBy: "held" }).status).toBe("held");

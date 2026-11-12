@@ -38,7 +38,7 @@ export default function ThreadRow({
   titleSlot?: ReactNode;
   onTitleDoubleClick?: (row: ThreadRowView) => void;
 }) {
-  const meta = [row.kind === "direct" ? "Direct" : null, row.branchName].filter(Boolean).join(" · ");
+  const meta = row.branchName ?? "";
   return (
     <li className={`group relative flex items-center rounded-lg transition ${current ? "bg-hover" : "hover:bg-hover"}`}>
       <Link

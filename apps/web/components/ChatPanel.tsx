@@ -19,8 +19,6 @@ import { useProjectSlash } from "./chat/useProjectSlash";
 import ChatHeader, { type ChatTab, type HeaderNotification } from "./chat/ChatHeader";
 import ManageProjectModal from "./chat/ManageProjectModal";
 import MessageList from "./chat/MessageList";
-import { BTN_OUTLINE, BTN_PRIMARY } from "./chat/cards/primitives";
-import AddAsThreadModal from "./direct/AddAsThreadModal";
 import { quoteOf, type ChatQuote } from "./chat/QuoteBlock";
 import StatusLine from "./chat/StatusLine";
 import FilesView from "./chat/FilesView";
@@ -227,7 +225,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     const el = scrollRef.current;
     const atBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight <= 120;
     if ((atBottom && document.visibilityState === "visible") || dividerAt === Number.POSITIVE_INFINITY) markSeen();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- markSeen is recreated each render; these are the triggers
   }, [timeline, conversationKey, dividerAt]);
   const firstNewIndex =
     dividerAt === null ? -1 : timeline.findIndex((m: any) => m._creationTime > dividerAt && m.authorType !== "user");
@@ -303,19 +301,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const [editingId, setEditingId] = useState<string | null>(null);
   const [chatError, setChatError] = useState("");
   const [chatSending, setChatSending] = useState(false);
-  // ── "Add as Thread": messages picked in this chat for a new direct thread. ──
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [addAsThreadOpen, setAddAsThreadOpen] = useState(false);
-  useEffect(() => setSelectedIds(() => new Set()), [projectId]);
-  const toggleSelectMessage = (messageId: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(messageId)) next.delete(messageId);
-      else next.add(messageId);
-      return next;
-    });
-  };
-  const clearSelection = () => setSelectedIds(() => new Set());
   const [targetId, setTargetIdState] = useState<string | null>(null);
   useEffect(() => {
     if (!agents.length) return;
@@ -470,7 +455,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const draftingIds = conversationTyping ? (targetId ? [targetId] : agents.map((a) => a._id)) : [];
   useEffect(() => {
     dispatchChatTyping({ agentIds: draftingIds as string[], active: draftingIds.length > 0 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-announce only when typing, target or team change
   }, [conversationTyping, targetId, agents]);
 
   // Auto-dispatch the queue when the agent finishes replying.
@@ -483,7 +468,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       const timer = setTimeout(() => void sendAllQueued(), 300);
       return () => clearTimeout(timer);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs only when the typing state flips
   }, [conversationTyping]);
 
   // ── Header data ────────────────────────────────────────────────────────
@@ -717,8 +702,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             projectApprovalMode={(project as any)?.approvalMode ?? "ask"}
             loading={messages === undefined}
             history={history}
-            selectedIds={selectedIds}
-            onSelectMessage={toggleSelectMessage}
             scrollToMessageRef={scrollToMessageRef}
             chatSending={chatSending}
             conversationTyping={conversationTyping}
@@ -765,15 +748,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       {manageOpen && project && (
         <ManageProjectModal projectId={projectId} project={project as any} allAgents={(allAgents ?? []) as any[]} onClose={() => setManageOpen(false)} />
       )}
-      {addAsThreadOpen && selectedIds.size > 0 && (
-        <AddAsThreadModal
-          projectId={projectId}
-          messageIds={[...selectedIds]}
-          firstText={(timeline.find((m: any) => selectedIds.has(String(m._id))) as any)?.content ?? ""}
-          onClose={() => setAddAsThreadOpen(false)}
-          onCreated={clearSelection}
-        />
-      )}
 
       {tab === "chat" && (
         <>
@@ -786,17 +760,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             qaUrl={(project as any)?.qaUrl ?? (project as any)?.devUrl}
           />
           <DecisionsTray tray={tray} busy={trayBusy} onAction={(item, action) => void runTrayAction(item, action)} />
-          {selectedIds.size > 0 && (
-            <div className="flex shrink-0 items-center gap-2 bg-panel px-3 py-1.5 sm:px-8 lg:px-10">
-              <span className="text-[13px] text-ink-2">
-                {selectedIds.size} message{selectedIds.size === 1 ? "" : "s"} selected
-              </span>
-              <div className="ml-auto flex items-center gap-2">
-                <button type="button" className={BTN_OUTLINE} onClick={clearSelection}>Clear</button>
-                <button type="button" className={BTN_PRIMARY} onClick={() => setAddAsThreadOpen(true)}>Add as Thread</button>
-              </div>
-            </div>
-          )}
           <ChatComposer
             placeholder={tray.active ? trayPlaceholder(tray.current) : undefined}
             onKeyIntercept={(e) => {

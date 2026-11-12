@@ -89,7 +89,7 @@ export function resetKnownSecretsForTests(): void {
   envScanned = false;
 }
 
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex -- matches ANSI escape codes on purpose
 const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
 
 export function stripAnsi(text: string): string {

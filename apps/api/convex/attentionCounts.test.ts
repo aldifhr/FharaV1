@@ -87,7 +87,7 @@ describe("one definition of 'needs you'", () => {
     expect((await t.query(api.overview.get, {})).needsYou.total).toBe(needs.total);
   });
 
-  test("an idle direct thread is not a question; a direct thread with a pending question is", async () => {
+  test("a legacy direct thread (removed 2026-11-12) is never a question, idle or asking", async () => {
     const { t, projectId, otherId } = await seed();
     const { idle, asking, fe } = await t.run(async (ctx) => {
       const fe = (await ctx.db.query("agents").collect()).find((a) => a.role === "frontend")!._id;
@@ -98,7 +98,7 @@ describe("one definition of 'needs you'", () => {
     });
     const needs = await t.query(api.shell.needsYou, {});
     expect(needs.items.some((i) => i.taskId === idle)).toBe(false);
-    expect(needs.items.find((i) => i.taskId === asking)?.kind).toBe("question");
+    expect(needs.items.some((i) => i.taskId === asking)).toBe(false);
     expect((await t.query(api.shell.needsYou, { projectId })).items.some((i) => i.taskId === idle)).toBe(false);
     const inbox = await t.query(api.inbox.list, {});
     expect(inbox.waitingCount).toBe(needs.total);

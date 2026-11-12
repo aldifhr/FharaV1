@@ -44,7 +44,7 @@ SOFTWARE.
   `update-code-budgets.ts`); `apps/api/convex/lib/automationHold.ts` (global automation hold, adapted
   from `apps/server/src/automationHold.ts`); `apps/api/convex/lib/restartContinuation.ts` (restart
   continuation: `CONTINUE_PROMPT` text and the 3-in-5-minutes loop window, adapted from
-  `apps/server/src/orchestration-v2/RestartContinuation.ts`; the subtask and direct-thread wiring is a
+  `apps/server/src/orchestration-v2/RestartContinuation.ts`; the subtask wiring is a
   pattern only); `packages/worker/src/vendor/goat/diffs.ts` (copy of
   `apps/server/src/checkpointing/Diffs.ts`, numstat parser) with `packages/worker/src/tools/gitCheckpoint.ts`
   and `apps/api/convex/lib/checkpointRefs.ts` (hidden-ref checkpoint capture: temp index, write-tree,
@@ -74,10 +74,7 @@ SOFTWARE.
   pattern from `apps/server/src/mcp/{McpHttpServer.ts, OrchestratorMcpService.ts, McpToolAccess.ts,
   ToolDispatch.ts}` and `packages/contracts/src/agentSurface/registry.ts`, no code copied);
   `apps/web/lib/composerPaste.ts` (a paste of 32 KiB or more, or one past the 120k-character composer
-  cap, becomes a text attachment; a pattern from `docs/user/composer.md`) and the handoff compaction
-  rules in `packages/worker/src/direct/handoff.ts` (240-character items; commands, file changes,
-  checkpoints and earlier handoffs; recent turns plus the original request; the new request never cut;
-  a pattern from `docs/internals/context-handoffs.md`), no code copied;
+  cap, becomes a text attachment; a pattern from `docs/user/composer.md`), no code copied;
   `apps/api/convex/decisionTurns.ts`, `apps/api/convex/lib/questionPolicy.ts` and
   `packages/worker/src/decisionTurn/` (CTO-first questions: a question inside the CTO's ceiling goes to a
   decision turn first, only questions above it reach the person, the answer is committed to an outbox
@@ -153,24 +150,6 @@ SOFTWARE.
     `buildChildEnv()`; see the file header). Used by `packages/worker/src/tools/gitPush.ts`.
   - `apps/api/convex/lib/prChecks.ts`: the check rollup follows `ciVerdict` / `githubRuns` in `runner/src/upstream.ts`
     (idea and pass/fail rules only, no code copied).
-  - Direct threads (plan T2; each file carries a header naming its source):
-    - `runner/src/diff.ts` → `packages/worker/src/vendor/threadbear/diff.ts` (copied; `Hunk` inlined)
-    - `runner/src/adapters/acp/connection.ts` → `packages/worker/src/vendor/threadbear/acp/connection.ts`
-      (copied; Fhara logger, spawn and line reader)
-    - `runner/src/adapters/acp/normalize.ts` + `runner/src/adapters/context.ts` →
-      `packages/worker/src/vendor/threadbear/acp/normalize.ts` (copied; local event types, no images)
-    - `runner/src/adapters/acp/agents.ts` (`opencodeEnv`, the OpenCode row) →
-      `packages/worker/src/vendor/threadbear/acp/agents.ts` (OpenCode only; Fhara's provider config and rules)
-    - `runner/src/adapters/acp/adapter.ts` → `packages/worker/src/direct/acpSession.ts` (copied and trimmed)
-    - `runner/src/adapters/tool-gate.ts` + the request shaping of `adapter.ts` `permission()` →
-      `packages/worker/src/direct/toolGate.ts`
-    - `runner/src/handoff-history.ts` → `packages/worker/src/direct/handoff.ts`
-    - `runner/src/code-writes.ts` → `packages/worker/src/direct/codeWrites.ts` (Fhara's file list)
-    - `runner/src/runner.ts` turn, steer, interrupt and recovery logic → ported (not copied) in
-      `packages/worker/src/direct/threadRunner.ts` and `apps/api/convex/lib/directThreads.ts`
-      (`recoverDirectThread`)
-  - Direct thread UI (plan T3; pattern only, no code copied): `web/src/transcript.ts` (a live tail plus older
-    pages read once; events folded per item) → `apps/web/lib/threadbear/{reducer.ts, transcriptMerge.ts}`
   - Mock fixtures (docs/mock-fixtures.md; commit b697f32; each file carries a header naming its source):
     - `app/Tools/mock-runner/make-synthetic.mjs` → `scripts/fixtures/make-synthetic.mjs` (adapted: the
       commit-safe generator, one folder per scenario with `events.ndjson`, the sequenced `push` helper;
@@ -957,43 +936,15 @@ SOFTWARE.
 
 - Source: https://github.com/nuphos/nuphos (commit `a210a05`)
 - Used in:
-  - `packages/worker/src/vendor/nuphos/processDeath.ts`: copy of `apps/runtime/image/process-death.mjs` (cause of an
-    agent's death in words; a SIGKILL while the cgroup's `oom_kill` count rose names the memory limit). Modified by
-    Fhara: TypeScript, identifiers renamed, cgroup root and reader as parameters, reason built from the exit
-    code/signal, described in the worker instead of announced on stderr.
-  - `packages/worker/src/vendor/nuphos/turnTimers.ts`: copy of `apps/backend/src/lib/claude-code-preview/openab-acp-timers.ts`
-    (`TURN_PROGRESS_UPDATES`, `isTurnProgressUpdate`; `createCallTimer`'s two windows, inactivity and progress, as one
-    timer). Modified by Fhara: a per-turn `TurnWatchdog` class with an approval-wait pause and cap and a callback naming
-    the window that ran out, instead of a per-call timer and OpenAbTimeoutError; `refreshSessionTimers` dropped. Used
-    by the direct-thread turn watchdog (`packages/worker/src/direct/threadRunner.ts`).
-  - `packages/worker/src/direct/streamRedactor.ts`: the idea of holding back a possible secret across stream chunks
-    from `apps/backend/src/lib/claude-code-preview/streamed-token-redaction.ts` (pattern only, no code copied; the
-    redaction is Fhara's L2).
   - `scripts/check-import-cycles.mjs`: adapted from `scripts/check-import-cycles.mjs` (import-cycle ratchet with a
     baseline). Modified by Fhara: the graph is built with the TypeScript compiler API instead of madge, Fhara's
     targets; the canonical-rotation, baseline-compare and target-partition helpers are kept as in the original.
   - `scripts/guards/rules.mjs` (`unawaitedAsyncAssertions`): port of `eslint-rules/no-unawaited-async-assertion.js`
     to a TypeScript-AST scan. Modified by Fhara.
-  - `packages/worker/src/direct/agentPids.ts`: adapted from `scripts/dev-shutdown.ts` (`stopTree`/`waitGroupGone`:
-    SIGTERM a process group, wait for every member, SIGKILL the rest) and `scripts/dev-instance.ts`
-    (`reapLeftovers`: reap a dead launcher's groups only once verified as its own). Modified by Fhara: a per-worker
-    registry of ACP agent process groups, a boot sweep for dead workers' groups, start-time and command-line checks
-    before any signal, and group membership read from /proc.
-  - `packages/worker/src/direct/restore.ts`: the idea of per-attempt session restore diagnostics (op, pid, timed
-    phases, outcome, no content) from the runtime README's "Session restoration diagnostics" (pattern only, no code
-    copied; Fhara stores each attempt as a `session.restore` task event).
   - `apps/api/convex/lib/untrustedContent.ts`: copy of `apps/backend/src/lib/agent/untrusted-content.ts`
     (`fenceUntrusted`: every `<` escaped so nothing inside can close the block). Modified by Fhara: always an
     `<untrusted source="…">` block, Fhara's notes (evidence and request variants). Used for GitHub issue bodies
-    (`lib/issueIntake.ts`), PR reviews, CI logs and review-round comments (`lib/prFeedback.ts`) and the direct-thread
-    handoff history (`packages/worker/src/direct/handoff.ts`).
-  - `packages/worker/src/direct/runaway.ts`: adapted from `apps/backend/src/lib/agent/stop-gate-runaway.ts`
-    (`RUNAWAY_FAILURE_THRESHOLD`, `canonicalToolInputKey`). Modified by Fhara: a streaming detector fed by direct-thread
-    tool events and api-loop model calls instead of a scan over step messages.
-  - `packages/worker/src/direct/acpSession.ts` (effort): the effort-option matching rule (category `thought_level`,
-    or id `effort`/`reasoning_effort`/`thinking`) and "persisted per thread, re-applied on resume" from
-    `apps/backend/src/lib/claude-code-preview/session-config-options.ts` and `docs/effort-picker.md` (pattern only,
-    no code copied).
+    (`lib/issueIntake.ts`), PR reviews, CI logs and review-round comments (`lib/prFeedback.ts`).
 - Copyright 2026 Zeabur Inc. Licensed under the Apache License, Version 2.0 (full text in the Aider entry above).
   "Nuphos" and its logo are trademarks of Zeabur Inc.; Fhara uses the name only to describe where this code came from.
   The upstream NOTICE file reads:
@@ -1011,47 +962,6 @@ of this work; TRADEMARK.md spells out what that does and does not cover.
 apps/runtime/openab is vendored from openabdev/openab (via the zeabur/openab
 fork) and remains under the MIT License, Copyright (c) 2026 openabdev. See
 apps/runtime/openab/LICENSE.
-```
-
-## openab
-
-- Source: https://github.com/openabdev/openab, as vendored in Nuphos at `apps/runtime/openab` (commit `a210a05`)
-- Used in:
-  - `packages/worker/src/vendor/nuphos/stderrTail.ts`: the `ERROR_LIKE`, `CREDENTIAL_LIKE` and `OPAQUE_RUN`
-    patterns copied from `crates/openab-core/src/acp/connection.rs` (the errno branch split into its own regex), and
-    `redact_stderr_line`, the bounded tail (20 lines / 2 KB / 500 chars a line), `with_recent_stderr` and
-    `redact_session_ids` (`src/redact.rs`) ported from Rust to TypeScript.
-  - `packages/worker/src/direct/restore.ts` and `packages/worker/src/direct/index.ts` (pattern only, no code copied):
-    the transient/permanent split for session loads (`pool.rs` `TRANSIENT_LOAD_ERRORS`: keep the id and retry, versus
-    a fresh session) and live-session admission (`reserve_admission`, `candidate_in_flight`: at the cap, release the
-    oldest idle session, never one with a turn in flight or waiting on a permission).
-  - `apps/api/convex/lib/mcpDeclaration.ts` and `packages/worker/src/direct/mcpDeclare.ts` (pattern only, no code
-    copied): `pool.rs` `mcp_declaration_changed` (headers never count as a change of the MCP server set) and
-    `suspend_for_mcp_change` (release an idle session whose set changed, never one with a turn in flight, and resume
-    the same session with the new set).
-
-```
-MIT License
-
-Copyright (c) 2026 openabdev
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 ```
 
 ## DeepSeek Harness
@@ -1080,10 +990,6 @@ SOFTWARE.
     adapted prose, distilled into a short checklist from `docs/defensive-patterns/general.md`, `docs/testing.md` and
     `.agents/skills/{dsh-code-review,dsh-error-handling,dsh-ci-test-reliability}/SKILL.md`; attribution in its front
     matter. Bundled through the generated `apps/api/convex/lib/builtinSkills.data.ts`.
-  - `apps/api/convex/lib/directGoalSchema.ts`, `apps/api/convex/lib/directGoal.ts` and
-    `packages/worker/src/direct/goal.ts` (D8, goal mode for direct threads): the goal state machine (objective, round
-    limit, active/paused/blocked/complete, a `round-limit` block, a closing turn without tools) after
-    `packages/goal/goal/src/{types,domain}.ts` and `packages/goal/goal-round-driver`; pattern only.
   - `apps/api/convex/commandApprovals.ts` (`review`), `apps/api/convex/lib/permissionModes.ts` (`autoReviewApplies`) and
     `packages/worker/src/decisionTurn/autoReview.ts` (D7, auto review in Full access): one LLM review of the pending
     command before an auto-approval, a deny or unparsable verdict falling back to the approval card, after
@@ -1093,9 +999,7 @@ SOFTWARE.
   closed risk/decision protocol (`topLevelMemberCount`, `parseDecision`) from
   `packages/experimental/auto-review/src/index.ts`, reworded for one shell command and Fhara's review request; `packages/worker/src/vendor/deepseek-harness/prunerConfig.ts` from
   `packages/compaction/compaction-tool-result-pruner/src/config.ts` (head 4096 + marker + tail 1024, at most 8192;
-  `deepFreeze` and the types inlined); `packages/worker/src/vendor/deepseek-harness/goalPrompts.ts` (D8) from
-  `packages/goal/goal-round-driver/src/prompt.ts` and `packages/goal/tool-goal/src/wrapup.ts` (plain strings; the
-  goal-tool sentences replaced by Fhara's reply-marker rule).
+  `deepFreeze` and the types inlined).
 
 ```
 MIT License

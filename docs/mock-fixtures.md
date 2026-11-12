@@ -7,7 +7,7 @@ and synthetic fixtures (MIT, see `THIRD_PARTY_NOTICES.md`).
 | Command | What it does |
 | --- | --- |
 | `npm run fixtures:make` | Regenerates `fixtures/scenarios/` from `scripts/fixtures/make-synthetic.mjs` (deterministic, commit-safe). |
-| `npm run fixtures:seed` | Loads every scenario into the dev deployment (`-- --only planned-push,direct-idle`, `-- --list`). |
+| `npm run fixtures:seed` | Loads every scenario into the dev deployment (`-- --only planned-push,held-resume`, `-- --list`). |
 | `npm run fixtures:wipe` | Deletes every fixture row, plus rows later written under a fixture project or chat (`-- --only <id>`). |
 | `npm run mock:llm` | Starts an OpenAI-compatible stub on `127.0.0.1:3399` with scripted replies. |
 
@@ -21,7 +21,6 @@ and synthetic fixtures (MIT, see `THIRD_PARTY_NOTICES.md`).
 | `verify-loop-failed` | Verification fails three times (two fix rounds), the task fails with the typecheck log tail. |
 | `personal-chat` | A personal chat with the CTO (no project), a reply with reasoning and a quoted follow-up. |
 | `research-fanout` | Three research angles in parallel; RA-2 times out; the synthesis answers from the other two. |
-| `direct-idle` | A direct OpenCode thread (Frontend): one finished turn with reasoning, a read, an edit diff and a test run, now idle. |
 
 Skipped: the designer `show_options` review (no `show_options` in the schema at
 this head). Add it to the generator when the schema has it.
@@ -117,8 +116,7 @@ way (`server-error`: the first three), then the default rules answer.
 
 `packages/worker/tests/mockLlmFaults.test.ts` checks each fault on the raw
 wire. `packages/worker/tests/llmWireFaults.test.ts` records how the worker
-handles each one (provider, `runLlmCall` retry, a direct thread's persisted
-events). D2 classified each fault (typed errors in
+handles each one (provider, `runLlmCall` retry). D2 classified each fault (typed errors in
 `apps/api/convex/lib/llmWireErrors.ts`, re-exported by `packages/worker/src/llm/errors.ts`;
 the backend chat client raises the same ones):
 
@@ -137,12 +135,11 @@ the backend chat client raises the same ones):
   the old messages, re-checks against the named limit, compacts the middle only
   if still over (summary when a summarizer is given, else a drop note), and
   retries at most twice, inside `compaction.start`/`compaction.end` events; then
-  a clear failure. The tool loop and the direct api loop use it;
+  a clear failure. The tool loop uses it;
 - a timeout names its limit ("timed out after 250ms", "after 1.5s").
 
 Also handled: a stall is cut by the LLM timeout (a timeout, not a cancel); a
-reset is a `connection` failure; a 5xx burst is retried by `runLlmCall`; a
-failed direct-thread turn persists no half message and stays out of history.
+reset is a `connection` failure; a 5xx burst is retried by `runLlmCall`.
 
 ### Verify the world
 
@@ -163,15 +160,14 @@ runner), a `check()` per visible state, a numbered PNG per screen, and exit 1
 on any failed check. Per scenario it opens the run page, the project chat or
 board, the Inbox, Home or the personal chat and asserts what should be there
 (Allow/Deny on the command card, Resume now on the held task, Failed with the
-TS2322 tail, RA-2 failed with the synthesis done, the direct thread kept out of
-Needs you, a working Delete on the personal chat). It writes `results.json`
+TS2322 tail, RA-2 failed with the synthesis done, a working Delete on the personal chat). It writes `results.json`
 next to the shots.
 
 ```bash
 npm run fixtures:seed                       # CONVEX_SELF_HOSTED_URL + _ADMIN_KEY set
 NEXT_PUBLIC_CONVEX_URL=$CONVEX_SELF_HOSTED_URL npm run dev:web -- -p 3010
 FHARA_CHROMIUM=/path/to/chromium npm run test:fixtures-ui -- --base http://127.0.0.1:3010 --shots ./shots
-npm run test:fixtures-ui -- --only held-resume,direct-idle
+npm run test:fixtures-ui -- --only held-resume,planned-push
 ```
 
 The personal-chat check deletes the seeded chat; seed again before rerunning it.

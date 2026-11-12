@@ -113,8 +113,6 @@ export interface SpillOptions {
   callId: string;
   config?: SpillConfig;
   log?: (message: string, detail?: unknown) => void;
-  /** false: the caller has no read_tool_output tool (direct API loop); the notice says so. */
-  readable?: boolean;
 }
 
 export interface SpillResult {
@@ -148,7 +146,7 @@ export function spillIfLarge(text: string, options: SpillOptions): SpillResult {
     masked.slice(0, headEnd) +
     PRUNE_MARKER.replace("middle pruned", `${omitted} chars omitted of ${masked.length}`) +
     masked.slice(tailStart) +
-    `\n\n${SPILL_NOTICE_PREFIX}${locator}, ${masked.length} chars, ${bytes} bytes. Shown: chars 0-${headEnd} and ${tailStart}-${masked.length}. ${options.readable === false ? "The middle is not readable in this thread; ask the user for the part you need" : `Read the rest with ${readHint(locator, headEnd)}`}.)`;
+    `\n\n${SPILL_NOTICE_PREFIX}${locator}, ${masked.length} chars, ${bytes} bytes. Shown: chars 0-${headEnd} and ${tailStart}-${masked.length}. Read the rest with ${readHint(locator, headEnd)}.)`;
   return { text: preview, spilled: { locator, file, chars: masked.length, bytes } };
 }
 

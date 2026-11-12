@@ -27,7 +27,6 @@ import { mcpWriteTables } from "./lib/mcpWriteSchema";
 import { decisionTurnTables } from "./lib/decisionTurnSchema";
 import { threadIndexTable, titleSetByValidator } from "./lib/threadIndexSchema";
 import { projectScriptsValidator } from "./lib/projectScriptsSchema";
-import { directGoalValidator } from "./lib/directGoalSchema";
 
 export const taskStatus = v.union(
   v.literal("queued"),
@@ -100,45 +99,9 @@ export const approvalKind = v.union(
   v.literal("merge_pr"),
   // Plan Inspector: the plan waits for the user's review before execution.
   v.literal("plan"),
-  // Direct threads (threadbear T2, additive): one tool call an ACP agent
-  // asked to run that is not a shell command (an edit, a fetch, an MCP
-  // tool). Answered in-process; the task keeps its lease.
+  // legacy: direct threads removed 2026-11-12; kept for old approval rows.
   v.literal("tool_call")
 );
-
-/** Direct thread engine state (threadbear T2). */
-export const directThreadStatus = v.union(
-  v.literal("idle"),
-  v.literal("starting"),
-  v.literal("running"),
-  v.literal("waiting"),
-  v.literal("stopped"),
-  v.literal("error")
-);
-
-export const directThreadValidator = v.object({
-  // One of the nine fixed roles (lib/roles.ts ROLE_KEYS), chosen by the user.
-  role: v.string(),
-  agentId: v.id("agents"),
-  // The engine's own session id (OpenCode ACP), for session/load|resume.
-  sessionId: v.optional(v.string()),
-  engine: v.union(v.literal("opencode-acp"), v.literal("api-loop")),
-  status: directThreadStatus,
-  turnId: v.optional(v.string()),
-  // Highest taskEvents sequence the worker has persisted for this thread.
-  lastSeq: v.number(),
-  // Highest user.message seq handed to the engine (sent, steered or dropped by Stop); above it is queued.
-  deliveredSeq: v.optional(v.number()),
-  allowRules: v.optional(v.array(v.string())), // "Always allow" rules for THIS thread only (never the project's)
-  idleSince: v.optional(v.number()),
-  // Stop pressed: the worker interrupts the live turn when this is newer than the one it last handled.
-  interruptRequestedAt: v.optional(v.number()),
-  stoppedMidTurn: v.optional(v.boolean()), // the worker died mid-turn (recoverDirect); cleared by the next turn
-  error: v.optional(v.string()),
-  mcpSetHash: v.optional(v.string()), // N10: the declared MCP set (lib/mcpDeclaration.ts, no secrets)
-  effort: v.optional(v.string()), // N10: picked reasoning effort; unset = agent default
-  goal: v.optional(directGoalValidator), // D8 goal mode (lib/directGoalSchema.ts); unset = no goal
-});
 
 /** Options review draft / response (lib/optionsReview.ts ReviewDraft). */
 export const reviewDraftValidator = v.object({
@@ -541,11 +504,11 @@ export default defineSchema({
         v.literal("done")
       )
     ),
-    // Direct threads (threadbear T2, additive). Unset = "orchestrated":
-    // classifier -> planner -> DAG. "direct": one agent loop, started only
-    // by an explicit user action (directThreads.create).
+    // Unset = "orchestrated": classifier -> planner -> DAG.
+    // legacy: direct threads removed 2026-11-12. "direct" and `direct` stay
+    // only so old rows validate; nothing writes or runs them.
     mode: v.optional(v.union(v.literal("orchestrated"), v.literal("direct"))),
-    direct: v.optional(directThreadValidator),
+    direct: v.optional(v.any()),
   })
     .index("by_project", ["projectId"])
     .index("by_mode_and_status", ["mode", "status"])
@@ -625,10 +588,9 @@ export default defineSchema({
   // Kept off the subtasks row: it is rewritten every ~400ms while a model
   // streams, and subtask rows (with their outputs) feed project-wide
   // reactive queries that should not refire on every flush.
-  // Direct threads (threadbear T2): one hot row per streaming item (the
-  // assistant's text, its reasoning, a tool's output). Rewritten at most
-  // every ~300 ms by the worker and deleted once the item is persisted as
-  // a taskEvent. Never patched onto tasks or other list documents.
+  // legacy: direct threads removed 2026-11-12. Hot stream rows of the old
+  // direct threads; nothing writes them now, kept so old rows validate and
+  // task/project deletes still clean them up.
   threadStreams: defineTable({
     taskId: v.id("tasks"),
     projectId: v.id("projects"),
@@ -643,9 +605,8 @@ export default defineSchema({
     .index("by_task_and_item", ["taskId", "itemId"])
     .index("by_project", ["projectId"]),
 
-  // Direct threads (threadbear T2): the whole of a tool output over 2 KB.
-  // The taskEvents row keeps a 300-character preview plus bodyId; the UI
-  // reads the body only when a tool row is opened.
+  // legacy: direct threads removed 2026-11-12. Tool output bodies of the
+  // old direct threads; nothing writes them now (kept like threadStreams).
   eventBodies: defineTable({
     taskId: v.id("tasks"),
     projectId: v.id("projects"),

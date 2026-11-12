@@ -31,7 +31,7 @@ const taskRow = v.object({
   projectId: v.string(),
   title: v.string(),
   status: taskStatusValidator,
-  mode: v.union(v.literal("orchestrated"), v.literal("direct")),
+  mode: v.union(v.literal("orchestrated"), v.literal("direct")), // legacy: direct threads removed 2026-11-12
   createdAt: v.number(),
   updatedAt: v.optional(v.number()),
   completedAt: v.optional(v.number()),

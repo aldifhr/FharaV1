@@ -683,7 +683,7 @@ export const get = query({
         branchName: task.branchName ?? null,
         permissionMode: task.permissionMode ?? "supervised",
         errorMessage: task.errorMessage ?? null,
-        // Direct threads idle in waiting_input; the label needs both.
+        // A legacy direct thread (removed 2026-11-12) reads "Idle"; the label needs both.
         mode: task.mode ?? "orchestrated",
         pendingQuestion: task.pendingQuestion ?? null,
         completionWarning: task.completionWarning ?? null,

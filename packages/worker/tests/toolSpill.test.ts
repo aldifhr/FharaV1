@@ -7,7 +7,6 @@ import { readSpill, removeTaskSpill, spillIfLarge, sweepSpill, isSpillPreview, S
 import { runToolLoop } from "@/tools/toolLoop";
 import { callWithOverflowRecovery } from "@/context/overflowRecovery";
 import { LlmContextOverflowError } from "@/llm/errors";
-import { ApiLoopEngine } from "@/direct/apiLoopSession";
 import { withSnapshotScope } from "@/llm/snapshots";
 
 const roots: string[] = [];
@@ -236,30 +235,3 @@ describe("D2 consistency", () => {
   });
 });
 
-describe("direct API loop", () => {
-  it("keeps the full message for its turn, a spill preview in later history", async () => {
-    const config = cfg();
-    const calls: LLMMessage[][] = [];
-    const provider = { complete: async (m: LLMMessage[]) => (calls.push(m.map((x) => ({ ...x }))), { content: "ok" }) } as unknown as LLMProvider;
-    const results: unknown[] = [];
-    const engine = new ApiLoopEngine({ provider, spill: config });
-    const session = engine.start({ taskId: "dt1", cwd: "/tmp" }, {
-      output: (o: { kind: string }) => void (o.kind === "result" && results.push(o)),
-      requestApproval: async () => ({}) as never,
-      exited: () => {},
-    } as never);
-    const big = bigLog();
-    session.send({ text: big } as never);
-    session.send({ text: "second" } as never);
-    await new Promise<void>((resolve) => {
-      const tick = () => (results.length >= 2 ? resolve() : setTimeout(tick, 5));
-      tick();
-    });
-    session.kill();
-    expect(calls[0][calls[0].length - 1].content).toBe(big);
-    const history = calls[1].find((m) => m.role === "user" && m.content.includes("Full output saved as"))!;
-    expect(history.content.length).toBeLessThan(8192);
-    expect(history.content).toMatch(/not readable in this thread/);
-    expect(existsSync(path.join(config.root, "dt1"))).toBe(true);
-  });
-});

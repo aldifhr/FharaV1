@@ -3,11 +3,9 @@
  *
  * The user anchors a comment to a line range of a file in the task's diff
  * (proposed files before Accept, or the committed branch). Comments start
- * as drafts; `sendRound` sends every draft at once:
- *   - on a direct thread, as one user message on the thread (the same path
- *     as `directThreads.send`);
- *   - on an orchestrated task, as one queued fix task on the owner's branch
- *     and worktree (like a PR reaction's fix task, but marked `reviewFix`).
+ * as drafts; `sendRound` sends every draft at once, as one queued fix task
+ * on the owner's branch and worktree (like a PR reaction's fix task, but
+ * marked `reviewFix`).
  * Sent comments keep their round. A branch comment whose `anchorSha` is no
  * longer the branch HEAD reads as outdated.
  */
@@ -21,7 +19,7 @@ import { diffCommentSide, diffCommentSource } from "./lib/diffCommentSchema";
 import { TERMINAL_TASK, buildReviewRoundPrompt, reviewFixTitle, sortLineComments } from "./lib/prFeedback";
 import { fixInFlight, syncPrNotifications } from "./prFeedback";
 import { newestPush } from "./changes";
-import { sendDirectMessage } from "./directThreads";
+import { isLegacyDirect } from "./lib/legacyDirect";
 import { syncTaskThread } from "./lib/threadIndex";
 
 const MAX_BODY = 4_000;
@@ -30,7 +28,7 @@ const MAX_DRAFTS = 100;
 const LIST_LIMIT = 500;
 
 export type SendRoundResult =
-  | { sent: true; round: number; count: number; roundTaskId: Id<"tasks">; mode: "direct" | "fix_task" }
+  | { sent: true; round: number; count: number; roundTaskId: Id<"tasks">; mode: "fix_task" }
   | { sent: false; reason: "no_drafts" | "fix_running" | "worktree_gone" | "task_running" | "thread_closed" };
 
 function cleanBody(body: string): string {
@@ -202,34 +200,23 @@ export const sendRound = mutation({
     );
     if (drafts.length === 0) return { sent: false, reason: "no_drafts" };
     const round = (task.reviewRounds ?? 0) + 1;
-    let roundTaskId: Id<"tasks">;
-    let mode: "direct" | "fix_task";
-    if (task.mode === "direct") {
-      if (TERMINAL_TASK.has(task.status)) return { sent: false, reason: "thread_closed" };
-      await sendDirectMessage(ctx, task, buildReviewRoundPrompt({ round, comments: drafts }), `review-round:${round}`);
-      roundTaskId = task._id;
-      mode = "direct";
-    } else {
-      if (await fixInFlight(ctx, task._id)) return { sent: false, reason: "fix_running" };
-      if (!task.branchName || !task.worktreePath) return { sent: false, reason: "worktree_gone" };
-      if (!TERMINAL_TASK.has(task.status)) return { sent: false, reason: "task_running" };
-      roundTaskId = await insertReviewFixTask(ctx, task, round, drafts);
-      mode = "fix_task";
-    }
+    // legacy: direct threads removed 2026-11-12; an old one is read-only.
+    if (isLegacyDirect(task)) return { sent: false, reason: "thread_closed" };
+    if (await fixInFlight(ctx, task._id)) return { sent: false, reason: "fix_running" };
+    if (!task.branchName || !task.worktreePath) return { sent: false, reason: "worktree_gone" };
+    if (!TERMINAL_TASK.has(task.status)) return { sent: false, reason: "task_running" };
+    const roundTaskId = await insertReviewFixTask(ctx, task, round, drafts);
     const now = Date.now();
     for (const draft of drafts) await ctx.db.patch(draft._id, { status: "sent", round, roundTaskId, updatedAt: now });
     await ctx.db.patch(task._id, { reviewRounds: round, updatedAt: now });
-    // A direct thread's transcript already shows the round as its user message.
-    if (mode === "fix_task") {
-      await appendTaskEvent(ctx, {
-        taskId: task._id,
-        projectId: task.projectId,
-        type: "review.round_sent",
-        payload: { round, comments: drafts.length, fixTaskId: roundTaskId },
-        level: "info",
-      });
-      await syncPrNotifications(ctx, task._id);
-    }
-    return { sent: true, round, count: drafts.length, roundTaskId, mode };
+    await appendTaskEvent(ctx, {
+      taskId: task._id,
+      projectId: task.projectId,
+      type: "review.round_sent",
+      payload: { round, comments: drafts.length, fixTaskId: roundTaskId },
+      level: "info",
+    });
+    await syncPrNotifications(ctx, task._id);
+    return { sent: true, round, count: drafts.length, roundTaskId, mode: "fix_task" };
   },
 });

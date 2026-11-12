@@ -88,7 +88,7 @@ function assertInert(html: string, label: string): void {
       expect(FORBIDDEN.has(el.tagName.toLowerCase()), `${label}: <${el.tagName}>`).toBe(false);
       for (const attr of el.attrs) {
         const name = attr.name.toLowerCase();
-        // eslint-disable-next-line no-control-regex
+        // eslint-disable-next-line no-control-regex -- strips control characters on purpose
         const value = attr.value.replace(/[\u0000-\u0020]/g, "");
         expect(name.startsWith("on"), `${label}: ${name}=`).toBe(false);
         expect(["srcset", "formaction", "action", "poster", "background", "xlink:href", "http-equiv"].includes(name), `${label}: ${name}=`).toBe(false);

@@ -7,8 +7,8 @@ import { postStageCard } from "./cards";
 /**
  * GOAT G9 / threadbear T6: the two moments a project's scripts run.
  *
- * - Setup: once, when the worker gets a NEW worktree for a task or a
- *   direct thread (`createBranch` answered `created: true`). A failure is
+ * - Setup: once, when the worker gets a NEW worktree for a task
+ *   (`createBranch` answered `created: true`). A failure is
  *   reported in the task's events and chat; the run continues, since the
  *   agents can still read the code and may fix what setup needed.
  * - Host check: after the task is Done, in the worktree, with the 10 min

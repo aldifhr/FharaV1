@@ -1,6 +1,6 @@
 /**
- * GOAT G13: answer open task_input decision turns — questions a direct
- * thread (or another MCP caller) asked through `question.ask` that
+ * GOAT G13: answer open task_input decision turns — questions an MCP
+ * caller asked through `question.ask` that
  * decisionTurns.ts routed to the CTO. One at a time, beside tasks.
  *
  * The turn runs on the task's own model chain with the same budget the task

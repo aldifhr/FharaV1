@@ -1,6 +1,6 @@
 /**
- * Per-project thread list (Paradev B1 / threadbear T7): tasks, direct
- * threads and project conversations, newest activity first, read from
+ * Per-project thread list (Paradev B1 / threadbear T7): tasks and
+ * project conversations, newest activity first, read from
  * `threadIndex` (written only by lib/threadIndex.ts). Backend for the
  * sidebar Threads section (B2) and rename everywhere (B3). Nothing here
  * starts a task.
@@ -33,7 +33,7 @@ export const list = query({
       .filter((row) => args.includeArchived || row.archivedAt === undefined)
       .map((row) => ({
         id: row._id,
-        kind: row.kind,
+        kind: row.kind === "direct" ? ("task" as const) : row.kind, // legacy direct rows list as plain tasks
         taskId: row.taskId ?? null,
         conversationId: row.conversationId ?? null,
         ownerTaskId: row.ownerTaskId ?? null,

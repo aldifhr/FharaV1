@@ -41,7 +41,7 @@ export function fillWorkspaceToken(args: string[], workspaceRoot: string): strin
   );
 }
 
-export async function decryptServerEnv(
+async function decryptServerEnv(
   config: Pick<McpServerConfig, "envCiphertext" | "name">
 ): Promise<Record<string, string>> {
   if (!config.envCiphertext) return {};

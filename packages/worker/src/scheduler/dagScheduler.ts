@@ -598,7 +598,7 @@ export async function runScheduler(
     }
   };
 
-  // eslint-disable-next-line no-constant-condition
+  // eslint-disable-next-line no-constant-condition -- the loop exits from inside
   while (true) {
     if (!cancelled && hooks.shouldCancel) {
       cancelled = await hooks.shouldCancel();

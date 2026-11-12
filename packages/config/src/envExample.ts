@@ -49,7 +49,6 @@ export const ENV_SECTIONS: readonly Section[] = [
     ],
   },
   { group: "worker", title: "Worker process" },
-  { group: "direct", title: "Direct chat threads (worker)" },
   {
     group: "policy",
     title: "Task limits and orchestration (worker)",

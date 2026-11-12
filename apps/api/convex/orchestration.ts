@@ -49,8 +49,9 @@ import { appendAgentEvent as appendAgentEventRow, appendTaskEvent } from "./lib/
 import { classifyTaskHold } from "./lib/providerHold";
 import { isAutomaticTask, isAutomationHeld } from "./lib/automationHold";
 import { holdTaskForProvider } from "./taskControl";
-import { recoverDirectThread } from "./lib/directThreads";
 import { decideResume, replayEncodedBytes, RESUME_MAX_REPLAY_EVENTS } from "./lib/eventResume";
+import { isLegacyDirect } from "./lib/legacyDirect";
+import { closeLegacyDirect } from "./lib/legacyDirectRecovery";
 import { loadRecordedSteps } from "./lib/restartSteps";
 import type { RecordedStep } from "./lib/restartContinuation";
 import { patchTask } from "./lib/threadIndex";
@@ -362,7 +363,7 @@ export const claimNextTask = internalMutation({
       .order("asc")
       .take(25);
     const held = await isAutomationHeld(ctx); // G3: while automation is held, automatic tasks stay queued.
-    const task = candidates.find((c) => c.status === "queued" && c.mode !== "direct" && !(held && isAutomaticTask(c))); // direct threads: directThreads.claim
+    const task = candidates.find((c) => c.status === "queued" && !isLegacyDirect(c) && !(held && isAutomaticTask(c))); // legacy direct threads are never claimed
     if (!task) return null;
     await patchTask(ctx, task._id, {
       status: "running",
@@ -542,11 +543,8 @@ export const recoverStale = internalMutation({
       const leaseExpired = !task.leaseExpiresAt || task.leaseExpiresAt < now;
       if (!leaseExpired) continue;
 
-      // Direct threads (threadbear T2): no plan to resume from. The live
-      // turn is closed as interrupted, its cards expire, and the thread
-      // waits for the user's next message instead of being re-run.
-      if (task.mode === "direct") {
-        await recoverDirectThread(ctx, task, now);
+      if (isLegacyDirect(task)) {
+        await closeLegacyDirect(ctx, task._id, now); // legacy: direct threads removed 2026-11-12
         recovered.push(task._id);
         continue;
       }

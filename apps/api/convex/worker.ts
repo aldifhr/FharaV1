@@ -24,8 +24,6 @@ import {
   executionStatus,
   sideEffectKind,
 } from "./schema";
-import { directCancelReasonValidator, type DirectApprovalState } from "./lib/directThreads";
-import { directPatchValidator } from "./lib/directPatch";
 
 const tokenArg = { workerToken: v.string() };
 
@@ -1536,112 +1534,5 @@ export const releasePausedTask = action({
   args: { ...tokenArg, taskId: v.id("tasks"), workerId: v.string() },
   handler: async (ctx, args): Promise<{ result: string }> => {
     return await ctx.runMutation(internal.taskControl.releasePausedTask, withoutToken(args));
-  },
-});
-
-// ── Direct threads (threadbear T2): token-gated wrappers over directThreads.ts ──
-
-export const claimDirectThread = action({
-  args: { ...tokenArg, workerId: v.string(), leaseMs: v.optional(v.number()) },
-  handler: async (ctx, args): Promise<any> => {
-    return await ctx.runMutation(internal.directThreads.claim, withoutToken(args));
-  },
-});
-
-export const pollDirectThread = action({
-  args: { ...tokenArg, taskId: v.id("tasks"), workerId: v.string() },
-  handler: async (ctx, args): Promise<any> => {
-    return await ctx.runQuery(internal.directThreads.poll, withoutToken(args));
-  },
-});
-
-export const appendDirectEvents = action({
-  args: {
-    ...tokenArg,
-    taskId: v.id("tasks"),
-    workerId: v.string(),
-    events: v.array(v.object({ type: v.string(), eventKey: v.optional(v.string()), payload: v.any() })),
-    state: v.optional(directPatchValidator),
-  },
-  handler: async (ctx, args): Promise<{ seqs: number[] }> => {
-    return await ctx.runMutation(internal.directThreads.appendEvents, withoutToken(args));
-  },
-});
-
-export const flushDirectStream = action({
-  args: {
-    ...tokenArg,
-    taskId: v.id("tasks"),
-    workerId: v.string(),
-    seq: v.number(),
-    items: v.array(
-      v.object({
-        itemId: v.string(),
-        kind: v.union(v.literal("text"), v.literal("reasoning"), v.literal("output")),
-        text: v.string(),
-      })
-    ),
-  },
-  handler: async (ctx, args): Promise<{ written: number }> => {
-    return await ctx.runMutation(internal.directThreads.flushStream, withoutToken(args));
-  },
-});
-
-export const clearDirectStreams = action({
-  args: { ...tokenArg, taskId: v.id("tasks"), workerId: v.string() },
-  handler: async (ctx, args): Promise<{ removed: number }> => {
-    return await ctx.runMutation(internal.directThreads.clearStreams, withoutToken(args));
-  },
-});
-
-export const requestDirectApproval = action({
-  args: {
-    ...tokenArg,
-    taskId: v.id("tasks"),
-    workerId: v.string(),
-    itemId: v.string(),
-    request: v.object({
-      acpKind: v.string(),
-      title: v.string(),
-      argv: v.optional(v.union(v.array(v.string()), v.null())),
-      command: v.optional(v.string()),
-      paths: v.optional(v.array(v.string())),
-      codeWrite: v.optional(v.union(v.boolean(), v.literal("unsure"))),
-      ruleKey: v.optional(v.string()),
-      cwd: v.optional(v.string()),
-      workspaceRoot: v.optional(v.string()),
-    }),
-    input: v.string(),
-  },
-  handler: async (ctx, args): Promise<{ status: "auto" | "pending"; approvalId: string; reason: string }> => {
-    return await ctx.runMutation(internal.directThreads.requestApproval, withoutToken(args));
-  },
-});
-
-export const getDirectApproval = action({
-  args: { ...tokenArg, approvalId: v.id("approvals") },
-  handler: async (ctx, args): Promise<DirectApprovalState | null> => {
-    return await ctx.runQuery(internal.directThreads.approvalState, withoutToken(args));
-  },
-});
-
-export const cancelDirectApproval = action({
-  args: { ...tokenArg, approvalId: v.id("approvals"), reason: v.string(), code: v.optional(directCancelReasonValidator) },
-  handler: async (ctx, args): Promise<{ applied: boolean }> => {
-    return await ctx.runMutation(internal.directThreads.cancelApproval, withoutToken(args));
-  },
-});
-
-export const releaseDirectThread = action({
-  args: { ...tokenArg, taskId: v.id("tasks"), workerId: v.string(), reason: v.string(), error: v.optional(v.string()) },
-  handler: async (ctx, args): Promise<{ status: string }> => {
-    return await ctx.runMutation(internal.directThreads.release, withoutToken(args));
-  },
-});
-
-export const getDirectHistory = action({
-  args: { ...tokenArg, taskId: v.id("tasks"), limit: v.optional(v.number()) },
-  handler: async (ctx, args): Promise<Array<{ type: string; sequence?: number; payload?: unknown }>> => {
-    return await ctx.runQuery(internal.directThreads.history, withoutToken(args));
   },
 });

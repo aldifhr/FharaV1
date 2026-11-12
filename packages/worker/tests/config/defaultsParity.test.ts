@@ -10,7 +10,6 @@ import { executionRuntimeFromEnv, nativeTimeoutMs, DEFAULT_NATIVE_TIMEOUT_MS } f
 import { opencodeAllowUnisolated } from "@/execution/opencodeDetect";
 import { repoMapEnabled, repoMapMaxChars } from "@/execution/repoMap";
 import { baselineEnabled } from "@/execution/verifyBaseline";
-import { directIdleMs, directMaxLive, chooseDirectEngine } from "@/direct";
 import { DEFAULT_WORKSPACE_ROOT, effectiveWorkspaceRoot } from "@/services/appSettings";
 import * as L from "./legacyEnv";
 
@@ -141,14 +140,6 @@ const RECORD_CASES: Array<[string, (env: Env) => unknown, (env: Env) => unknown]
   ["REPO_MAP_MAX_CHARS", (e) => repoMapMaxChars(e), L.legacyRepoMapMaxChars],
   ["FHARA_CACHE_DIR", (e) => wenv("FHARA_CACHE_DIR", e) ?? "<home>", L.legacyCacheDir],
   ["ORCHESTRATOR_VERIFY_BASELINE", (e) => baselineEnabled(e), L.legacyBaselineEnabled],
-  ["DIRECT_POLL_MS", (e) => wenv("DIRECT_POLL_MS", e), L.legacyDirectPollMs],
-  ["DIRECT_IDLE_MIN", (e) => directIdleMs(e), L.legacyDirectIdleMs],
-  ["DIRECT_MAX_LIVE", (e) => directMaxLive(e), L.legacyDirectMaxLive],
-  [
-    "DIRECT_ENGINE",
-    (e) => chooseDirectEngine({ binary: undefined, worktreeIsolation: true, env: e }).reason === "DIRECT_ENGINE=api-loop",
-    L.legacyDirectEngineApiLoop,
-  ],
   ["WORKER_LLM_MAX_CONCURRENCY", (e) => wenv("WORKER_LLM_MAX_CONCURRENCY", e), L.legacyWorkerGateLimit],
   ["ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", (e) => wenv("WORKER_LLM_MAX_CONCURRENCY", e), L.legacyWorkerGateLimit],
   ["LLM_ROUND_ROBIN_STICKY_LIMIT", (e) => wenv("LLM_ROUND_ROBIN_STICKY_LIMIT", e), L.legacyStickyLimit],
@@ -303,10 +294,6 @@ describe("schema defaults equal the removed literals (E1)", () => {
     WORKER_OPENCODE_CATALOG_POLL_MS: 15_000,
     WORKER_LLM_MAX_CONCURRENCY: 1,
     WORKER_SUBSCRIBE: true,
-    DIRECT_POLL_MS: 750,
-    DIRECT_IDLE_MIN: 10,
-    DIRECT_MAX_LIVE: 4,
-    DIRECT_ENGINE: "auto",
     LLM_PROVIDER: "anthropic",
     LLM_MODEL: "claude-sonnet-4-20250514",
     LLM_BASE_URL: "https://api.anthropic.com/v1",

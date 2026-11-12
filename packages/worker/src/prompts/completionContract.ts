@@ -1,10 +1,10 @@
 // Adapted from GOAT (https://github.com/goat-si/goat) packages/provider-core/src/server/developmentInstructions.ts @ 718f5b11,
 // MIT License, Copyright (c) 2026 T3 Tools Inc. and goat-si contributors. See THIRD_PARTY_NOTICES.md.
-// Modified by Fhara: reworded for Fhara's runtime (pipeline answers, direct threads, permission modes).
+// Modified by Fhara: reworded for Fhara's runtime (pipeline answers, permission modes).
 
 /**
  * The completion contract every code-writing prompt carries (code_change,
- * native provider) and every direct-thread preamble: the criteria for
+ * native provider): the criteria for
  * "done". Kept to a few lines because it rides on every call; the longer
  * guidance (work classes, verification floors) is the `fhara-discipline`
  * built-in skill attached to the Frontend, Backend and DevOps roles.

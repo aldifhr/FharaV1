@@ -363,7 +363,7 @@ async function handleLifecycleIntent(
   intent: IntentResult,
   text: string
 ): Promise<boolean> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- lazy import of the generated api (avoids an import cycle)
   const { api: apiRef } = await import("./_generated/api.js") as any;
   const activeId = await ctx.runQuery(internal.chatContext.getActiveTaskId, { projectId: args.projectId });
   const activeTask = activeId ? await ctx.runQuery(apiRef.tasks.get, { taskId: activeId as never }) : null;
@@ -415,7 +415,7 @@ async function handleLifecycleIntent(
 
 /** System's status line from the project's task state (no LLM). */
 async function taskStatusLine(ctx: ActionCtx, projectId: Id<"projects">, team: ChatAgent[]): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- lazy import of the generated api (avoids an import cycle)
   const { api: apiRef } = (await import("./_generated/api.js")) as any;
   const tasks = (await ctx.runQuery(apiRef.tasks.listByProject, { projectId, limit: 50 })) as Array<{ title: string; status: string; assignedAgentIds?: string[] }>;
   const nameOf = (id: string) => team.find((a) => String(a._id) === String(id))?.name;
@@ -477,7 +477,7 @@ async function dispatchTaskFromChat(
   }
 ): Promise<void> {
   const { text, team, orchestrator } = opts;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- lazy import of the generated api (avoids an import cycle)
   const { api } = await import("./_generated/api.js") as any;
   const existing = await (ctx as any).runQuery(api.tasks.listByProject, { projectId: args.projectId });
   const dupe = (existing as any[]).find(
@@ -561,7 +561,7 @@ async function startOfferedTask(
   }
 ): Promise<void> {
   const { offer, team, orchestrator } = opts;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- lazy import of the generated api (avoids an import cycle)
   const { api } = (await import("./_generated/api.js")) as any;
   const existing = (await ctx.runQuery(api.tasks.listByProject, { projectId: args.projectId })) as any[];
   if (existing.some((t: any) => t.command === offer.command && !TERMINAL_TASK_STATUSES.includes(t.status))) return;
@@ -638,7 +638,7 @@ async function startPersonalTask(
     });
     return;
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- lazy import of the generated api (avoids an import cycle)
   const { api } = (await import("./_generated/api.js")) as any;
   const existing = (await ctx.runQuery(api.tasks.listByProject, { projectId: opts.projectId })) as any[];
   if (existing.some((t: any) => t.command === opts.command && !TERMINAL_TASK_STATUSES.includes(t.status))) return;

@@ -27,6 +27,7 @@ export const decisionTurnStatusValidator = v.union(
 export const decisionDeliveryValidator = v.union(v.literal("inline"), v.literal("task_input"));
 
 /** D7 adds "command": a Full access command put to the Reviewer (lib/autoReview.ts). */
+// legacy: direct threads removed 2026-11-12; "direct" stays for old rows only.
 export const decisionTurnSourceValidator = v.union(v.literal("escalation"), v.literal("mcp"), v.literal("direct"), v.literal("command"));
 
 /** What a turn is for: G13 questions to the CTO; D7 auto review of one command by the Reviewer. */

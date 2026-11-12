@@ -277,7 +277,7 @@ export const questionAsk = mutation({
     if (args.ctoFirst) {
       const routed = await openDecisionTurn(ctx, {
         task,
-        source: task.mode === "direct" ? "direct" : "mcp",
+        source: "mcp",
         delivery: "task_input",
         question,
         options,

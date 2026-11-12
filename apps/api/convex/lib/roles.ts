@@ -427,31 +427,6 @@ export function isRoleKey(value: string): value is RoleKey {
   return (ROLE_KEYS as readonly string[]).includes(value);
 }
 
-/**
- * Pick the role for a direct thread from the user's first message, so the
- * composer never asks for one. Keyword match in priority order; anything
- * unrecognised goes to Backend (the old default).
- */
-export function inferRoleForText(text: string | undefined): RoleKey {
-  const value = (text ?? "").toLowerCase();
-  if (!value.trim()) return "backend";
-  const table: Array<[RoleKey, RegExp]> = [
-    ["designer", /\b(design|designer|desain|ui|ux|wireframe|mockup|layout|visual|palette|typography|figma|tampilan)\b/],
-    ["frontend", /\b(frontend|front-end|react|next\.?js|component|komponen|halaman|page|css|tailwind|html|styling)\b/],
-    ["backend", /\b(backend|back-end|api|database|schema|endpoint|server|mutation|auth|convex|sql)\b/],
-    ["qa", /\b(qa|test|testing|bug|error|failing|reproduce|regression)\b/],
-    ["devops", /\b(devops|deploy|deployment|docker|ci|cd|pipeline|infra|infrastructure)\b/],
-    ["researcher", /\b(research|riset|investigate|compare|benchmark|evaluate|analyze|analysis)\b/],
-    ["reviewer", /\b(review|audit|security|vulnerability|hardening)\b/],
-    ["support", /\b(docs|documentation|readme|changelog|support|help|troubleshoot)\b/],
-    ["cto", /\b(architecture|architect|strategy|roadmap|technical direction)\b/],
-  ];
-  for (const [role, pattern] of table) {
-    if (pattern.test(value)) return role;
-  }
-  return "backend";
-}
-
 /** Role key for a mention like "@QA" / "@frontend", or null if unknown. */
 export function roleKeyForMention(mention: string): RoleKey | null {
   const raw = mention.replace(/^@/, "").trim().toLowerCase();

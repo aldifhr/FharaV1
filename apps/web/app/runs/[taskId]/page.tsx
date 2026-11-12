@@ -14,7 +14,7 @@ import { useToast } from "@/components/Toasts";
 import { buildRunJson, buildRunMarkdown, exportFilename } from "@/lib/runExport";
 import webPackage from "../../../package.json";
 import { roleLabel } from "@/lib/agentRoles";
-import { isIdleDirectThread, taskStatusLabel } from "@/lib/taskStatus";
+import { isParkedLegacyDirect, taskStatusLabel } from "@/lib/taskStatus";
 import { clockTime } from "@/lib/format";
 import RoutingInspector from "@/components/runs/RoutingInspector";
 import PlanGraph from "@/components/runs/PlanGraph";
@@ -540,7 +540,7 @@ export default function RunTracePage() {
                 id={String(run.task._id)}
                 idLabel="run id"
                 status={{
-                  tone: statusTone(isIdleDirectThread(run.task.status, run.task) ? "idle" : run.task.status),
+                  tone: statusTone(isParkedLegacyDirect(run.task.status, run.task) ? "idle" : run.task.status),
                   label: taskStatusLabel(run.task.status, run.task),
                 }}
                 actions={<ExportMenu run={run} />}

@@ -20,7 +20,6 @@ import { processNextRepoToolCall } from "./services/repoTools";
 import { pollOpencodeCatalog } from "./services/opencodeCatalog";
 import { effectiveWorkspaceRoot, reportKnobEnv, syncAppSettings } from "./services/appSettings";
 import { REPO_TOOLS_CAPABILITY } from "@/api/convex/lib/chat/repoTools";
-import { DirectThreads } from "./direct";
 import { installConsoleRedaction, registerEnvSecrets } from "./utils/redact";
 import { startFharaMcpFromEnv } from "./mcpServer";
 import { convexDecisionTurnPort, ctoFirstFromEnv } from "./decisionTurn/port";
@@ -153,20 +152,6 @@ async function main() {
     ctoFirst: CTO_FIRST,
   };
 
-  // Direct threads (threadbear T2): their own claim loop and live sessions,
-  // beside the orchestrated task loop; their leases ride the heartbeat.
-  const direct = new DirectThreads({
-    api,
-    workerId,
-    workspaceRoot,
-    policy,
-    leaseMs: LEASE_MS,
-    log,
-    shutdownSignal: shutdownController.signal,
-  });
-  // Agent process groups a crashed worker left behind (Nuphos N2); the
-  // first direct claim waits for this.
-  void direct.sweepLeftovers();
   // GOAT G12a: the localhost Fhara MCP server (read tools); off unless configured.
   const mcpServer = await startFharaMcpFromEnv(api, CTO_FIRST);
   // D3: spill files of large tool output, past their retention (default 72 h).
@@ -213,13 +198,12 @@ async function main() {
         workerId,
         hostname: os.hostname(),
         capacity: CONCURRENCY,
-        activeTasks: inFlight.size + direct.size,
+        activeTasks: inFlight.size,
         leaseMs: LEASE_MS,
         // Renew ONLY the leases of tasks this process is actually running,
         // so an abandoned task (no approval row, crashed run) expires and
         // is recovered instead of staying "running" forever (core H2).
-        // Live direct threads keep theirs while a turn runs or a card waits.
-        activeTaskIds: [...Array.from(inFlight.keys()), ...direct.activeTaskIds()],
+        activeTaskIds: Array.from(inFlight.keys()),
         // Grounded chat only queues repo tool calls when an online worker
         // advertises that it polls for them (an older build does not).
         capabilities: [REPO_TOOLS_CAPABILITY, sandboxTag, pressureCapability(pressure.check())].filter(
@@ -231,7 +215,6 @@ async function main() {
         // another worker claimed them): every write would be refused
         // anyway, and side effects (commands, pushes) must not continue.
         for (const taskId of result?.lostTaskIds ?? []) {
-          direct.lost(taskId);
           const guard = leaseGuards.get(taskId);
           if (!guard || guard.signal.aborted) continue;
           log("lease lost, stopping task", taskId);
@@ -313,8 +296,6 @@ async function main() {
       await sleep(200);
     }
     if (inFlight.size > 0) log(`${inFlight.size} task(s) still draining at exit; leases will expire`);
-    // Live direct threads: end their sessions and hand them back.
-    await withTimeout(direct.shutdown(), 3_000);
     clearInterval(heartbeat);
     await withTimeout(subscriber?.close() ?? Promise.resolve(), 1_000);
     // Plan 009: kill every MCP child process before the worker exits.
@@ -439,18 +420,7 @@ async function main() {
       wake = done;
     });
 
-  let directInFlight: Promise<unknown> | null = null;
-  const pollDirect = () => {
-    if (directInFlight || stopping) return;
-    directInFlight = direct
-      .tick()
-      .catch((error) => log("direct claim error", error instanceof Error ? error.message : String(error)))
-      .finally(() => {
-        directInFlight = null;
-      });
-  };
-
-  // GOAT G13: CTO decision turns for questions a direct thread asked through question.ask.
+  // GOAT G13: CTO decision turns for questions asked through question.ask.
   let decisionInFlight: Promise<void> | null = null;
   let lastDecisionPoll = 0;
   const pollDecisionTurns = () => {
@@ -469,7 +439,6 @@ async function main() {
 
   while (!stopping) {
     pollPushes();
-    pollDirect();
     pollMcpTests();
     pollDecisionTurns();
     pollOpencodeCatalogs();

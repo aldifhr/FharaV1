@@ -3,7 +3,7 @@
  *
  *   wenv("WORKER_LEASE_MS")                    process.env, parsed with the var's dialect
  *   wenv("ORCHESTRATOR_TASK_TIMEOUT_MS", settingEnv)   knob-aware: UI override, then process.env
- *   wenv("DIRECT_MAX_LIVE", env)               an injected env (tests, child scopes)
+ *   wenv("WORKER_CONCURRENCY", env)            an injected env (tests, child scopes)
  *   wenvRaw("X")                               the raw string after aliases (presence checks, quirks)
  *
  * The source is passed in rather than imported, so this package stays at

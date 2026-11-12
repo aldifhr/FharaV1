@@ -6,8 +6,8 @@
  * Exception, B2 (one bool dialect): every boolean oracle below now calls
  * b2Bool, an independent copy of the unified rule. The five pre-B2
  * dialects are pinned (and contrasted) in behaviourFixes.test.ts.
- * Exception, B3 (validated numbers): the index.ts constants, DIRECT_POLL_MS
- * and the LLM ints call b3Int. Exception, B5: legacyGlobalLLMConfig is the
+ * Exception, B3 (validated numbers): the index.ts constants and the LLM
+ * ints call b3Int. Exception, B5: legacyGlobalLLMConfig is the
  * unified LLM fallback (b5GlobalLLMConfig).
  */
 /* eslint-disable */
@@ -268,18 +268,6 @@ export function legacyIndexConstants(env: Env) {
 /** convexClient.ts */
 export const legacyConvexUrl = (env: Env) => env.NEXT_PUBLIC_CONVEX_URL ?? env.CONVEX_URL;
 export const legacySubscribe = (env: Env) => b2Bool(env.WORKER_SUBSCRIBE, true);
-
-/** direct/index.ts */
-export const legacyDirectPollMs = (env: Env) => b3Int(env.DIRECT_POLL_MS, 750, 250);
-export function legacyDirectIdleMs(env: Env): number {
-  const minutes = Number(env.DIRECT_IDLE_MIN ?? 10);
-  return Math.max(1, Number.isFinite(minutes) ? minutes : 10) * 60_000;
-}
-export function legacyDirectMaxLive(env: Env): number {
-  const n = Math.floor(Number(env.DIRECT_MAX_LIVE ?? 4));
-  return Math.min(8, Math.max(1, Number.isFinite(n) ? n : 4));
-}
-export const legacyDirectEngineApiLoop = (env: Env) => (env.DIRECT_ENGINE ?? "").trim() === "api-loop";
 
 /** effects/llmCall.ts workerGateLimitFromEnv */
 export function legacyWorkerGateLimit(env: Env): number {

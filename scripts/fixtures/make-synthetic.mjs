@@ -470,44 +470,11 @@ function researchFanout() {
   return s.done();
 }
 
-/** 8. A direct OpenCode thread, idle after one turn. */
-function directIdle() {
-  const s = builder('direct-idle', {
-    title: 'Direct OpenCode thread (idle)',
-    description: 'A direct thread run by Frontend through OpenCode ACP: one finished turn with reasoning, a read, an edit diff and a test run, now idle.',
-    covers: ['tasks (mode direct)', 'taskEvents (threadbear protocol names)'],
-  });
-  const fe = s.agent('frontend');
-  const p = project(s, 'Direct thread', { agentIds: [fe] });
-  const task = s.ref('tasks', 'main');
-  const ev = (type, payload, extra = {}) => s.taskEvent(task, p, type, payload, extra);
-  const startedAt = s.tick();
-  ev('thread.created', { mode: 'direct', role: 'frontend', agentId: fe });
-  const msgSeq = ev('user.message', { text: 'The header logo is blurry on retina screens. Can you fix it?', clientId: 'fixture-direct-1' }, { eventKey: 'user.message:fixture-direct-1' });
-  ev('turn.started', { turnId: 'turn_1', messageSeq: msgSeq }, { eventKey: 'turn.started:turn_1' });
-  ev('reasoning', { itemId: 'r1', text: 'The logo is probably a 1x PNG. Check how Header renders it.' });
-  ev('tool.call', { itemId: 'c1', name: 'read', kind: 'read', title: 'Read src/components/Header.tsx', input: { path: 'src/components/Header.tsx' } });
-  ev('tool.result', { itemId: 'c1', ok: true, text: '<img src="/logo.png" width={120} height={32} alt="Acme" />', truncated: false });
-  ev('tool.call', { itemId: 'c2', name: 'edit', kind: 'edit', title: 'Edit src/components/Header.tsx', input: { path: 'src/components/Header.tsx' } });
-  ev('edit.diff', { itemId: 'c2', path: 'src/components/Header.tsx', hunks: [{ oldStart: 12, oldLines: 1, newStart: 12, newLines: 1, lines: ['-<img src="/logo.png" width={120} height={32} alt="Acme" />', '+<img src="/logo.svg" width={120} height={32} alt="Acme" />'] }] });
-  ev('tool.result', { itemId: 'c2', ok: true, text: 'Edited src/components/Header.tsx', truncated: false });
-  ev('tool.call', { itemId: 'c3', name: 'bash', kind: 'command', title: 'npm run test -- Header', input: { command: 'npm run test -- Header' } });
-  ev('tool.result', { itemId: 'c3', ok: true, text: 'PASS src/components/Header.test.tsx\nTests: 3 passed, 3 total', truncated: false });
-  ev('assistant.text', { itemId: 'm1', text: 'The header used a 1x PNG. It now loads `/logo.svg`, which stays sharp at any density. The Header tests pass.' });
-  const done = ev('turn.completed', { turnId: 'turn_1', outcome: 'completed', durationMs: 48_000, answered: 1 }, { eventKey: 'turn.completed:turn_1' });
-  s.row('tasks', 'main', {
-    projectId: p, title: 'Blurry header logo', command: 'The header logo is blurry on retina screens. Can you fix it?', status: 'waiting_input', mode: 'direct',
-    direct: { role: 'frontend', agentId: fe, sessionId: 'ses_fixture_direct_1', engine: 'opencode-acp', status: 'idle', lastSeq: done, deliveredSeq: msgSeq, idleSince: s.now() },
-    assignedAgentIds: [fe], permissionMode: 'supervised', idempotencyKey: 'direct:fixture:direct-idle', startedAt, updatedAt: s.now(), eventSequence: 0,
-  });
-  return s.done();
-}
-
 // ------------------------------------------------------------------ write
 
 export function buildAll() {
   msgCount = 0;
-  return [plannedPush(), commandApproval(), heldResume(), verifyLoopFailed(), personalChat(), researchFanout(), directIdle()];
+  return [plannedPush(), commandApproval(), heldResume(), verifyLoopFailed(), personalChat(), researchFanout()];
 }
 
 function write() {

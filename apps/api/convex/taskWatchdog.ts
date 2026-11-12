@@ -11,6 +11,7 @@
  *     visible reason, a `task.watchdog` event and an incident. The worker's
  *     cancel polling sees the terminal status and stops its run.
  */
+import { isLegacyDirect } from "./lib/legacyDirect";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -110,12 +111,7 @@ export const run = internalMutation({
         .withIndex("by_status", (q) => q.eq("status", "running"))
         .take(WATCHDOG_BATCH);
       for (const task of candidates) {
-        // A direct thread holds its lease while idle or waiting on a card
-        // (threadbear T2): the worker releases it after DIRECT_IDLE_MIN, and
-        // a dead worker is handled by recoverDirect. Never "stuck" here: a
-        // hung ACP turn is stopped by the worker's turn watchdog (Nuphos N3,
-        // packages/worker/src/direct/threadRunner.ts) as `timed_out`.
-        if (task.mode === "direct") continue;
+        if (isLegacyDirect(task)) continue; // closed by recoverStale, never "stuck"
         // O3 + L7: a task on a provider hold waits for its backoff resume;
         // never "stuck" (defensive: a held task is `paused`, not running).
         if (!watchdogMayFail(task)) continue;

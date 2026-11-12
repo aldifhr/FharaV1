@@ -2,9 +2,6 @@
   "apps/api/convex/chat.ts": {
     "lines": 1522
   },
-  "apps/api/convex/directThreads.ts": {
-    "lines": 950
-  },
   "apps/api/convex/githubPush.ts": {
     "lines": 846
   },
@@ -12,16 +9,16 @@
     "lines": 1066
   },
   "apps/api/convex/orchestration.ts": {
-    "lines": 3080
+    "lines": 3078
   },
   "apps/api/convex/schema.ts": {
-    "lines": 2285
+    "lines": 2246
   },
   "apps/api/convex/skills.ts": {
     "lines": 1316
   },
   "apps/api/convex/worker.ts": {
-    "lines": 1647
+    "lines": 1538
   },
   "apps/web/app/WorkspaceContext.tsx": {
     "pulse": 1
@@ -65,7 +62,7 @@
     "hex": 3
   },
   "apps/web/components/ChatPanel.tsx": {
-    "lines": 860,
+    "lines": 823,
     "tint": 8
   },
   "apps/web/components/ConfirmDialog.tsx": {
@@ -115,7 +112,7 @@
     "tint": 1
   },
   "apps/web/components/chat/MessageList.tsx": {
-    "lines": 889
+    "lines": 870
   },
   "apps/web/components/chat/OptionCards.tsx": {
     "tint": 3,
@@ -213,9 +210,6 @@
   },
   "packages/worker/src/services/runner/runNodes.ts": {
     "lines": 856
-  },
-  "packages/worker/src/workerApi.ts": {
-    "lines": 806
   },
   "packages/worker/tests/dagScheduler.test.ts": {
     "lines": 820

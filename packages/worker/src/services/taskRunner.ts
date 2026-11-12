@@ -410,7 +410,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
       deps.policy.maxPlanningIterations ?? deps.policy.maxReplans;
     const canReplan = () => loop.replans < maxPlanningIterations;
 
-    // eslint-disable-next-line no-constant-condition
+    // eslint-disable-next-line no-constant-condition -- the loop exits from inside
     while (true) {
       await deps.api.logEvent({
         taskId: task._id,

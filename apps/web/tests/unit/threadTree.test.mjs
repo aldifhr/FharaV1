@@ -81,9 +81,9 @@ test("group by kind and status: fixed order, empty groups dropped", () => {
     row({ kind: "conversation", taskId: null, conversationId: "c1", status: "idle" }),
     row({ kind: "task", status: "done" }),
     row({ kind: "task", status: "waiting_input", needsYou: true }),
-    row({ kind: "direct", status: "queued" }),
+    row({ kind: "task", status: "queued" }),
   ];
-  assert.deepEqual(groupThreads(rows, "kind").map((g) => g.label), ["Tasks", "Direct", "Conversations"]);
+  assert.deepEqual(groupThreads(rows, "kind").map((g) => g.label), ["Tasks", "Conversations"]);
   assert.deepEqual(groupThreads(rows, "status").map((g) => g.label), ["Needs you", "Active", "Idle", "Done"]);
   assert.deepEqual(groupThreads([row({ status: "failed" })], "status").map((g) => g.label), ["Done"]);
 });

@@ -93,10 +93,6 @@ type Props = {
   blockKey: (m: any) => string;
   /** D12: "Load earlier" and the turn outline for a long thread. */
   history?: MessageHistory;
-  /** "Add as Thread": ids of the messages selected for a new thread. */
-  selectedIds?: ReadonlySet<string>;
-  /** Toggle one message in the "Add as Thread" selection. */
-  onSelectMessage?: (messageId: string) => void;
 };
 
 export default function MessageList(props: Props) {
@@ -104,7 +100,7 @@ export default function MessageList(props: Props) {
     timeline, firstNewIndex, agents, tasks = [], subtasksOf, pendingItems, projectEvents = [],
     projectApprovalMode, loading = false, chatSending,
     conversationTyping, typingAgent, scrollRef, scrollToMessageRef,
-    onSelectTask, approve, reject, hold, respond, togglePin, onPickProposal, onCreateTaskFrom, onReply, formatTime, taskTitle, blockKey, history, selectedIds, onSelectMessage,
+    onSelectTask, approve, reject, hold, respond, togglePin, onPickProposal, onCreateTaskFrom, onReply, formatTime, taskTitle, blockKey, history,
   } = props;
 
   const listRef = useRef<HTMLDivElement>(null);
@@ -254,19 +250,6 @@ export default function MessageList(props: Props) {
       : undefined;
     const group = activityGroups.get(index);
     const open = group ? (groupOpen[group.id] ?? group.expandedByDefault) : true;
-    // "Add as Thread": a settled, project message can be picked; a system
-    // line, a task card, an optimistic placeholder or an empty row cannot.
-    const selectable =
-      Boolean(onSelectMessage) && !m.optimistic && systemText === null && !m.taskId && Boolean(m.content?.trim());
-    const selectBox = selectable ? (
-      <input
-        type="checkbox"
-        checked={selectedIds?.has(String(m._id)) ?? false}
-        onChange={() => onSelectMessage?.(String(m._id))}
-        aria-label="Select message for Add as Thread"
-        className="mt-1 h-4 w-4 shrink-0 cursor-pointer rounded border-line-strong accent-ink"
-      />
-    ) : null;
     const inner = (
       <>
         {index === firstNewIndex && (
@@ -341,7 +324,6 @@ export default function MessageList(props: Props) {
             transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
             className={`group relative mt-5 flex gap-3.5 rounded-xl transition-colors duration-700 ${flashId === String(m._id) ? "bg-hover" : ""}`}
           >
-            {selectBox}
             {renderMessageBody(m, index, messageAgent)}
           </motion.div>
         ) : (
@@ -350,7 +332,6 @@ export default function MessageList(props: Props) {
             id={`message-${m._id}`}
             className={`group relative mt-5 flex gap-3.5 rounded-xl transition-colors duration-700 ${flashId === String(m._id) ? "bg-hover" : ""}`}
           >
-            {selectBox}
             {renderMessageBody(m, index, messageAgent)}
           </div>
         )}

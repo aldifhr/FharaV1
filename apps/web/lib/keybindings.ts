@@ -24,9 +24,6 @@ export const KEYBINDING_ACTIONS = [
   { id: "sendRound", label: "Send draft comments as a review round", scope: "Changes", defaultChord: "Mod+Shift+Enter" },
   { id: "nextThread", label: "Next thread in the sidebar", scope: "Sidebar", defaultChord: "Alt+Shift+ArrowDown" },
   { id: "prevThread", label: "Previous thread in the sidebar", scope: "Sidebar", defaultChord: "Alt+Shift+ArrowUp" },
-  { id: "approveCard", label: "Allow the waiting card", scope: "Direct thread", defaultChord: "Mod+Enter" },
-  { id: "denyCard", label: "Deny the waiting card (not while the focused box holds text)", scope: "Direct thread", defaultChord: "Mod+Backspace" },
-  { id: "pickOption", label: "Pick option 1–9 on the waiting question (these keys with the digit)", scope: "Direct thread", defaultChord: "Mod+Alt+1" },
 ] as const;
 
 export type KeybindingId = (typeof KEYBINDING_ACTIONS)[number]["id"];
@@ -83,42 +80,6 @@ export function matchesChord(event: KeyLike, chord: string): boolean {
   if (mods.has("Alt") !== event.altKey) return false;
   if (mods.has("Shift") !== event.shiftKey) return false;
   return normalizeKey(event.key) === key;
-}
-
-/** A decision on the card waiting on the user, from a keydown. */
-export type DecisionKey = { kind: "approve" } | { kind: "deny" } | { kind: "option"; index: number };
-
-type DecisionEvent = KeyLike & { code?: string; isComposing?: boolean };
-
-/**
- * The card decision a keydown asks for, or null. ⌘↵ allows and ⌘⌫ denies by
- * default (Ctrl off macOS). Neither fires while the focused box holds text
- * (`typing`): there ⌘⌫ keeps deleting and ⌘↵ stays the composer's. Options
- * use the modifiers of the `pickOption` chord (⌥⌘ by default) with a digit
- * 1–9 read from the physical key (`code`), since ⌥ types characters on many
- * layouts; off macOS the key must still read as the digit, so AltGr text
- * entry is left alone.
- */
-export function decisionKey(event: DecisionEvent, bindings: Keybindings, opts: { typing: boolean; mac: boolean }): DecisionKey | null {
-  if (event.isComposing) return null;
-  if (!opts.typing && matchesChord(event, bindings.approveCard)) return { kind: "approve" };
-  if (!opts.typing && matchesChord(event, bindings.denyCard)) return { kind: "deny" };
-  const digit = /^Digit([1-9])$/.exec(event.code ?? "")?.[1];
-  if (!digit || (!opts.mac && event.key !== digit)) return null;
-  const chord = normalizeChord(bindings.pickOption);
-  if (!chord) return null;
-  const mods = chord.split("+").slice(0, -1);
-  if ((mods.includes("Mod") || mods.includes("Ctrl")) !== (event.metaKey || event.ctrlKey)) return null;
-  if (mods.includes("Alt") !== event.altKey || mods.includes("Shift") !== event.shiftKey) return null;
-  return { kind: "option", index: Number(digit) - 1 };
-}
-
-/** Whether the focused element is a text box that already holds text. */
-export function focusedBoxHasText(active: Element | null): boolean {
-  if (!active) return false;
-  if (typeof HTMLInputElement !== "undefined" && active instanceof HTMLInputElement) return active.value !== "";
-  if (typeof HTMLTextAreaElement !== "undefined" && active instanceof HTMLTextAreaElement) return active.value !== "";
-  return typeof HTMLElement !== "undefined" && active instanceof HTMLElement && active.isContentEditable && (active.textContent ?? "") !== "";
 }
 
 export function defaultKeybindings(): Keybindings {

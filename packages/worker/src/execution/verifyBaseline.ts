@@ -280,7 +280,7 @@ const TAP_NOT_OK = /^\s*not ok\s+\d+\s+-?\s*(.+?)\s*$/;
 const PYTEST_FAILED = /^\s*(?:FAILED|ERROR)\s+(\S+)/;
 
 function stripAnsi(text: string): string {
-  // eslint-disable-next-line no-control-regex
+  // eslint-disable-next-line no-control-regex -- matches ANSI escape codes on purpose
   return text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
 }
 

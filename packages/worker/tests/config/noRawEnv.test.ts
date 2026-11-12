@@ -25,9 +25,6 @@ const ALLOWED: Record<string, string> = {
   "tools/proxyFetch.ts:export async function proxyAwareFetch(env: Env = process.env): Promise<FetchLike> {": "HTTP(S)_PROXY / NO_PROXY (platform vars)",
   "utils/redact.ts:export function registerEnvSecrets(env: NodeJS.ProcessEnv = process.env): void {":
     "value-based redaction scans every secret-shaped name in the env",
-  "vendor/threadbear/acp/agents.ts:const source = o.source ?? process.env;": "vendored threadbear: agent detection env (platform vars)",
-  "vendor/threadbear/acp/agents.ts:for (const dir of (o.pathEnv ?? process.env.PATH ?? '').split(path.delimiter)) {":
-    "vendored threadbear: PATH lookup (platform var)",
 };
 
 function walk(dir: string, out: string[] = []): string[] {

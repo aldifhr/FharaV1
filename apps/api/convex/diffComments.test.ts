@@ -7,7 +7,7 @@ import { buildFixPrompt, buildReviewRoundPrompt, formatLineComment } from "./lib
 
 /**
  * Paradev A3: line comments on a task's changes, sent back as a review
- * round (one user message on a direct thread, one fix task otherwise).
+ * round (one fix task; a legacy direct thread is read-only).
  */
 
 const modules = import.meta.glob("./**/*.ts");
@@ -51,16 +51,15 @@ async function orchestrated(opts: { headSha?: string } = {}) {
   return { t, ...ids };
 }
 
-async function direct() {
+/** legacy: direct threads removed 2026-11-12; an old row stays read-only. */
+async function legacyDirect() {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
-    const devId = await ctx.db.insert("agents", { name: "Dev", role: "backend", status: "idle", isEnabled: true } as never);
-    const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "/ws/p", agentIds: [devId] } as never);
-    return { projectId, devId };
+    const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "/ws/p" } as never);
+    const taskId = await ctx.db.insert("tasks", { projectId, title: "Old thread", command: "", status: "waiting_input", mode: "direct" } as never);
+    return { projectId, taskId };
   });
-  const role = await t.run(async (ctx) => (await ctx.db.get(ids.devId))!.role);
-  const { taskId } = await t.mutation(api.directThreads.create, { projectId: ids.projectId, role, text: "hello", clientId: "c1" });
-  return { t, ...ids, taskId };
+  return { t, ...ids };
 }
 
 type T = Awaited<ReturnType<typeof orchestrated>>["t"];
@@ -158,20 +157,12 @@ describe("diffComments drafts", () => {
 });
 
 describe("diffComments.sendRound", () => {
-  test("on a direct thread appends exactly one user.message with the comments", async () => {
-    const { t, taskId } = await direct();
+  test("on a legacy direct thread sends nothing (read-only)", async () => {
+    const { t, taskId } = await legacyDirect();
     await draft(t, taskId);
-    const before = await t.run(async (ctx) => (await ctx.db.query("taskEvents").collect()).filter((e) => e.taskId === taskId));
-    const result = await t.mutation(api.diffComments.sendRound, { taskId });
-    expect(result).toMatchObject({ sent: true, round: 1, count: 1, mode: "direct", roundTaskId: taskId });
-    const after = await t.run(async (ctx) => (await ctx.db.query("taskEvents").collect()).filter((e) => e.taskId === taskId));
-    const added = after.filter((e) => !before.some((b) => b._id === e._id));
-    expect(added).toHaveLength(1);
-    expect(added[0].type).toBe("user.message");
-    expect((added[0].payload as any).text).toContain("In a.ts:L3-L5:");
+    expect(await t.mutation(api.diffComments.sendRound, { taskId })).toEqual({ sent: false, reason: "thread_closed" });
     const list = await t.query(api.diffComments.listForTask, { taskId });
-    expect(list[0]).toMatchObject({ status: "sent", round: 1, roundTaskId: taskId });
-    expect(await t.mutation(api.diffComments.sendRound, { taskId })).toEqual({ sent: false, reason: "no_drafts" });
+    expect(list[0]).toMatchObject({ status: "draft" });
   });
 
   test("on an orchestrated task creates one queued fix task on the same branch and worktree", async () => {

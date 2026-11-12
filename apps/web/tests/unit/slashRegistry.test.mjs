@@ -17,9 +17,8 @@ import {
 } from "../../lib/slashMenu.ts";
 
 // Registry builtins runSlash does not handle in the client. Since Paradev C3
-// it handles all of them: /research creates its task like /task does. D8's /goal
-// is a direct-thread command, handled by directThreads.send on the server.
-const NOT_IN_RUN_SLASH = new Set(["goal"]);
+// it handles all of them: /research creates its task like /task does.
+const NOT_IN_RUN_SLASH = new Set();
 
 test("runSlash handles exactly the registry builtins it owns", () => {
   const src = readFileSync(new URL("../../components/chat/useProjectSlash.ts", import.meta.url), "utf8");

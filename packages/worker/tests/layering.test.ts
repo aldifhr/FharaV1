@@ -46,8 +46,6 @@ const LAYERS: Record<string, number> = {
   scheduler: 4,
   router: 4,
   services: 5,
-  // Direct threads (threadbear T2): a task lifecycle beside services/.
-  direct: 5,
   // GOAT G13 / D7: decision turns (CTO questions, the Reviewer's auto review) run beside services/.
   decisionTurn: 5,
   // Designer read-only UI/UX lookup: pure BM25 over vendored data, no worker APIs.

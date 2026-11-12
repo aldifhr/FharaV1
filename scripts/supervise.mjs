@@ -10,10 +10,6 @@
  * - SIGINT / SIGTERM stop it cleanly: the signal is forwarded to the child's
  *   whole process group (npx → tsx → node), then SIGKILL after a grace period.
  * - Env: SUPERVISE_MAX_RESTARTS (default unlimited), SUPERVISE_GRACE_MS (10000).
- * - The worker's ACP agents (OpenCode) run in their own process groups, so
- *   a signal here never reaches them. The worker stops them on a graceful
- *   exit; after a crash or SIGKILL the restarted worker reaps the groups the
- *   dead one recorded (packages/worker/src/direct/agentPids.ts).
  */
 import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";

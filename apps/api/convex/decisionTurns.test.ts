@@ -193,7 +193,7 @@ describe("expiry never auto-picks", () => {
     expect(signals).toHaveLength(0);
   });
 
-  test("the sweep expires a direct-thread question and hands it to the user without picking an option", async () => {
+  test("the sweep expires an MCP question and hands it to the user without picking an option", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-11-12T00:00:00Z"));
     const { t, idle } = await seed("auto_edits");
@@ -225,7 +225,7 @@ describe("expiry never auto-picks", () => {
   });
 });
 
-describe("question.ask (direct threads via MCP)", () => {
+describe("question.ask (via MCP)", () => {
   test("a technical question goes to the CTO and its answer is delivered through the outbox", async () => {
     const { t, idle } = await seed("auto_edits");
     await t.mutation(api.mcpWrite.questionAsk, {

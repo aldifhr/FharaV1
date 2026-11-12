@@ -2,13 +2,14 @@
  * Schema pieces for the per-project thread list (Paradev P-B / threadbear T7),
  * kept out of schema.ts so that file stays within its line budget.
  *
- * One row per thread a project's sidebar lists: a task (orchestrated or a
- * direct thread) or a project conversation. Written only by
+ * One row per thread a project's sidebar lists: a task or a project
+ * conversation. Written only by
  * lib/threadIndex.ts, which patches a row only when a shown field changes.
  */
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
+// legacy: direct threads removed 2026-11-12; "direct" stays for old rows only.
 export const threadKind = v.union(v.literal("task"), v.literal("direct"), v.literal("conversation"));
 
 /** Who set a task's title: a user rename is never overwritten by the system. */

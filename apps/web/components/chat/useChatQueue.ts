@@ -102,7 +102,7 @@ export function useAutoGrowRef(deps: unknown[], maxHeight = 120) {
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the caller passes the deps list
   }, deps);
   return ref;
 }

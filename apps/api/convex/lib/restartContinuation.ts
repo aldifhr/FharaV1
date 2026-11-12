@@ -1,8 +1,7 @@
 // Adapted from GOAT (https://github.com/goat-si/goat) apps/server/src/orchestration-v2/RestartContinuation.ts @ 718f5b11,
 // MIT License, Copyright (c) 2026 T3 Tools Inc. and goat-si contributors. See THIRD_PARTY_NOTICES.md.
 /**
- * G4 restart continuation (pure; shared by the Convex recovery of direct
- * threads and the worker's subtask recovery).
+ * G4 restart continuation (pure; used by the worker's subtask recovery).
  *
  * A run cut off by a worker crash, shutdown or lost lease is not started
  * over: it gets ONE continuation that carries the steps it already
@@ -31,9 +30,6 @@ export const SUBTASK_STEP_EVENT_TYPES = [
   "native.tool",
   "agent.mcp_tools",
 ] as const;
-
-/** taskEvents types that are tool steps of a direct-thread turn. */
-export const DIRECT_STEP_EVENT_TYPES = ["tool.call", "edit.diff"] as const;
 
 /** One recorded step, trimmed to what a continuation needs (no outputs). */
 export interface RecordedStep {
@@ -138,7 +134,7 @@ export function decideContinuation(previous: readonly number[], now: number): Co
 export function describeStep(step: RecordedStep): string | null {
   const line = stepCommandLine(step);
   if (line) return `ran \`${line}\``;
-  if (step.type === "fileChanges.updated" || step.type === "edit.diff") return step.filePaths?.length ? `edited ${step.filePaths.join(", ")}` : null;
+  if (step.type === "fileChanges.updated") return step.filePaths?.length ? `edited ${step.filePaths.join(", ")}` : null;
   if (step.type === "fileChanges.discarded") return step.filePaths?.length ? `withdrew the edit to ${step.filePaths.join(", ")}` : null;
   return step.title ? `used ${step.title}` : null;
 }

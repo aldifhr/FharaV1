@@ -2,7 +2,7 @@
  * Load the synthetic fixtures into a dev Convex deployment, or wipe them.
  *
  *   npm run fixtures:seed                      every scenario
- *   npm run fixtures:seed -- --only planned-push,direct-idle
+ *   npm run fixtures:seed -- --only planned-push,held-resume
  *   npm run fixtures:wipe                      every fixture row (and rows written under fixture projects)
  *   npm run fixtures:wipe -- --only planned-push
  *   npm run fixtures:seed -- --list            print the scenarios and exit

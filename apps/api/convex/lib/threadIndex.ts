@@ -9,6 +9,7 @@
  * (`patchTask`), task inserts, conversation create / attach / rename and
  * throttled `lastMessageAt` bumps.
  */
+import { isLegacyDirect } from "./legacyDirect";
 import type { MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 
@@ -42,8 +43,8 @@ export function taskThreadStatus(task: Pick<Doc<"tasks">, "status" | "mode" | "p
     case "needs_approval":
       return { status: "needs you", needsYou: true };
     case "waiting_input":
-      // A direct thread parks in waiting_input between turns: idle, not a question.
-      return task.mode === "direct" ? { status: "idle", needsYou: false } : { status: "needs you", needsYou: true };
+      // A legacy direct thread (removed 2026-11-12) parked here: read-only, not a question.
+      return isLegacyDirect(task) ? { status: "idle", needsYou: false } : { status: "needs you", needsYou: true };
     case "paused":
       return { status: task.pausedBy === "held" ? "held" : "paused", needsYou: false };
     default:
@@ -55,7 +56,7 @@ export function taskShown(task: Doc<"tasks">): Shown {
   const { status, needsYou } = taskThreadStatus(task);
   return {
     projectId: task.projectId,
-    kind: task.mode === "direct" ? "direct" : "task",
+    kind: "task",
     title: task.title,
     status,
     needsYou,

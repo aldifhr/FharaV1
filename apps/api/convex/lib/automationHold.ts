@@ -38,7 +38,7 @@ export async function isAutomationHeld(ctx: Ctx): Promise<boolean> {
 /**
  * Work Fhara started on its own rather than a person: a PR-feedback fix
  * task (O1 reactions). Everything else in the queue was started by the
- * user (the composer, a direct thread, Start on an issue draft).
+ * user (the composer, Start on an issue draft).
  */
 export function isAutomaticTask(task: Pick<Doc<"tasks">, "prFix">): boolean {
   return task.prFix !== undefined;

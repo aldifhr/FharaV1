@@ -184,7 +184,7 @@ export default function PersonalChatPanel({
       const timer = setTimeout(() => void sendAllQueued(), 300);
       return () => clearTimeout(timer);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs only when the typing state flips
   }, [conversationTyping]);
 
   const formatTime = (createdAt: number) => {

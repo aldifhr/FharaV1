@@ -2,8 +2,8 @@
  * GOAT G13: one decision turn — a single LLM call made as a fixed role
  * (the CTO for G13) to decide a question, with a deadline.
  *
- * Generic on purpose: D7 (auto review) and N7 (native questions) plug in
- * their own `DecisionTurnSpec` (role, prompt, parser) and reuse the role
+ * Generic on purpose: D7 (auto review) plugs in
+ * its own `DecisionTurnSpec` (role, prompt, parser) and reuses the role
  * pick, the budget gate, the deadline, the model chain and the usage
  * metering here, plus the Convex side (apps/api/convex/decisionTurns.ts:
  * the turn row, the `taskSignals` answer outbox and the audit row).

@@ -26,26 +26,22 @@ export const TASK_STATUS_LABEL: Record<string, string> = {
 };
 
 /**
- * Label for a task status. Pass the task when you have it: a direct thread
- * (`mode: "direct"`) parks in `waiting_input` between turns, and with no
- * pending question that is "Idle", not "Waiting for you" (same rule as the
- * API's `isAwaitingUserAnswer`, which keeps it out of Needs you).
+ * Label for a task status. Pass the task when you have it: a legacy direct
+ * thread (removed 2026-11-12) parked in `waiting_input` reads "Idle", not
+ * "Waiting for you" (same rule as the API's `isAwaitingUserAnswer`).
  */
 export function taskStatusLabel(
   status: string | undefined,
-  task?: { mode?: string | null; pendingQuestion?: string | null } | null,
+  task?: { mode?: string | null } | null,
 ): string {
   if (!status) return "Unknown";
-  if (isIdleDirectThread(status, task)) return "Idle";
+  if (isParkedLegacyDirect(status, task)) return "Idle";
   return TASK_STATUS_LABEL[status] ?? status.replace(/_/g, " ");
 }
 
-/** A direct thread resting between turns, with nothing asked of the user. */
-export function isIdleDirectThread(
-  status: string | undefined,
-  task?: { mode?: string | null; pendingQuestion?: string | null } | null,
-): boolean {
-  return status === "waiting_input" && task?.mode === "direct" && !task.pendingQuestion?.trim();
+/** legacy: a direct thread (removed 2026-11-12) left in waiting_input; nothing is asked of the user. */
+export function isParkedLegacyDirect(status: string | undefined, task?: { mode?: string | null } | null): boolean {
+  return status === "waiting_input" && task?.mode === "direct";
 }
 
 /** Pill colours per task status (light + dark). */

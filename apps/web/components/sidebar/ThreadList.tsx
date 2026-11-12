@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation } from "convex/react";
-import { ChevronRight, Plus } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { matchesChord, useKeybindings } from "@/lib/keybindings";
 import { adjacentThreadId, buildThreadTree, threadHref, visibleThreadIds, type ThreadItem, type ThreadRowView } from "@/lib/threadTree";
@@ -16,7 +16,6 @@ import { useToast } from "../Toasts";
 import { SectionToggle } from "./SectionToggle";
 import ThreadRow from "./ThreadRow";
 import { useAllThreads } from "./useAllThreads";
-import NewDirectThread from "../direct/NewDirectThread";
 
 /** Rows shown per group before "N more" (all rows show while filtering). */
 const SHOWN = 6;
@@ -25,7 +24,7 @@ const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 
 /**
- * Sidebar Threads section (Paradev B2): tasks, direct threads and project
+ * Sidebar Threads section (Paradev B2): tasks and project
  * conversations from `threads.list`, grouped by project. The sidebar search
  * also matches titles and branches and opens every matching group.
  * Opening a row marks it seen.
@@ -134,7 +133,7 @@ export default function ThreadList({
   // Delete is confirmed first: a task takes its whole history with it, a
   // conversation its messages. Personal chats have their own page.
   const askDelete = (row: ThreadRowView) => {
-    const what = row.kind === "conversation" ? "chat" : row.kind === "direct" ? "direct thread" : "task";
+    const what = row.kind === "conversation" ? "chat" : "task";
     const message =
       row.kind === "conversation"
         ? "This conversation and all of its messages are deleted permanently. Tasks it started stay on the project board."
@@ -221,14 +220,11 @@ export default function ThreadList({
     />
   );
 
-  // Threadbear T3: "+" on a project group starts a direct thread there.
-  const [newIn, setNewIn] = useState<{ projectId: string; name: string } | null>(null);
   const total = rows?.length;
   return (
     <>
       <section aria-label="Threads">
         <SectionToggle title="Threads" count={total} open={open} onToggle={onToggle} chevron />
-        {newIn && <NewDirectThread projectId={newIn.projectId} projectName={newIn.name} onClose={() => setNewIn(null)} />}
         {open && rows === undefined && <p className="px-2 pt-1.5 text-[13px] text-ink-3">Loading threads…</p>}
         {open && rows !== undefined && groups.length === 0 && (
           <p className="px-2 pt-1.5 text-[13px] text-ink-3">
@@ -255,27 +251,16 @@ export default function ThreadList({
                       <span className="min-w-0 flex-1 truncate">{projectGroup ? `Project: ${g.label}` : g.label}</span>
                       <span className="tabular-nums">{g.rows.length}</span>
                     </button>
-                    {g.key.startsWith("project:") && (
-                      <button
-                        type="button"
-                        onClick={() => setNewIn({ projectId: g.key.slice("project:".length), name: g.label })}
-                        title={`New direct thread in ${g.label}`}
-                        aria-label={`New direct thread in ${g.label}`}
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 outline-none hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ink/30 group-hover/head:opacity-100 max-sm:opacity-100"
-                      >
-                        <Plus size={13} />
-                      </button>
-                    )}
                   </div>
                   {isOpen && (
                     // Project groups split the rows by kind: the project chat
-                    // (conversation), its task threads and its direct threads.
+                    // (conversation) and its task threads.
                     <div className="mt-0.5 space-y-1.5">
                       {projectGroup ? (
-                        (["conversation", "task", "direct"] as const).map((kind) => {
+                        (["conversation", "task"] as const).map((kind) => {
                           const rows = shown.filter((r) => r.kind === kind);
                           if (rows.length === 0) return null;
-                          const label = kind === "conversation" ? "Project chat" : kind === "task" ? "Tasks" : "Threads";
+                          const label = kind === "conversation" ? "Project chat" : "Tasks";
                           return (
                             <div key={kind}>
                               <p className="px-2 pt-0.5 text-[11.5px] font-medium text-ink-3">{label}</p>

@@ -2,7 +2,7 @@ import { v } from "convex/values";
 
 /**
  * GOAT G9 (+ threadbear T6): one `projects.scripts` field for the project's
- * setup script (run when a task or direct-thread worktree is created) and
+ * setup script (run when a task worktree is created) and
  * its check script (run by the host after a task reaches Done).
  *
  * Exact-argv allowlist, the same rule as the worker's command allowlist: a

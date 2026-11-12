@@ -346,7 +346,7 @@ export const remove = mutation({
     ] as const) {
       await deleteByTask(table);
     }
-    // Direct threads: hot stream rows and lazily loaded tool output bodies.
+    // legacy: rows of the removed direct threads (stream rows, tool output bodies).
     for (const row of await ctx.db.query("threadStreams").withIndex("by_task", (q) => q.eq("taskId", args.taskId)).collect()) {
       await ctx.db.delete(row._id);
     }

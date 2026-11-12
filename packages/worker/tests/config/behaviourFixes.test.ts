@@ -91,7 +91,6 @@ describe("B3: numbers are validated (no NaN), \"\" reads as the default", () => 
     "WORKER_MCP_TEST_POLL_MS",
     "WORKER_REPO_TOOL_POLL_MS",
     "WORKER_OPENCODE_CATALOG_POLL_MS",
-    "DIRECT_POLL_MS",
     "ORCHESTRATOR_LLM_MAX_TOKENS",
     "ORCHESTRATOR_LLM_TIMEOUT_MS",
   ] as const;

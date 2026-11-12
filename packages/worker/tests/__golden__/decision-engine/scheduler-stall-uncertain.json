@@ -1,0 +1,48 @@
+{
+  "calls": [
+    {
+      "at": 0,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    },
+    {
+      "at": 0,
+      "call": "onStart",
+      "node": "a",
+      "attempt": 1
+    },
+    {
+      "at": 0,
+      "call": "execute",
+      "node": "a",
+      "attempt": 1
+    },
+    {
+      "at": 1750,
+      "call": "onOutcome",
+      "node": "a",
+      "attempt": 1,
+      "outcome": {
+        "status": "failed",
+        "error": "Agent stalled: no output or heartbeat progress for 1000ms"
+      }
+    },
+    {
+      "at": 1750,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    }
+  ],
+  "result": {
+    "status": "failed",
+    "failed": [
+      "a"
+    ],
+    "outcomes": {
+      "a": {
+        "status": "failed",
+        "error": "Execution uncertain: the aborted attempt did not stop within 500ms; not retried automatically"
+      }
+    }
+  }
+}

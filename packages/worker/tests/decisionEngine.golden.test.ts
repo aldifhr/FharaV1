@@ -112,6 +112,7 @@ vi.mock("../src/execution/agentExecutor", () => ({
 }));
 
 import { processTask } from "@/services/taskRunner";
+import { setOpencodeDetection } from "@/execution/opencodeDetect";
 
 const agent = (id: string, name: string, role: string, capabilities: string[]) =>
   ({ _id: id, name, role, capabilities, isEnabled: true, priority: 0 }) as WorkerAgent;
@@ -169,6 +170,10 @@ interface Scenario {
   verifications?: Array<{ checks: Array<Record<string, unknown>> }>;
   /** L7: keep the stage-loop fix payloads and record who ran each node. */
   traceFixes?: boolean;
+  /** L8: the app runs subtasks on OpenCode but the worker detected no CLI. */
+  opencodeMissing?: boolean;
+  /** L8: also keep these events' payloads (byte-identical evidence). */
+  tracePayloads?: string[];
 }
 
 const SCENARIOS: Scenario[] = [
@@ -483,6 +488,88 @@ const SCENARIOS: Scenario[] = [
     agents: [FRONTEND, BACKEND, REVIEWER],
     traceFixes: true,
   },
+  // --- L8 (scheduler purification): retry and runNodes outcomes, recorded
+  // BEFORE the decisions moved into decisionEngine/retry.ts (the scheduler's
+  // own retry / stall traces live in schedulerRetry.golden.test.ts). ---
+  {
+    // A transient LLM failure is retried after the backoff and then succeeds.
+    name: "retry-transient-success",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "frontend-development")])],
+    steps: { implement: [{ outcome: { status: "failed", error: "LLM request failed (503): upstream unavailable" } }, { files: ["a.txt"], outcome: done("did it") }] },
+    agents: [FRONTEND],
+    policy: { subtaskRetries: 1, orchestratorAuthoritative: false },
+  },
+  {
+    // A permanent failure is never retried.
+    name: "retry-permanent-block",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "frontend-development")])],
+    steps: { implement: [{ outcome: { status: "failed", error: "Refusing to modify protected path .env" } }] },
+    agents: [FRONTEND],
+    policy: { subtaskRetries: 1, orchestratorAuthoritative: false },
+  },
+  {
+    // A retryable failure that keeps failing: the retries run out, the node fails.
+    name: "retry-exhausted",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "frontend-development")])],
+    steps: { implement: [{ outcome: { status: "failed", error: "transient boom" } }] },
+    agents: [FRONTEND],
+    policy: { subtaskRetries: 1, orchestratorAuthoritative: false },
+  },
+  {
+    // No agent serves the capability and fallback is off: BLOCKED with the reason.
+    name: "unroutable-node",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "database-administration")])],
+    agents: [FRONTEND],
+    policy: { allowFallback: false },
+    tracePayloads: ["subtask.routed", "subtask.blocked"],
+  },
+  {
+    // An agent pinned to OpenCode on a worker without the CLI runs on the API runtime.
+    name: "opencode-unavailable-fallback",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "frontend-development")])],
+    byKind: { code_change: { files: ["a.txt"], outcome: done("did it") } },
+    agents: [FRONTEND],
+    opencodeMissing: true,
+    tracePayloads: ["opencode.skipped", "subtask.routed"],
+  },
+  {
+    // A fix node's transient failure is retried by the scheduler and the fix lands (same round).
+    name: "retry-fix-transient-success",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [UI_NODE, API_NODE, node("qa", "qa", "browser-testing", ["ui", "api"], 2)])],
+    steps: { ...WRITES, qa: [QA_FAILED, QA_PASSED], fix_qa_1: [{ outcome: { status: "failed", error: "LLM request failed (503): upstream unavailable" } }, { files: ["web/page.tsx"], outcome: done("fixed") }] },
+    agents: [FRONTEND, BACKEND, QA],
+    policy: { subtaskRetries: 1 },
+    traceFixes: true,
+  },
+  {
+    // A fix node that fails (even after its own retry) does not buy the QA loop an extra round.
+    name: "fix-qa-fix-node-failed",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [UI_NODE, API_NODE, node("qa", "qa", "browser-testing", ["ui", "api"], 2)])],
+    steps: { ...WRITES, qa: [QA_FAILED, QA_PASSED] },
+    byKind: { code_change: { outcome: { status: "failed", error: "transient boom" } } },
+    agents: [FRONTEND, BACKEND, QA],
+    policy: { subtaskRetries: 1 },
+    traceFixes: true,
+  },
+  {
+    // The same for the verification loop: a failed fix node ends the loop.
+    name: "fix-verify-fix-node-failed",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [API_NODE, UI_NODE])],
+    steps: WRITES,
+    byKind: { code_change: { outcome: { status: "failed", error: "transient boom" } } },
+    agents: [FRONTEND, BACKEND],
+    policy: { verificationEnabled: true, subtaskRetries: 1 },
+    verifications: [{ checks: [TYPECHECK_FAILED] }, { checks: [{ name: "typecheck", status: "passed" }] }],
+    traceFixes: true,
+  },
 ];
 
 let workspace: string;
@@ -520,9 +607,9 @@ async function run(s: Scenario) {
   const task = testTask({ title: s.command, command: s.command });
   const project = { _id: "project-1", name: "Fixture", workspacePath: workspace, approvalMode: "auto" as const };
   const { api, completions } = createFakeApi({
-    getContext: async () => ({ task, project, agents: s.agents, plan: null, subtasks: [], approvalMode: "auto" as const }),
+    getContext: async () => ({ task, project, agents: s.agents, plan: null, subtasks: [], approvalMode: "auto" as const, ...(s.opencodeMissing ? { opencodeRuntime: "opencode" } : {}) }),
     logEvent: async (input: { type: string; payload?: Record<string, unknown>; subtaskKey?: string; level?: string }) => {
-      if (!KEEP_PAYLOAD.has(input.type) && !(s.traceFixes && FIX_PAYLOAD.has(input.type))) {
+      if (!KEEP_PAYLOAD.has(input.type) && !(s.traceFixes && FIX_PAYLOAD.has(input.type)) && !s.tracePayloads?.includes(input.type)) {
         events.push(input.type);
         return;
       }
@@ -561,7 +648,12 @@ async function run(s: Scenario) {
     decisionLlmMode: "off",
     ...s.policy,
   });
-  await processTask(task as unknown as WorkerTask, createRunnerDeps({ api, policy, workspaceRoot: workspace }));
+  if (s.opencodeMissing) setOpencodeDetection({ installed: false, checkedAt: 0 });
+  try {
+    await processTask(task as unknown as WorkerTask, createRunnerDeps({ api, policy, workspaceRoot: workspace }));
+  } finally {
+    if (s.opencodeMissing) setOpencodeDetection(null);
+  }
   const last = completions.at(-1) as { status?: string; errorMessage?: string } | undefined;
   const trace = {
     events,

@@ -1,0 +1,78 @@
+{
+  "calls": [
+    {
+      "at": 0,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    },
+    {
+      "at": 0,
+      "call": "onStart",
+      "node": "a",
+      "attempt": 1
+    },
+    {
+      "at": 0,
+      "call": "execute",
+      "node": "a",
+      "attempt": 1
+    },
+    {
+      "at": 3010,
+      "call": "onOutcome",
+      "node": "a",
+      "attempt": 1,
+      "outcome": {
+        "status": "failed",
+        "error": "Subtask timed out after 3000ms"
+      }
+    },
+    {
+      "at": 3010,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    },
+    {
+      "at": 3110,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    },
+    {
+      "at": 3110,
+      "call": "onStart",
+      "node": "a",
+      "attempt": 2
+    },
+    {
+      "at": 3110,
+      "call": "execute",
+      "node": "a",
+      "attempt": 2
+    },
+    {
+      "at": 3110,
+      "call": "onOutcome",
+      "node": "a",
+      "attempt": 2,
+      "outcome": {
+        "status": "completed",
+        "output": "ok"
+      }
+    },
+    {
+      "at": 3110,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    }
+  ],
+  "result": {
+    "status": "completed",
+    "failed": [],
+    "outcomes": {
+      "a": {
+        "status": "completed",
+        "output": "ok"
+      }
+    }
+  }
+}

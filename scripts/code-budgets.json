@@ -190,7 +190,7 @@
     "lines": 887
   },
   "packages/worker/src/services/runner/runNodes.ts": {
-    "lines": 856
+    "lines": 843
   },
   "packages/worker/tests/dagScheduler.test.ts": {
     "lines": 820

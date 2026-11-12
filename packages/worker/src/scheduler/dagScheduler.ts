@@ -1,4 +1,4 @@
-import { isTransientLlmError } from "@/effects/llmCall";
+import { classifyFailure, decideRetry, type FailedObservation, type RetryDecision, type StalledObservation } from "@/orchestrator/decisionEngine/retry";
 import { pathsOverlap } from "@/utils/ownershipPaths";
 import {
   AGENT_STALLED_PREFIX,
@@ -147,72 +147,9 @@ export interface SchedulerResult {
   failed: string[];
 }
 
-/**
- * Subtask failure patterns that can never succeed on a blind retry: the
- * inputs are deterministic (plan shape, path policy, capability routing,
- * the model's final unparseable answer), so replaying the same subtask
- * would fail identically while burning time and tokens. Patterns mirror
- * the actual error strings produced by planValidator, the governance path
- * guard, capability routing, and the executor's final-JSON parsing.
- */
-const PERMANENT_SUBTASK_ERROR_PATTERNS: readonly RegExp[] = [
-  // Forbidden / protected paths (governance validateFilePath, executor guards)
-  /refusing to modify protected path/i,
-  /outside declared ownership/i,
-  /file[- ]path[- ]forbidden/i,
-  /forbidden path/i,
-  // No agent can serve the requested capability (routing is deterministic)
-  /no enabled agent (can serve|for) capability/i,
-  /no agent (available|found) for capability/i,
-  // The model's final answer could not be parsed as the required JSON
-  /did not return valid [^.]*json/i,
-  /unparseable/i,
-  /invalid json/i,
-  /failed to parse [^.]*json/i,
-  // A failed QA verdict on unchanged code: the QA loop owns the fix round;
-  // a blind retry only re-ran the same browser check (two identical
-  // "QA verdict: failed" messages on different ports).
-  // Every deterministic QA check failure (structural/viewport checks,
-  // console errors, overlay, empty body, 4xx) re-runs identically, so it
-  // goes straight to qa.failed / the fix round. Environment-flaky signals
-  // stay retryable: a QA harness exception ("qa-run: ..."), a 5xx while
-  // the dev server is still compiling, navigation timeouts, net::ERR_*.
-  /^QA failed: (?!qa-run:)(?![\s\S]*(?:Page returned HTTP 5\d\d|Timeout \d+ms exceeded|timed out|net::ERR_))/,
-  // Plan 022: an executor escalation waits for a CTO / user decision;
-  // replaying the same subtask would only escalate again.
-  /^Escalated \(/,
-  /role is read-only/i,
-  // Plan 040: a role permission refusal is final for that agent.
-  /^Refused: the .* role /,
-  // Plan validation failures (planValidator messages)
-  /^plan\.(goal|subtasks) /i,
-  /plan has \d+ subtasks; limit is/i,
-  /duplicate subtask key/i,
-  /depends on unknown subtask/i,
-  /depends on itself/i,
-  /dependency cycle detected/i,
-  /subtask .*: (kind must be one of|capability is required)/i,
-  /subtask\[\d+\] (must be an object|key is invalid)/i,
-];
-
-export function isPermanentSubtaskError(error: string): boolean {
-  return PERMANENT_SUBTASK_ERROR_PATTERNS.some((pattern) => pattern.test(error));
-}
-
-/**
- * Whether a failed subtask outcome is worth retrying. Permanent failures
- * fail immediately; failures that came out of the LLM layer keep the LLM
- * transient/permanent classification from effects/llmCall (429/5xx/network
- * retry, other 4xx do not); everything else keeps the historical
- * retry-while-attempts-remain behavior.
- */
-export function shouldRetrySubtask(error: string): boolean {
-  if (isPermanentSubtaskError(error)) return false;
-  if (/LLM request failed/i.test(error)) {
-    return isTransientLlmError(new Error(error));
-  }
-  return true;
-}
+// The failure classification moved to the Decision Engine (L8); re-exported
+// here for the callers and tests that import it from the scheduler.
+export { classifyFailure, isPermanentSubtaskError, shouldRetrySubtask } from "@/orchestrator/decisionEngine/retry";
 
 type State =
   | "pending"
@@ -320,79 +257,37 @@ export async function runScheduler(
       failed.push(node.id);
       return;
     }
-    // Agent stalled (watchdog): retried `stallRetries` times regardless of
-    // the generic retry budget, then escalated — never a generic timeout.
-    if (isAgentStalledError(outcome.error)) {
-      const stalls = (stallCounts.get(node.id) ?? 0) + 1;
-      stallCounts.set(node.id, stalls);
-      const canRetry =
-        stalls <= stallRetries &&
-        !cancelled &&
-        !haltLatched &&
-        !hooks.shouldHaltNewNodes?.() &&
-        (!hooks.shouldRetryNode || (await hooks.shouldRetryNode(node, outcome, attempt)));
+    // Agent stalled (watchdog) or failed: the engine decides retry, block or
+    // escalate (decisionEngine/retry.ts); the scheduler reads the lazy facts
+    // it asks for, in the order it asks, and keeps the timers.
+    const stalledNode = isAgentStalledError(outcome.error);
+    const observation: FailedObservation | StalledObservation = stalledNode
+      ? { kind: "stalled", nodeKey: node.id, attempt: (stallCounts.get(node.id) ?? 0) + 1, maxAttempts: stallRetries, cancelled, error: outcome.error }
+      : { kind: "failed", nodeKey: node.id, errorClass: classifyFailure(outcome.error), attempt, maxAttempts: hooks.retries, cancelled, retryDelayMs };
+    if (stalledNode) stallCounts.set(node.id, observation.attempt);
+    let step: RetryDecision = decideRetry(observation);
+    while (step.kind === "check") {
+      if (step.fact === "halted") observation.halted = haltLatched || Boolean(hooks.shouldHaltNewNodes?.());
+      else observation.budgetLeft = !hooks.shouldRetryNode || (await hooks.shouldRetryNode(node, outcome, attempt));
+      step = decideRetry(observation);
+    }
+    if (stalledNode) {
       await observe({
         kind: "agent_stalled",
-        action: canRetry ? "retry" : "escalate",
+        action: step.kind === "retry" ? "retry" : "escalate",
         nodeKey: node.id,
         reason: outcome.error,
-        detail: { stalls, attempt, stallMs: hooks.stallMs },
+        detail: { stalls: observation.attempt, attempt, stallMs: hooks.stallMs },
       });
-      if (canRetry) {
-        states.set(node.id, "pending");
-        return;
-      }
-      const escalated: NodeOutcome = {
-        status: "failed",
-        error: `Escalated (agent_stalled): ${outcome.error} on ${stalls} attempt(s); not retried again`,
-        meta: outcome.meta,
-      };
-      states.set(node.id, "failed");
-      outcomes.set(node.id, escalated);
-      failed.push(node.id);
-      return;
     }
-    // Permanent failures (invalid plan, forbidden path, no agent for the
-    // capability, unparseable final JSON, permanent LLM 4xx) settle as
-    // failed immediately — replaying the same subtask cannot change them.
-    if (!shouldRetrySubtask(outcome.error)) {
-      states.set(node.id, "failed");
-      outcomes.set(node.id, outcome);
-      failed.push(node.id);
-      return;
-    }
-    // A halt latched by this very outcome (e.g. the decision hook chose
-    // replan, or the budget/step limit hit) means the retry would never
-    // start: re-queueing it as pending only gets it swept by
-    // blockAllPending, which overwrote the real error ("Subtask timed out
-    // after …") with "Scheduling halted …" — in the subtask row and in the
-    // replan feedback (e2e ULTRA). Settle it as failed with its own error.
-    if (haltLatched || hooks.shouldHaltNewNodes?.()) {
-      states.set(node.id, "failed");
-      outcomes.set(node.id, outcome);
-      failed.push(node.id);
-      return;
-    }
-    if (attempt <= hooks.retries && !cancelled) {
-      // Even a classifiable retry is vetoed when the surrounding task
-      // can no longer pay for it (deadline fired / LLM budget spent).
-      if (
-        hooks.shouldRetryNode &&
-        !(await hooks.shouldRetryNode(node, outcome, attempt))
-      ) {
-        states.set(node.id, "failed");
-        outcomes.set(node.id, outcome);
-        failed.push(node.id);
-        return;
-      }
+    if (step.kind === "retry") {
       states.set(node.id, "pending");
-      if (retryDelayMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt));
-      }
+      const { afterMs } = step;
+      if (afterMs > 0) await new Promise((resolve) => setTimeout(resolve, afterMs));
       return;
     }
     states.set(node.id, "failed");
-    outcomes.set(node.id, outcome);
+    outcomes.set(node.id, step.kind === "escalate" ? { status: "failed", error: step.error, meta: outcome.meta } : outcome);
     failed.push(node.id);
   };
 

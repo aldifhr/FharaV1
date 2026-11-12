@@ -1,0 +1,78 @@
+{
+  "calls": [
+    {
+      "at": 0,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    },
+    {
+      "at": 0,
+      "call": "onStart",
+      "node": "a",
+      "attempt": 1
+    },
+    {
+      "at": 0,
+      "call": "execute",
+      "node": "a",
+      "attempt": 1
+    },
+    {
+      "at": 0,
+      "call": "onOutcome",
+      "node": "a",
+      "attempt": 1,
+      "outcome": {
+        "status": "failed",
+        "error": "LLM request failed (503): upstream unavailable"
+      }
+    },
+    {
+      "at": 0,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    },
+    {
+      "at": 100,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    },
+    {
+      "at": 100,
+      "call": "onStart",
+      "node": "a",
+      "attempt": 2
+    },
+    {
+      "at": 100,
+      "call": "execute",
+      "node": "a",
+      "attempt": 2
+    },
+    {
+      "at": 100,
+      "call": "onOutcome",
+      "node": "a",
+      "attempt": 2,
+      "outcome": {
+        "status": "completed",
+        "output": "ok"
+      }
+    },
+    {
+      "at": 100,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    }
+  ],
+  "result": {
+    "status": "completed",
+    "failed": [],
+    "outcomes": {
+      "a": {
+        "status": "completed",
+        "output": "ok"
+      }
+    }
+  }
+}

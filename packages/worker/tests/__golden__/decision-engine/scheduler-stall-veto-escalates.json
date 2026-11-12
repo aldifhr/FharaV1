@@ -1,0 +1,75 @@
+{
+  "calls": [
+    {
+      "at": 0,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    },
+    {
+      "at": 0,
+      "call": "onStart",
+      "node": "a",
+      "attempt": 1
+    },
+    {
+      "at": 0,
+      "call": "execute",
+      "node": "a",
+      "attempt": 1
+    },
+    {
+      "at": 1260,
+      "call": "onOutcome",
+      "node": "a",
+      "attempt": 1,
+      "outcome": {
+        "status": "failed",
+        "error": "Agent stalled: no output or heartbeat progress for 1000ms"
+      }
+    },
+    {
+      "at": 1260,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    },
+    {
+      "at": 1260,
+      "call": "shouldRetryNode",
+      "node": "a",
+      "attempt": 1,
+      "error": "Agent stalled: no output or heartbeat progress for 1000ms"
+    },
+    {
+      "at": 1260,
+      "call": "onStall",
+      "observation": {
+        "kind": "agent_stalled",
+        "action": "escalate",
+        "nodeKey": "a",
+        "reason": "Agent stalled: no output or heartbeat progress for 1000ms",
+        "detail": {
+          "stalls": 1,
+          "attempt": 1,
+          "stallMs": 1000
+        }
+      }
+    },
+    {
+      "at": 1260,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    }
+  ],
+  "result": {
+    "status": "failed",
+    "failed": [
+      "a"
+    ],
+    "outcomes": {
+      "a": {
+        "status": "failed",
+        "error": "Escalated (agent_stalled): Agent stalled: no output or heartbeat progress for 1000ms on 1 attempt(s); not retried again"
+      }
+    }
+  }
+}

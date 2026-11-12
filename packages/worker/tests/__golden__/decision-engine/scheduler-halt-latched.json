@@ -1,0 +1,64 @@
+{
+  "calls": [
+    {
+      "at": 0,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    },
+    {
+      "at": 0,
+      "call": "onStart",
+      "node": "a",
+      "attempt": 1
+    },
+    {
+      "at": 0,
+      "call": "execute",
+      "node": "a",
+      "attempt": 1
+    },
+    {
+      "at": 0,
+      "call": "onOutcome",
+      "node": "a",
+      "attempt": 1,
+      "outcome": {
+        "status": "failed",
+        "error": "Subtask timed out after 300000ms"
+      }
+    },
+    {
+      "at": 0,
+      "call": "shouldHaltNewNodes",
+      "value": true
+    },
+    {
+      "at": 0,
+      "call": "shouldHaltNewNodes",
+      "value": true
+    },
+    {
+      "at": 0,
+      "call": "onBlocked",
+      "node": "b",
+      "reason": "Scheduling halted before this subtask could run"
+    }
+  ],
+  "result": {
+    "status": "halted",
+    "failed": [
+      "a",
+      "b"
+    ],
+    "outcomes": {
+      "a": {
+        "status": "failed",
+        "error": "Subtask timed out after 300000ms"
+      },
+      "b": {
+        "status": "failed",
+        "error": "Scheduling halted before this subtask could run"
+      }
+    }
+  }
+}

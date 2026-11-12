@@ -1,0 +1,134 @@
+{
+  "events": [
+    "task.classified",
+    "orchestrator.plan",
+    "task.stage",
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "api",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "api",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 0,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "subtask.routed",
+    "fileChanges.updated",
+    "card.post_failed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "ui",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "ui",
+        "action": "complete",
+        "reasoning": "Task completed successfully, no further delegation needed",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 1,
+        "expectedOutcome": "objective:met"
+      }
+    },
+    {
+      "type": "orchestrator.completed",
+      "subtaskKey": "ui",
+      "level": "info",
+      "payload": {
+        "expectedOutcome": "objective:met"
+      }
+    },
+    "task.policy_dry_run",
+    "fileChanges.applied",
+    "task.stage",
+    "task.check",
+    "card.post_failed",
+    {
+      "type": "verification.fix_started",
+      "subtaskKey": null,
+      "level": "warn",
+      "payload": {
+        "iteration": 1,
+        "phase": 0,
+        "findings": 1
+      }
+    },
+    "subtask.routed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "fix_verify_1",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "fix_verify_1",
+        "action": "replan",
+        "reasoning": "transient boom",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 2,
+        "expectedOutcome": "recovery"
+      }
+    },
+    "subtask.routed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "fix_verify_1",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "fix_verify_1",
+        "action": "replan",
+        "reasoning": "transient boom",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 3,
+        "expectedOutcome": "recovery"
+      }
+    },
+    {
+      "type": "verification.fix_no_change",
+      "subtaskKey": null,
+      "level": "warn",
+      "payload": {
+        "iteration": 1,
+        "phase": 0,
+        "error": "transient boom"
+      }
+    },
+    "task.error"
+  ],
+  "messages": [
+    "system: Planned 2 subtasks",
+    "system: Sent to Backend: api",
+    "system: Sent to Frontend: ui",
+    "system: Sent to Backend: Address verification failures (iteration 1)"
+  ],
+  "delegations": [],
+  "pauses": [],
+  "replanFeedback": [
+    null
+  ],
+  "attempts": {
+    "api": 1,
+    "fix_verify_1": 2,
+    "ui": 1
+  },
+  "completion": {
+    "status": "failed",
+    "errorMessage": "Verification failed: typecheck still failing and the last of 1 fix attempt(s) produced no change (transient boom)"
+  },
+  "ranBy": {
+    "api": "Backend",
+    "fix_verify_1": "Backend",
+    "ui": "Frontend"
+  }
+}

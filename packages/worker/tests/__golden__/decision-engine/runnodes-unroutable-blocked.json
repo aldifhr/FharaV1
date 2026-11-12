@@ -1,0 +1,30 @@
+{
+  "events": [
+    {
+      "taskId": "task-1",
+      "projectId": "project-1",
+      "type": "subtask.routed",
+      "payload": {
+        "subtaskKey": "db",
+        "capability": "database-administration",
+        "agent": null,
+        "blocked": true,
+        "reason": "No agent available for capability \"database-administration\": no enabled agents"
+      },
+      "level": "warn"
+    }
+  ],
+  "feedback": [],
+  "result": {
+    "status": "failed",
+    "failed": [
+      "db"
+    ],
+    "outcomes": {
+      "db": {
+        "status": "failed",
+        "error": "Blocked: No agent available for capability \"database-administration\": no enabled agents"
+      }
+    }
+  }
+}

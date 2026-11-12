@@ -10,6 +10,7 @@ import {
 import { directiveFor, isStepLimit, resolveTargetAgent, type OverrideState, type RunnerDirective } from "./overrides";
 import type { ReplanObservation } from "./replan";
 import type { FixNeededObservation } from "./fixOwner";
+import type { RetryObservation } from "./retry";
 
 /**
  * P1b phase 1: the Decision Engine seam.
@@ -37,8 +38,11 @@ import type { FixNeededObservation } from "./fixOwner";
  *   - L7 (stage-loop owners, done): `decisionEngine/fixOwner.ts` exports
  *     `decideFixOwner(observation)`, re-exported here. The QA / verify /
  *     review loops report `fix_needed` and switch on spawn_fix / block.
- *   - L8 (scheduler purification): the scheduler and runNodes report an
- *     `EngineObservation` and execute the `NextStep` they get back.
+ *   - L8 (scheduler purification, done): `decisionEngine/retry.ts` exports
+ *     `decideRetry(observation)` and `classifyFailure(error)`, re-exported
+ *     here. The scheduler reports `failed` / `stalled`, runNodes reports
+ *     `prerequisite_missing` / `unroutable` / `runtime_unavailable`, and
+ *     each performs the `RetryDecision` it gets back.
  */
 
 export { evaluateObjective, isRecoveryNode, requiresScaffold, judgeObjective, reviewQaInFlight } from "./objective";
@@ -60,6 +64,17 @@ export { decideReplan } from "./replan";
 export type { ReplanDecision, ReplanFacts, ReplanObservation, ReplanTrigger } from "./replan";
 export { attributeFinding, decideFixOwner, fixRoundsExhausted, pickQaFixOwner, QA_UI_CAPABILITIES, verifyFixKey } from "./fixOwner";
 export type { FixNeededFacts, FixNeededObservation, FixOwnerDecision, FixStage } from "./fixOwner";
+export { classifyFailure, decideRetry, isPermanentSubtaskError, isRetryableClass, shouldRetrySubtask } from "./retry";
+export type {
+  FailedObservation,
+  FailureClass,
+  PrerequisiteMissingObservation,
+  RetryDecision,
+  RetryObservation,
+  RuntimeUnavailableObservation,
+  StalledObservation,
+  UnroutableObservation,
+} from "./retry";
 
 export interface DecideNextResult {
   decision: OrchestratorDecision;
@@ -105,17 +120,10 @@ export function targetAgent<A extends AgentDefinition>(
 // decision point speaks the same language.
 // ---------------------------------------------------------------------------
 
-/** Error class a failed node reports (L8 replaces the scheduler's regexes with this). */
-export type FailureClass = "permanent" | "transient" | "budget" | "escalation" | "unknown";
-
 /** A typed observation a mechanical layer reports to the engine. */
 export type EngineObservation =
   | { kind: "settled"; nodeKey: string; status: "completed" | "failed" }
-  | { kind: "failed"; nodeKey: string; errorClass: FailureClass; attempt: number; error: string }
-  | { kind: "stalled"; nodeKey: string; attempt: number }
-  | { kind: "unroutable"; nodeKey: string; capability: string }
-  | { kind: "prerequisite_missing"; nodeKey: string; missing: string[] }
-  | { kind: "runtime_unavailable"; nodeKey: string; runtime: string }
+  | RetryObservation
   | ReplanObservation
   | FixNeededObservation;
 

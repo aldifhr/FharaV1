@@ -9,6 +9,7 @@ import type { SiblingSubtask } from "@/execution/agentContext";
 import { nativeTimeoutMs, resolveOpencodeSelection } from "@/execution/nativeProvider";
 import { subtaskTimeoutFor } from "@/orchestrator/policy";
 import { capabilitiesOf, unroutedReason } from "@/orchestrator/capabilities";
+import { decideRetry } from "@/orchestrator/decisionEngine/retry";
 import { combineSignals } from "./abort";
 import type { FallbackHandle } from "@/effects/llmCall";
 import type { WorkerApi } from "@/workerApi";
@@ -84,39 +85,24 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
   // only order nodes it was given. Review/QA nodes are stage-managed by
   // the runner itself, so their ordering never has to be enforced here.
   // Any other unmet prerequisite (an implementation/analysis node that
-  // never completed) fails the subset closed instead of letting the node
-  // run on incomplete work.
+  // never completed) is a `prerequisite_missing` observation: the engine
+  // fails the subset closed instead of letting the node run on incomplete work.
   const stageManaged = new Set(
     plan.subtasks
       .filter((subtask) => subtask.kind === "review" || subtask.kind === "qa")
       .map((subtask) => subtask.key)
   );
-  const unmet = nodes.filter((node) =>
-    node.dependencies.some(
-      (dependency) =>
-        !subsetKeys.has(dependency) &&
-        !stageManaged.has(dependency) &&
-        !runCompleted.has(dependency)
-    )
-  );
-  if (unmet.length > 0) {
-    for (const node of unmet) {
-      state.feedback.push(`Prerequisite for "${node.key}" has not completed`);
-    }
-    const outcomes = new Map<string, NodeOutcome>(
-      unmet.map((node) => [
-        node.key,
-        {
-          status: "failed" as const,
-          error: `Prerequisite for "${node.key}" has not completed`,
-        },
-      ])
+  const unmet = nodes.flatMap((node) => {
+    const missing = node.dependencies.filter(
+      (dependency) => !subsetKeys.has(dependency) && !stageManaged.has(dependency) && !runCompleted.has(dependency)
     );
-    return {
-      status: "failed",
-      outcomes,
-      failed: unmet.map((node) => node.key),
-    };
+    const step = decideRetry({ kind: "prerequisite_missing", nodeKey: node.key, missing });
+    return step.kind === "block" ? [{ key: node.key, error: step.error ?? step.reason }] : [];
+  });
+  if (unmet.length > 0) {
+    for (const { error } of unmet) state.feedback.push(error);
+    const outcomes = new Map<string, NodeOutcome>(unmet.map(({ key, error }) => [key, { status: "failed" as const, error }]));
+    return { status: "failed", outcomes, failed: unmet.map(({ key }) => key) };
   }
   const stallThresholds = ctx.stallThresholds ?? stallThresholdsFromEnv(undefined, llmTimeoutMs());
   // One timeline event per deadlock / stall observation (`stall.<kind>`).
@@ -150,8 +136,9 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       const subtask = plan.subtasks.find((candidate) => candidate.key === node.id)!;
       const agent = assign(node.id);
       if (!agent) {
-        // Plan 040 (D8): no fallback owner; BLOCKED with the reason.
+        // Plan 040 (D8): an `unroutable` observation; the engine BLOCKS it with the reason.
         const reason = unroutedReason(subtask.capability, input.agents);
+        const step = decideRetry({ kind: "unroutable", nodeKey: node.id, capability: subtask.capability, reason });
         await deps.api
           .logEvent({
             taskId,
@@ -161,7 +148,7 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
             level: "warn",
           })
           .catch(() => undefined);
-        return { status: "failed", error: `Blocked: ${reason}` };
+        return { status: "failed", error: step.kind === "block" && step.error ? step.error : `Blocked: ${reason}` };
       }
       if (runCompleted.has(node.id)) return { status: "completed", output: "Previously completed" };
       const executionId = executionIds.get(node.id);
@@ -238,12 +225,12 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
       if (!route && opencodeSelection.runtime === "native-provider") {
         const gate = await opencodeGate();
         if (!gate.available) {
-          // Never run OpenCode in the user's real checkout (or without a
-          // CLI): this subtask runs on the built-in API runtime instead.
-          await logSkipped(node.id, [
-            { model: opencodeSelection.model ?? "(OpenCode default)", reason: gate.reason ?? "OpenCode is unavailable" },
-          ]);
-          opencodeSelection = { runtime: "api" };
+          // A `runtime_unavailable` observation: the engine falls back to the API runtime, silently.
+          const step = decideRetry({ kind: "runtime_unavailable", nodeKey: node.id, runtime: "native-provider", reason: gate.reason });
+          if (step.kind === "fallback") {
+            await logSkipped(node.id, [{ model: opencodeSelection.model ?? "(OpenCode default)", reason: step.reason }]);
+            opencodeSelection = { runtime: step.runtime };
+          }
         }
       }
       // Context Snapshot scope: every LLM call this node makes is attributed

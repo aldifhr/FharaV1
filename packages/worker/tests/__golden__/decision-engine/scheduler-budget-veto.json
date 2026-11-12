@@ -1,0 +1,60 @@
+{
+  "calls": [
+    {
+      "at": 0,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    },
+    {
+      "at": 0,
+      "call": "onStart",
+      "node": "a",
+      "attempt": 1
+    },
+    {
+      "at": 0,
+      "call": "execute",
+      "node": "a",
+      "attempt": 1
+    },
+    {
+      "at": 0,
+      "call": "onOutcome",
+      "node": "a",
+      "attempt": 1,
+      "outcome": {
+        "status": "failed",
+        "error": "transient boom"
+      }
+    },
+    {
+      "at": 0,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    },
+    {
+      "at": 0,
+      "call": "shouldRetryNode",
+      "node": "a",
+      "attempt": 1,
+      "error": "transient boom"
+    },
+    {
+      "at": 0,
+      "call": "shouldHaltNewNodes",
+      "value": false
+    }
+  ],
+  "result": {
+    "status": "failed",
+    "failed": [
+      "a"
+    ],
+    "outcomes": {
+      "a": {
+        "status": "failed",
+        "error": "transient boom"
+      }
+    }
+  }
+}

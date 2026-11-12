@@ -1,0 +1,21 @@
+{
+  "events": [
+    "task.classified",
+    "orchestrator.plan",
+    "task.stage",
+    "task.error"
+  ],
+  "messages": [
+    "system: Planned 1 subtask"
+  ],
+  "delegations": [],
+  "pauses": [],
+  "replanFeedback": [
+    null
+  ],
+  "attempts": {},
+  "completion": {
+    "status": "failed",
+    "errorMessage": "implement (attempt 1): No enabled agent for capability database-administration; implement: No enabled agent for capability database-administration"
+  }
+}

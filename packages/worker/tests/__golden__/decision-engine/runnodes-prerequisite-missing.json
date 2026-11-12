@@ -1,0 +1,24 @@
+{
+  "events": [],
+  "feedback": [
+    "Prerequisite for \"build\" has not completed",
+    "Prerequisite for \"ship\" has not completed"
+  ],
+  "result": {
+    "status": "failed",
+    "failed": [
+      "build",
+      "ship"
+    ],
+    "outcomes": {
+      "build": {
+        "status": "failed",
+        "error": "Prerequisite for \"build\" has not completed"
+      },
+      "ship": {
+        "status": "failed",
+        "error": "Prerequisite for \"ship\" has not completed"
+      }
+    }
+  }
+}

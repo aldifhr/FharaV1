@@ -10,6 +10,8 @@ import InitialAvatar from "@/components/InitialAvatar";
 import { roleLabel } from "@/lib/agentRoles";
 import { useNewProject } from "@/components/NewProject";
 import { statusFromLeases, teamStatusLabel, type LeaseEntry } from "@/lib/teamStatus";
+import { projectHref } from "@/lib/threadTree";
+import { requestThread } from "@/lib/pendingThread";
 
 /** Needs-you item kinds (shell.ts NeedsYouKind). */
 const NEEDS_KIND_LABEL: Record<string, string> = {
@@ -137,7 +139,7 @@ export default function Home() {
                   <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
                     {running.map(({ agent, lease, word, projectName }) => (
                       <li key={String(agent!._id)}>
-                        <Link href={`/chats/${lease.projectId}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
+                        <Link href={`/project/${lease.projectId}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
                           <InitialAvatar agent avatarParams={agent!.avatarParams} name={roleLabel(agent!.role)} size={28} status="working" />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-[14px]">
@@ -165,10 +167,14 @@ export default function Home() {
                     {data.needsYou.items.slice(0, 6).map((item) => {
                       // Run-command approvals are allowed/denied in the task thread or Inbox.
                       const decidable = item.approvalId !== null && item.kind !== "command";
-                      const href = `/chats/${item.projectId}${item.taskId ? `?task=${item.taskId}` : ""}`;
+                      const href = projectHref(item.projectId);
                       return (
                         <li key={item.key} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
-                          <Link href={href} className="min-w-0 flex-1">
+                          <Link
+                            href={href}
+                            onClick={() => item.taskId && requestThread(item.projectId, item.taskId)}
+                            className="min-w-0 flex-1"
+                          >
                             <p className="truncate text-[14px]">{item.title}</p>
                             <p className="truncate text-[12.5px] text-ink-3">
                               {NEEDS_KIND_LABEL[item.kind] ?? item.kind} · {item.projectName}
@@ -208,7 +214,7 @@ export default function Home() {
                   <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
                     {failedTasks.map((t) => (
                       <li key={t._id}>
-                        <Link href={`/chats/${t.projectId}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
+                        <Link href={`/project/${t.projectId}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
                           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-[14px]">{t.title}</p>
@@ -234,7 +240,7 @@ export default function Home() {
                       return (
                         <li key={p._id}>
                           <Link
-                            href={`/chats/${p._id}`}
+                            href={`/project/${p._id}`}
                             className="group block h-full rounded-xl border border-line bg-panel p-4 outline-none transition hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ink/30"
                           >
                             <div className="flex items-center justify-between gap-3">
@@ -267,7 +273,7 @@ export default function Home() {
                   <ul className="divide-y divide-line">
                     {data.recentTasks.slice(0, 6).map((t) => (
                       <li key={t._id}>
-                        <Link href={`/chats/${t.projectId}`} className="flex items-center gap-4 py-2.5 text-[14px] transition hover:text-ink-2">
+                        <Link href={`/project/${t.projectId}`} className="flex items-center gap-4 py-2.5 text-[14px] transition hover:text-ink-2">
                           <span className="min-w-0 flex-1 truncate">{t.title}</span>
                           <span className="hidden shrink-0 truncate text-[12.5px] text-ink-3 sm:inline">{t.projectName}</span>
                           <span className="w-28 shrink-0 text-right text-[12.5px] text-ink-3">{TASK_STATUS_LABEL[t.status] ?? t.status}</span>

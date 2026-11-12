@@ -9,6 +9,8 @@ import Sidebar from "@/components/Sidebar";
 import { roleLabel } from "@/lib/agentRoles";
 import { useToast } from "@/components/Toasts";
 import McpDraftsSection from "@/components/inbox/McpDraftsSection";
+import { projectHref } from "@/lib/threadTree";
+import { requestThread } from "@/lib/pendingThread";
 
 const KIND_LABEL: Record<string, string> = {
   apply_changes: "Apply changes",
@@ -164,7 +166,7 @@ export default function InboxPage() {
                         <p className="mt-0.5 truncate text-[12.5px] text-ink-3">
                           {KIND_LABEL[a.kind] ?? a.kind}
                           {" · "}
-                          <Link href={`/chats/${a.projectId}`} className="hover:text-ink">{a.projectName}</Link>
+                          <Link href={projectHref(a.projectId)} className="hover:text-ink">{a.projectName}</Link>
                           {a.taskTitle ? ` · ${a.taskTitle}` : ""}
                           {a.requestedByAgentName ? ` · ${roleLabel(a.requestedByAgentName)}` : ""}
                         </p>
@@ -242,7 +244,11 @@ export default function InboxPage() {
                 <Section title="Pull requests" count={inbox.notifications.length}>
                   {inbox.notifications.map((n) => (
                     <li key={n._id}>
-                      <Link href={`/chats/${n.projectId}?task=${n.taskId}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
+                      <Link
+                        href={projectHref(n.projectId)}
+                        onClick={() => n.taskId && requestThread(n.projectId, n.taskId)}
+                        className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover"
+                      >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[14px]">{n.title}</p>
                           <p className="truncate text-[12.5px] text-ink-3">
@@ -261,7 +267,11 @@ export default function InboxPage() {
                 <Section title="Questions" count={inbox.questions.length}>
                   {inbox.questions.map((q) => (
                     <li key={q.key}>
-                      <Link href={`/chats/${q.projectId}${q.taskId ? `?task=${q.taskId}` : ""}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
+                      <Link
+                        href={projectHref(q.projectId)}
+                        onClick={() => q.taskId && requestThread(q.projectId, q.taskId)}
+                        className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover"
+                      >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[14px]">{q.title}</p>
                           <p className="truncate text-[12.5px] text-ink-3">
@@ -280,7 +290,11 @@ export default function InboxPage() {
                 <Section title="Ready to push" count={inbox.pushes.length}>
                   {inbox.pushes.map((p) => (
                     <li key={p.key}>
-                      <Link href={`/chats/${p.projectId}${p.taskId ? `?task=${p.taskId}` : ""}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
+                      <Link
+                        href={projectHref(p.projectId)}
+                        onClick={() => p.taskId && requestThread(p.projectId, p.taskId)}
+                        className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover"
+                      >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[14px]">{p.title}</p>
                           <p className="truncate text-[12.5px] text-ink-3">
@@ -347,7 +361,11 @@ export default function InboxPage() {
                 <Section title="Drafts to review" count={inbox.tasks.length}>
                   {inbox.tasks.map((t) => (
                     <li key={t._id}>
-                      <Link href={`/chats/${t.projectId}?task=${t._id}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
+                      <Link
+                        href={projectHref(t.projectId)}
+                        onClick={() => requestThread(t.projectId, t._id)}
+                        className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover"
+                      >
                         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ink-3" />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[14px]">{t.title}</p>
@@ -364,7 +382,11 @@ export default function InboxPage() {
                 <Section title="Recent failures · not waiting on you" count={inbox.failed.length}>
                   {inbox.failed.map((t) => (
                     <li key={t._id}>
-                      <Link href={`/chats/${t.projectId}?task=${t._id}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover">
+                      <Link
+                        href={projectHref(t.projectId)}
+                        onClick={() => requestThread(t.projectId, t._id)}
+                        className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover"
+                      >
                         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[14px]">{t.title}</p>

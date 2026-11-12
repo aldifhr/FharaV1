@@ -87,7 +87,7 @@ export default function AgentProfilePage() {
                 <div className="flex items-center gap-2">
                   {p.agent.enabled && (
                     <Link
-                      href={`/chats/personal/${agentId}`}
+                      href={`/message/${agentId}`}
                       className={HEADER_ACTION}
                     >
                       Chat

@@ -308,11 +308,10 @@ export const saveFromAgent = mutation({
 });
 
 /**
- * New agent from a template. Name follows the New agent modal rule (role
- * label, numbered when taken); role defaults (capabilities, tools,
- * scheduling) come from the role; the template supplies instructions,
- * skills, LLM preference, runtime and avatar. With `projectId`, the agent
- * also joins that project's team.
+ * New agent from a template. The name is generated (role label, numbered
+ * when taken); role defaults (capabilities, tools, scheduling) come from the
+ * role; the template supplies instructions, skills, LLM preference, runtime
+ * and avatar. With `projectId`, the agent also joins that project's team.
  */
 export const createAgentFromTemplate = mutation({
   args: { templateId: v.string(), projectId: v.optional(v.id("projects")) },

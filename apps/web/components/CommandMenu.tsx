@@ -22,6 +22,8 @@ import { api } from "@/api/convex/_generated/api";
 import AgentAvatar from "./AgentAvatar";
 import { agentName, roleLabel } from "@/lib/agentRoles";
 import { newTaskHref, recentThreads } from "@/lib/commandMenu";
+import { projectHref } from "@/lib/threadTree";
+import { requestThread } from "@/lib/pendingThread";
 import { useUiPref } from "@/lib/uiPrefs";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useNewProject } from "./NewProject";
@@ -92,6 +94,11 @@ export default function CommandMenu({ open, onClose, projectId }: { open: boolea
     onClose();
     router.push(href);
   };
+  /** Open a project page and ask the shell for one thread. */
+  const goThread = (projectId: string, taskId: string | null, href: string) => () => {
+    if (taskId) requestThread(projectId, taskId);
+    go(href)();
+  };
   const act = (fn: () => void) => () => {
     onClose();
     fn();
@@ -131,12 +138,12 @@ export default function CommandMenu({ open, onClose, projectId }: { open: boolea
       : []),
   ];
 
-  const { build, observe, teamHref } = sidebarNavLinks({ pathname: pathname ?? "", projectId });
+  const { build, development, observe, teamHref } = sidebarNavLinks({ pathname: pathname ?? "", projectId });
   const fromLinks = (links: NavLink[]): Entry[] =>
     links.map((l) => ({ key: l.label, label: l.label, icon: l.icon, run: l.href ? go(l.href) : act(() => l.onClick?.()) }));
   const work: Entry[] = [
     { key: "projects", label: "Projects", icon: FolderKanban, run: go("/chats") },
-    { key: "personal", label: "Personal messages", icon: MessageCircle, keywords: "direct", run: go("/chats/personal") },
+    { key: "personal", label: "Personal messages", icon: MessageCircle, keywords: "direct", run: go("/messages") },
     { key: "team", label: "Team", icon: Users, keywords: "agents", run: go(teamHref) },
   ];
   const observeEntries: Entry[] = [
@@ -148,7 +155,7 @@ export default function CommandMenu({ open, onClose, projectId }: { open: boolea
     label: t.title,
     sub: t.needsYou ? `${t.projectName} · Needs you` : t.projectName,
     icon: MessageSquare,
-    run: go(t.href),
+    run: goThread(t.projectId, t.taskId, t.href),
   }));
   // Every settings tab, only while typing so the empty menu stays short.
   const settingsEntries: Entry[] = typed
@@ -160,7 +167,7 @@ export default function CommandMenu({ open, onClose, projectId }: { open: boolea
       {results?.projects.length ? (
         <CommandGroup heading="Projects">
           {results.projects.map((p) => (
-            <CommandItem key={p._id} value={`${p.name} ${p.workspacePath}`} className={itemClass} onSelect={go(`/chats/${p._id}`)}>
+            <CommandItem key={p._id} value={`${p.name} ${p.workspacePath}`} className={itemClass} onSelect={go(projectHref(p._id))}>
               <span className={textClass}>
                 <span className={titleClass}>{p.name}</span>
                 <span className={subClass}>{p.workspacePath}</span>
@@ -172,7 +179,7 @@ export default function CommandMenu({ open, onClose, projectId }: { open: boolea
       {results?.tasks.length ? (
         <CommandGroup heading="Tasks">
           {results.tasks.map((t) => (
-            <CommandItem key={t._id} value={`${t.title} ${t.projectName} ${t.status}`} className={itemClass} onSelect={go(`/chats/${t.projectId}`)}>
+            <CommandItem key={t._id} value={`${t.title} ${t.projectName} ${t.status}`} className={itemClass} onSelect={goThread(t.projectId, t._id, projectHref(t.projectId))}>
               <span className={textClass}>
                 <span className={titleClass}>{t.title}</span>
                 <span className={subClass}>{t.projectName} · {t.status}</span>
@@ -188,7 +195,7 @@ export default function CommandMenu({ open, onClose, projectId }: { open: boolea
               key={a._id}
               value={`${agentName(a)} ${roleLabel(a.role)} ${a.status}`}
               className={itemClass}
-              onSelect={() => { onClose(); if (a.projectId) router.push(`/chats/${a.projectId}`); }}
+              onSelect={() => { onClose(); if (a.projectId) router.push(projectHref(a.projectId)); }}
             >
               <AgentAvatar name={agentName(a)} size={20} status={a.status} avatarParams={a.avatarParams} />
               <span className={textClass}>
@@ -226,6 +233,7 @@ export default function CommandMenu({ open, onClose, projectId }: { open: boolea
           <EntryGroup heading="Recent threads" entries={recentEntries} />
           <EntryGroup heading="Work" entries={work} />
           <EntryGroup heading="Build" entries={fromLinks(build)} />
+          <EntryGroup heading="Development" entries={fromLinks(development)} />
           <EntryGroup heading="Observe" entries={observeEntries} />
           <EntryGroup heading="Settings" entries={settingsEntries} />
         </CommandList>

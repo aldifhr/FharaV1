@@ -1,10 +1,9 @@
 {
   "apps/api/convex/chat.ts": {
-    "lines": 1524,
-    "suppressions": 5
+    "lines": 1522
   },
   "apps/api/convex/directThreads.ts": {
-    "lines": 854
+    "lines": 950
   },
   "apps/api/convex/githubPush.ts": {
     "lines": 846
@@ -13,31 +12,22 @@
     "lines": 1066
   },
   "apps/api/convex/orchestration.ts": {
-    "lines": 3075
+    "lines": 3080
   },
   "apps/api/convex/schema.ts": {
     "lines": 2285
   },
   "apps/api/convex/skills.ts": {
-    "lines": 1300
+    "lines": 1316
   },
   "apps/api/convex/worker.ts": {
-    "lines": 1668
+    "lines": 1647
   },
   "apps/web/app/WorkspaceContext.tsx": {
     "pulse": 1
   },
-  "apps/web/app/chats/[id]/error.tsx": {
-    "hex": 4
-  },
   "apps/web/app/improve/page.tsx": {
     "pulse": 1
-  },
-  "apps/web/app/integrations/page.tsx": {
-    "lines": 801,
-    "pulse": 2,
-    "pill": 1,
-    "tint": 5
   },
   "apps/web/app/library/BrowseTab.tsx": {
     "tint": 2
@@ -75,8 +65,7 @@
     "hex": 3
   },
   "apps/web/components/ChatPanel.tsx": {
-    "lines": 823,
-    "suppressions": 3,
+    "lines": 860,
     "tint": 8
   },
   "apps/web/components/ConfirmDialog.tsx": {
@@ -120,21 +109,19 @@
     "tint": 14
   },
   "apps/web/components/chat/FilesView.tsx": {
-    "suppressions": 1,
     "tint": 1
   },
   "apps/web/components/chat/ManageProjectModal.tsx": {
     "tint": 1
   },
   "apps/web/components/chat/MessageList.tsx": {
-    "lines": 870
+    "lines": 889
   },
   "apps/web/components/chat/OptionCards.tsx": {
     "tint": 3,
     "hex": 3
   },
   "apps/web/components/chat/PersonalChatPanel.tsx": {
-    "suppressions": 1,
     "tint": 6
   },
   "apps/web/components/chat/cards/ChangesCard.tsx": {
@@ -142,7 +129,6 @@
     "hex": 2
   },
   "apps/web/components/chat/cards/PlanCard.tsx": {
-    "suppressions": 1,
     "pulse": 1,
     "tint": 2
   },
@@ -158,11 +144,13 @@
     "tint": 4,
     "hex": 8
   },
-  "apps/web/components/chat/useChatQueue.ts": {
-    "suppressions": 1
-  },
   "apps/web/components/context/ContextInspector.tsx": {
     "tint": 4
+  },
+  "apps/web/components/integrations/IntegrationsPanel.tsx": {
+    "pulse": 2,
+    "pill": 1,
+    "tint": 5
   },
   "apps/web/components/runs/Contracts.tsx": {
     "tint": 11
@@ -199,10 +187,6 @@
   "apps/web/components/team/CollaborationSection.tsx": {
     "pulse": 1
   },
-  "apps/web/components/ui/avatartion.tsx": {
-    "suppressions": 1,
-    "hex": 7
-  },
   "apps/web/components/ui/shimmer-button.tsx": {
     "hex": 1
   },
@@ -221,35 +205,17 @@
   "packages/worker/src/execution/qa.ts": {
     "lines": 937
   },
-  "packages/worker/src/execution/verifyBaseline.ts": {
-    "suppressions": 1
-  },
   "packages/worker/src/orchestrator/decision.ts": {
     "lines": 969
   },
   "packages/worker/src/orchestrator/planner.ts": {
     "lines": 887
   },
-  "packages/worker/src/review/htmlPreview.test.ts": {
-    "suppressions": 1
-  },
-  "packages/worker/src/review/htmlPreview.ts": {
-    "suppressions": 1
-  },
-  "packages/worker/src/scheduler/dagScheduler.ts": {
-    "suppressions": 1
-  },
   "packages/worker/src/services/runner/runNodes.ts": {
     "lines": 856
   },
-  "packages/worker/src/services/taskRunner.ts": {
-    "suppressions": 1
-  },
-  "packages/worker/src/utils/redact.ts": {
-    "suppressions": 1
-  },
   "packages/worker/src/workerApi.ts": {
-    "lines": 804
+    "lines": 806
   },
   "packages/worker/tests/dagScheduler.test.ts": {
     "lines": 820

@@ -1,7 +1,8 @@
 "use client";
 
 import { pickByName } from "@/lib/utils";
-import { AvatartionAvatarView, avatartionFor, deserializeAvatartion } from "./ui/avatartion";
+import { dicebearSeedFor, isDicebearAvatarParams } from "@/lib/dicebearAvatar";
+import DicebearAvatar from "./DicebearAvatar";
 
 /**
  * Compact initial avatar matching the workspace design language: a pastel
@@ -63,10 +64,9 @@ export default function InitialAvatar({
   label?: string;
 }) {
   const initial = (name.trim().charAt(0) || "•").toUpperCase();
-  const illustrated = agent || avatarParams
-    ? (avatarParams ? deserializeAvatartion(avatarParams) : null) ?? avatartionFor(name)
-    : null;
+  const illustrated = agent || avatarParams;
   if (illustrated) {
+    const seed = isDicebearAvatarParams(avatarParams) ? avatarParams.seed : dicebearSeedFor(name);
     return (
       <span
         aria-hidden={label ? undefined : true}
@@ -75,7 +75,7 @@ export default function InitialAvatar({
         className="relative inline-flex shrink-0"
         style={{ width: size, height: size }}
       >
-        <AvatartionAvatarView avatar={illustrated} className="h-full w-full" />
+        <DicebearAvatar seed={seed} size={size} className="h-full w-full" />
         {status && (
           <span
             className={`absolute -bottom-px -right-px h-2 w-2 rounded-full ring-2 ring-panel ${DOT[status] ?? "bg-gray-400"}`}

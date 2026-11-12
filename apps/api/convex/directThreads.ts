@@ -28,7 +28,7 @@ import { recordAudit } from "./lib/recordAudit";
 import { appendTaskEvent } from "./lib/taskEvents";
 import { holdsTaskLease } from "./orchestration";
 import { normalizePermissionMode, projectDefaultPermissionMode, permissionModeValidator } from "./lib/permissionModes";
-import { isRoleKey, normalizeRoleKey, ROLE_KEYS } from "./lib/roles";
+import { inferRoleForText, isRoleKey, normalizeRoleKey, ROLE_KEYS } from "./lib/roles";
 import {
   cancelDirectCard,
   directApprovalPolicy,
@@ -58,6 +58,8 @@ const DEFAULT_LEASE_MS = 60_000;
 const MAX_TEXT = 20_000;
 const TAIL_MAX = 80;
 const PAGE_MAX = 200;
+/** "Add as Thread" cap: how many chat messages may seed one direct thread. */
+const MAX_ADD_AS_THREAD_MESSAGES = 50;
 
 async function loadDirectTask(ctx: Pick<MutationCtx, "db">, taskId: Id<"tasks">): Promise<Doc<"tasks">> {
   const task = await ctx.db.get(taskId);
@@ -66,8 +68,17 @@ async function loadDirectTask(ctx: Pick<MutationCtx, "db">, taskId: Id<"tasks">)
   return task;
 }
 
-/** The enabled agent that plays `role` for this project (team first). */
-async function agentForRole(ctx: MutationCtx, project: Doc<"projects">, role: string): Promise<Doc<"agents">> {
+/**
+ * The enabled agent that plays `role` for this project (team first). With
+ * `allowFallback` (an auto-picked role), any enabled agent is used when the
+ * inferred role has nobody on the team, instead of failing the create.
+ */
+async function agentForRole(
+  ctx: MutationCtx,
+  project: Doc<"projects">,
+  role: string,
+  allowFallback = false
+): Promise<Doc<"agents">> {
   const team = project.agentIds ?? [];
   const candidates: Doc<"agents">[] = [];
   if (team.length > 0) {
@@ -78,9 +89,14 @@ async function agentForRole(ctx: MutationCtx, project: Doc<"projects">, role: st
   } else {
     candidates.push(...(await ctx.db.query("agents").take(200)));
   }
-  const match = candidates.find((agent) => agent.isEnabled !== false && normalizeRoleKey(agent.role) === role);
-  if (!match) throw new Error(`No enabled ${role} agent in this project's team`);
-  return match;
+  const enabled = candidates.filter((agent) => agent.isEnabled !== false);
+  const match = enabled.find((agent) => normalizeRoleKey(agent.role) === role);
+  if (match) return match;
+  if (allowFallback && enabled.length > 0) {
+    // Prefer the project's CTO, then any enabled team member.
+    return enabled.find((agent) => normalizeRoleKey(agent.role) === "cto") ?? enabled[0];
+  }
+  throw new Error(`No enabled ${role} agent in this project's team`);
 }
 
 async function writeUserMessage(
@@ -129,7 +145,8 @@ function cleanClientId(clientId: string): string {
 export const create = mutation({
   args: {
     projectId: v.id("projects"),
-    role: v.string(),
+    /** Optional: the backend picks the role from `text` when omitted. */
+    role: v.optional(v.string()),
     text: v.optional(v.string()),
     clientId: v.optional(v.string()),
     title: v.optional(v.string()),
@@ -138,8 +155,11 @@ export const create = mutation({
   },
   handler: async (ctx, args): Promise<{ taskId: Id<"tasks"> }> => {
     const project = await assertProjectAccess(ctx, args.projectId);
-    const role = normalizeRoleKey(args.role);
-    if (!isRoleKey(role)) throw new Error(`Unknown role "${args.role}" (one of: ${ROLE_KEYS.join(", ")})`);
+    const explicitRole = args.role?.trim() ? normalizeRoleKey(args.role) : null;
+    if (explicitRole && !isRoleKey(explicitRole)) {
+      throw new Error(`Unknown role "${args.role}" (one of: ${ROLE_KEYS.join(", ")})`);
+    }
+    const wantedRole = explicitRole ?? inferRoleForText(args.text ?? args.title);
     if (args.conversationId) {
       const conversation = await ctx.db.get(args.conversationId);
       if (!conversation || conversation.projectId !== args.projectId) throw new Error("Conversation does not belong to this project");
@@ -154,7 +174,8 @@ export const create = mutation({
         .first();
       if (dup) return { taskId: dup._id };
     }
-    const agent = await agentForRole(ctx, project, role);
+    const agent = await agentForRole(ctx, project, wantedRole, explicitRole === null);
+    const role = normalizeRoleKey(agent.role);
     const now = Date.now();
     const title = args.title?.trim() || (text ? (text.length > 80 ? `${text.slice(0, 80)}...` : text) : `Direct thread (${role})`);
     const taskId = await ctx.db.insert("tasks", {
@@ -180,6 +201,101 @@ export const create = mutation({
       level: "info",
     });
     if (text && clientId) await writeUserMessage(ctx, task, text, clientId);
+    return { taskId };
+  },
+});
+
+/**
+ * Start a direct thread from existing chat messages ("Add as Thread"). The
+ * selected messages — any mix of user and agent rows from one project — become
+ * `user.message` events in the new thread, in chronological order; the
+ * originals stay untouched. The role is inferred from the first message's
+ * text, exactly like the composer's "New direct thread", and the first message
+ * seeds the task's `command` (and, in the UI, the title).
+ *
+ * Every message is written with a deterministic clientId
+ * (`add-as-thread:<projectId>:<messageId>`), so a retried call with the same
+ * caller `clientId` returns the thread it already made instead of appending
+ * the same events again.
+ */
+export const createFromMessages = mutation({
+  args: {
+    projectId: v.id("projects"),
+    /** The chat messages to seed the thread with (all from this project). */
+    messageIds: v.array(v.id("messages")),
+    /** Optional: defaults to the first message's text. */
+    title: v.optional(v.string()),
+    /** Caller-supplied idempotency key: a retry with the same id returns the
+     * thread the first call made, without appending the events again. */
+    clientId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ taskId: Id<"tasks"> }> => {
+    const project = await assertProjectAccess(ctx, args.projectId);
+    if (args.messageIds.length === 0) throw new Error("Select at least one message");
+    if (args.messageIds.length > MAX_ADD_AS_THREAD_MESSAGES) {
+      throw new Error(`Too many messages (max ${MAX_ADD_AS_THREAD_MESSAGES})`);
+    }
+    // A retried create (same clientId) returns the thread it already made.
+    const clientId = cleanClientId(args.clientId ?? `add-as-thread-${Date.now()}`);
+    const idempotencyKey = `direct:${args.projectId}:${clientId}`;
+    const dup = await ctx.db
+      .query("tasks")
+      .withIndex("by_idempotency", (q) => q.eq("idempotencyKey", idempotencyKey))
+      .first();
+    if (dup) return { taskId: dup._id };
+
+    // Load and validate every selected message before writing anything.
+    const rows: Doc<"messages">[] = [];
+    const seen = new Set<string>();
+    for (const id of args.messageIds) {
+      const key = String(id);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const message = await ctx.db.get(id);
+      if (!message) throw new Error("One of the selected messages no longer exists");
+      if (message.projectId !== args.projectId) throw new Error("One of the selected messages does not belong to this project");
+      if (message.taskId) throw new Error("Task-linked messages cannot be added to a thread");
+      if (message.voice === "system") throw new Error("System messages cannot be added to a thread");
+      if (message.authorType !== "user" && message.authorType !== "agent") {
+        throw new Error("Selected messages must be user or agent messages");
+      }
+      if (!message.content || !message.content.trim()) throw new Error("A selected message is empty");
+      rows.push(message);
+    }
+    // Chronological order; same-millisecond ties fall back to the id.
+    rows.sort((a, b) => a._creationTime - b._creationTime || (a._id < b._id ? -1 : 1));
+
+    const firstText = cleanText(rows[0].content);
+    const agent = await agentForRole(ctx, project, inferRoleForText(firstText), true);
+    const role = normalizeRoleKey(agent.role);
+    const title = args.title?.trim() || (firstText.length > 80 ? `${firstText.slice(0, 80)}...` : firstText);
+    const now = Date.now();
+    const taskId = await ctx.db.insert("tasks", {
+      projectId: args.projectId,
+      title,
+      command: firstText,
+      status: "queued",
+      mode: "direct",
+      direct: { role, agentId: agent._id, engine: "opencode-acp", status: "idle", lastSeq: 0, deliveredSeq: 0 },
+      assignedAgentIds: [agent._id],
+      permissionMode: projectDefaultPermissionMode(project),
+      idempotencyKey,
+      updatedAt: now,
+    });
+    await syncTaskThread(ctx, taskId, { seen: true }); // Paradev B1 thread list
+    const task = (await ctx.db.get(taskId))!;
+    await appendTaskEvent(ctx, {
+      taskId,
+      projectId: args.projectId,
+      type: "thread.created",
+      payload: { mode: "direct", role, agentId: agent._id },
+      level: "info",
+    });
+    // One user.message per selected message; the deterministic clientId makes
+    // a retried write a no-op (writeUserMessage dedupes on the event key).
+    for (const message of rows) {
+      await writeUserMessage(ctx, task, message.content, `add-as-thread:${args.projectId}:${message._id}`);
+    }
     return { taskId };
   },
 });

@@ -44,7 +44,7 @@ export default function GithubAccountRow({
 }: {
   /** Where the OAuth callback page sends the user back to. */
   returnTo?: string;
-  /** Settings → Sign in: offer Reconnect even for a healthy connection. */
+  /** Settings → Account: offer Reconnect even for a healthy connection. */
   alwaysShowReconnect?: boolean;
 } = {}) {
   const toast = useToast();

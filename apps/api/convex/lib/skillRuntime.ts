@@ -66,6 +66,61 @@ export function formatSkillsIndex(
 }
 
 /**
+ * The shared library index: every library skill, not only the agent's own.
+ * Always on demand, whatever the agent's loading mode, so any agent can pick
+ * the skill that fits the work without having it attached first.
+ */
+export function formatLibraryIndex(
+  skills: readonly PromptSkill[] | undefined,
+  budget: number = SKILLS_INDEX_BUDGET
+): string {
+  const usable = (skills ?? []).filter((s) => s.name.trim() && fullText(s));
+  if (usable.length === 0) return "";
+  const head = [
+    "## Library skills (load on demand)",
+    `The shared library holds these skills. When one fits the work, read it first with the ${LOAD_SKILL_TOOL} tool, by exact name. Load only what you need (at most ${LOAD_SKILL_MAX_CALLS} per run).`,
+  ].join("\n");
+  const lines: string[] = [];
+  let used = head.length;
+  let omitted = 0;
+  for (const skill of usable) {
+    const desc = (skill.description ?? "").replace(/\s+/g, " ").trim();
+    const size = fullText(skill).length;
+    const line = `- ${skill.name.trim()}${desc ? `: ${desc}` : ""} (${size.toLocaleString("en-US")} chars)`;
+    if (used + 1 + line.length > budget) {
+      omitted += 1;
+      continue;
+    }
+    lines.push(line);
+    used += 1 + line.length;
+  }
+  if (omitted > 0) lines.push(`- …and ${omitted} more (load by name)`);
+  return [head, ...lines].join("\n");
+}
+
+/** Loadable skills in first-seen name order; earlier lists win a duplicate. */
+export function mergeLoadableSkills(
+  ...lists: Array<readonly PromptSkill[] | undefined>
+): PromptSkill[] {
+  const out: PromptSkill[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    for (const skill of list ?? []) {
+      const name = normName(skill.name);
+      if (!name || !fullText(skill) || seen.has(name)) continue;
+      seen.add(name);
+      out.push(skill);
+    }
+  }
+  return out;
+}
+
+/** True when the list holds at least one skill load_skill can return. */
+export function hasLoadableSkills(skills: readonly PromptSkill[] | undefined): boolean {
+  return (skills ?? []).some((s) => s.name.trim() && fullText(s));
+}
+
+/**
  * The skills section for an agent prompt in either mode. Inline mode is
  * exactly `formatSkillsSection` (the 12k budget, cut + dropped as before).
  */
@@ -107,34 +162,50 @@ export function withoutInvoked(
   return (skills ?? []).filter((s) => !names.has(normName(s.name)));
 }
 
-/** The agent's skills section, then the invoked skills inline (Paradev C3). */
+/**
+ * The agent's own skills section, the invoked skills inline (Paradev C3),
+ * then the shared library index for anything not already in the prompt.
+ */
 export function skillsSectionWithInvoked(
   skills: readonly PromptSkill[] | undefined,
   mode: SkillLoadingMode | undefined,
-  invoked?: readonly PromptSkill[]
+  invoked?: readonly PromptSkill[],
+  library?: readonly PromptSkill[]
 ): string {
-  if (!invoked?.length) return skillsSectionFor(skills, mode);
-  return [skillsSectionFor(withoutInvoked(skills, invoked), mode), formatInvokedSkillsSection(invoked)]
-    .filter(Boolean)
-    .join("\n\n");
+  const own = invoked?.length
+    ? [skillsSectionFor(withoutInvoked(skills, invoked), mode), formatInvokedSkillsSection(invoked)]
+        .filter(Boolean)
+        .join("\n\n")
+    : skillsSectionFor(skills, mode);
+  const inPrompt = new Set([...(skills ?? []), ...(invoked ?? [])].map((s) => normName(s.name)));
+  const libraryOnly = (library ?? []).filter((s) => !inPrompt.has(normName(s.name)));
+  return [own, formatLibraryIndex(libraryOnly)].filter(Boolean).join("\n\n");
 }
 
-/** Static system prompt first, then the skills section in the agent's mode (plus invoked skills). */
+/** Static system prompt first, then the skills section in the agent's mode (plus invoked skills and the library index). */
 export function appendAgentSkills(
   systemPrompt: string | undefined,
   skills: readonly PromptSkill[] | undefined,
   mode: SkillLoadingMode | undefined,
-  invoked?: readonly PromptSkill[]
+  invoked?: readonly PromptSkill[],
+  library?: readonly PromptSkill[]
 ): string | undefined {
-  const section = skillsSectionWithInvoked(skills, mode, invoked);
+  const section = skillsSectionWithInvoked(skills, mode, invoked, library);
   if (!section) return systemPrompt;
   const base = systemPrompt?.trim() ? systemPrompt : "";
   return base ? `${base}\n\n${section}` : section;
 }
 
-/** True when the agent should be offered the load_skill tool. */
-export function wantsLoadSkillTool(skills: readonly PromptSkill[] | undefined, mode: SkillLoadingMode | undefined): boolean {
-  return normalizeSkillLoading(mode) === "on_demand" && (skills ?? []).some((s) => s.name.trim() && fullText(s));
+/**
+ * True when the agent should be offered the load_skill tool: its own
+ * on_demand skills, or any shared library skill.
+ */
+export function wantsLoadSkillTool(
+  skills: readonly PromptSkill[] | undefined,
+  mode: SkillLoadingMode | undefined,
+  library?: readonly PromptSkill[]
+): boolean {
+  return (normalizeSkillLoading(mode) === "on_demand" && hasLoadableSkills(skills)) || hasLoadableSkills(library);
 }
 
 /** One-line tool description for protocol prompts. */

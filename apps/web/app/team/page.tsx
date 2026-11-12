@@ -13,7 +13,7 @@ import CollaborationSection from "@/components/team/CollaborationSection";
 import { CreateAgentModal } from "@/components/sidebar/AgentForms";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toasts";
-import { agentName, agentRoleText, fixedAgentIds } from "@/lib/agentRoles";
+import { agentName, agentRoleText } from "@/lib/agentRoles";
 import { projectMembers } from "@/lib/projectMembers";
 import { teamHeadline, teamLoaded } from "@/lib/teamHeadline";
 import { useHydrated } from "@/lib/useHydrated";
@@ -70,8 +70,6 @@ function TeamPage() {
   const toast = useToast();
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const [confirmPending, setConfirmPending] = useState(false);
-  // Fixed-team roles can't be removed; extra and custom agents can.
-  const fixedIds = useMemo(() => fixedAgentIds(allAgents), [allAgents]);
   const askRemove = (agent: Agent) => {
     const name = agentName(agent);
     setDetail(null);
@@ -187,11 +185,11 @@ function TeamPage() {
         <AgentDetailPanel
           agent={(allAgents ?? []).find((a) => a._id === detail._id) ?? detail}
           onClose={() => setDetail(null)}
-          onRemove={fixedIds.has(detail._id) ? undefined : askRemove}
+          onRemove={askRemove}
         />
       )}
       <ConfirmDialog request={confirmReq} pending={confirmPending} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
-      {creating && <CreateAgentModal agents={(allAgents ?? []) as any} onClose={() => setCreating(false)} />}
+      {creating && <CreateAgentModal onClose={() => setCreating(false)} />}
     </div>
   );
 }

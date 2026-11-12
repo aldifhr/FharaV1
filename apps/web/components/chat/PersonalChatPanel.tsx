@@ -328,14 +328,14 @@ export default function PersonalChatPanel({
       setDeletePending(false);
       toast("success", "Chat deleted");
       // Land on a new chat with the same agent; if that can't start (agent
-      // disabled), on the personal messages index instead of a dead end.
+      // disabled), on the Personal messages list instead of a dead end.
       try {
         if (!agentId) throw new Error("no agent");
         const nextId = await startNew({ agentId: agentId as never });
         setQuote(null);
         onNewChat(nextId as string);
       } catch {
-        router.replace("/chats/personal");
+        router.replace("/messages");
       }
       setLeaving(false);
     } catch (err) {
@@ -365,8 +365,8 @@ export default function PersonalChatPanel({
     return (
       <div className="mx-auto w-full max-w-3xl px-6 py-10">
         <p className="text-[14px] text-ink-2">This chat no longer exists.</p>
-        <Link href="/chats/personal" className="mt-3 inline-block text-[13px] text-ink-3 hover:text-ink">
-          Back to chats
+        <Link href="/messages" className="mt-3 inline-block text-[13px] text-ink-3 hover:text-ink">
+          Back to personal messages
         </Link>
       </div>
     );

@@ -10,17 +10,23 @@ import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toasts";
 import { api } from "@/api/convex/_generated/api";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
+import { takeRequestedThread } from "@/lib/pendingThread";
 import { SectionLoading, WorkspaceProvider, type Agent, type Task, type WorkspaceContextValue } from "./WorkspaceContext";
 
 function WorkspaceShell({
   projectId,
+  threadId,
   children,
 }: {
   projectId: string;
+  /** Deep-linked thread (`/project/:projectId/:threadId`); opens once the task list is known. */
+  threadId?: string;
   children: ReactNode;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // `?task=` survives from older links; thread links otherwise hand the
+  // thread over in app state (see `lib/pendingThread.ts`).
   const taskParam = searchParams.get("task");
   const isDesktop = useMediaQuery(DESKTOP_QUERY, true);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -29,12 +35,17 @@ function WorkspaceShell({
   const [highlightAgentId, setHighlightAgentId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const userClosedRef = useRef(false);
+  /** Thread handed over by the link that opened this project (see `lib/pendingThread.ts`). */
+  const requestedThread = useRef<{ projectId: string; taskId: string | null } | null>(null);
 
   const openAgent = (agentId: string) => {
     setHighlightAgentId(agentId);
   };
   // `projects.get` returns null for a deleted project or a malformed id.
   const project = useQuery(api.projects.get, { projectId });
+  // A deep link (`/project/:projectId/:threadId`) opens the thread as the main
+  // view, not the project chat.
+  const deepLinked = Boolean(threadId && selectedTaskId === threadId);
   const tasks = useQuery(
     api.tasks.listByProject,
     project ? { projectId: project._id } : "skip",
@@ -77,17 +88,42 @@ function WorkspaceShell({
     }
   };
 
-  // Project switch resets the thread; a `?task=` link (Needs you, Inbox)
-  // opens that task's thread. Parents' effects run after children's, so the
-  // reset and the deep link live in the same effect.
+  // Project switch resets the thread; a `?task=` link (old bookmarks, Needs
+  // you) or a thread handed over by `requestThread` opens that task's thread.
+  // Parents' effects run after children's, so the reset and the deep link
+  // live in the same effect.
   useEffect(() => {
-    setSelectedTaskId(taskParam);
+    // Taken once per project; the ref makes a StrictMode replay of this
+    // effect open the same thread instead of clearing it.
+    const requested =
+      requestedThread.current?.projectId === projectId
+        ? requestedThread.current.taskId
+        : takeRequestedThread(projectId);
+    requestedThread.current = { projectId, taskId: requested };
+    setSelectedTaskId(taskParam ?? requested);
     setThreadCollapsed(false);
     setSidebarOpen(false);
     userClosedRef.current = false;
   }, [projectId, taskParam]);
 
-  const closeThread = () => { userClosedRef.current = true; setSelectedTaskId(null); };
+  // Deep link (`/project/:projectId/:threadId`): a task id opens its thread
+  // once the project's task list is known. A conversation id matches no task,
+  // so the project chat stays open. `userClosedRef` stops a task-list refresh
+  // from re-opening a thread the user just closed.
+  useEffect(() => {
+    if (!threadId || tasks === undefined || userClosedRef.current) return;
+    const match = (tasks as Task[] | undefined)?.find((t) => t._id === threadId);
+    if (!match) return;
+    setThreadCollapsed(false);
+    setSelectedTaskId(match._id);
+  }, [threadId, tasks]);
+
+  const closeThread = () => {
+    userClosedRef.current = true;
+    setSelectedTaskId(null);
+    // A deep-linked thread is the main view: closing it returns to the project chat.
+    if (deepLinked) router.replace(`/project/${projectId}`);
+  };
 
   const value: WorkspaceContextValue = {
     projectId,
@@ -110,7 +146,7 @@ function WorkspaceShell({
       taskId={selectedTaskId}
       collapsed={isDesktop && threadCollapsed}
       panelWidth={panelWidth}
-      fullScreen={!isDesktop}
+      fullScreen={!isDesktop || deepLinked}
       onPanelWidthChange={setPanelWidth}
       onToggle={() => setThreadCollapsed((collapsed) => !collapsed)}
       onClose={closeThread}
@@ -133,7 +169,13 @@ function WorkspaceShell({
             onCloseDrawer={() => setSidebarOpen(false)}
             onSelectProject={() => setSidebarOpen(false)}
           />
-          {project ? (
+          {deepLinked && isDesktop ? (
+            // A deep-linked thread replaces the project chat as the main view.
+            // Phones keep the chat and show the thread as a full-screen sheet.
+            <main className="min-h-0 min-w-0 flex-1 overflow-hidden bg-dots">
+              {thread}
+            </main>
+          ) : project ? (
             children
           ) : (
             // Child queries assert project access and would throw for a
@@ -143,13 +185,15 @@ function WorkspaceShell({
             </main>
           )}
           {isDesktop ? (
-            <motion.div
-              animate={{ width: selectedTaskId ? (threadCollapsed ? 44 : panelWidth) : 0 }}
-              transition={{ duration: 0.24, ease: [0.32, 0.72, 0, 1] }}
-              className="h-full min-h-0 shrink-0 overflow-hidden"
-            >
-              <AnimatePresence initial={false}>{thread}</AnimatePresence>
-            </motion.div>
+            !deepLinked && (
+              <motion.div
+                animate={{ width: selectedTaskId ? (threadCollapsed ? 44 : panelWidth) : 0 }}
+                transition={{ duration: 0.24, ease: [0.32, 0.72, 0, 1] }}
+                className="h-full min-h-0 shrink-0 overflow-hidden"
+              >
+                <AnimatePresence initial={false}>{thread}</AnimatePresence>
+              </motion.div>
+            )
           ) : (
             <AnimatePresence>
               {selectedTaskId && (

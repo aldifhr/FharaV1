@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -34,9 +34,11 @@ import {
   Moon,
   Sun,
   Monitor,
+  Plug,
   Sparkles,
 } from "lucide-react";
 import LlmSettingsSection from "./LlmSettings";
+import { IntegrationsPanel } from "./integrations/IntegrationsPanel";
 import {
   AboutTab,
   ArchiveTab,
@@ -175,6 +177,7 @@ export const NAV_ITEMS: { id: string; label: string; icon: typeof SlidersHorizon
   { id: "source-control", label: "Source control", icon: GitBranch, group: "Code" },
   { id: "worktrees", label: "Worktrees", icon: GitMerge, group: "Code" },
   // Connections group
+  { id: "integrations", label: "Integrations", icon: Plug, group: "Connections" },
   { id: "environments", label: "Environments", icon: Layers, group: "Connections" },
   { id: "sharing", label: "Sharing & access", icon: ShieldCheck, group: "Connections" },
   // Bottom items
@@ -183,7 +186,7 @@ export const NAV_ITEMS: { id: string; label: string; icon: typeof SlidersHorizon
   { id: "labs", label: "Labs", icon: FlaskConical },
   { id: "about", label: "About", icon: Info },
   { id: "archive", label: "Archive", icon: Archive },
-  { id: "signin", label: "Sign in", icon: LogIn },
+  { id: "signin", label: "Account", icon: LogIn },
 ];
 
 /** The tabs that live in settings/tabs.tsx. */
@@ -211,6 +214,12 @@ function ActiveTab({ id, projectId }: { id: string; projectId?: string }) {
       return <SourceControlTab />;
     case "worktrees":
       return <WorktreesTab />;
+    case "integrations":
+      return (
+        <Suspense fallback={<p className="text-[13px] text-ink-3" role="status">Loading integrations…</p>}>
+          <IntegrationsPanel embedded />
+        </Suspense>
+      );
     case "environments":
       return <EnvironmentsTab />;
     case "sharing":

@@ -20,18 +20,6 @@ export type ThreadGroupBy = "project" | "kind" | "status";
 export type ThreadFilter = "all" | "needsYou" | "unread";
 export type ThreadStatusBucket = "needsYou" | "active" | "idle" | "done";
 
-export const THREAD_GROUP_BY_OPTIONS: readonly { value: ThreadGroupBy; label: string }[] = [
-  { value: "project", label: "Project" },
-  { value: "kind", label: "Kind" },
-  { value: "status", label: "Status" },
-];
-
-export const THREAD_FILTER_OPTIONS: readonly { value: ThreadFilter; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "needsYou", label: "Needs you" },
-  { value: "unread", label: "Unread" },
-];
-
 /** One `threads.list` row plus the project it came from. */
 export type ThreadItem = {
   id: string;
@@ -218,7 +206,19 @@ export function adjacentThreadId(ids: readonly string[], currentId: string | nul
   return ids[Math.min(ids.length - 1, Math.max(0, at + step))];
 }
 
-/** Where a row opens: tasks through `?task=`, conversations in the project chat. */
-export function threadHref(row: Pick<ThreadItem, "projectId" | "taskId">): string {
-  return `/chats/${row.projectId}${row.taskId ? `?task=${row.taskId}` : ""}`;
+/**
+ * The project workspace page (`/project/:projectId`) every thread opens in. */
+export function projectHref(projectId: string): string {
+  return `/project/${projectId}`;
+}
+
+/**
+ * Where a row opens. Threads carry their id in the path
+ * (`/project/:projectId/:threadId`) so the link is shareable and a reload
+ * lands on the same thread: tasks and direct threads are tasks, a
+ * conversation (project chat) is not and falls back to the chat view.
+ */
+export function threadHref(row: Pick<ThreadItem, "projectId" | "taskId" | "conversationId">): string {
+  const id = row.taskId ?? row.conversationId;
+  return id ? `/project/${row.projectId}/${id}` : projectHref(row.projectId);
 }

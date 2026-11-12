@@ -103,7 +103,7 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
       // Open the new project: navigate first, then close the modal, and fall
       // back to a full navigation if the client router did not move (e.g.
       // the route was still compiling or the push was dropped).
-      const href = `/chats/${projectId}`;
+      const href = `/project/${projectId}`;
       router.push(href);
       window.setTimeout(() => {
         if (window.location.pathname !== href) window.location.assign(href);

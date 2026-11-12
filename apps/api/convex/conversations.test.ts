@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import { syncConversationThread } from "./lib/threadIndex";
 
 /**
  * Plan 007 (addendum §1-2): the persisted participation model and the
@@ -307,6 +308,62 @@ describe("clearChat", () => {
     const remaining = await t.query(api.messages.listByProject, { projectId });
     expect(remaining.map((m) => m._id)).toEqual([pinned]);
     expect(await t.run(async (ctx) => ctx.db.get(unpinned))).toBeNull();
+  });
+});
+
+describe("remove: deleting one project chat", () => {
+  test("takes the conversation, messages, participants, summaries and thread row", async () => {
+    const { t, projectId, leadId } = await setup();
+    const conversationId = await t.mutation(internal.conversations.ensureForChat, {
+      projectId,
+      preferredAgentIds: [leadId],
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(conversationId, { title: "Planning" });
+      await ctx.db.insert("messages", { projectId, conversationId, authorType: "user", content: "hello" });
+      await ctx.db.insert("conversationParticipants", {
+        conversationId,
+        projectId,
+        agentId: leadId,
+        joinedAt: 1,
+      });
+      await ctx.db.insert("contextSummaries", {
+        conversationId,
+        projectId,
+        summary: "so far",
+        lastCompactAt: 1,
+        summaryCharCount: 7,
+        messageCountBefore: 1,
+      });
+      await syncConversationThread(ctx, conversationId, { seen: true });
+    });
+    expect(await t.run((ctx) => ctx.db.get(conversationId))).not.toBeNull();
+
+    expect(await t.mutation(api.conversations.remove, { conversationId })).toEqual({ deleted: true });
+
+    expect(await t.run((ctx) => ctx.db.get(conversationId))).toBeNull();
+    expect(await t.run((ctx) => ctx.db.query("messages").collect())).toHaveLength(0);
+    expect(await participantRows(t, conversationId)).toHaveLength(0);
+    expect(await t.run((ctx) => ctx.db.query("contextSummaries").collect())).toHaveLength(0);
+    expect(await t.run((ctx) => ctx.db.query("threadIndex").collect())).toHaveLength(0);
+  });
+
+  test("refuses a personal chat and a task's own chat", async () => {
+    const { t, projectId, leadId } = await setup();
+    const personalId = await t.run(async (ctx) =>
+      ctx.db.insert("conversations", { kind: "personal", agentId: leadId, status: "active", createdAt: 1 })
+    );
+    await expect(t.mutation(api.conversations.remove, { conversationId: personalId })).rejects.toThrow(/project chat/);
+
+    const taskId = await t.run(async (ctx) =>
+      ctx.db.insert("tasks", { projectId, title: "T", command: "do it", status: "done" })
+    );
+    const taskChatId = await t.run(async (ctx) =>
+      ctx.db.insert("conversations", { projectId, taskId, status: "active", createdAt: 2 })
+    );
+    await expect(t.mutation(api.conversations.remove, { conversationId: taskChatId })).rejects.toThrow(/belongs to a task/);
+    expect(await t.run((ctx) => ctx.db.get(taskChatId))).not.toBeNull();
+    expect(await t.run((ctx) => ctx.db.get(personalId))).not.toBeNull();
   });
 });
 

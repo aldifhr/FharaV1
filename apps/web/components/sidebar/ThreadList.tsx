@@ -6,22 +6,13 @@ import { useMutation } from "convex/react";
 import { ChevronRight, Plus } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { matchesChord, useKeybindings } from "@/lib/keybindings";
-import { useUiPref } from "@/lib/uiPrefs";
-import {
-  THREAD_FILTER_OPTIONS,
-  THREAD_GROUP_BY_OPTIONS,
-  adjacentThreadId,
-  buildThreadTree,
-  threadHref,
-  visibleThreadIds,
-  type ThreadFilter,
-  type ThreadGroupBy,
-  type ThreadItem,
-  type ThreadRowView,
-} from "@/lib/threadTree";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { adjacentThreadId, buildThreadTree, threadHref, visibleThreadIds, type ThreadItem, type ThreadRowView } from "@/lib/threadTree";
 import { isRenameKey, renameRefOf } from "@/lib/threadRename";
 import { RenameInput, useRenameThread } from "../ThreadRename";
+import { useOptionalWorkspace } from "@/app/WorkspaceContext";
+import { requestThread } from "@/lib/pendingThread";
+import ConfirmDialog, { type ConfirmRequest } from "../ConfirmDialog";
+import { useToast } from "../Toasts";
 import { SectionToggle } from "./SectionToggle";
 import ThreadRow from "./ThreadRow";
 import { useAllThreads } from "./useAllThreads";
@@ -33,53 +24,10 @@ const SHOWN = 6;
 const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 
-function ThreadControls({
-  groupBy,
-  onGroupBy,
-  filter,
-  onFilter,
-}: {
-  groupBy: ThreadGroupBy;
-  onGroupBy: (value: ThreadGroupBy) => void;
-  filter: ThreadFilter;
-  onFilter: (value: ThreadFilter) => void;
-}) {
-  const trigger = "h-7 min-w-0 flex-1 rounded-md border-line px-2 text-[12.5px] text-ink-2";
-  return (
-    <div className="mt-1 flex items-center gap-1.5 px-1">
-      <Select value={groupBy} onValueChange={(v) => v && onGroupBy(v as ThreadGroupBy)}>
-        <SelectTrigger size="sm" aria-label="Group threads by" className={trigger}>
-          <SelectValue>{(v: string) => `By ${THREAD_GROUP_BY_OPTIONS.find((o) => o.value === v)?.label.toLowerCase() ?? v}`}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {THREAD_GROUP_BY_OPTIONS.map((o) => (
-            <SelectItem key={o.value} value={o.value}>
-              {o.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Select value={filter} onValueChange={(v) => v && onFilter(v as ThreadFilter)}>
-        <SelectTrigger size="sm" aria-label="Show threads" className={trigger}>
-          <SelectValue>{(v: string) => THREAD_FILTER_OPTIONS.find((o) => o.value === v)?.label ?? v}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {THREAD_FILTER_OPTIONS.map((o) => (
-            <SelectItem key={o.value} value={o.value}>
-              {o.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
 /**
  * Sidebar Threads section (Paradev B2): tasks, direct threads and project
- * conversations from `threads.list`, grouped by project, kind or status
- * (saved per device), with an All / Needs you / Unread filter. The sidebar
- * search also matches titles and branches and opens every matching group.
+ * conversations from `threads.list`, grouped by project. The sidebar search
+ * also matches titles and branches and opens every matching group.
  * Opening a row marks it seen.
  */
 export default function ThreadList({
@@ -96,10 +44,14 @@ export default function ThreadList({
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  const workspace = useOptionalWorkspace();
   const bindings = useKeybindings();
   const markSeen = useMutation(api.threads.markSeen);
-  const [groupBy, setGroupBy] = useUiPref("threadGroupBy");
-  const [filter, setFilter] = useUiPref("threadFilter");
+  const removeTask = useMutation(api.tasks.remove);
+  const removeConversation = useMutation(api.conversations.remove);
+  const toast = useToast();
+  const [confirm, setConfirm] = useState<{ request: ConfirmRequest; row: ThreadRowView } | null>(null);
+  const [confirmPending, setConfirmPending] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const listRef = useRef<HTMLDivElement>(null);
@@ -108,12 +60,12 @@ export default function ThreadList({
 
   const rows = useAllThreads();
   const filtering = query.trim().length > 0;
-  const groups = useMemo(() => buildThreadTree(rows ?? [], { groupBy, filter, query }), [rows, groupBy, filter, query]);
+  const groups = useMemo(() => buildThreadTree(rows ?? [], { groupBy: "project", filter: "all", query }), [rows, query]);
   const ids = useMemo(() => visibleThreadIds(groups, collapsed, filtering), [groups, collapsed, filtering]);
   const byId = useMemo(() => new Map(groups.flatMap((g) => g.rows.map((r) => [r.id, r] as const))), [groups]);
 
-  const routeProject = pathname?.startsWith("/chats/") ? pathname.split("/")[2] : undefined;
-  const routeTask = params?.get("task") ?? null;
+  const routeProject = workspace?.projectId ?? (pathname?.startsWith("/project/") ? pathname.split("/")[2] : undefined);
+  const routeTask = workspace?.selectedTaskId ?? params?.get("task") ?? null;
   const currentRow = useMemo(
     () => (rows ?? []).find((r) => (routeTask ? r.taskId === routeTask : false)) ?? null,
     [rows, routeTask],
@@ -132,16 +84,30 @@ export default function ThreadList({
     if (ref) void markSeen(ref).catch(() => undefined);
   }, [currentRow, markSeen]);
 
-  const openRow = (row: ThreadRowView) => {
+  // In the thread's own project the shell selects it in place; from another
+  // page the row hands the thread to the shell through `requestThread` and
+  // the link navigates to `/project/:projectId`. Returns true when handled.
+  const openThread = (row: ThreadRowView): boolean => {
+    if (!row.taskId) return false;
+    if (workspace?.projectId === row.projectId) {
+      workspace.selectTask(row.taskId);
+      return true;
+    }
+    requestThread(row.projectId, row.taskId);
+    return false;
+  };
+
+  const openRow = (row: ThreadRowView): boolean => {
     seen(row);
     onNavigate?.();
+    return openThread(row);
   };
 
   const go = (id: string | null, focus: boolean) => {
     const row = id ? byId.get(id) : undefined;
     if (!row) return;
     seen(row);
-    router.push(threadHref(row));
+    if (!openThread(row)) router.push(threadHref(row));
     if (focus) listRef.current?.querySelector<HTMLElement>(`[data-thread-id="${CSS.escape(row.id)}"]`)?.focus();
   };
 
@@ -163,6 +129,45 @@ export default function ThreadList({
     currentRow ? currentRow.id === r.id : !routeTask && r.kind === "conversation" && r.projectId === routeProject;
   const startRename = (row: ThreadRowView) => {
     if (renameRefOf(row)) setRenaming(row.id);
+  };
+
+  // Delete is confirmed first: a task takes its whole history with it, a
+  // conversation its messages. Personal chats have their own page.
+  const askDelete = (row: ThreadRowView) => {
+    const what = row.kind === "conversation" ? "chat" : row.kind === "direct" ? "direct thread" : "task";
+    const message =
+      row.kind === "conversation"
+        ? "This conversation and all of its messages are deleted permanently. Tasks it started stay on the project board."
+        : "This thread and all of its history are deleted permanently.";
+    setConfirm({
+      row,
+      request: {
+        title: `Delete this ${what}?`,
+        message,
+        confirmLabel: `Delete ${what}`,
+        icon: "trash",
+      },
+    });
+  };
+
+  const confirmDelete = async () => {
+    if (!confirm) return;
+    const { row } = confirm;
+    setConfirmPending(true);
+    try {
+      if (row.conversationId) {
+        await removeConversation({ conversationId: row.conversationId as never });
+      } else if (row.taskId) {
+        await removeTask({ taskId: row.taskId as never });
+        if (workspace?.selectedTaskId === row.taskId) workspace.closeThread();
+      }
+      toast("success", "Thread deleted", row.title);
+      setConfirm(null);
+    } catch (err) {
+      toast("error", "Couldn't delete the thread", err instanceof Error ? err.message : undefined);
+    } finally {
+      setConfirmPending(false);
+    }
   };
 
   // Plain ↑/↓ move focus between rows while the list has focus. F2 (or Enter
@@ -188,94 +193,126 @@ export default function ThreadList({
     return next;
   };
 
+  const view = (row: ThreadRowView, branch: "├" | "└" | undefined, labelPrefix?: string) => (
+    <ThreadRow
+      key={row.id}
+      row={row}
+      current={isCurrent(row)}
+      branch={branch}
+      labelPrefix={labelPrefix}
+      onOpen={openRow}
+      onDelete={askDelete}
+      onRowKeyDown={onRowKeyDown}
+      onTitleDoubleClick={startRename}
+      titleSlot={
+        renaming === row.id && renameRefOf(row) ? (
+          <RenameInput
+            value={row.title}
+            label="Rename thread"
+            onSave={(title) => rename(renameRefOf(row)!, title)}
+            onDone={() => {
+              setRenaming(null);
+              requestAnimationFrame(() => focusRow(row.id));
+            }}
+            className="h-6 text-[14px]"
+          />
+        ) : undefined
+      }
+    />
+  );
+
   // Threadbear T3: "+" on a project group starts a direct thread there.
   const [newIn, setNewIn] = useState<{ projectId: string; name: string } | null>(null);
   const total = rows?.length;
   return (
-    <section aria-label="Threads">
-      <SectionToggle title="Threads" count={total} open={open} onToggle={onToggle} chevron />
-      {newIn && <NewDirectThread projectId={newIn.projectId} projectName={newIn.name} onClose={() => setNewIn(null)} />}
-      {open && <ThreadControls groupBy={groupBy} onGroupBy={setGroupBy} filter={filter} onFilter={setFilter} />}
-      {open && rows === undefined && <p className="px-2 pt-1.5 text-[13px] text-ink-3">Loading threads…</p>}
-      {open && rows !== undefined && groups.length === 0 && (
-        <p className="px-2 pt-1.5 text-[13px] text-ink-3">
-          {filtering || filter !== "all" ? "No threads match." : "No threads yet."}
-        </p>
-      )}
-      {open && groups.length > 0 && (
-        <div ref={listRef} className="mt-1 space-y-1.5">
-          {groups.map((g) => {
-            const isOpen = filtering || !collapsed.has(g.key);
-            const all = filtering || expanded.has(g.key);
-            const shown = all ? g.rows : g.rows.slice(0, SHOWN);
-            return (
-              <div key={g.key}>
-                <div className="group/head flex items-center">
-                  <button
-                    type="button"
-                    onClick={() => setCollapsed((s) => toggle(s, g.key))}
-                    aria-expanded={isOpen}
-                    className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-left text-[12.5px] text-ink-3 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
-                  >
-                    <ChevronRight size={12} aria-hidden="true" className={`transition-transform ${isOpen ? "rotate-90" : ""}`} />
-                    <span className="min-w-0 flex-1 truncate">{g.label}</span>
-                    <span className="tabular-nums">{g.rows.length}</span>
-                  </button>
-                  {g.key.startsWith("project:") && (
+    <>
+      <section aria-label="Threads">
+        <SectionToggle title="Threads" count={total} open={open} onToggle={onToggle} chevron />
+        {newIn && <NewDirectThread projectId={newIn.projectId} projectName={newIn.name} onClose={() => setNewIn(null)} />}
+        {open && rows === undefined && <p className="px-2 pt-1.5 text-[13px] text-ink-3">Loading threads…</p>}
+        {open && rows !== undefined && groups.length === 0 && (
+          <p className="px-2 pt-1.5 text-[13px] text-ink-3">
+            {filtering ? "No threads match." : "No threads yet."}
+          </p>
+        )}
+        {open && groups.length > 0 && (
+          <div ref={listRef} className="mt-1 space-y-1.5">
+            {groups.map((g) => {
+              const isOpen = filtering || !collapsed.has(g.key);
+              const all = filtering || expanded.has(g.key);
+              const shown = all ? g.rows : g.rows.slice(0, SHOWN);
+              const projectGroup = g.key.startsWith("project:");
+              return (
+                <div key={g.key}>
+                  <div className="group/head flex items-center">
                     <button
                       type="button"
-                      onClick={() => setNewIn({ projectId: g.key.slice("project:".length), name: g.label })}
-                      title={`New direct thread in ${g.label}`}
-                      aria-label={`New direct thread in ${g.label}`}
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 outline-none hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ink/30 group-hover/head:opacity-100 max-sm:opacity-100"
+                      onClick={() => setCollapsed((s) => toggle(s, g.key))}
+                      aria-expanded={isOpen}
+                      className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-left text-[12.5px] text-ink-3 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
                     >
-                      <Plus size={13} />
+                      <ChevronRight size={12} aria-hidden="true" className={`transition-transform ${isOpen ? "rotate-90" : ""}`} />
+                      <span className="min-w-0 flex-1 truncate">{projectGroup ? `Project: ${g.label}` : g.label}</span>
+                      <span className="tabular-nums">{g.rows.length}</span>
+                    </button>
+                    {g.key.startsWith("project:") && (
+                      <button
+                        type="button"
+                        onClick={() => setNewIn({ projectId: g.key.slice("project:".length), name: g.label })}
+                        title={`New direct thread in ${g.label}`}
+                        aria-label={`New direct thread in ${g.label}`}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 outline-none hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ink/30 group-hover/head:opacity-100 max-sm:opacity-100"
+                      >
+                        <Plus size={13} />
+                      </button>
+                    )}
+                  </div>
+                  {isOpen && (
+                    // Project groups split the rows by kind: the project chat
+                    // (conversation), its task threads and its direct threads.
+                    <div className="mt-0.5 space-y-1.5">
+                      {projectGroup ? (
+                        (["conversation", "task", "direct"] as const).map((kind) => {
+                          const rows = shown.filter((r) => r.kind === kind);
+                          if (rows.length === 0) return null;
+                          const label = kind === "conversation" ? "Project chat" : kind === "task" ? "Tasks" : "Threads";
+                          return (
+                            <div key={kind}>
+                              <p className="px-2 pt-0.5 text-[11.5px] font-medium text-ink-3">{label}</p>
+                              <ul className="space-y-px">
+                                {rows.map((r, index) => view(r, index === rows.length - 1 ? "└" : "├", kind !== "conversation" ? "Thread: " : undefined))}
+                              </ul>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <ul className="space-y-px">
+                          {shown.map((r) => view(r, undefined, undefined))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                  {isOpen && !filtering && g.rows.length > SHOWN && (
+                    <button
+                      type="button"
+                      onClick={() => setExpanded((s) => toggle(s, g.key))}
+                      className="flex w-full items-center rounded-lg px-2 py-1 text-left text-[13px] text-ink-3 hover:bg-hover hover:text-ink"
+                    >
+                      {all ? "Show less" : `${g.rows.length - SHOWN} more`}
                     </button>
                   )}
                 </div>
-                {isOpen && (
-                  <ul className="space-y-px">
-                    {shown.map((r) => (
-                      <ThreadRow
-                        key={r.id}
-                        row={r}
-                        current={isCurrent(r)}
-                        showProject={groupBy !== "project"}
-                        onOpen={openRow}
-                        onRowKeyDown={onRowKeyDown}
-                        onTitleDoubleClick={startRename}
-                        titleSlot={
-                          renaming === r.id && renameRefOf(r) ? (
-                            <RenameInput
-                              value={r.title}
-                              label="Rename thread"
-                              onSave={(title) => rename(renameRefOf(r)!, title)}
-                              onDone={() => {
-                                setRenaming(null);
-                                requestAnimationFrame(() => focusRow(r.id));
-                              }}
-                              className="h-6 text-[14px]"
-                            />
-                          ) : undefined
-                        }
-                      />
-                    ))}
-                  </ul>
-                )}
-                {isOpen && !filtering && g.rows.length > SHOWN && (
-                  <button
-                    type="button"
-                    onClick={() => setExpanded((s) => toggle(s, g.key))}
-                    className="flex w-full items-center rounded-lg px-2 py-1 text-left text-[13px] text-ink-3 hover:bg-hover hover:text-ink"
-                  >
-                    {all ? "Show less" : `${g.rows.length - SHOWN} more`}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
+              );
+            })}
+          </div>
+        )}
+      </section>
+      <ConfirmDialog
+        request={confirm?.request ?? null}
+        pending={confirmPending}
+        onCancel={() => (confirmPending ? undefined : setConfirm(null))}
+        onConfirm={() => void confirmDelete()}
+      />
+    </>
   );
 }

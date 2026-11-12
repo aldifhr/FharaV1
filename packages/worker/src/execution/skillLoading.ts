@@ -6,7 +6,7 @@
  * step gives the agent the read-only `load_skill` tool in a short bounded
  * loop: the model asks for the skills that bear on the subtask (one JSON
  * call per reply), each answer comes from the agent's own attached skills
- * (createSkillLoader: full untrimmed text, LOAD_SKILL_MAX_CHARS per call,
+ * plus the shared library (createSkillLoader: full untrimmed text, LOAD_SKILL_MAX_CHARS per call,
  * LOAD_SKILL_MAX_CALLS per run), and the loaded text is appended to the
  * system prompt that every executor path (API, OpenCode, review, QA)
  * then reads.
@@ -19,9 +19,10 @@ import { extractToolCalls } from "@/api/convex/lib/chat/toolCallText";
 import {
   appendAgentSkills,
   createSkillLoader,
+  hasLoadableSkills,
   LOAD_SKILL_TOOL_LINE,
+  mergeLoadableSkills,
   normalizeSkillLoading,
-  wantsLoadSkillTool,
   withoutInvoked,
 } from "@/api/convex/lib/skillRuntime";
 import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_MAX_CHARS, LOAD_SKILL_TOOL, type PromptSkill } from "@/api/convex/lib/skills";
@@ -31,16 +32,29 @@ import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_MAX_CHARS, LOAD_SKILL_TOOL, type Promp
  * the task's source message (`tasks.invokedSkills`, resolved by getRunContext)
  * are inlined whatever the agent's loading mode, so an on_demand agent never
  * has to load them; they leave the on-demand list so each body is read once.
+ *
+ * The shared library is offered to every agent: its index always rides in the
+ * prompt, and `load_skill` can return any library skill even when the agent
+ * has none attached. An inline agent keeps its own skills inline; the
+ * library is the extra list it can reach.
  */
 export function taskAgentSkills(agent: {
   systemPrompt?: string;
   attachedSkills?: PromptSkill[];
   invokedSkills?: PromptSkill[];
+  librarySkills?: PromptSkill[];
   skillLoading?: unknown;
 }): { systemPrompt: string | undefined; onDemandSkills?: PromptSkill[] } {
   const mode = normalizeSkillLoading(agent.skillLoading);
-  const systemPrompt = appendAgentSkills(agent.systemPrompt, agent.attachedSkills, mode, agent.invokedSkills);
-  const onDemand = mode === "on_demand" ? withoutInvoked(agent.attachedSkills, agent.invokedSkills) : [];
+  const systemPrompt = appendAgentSkills(
+    agent.systemPrompt,
+    agent.attachedSkills,
+    mode,
+    agent.invokedSkills,
+    agent.librarySkills
+  );
+  const loadable = mergeLoadableSkills(mode === "on_demand" ? agent.attachedSkills : undefined, agent.librarySkills);
+  const onDemand = withoutInvoked(loadable, agent.invokedSkills);
   return { systemPrompt, ...(onDemand.length ? { onDemandSkills: onDemand } : {}) };
 }
 
@@ -91,7 +105,7 @@ export async function preloadOnDemandSkills(params: SkillPreloadParams): Promise
     llmCalls: 0,
     failed: [],
   };
-  if (!wantsLoadSkillTool(params.skills, "on_demand")) return result;
+  if (!hasLoadableSkills(params.skills)) return result;
   const loader = createSkillLoader(params.skills, { maxCalls, maxChars: params.maxChars ?? LOAD_SKILL_MAX_CHARS });
   const messages: SkillPreloadMessage[] = [
     ...(params.systemPrompt ? [{ role: "system" as const, content: params.systemPrompt }] : []),

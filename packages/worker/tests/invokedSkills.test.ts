@@ -53,3 +53,30 @@ describe("task invokedSkills → inline", () => {
     expect(withSkill.onDemandSkills).toBeUndefined();
   });
 });
+
+describe("shared library on demand", () => {
+  test("inline agent: library index in the prompt, body only through load_skill", () => {
+    const deploy: PromptSkill = {
+      name: "Deploy",
+      description: "Ship it",
+      instructions: "DEPLOY BODY",
+      fullInstructions: "DEPLOY BODY",
+    };
+    const def = toAgentDefinition(agent({ librarySkills: [deploy] } as Partial<WorkerRunAgent>));
+    expect(def.systemPrompt).toContain("## Library skills (load on demand)");
+    expect(def.systemPrompt).toContain("- Deploy: Ship it");
+    expect(def.systemPrompt).not.toContain("DEPLOY BODY");
+    expect(def.onDemandSkills?.map((s) => s.name)).toContain("Deploy");
+    // Still guidance only: no tool is granted.
+    expect(def.supportedTools).toEqual(["read_file"]);
+  });
+
+  test("a library skill the agent already carries is not listed twice", () => {
+    const def = toAgentDefinition(
+      agent({ skillLoading: "on_demand", librarySkills: [FRONTEND, OTHER] } as Partial<WorkerRunAgent>)
+    );
+    expect(count(def.systemPrompt, "frontend-design")).toBe(1);
+    expect(count(def.systemPrompt, "release-notes")).toBe(1);
+    expect(def.onDemandSkills?.map((s) => s.name)).toEqual(["frontend-design", "release-notes"]);
+  });
+});

@@ -19,7 +19,7 @@ import { recordObservationsForEvent } from "./lib/observationStore";
 import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver";
 import { effectiveTeamIds } from "./lib/projectTeam";
 import type { PromptSkill } from "./lib/skills";
-import { loadPromptSkills } from "./skills";
+import { loadLibrarySkills, loadPromptSkills } from "./skills";
 import { resolveInvokedSkills } from "./lib/chat/invokedSkills";
 import { resolveRunMcpServers } from "./mcpServers";
 import { loadMemorySection, loadRecalledSection } from "./memories";
@@ -270,6 +270,9 @@ export const getRunContext = internalQuery({
     // Paradev C3: skills invoked on the source message, from the team's own (inlined in every agent's prompt).
     const teamIds = task.invokedSkills?.length && project ? effectiveTeamIds(project.agentIds, allAgents) : [];
     const invoked = (await resolveInvokedSkills(ctx, task.invokedSkills, allAgents.filter((a) => teamIds.includes(a._id)))).skills;
+    // The whole shared library, offered to every agent as a load-on-demand
+    // index so it can pick a skill it needs without having it attached.
+    const librarySkills = await loadLibrarySkills(ctx);
 
     return {
       task,
@@ -278,6 +281,7 @@ export const getRunContext = internalQuery({
         agents.map(async (agent) => ({
           ...projectAgentForWorker(agent),
           attachedSkills: await loadPromptSkills(ctx, agent),
+          ...(librarySkills.length ? { librarySkills } : {}),
           ...(invoked.length ? { invokedSkills: invoked } : {}),
           // Pinned memories (shared → project → agent), pre-rendered and
           // capped (lib/memory.ts). The worker appends it after the skills.
@@ -310,6 +314,7 @@ export const getRunContext = internalQuery({
         ? {
             ...projectAgentForWorker(fallback.agent),
             attachedSkills: await loadPromptSkills(ctx, fallback.agent),
+            ...(librarySkills.length ? { librarySkills } : {}),
           }
         : null,
       plannerFallbackReason: fallback.reason,

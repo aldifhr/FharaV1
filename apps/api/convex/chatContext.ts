@@ -5,10 +5,10 @@ import { MAX_TOOL_STEPS } from "./lib/chat/activity";
 import type { Doc, Id } from "./_generated/dataModel";
 import { loadProviderPool } from "./lib/llmResolver";
 import { activeParticipantRows, selectDefaultChatAgents } from "./conversations";
-import { normalizeSkillLoading, skillsSectionWithInvoked } from "./lib/skillRuntime";
+import { mergeLoadableSkills, normalizeSkillLoading, skillsSectionWithInvoked } from "./lib/skillRuntime";
 import { invokedSkillsField } from "./lib/invokedSkillsSchema";
 import { resolveInvokedSkills } from "./lib/chat/invokedSkills";
-import { loadPromptSkills } from "./skills";
+import { loadLibrarySkills, loadPromptSkills } from "./skills";
 import { loadMemorySection, loadRecalledSection } from "./memories";
 import { extractAgentMentions } from "./lib/chat/team";
 import { stripLeakedToolCallTags } from "./lib/chat/strip";
@@ -481,16 +481,19 @@ export const getContext = internalQuery({
     // this turn only, on every shape, so whichever agent O3 routes the
     // message to (its topic owner) carries them.
     const invoked = (await resolveInvokedSkills(ctx, anchor?.invokedSkills, teamAgents)).skills;
+    // The shared library, loadable by every chat agent (attached or not).
+    const library = await loadLibrarySkills(ctx);
     const agentShape = async (a: Doc<"agents">) => {
       const skills = await loadPromptSkills(ctx, a);
       const mode = normalizeSkillLoading(a.skillLoading);
+      const loadable = mergeLoadableSkills(mode === "on_demand" ? skills : undefined, library);
       return {
       _id: a._id,
       name: a.name,
       role: a.role,
       systemPrompt: a.systemPrompt,
-      skillsSection: skillsSectionWithInvoked(skills, mode, invoked) || undefined,
-      ...(mode === "on_demand" && skills.length ? { onDemandSkills: skills } : {}),
+      skillsSection: skillsSectionWithInvoked(skills, mode, invoked, library) || undefined,
+      ...(loadable.length ? { onDemandSkills: loadable } : {}),
       // Pinned memories for this agent in this project, after the skills.
       // Plan L4: then the unpinned memories this message recalls (a second
       // section, so the pinned prefix above stays byte-identical).
@@ -570,16 +573,18 @@ export const getPersonalContext = internalQuery({
       .take(1);
     // Paradev C3: the answered message's invoked skills, from this agent's own.
     const invoked = (await resolveInvokedSkills(ctx, anchor?.invokedSkills, [usable])).skills;
+    const library = await loadLibrarySkills(ctx);
     const shape = async (a: Doc<"agents">) => {
       const skills = await loadPromptSkills(ctx, a);
       const mode = normalizeSkillLoading(a.skillLoading);
+      const loadable = mergeLoadableSkills(mode === "on_demand" ? skills : undefined, library);
       return {
         _id: a._id,
         name: a.name,
         role: a.role,
         systemPrompt: a.systemPrompt,
-        skillsSection: skillsSectionWithInvoked(skills, mode, invoked) || undefined,
-        ...(mode === "on_demand" && skills.length ? { onDemandSkills: skills } : {}),
+        skillsSection: skillsSectionWithInvoked(skills, mode, invoked, library) || undefined,
+        ...(loadable.length ? { onDemandSkills: loadable } : {}),
         memorySection:
           (await loadMemorySection(ctx, { ...(project ? { projectId: project._id } : {}), agentId: a._id })) || undefined,
       };

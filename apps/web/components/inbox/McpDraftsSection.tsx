@@ -70,7 +70,7 @@ export default function McpDraftsSection({ drafts }: { drafts: McpDraft[] }) {
               <p className="text-[14px] leading-snug">{d.title}</p>
               <p className="mt-0.5 truncate text-[12.5px] text-ink-3">
                 Draft from MCP ·{" "}
-                <Link href={`/chats/${d.projectId}`} className="hover:text-ink">
+                <Link href={`/project/${d.projectId}`} className="hover:text-ink">
                   {d.projectName}
                 </Link>
                 {d.reason ? ` · ${d.reason}` : ""}

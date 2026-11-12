@@ -207,6 +207,22 @@ export async function loadPromptSkills(
   return out;
 }
 
+/**
+ * Every skill in the shared library, in one loadable shape. The prompt shows
+ * only an index; `load_skill` returns the full body. Any agent may read any of
+ * these on demand, with or without them attached.
+ */
+export async function loadLibrarySkills(ctx: Ctx, limit = 200): Promise<PromptSkill[]> {
+  const rows = await ctx.db.query("skills").take(limit);
+  return rows.map((row) => ({
+    name: row.name,
+    description: row.description,
+    instructions: inlineSkillBody(row.instructions, row.source?.url),
+    fullInstructions: row.instructions,
+    ...(row.version ? { version: row.version } : {}),
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Dependencies + permission warnings
 // ---------------------------------------------------------------------------

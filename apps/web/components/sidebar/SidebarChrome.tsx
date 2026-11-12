@@ -102,7 +102,7 @@ export function SearchBox({ chord, onOpen, rail = false }: { chord: string; onOp
 
 /**
  * Bottom row: the local account (Fhara has no login; connected accounts live
- * in Settings → Sign in), theme and Settings.
+ * in Settings → Account), theme and Settings.
  */
 export function AccountRow({ rail, onSettings, onAccount }: { rail: boolean; onSettings: () => void; onAccount: () => void }) {
   const { theme, toggleTheme } = useTheme();

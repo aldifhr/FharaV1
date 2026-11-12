@@ -7,7 +7,6 @@ import { api } from "@/api/convex/_generated/api";
 import Modal from "@/components/Modal";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import AgentAvatar from "@/components/AgentAvatar";
-import { deserializeAvatartion } from "@/components/ui/avatartion";
 import { useToast } from "@/components/Toasts";
 import type { TemplateView } from "@/components/sidebar/AgentForms";
 import { AGENT_ROLES, prefillPromptForRole, roleLabel, roleTemplateFor } from "@/lib/agentRoles";
@@ -92,7 +91,7 @@ export function TemplatesTab({ projectId, tabs }: { projectId?: string; tabs: Re
                   onClick={() => setEditing(t)}
                   className="flex min-w-0 flex-1 items-start gap-3 px-4 py-3 text-left outline-none focus-visible:bg-hover"
                 >
-                  <AgentAvatar name={t.name} size={28} avatar={deserializeAvatartion(t.avatarParams) ?? undefined} />
+                  <AgentAvatar name={t.name} size={28} avatarParams={t.avatarParams} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[14px] font-medium">
                       {t.name}

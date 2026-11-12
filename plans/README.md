@@ -48,6 +48,8 @@ execution order and a definition of done.
 | 043 | [O-flow: supervised auto-merge, issue intake, research fan-out, phone approvals](043-o-flow-merge-intake-research-phone.md) | P1 | L | 019, 020 | IN PROGRESS (O2, O4, O7, O6 implemented with unit tests; live GitHub merge/issue smoke and phone browser check pending) |
 | 045 | [Role memory: each role writes its own notes per project](045-role-memory.md) | P2 | M | L4, L5 | IMPLEMENTED (convex-test + worker unit tests; browser check pending) |
 | 046 | [Drain an aborted scheduler attempt before a retry](046-scheduler-abort-drain.md) | P1 | M | — | DONE (unit tests; full worker suite has the pre-existing Windows-only failures) |
+| 047 | [Thread deep links and per-project sidebar separation](047-thread-deep-links.md) | P2 | S | — | IMPLEMENTED (typecheck + unit tests + `next build` green with NEXT_PUBLIC_CONVEX_URL; browser check done — deep-linked thread renders as the main view, `Back to chat` returns to the project) |
+| 048 | [Add as Thread: seed a direct thread from selected chat messages](048-add-as-thread.md) | P2 | M | 047 | IMPLEMENTED (api + web typecheck, convex-test, guards, knip, `next build` green; browser check pending) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

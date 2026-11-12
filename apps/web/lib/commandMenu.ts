@@ -3,7 +3,15 @@ import { compareThreads, threadHref, type ThreadItem } from "./threadTree";
 /** Recent threads in the command menu, newest first. */
 export const RECENT_THREADS = 6;
 
-export type RecentThread = { id: string; title: string; projectName: string; href: string; needsYou: boolean };
+export type RecentThread = {
+  id: string;
+  title: string;
+  projectName: string;
+  projectId: string;
+  taskId: string | null;
+  href: string;
+  needsYou: boolean;
+};
 
 /**
  * The newest top-level threads across projects for ⌘K: fix tasks that sit
@@ -21,10 +29,12 @@ export function recentThreads(rows: readonly ThreadItem[] | undefined, limit = R
       id: r.id,
       title: r.title.trim() || "Untitled thread",
       projectName: r.projectName,
+      projectId: r.projectId,
+      taskId: r.taskId,
       href: threadHref(r),
       needsYou: r.needsYou,
     }));
 }
 
 /** Where ⌘K "New task" goes: the project's Tasks tab with the create field focused. */
-export const newTaskHref = (projectId: string) => `/chats/${projectId}?tab=tasks&compose=1`;
+export const newTaskHref = (projectId: string) => `/project/${projectId}?tab=tasks&compose=1`;

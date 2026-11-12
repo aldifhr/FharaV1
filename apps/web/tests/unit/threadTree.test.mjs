@@ -169,7 +169,8 @@ test("adjacentThreadId: start at an end, step, stop at the ends", () => {
   assert.equal(adjacentThreadId([], "a", 1), null);
 });
 
-test("threadHref: tasks open with ?task=, conversations in the project chat", () => {
-  assert.equal(threadHref({ projectId: "p1", taskId: "t9" }), "/chats/p1?task=t9");
-  assert.equal(threadHref({ projectId: "p1", taskId: null }), "/chats/p1");
+test("threadHref: every row opens its thread; the chat falls back to the project page", () => {
+  assert.equal(threadHref({ projectId: "p1", taskId: "t9", conversationId: null }), "/project/p1/t9");
+  assert.equal(threadHref({ projectId: "p1", taskId: null, conversationId: "c2" }), "/project/p1/c2");
+  assert.equal(threadHref({ projectId: "p1", taskId: null, conversationId: null }), "/project/p1");
 });

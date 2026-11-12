@@ -401,9 +401,10 @@ describe("on-demand loading", () => {
     expect(both).toContain('- load_skill {"name": skill name}');
   });
 
-  test("chat context: an on_demand agent gets the index and its skills; inline is unchanged", async () => {
+  test("chat context: on_demand gets an index, inline stays inline, every agent can load the library", async () => {
     const t = convexTest(schema, modules);
     const skillId = await t.mutation(api.skills.create, { name: "Guide", description: "How we work", instructions: "full guide text" });
+    await t.mutation(api.skills.create, { name: "Release", description: "Release steps", instructions: "release body" });
     const cto = await agent(t, "cto", { skillIds: [skillId], skillLoading: "on_demand" });
     const fe = await agent(t, "frontend", { skillIds: [skillId] });
     const projectId = await t.run((ctx) => ctx.db.insert("projects", { name: "P", workspacePath: "p", agentIds: [cto, fe] } as never));
@@ -412,8 +413,14 @@ describe("on-demand loading", () => {
     expect(byRole.get("cto").skillsSection).toContain("- Guide: How we work");
     expect(byRole.get("cto").skillsSection).not.toContain("full guide text");
     expect(byRole.get("cto").onDemandSkills[0]).toMatchObject({ name: "Guide", fullInstructions: "full guide text" });
-    expect(byRole.get("frontend").skillsSection).toBe("## Skill: Guide\nfull guide text");
-    expect(byRole.get("frontend").onDemandSkills).toBeUndefined();
+    // The inline agent keeps its own skill inline, and sees the rest of the
+    // library as a load-on-demand index (never the body).
+    expect(byRole.get("frontend").skillsSection).toContain("## Skill: Guide\nfull guide text");
+    expect(byRole.get("frontend").skillsSection).toContain("- Release: Release steps");
+    expect(byRole.get("frontend").skillsSection).not.toContain("release body");
+    expect(byRole.get("frontend").onDemandSkills.map((s: { name: string }) => s.name)).toEqual(
+      expect.arrayContaining(["Guide", "Release"])
+    );
   });
 
   test("agents.update sets and resets skillLoading", async () => {

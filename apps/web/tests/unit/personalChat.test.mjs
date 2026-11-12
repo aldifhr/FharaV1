@@ -86,11 +86,12 @@ test("sidebar personal rows: search matches name or role label", () => {
 });
 
 test("personal path parsing and index redirect target", () => {
-  assert.equal(personalAgentIdFromPath("/chats/personal/ag1"), "ag1");
-  assert.equal(personalAgentIdFromPath("/chats/personal"), null);
+  assert.equal(personalAgentIdFromPath("/message/ag1"), "ag1");
+  assert.equal(personalAgentIdFromPath("/message"), null);
   assert.equal(personalAgentIdFromPath("/chats/p1"), null);
-  assert.equal(personalIndexTarget([row("a", "Ada", "c1", 1), row("c", "Cy", "c3", 9)]), "/chats/personal/c");
-  assert.equal(personalIndexTarget([row("b", "Bo", null, null)]), "/chats");
+  assert.equal(personalAgentIdFromPath("/chats/personal/ag1"), null);
+  assert.equal(personalIndexTarget([row("a", "Ada", "c1", 1), row("c", "Cy", "c3", 9)]), "/message/c");
+  assert.equal(personalIndexTarget([row("b", "Bo", null, null)]), "/messages");
 });
 
 test("plainTextPreview strips markdown to one plain line", () => {

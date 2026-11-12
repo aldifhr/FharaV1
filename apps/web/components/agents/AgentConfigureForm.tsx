@@ -4,14 +4,13 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { BookmarkPlus, Dices } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
-import type { AvatarParams } from "@/api/convex/lib/avatar";
 import { AGENT_TOOL_OPTIONS } from "@/api/convex/lib/toolNames";
 import { AGENT_ROLES, roleDefaultTools, roleLabel, roleTemplateFor } from "@/lib/agentRoles";
+import { DICEBEAR_STYLE, dicebearAvatarArgs, randomDicebearSeed } from "@/lib/dicebearAvatar";
 import AgentAvatar from "../AgentAvatar";
 import ConfirmDialog from "../ConfirmDialog";
 import { useToast } from "../Toasts";
-import { avatarArgs, roleOptionsFor, type AgentDoc } from "../sidebar/AgentForms";
-import { randomAvatartion, type AvatartionAvatar } from "../ui/avatartion";
+import { roleOptionsFor, type AgentDoc } from "../sidebar/AgentForms";
 import { INSPECTOR_INPUT, InspectorBody, InspectorField, InspectorFooter } from "../ui/inspector";
 import { useInspectorDraft } from "../ui/use-inspector-draft";
 
@@ -27,7 +26,7 @@ function baseFor(agent: AgentDoc) {
     llmModelId: agent.llmModelId ?? "",
     llmFallbackProviderId: agent.llmFallbackProviderId ?? "",
     llmFallbackModelId: agent.llmFallbackModelId ?? "",
-    avatar: null as AvatartionAvatar | null,
+    avatar: null as string | null,
   };
 }
 
@@ -69,7 +68,7 @@ export default function AgentConfigureForm({ agent, onDirtyChange }: { agent: Ag
         llmFallbackModelId: (draft.llmFallbackModelId || null) as never,
         // Only a changed list becomes a custom override; untouched agents keep role defaults.
         ...(form.isChanged("tools") ? { supportedTools: draft.tools } : {}),
-        ...avatarArgs(draft.avatar),
+        ...dicebearAvatarArgs(draft.avatar),
       });
       form.commit({ ...draft, avatar: null });
     } catch (err) {
@@ -114,7 +113,7 @@ export default function AgentConfigureForm({ agent, onDirtyChange }: { agent: Ag
           <div className="flex items-start gap-3">
             <button
               type="button"
-              onClick={() => set("avatar", randomAvatartion())}
+              onClick={() => set("avatar", randomDicebearSeed())}
               title="Shuffle avatar"
               aria-label="Shuffle avatar"
               className="group relative shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
@@ -122,8 +121,11 @@ export default function AgentConfigureForm({ agent, onDirtyChange }: { agent: Ag
               <AgentAvatar
                 name={draft.name || "Agent"}
                 size={44}
-                avatar={draft.avatar ?? undefined}
-                avatarParams={draft.avatar ? undefined : (agent.avatarParams as AvatarParams | undefined)}
+                avatarParams={
+                  draft.avatar
+                    ? { dicebear: DICEBEAR_STYLE, seed: draft.avatar }
+                    : agent.avatarParams
+                }
               />
               <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-line bg-panel text-ink-3 transition group-hover:text-ink">
                 <Dices size={11} />

@@ -80,16 +80,16 @@ export function sidebarPersonalRows<R extends PersonalListRow>(
     .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0) || a.agent.name.localeCompare(b.agent.name));
 }
 
-/** Agent id of the personal chat a path shows (`/chats/personal/<id>`), or null. */
+/** Agent id of the personal chat a path shows (`/message/<id>`), or null. */
 export function personalAgentIdFromPath(pathname: string | null | undefined): string | null {
-  const match = /^\/chats\/personal\/([^/?#]+)/.exec(pathname ?? "");
+  const match = /^\/message\/([^/?#]+)/.exec(pathname ?? "");
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-/** Where `/chats/personal` lands: the most recent personal chat, else the chats home. */
+/** Where `/message` lands: the most recent personal chat, else the message list. */
 export function personalIndexTarget(rows: readonly PersonalListRow[] | null | undefined): string {
   const [latest] = sidebarPersonalRows(rows);
-  return latest ? `/chats/personal/${latest.agent._id}` : "/chats";
+  return latest ? `/message/${latest.agent._id}` : "/messages";
 }
 
 /**

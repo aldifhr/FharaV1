@@ -107,7 +107,7 @@ export default function GithubRepoSettings({ projectId }: { projectId: string })
                 ? account?.login
                   ? `Account: @${account.login} (shared by every project)`
                   : "Account: connected (shared by every project)"
-                : "No GitHub account connected. Connect it once in Integrations for every project."}
+                : "No GitHub account connected. Connect it once in Settings → Account for every project."}
             </p>
           </div>
 

@@ -15,25 +15,26 @@ import QueryBoundary from "./shell/QueryBoundary";
 import NeedsYou from "./sidebar/NeedsYou";
 import ThreadList from "./sidebar/ThreadList";
 import ProjectList from "./sidebar/ProjectList";
-import PersonalList from "./sidebar/PersonalList";
 import TeamList, { type TeamAgent } from "./sidebar/TeamList";
 import { CreateAgentModal } from "./sidebar/AgentForms";
 import ActivityPopover from "./sidebar/ActivityPopover";
 import { InboxNav, NavGroup, NavRow, RailItem } from "./sidebar/SidebarNav";
 import { sidebarNavLinks } from "./sidebar/navLinks";
 import { AccountRow, SearchBox, SidebarHeader, useShellChords } from "./sidebar/SidebarChrome";
-import { agentName, fixedAgentIds } from "@/lib/agentRoles";
+import { agentName } from "@/lib/agentRoles";
+import { useOptionalWorkspace } from "@/app/WorkspaceContext";
 import { onFocusTeam } from "@/lib/shellEvents";
 import { useUiPref } from "@/lib/uiPrefs";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 
-type Sections = { needsYou: boolean; threads: boolean; projects: boolean; personal: boolean; team: boolean };
+type Sections = { needsYou: boolean; threads: boolean; projects: boolean; team: boolean };
 
 /**
  * The one app sidebar (dashboard restyle F2): logo and collapse, search (⌘K),
- * Needs you and Threads, then WORK (projects, personal messages, team),
- * BUILD and OBSERVE, with the account row at the bottom. Collapses to an
- * icon rail on desktop (remembered in uiPrefs); below 980px it is a drawer.
+ * Threads, then Inbox / Personal messages / Needs you, then WORK (projects,
+ * team), BUILD, DEVELOPMENT and OBSERVE, with the account row at the bottom.
+ * Collapses to an icon rail on desktop (remembered in uiPrefs); below 980px it
+ * is a drawer.
  */
 export default function Sidebar({
   projectId,
@@ -56,6 +57,7 @@ export default function Sidebar({
   const { openNewProject } = useNewProject();
   const { openSettings } = useSettings();
   const isDesktop = useMediaQuery(DESKTOP_QUERY, true);
+  const workspace = useOptionalWorkspace();
   const [collapsedPref, setCollapsedPref] = useUiPref("sidebarCollapsed");
   const rail = isDesktop && collapsedPref;
   const agents = useQuery(api.agents.list, {}) as (TeamAgent & Record<string, any>)[] | undefined;
@@ -68,7 +70,7 @@ export default function Sidebar({
   const closeDrawer = useCallback(() => (ownsDrawer ? setOwnDrawerOpen(false) : onCloseDrawerProp?.()), [ownsDrawer, onCloseDrawerProp]);
   const isDrawer = mobile === "drawer";
 
-  const [open, setOpen] = useState<Sections>({ needsYou: true, threads: true, projects: true, personal: true, team: true });
+  const [open, setOpen] = useState<Sections>({ needsYou: true, threads: true, projects: true, team: true });
   const [commandOpen, setCommandOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -150,7 +152,7 @@ export default function Sidebar({
     setOpen((s) => ({ ...s, [section]: true }));
   };
 
-  const { build, observe, teamHref } = sidebarNavLinks({ pathname, projectId });
+  const { build, development, observe, teamHref } = sidebarNavLinks({ pathname, projectId });
   const inboxActive = pathname === "/inbox";
   const activity = projectId ? (
     rail ? (
@@ -215,12 +217,21 @@ export default function Sidebar({
             <QueryBoundary fallback={inboxFallback}>
               <InboxNav icon={Inbox} active={inboxActive} rail />
             </QueryBoundary>
+            <RailItem
+              icon={MessageCircle}
+              label="Direct Messages"
+              href="/messages"
+              active={pathname.startsWith("/messages") || pathname.startsWith("/message")}
+            />
             <span aria-hidden="true" className="my-1.5 h-px w-6 bg-line" />
-            <RailItem icon={FolderKanban} label="Projects" onClick={expandTo("projects")} active={pathname.startsWith("/chats/") && !pathname.startsWith("/chats/personal")} />
-            <RailItem icon={MessageCircle} label="Personal messages" onClick={expandTo("personal")} active={pathname.startsWith("/chats/personal")} />
+            <RailItem icon={FolderKanban} label="Projects" onClick={expandTo("projects")} active={pathname.startsWith("/project/") || pathname.startsWith("/chats/")} />
             <RailItem icon={Users} label="Team" href={teamHref} active={pathname.startsWith("/team")} />
             <span aria-hidden="true" className="my-1.5 h-px w-6 bg-line" />
             {build.map((item) => (
+              <RailItem key={item.label} {...item} />
+            ))}
+            <span aria-hidden="true" className="my-1.5 h-px w-6 bg-line" />
+            {development.map((item) => (
               <RailItem key={item.label} {...item} />
             ))}
             <span aria-hidden="true" className="my-1.5 h-px w-6 bg-line" />
@@ -232,17 +243,29 @@ export default function Sidebar({
         ) : (
           <nav aria-label="Workspace" className="shell-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-4 pt-1">
             <div className="flex flex-col gap-3">
+              <QueryBoundary>
+                <Suspense fallback={null}>
+                  <ThreadList filter="" open={open.threads} onToggle={() => toggleSection("threads")} onNavigate={closeDrawer} />
+                </Suspense>
+              </QueryBoundary>
+              <QueryBoundary
+                fallback={<NavRow icon={Inbox} label="Inbox" href="/inbox" onClick={closeDrawer} />}
+              >
+                <InboxNav icon={Inbox} active={inboxActive} rail={false} onNavigate={closeDrawer} />
+              </QueryBoundary>
+              <NavRow
+                icon={MessageCircle}
+                label="Personal messages"
+                href="/messages"
+                active={pathname.startsWith("/messages") || pathname.startsWith("/message")}
+                onClick={closeDrawer}
+              />
               <QueryBoundary
                 fallback={
                   <NavRow icon={Inbox} label="Needs you" href="/inbox" onClick={closeDrawer} />
                 }
               >
                 <NeedsYou open={open.needsYou} onToggle={() => toggleSection("needsYou")} onNavigate={closeDrawer} />
-              </QueryBoundary>
-              <QueryBoundary>
-                <Suspense fallback={null}>
-                  <ThreadList filter="" open={open.threads} onToggle={() => toggleSection("threads")} onNavigate={closeDrawer} />
-                </Suspense>
               </QueryBoundary>
             </div>
             <NavGroup label="Work">
@@ -255,12 +278,11 @@ export default function Sidebar({
                 onSelect={(id) => {
                   onSelectProject?.(id);
                   closeDrawer();
+                  // Same project: the row is the project chat, so close the open thread.
+                  if (workspace?.projectId === id) workspace.closeThread();
                 }}
                 onRemove={askRemoveProject}
               />
-              <QueryBoundary>
-                <PersonalList filter="" open={open.personal} onToggle={() => toggleSection("personal")} onNavigate={closeDrawer} />
-              </QueryBoundary>
               <TeamList
                 ref={teamRef}
                 projectId={projectId}
@@ -276,10 +298,12 @@ export default function Sidebar({
                 <NavRow key={item.label} {...item} onClick={item.onClick ?? closeDrawer} />
               ))}
             </NavGroup>
+            <NavGroup label="Development">
+              {development.map((item) => (
+                <NavRow key={item.label} {...item} onClick={item.onClick ?? closeDrawer} />
+              ))}
+            </NavGroup>
             <NavGroup label="Observe">
-              <QueryBoundary fallback={inboxFallback}>
-                <InboxNav icon={Inbox} active={inboxActive} rail={false} onNavigate={closeDrawer} />
-              </QueryBoundary>
               {observe.map((item) => (
                 <NavRow key={item.label} {...item} onClick={closeDrawer} />
               ))}
@@ -293,12 +317,12 @@ export default function Sidebar({
         </div>
 
         {activityOpen && projectId && <ActivityPopover anchor={activityRef.current} projectId={projectId} onClose={() => setActivityOpen(false)} />}
-        {createOpen && <CreateAgentModal agents={(agents ?? []) as never} onClose={() => setCreateOpen(false)} />}
+        {createOpen && <CreateAgentModal onClose={() => setCreateOpen(false)} />}
         {detail && (
           <AgentDetailPanel
             agent={(agents ?? []).find((a) => a._id === detail._id) ?? detail}
             onClose={() => setDetail(null)}
-            onRemove={fixedAgentIds(agents).has(detail._id) ? undefined : askRemoveAgent}
+            onRemove={askRemoveAgent}
           />
         )}
       </aside>

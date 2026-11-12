@@ -61,10 +61,6 @@ export const UI_PREFS = {
     defaultValue: false,
     parse: (raw: string) => (raw === "true" || raw === "1" ? true : raw === "false" || raw === "0" ? false : undefined),
   } as PrefSpec<boolean>,
-  /** Sidebar Threads: group rows by project, kind or status. */
-  threadGroupBy: oneOf("fhara:thread-group-by", "project", ["project", "kind", "status"] as const),
-  /** Sidebar Threads: show all rows, only ones that need you, or only unread ones. */
-  threadFilter: oneOf("fhara:thread-filter", "all", ["all", "needsYou", "unread"] as const),
 } as const;
 
 export type UiPrefKey = keyof typeof UI_PREFS;

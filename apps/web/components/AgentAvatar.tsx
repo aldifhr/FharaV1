@@ -1,13 +1,13 @@
 "use client";
-import { AvatartionAvatarView, avatartionFor, deserializeAvatartion, type AvatartionAvatar } from "./ui/avatartion";
-import type { AvatarParams } from "@/api/convex/lib/avatar";
+import DicebearAvatar from "./DicebearAvatar";
+import { dicebearSeedFor, isDicebearAvatarParams } from "@/lib/dicebearAvatar";
 
 type Props = {
   name: string;
   size?: number;
   status?: "idle" | "working" | "queued" | "needs_you" | "thinking" | "reviewing" | "waiting" | "blocked" | "completed" | "failed" | string;
-  avatar?: AvatartionAvatar;
-  avatarParams?: AvatarParams;
+  /** `{ dicebear: "lorelei", seed }`; anything else falls back to the name. */
+  avatarParams?: unknown;
 };
 
 const STATUS_DOT: Record<string, string> = {
@@ -21,16 +21,19 @@ const STATUS_DOT: Record<string, string> = {
   idle: "bg-gray-400",
 };
 
-export default function AgentAvatar({ name, size = 32, status, avatar, avatarParams }: Props) {
-  const restored = avatarParams ? deserializeAvatartion(avatarParams) : null;
-  const resolvedAvatar = avatar ?? restored ?? avatartionFor(name);
+/**
+ * Agent avatar: the saved DiceBear seed when there is one, the name as the
+ * seed otherwise (so every agent has a stable face without extra state).
+ */
+export default function AgentAvatar({ name, size = 32, status, avatarParams }: Props) {
+  const seed = isDicebearAvatarParams(avatarParams) ? avatarParams.seed : dicebearSeedFor(name);
 
   return (
     <span
       className={`relative inline-flex shrink-0 transition-transform ${status === "working" ? "scale-110" : ""}`}
       style={{ width: size, height: size }}
     >
-      <AvatartionAvatarView avatar={resolvedAvatar} className="h-full w-full" />
+      <DicebearAvatar seed={seed} size={size} className="h-full w-full" />
       {status && (
         <>
           <span

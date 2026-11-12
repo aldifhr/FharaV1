@@ -722,3 +722,57 @@ export const removePersonal = mutation({
     return { deleted: true };
   },
 });
+
+/**
+ * Delete one project conversation from the sidebar Threads section: its
+ * messages, participant rows, context summaries, the `threadIndex` row and
+ * the conversation itself. Personal chats (plan 039) and a task's own chat
+ * are refused: the first has `removePersonal`, the second lives and dies
+ * with its task. Tasks dispatched from the chat keep living on the project
+ * board; their `conversationId` dangles, which `taskCardConversationId`
+ * treats as "no chat". Messages go first so a reply scheduled before the
+ * delete claims nothing and no-ops.
+ */
+export const remove = mutation({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args): Promise<{ deleted: boolean }> => {
+    const conversation = await ctx.db.get(args.conversationId);
+    if (!conversation) return { deleted: false };
+    await assertConversationAccess(ctx, conversation);
+    if (isPersonalConversation(conversation)) {
+      throw new Error("Only a project chat can be deleted here");
+    }
+    if (conversation.taskId) {
+      throw new Error("This chat belongs to a task; delete the task instead");
+    }
+    // One mutation = one transaction: either the whole conversation goes or none of it.
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
+      .collect();
+    for (const message of messages) await ctx.db.delete(message._id);
+    const participants = await ctx.db
+      .query("conversationParticipants")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
+      .collect();
+    for (const row of participants) await ctx.db.delete(row._id);
+    const summaries = await ctx.db
+      .query("contextSummaries")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
+      .collect();
+    for (const row of summaries) await ctx.db.delete(row._id);
+    const threadRow = await ctx.db
+      .query("threadIndex")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
+      .unique();
+    if (threadRow) await ctx.db.delete(threadRow._id);
+    await ctx.db.delete(conversation._id);
+    await recordAudit(ctx, {
+      action: "conversation.remove",
+      target: conversation.title?.trim() || "project chat",
+      projectId: conversation.projectId,
+      details: { conversationId: conversation._id, messages: messages.length },
+    });
+    return { deleted: true };
+  },
+});

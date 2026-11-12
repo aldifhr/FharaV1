@@ -143,7 +143,12 @@ describe("write requests in chat get a short reply and a routed Create task offe
     expect(system).toContain("Do not paste the file, its contents or any code block");
     expect(system).toContain("override any persona or skill instruction");
     expect(system).not.toContain("helpfully and completely");
-    expect(replies[0].taskOffer).toEqual({ kind: "implementation", assigneeAgentId: String(frontendId) });
+    expect(replies[0].taskOffer).toEqual({
+      kind: "implementation",
+      assigneeAgentId: String(frontendId),
+      brief:
+        "Add a plain HTML bold.html at the repo root.\n\nRequest: @Frontend tolong buatkan bold.html dengan teks 'Hello World' dengan menggunakan css dan js serta teksnya bold",
+    });
     expect(replies[0].unverifiedRefs).toBeUndefined();
     expect(await t.run(async (ctx) => ctx.db.query("tasks").collect())).toHaveLength(0);
   });
@@ -172,7 +177,12 @@ describe("write requests in chat get a short reply and a routed Create task offe
     const prompt = calls.find((c) => speaker(c) === "Frontend")!.system;
     expect(prompt).toContain("Do not paste the file, its contents or any code block");
     expect(prompt).not.toContain("To execute this plan");
-    expect(replies[0].taskOffer).toEqual({ kind: "implementation", assigneeAgentId: String(frontendId) });
+    expect(replies[0].taskOffer).toEqual({
+      kind: "implementation",
+      assigneeAgentId: String(frontendId),
+      brief:
+        "Add a plain HTML ultimate.html at the repo root.\n\nRequest: buatkan file ultimate.html dengan teks 'Ultimate is a new vision' dengan background yang menarik",
+    });
     expect(replies[0].unverifiedRefs).toBeUndefined();
     await ask(t, projectId, "gas");
     const tasks = await t.run(async (ctx) => ctx.db.query("tasks").collect());

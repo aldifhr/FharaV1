@@ -18,16 +18,10 @@ export const TEMPLATE_TAG_MAX = 32;
 export const TEMPLATE_TAGS_MAX = 12;
 export const BUILTIN_TEMPLATE_PREFIX = "builtin:";
 
-/** Avatartion params (same shape the web avatar picker stores). */
+/** DiceBear seed for the template's avatar (same shape agents store). */
 export type TemplateAvatar = {
-  face: number;
-  hair: number;
-  eyes: number;
-  mouth: number;
-  outfit: number;
-  accessory: number;
-  facialHair: number;
-  bg: string;
+  dicebear: "lorelei";
+  seed: string;
 };
 
 export type BuiltInTemplate = {
@@ -56,7 +50,7 @@ export const BUILT_IN_TEMPLATES: readonly BuiltInTemplate[] = [
     description: "React/Next.js UI work with strict TypeScript, accessible markup and theme tokens.",
     tags: ["frontend", "react"],
     suggestedSkills: ["Accessible UI checklist", "Conventional commits"],
-    avatarParams: { face: 3, hair: 12, eyes: 2, mouth: 4, outfit: 7, accessory: 1, facialHair: 1, bg: "#ddf0d5" },
+    avatarParams: { dicebear: "lorelei", seed: "react-frontend" },
     systemPrompt: promptFor("frontend", [
       "Focus: React and Next.js (App Router).",
       "- Prefer server components; add \"use client\" only where state, effects or browser APIs are needed.",
@@ -74,7 +68,7 @@ export const BUILT_IN_TEMPLATES: readonly BuiltInTemplate[] = [
     description: "Server functions, schema and validation with additive changes and access checks.",
     tags: ["backend", "api"],
     suggestedSkills: ["Write tests first", "Conventional commits"],
-    avatarParams: { face: 5, hair: 4, eyes: 3, mouth: 2, outfit: 14, accessory: 5, facialHair: 3, bg: "#fdeed3" },
+    avatarParams: { dicebear: "lorelei", seed: "api-backend" },
     systemPrompt: promptFor("backend", [
       "Focus: API endpoints, server functions and data model.",
       "- Validate every input at the boundary (types, lengths, enums) and return clear error messages.",
@@ -91,7 +85,7 @@ export const BUILT_IN_TEMPLATES: readonly BuiltInTemplate[] = [
     description: "End-to-end verification with Playwright, with evidence for every pass or fail.",
     tags: ["qa", "e2e", "playwright"],
     suggestedSkills: ["Write tests first"],
-    avatarParams: { face: 2, hair: 20, eyes: 5, mouth: 6, outfit: 3, accessory: 9, facialHair: 1, bg: "#d9eaf7" },
+    avatarParams: { dicebear: "lorelei", seed: "qa-playwright" },
     systemPrompt: promptFor("qa", [
       "Focus: end-to-end checks with Playwright.",
       "- Use role- and label-based locators (getByRole, getByLabel); avoid CSS selectors and fixed sleeps.",
@@ -108,7 +102,7 @@ export const BUILT_IN_TEMPLATES: readonly BuiltInTemplate[] = [
     description: "Reviews diffs for auth, injection, secret handling and unsafe defaults.",
     tags: ["security", "review"],
     suggestedSkills: [],
-    avatarParams: { face: 7, hair: 8, eyes: 1, mouth: 9, outfit: 21, accessory: 13, facialHair: 6, bg: "#e7dcf9" },
+    avatarParams: { dicebear: "lorelei", seed: "security-reviewer" },
     systemPrompt: promptFor("reviewer", [
       "Focus: security review.",
       "- Check every changed entry point for authentication and authorization (who can call it, on whose data).",
@@ -126,7 +120,7 @@ export const BUILT_IN_TEMPLATES: readonly BuiltInTemplate[] = [
     description: "CI pipelines, build caching and deploy checks with small, reversible changes.",
     tags: ["devops", "ci"],
     suggestedSkills: ["Conventional commits"],
-    avatarParams: { face: 4, hair: 27, eyes: 4, mouth: 1, outfit: 10, accessory: 3, facialHair: 8, bg: "#f6f3ee" },
+    avatarParams: { dicebear: "lorelei", seed: "devops-ci" },
     systemPrompt: promptFor("devops", [
       "Focus: continuous integration and delivery.",
       "- Keep pipelines fast: cache dependencies, run the cheapest checks first, fail early.",
@@ -142,7 +136,7 @@ export const BUILT_IN_TEMPLATES: readonly BuiltInTemplate[] = [
     description: "Usability and UX research: heuristics, user flows and sourced recommendations.",
     tags: ["research", "ux"],
     suggestedSkills: ["Accessible UI checklist"],
-    avatarParams: { face: 6, hair: 16, eyes: 6, mouth: 5, outfit: 18, accessory: 7, facialHair: 1, bg: "#f9e0ef" },
+    avatarParams: { dicebear: "lorelei", seed: "ux-researcher" },
     systemPrompt: promptFor("researcher", [
       "Focus: user experience research.",
       "- Walk the actual user flow step by step and note friction, dead ends and unclear copy.",

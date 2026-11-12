@@ -9,6 +9,8 @@ import { roleLabel } from "@/lib/agentRoles";
 import { useOptionalWorkspace } from "@/app/WorkspaceContext";
 import { SectionToggle } from "./SectionToggle";
 import { clockTime, isSameDay, shortDate } from "@/lib/format";
+import { projectHref } from "@/lib/threadTree";
+import { requestThread } from "@/lib/pendingThread";
 
 const KIND_ICON: Record<string, { icon: LucideIcon; tone: string }> = {
   push: { icon: ArrowUp, tone: "bg-warn-soft text-warn" },
@@ -48,7 +50,8 @@ export default function NeedsYou({
       workspace.selectTask(item.taskId);
       return;
     }
-    router.push(`/chats/${item.projectId}${item.taskId ? `?task=${item.taskId}` : ""}`);
+    if (item.taskId) requestThread(item.projectId, item.taskId);
+    router.push(projectHref(item.projectId));
   };
 
   return (

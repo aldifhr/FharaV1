@@ -1,11 +1,14 @@
 "use client";
 
 import { forwardRef, useEffect, useMemo, useState } from "react";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/api/convex/_generated/api";
 import InitialAvatar from "../InitialAvatar";
 import QueryBoundary from "../shell/QueryBoundary";
 import { agentName, agentRoleText, roleLabel } from "@/lib/agentRoles";
+import { useToast } from "../Toasts";
+import { Trash2 } from "lucide-react";
+import ConfirmDialog, { type ConfirmRequest } from "../ConfirmDialog";
 import { subscribeChatTyping } from "@/lib/chatTyping";
 import {
   TEAM_STATUS_RANK,
@@ -17,7 +20,6 @@ import {
   type TeamStatusWord,
 } from "@/lib/teamStatus";
 import { SectionToggle } from "./SectionToggle";
-import { projectMembers } from "@/lib/projectMembers";
 
 export type TeamAgent = { _id: string; name: string; role: string; isEnabled?: boolean; avatarParams?: unknown };
 
@@ -28,11 +30,13 @@ function TeamRows({
   status,
   drafting,
   onOpenAgent,
+  onDeleteAgent,
 }: {
   agents: TeamAgent[];
   status?: StatusMap;
   drafting: string[];
   onOpenAgent: (agent: TeamAgent) => void;
+  onDeleteAgent: (agent: TeamAgent) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const sorted = useMemo(() => {
@@ -53,7 +57,7 @@ function TeamRows({
           const name = agentName(a);
           const roleText = agentRoleText(a);
           return (
-            <li key={a._id}>
+            <li key={a._id} className="group relative">
               <button
                 type="button"
                 onClick={() => onOpenAgent(a)}
@@ -65,7 +69,20 @@ function TeamRows({
                   {name}
                   {roleText && <span className="text-[13px] text-ink-3">{` · ${roleText}`}</span>}
                 </span>
-                <span className={`max-w-[46%] shrink-0 truncate text-right text-[13px] ${disabled ? "text-ink-3" : teamStatusTone(word)}`}>{label}</span>
+                <span
+                  className={`max-w-[46%] shrink-0 truncate text-right text-[13px] transition-opacity group-hover:opacity-0 ${disabled ? "text-ink-3" : teamStatusTone(word)}`}
+                >
+                  {label}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onDeleteAgent(a)}
+                aria-label={`Delete ${name}`}
+                title={`Delete ${name}`}
+                className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-md p-1 text-ink-3 opacity-0 transition hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ink/30 group-hover:opacity-100"
+              >
+                <Trash2 size={14} />
               </button>
             </li>
           );
@@ -112,16 +129,41 @@ const TeamList = forwardRef<
   }
 >(function TeamList({ projectId, filter, open, onToggle, onAdd, onOpenAgent }, ref) {
   const allAgents = useQuery(api.agents.list, {}) as TeamAgent[] | undefined;
-  const project = useQuery(api.projects.get, projectId ? { projectId: projectId as never } : "skip");
+  const removeAgent = useMutation(api.agents.remove);
+  const toast = useToast();
   const [drafting, setDrafting] = useState<string[]>([]);
+  const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
+  const [confirmPending, setConfirmPending] = useState(false);
   // Chat replies have no execution lease; ChatPanel announces who is drafting.
   useEffect(() => subscribeChatTyping((d) => setDrafting(d.active ? d.agentIds : [])), []);
+  const askRemove = (agent: TeamAgent) => {
+    const name = agentName(agent);
+    setConfirmReq({
+      title: `Remove agent "${name}"?`,
+      message: "This agent will also be removed from projects that use it.",
+      confirmLabel: "Remove agent",
+      onOk: async () => {
+        setConfirmPending(true);
+        try {
+          await removeAgent({ agentId: agent._id as never });
+          toast("success", "Agent removed", name);
+          setConfirmReq(null);
+        } catch (err) {
+          toast("error", "Failed to remove agent", err instanceof Error ? err.message : "Please try again.");
+        } finally {
+          setConfirmPending(false);
+        }
+      },
+    });
+  };
 
-  const memberIds = (project as { agentIds?: string[] } | null | undefined)?.agentIds;
   const q = filter.trim().toLowerCase();
-  const agents = projectMembers(allAgents, memberIds)
-    .filter((a) => !q || roleLabel(a.role).toLowerCase().includes(q) || a.name.toLowerCase().includes(q));
-  const rowProps = { agents, drafting, onOpenAgent };
+  // The sidebar team is the whole roster, not the clicked project's members:
+  // clicking a project must not shrink or reorder the team list.
+  const agents = (allAgents ?? []).filter(
+    (a) => !q || roleLabel(a.role).toLowerCase().includes(q) || a.name.toLowerCase().includes(q),
+  );
+  const rowProps = { agents, drafting, onOpenAgent, onDeleteAgent: askRemove };
 
   return (
     <section ref={ref} aria-label="Team" className="scroll-mt-4">
@@ -148,6 +190,7 @@ const TeamList = forwardRef<
           <LeaseRows {...rowProps} />
         )
       )}
+      <ConfirmDialog request={confirmReq} pending={confirmPending} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
     </section>
   );
 });

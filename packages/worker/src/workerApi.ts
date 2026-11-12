@@ -15,6 +15,8 @@ export type WorkerAgent = Doc<"agents">;
  */
 export type WorkerRunAgent = WorkerAgent & {
   attachedSkills?: PromptSkill[];
+  /** The shared library, reachable on demand by any agent (never installed). */
+  librarySkills?: PromptSkill[];
   invokedSkills?: PromptSkill[];
   memorySection?: string;
   recalledMemorySection?: string; // Plan L4: unpinned memories recalled for this task (after the pinned section).

@@ -118,6 +118,17 @@ describe("threadIndex", () => {
     expect((await t.query(api.threads.list, { projectId }))[0].unread).toBe(false);
   });
 
+  test("deleting a task takes its thread row with it", async () => {
+    const { t, projectId, ownerId } = await seed();
+    await t.run((ctx) => syncTaskThread(ctx, ownerId, { seen: true }));
+    expect(await rowsOf(t)).toHaveLength(1);
+
+    await t.mutation(api.tasks.remove, { taskId: ownerId });
+
+    expect(await rowsOf(t)).toHaveLength(0);
+    expect(await t.query(api.threads.list, { projectId })).toHaveLength(0);
+  });
+
   test("the project cascade deletes thread rows", async () => {
     const { t, projectId } = await seed();
     await t.mutation(internal.threads.backfill, { once: true });

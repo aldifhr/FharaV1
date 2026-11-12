@@ -24,7 +24,7 @@ test("recentThreads: newest first, capped, with the sidebar href", () => {
   const out = recentThreads(rows);
   assert.equal(out.length, RECENT_THREADS);
   assert.deepEqual(out.slice(0, 2).map((r) => r.id), ["t9", "t8"]);
-  assert.equal(out[0].href, "/chats/p1?task=t9");
+  assert.equal(out[0].href, "/project/p1/t9");
 });
 
 test("recentThreads: drops nested fix tasks, keeps orphans, names untitled rows", () => {
@@ -37,7 +37,7 @@ test("recentThreads: drops nested fix tasks, keeps orphans, names untitled rows"
   const out = recentThreads(rows);
   assert.deepEqual(out.map((r) => r.id), ["orphan", "owner", "c1"]);
   assert.equal(out[0].title, "Untitled thread");
-  assert.equal(out[2].href, "/chats/p1");
+  assert.equal(out[2].href, "/project/p1");
 });
 
 test("recentThreads: empty and undefined input", () => {
@@ -46,5 +46,5 @@ test("recentThreads: empty and undefined input", () => {
 });
 
 test("newTaskHref opens the Tasks tab with compose", () => {
-  assert.equal(newTaskHref("abc"), "/chats/abc?tab=tasks&compose=1");
+  assert.equal(newTaskHref("abc"), "/project/abc?tab=tasks&compose=1");
 });

@@ -38,7 +38,7 @@ function ProjectRows({
           return (
             <li key={p._id} className={`group relative flex items-center rounded-lg transition ${selected ? "bg-hover" : "hover:bg-hover"}`}>
               <Link
-                href={`/chats/${p._id}`}
+                href={`/project/${p._id}`}
                 onClick={() => onSelect?.(p._id)}
                 aria-current={selected ? "page" : undefined}
                 className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-[7px] outline-none focus-visible:ring-2 focus-visible:ring-ink/30"

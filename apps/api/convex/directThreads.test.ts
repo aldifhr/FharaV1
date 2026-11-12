@@ -381,3 +381,84 @@ describe("MCP set hash and effort (Nuphos N10)", () => {
     expect((await t.run((ctx) => ctx.db.get(taskId)))!.direct!.effort).toBeUndefined();
   });
 });
+
+describe("directThreads.createFromMessages", () => {
+  /** Insert one message into a project (user by default). */
+  const addMessage = async (
+    t: Awaited<ReturnType<typeof setup>>["t"],
+    projectId: any,
+    content: string,
+    authorType: "user" | "agent" = "user",
+    extra: Record<string, unknown> = {},
+  ) =>
+    t.run((ctx) => ctx.db.insert("messages", { projectId, authorType, content, ...extra } as never));
+
+  test("creates a queued direct thread from the ordered selected messages", async () => {
+    const { t, projectId, devId } = await setup();
+    const m1 = await addMessage(t, projectId, "please fix the backend bug");
+    const m2 = await addMessage(t, projectId, "I think it is the handler", "agent", { agentId: devId });
+    const m3 = await addMessage(t, projectId, "thanks!");
+    const { taskId } = await t.mutation(api.directThreads.createFromMessages, {
+      projectId,
+      messageIds: [m3, m1, m2], // deliberately out of order
+      clientId: "a1",
+    });
+    const task = await t.run((ctx) => ctx.db.get(taskId));
+    expect(task?.mode).toBe("direct");
+    expect(task?.status).toBe("queued");
+    expect(task?.direct?.role).toBe("backend");
+    expect(task?.direct?.agentId).toBe(devId);
+    expect(task?.command).toBe("please fix the backend bug");
+    const events = await eventsOf(t, taskId);
+    expect(events.map((e) => e.type)).toEqual(["thread.created", "user.message", "user.message", "user.message"]);
+    expect(events.slice(1).map((e) => e.payload.text)).toEqual(["please fix the backend bug", "I think it is the handler", "thanks!"]);
+    expect(events.slice(1).map((e) => e.payload.clientId)).toEqual([
+      `add-as-thread:${projectId}:${m1}`,
+      `add-as-thread:${projectId}:${m2}`,
+      `add-as-thread:${projectId}:${m3}`,
+    ]);
+  });
+
+  test("a message from another project is refused", async () => {
+    const { t, projectId } = await setup();
+    const otherProject = await t.run((ctx) => ctx.db.insert("projects", { name: "Q", workspacePath: "/ws/q", agentIds: [] } as never));
+    const message = await addMessage(t, otherProject, "from outside");
+    await expect(t.mutation(api.directThreads.createFromMessages, { projectId, messageIds: [message], clientId: "a2" })).rejects.toThrow(/does not belong to this project/);
+  });
+
+  test("a task-linked message is refused", async () => {
+    const { t, projectId } = await setup();
+    const task = await t.run((ctx) => ctx.db.insert("tasks", { projectId, title: "T", command: "", status: "queued" } as never));
+    const message = await addMessage(t, projectId, "report", "agent", { taskId: task });
+    await expect(t.mutation(api.directThreads.createFromMessages, { projectId, messageIds: [message], clientId: "a3" })).rejects.toThrow(/Task-linked/);
+  });
+
+  test("duplicate message ids write each message once", async () => {
+    const { t, projectId } = await setup();
+    const message = await addMessage(t, projectId, "again");
+    const { taskId } = await t.mutation(api.directThreads.createFromMessages, { projectId, messageIds: [message, message], clientId: "a4" });
+    const events = await eventsOf(t, taskId);
+    expect(events.filter((e) => e.type === "user.message")).toHaveLength(1);
+  });
+
+  test("a retried create with the same clientId returns the same thread", async () => {
+    const { t, projectId } = await setup();
+    const message = await addMessage(t, projectId, "again");
+    const first = await t.mutation(api.directThreads.createFromMessages, { projectId, messageIds: [message], clientId: "a5" });
+    const second = await t.mutation(api.directThreads.createFromMessages, { projectId, messageIds: [message], clientId: "a5" });
+    expect(second.taskId).toBe(first.taskId);
+    const events = await eventsOf(t, second.taskId);
+    expect(events.filter((e) => e.type === "user.message")).toHaveLength(1);
+  });
+
+  test("an empty selection is refused", async () => {
+    const { t, projectId } = await setup();
+    await expect(t.mutation(api.directThreads.createFromMessages, { projectId, messageIds: [], clientId: "a6" })).rejects.toThrow(/at least one message/);
+  });
+
+  test("a system line is refused", async () => {
+    const { t, projectId } = await setup();
+    const message = await addMessage(t, projectId, "shh", "agent", { voice: "system" });
+    await expect(t.mutation(api.directThreads.createFromMessages, { projectId, messageIds: [message], clientId: "a7" })).rejects.toThrow(/System/);
+  });
+});

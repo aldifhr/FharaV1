@@ -366,6 +366,12 @@ export const remove = mutation({
       .withIndex("by_owner_task", (q) => q.eq("ownerTaskId", args.taskId))
       .collect();
     for (const reaction of reactions) await ctx.db.delete(reaction._id);
+    // Nothing syncs the sidebar row after the task is gone; take it with us.
+    const threadRow = await ctx.db
+      .query("threadIndex")
+      .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+      .unique();
+    if (threadRow) await ctx.db.delete(threadRow._id);
     await ctx.db.delete(args.taskId);
     return true;
   },

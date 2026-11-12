@@ -69,7 +69,7 @@ describe("webhook token", () => {
     expect(listed).toMatchObject({ hasWebhookToken: true, webhookUrl, projectName: "P" });
     expect(listed).not.toHaveProperty("webhookTokenHash");
     expect(await verifyWebhookToken(token, row?.webhookTokenHash)).toBe(true);
-    expect(await verifyWebhookToken(`${token.slice(0, -1)}0`, row?.webhookTokenHash)).toBe(false);
+    expect(await verifyWebhookToken(`${token.slice(0, -1)}${token.endsWith("0") ? "1" : "0"}`, row?.webhookTokenHash)).toBe(false);
     expect(await verifyWebhookToken(token, undefined)).toBe(false);
     expect(await constantTimeEquals("a", "ab")).toBe(false);
   });

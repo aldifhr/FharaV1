@@ -10,11 +10,11 @@
  * backend/db → Backend, CI/deploy → DevOps. A short status question
  * ("sampai mana") gets a System status line from task state (no LLM). Only a
  * role that exists and is enabled in the project team is ever picked;
- * otherwise the route is "none" and the caller's chooser decides.
+ * otherwise the route is "none" and the caller falls back (owner.ts).
  *
- * Follow-ups ("coba cek lebih dalam", "lebih detail") route by the previous
- * turn: back to the specialist who answered it, else by the previous user
- * question's domain, else (a deep-dive on code) to the Reviewer.
+ * The agent who answered the previous turn keeps the conversation (like one
+ * Claude Code / Cline session): any message after its reply goes back to it
+ * until the user @mentions someone else. No phrase list decides this.
  *
  * Pure: unit-tested in dispatch.test.ts.
  */
@@ -43,11 +43,12 @@ export type ChatRoute<T extends TeamMember> =
   | { kind: "status"; reason: string }
   | {
       kind: "specialist";
-      domain: DispatchDomain;
+      /** Null for a previous responder whose role owns no domain. */
+      domain: DispatchDomain | null;
       agent: T;
       /** A code path / identifier the question is about, when one is named. */
       topic?: string;
-      /** Routed by the previous turn (follow-up) rather than this message alone. */
+      /** Routed to the agent who answered the previous turn. */
       followUp: boolean;
       reason: string;
     };
@@ -89,7 +90,7 @@ const DOMAIN_RULES: Array<{ domain: DispatchDomain; pattern: RegExp }> = [
   {
     domain: "reviewer",
     pattern:
-      /\b(code review|review|reviu|audit|cek lebih dalam|cek (?:lebih )?detail|periksa (?:kode|code|fungsi|function|file)|cek (?:kode|code|fungsi|function|file)|deep[- ]?dive|telusuri|bedah|inspect)\b/i,
+      /\b(code review|review|reviu|audit|periksa (?:kode|code|fungsi|function|file)|cek (?:kode|code|fungsi|function|file)|deep[- ]?dive|telusuri|bedah|inspect)\b/i,
   },
   {
     domain: "qa",
@@ -135,34 +136,15 @@ const HOW_TO = /^(?:how (?:do|can|to|should)|cara|gimana cara|bagaimana cara|gmn
 /** Asks for depth: a short how-to with one of these is not light. */
 const DEEP = /\b(audit|review|cek lebih dalam|lebih dalam|deep[- ]?dive|telusuri|bedah|security|keamanan)\b/i;
 
-/** Follow-up phrases that point back at the previous turn. */
-const FOLLOW_UP =
-  /\b(cek lebih dalam|lebih dalam|lebih detail|lebih rinci|dalami|dalemin|deeper|go deeper|dig deeper|more detail\w*|detailnya|lanjut(?:kan)? cek|lanjut(?:kan)? periksa|cek lagi|check again|periksa lagi|cek ulang|elaborate|jelaskan lebih)\b/i;
-/**
- * A whole short message that only asks to go on or for more ("lanjutkan",
- * "terus", "detailnya?", "more?"). "lanjut"/"gas" right after a CTO Create
- * task offer never reaches the pre-route (it starts the offered task).
- */
-const BARE_FOLLOW_UP =
-  /^(?:(?:ok(?:e|ay)?|sip|ya|yes)[\s,]+)?(?:lanjut(?:kan)?|teruskan|terus|continue|go on|keep going|detail(?:nya|s)?|rinciannya|more|lagi|terus gimana|then\??)(?:\s+(?:aja|ya|dong|lagi|please|kak|bro))?[\s!.?]*$/i;
-
-/** A short follow-up that points back at the previous turn. */
-export function isFollowUpText(text: string): boolean {
-  const t = text.trim();
-  if (BARE_FOLLOW_UP.test(t)) return true;
-  return FOLLOW_UP.test(t) && words(t) <= 10 && matchDomains(t.replace(FOLLOW_UP, " ")).length === 0 && !codeTargetOf(t);
-}
-
 /**
  * Whether a chat message goes through the deterministic pre-route at all.
  * Chat is everything without an explicit task trigger (those are handled
  * before this: Create task button, /task, a leading kerjakan/jalankan/
  * eksekusi, a go reply to a CTO offer). The LLM intent never gates the route
- * for read-only work: nous often labels "tolong audit kode src/" or "cek
- * lebih dalam" as task/audit. Only these stay with the CTO (plan + Create
- * task offer): pasted content, an option pick, a deterministic change
- * request, a run request ("tolong jalankan tes"), and a message the LLM
- * itself calls an implementation (unless it is a follow-up).
+ * for read-only work: nous often labels "tolong audit kode src/" as
+ * task/audit. Only these keep the plan + Create task offer: pasted content,
+ * an option pick, a deterministic change request, a run request ("tolong
+ * jalankan tes"), and a message the LLM itself calls an implementation.
  */
 export function chatPreRouteAllowed(input: {
   text: string;
@@ -176,7 +158,6 @@ export function chatPreRouteAllowed(input: {
   runRequest: boolean;
 }): boolean {
   if (input.optionPick || input.pasted || input.workShaped || input.runRequest) return false;
-  if (isFollowUpText(input.text)) return true;
   if (input.intent.intent === "task" && input.intent.subtype === "implementation") return false;
   return input.intent.intent === "ask" || input.intent.intent === "task";
 }
@@ -191,7 +172,8 @@ export function codeTargetOf(text: string): string | undefined {
   return (BACKTICKED.exec(text)?.[1] ?? CODE_PATH.exec(text)?.[1] ?? CAMEL_IDENT.exec(text)?.[1])?.trim();
 }
 
-function mentionsCode(text: string): boolean {
+/** The message is about repo code or files (a path, an identifier, or "kode"/"file"). */
+export function mentionsCode(text: string): boolean {
   return Boolean(codeTargetOf(text)) || CODE_WORD.test(text);
 }
 
@@ -211,7 +193,7 @@ function agentForRole<T extends TeamMember>(team: T[], key: string): T | undefin
   });
 }
 
-/** The domain a teammate's role belongs to (for follow-ups that go back to it). */
+/** The domain a teammate's role belongs to (the previous responder's route domain). */
 export function domainOfRole(role: string): DispatchDomain | null {
   const r = normRole(role);
   for (const domain of Object.keys(DOMAIN_ROLES) as DispatchDomain[]) {
@@ -267,25 +249,20 @@ function pick<T extends TeamMember>(
 }
 
 /**
- * The previous turn: the user message before the latest one, and the
- * teammates who replied after it, nearest first. System lines are skipped.
+ * The agent who answered most recently before the latest user message, if it
+ * is still on the team. System lines and old CTO handoff lines are routing,
+ * not replies.
  */
-function previousTurn(history: HistoryRow[]): { userText: string; agentIds: string[]; replies: string[] } | null {
-  let last = history.length - 1;
-  while (last >= 0 && history[last].authorType !== "user") last -= 1;
-  if (last < 1) return null;
-  const agentIds: string[] = [];
-  const replies: string[] = [];
-  for (let i = last - 1; i >= 0; i -= 1) {
+export function previousResponder<T extends TeamMember>(history: HistoryRow[], team: T[]): T | null {
+  let i = history.length - 1;
+  while (i >= 0 && history[i].authorType !== "user") i -= 1;
+  for (i -= 1; i >= 0; i -= 1) {
     const row = history[i];
-    if (row.authorType === "user") return { userText: row.content, agentIds, replies };
-    // System lines and old CTO handoff lines are routing, not replies.
-    if (row.authorType === "agent" && !isSystemLine(row) && row.content?.trim() && !isHandoffLine(row.content)) {
-      if (row.agentId) agentIds.push(String(row.agentId));
-      replies.push(row.content);
-    }
+    if (row.authorType !== "agent" || isSystemLine(row) || !row.agentId || !row.content?.trim() || isHandoffLine(row.content)) continue;
+    const agent = team.find((a) => String(a._id) === String(row.agentId));
+    if (agent) return agent;
   }
-  return agentIds.length ? { userText: "", agentIds, replies } : null;
+  return null;
 }
 
 /** The first enabled agent for a domain's roles, in preference order. */
@@ -312,36 +289,11 @@ export function routeQuestion<T extends TeamMember>(input: {
   const repoTools = input.repoToolsAvailable !== false;
   const { team } = input;
 
-  if (isFollowUpText(text)) {
-    const prev = previousTurn(input.history ?? []);
-    if (prev) {
-      // 1) Back to the teammate who answered the previous turn.
-      for (const id of prev.agentIds) {
-        const agent = team.find((a) => String(a._id) === id);
-        const domain = agent ? domainOfRole(agent.role) : null;
-        if (agent && domain && (repoTools || !needsRepo(domain, prev.userText))) {
-          return { kind: "specialist", domain, agent, topic: codeTargetOf(prev.userText), followUp: true, reason: "follow-up to the teammate who answered" };
-        }
-      }
-      // 2) By the previous question's own domain.
-      if (prev.userText && !lightReason(prev.userText)) {
-        const hit = pick(prev.userText, team, repoTools);
-        if (hit) return { kind: "specialist", ...hit, topic: codeTargetOf(prev.userText), followUp: true, reason: "follow-up routed by the previous question" };
-      }
-      // 3) A deep-dive on code the previous turn talked about → Reviewer.
-      const prevText = [prev.userText, ...prev.replies].join("\n");
-      if (repoTools && mentionsCode(prevText)) {
-        const agent = agentForRole(team, "reviewer");
-        if (agent) {
-          return { kind: "specialist", domain: "reviewer", agent, topic: codeTargetOf(prev.userText) ?? codeTargetOf(prevText), followUp: true, reason: "deep-dive on code from the previous turn" };
-        }
-      }
-    }
-    return { kind: "none", reason: "follow-up with nobody to route to" };
-  }
-
   const light = lightReason(text);
   if (light === "status") return { kind: "status", reason: "status" };
+  // The agent who answered the previous turn keeps the conversation.
+  const prev = previousResponder(input.history ?? [], team);
+  if (prev) return { kind: "specialist", domain: domainOfRole(prev.role), agent: prev, followUp: true, reason: "previous responder" };
   if (light === "planning") {
     const cto = agentForDomain(team, "architecture");
     return cto ? { kind: "specialist", domain: "architecture", agent: cto, followUp: false, reason: "planning" } : { kind: "none", reason: "planning, no CTO in the team" };
@@ -350,12 +302,7 @@ export function routeQuestion<T extends TeamMember>(input: {
     const support = agentForDomain(team, "support");
     return support ? { kind: "specialist", domain: "support", agent: support, followUp: false, reason: light } : { kind: "none", reason: `${light}, no Support in the team` };
   }
-  // A depth phrase ("cek lebih dalam tesnya") must not drown the message's own
-  // domain: route by the rest first, then by the whole text.
-  const stripped = text.replace(new RegExp(FOLLOW_UP.source, "gi"), " ");
-  const hit =
-    (stripped !== text && matchDomains(stripped).length ? pick(stripped, team, repoTools) : null) ??
-    pick(text, team, repoTools);
+  const hit = pick(text, team, repoTools);
   if (hit) return { kind: "specialist", ...hit, topic: codeTargetOf(text), followUp: false, reason: `domain ${hit.domain}` };
   // "cara pakai …", "how do I …" with no topic domain: Support guides.
   if (light === "short how-to") {
@@ -403,7 +350,7 @@ export function isHandoffLine(text: string): boolean {
  * message is chat, never a plan). Live test 4: the routed Reviewer answered
  * with a plan + "klik Create task" instead of auditing.
  */
-export function routedAnswerSubtype<S extends string>(domain: DispatchDomain, subtype: S): S | "audit" | "explanation" {
+export function routedAnswerSubtype<S extends string>(domain: DispatchDomain | null, subtype: S): S | "audit" | "explanation" {
   if (domain === "reviewer" || domain === "security") return "audit";
   return subtype === "implementation" ? "explanation" : subtype;
 }

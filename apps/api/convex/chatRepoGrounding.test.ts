@@ -5,8 +5,10 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import {
   MAX_REPO_TOOL_CALLS,
+  READ_FIRST,
   REPO_TOOL_CAPS,
   TOOL_BUDGET_EXHAUSTED,
+  stripLeadingNarration,
   capToolOutput,
   mayBeToolCall,
   parseRepoToolCall,
@@ -117,21 +119,73 @@ describe("repo tool loop (mocked LLM)", () => {
     expect(steps).toBe(MAX_REPO_TOOL_CALLS + 1);
     expect(lastMessages.at(-1)?.content).toBe(TOOL_BUDGET_EXHAUSTED);
     expect(result.answer).toContain("belum saya cek");
+    // The budget line sends the user to the Create task button, never to "lanjut".
+    expect(TOOL_BUDGET_EXHAUSTED).toMatch(/Create task button under this reply runs the full job/);
+    expect(TOOL_BUDGET_EXHAUSTED).toMatch(/Never ask the user to type "lanjut"/);
+  });
+
+  test("read before claim: a first answer with zero tool calls gets one READ_FIRST nudge", async () => {
+    const seen: string[] = [];
+    let steps = 0;
+    const result = await runRepoToolLoop({
+      messages: [{ role: "user", content: "audit semua file" }],
+      requireRead: true,
+      step: async (messages) => {
+        steps += 1;
+        seen.push(messages.at(-1)?.content ?? "");
+        if (steps === 1) return { content: "auth.ts memakai getToken dan header Bearer." };
+        if (steps === 2) return { content: '{"tool":"read_file","arguments":{"path":"auth.ts"}}' };
+        return { content: "auth.ts:3 membaca cookie, bukan Bearer." };
+      },
+      callTool: async () => ({ ok: true, text: "auth.ts: 10 bytes, 3 lines total\n3: cookie()", files: ["auth.ts"] }),
+    });
+    expect(seen[1]).toBe(READ_FIRST);
+    expect(result.repoCalls).toBe(1);
+    expect(result.answer).toBe("auth.ts:3 membaca cookie, bukan Bearer.");
+  });
+
+  test("read before claim nudges once only, and never without requireRead or tools", async () => {
+    const answerOnly = (requireRead: boolean, maxCalls = 6) => {
+      let steps = 0;
+      return runRepoToolLoop({
+        messages: [{ role: "user", content: "x" }],
+        requireRead,
+        maxCalls,
+        step: async () => {
+          steps += 1;
+          return { content: `Jawaban ${steps}.` };
+        },
+        callTool: async () => ({ ok: true, text: "" }),
+      });
+    };
+    expect((await answerOnly(true)).answer).toBe("Jawaban 2.");
+    expect((await answerOnly(false)).answer).toBe("Jawaban 1.");
+    expect((await answerOnly(true, 0)).answer).toBe("Jawaban 1.");
+  });
+
+  test("leading narration paragraphs are stripped when an answer follows", () => {
+    expect(stripLeadingNarration("Saya akan membaca file auth dulu.\n\nTemuan: tidak ada XSS.")).toBe("Temuan: tidak ada XSS.");
+    expect(stripLeadingNarration("Let me check the schema.\n\nThe schema has 3 tables.")).toBe("The schema has 3 tables.");
+    // Narration alone is left for the loop's own fallback; a real answer is untouched.
+    expect(stripLeadingNarration("Let me check the schema.")).toBe("Let me check the schema.");
+    expect(stripLeadingNarration("Temuan: aman.\n\nSaya cek lagi nanti.")).toBe("Temuan: aman.\n\nSaya cek lagi nanti.");
   });
 });
 
 describe("grounding prompt assembly", () => {
-  test("no tools → the prompt requires 'belum saya cek' and forbids unverified code claims", () => {
+  test("no tools → the prompt forbids describing file contents it has not read", () => {
     const lines = buildGroundingGuidance(false).join("\n");
-    expect(lines).toContain("belum saya cek");
+    expect(lines).toMatch(/you have not read them/);
+    expect(lines).toMatch(/snapshot proves only which files exist and their sizes, never what they contain/);
     expect(lines).toMatch(/no repo access/i);
     expect(lines).toMatch(/pasted is a claim to verify/);
-    expect(lines).not.toMatch(/Check with the repo tools/);
+    expect(lines).not.toMatch(/Read with the repo tools/);
   });
 
   test("with tools → check first, re-check on pushback, still say 'belum saya cek' when unchecked", () => {
     const lines = buildGroundingGuidance(true).join("\n");
-    expect(lines).toMatch(/Check with the repo tools/);
+    expect(lines).toMatch(/Read with the repo tools/);
+    expect(lines).toMatch(/Never write what you will read or do next/);
     expect(lines).toMatch(/re-check with the tools/);
     expect(lines).toMatch(/Never agree just because the user said so/);
     expect(lines).toContain("belum saya cek");

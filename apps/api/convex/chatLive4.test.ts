@@ -44,7 +44,6 @@ vi.mock("./lib/chat/classify", () => ({
     confidence: 1,
     reasoning: "test",
   }),
-  chooseAskResponder: async () => null,
 }));
 vi.mock("./lib/chat/repoSnapshot", () => ({ readRepoSnapshot: async () => "" }));
 // A stand-in worker: every queued repo tool call is answered at once.
@@ -157,7 +156,7 @@ describe("routed Reviewer audits with its own prompt and the repo tools", () => 
     expect(first.system).not.toContain("klik Create task");
     expect(first.system).toContain("## Repo tools");
     expect(first.system).toContain("Give a read-only audit");
-    expect(first.system).toContain("never answer it with a plan");
+    expect(first.system).toContain("by reading the code with the repo tools, not with a plan");
     expect(first.system).toContain(NO_SPEAKER_PREFIX_LINE);
     // It actually ran a repo tool.
     expect(callsBy("Reviewer").some((c) => toolResults(c) > 0)).toBe(true);
@@ -174,7 +173,9 @@ describe("routed Reviewer audits with its own prompt and the repo tools", () => 
     const intent = { kind: "chat", frontend: false, backend: false, testing: false, security: false };
     const withTools = buildPlanningGuidance({ role: "reviewer" }, { isOrchestrator: false, hasRepoTools: true, taskIntent: intent }).join("\n");
     expect(withTools).not.toMatch(/\(audit, review, run code\) say that it needs a task/);
-    expect(withTools).toContain("never answer it with a plan or by telling the user to create a task");
+    expect(withTools).toContain("by reading the code with the repo tools, not with a plan");
+    // Scope bigger than one reply: the Create task button, never "type lanjut".
+    expect(withTools).toContain("Create task button under this reply runs the full job");
   });
 });
 

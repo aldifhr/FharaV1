@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatPreRouteAllowed, isFollowUpText, isHandoffLine, looksIndonesian, routeQuestion, systemRoutingLine } from "./dispatch";
+import { chatPreRouteAllowed, isHandoffLine, looksIndonesian, routeQuestion, systemRoutingLine } from "./dispatch";
 
 type M = { _id: string; name: string; role: string };
 const full: M[] = [
@@ -55,7 +55,7 @@ describe("O3 routing table: every role owns its topics, no CTO default", () => {
     expect(route("kenapa API balikin status code 500?").kind).not.toBe("status");
   });
 
-  it("nothing matched → none (the caller's chooser decides; never a CTO default)", () => {
+  it("nothing matched → none (the caller falls back to Support; never a CTO default)", () => {
     expect(route("menurutmu nama produk ini bagus?").kind).toBe("none");
     expect(to(route(""))).toBe("support");
   });
@@ -155,66 +155,57 @@ describe("routing: missing roles", () => {
   });
 });
 
-describe("routing: follow-ups", () => {
+describe("routing: the previous responder keeps the conversation", () => {
   const afterReviewer = [
     { authorType: "user", content: "tolong audit lib/config.ts" },
     { authorType: "agent", agentId: "cto", content: "Saya serahkan ke @Reviewer untuk audit `lib/config.ts`." },
     { authorType: "agent", agentId: "rev", content: "Ada 2 masalah di parseConfig..." },
   ];
-  const afterCtoOnly = (q: string, a: string) => [
-    { authorType: "user", content: q },
-    { authorType: "agent", agentId: "cto", content: a },
-  ];
-  const ask = (history: Array<{ authorType: string; content: string; agentId?: string }>, text: string, opts = {}) =>
+  const ask = (history: Array<{ authorType: string; content: string; agentId?: string; voice?: string }>, text: string, opts = {}) =>
     route(text, full, { history: [...history, { authorType: "user", content: text }], ...opts });
 
-  it.each(["coba cek lebih dalam", "lebih detail dong", "cek lagi"])(
-    "'%s' goes back to the specialist who answered",
+  it.each(["baca semua", "kan saya minta semua dibaca kocak", "coba cek lebih dalam", "lanjut", "sisanya?"])(
+    "'%s' goes back to the agent who answered (no phrase list)",
     (text) => {
       const r = ask(afterReviewer, text);
       expect(to(r)).toBe("reviewer");
-      if (r.kind === "specialist") {
-        expect(r.followUp).toBe(true);
-        expect(r.topic).toBe("lib/config.ts");
-      }
+      expect(r.kind === "specialist" && r.followUp).toBe(true);
     }
   );
 
-  it("'cek lagi' after a CTO answer goes back to the CTO", () => {
-    expect(to(ask(afterCtoOnly("prioritas minggu ini apa?", "Fokus ke login."), "cek lagi"))).toBe("cto");
+  it("wins over a domain match (switch with an @mention)", () => {
+    expect(to(ask(afterReviewer, "cek lebih dalam tesnya"))).toBe("reviewer");
+    expect(to(ask(afterReviewer, "bandingkan zod vs valibot"))).toBe("reviewer");
   });
 
-  it("System lines in the previous turn are skipped", () => {
+  it("a status question is still a System status line", () => {
+    expect(ask(afterReviewer, "sampai mana?").kind).toBe("status");
+  });
+
+  it("System lines and old handoff lines are skipped", () => {
     const h = [
       { authorType: "user", content: "kenapa query lambat?" },
       { authorType: "agent", voice: "system", content: "Sent to Backend" },
       { authorType: "agent", agentId: "be", content: "Index users belum ada." },
     ];
-    expect(to(route("lebih detail", full, { history: [...h, { authorType: "user", content: "lebih detail" }] }))).toBe("backend");
+    expect(to(ask(h, "lebih detail"))).toBe("backend");
+    expect(to(ask([{ authorType: "user", content: "x" }, { authorType: "agent", agentId: "cto", content: "Saya serahkan ke @Reviewer untuk audit `x`." }], "lebih detail"))).toBe("none");
   });
 
-  it("'lebih detail' routes by the previous question's domain", () => {
-    const h = [{ authorType: "user", content: "bandingkan zod vs valibot" }, { authorType: "agent", content: "Zod lebih populer." }];
-    expect(to(ask(h, "lebih detail"))).toBe("researcher");
-  });
-
-  it("'cek lebih dalam' on code an unknown speaker talked about → reviewer", () => {
-    const h = [{ authorType: "user", content: "menurutmu gimana struktur ini?" }, { authorType: "agent", agentId: "gen", content: "File `apps/api/convex/chat.ts` agak panjang." }];
-    const r = ask(h, "cek lebih dalam");
-    expect(to(r)).toBe("reviewer");
-    if (r.kind === "specialist") expect(r.topic).toBe("apps/api/convex/chat.ts");
-  });
-
-  it("follow-up with no previous turn → none", () => {
+  it("no previous responder → the usual rules", () => {
     expect(ask([], "lebih detail").kind).toBe("none");
+    expect(to(ask([], "cek lebih dalam tesnya"))).toBe("qa");
   });
 
-  it("a follow-up phrase with its own domain routes by that domain", () => {
-    expect(to(ask(afterReviewer, "cek lebih dalam tesnya"))).toBe("qa");
-  });
-
-  it("follow-up without repo tools still reaches the reviewer through the previous question", () => {
+  it("works without repo tools too", () => {
     expect(to(ask(afterReviewer, "cek lebih dalam", { repoToolsAvailable: false }))).toBe("reviewer");
+  });
+
+  it("a custom role with no domain keeps the conversation with a null domain", () => {
+    const team = [...full, { _id: "gen", name: "Helper", role: "general" }];
+    const r = route("terus?", team, { history: [{ authorType: "user", content: "hi" }, { authorType: "agent", agentId: "gen", content: "Hello" }, { authorType: "user", content: "terus?" }] });
+    expect(r.kind === "specialist" && r.agent.name).toBe("Helper");
+    expect(r.kind === "specialist" && r.domain).toBeNull();
   });
 });
 
@@ -247,31 +238,12 @@ describe("chat pre-route gate (deterministic, live2 3a/3f)", () => {
     expect(gate("tolong audit kode src/", { intent: "ask", subtype: "explanation" })).toBe(true);
   });
 
-  it("follow-ups always route, even when the LLM calls them an implementation", () => {
-    for (const text of ["cek lebih dalam", "lanjutkan", "detailnya?", "ok lanjut", "go deeper"]) {
-      expect(isFollowUpText(text)).toBe(true);
-      expect(gate(text, { intent: "task", subtype: "implementation" })).toBe(true);
-    }
-  });
-
   it("work stays with the CTO: change requests, run requests, pastes, option picks, LLM implementation", () => {
     expect(gate("tambahkan tes login", { intent: "task", subtype: "implementation" }, { workShaped: true })).toBe(false);
     expect(gate("tolong jalankan tes", { intent: "task", subtype: "testing" }, { runRequest: true })).toBe(false);
     expect(gate("kata dia: audit", { intent: "ask", subtype: "explanation" }, { pasted: true })).toBe(false);
     expect(gate("I choose A: x", { intent: "ask", subtype: "recommendation" }, { optionPick: true })).toBe(false);
     expect(gate("halaman checkout lambat sekali", { intent: "task", subtype: "implementation" })).toBe(false);
-  });
-
-  it("a bare 'lanjutkan' goes back to the specialist who answered the previous turn", () => {
-    const history = [
-      { authorType: "user", content: "tes apa yang kurang?" },
-      { authorType: "agent", agentId: "cto", content: "Saya serahkan ke @QA untuk pengecekan tes ini." },
-      { authorType: "agent", agentId: "qa", content: "main.js belum dites." },
-      { authorType: "user", content: "lanjutkan" },
-    ];
-    const r = route("lanjutkan", full, { history });
-    expect(to(r)).toBe("qa");
-    expect(r.kind === "specialist" && r.followUp).toBe(true);
   });
 });
 

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { buildTaskStatusLine, fallbackOwner, resolveChatOwner } from "./owner";
 import { buildChatMessages } from "../prompts/chat";
 
@@ -14,21 +14,16 @@ const team: M[] = [
   { _id: "sup", name: "Support", role: "support" },
 ];
 
-const owner = (text: string, opts: { team?: M[]; history?: any[]; optionPick?: boolean; choose?: (pool: M[]) => Promise<string | null> } = {}) =>
+const owner = (text: string, opts: { team?: M[]; history?: any[] } = {}) =>
   resolveChatOwner<M>({
     text,
     team: opts.team ?? team,
     history: [...(opts.history ?? []), { authorType: "user", content: text }],
     repoToolsAvailable: true,
-    optionPick: opts.optionPick ?? false,
-    choose: opts.choose ?? (async () => null),
   });
-const who = async (p: ReturnType<typeof owner>) => {
-  const r = await p;
-  return r?.kind === "agent" ? r.agent.name : r?.kind ?? null;
-};
+const who = (r: ReturnType<typeof owner>) => (r?.kind === "agent" ? r.agent.name : r?.kind ?? null);
 
-describe("O3 chat owner: System routes, the topic owner answers", () => {
+describe("chat owner: deterministic, no LLM chooser", () => {
   it.each([
     ["kenapa query lambat?", "Backend"],
     ["warna ini cocok?", "Designer"],
@@ -39,42 +34,54 @@ describe("O3 chat owner: System routes, the topic owner answers", () => {
     ["cara pakai Fhara?", "Support"],
     ["user tidak bisa login", "Support"],
     ["buatkan file ultimate.html dengan teks 'Ultimate is a new vision' dengan background yang menarik", "Frontend"],
-  ])("%s → %s", async (text, name) => {
-    expect(await who(owner(text))).toBe(name);
+  ])("%s → %s", (text, name) => {
+    expect(who(owner(text))).toBe(name);
   });
 
-  it("status → a System status line (no agent, no chooser call)", async () => {
-    const choose = vi.fn(async () => "be");
-    expect(await who(owner("sampai mana?", { choose }))).toBe("status");
-    expect(choose).not.toHaveBeenCalled();
+  it("status → a System status line (no agent)", () => {
+    expect(who(owner("sampai mana?"))).toBe("status");
   });
 
-  it("no domain: the chooser picks from the team without the CTO", async () => {
-    const choose = vi.fn(async (pool: M[]) => {
-      expect(pool.map((a) => a.role)).not.toContain("cto");
-      return "fe";
-    });
-    expect(await who(owner("menurutmu nama produk ini bagus?", { choose }))).toBe("Frontend");
-    expect(choose).toHaveBeenCalledTimes(1);
-  });
-
-  it("chooser unavailable → Support; never the CTO by default", async () => {
-    expect(await who(owner("menurutmu nama produk ini bagus?"))).toBe("Support");
+  it("no domain and no previous responder → Support; never the CTO by default", () => {
+    expect(who(owner("menurutmu nama produk ini bagus?"))).toBe("Support");
     const noSupport = team.filter((a) => a.role !== "support" && a.role !== "researcher");
-    expect(await who(owner("menurutmu nama produk ini bagus?", { team: noSupport }))).not.toBe("CTO");
+    expect(who(owner("menurutmu nama produk ini bagus?", { team: noSupport }))).not.toBe("CTO");
   });
 
-  it("an option pick goes back to the agent that offered the options", async () => {
+  it("priority: previous responder > domain > Support", () => {
+    const afterQa = [
+      { authorType: "user", content: "tes apa yang kurang?" },
+      { authorType: "agent", voice: "system", content: "Sent to QA" },
+      { authorType: "agent", agentId: "qa", content: "main.js belum dites." },
+    ];
+    // The previous responder wins over a domain match, a greeting and the Support fallback.
+    expect(owner("kenapa query lambat?", { history: afterQa })).toMatchObject({ agent: { name: "QA" }, via: "previous" });
+    expect(owner("baca semua", { history: afterQa })).toMatchObject({ agent: { name: "QA" }, via: "previous" });
+    expect(owner("halo", { history: afterQa })).toMatchObject({ agent: { name: "QA" }, via: "previous" });
+    // No previous responder: the domain, then Support.
+    expect(owner("kenapa query lambat?")).toMatchObject({ agent: { name: "Backend" }, via: "route" });
+    expect(owner("baca semua")).toMatchObject({ agent: { name: "Support" }, via: "fallback" });
+  });
+
+  it("a previous responder no longer on the team is skipped", () => {
+    const history = [
+      { authorType: "user", content: "audit semua file" },
+      { authorType: "agent", agentId: "gone", content: "..." },
+    ];
+    expect(owner("baca semua", { history })).toMatchObject({ agent: { name: "Support" }, via: "fallback" });
+  });
+
+  it("an option pick goes back to the agent that offered the options", () => {
     const history = [
       { authorType: "user", content: "kasih 3 opsi layout dashboard" },
       { authorType: "agent", voice: "system", content: "Sent to Designer" },
       { authorType: "agent", agentId: "des", content: "[options]..." },
     ];
-    expect(await who(owner("I choose B: Split view", { history, optionPick: true }))).toBe("Designer");
+    expect(who(owner("I choose B: Split view", { history }))).toBe("Designer");
   });
 
-  it("a team with only the CTO still gets an answer", async () => {
-    expect(await who(owner("menurutmu nama produk ini bagus?", { team: [team[0]] }))).toBe("CTO");
+  it("a team with only the CTO still gets an answer", () => {
+    expect(who(owner("menurutmu nama produk ini bagus?", { team: [team[0]] }))).toBe("CTO");
   });
 
   it("fallback order: Support, General, Researcher, then anyone but the CTO", () => {

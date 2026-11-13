@@ -45,8 +45,9 @@ describe("role templates as seeds", () => {
         if (isTemplateText(prev)) expect(prefillPromptForRole(prev, role)).toBe(ROLE_PROMPT_TEMPLATES[role]);
       }
     }
+    // Pre-O2, and pre chat-language scoping (2026-11-13).
     const preO2Support = (PREVIOUS_SEED_PROMPTS.support ?? []).filter(isTemplateText);
-    expect(preO2Support).toHaveLength(1);
+    expect(preO2Support).toHaveLength(2);
     expect(preO2Support[0]).toMatch(/^# Support Specialist\n/);
     expect(ROLE_PROMPT_TEMPLATES.support).toMatch(/^# Support Specialist\n/);
   });

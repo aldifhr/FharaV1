@@ -5,7 +5,6 @@ import { api } from "./_generated/api";
 import schema from "./schema";
 import {
   MAX_REPO_TOOL_CALLS,
-  MAX_REPO_TOOL_CALLS_PER_CHAT,
   TOOL_BUDGET_EXHAUSTED,
   createRepoToolBudget,
 } from "./lib/chat/repoTools";
@@ -52,7 +51,6 @@ vi.mock("./lib/chat/classify", () => ({
     confidence: 1,
     reasoning: "test",
   }),
-  chooseAskResponder: async () => null,
 }));
 vi.mock("./lib/chat/repoSnapshot", () => ({ readRepoSnapshot: async () => "" }));
 // A stand-in worker: every queued repo tool call is answered at once.
@@ -179,7 +177,7 @@ describe("handoff teammates get repo tools", () => {
 });
 
 describe("shared repo tool budget", () => {
-  test("at most 12 calls across all agents in one turn; the rest answer without tools", async () => {
+  test("at most 2×25 calls across all agents in one turn; the rest answer without tools", async () => {
     const { t, projectId, backendId, frontendId, qaId } = await setup({ worker: "new" });
     reply = (call) => {
       const who = speaker(call);
@@ -189,28 +187,28 @@ describe("shared repo tool budget", () => {
     };
     // The user @mentions three teammates: they answer in order, one budget.
     const replies = await ask(t, projectId, "@Backend @QA @Frontend tolong nilai desain schema, test, dan UI", [backendId, qaId, frontendId]);
-    expect(queued.count).toBe(MAX_REPO_TOOL_CALLS_PER_CHAT);
-    // Backend 6 (its own cap), QA the 6 left, Frontend none.
-    expect(Math.max(...callsBy("Backend").map(toolResults))).toBe(6);
-    expect(Math.max(...callsBy("QA").map(toolResults))).toBe(6);
+    expect(queued.count).toBe(MAX_REPO_TOOL_CALLS * 2);
+    // Backend 25 (its own cap), QA the 25 left, Frontend none.
+    expect(Math.max(...callsBy("Backend").map(toolResults))).toBe(MAX_REPO_TOOL_CALLS);
+    expect(Math.max(...callsBy("QA").map(toolResults))).toBe(MAX_REPO_TOOL_CALLS);
     const frontendCall = callsBy("Frontend")[0];
     expect(frontendCall.system).not.toContain("## Repo tools");
     expect(frontendCall.system).toContain("You have no repo access and no tools in this reply");
     const frontend = replies.find((r) => r.agentId === frontendId);
     expect(frontend?.content).toBe("UI chat oke; belum saya cek kodenya.");
-    expect(frontend?.reasoning).toMatch(/Repo tools off: this reply's shared budget of 12 repo tool calls is used up/);
+    expect(frontend?.reasoning).toMatch(/Repo tools off: this turn's shared repo tool budget is used up/);
     expect(replies.find((r) => r.agentId === qaId)?.content).toBe("QA selesai.");
   });
 
   test("budget helper: per-reply cap and the shared total", () => {
     const budget = createRepoToolBudget();
-    expect(budget.capForNextReply()).toBe(6);
-    budget.spend(6);
-    budget.spend(4);
+    expect(budget.capForNextReply()).toBe(25);
+    budget.spend(25);
+    budget.spend(23);
     expect(budget.capForNextReply()).toBe(2);
     budget.spend(2);
     expect(budget.capForNextReply()).toBe(0);
-    expect(budget.used).toBe(12);
+    expect(budget.used).toBe(50);
   });
 });
 
@@ -394,7 +392,8 @@ describe("pre-route ignores the LLM's audit/review label", () => {
     const replies = await ask(t, projectId, "@CTO cek kode tes src");
     expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
     expect(replies[0].content).toBe("Saya cek sendiri. @QA bisa bantu kalau Anda minta.");
-    expect(callsBy("CTO")).toHaveLength(1);
+    // One read-before-claim nudge (an audit answered with no read), then the same answer is kept.
+    expect(callsBy("CTO")).toHaveLength(2);
     expect(callsBy("QA")).toHaveLength(0);
   });
 

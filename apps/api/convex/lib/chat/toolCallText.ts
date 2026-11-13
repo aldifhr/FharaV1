@@ -354,7 +354,7 @@ export function streamVisibleText(partial: string): string {
 
 /** Extra system line for the one retry of a reply that tried to call a tool without tools. */
 export const NO_TOOLS_RETRY_LINE =
-  "You have no tools in this reply. Answer in prose; say 'belum saya cek' for anything you cannot confirm.";
+  "You have no tools in this reply. Answer in prose; say plainly, in the user's language, that you have not checked anything you cannot confirm.";
 
 /** Rough check that the user writes Indonesian (for fixed fallback copy). */
 export function looksIndonesian(text: string): boolean {

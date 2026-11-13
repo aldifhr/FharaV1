@@ -1,6 +1,6 @@
 /**
  * Chat LLM prompt text: system prompts and guidance lines for the chat
- * reply loop, the neutral ASK responder chooser and the intent classifier. Builders only — the wording is the product's prompt
+ * reply loop and the intent classifier. Builders only — the wording is the product's prompt
  * contract, so change it here deliberately and nowhere else.
  */
 import type { IntentSubtype } from "../chat/intent";
@@ -12,10 +12,11 @@ import { PAST_WORK_MAX_CALLS, PAST_WORK_TOOL, PAST_WORK_TOOL_LINE } from "../pas
 import { LEGACY_ROLE_SUCCESSORS, isRoleKey, normalizeRoleKey, roleChatSummary } from "../roles";
 import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT, PREVIOUS_SEED_PROMPTS } from "./agents";
 import { CHAT_CANNOT_WRITE_LINE, writeNeededGuidance } from "../chat/offerBrief";
+import { REPO_TOOL_CAPS, SCOPE_EXIT_LINE } from "../chat/repoTools";
 
 type Persona = { name: string; role: string; systemPrompt?: string; skillsSection?: string; memorySection?: string };
 
-/** Clip user text quoted into a classifier/chooser prompt. */
+/** Clip user text quoted into the classifier prompt. */
 function clip500(text: string): string {
   return text.length > 500 ? text.slice(0, 500) + "..." : text;
 }
@@ -23,27 +24,6 @@ function clip500(text: string): string {
 /** Shared identity line: agents answer as their role, never as the model. */
 const NOT_THE_MODEL =
   "You are NOT the underlying LLM model. Never name the model (e.g. \"Crouton Alpha\") or claim to be the provider — always answer as your assigned role.";
-
-/** Neutral chooser (O3): System picks the one teammate who owns the topic. */
-export const ASK_RESPONDER_SYSTEM = "Pick one conversational agent. Return JSON only.";
-
-export function buildAskResponderPrompt(
-  candidates: Array<{ _id: string; name: string; role: string; systemPrompt?: string }>,
-  userText: string
-): string {
-  const pool = candidates
-    .map((a, i) => `${i + 1}. ${a.name} (${a.role}): ${(a.systemPrompt ?? "").slice(0, 120)} [id ${a._id}]`)
-    .join("\n");
-  return [
-    "Route this chat message to the single teammate whose role owns its topic (e.g. styling/UI → Frontend, colours/UX → Designer, security/audit → Reviewer, API/database → Backend, CI/deploy → DevOps, comparisons/research → Researcher, greetings and how to use the product → Support).",
-    "Return ONLY JSON with this exact schema:",
-    `{"agentId":"<id from [id ...]>"}`,
-    "",
-    `Candidates:\n${pool}`,
-    "",
-    `Question: ${clip500(userText)}`,
-  ].join("\n");
-}
 
 /** Stage B intent classifier. */
 export const INTENT_CLASSIFIER_SYSTEM = "Classify intent. Return JSON only.";
@@ -121,7 +101,7 @@ export function buildRequestSubjectGuard(projectName: string): string {
  * short-reply and Create-task rules below win (8426134).
  */
 export const ROLE_PROMPT_CHAT_SCOPE =
-  "Your role instructions above describe how you work on tasks. In this chat the reply rules below win: keep to their length and format, and do not use task-delivery sections (output formats, completion reports, final status) unless the user asks for one.";
+  "Your role instructions above describe how you work on tasks. In this chat the reply rules below win: keep to their length and format, and do not use task-delivery sections (output formats, completion reports, final status) unless the user asks for one. Language rules in your role instructions apply to files and UI copy you write; in chat, reply in the user's language.";
 
 /** Opening lines of a chat-loop reply: identity, persona, repo grounding. */
 export function buildChatPersonaLines(
@@ -163,15 +143,16 @@ export function buildRepoToolProtocol(maxCalls: number, opts: { loadSkill?: bool
     "Tools:",
     '- list_files {"path"?: dir, "glob"?: e.g. "**/*.ts"}: files with sizes in bytes (no node_modules, .git, .env*).',
     '- grep {"pattern": regex, "path"?: dir or file, "glob"?: file filter, "ignoreCase"?: bool}: the total match count, then matching lines as path:line: text (first 40). Omit "path" to search the whole repository — do that to locate a symbol.',
-    '- read_file {"path": file, "start"?: line, "lines"?: count}: numbered lines with the file\'s total lines and size; at most 400 lines (16 KB) per read.',
+    `- read_file {"path": file, "start"?: line, "lines"?: count}: numbered lines with the file's total lines and size; ${REPO_TOOL_CAPS.readDefaultLines} lines by default, at most ${REPO_TOOL_CAPS.readMaxLines} lines (${Math.round(REPO_TOOL_CAPS.readMaxBytes / 1000)} KB) per read.`,
     ...(opts.loadSkill ? [LOAD_SKILL_TOOL_LINE, `(${LOAD_SKILL_TOOL} has its own limit of ${LOAD_SKILL_MAX_CALLS} per reply and does not use the repo tool budget.)`] : []),
     // D11: past work of this project (runs in the chat action; its own budget).
     ...(opts.pastWork ? [PAST_WORK_TOOL_LINE, `(${PAST_WORK_TOOL} has its own limit of ${PAST_WORK_MAX_CALLS} per reply and does not use the repo tool budget.)`] : []),
-    `At most ${maxCalls} ${opts.loadSkill ? "repo " : ""}tool calls per reply. You cannot write files or run commands. The result comes back as the next message; then call another tool or write your answer as plain prose (never JSON, never a tool call inside the answer).`,
+    `At most ${maxCalls} ${opts.loadSkill ? "repo " : ""}tool calls per reply. You cannot write files or run commands. The result comes back as the next message; keep reading until you can answer, then write your answer as plain prose (never JSON, never a tool call inside the answer).`,
     "Rules for the answer:",
     '- A read_file result marked "truncated: lines X-Y of N" showed only that part. Never state a count or a list for the whole file from a part: read the next page with "start", or grep it (e.g. {"tool":"grep","arguments":{"pattern":"defineTable","path":"apps/api/convex/schema.ts"}}) and use grep\'s match count.',
-    '- A grep with "0 matches" means not found: say it was not found (Indonesian: "tidak ketemu"), never guess another file or line. If it searched a subfolder, grep the whole repository before saying it does not exist.',
-    "- Cite a file:line only exactly as a tool result in this reply shows it, and a path only if a tool result or the snapshot shows it. Anything else you did not check: say \"belum saya cek\".",
+    '- A grep with "0 matches" means not found: say it was not found, never guess another file or line. If it searched a subfolder, grep the whole repository before saying it does not exist.',
+    "- Cite a file:line only exactly as a tool result in this reply shows it, and a path only if a tool result or the snapshot shows it. Anything else you did not check: say you have not checked it.",
+    `- ${SCOPE_EXIT_LINE}`,
   ].join("\n");
 }
 
@@ -195,13 +176,14 @@ export function buildSkillToolProtocol(): string {
 
 export function buildGroundingGuidance(hasRepoTools: boolean, hasSkillTool = false): string[] {
   return [
-    "Grounding rule: any claim about this repo's code, files, file sizes, line counts, or which agent/module does what must come from a tool result in this reply" +
-      " (or the repo snapshot above). A number or quote the user pasted is a claim to verify, not a fact.",
+    "Grounding rule: any claim about this repo's code, files, line counts, or which agent/module does what must come from a tool result in this reply." +
+      " The repo snapshot proves only which files exist and their sizes, never what they contain. A number or quote the user pasted is a claim to verify, not a fact.",
     hasRepoTools
-      ? "Check with the repo tools before stating such a claim. If you did not check something, say so plainly in the user's language (Indonesian: \"belum saya cek\"; English: \"I haven't checked that yet\") instead of guessing. Report not-found as not-found, and never cite a file:line that is not in a tool result in this reply."
+      ? "Read with the repo tools before stating such a claim. If you did not check something, say so plainly in the user's language (e.g. Indonesian \"belum saya cek\") instead of guessing. Report not-found as not-found, and never cite a file:line that is not in a tool result in this reply."
       : (hasSkillTool
           ? `You have no repo access in this reply: the only tool you may call is ${LOAD_SKILL_TOOL}.`
-          : "You have no repo access and no tools in this reply: never output a tool call or JSON.") + " Do not state code, file, size, line-number, or ownership facts that are not in the snapshot; say you have not checked them yet in the user's language (Indonesian: \"belum saya cek\"; English: \"I haven't checked that yet\").",
+          : "You have no repo access and no tools in this reply: never output a tool call or JSON.") + " Do not describe file contents, code, line numbers or ownership: you have not read them. Say so in the user's language, and offer the Create task button for work that needs the code read.",
+    "Your answer reports what you read and found. Never write what you will read or do next (\"I will read…\", \"Let me check…\").",
     hasRepoTools
       ? "When the user pushes back or contradicts you about the code, re-check with the tools and answer from what you find: keep your answer if the code supports it, correct it if not. Never agree just because the user said so."
       : "When the user pushes back about the code, do not simply agree: say what you can and cannot confirm without checking.",
@@ -237,7 +219,8 @@ export function buildRoutedOwnerNotice(hasRepoTools: boolean): string {
     hasRepoTools
       ? "Check the code with the repo tools before you state anything about it, and cite only what a tool result shows."
       : "",
-    "Answer only the user's LATEST message. Do not @mention anyone, do not hand the question back, do not mention the routing, and do not tell the user to create a task unless the question asks for changes to be made.",
+    "Answer only the user's LATEST message. Do not @mention anyone, do not hand the question back, and do not mention the routing.",
+    hasRepoTools ? SCOPE_EXIT_LINE : "",
   ].filter(Boolean).join(" ");
 }
 
@@ -411,7 +394,7 @@ export function buildPlanningGuidance(
       ? "You can read the repository with the read-only repo tools described below — check the code yourself before answering and cite only what a tool result shows. You still cannot run commands or modify files."
       : "You can answer structural questions (architecture, folders, features) from the repo snapshot given when present — cite actual paths you see there. You still cannot run commands, modify files, or read beyond the snapshot.",
     opts.hasRepoTools
-      ? "An audit, review or code question is yours to answer here, now, by reading the code with the repo tools: never answer it with a plan or by telling the user to create a task. Only work that changes files or runs code needs a task."
+      ? `An audit, review or code question is yours to answer here, now, by reading the code with the repo tools, not with a plan. ${SCOPE_EXIT_LINE}`
       : "Only when the user asked for work that needs workspace access (audit, review, run code) offer a task; for plain questions never mention creating a task.",
     writeNeededGuidance(plan),
     opts.codeInChat && opts.taskIntent.kind === "task"
@@ -431,7 +414,7 @@ export function buildAnswerGuidance(subtype: IntentSubtype): string[] {
     case "research":
       return ["Answer from evidence: lead with the verdict, then the concrete details, citing actual paths from the snapshot when present. Show code only when the question is about how to write it. For a comparison, end with your pick in prose, never an options block. No speculation, no execution."];
     case "audit":
-      return ["Give a read-only audit: read the code first (with the repo tools when you have them), then findings with severity and file refs. Do not modify anything, and do not answer with a plan or a Create task offer."];
+      return ["Give a read-only audit: read the code first, then findings with severity and file:line refs from what you read. Never describe a file you did not read. Do not modify anything."];
     default:
       return [];
   }

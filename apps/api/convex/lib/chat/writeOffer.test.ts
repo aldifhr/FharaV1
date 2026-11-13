@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { codeRoleForRequest, findOfferedTask, wantsCodeInChat } from "./intent";
-import { planWriteOffer } from "./writeOffer";
+import { offerForReply, planWriteOffer } from "./writeOffer";
 import { collectRepoEvidence, findUnverifiedRefs } from "./refCheck";
 import { buildPlanningGuidance } from "../prompts/chat";
 
@@ -60,6 +60,32 @@ describe("planWriteOffer", () => {
       commands: ["npm run test"],
       hint: { source: "offer", kind: "testing" },
     });
+  });
+});
+
+describe("offerForReply: budget hit and write fallback", () => {
+  const reviewer = { _id: "rv", name: "Reviewer", role: "reviewer" };
+  const audit = (extra: Partial<Parameters<typeof planWriteOffer>[0]> = {}) =>
+    planWriteOffer({ speaker: reviewer, isCto: false, addressed: true, team: [...team, reviewer], text: "tolong audit semua file", taskIntent: { kind: "chat", subtype: "audit" }, optionPick: false, ...extra });
+
+  test("a routed audit that spent its whole repo budget carries an audit offer (not implementation)", () => {
+    const offer = offerForReply(audit(), "Saya membaca 25 file; sisanya belum.", { budgetHit: true });
+    expect(offer).toMatchObject({ kind: "audit", hint: { kind: "audit", role: "reviewer" } });
+    expect(offer?.assigneeAgentId).toBeUndefined();
+  });
+
+  test("no budget hit and no write need → no offer", () => {
+    expect(offerForReply(audit(), "Temuan: 2 masalah di auth.ts:3.")).toBeNull();
+    expect(offerForReply(audit(), "x", { budgetHit: false })).toBeNull();
+  });
+
+  test("a speaker the user did not address never offers, budget or not", () => {
+    expect(offerForReply(audit({ addressed: false }), "x", { budgetHit: true })).toBeNull();
+  });
+
+  test("a reply that says it needs file writes offers an implementation, whatever the subtype", () => {
+    const offer = offerForReply(audit(), "Chat can't change files. Want me to create a task for it?");
+    expect(offer).toMatchObject({ kind: "implementation", hint: { kind: "implementation" } });
   });
 });
 

@@ -77,7 +77,7 @@ describe("attached personal chat", () => {
     const system = personalSystem(backend, "Fhara", "apps/\npackages/");
     expect(system).toContain('attached to project "Fhara"');
     expect(system).toContain("Grounding rule");
-    expect(system).toContain("belum saya cek");
+    expect(system).toContain("never what they contain");
     expect(system).toContain(AGENT_SEED_PROMPTS.backend);
     expect(system).not.toContain("## Personal chat");
   });

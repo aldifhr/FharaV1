@@ -36,10 +36,10 @@ import {
   type ChatTaskOffer,
   type IntentResult,
 } from "./lib/chat/intent";
-import { chooseAskResponder, classifyIntent } from "./lib/chat/classify";
+import { classifyIntent } from "./lib/chat/classify";
 import { type EchoContext, streamEchoSafe, stripLeadingEcho } from "./lib/chat/echo";
 import { ROLE_KEYS, ROLES } from "./lib/roles";
-import { chatPreRouteAllowed, routedAnswerSubtype, systemRoutingLine } from "./lib/chat/dispatch";
+import { chatPreRouteAllowed, mentionsCode, routedAnswerSubtype, systemRoutingLine } from "./lib/chat/dispatch";
 import { buildTaskStatusLine, resolveChatOwner } from "./lib/chat/owner";
 import { detectChatRunCommands } from "./lib/chat/runRequest";
 import {
@@ -68,7 +68,6 @@ import { TRUNCATED_CUT_OFF, keepCutReply, runContinueTurn } from "./lib/chat/con
 import { personalNoTaskReply, type ChatScope } from "./lib/conversationShape";
 import {
   MAX_REPO_TOOL_CALLS,
-  MAX_REPO_TOOL_CALLS_PER_CHAT,
   createRepoToolBudget,
   describeRepoToolCall,
   runRepoToolLoop,
@@ -177,7 +176,7 @@ export function repoToolsOffNote(reason: RepoToolsOffReason | "unclaimed" | "bud
     case "unclaimed":
       return "Repo tools off: worker tidak merespons";
     case "budget":
-      return `Repo tools off: this reply's shared budget of ${MAX_REPO_TOOL_CALLS_PER_CHAT} repo tool calls is used up`;
+      return "Repo tools off: this turn's shared repo tool budget is used up";
     default:
       return "Repo tools off: availability check failed";
   }
@@ -436,6 +435,8 @@ type StreamReply = (
   opts?: {
     traceNote?: string;
     maxCalls?: number;
+    /** Question about repo code/files: nudge once to read before answering. */
+    requireRead?: boolean;
     /** Skill v2: on_demand agent — load_skill runs locally in this action. */
     skillLoader?: SkillLoader;
     /** Activity timeline: the classifier's one-line intent ("Bekerja" line). */
@@ -815,6 +816,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         loop = await runRepoToolLoop({
           messages: msgs,
           maxCalls: opts?.maxCalls ?? MAX_REPO_TOOL_CALLS,
+          requireRead: opts?.requireRead,
           // Local tools (not the worker queue): the agent's own skills, and past work of this chat's project (D11).
           ...chatLocalTools({ skillLoader, pastWork: scopeProjectId ? pastWorkRunner(ctx, scopeProjectId) : null }),
           step: async (stepMsgs) => {
@@ -1140,14 +1142,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // The route's domain and code topic ride on the Create task offer's hint (P1a).
     let routeInfo: { domain: string | null; topic?: string } | null = null;
     if (mentionedAgents.length === 0) {
-      const owner = await resolveChatOwner<ChatAgent>({
-        text: lastUserContent,
-        team,
-        history,
-        repoToolsAvailable: repoTools?.available === true,
-        optionPick: isOptionPick,
-        choose: async (pool) => chooseAskResponder(pool, lastUserContent, await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig())),
-      });
+      const owner = resolveChatOwner<ChatAgent>({ text: lastUserContent, team, history, repoToolsAvailable: repoTools?.available === true });
       if (owner?.kind === "status") {
         await ctx.runMutation(internal.chatContext.insertSystemLine, {
           projectId,
@@ -1178,9 +1173,9 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
             })
             .catch(() => undefined);
         }
-        // A routed question is answered (no plan, no Create task offer). A code audit / security review routed to the
-        // Reviewer is an audit, whatever the LLM labelled it (live test 4). Work-shaped messages (a change request,
-        // a paste, a run request) keep their intent: the owner replies with the Create task offer.
+        // A routed question is answered (no plan). A code audit / security review routed to the Reviewer by its topic is
+        // an audit, whatever the LLM labelled it (live test 4); a previous responder keeps the LLM's subtype. Work-shaped
+        // messages (a change request, a paste, a run request) keep their intent: the owner replies with the offer.
         const preRoute = chatPreRouteAllowed({
           text: lastUserContent,
           intent,
@@ -1189,8 +1184,8 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           workShaped: classifyChatIntent(lastUserContent).kind === "task" && !hasAskShape(lastUserContent),
           runRequest: detectChatRunCommands(lastUserContent) !== null,
         });
-        if (preRoute && owner.domain) {
-          const routedSubtype = routedAnswerSubtype(owner.domain, intent.subtype);
+        if (preRoute && (owner.domain || owner.via === "previous")) {
+          const routedSubtype = routedAnswerSubtype(owner.via === "previous" ? null : owner.domain, intent.subtype);
           if (intent.intent !== "ask" || intent.subtype !== routedSubtype) {
             intent = { ...intent, intent: "ask", subtype: routedSubtype };
             taskIntent = { ...taskIntent, kind: "chat", subtype: intent.subtype };
@@ -1204,8 +1199,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // Sequential multi-agent replies: each selected agent answers with its persona.
     // The queue grows when the CTO @mentions teammates in its reply (handoff).
     const queue = [...responders];
-    // One shared budget: each reply up to MAX_REPO_TOOL_CALLS, the whole
-    // turn up to MAX_REPO_TOOL_CALLS_PER_CHAT.
+    // One shared budget: each reply up to MAX_REPO_TOOL_CALLS, the whole turn twice that.
     const toolBudget = createRepoToolBudget();
     // "Bekerja" line until the model's own first reasoning sentence lands.
     const intentLine = intentLineFor(intent, lastUserContent);
@@ -1293,6 +1287,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           useToolLoop
             ? {
                 maxCalls: useRepoTools ? callCap : 0,
+                requireRead: intent.subtype === "audit" || mentionsCode(lastUserContent),
                 ...(skillLoader ? { skillLoader } : {}),
                 ...(offNote && !useRepoTools ? { traceNote: offNote } : {}),
                 intentLine,
@@ -1303,7 +1298,8 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         content = result.content;
         // Create task offer: the server's own reading of the request, stored on
         // the reply (the routed owner, or an @mentioned agent) so the button and "gas" never depend on wording.
-        const replyOffer = offerForReply(write, content);
+        // A reply that spent its whole repo budget gets the offer too: the task runs the full job.
+        const replyOffer = offerForReply(write, content, { budgetHit: useRepoTools && (result.toolCalls ?? 0) >= callCap });
         if (replyOffer && result.messageId) await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, { messageId: result.messageId, taskOffer: replyOffer }).catch(() => undefined);
         // Post-answer check: file paths and file:line references the
         // answer cites but no tool result (or the snapshot) showed. A file the

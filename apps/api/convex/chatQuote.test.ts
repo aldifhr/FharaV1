@@ -30,7 +30,6 @@ vi.mock("./lib/chat/classify", () => ({
     confidence: 1,
     reasoning: "test",
   }),
-  chooseAskResponder: async () => null,
 }));
 vi.mock("./lib/chat/repoSnapshot", () => ({ readRepoSnapshot: async () => "" }));
 
@@ -132,7 +131,7 @@ describe("reply quote routing", () => {
   });
 
   test("a quoted CTO message and the user's own message route as usual, with the context line", async () => {
-    const { t, projectId, ctoId, frontendId } = await setup();
+    const { t, projectId, ctoId } = await setup();
     const ctoMsg = await t.run(async (ctx) =>
       ctx.db.insert("messages", { projectId, agentId: ctoId, authorType: "agent", content: "Plan: header, then footer." })
     );
@@ -147,10 +146,11 @@ describe("reply quote routing", () => {
       preferredAgentIds: [ctoId],
       quotedMessageId: first.messageId as any,
     });
-    // O3: the untyped CTO pick is the old default receiver (To: Team), so System routes it to a topic owner.
+    // The untyped CTO pick is the old default receiver (To: Team), so System routes it: the CTO answered the
+    // previous turn, so it keeps the conversation.
     const routed = await repliesTo(t, second.messageId);
-    expect(routed.filter((r) => r.voice === "system").map((r) => r.content)).toEqual(["Sent to Frontend"]);
-    expect(routed.filter((r) => r.voice !== "system").map((r) => r.agentId)).toEqual([frontendId]);
+    expect(routed.filter((r) => r.voice === "system").map((r) => r.content)).toEqual(["Sent to CTO"]);
+    expect(routed.filter((r) => r.voice !== "system").map((r) => r.agentId)).toEqual([ctoId]);
     expect(calls[0].system).toContain(`The user is replying to their own earlier message: "kenapa header dulu?"`);
   });
 

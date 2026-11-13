@@ -48,7 +48,6 @@ vi.mock("./lib/chat/classify", () => ({
     confidence: 1,
     reasoning: "test",
   }),
-  chooseAskResponder: async () => null,
 }));
 vi.mock("./lib/chat/repoSnapshot", () => ({ readRepoSnapshot: async () => "" }));
 

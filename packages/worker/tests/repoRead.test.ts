@@ -8,7 +8,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { REPO_TOOL_CAPS, runRepoToolLoop } from "@/api/convex/lib/chat/repoTools";
+import { REPO_TOOL_CAPS, runRepoToolLoop, toolResultMessage } from "@/api/convex/lib/chat/repoTools";
 import { globToRegExp, guardRepoPath, runRepoReadTool } from "@/tools/repoRead";
 import { processNextRepoToolCall } from "@/services/repoTools";
 
@@ -138,6 +138,18 @@ describe("list_files / grep / read_file", () => {
     expect((await runRepoReadTool(root, "grep", { pattern: "a".repeat(500) })).ok).toBe(false);
   });
 
+  it("read cap alignment: the model sees exactly the lines the header names (no prompt clip)", async () => {
+    // 400 wide lines (~48 KB): the byte cap ends the read, not the line cap.
+    await fs.writeFile(path.join(root, "wide.ts"), Array.from({ length: 400 }, (_, i) => `const wide${i} = "${"x".repeat(100)}";`).join("\n") + "\n");
+    const res = await runRepoReadTool(root, "read_file", { path: "wide.ts", lines: 400 });
+    const [, end] = /truncated: lines 1-(\d+) of 400/.exec(res.text)!;
+    expect(res.text.length).toBeLessThanOrEqual(REPO_TOOL_CAPS.resultMaxChars);
+    const fed = toolResultMessage({ tool: "read_file", args: { path: "wide.ts" } }, res);
+    expect(fed).not.toContain("[truncated:");
+    expect(fed).toContain(`${end}: const wide${Number(end) - 1} =`);
+    expect(fed).not.toContain(`${Number(end) + 1}: const wide`);
+  });
+
   it("read_file returns numbered lines plus size and total line count, capped", async () => {
     const res = await runRepoReadTool(root, "read_file", { path: "src/index.ts" });
     expect(res.ok).toBe(true);
@@ -156,6 +168,11 @@ describe("list_files / grep / read_file", () => {
     expect(big.text).toContain(`(at most ${REPO_TOOL_CAPS.readMaxLines} lines per read)`);
     expect(body.filter((l) => /^\d+: /.test(l)).length).toBeLessThanOrEqual(REPO_TOOL_CAPS.readMaxLines);
     expect(big.text.length).toBeLessThanOrEqual(REPO_TOOL_CAPS.readMaxBytes + 400);
+
+    // Default read size (short lines, so the byte cap does not end it first).
+    await fs.writeFile(path.join(root, "short.ts"), Array.from({ length: 1000 }, (_, i) => `x${i};`).join("\n"));
+    const first = await runRepoReadTool(root, "read_file", { path: "short.ts" });
+    expect(first.text).toContain(`truncated: lines 1-${REPO_TOOL_CAPS.readDefaultLines} of 1000`);
 
     const window = await runRepoReadTool(root, "read_file", { path: "big.ts", startLine: 500, maxLines: 3 });
     expect(window.text).toContain("500: const line499");

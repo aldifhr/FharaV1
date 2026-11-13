@@ -2,7 +2,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test, it } from "vitest";
 import { classifyChatIntent, explicitTaskCommand, parseIntentResult } from "./lib/chat/intent";
-import { resolveAssignees, extractAgentMentions, selectHandoffs, handoffRequestFor, parseResponderSelection, pickConversationalAgent, pickGreetingResponders } from "./lib/chat/team";
+import { resolveAssignees, extractAgentMentions, selectHandoffs, handoffRequestFor, pickConversationalAgent, pickGreetingResponders } from "./lib/chat/team";
 import { stripToolCallMarkup } from "./lib/chat/strip";
 import { buildHandoffGuidance } from "./lib/prompts/chat";
 import schema from "./schema";
@@ -59,11 +59,6 @@ describe("chat intent (mirrors worker router)", () => {
     expect(pickConversationalAgent(pool)[0]._id).toBe("g1");
     expect(pickConversationalAgent(pool.filter((a) => a.role !== "general"))[0]._id).toBe("r1");
     expect(pickConversationalAgent(pool.filter((a) => a.role !== "general" && a.role !== "researcher"))[0]._id).toBe("s1");
-  });
-  test("parseResponderSelection only accepts ids from the pool", () => {
-    expect(parseResponderSelection('{"agentId":"f1"}', ["f1", "r1"])).toBe("f1");
-    expect(parseResponderSelection('{"agentId":"nope"}', ["f1"])).toBeNull();
-    expect(parseResponderSelection("not json", ["f1"])).toBeNull();
   });
   test("greeting fast-path matches bare greetings only", async () => {
     const { GREETING } = await import("./lib/chat/intent");

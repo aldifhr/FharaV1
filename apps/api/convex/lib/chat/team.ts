@@ -145,16 +145,3 @@ export function resolveAssignees<T extends { _id: string; role: string }>(
   for (const agent of team) if (ALWAYS_IN_POOL.test(agent.role)) pool.set(String(agent._id), agent);
   return [...pool.values()];
 }
-
-/** Parse the CTO chooser's reply: the chosen candidate id, or null. */
-export function parseResponderSelection(raw: string, candidateIds: string[]): string | null {
-  const text = raw.trim();
-  const json = text.match(/\{[\s\S]*\}/);
-  if (!json) return null;
-  try {
-    const o = JSON.parse(json[0]) as { agentId?: unknown };
-    return typeof o.agentId === "string" && candidateIds.includes(o.agentId) ? o.agentId : null;
-  } catch {
-    return null;
-  }
-}

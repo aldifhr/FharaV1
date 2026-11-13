@@ -45,7 +45,6 @@ vi.mock("./lib/chat/classify", () => ({
     confidence: 1,
     reasoning: "test",
   }),
-  chooseAskResponder: async () => null,
 }));
 vi.mock("./lib/chat/repoSnapshot", () => ({ readRepoSnapshot: async () => "" }));
 // A stand-in worker: every queued repo tool call is answered at once.

@@ -1,21 +1,16 @@
 /**
- * Who answers a project chat message nobody was @mentioned in
- * (Orchestrator/CTO split O3, plan §2.2). System routes; the topic owner
- * answers. There is no CTO default:
+ * Who answers a project chat message nobody was @mentioned in. System
+ * routes, deterministically (no LLM chooser); there is no CTO default:
  *
- * 1. An option pick goes back to the agent that offered the options.
- * 2. routeQuestion (dispatch.ts): the role that owns the topic, a greeting or
- *    short how-to → Support, planning / architecture → CTO, a short status
- *    question → a System status line (no LLM).
- * 3. The request names files of one code role ("ultimate.html" → Frontend):
- *    that role, so a write request goes to its implementer directly.
- * 4. Nothing matched: the neutral LLM chooser over the team without the CTO
- *    (architecture already routed to it above).
- * 5. Chooser unavailable: Support, else the conversational fallback.
+ * 1. routeQuestion (dispatch.ts): a short status question → a System status
+ *    line (no LLM); else the agent who answered the previous turn; else a
+ *    greeting / short how-to → Support, planning → CTO, or the role that owns
+ *    the topic.
+ * 2. The request names files of one code role ("ultimate.html" → Frontend).
+ * 3. Support, else the conversational fallback.
  *
- * Pure apart from the injected chooser; unit-tested in owner.test.ts.
+ * Pure; unit-tested in owner.test.ts.
  */
-import { isSystemLine } from "../systemLine";
 import { routeQuestion, type DispatchDomain } from "./dispatch";
 import { codeRoleForRequest } from "./intent";
 import { normalizeRoleKey } from "../roles";
@@ -31,7 +26,7 @@ export type ChatOwner<T extends Member> =
       /** The topic domain when routeQuestion matched one. */
       domain: DispatchDomain | null;
       topic?: string;
-      via: "route" | "option-pick" | "files" | "chooser" | "fallback";
+      via: "route" | "previous" | "files" | "fallback";
     };
 
 const CTO_ROLE = /^(?:cto|architect)$/i;
@@ -48,44 +43,22 @@ export function fallbackOwner<T extends Member>(team: T[]): T | null {
   );
 }
 
-/** The agent whose reply the latest user message (an option pick) answers. */
-function offeringAgent<T extends Member>(history: Row[], team: T[]): T | null {
-  for (let i = history.length - 2; i >= 0; i -= 1) {
-    const row = history[i];
-    if (row.authorType === "user") return null;
-    if (row.authorType !== "agent" || isSystemLine(row) || !row.agentId) continue;
-    return team.find((a) => String(a._id) === String(row.agentId)) ?? null;
-  }
-  return null;
-}
-
-export async function resolveChatOwner<T extends Member>(input: {
+export function resolveChatOwner<T extends Member>(input: {
   text: string;
   team: T[];
   history: Row[];
   repoToolsAvailable: boolean;
-  optionPick: boolean;
-  /** The neutral LLM chooser; resolves to an agent id or null. */
-  choose: (pool: T[]) => Promise<string | null>;
-}): Promise<ChatOwner<T> | null> {
+}): ChatOwner<T> | null {
   const { team } = input;
   if (team.length === 0) return null;
-  if (input.optionPick) {
-    const agent = offeringAgent(input.history, team);
-    if (agent) return { kind: "agent", agent, domain: null, via: "option-pick" };
-  }
   const route = routeQuestion({ text: input.text, team, history: input.history, repoToolsAvailable: input.repoToolsAvailable });
   if (route.kind === "status") return { kind: "status" };
-  if (route.kind === "specialist") return { kind: "agent", agent: route.agent, domain: route.domain, topic: route.topic, via: "route" };
+  if (route.kind === "specialist") {
+    return { kind: "agent", agent: route.agent, domain: route.domain, topic: route.topic, via: route.followUp ? "previous" : "route" };
+  }
   const byFiles = codeRoleForRequest(input.text);
   const fileOwner = byFiles ? team.find((a) => normalizeRoleKey(a.role) === byFiles) : undefined;
   if (fileOwner) return { kind: "agent", agent: fileOwner, domain: null, via: "files" };
-  const pool = team.filter((a) => !CTO_ROLE.test(a.role.trim()));
-  if (pool.length > 1) {
-    const id = await input.choose(pool).catch(() => null);
-    const picked = id ? pool.find((a) => String(a._id) === String(id)) : undefined;
-    if (picked) return { kind: "agent", agent: picked, domain: null, via: "chooser" };
-  }
   const fallback = fallbackOwner(team);
   return fallback ? { kind: "agent", agent: fallback, domain: null, via: "fallback" } : null;
 }

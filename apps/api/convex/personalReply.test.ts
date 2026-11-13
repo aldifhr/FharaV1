@@ -39,7 +39,6 @@ vi.mock("./lib/chat/classify", () => ({
     classifyCalls.push(a);
     return { intent: "ask", subtype: "research", requiresWorkspace: false, requiresExecution: false, confidence: 1, reasoning: "t" };
   },
-  chooseAskResponder: async () => null,
 }));
 const snapshotReads: string[] = [];
 vi.mock("./lib/chat/repoSnapshot", () => ({

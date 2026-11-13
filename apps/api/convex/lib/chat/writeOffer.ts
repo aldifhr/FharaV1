@@ -70,12 +70,13 @@ export function planWriteOffer<A extends { _id: string; name: string; role: stri
       text: opts.text,
       hard: opts.mentioned === true,
     });
+  // The kind follows the request (an audit stays an audit), not a hard-coded implementation.
+  const kind = opts.taskIntent.subtype ?? "implementation";
   if (opts.taskIntent.kind !== "task") {
     if (runCommands?.length) return none;
-    const fallback: ChatTaskOffer = { kind: "implementation", ...(assignee ? { assigneeAgentId: String(assignee._id) } : {}), ...(brief ? { brief } : {}), hint: hintFor("implementation") };
+    const fallback: ChatTaskOffer = { kind, ...(assignee ? { assigneeAgentId: String(assignee._id) } : {}), ...(brief ? { brief } : {}), hint: hintFor(kind) };
     return { ...none, fallback };
   }
-  const kind = opts.taskIntent.subtype ?? "implementation";
   const offer: ChatTaskOffer = {
     kind,
     hint: hintFor(kind),
@@ -88,11 +89,20 @@ export function planWriteOffer<A extends { _id: string; name: string; role: stri
 
 /**
  * The offer stored on a finished reply: the planned one, else the fallback
- * when the reply itself says the request needs file writes ("Chat can't
- * change files. Want me to create a task for it?"). A greeting or a plain
- * answer stores none.
+ * when the reply spent its whole repo tool budget (the scope is bigger than
+ * one chat reply; the task runs the full job) or says the request needs file
+ * writes ("Chat can't change files. Want me to create a task for it?"). A
+ * greeting or a plain answer stores none.
  */
-export function offerForReply(write: { offer: ChatTaskOffer | null; fallback: ChatTaskOffer | null }, reply: string): ChatTaskOffer | null {
-  if (write.offer) return write.offer;
-  return write.fallback && replyNeedsTask(reply) ? write.fallback : null;
+export function offerForReply(
+  write: { offer: ChatTaskOffer | null; fallback: ChatTaskOffer | null },
+  reply: string,
+  opts: { budgetHit?: boolean } = {}
+): ChatTaskOffer | null {
+  if (write.offer || !write.fallback) return write.offer;
+  if (opts.budgetHit) return write.fallback;
+  if (!replyNeedsTask(reply)) return null;
+  // The reply found the request needs file writes: an implementation, whatever the subtype said.
+  const { fallback } = write;
+  return { ...fallback, kind: "implementation", ...(fallback.hint ? { hint: { ...fallback.hint, kind: "implementation" } } : {}) };
 }

@@ -37,7 +37,6 @@ vi.mock("./lib/chat/llm", async () => {
 });
 vi.mock("./lib/chat/classify", () => ({
   classifyIntent: async () => ({ intent: "ask", subtype: "explanation", requiresWorkspace: false, requiresExecution: false, confidence: 1, reasoning: "test" }),
-  chooseAskResponder: async () => null,
 }));
 vi.mock("./lib/chat/repoSnapshot", () => ({ readRepoSnapshot: async () => "" }));
 

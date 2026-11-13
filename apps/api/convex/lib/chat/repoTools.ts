@@ -23,20 +23,19 @@ export const REPO_TOOLS_CAPABILITY = "repoTools";
 export const REPO_TOOL_NAMES = ["list_files", "grep", "read_file"] as const;
 export type RepoToolName = (typeof REPO_TOOL_NAMES)[number];
 
-/** Tool calls per reply; the model must answer after this many. */
-export const MAX_REPO_TOOL_CALLS = 6;
-
 /**
- * Tool calls across ALL agents answering one user message (the CTO plus its
- * handoffs, or several @mentioned agents), so three handoffs cannot run 18.
+ * Repo tool calls per reply (one Plan-mode loop: read until the model answers
+ * without a call). After this many the model must answer, report what it did
+ * not read, and the reply carries the Create task offer for the full job.
  */
-export const MAX_REPO_TOOL_CALLS_PER_CHAT = 12;
+export const MAX_REPO_TOOL_CALLS = 25;
 
 /**
  * Shared repo-tool budget for one chat turn: each agent may use up to
- * `perReply` calls, and all of them together at most `total`.
+ * `perReply` calls, and all of them together (several @mentioned agents) at
+ * most `total`.
  */
-export function createRepoToolBudget(total: number = MAX_REPO_TOOL_CALLS_PER_CHAT, perReply: number = MAX_REPO_TOOL_CALLS) {
+export function createRepoToolBudget(total: number = MAX_REPO_TOOL_CALLS * 2, perReply: number = MAX_REPO_TOOL_CALLS) {
   let used = 0;
   return {
     /** Calls the next agent may make (0 = answer without tools). */
@@ -55,20 +54,23 @@ export function createRepoToolBudget(total: number = MAX_REPO_TOOL_CALLS_PER_CHA
   };
 }
 
-/** Worker-side output caps (one place, so tests and prompts agree). */
+/**
+ * Worker-side output caps (one place, so tests and prompts agree). A read
+ * (header + notes + `readMaxBytes` of lines) always fits `resultMaxChars`,
+ * which is also what the model is fed: the "lines X-Y" header describes
+ * exactly what the model sees.
+ */
 export const REPO_TOOL_CAPS = {
   listMaxEntries: 200,
   grepMaxMatches: 40,
   grepMaxLineChars: 200,
   grepMaxFileBytes: 1_000_000,
   grepMaxFilesScanned: 4_000,
-  readDefaultLines: 200,
+  readDefaultLines: 250,
   readMaxLines: 400,
-  readMaxBytes: 16_000,
-  /** Hard cap on any single tool result text. */
+  readMaxBytes: 11_000,
+  /** Hard cap on any single tool result text, and on what the model is fed. */
   resultMaxChars: 12_000,
-  /** Cap on the result fed back into the model prompt. */
-  promptResultMaxChars: 8_000,
   patternMaxChars: 200,
 } as const;
 
@@ -131,19 +133,25 @@ export function describeRepoToolCall(call: RepoToolCall): string {
 /** The user-role message that feeds one tool result back to the model. */
 export function toolResultMessage(call: RepoToolCall, result: RepoToolResult, note = ""): string {
   const header = `[tool result: ${describeRepoToolCall(call)}${result.ok ? "" : " — failed"}]`;
-  return `${header}\n${capToolOutput(result.text, REPO_TOOL_CAPS.promptResultMaxChars)}${note ? `\n${note}` : ""}`;
+  return `${header}\n${capToolOutput(result.text)}${note ? `\n${note}` : ""}`;
 }
 
 /** Fed back when one reply held several calls (and/or prose): only the first ran. */
 export const ONE_CALL_PER_REPLY =
   "(Only your first tool call ran; anything else in that reply was discarded. Call one tool per reply and wait for its result before answering.)";
 
-export const TOOL_BUDGET_EXHAUSTED =
-  "Tool budget for this reply is used up. Answer the user now from the tool results above, without calling a tool. For anything you did not check, say you have not checked it yet (Indonesian: \"belum saya cek\"). Cite only files and file:line references that a tool result above shows.";
+/** What a reply says when the request covers more than it could read (shared by the budget lines and the prompts). */
+export const SCOPE_EXIT_LINE =
+  "If the request covers more than you read, list what you read and what you did not, and say the Create task button under this reply runs the full job. Never ask the user to type \"lanjut\" or to continue.";
+
+export const TOOL_BUDGET_EXHAUSTED = `Tool budget for this reply is used up. Answer the user now from the tool results above, without calling a tool. ${SCOPE_EXIT_LINE} Cite only files and file:line references that a tool result above shows.`;
 
 /** Fed back when the model stopped on narration or a call with no budget left. */
-export const FINAL_ANSWER_NOW =
-  "Stop checking. Write your final answer to the user now, in their language, from the tool results above: no tool call, no JSON, and no line about what you will check next. For anything you did not check, say \"belum saya cek\" (English: \"I haven't checked that yet\").";
+export const FINAL_ANSWER_NOW = `Stop checking. Write your final answer to the user now, in their language, from the tool results above: no tool call, no JSON, and no line about what you will read or do next. ${SCOPE_EXIT_LINE}`;
+
+/** Fed back once when a question about the repo got an answer before any read. */
+export const READ_FIRST =
+  "You answered without reading the repository. The snapshot shows only which files exist and their sizes, not their contents. Reply with ONLY one JSON tool call now to read the code your answer depends on.";
 
 /** Fed back once when a reply only announced a check without making it. */
 export const CALL_OR_ANSWER =
@@ -155,7 +163,7 @@ export const CALL_OR_ANSWER =
  * Night e2e R-a3: the tool loop ended on such a line, with no answer.
  */
 const NARRATION =
-  /^(?:(?:oke|ok|baik|sip|siap|alright|okay|sure)[,!.\s]+)?(?:saya|aku|gue|gw|kita|let me|let's|i'?ll|i will|i'?m going to|i am going to|now i|next i|sebentar|tunggu|mari)\b[^.!?\n]{0,160}\b(?:cek|check|periksa|lihat|baca|look|read|verify|verifikasi|search|cari|grep|telusuri|pastikan|inspect)/i;
+  /^(?:(?:oke|ok|baik|sip|siap|alright|okay|sure)[,!.\s]+)?(?:saya|aku|gue|gw|kita|let me|let's|i'?ll|i will|i'?m going to|i am going to|now i|next i|sebentar|tunggu|mari)\b[^.!?\n]{0,160}\b(?:cek|check|periksa|lihat|baca|look|read|verify|verifikasi|search|cari|grep|telusuri|pastikan|inspect|membaca|memeriksa|mengecek|melihat)/i;
 export function isNarrationOnly(text: string): boolean {
   const t = text.trim();
   if (!t) return false;
@@ -167,6 +175,17 @@ export function isNarrationOnly(text: string): boolean {
   // A finding, not a plan: "Saya sudah cek: tidak ketemu", "I checked src/x.ts".
   if (/\b(?:sudah|telah|udah|tidak ketemu|nggak ketemu|ditemukan|ketemu|found|checked|i'?ve|have|has|hasilnya|result)\b|`|\w\.(?:ts|tsx|js|json|md)\b|:\d+/i.test(t)) return false;
   return NARRATION.test(t) || /(?:…|\.\.\.|:)\s*$/.test(t) && /\b(?:cek|check|periksa|lihat|look|verify)\b/i.test(t);
+}
+
+/**
+ * Drop leading paragraphs that only narrate the next step ("Saya akan
+ * membaca…", "Let me check…") when an answer follows them.
+ */
+export function stripLeadingNarration(text: string): string {
+  const parts = text.split(/\n\s*\n/);
+  let i = 0;
+  while (i < parts.length - 1 && isNarrationOnly(parts[i])) i += 1;
+  return i === 0 ? text : parts.slice(i).join("\n\n").trimStart();
 }
 
 export interface RepoToolLoopStep {
@@ -181,6 +200,8 @@ export interface RepoToolLoopOptions {
   /** Runs one tool call (never throws; failures come back as ok:false). */
   callTool: (call: RepoToolCall) => Promise<RepoToolResult>;
   maxCalls?: number;
+  /** The question is about repo code/files: a first answer with no read gets one READ_FIRST nudge. */
+  requireRead?: boolean;
   /**
    * Tools that run in the caller (no worker queue), e.g. `load_skill` for an
    * on-demand agent. They have their own budget (`maxLocalCalls`) and do not
@@ -204,9 +225,10 @@ export interface RepoToolLoopResult {
 }
 
 /**
- * Bounded tool loop: the model either replies with one JSON tool call (run
- * it, feed the result back, repeat) or with its answer (done). After
- * `maxCalls` tool calls the model gets one last step to answer without tools.
+ * One read-only tool loop per reply (Plan mode): the model either replies
+ * with one JSON tool call (run it, feed the result back, repeat) or with its
+ * answer (done). After `maxCalls` tool calls the model gets one last step to
+ * answer without tools. There is no auto-continue beyond this reply.
  */
 export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<RepoToolLoopResult> {
   const maxCalls = options.maxCalls ?? MAX_REPO_TOOL_CALLS;
@@ -219,7 +241,7 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
   const checked: string[] = [];
   let repoCalls = 0;
   let localCalls = 0;
-  const done = (answer: string): RepoToolLoopResult => ({ answer, calls, results, checkedFiles: checked, repoCalls });
+  const done = (answer: string): RepoToolLoopResult => ({ answer: stripLeadingNarration(answer), calls, results, checkedFiles: checked, repoCalls });
   const steps = maxCalls + maxLocal;
 
   // The loop always ends on an answer: when the model stops on narration
@@ -232,6 +254,7 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
     return done(isNarrationOnly(prose) ? "" : prose);
   };
   let nudged = false;
+  let readNudged = !options.requireRead || maxCalls <= 0;
   // Set when the model asks for a repo tool after the repo budget is used up
   // while local tools still have budget: the next step is the final one.
   let repoSpent = false;
@@ -250,6 +273,14 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
     }
     if (found.calls.length === 0) {
       const prose = found.prose.trim();
+      if (prose && !isNarrationOnly(prose) && !readNudged && repoCalls === 0) {
+        // Read before claim: one nudge, does not use a step.
+        readNudged = true;
+        messages.push({ role: "assistant", content: prose });
+        messages.push({ role: "user", content: READ_FIRST });
+        i -= 1;
+        continue;
+      }
       if (!isNarrationOnly(prose) && prose) return done(found.prose);
       if (!nudged) {
         // One nudge: make the announced check, or answer. Does not use a step.
@@ -294,7 +325,7 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
     }
     results.push({
       label: describeRepoToolCall(call),
-      text: capToolOutput(result.text, REPO_TOOL_CAPS.promptResultMaxChars),
+      text: capToolOutput(result.text),
       files: result.ok ? result.files : undefined,
     });
     await options.onToolCall?.(call, result);

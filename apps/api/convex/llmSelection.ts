@@ -2,15 +2,17 @@
  * Global LLM selection mode (plan 032): one choice for the whole app —
  * "fallback" or "round_robin" (lib/llmSelection.ts).
  *
- * The mode is a plain setting: no key material, no provider admin. It is
- * public like the rest of the app's settings (local single-user mode) and
- * crosses to the worker inside getRunContext.
+ * The mode is a plain setting: no key material, no provider admin. Reads are
+ * public (local single-user mode); the write uses the same registry gate as
+ * the other app-wide settings (`appSettings`), which is a no-op in local mode.
+ * It crosses to the worker inside getRunContext.
  */
 import { mutation, query } from "./_generated/server";
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import type { DataModel } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { llmSelectionModeValidator } from "./lib/contractValidators";
+import { assertRegistryWriteAccess } from "./lib/authz";
 import {
   DEFAULT_LLM_SELECTION_MODE,
   normalizeSelectionMode,
@@ -25,10 +27,11 @@ export const get = query({
   },
 });
 
-/** Set the global mode (single row, upserted). */
+/** Set the global mode (single row, upserted). A global setting, so it takes the same write gate as the other app-wide settings (`appSettings`, the agent registry). */
 export const set = mutation({
   args: { mode: llmSelectionModeValidator },
   handler: async (ctx, args): Promise<{ mode: LlmSelectionMode }> => {
+    await assertRegistryWriteAccess(ctx);
     const mode = normalizeSelectionMode(args.mode);
     const existing = await ctx.db.query("llmSelectionSettings").first();
     if (existing) {

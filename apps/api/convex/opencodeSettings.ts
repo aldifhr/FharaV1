@@ -16,6 +16,7 @@ import type { DataModel } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { normalizeOpencodeModel } from "./agents";
 import { isOpencodeConnection } from "./lib/opencodeProvider";
+import { assertRegistryWriteAccess } from "./lib/authz";
 
 /** The runtime the app-wide setting selects. */
 export type OpencodeRuntime = "api" | "opencode";
@@ -62,6 +63,7 @@ export const set = mutation({
     model: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<OpencodeSettings> => {
+    await assertRegistryWriteAccess(ctx);
     const model = normalizeOpencodeModel(args.model ?? "") ?? "";
     const existing = await ctx.db.query("opencodeSettings").first();
     if (existing) {

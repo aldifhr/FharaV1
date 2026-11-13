@@ -33,6 +33,22 @@ describe("global LLM selection mode", () => {
     ).rejects.toThrow();
   });
 
+  test("refuses an anonymous write once the deployment is owned (local mode still writes)", async () => {
+    const t = convexTest(schema, modules);
+    // Local single-user mode: no project carries an owner yet, so the write
+    // passes (the guard is conditional by design).
+    await t.mutation(api.llmSelection.set, { mode: "round_robin" });
+    // An owned project means auth is in use: an anonymous caller must not
+    // change the app-wide selection. The read stays public.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p", ownerId: "owner-1" });
+    });
+    await expect(
+      t.mutation(api.llmSelection.set, { mode: "fallback" })
+    ).rejects.toThrow(/sign in/i);
+    expect(await t.query(api.llmSelection.get, {})).toEqual({ mode: "round_robin" });
+  });
+
   test("the run context carries the mode to the worker", async () => {
     const t = convexTest(schema, modules);
     const taskId = await t.run(async (ctx) => {

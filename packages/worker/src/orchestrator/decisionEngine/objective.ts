@@ -100,7 +100,7 @@ export function evaluateObjective(ctx: DecisionContext): ObjectiveEvaluation {
   const needsScaffold = requiresScaffold(ctx.plan);
   if (needsScaffold && allFiles.length > 0) {
     const hasPkg = allFiles.some((f) => f === "package.json" || f.endsWith("/package.json"));
-    const hasApp = allFiles.some((f) => /(src\/(main|App)\.(jsx|tsx|js|ts))$$/.test(f));
+    const hasApp = allFiles.some((f) => /(src\/(main|App)\.(jsx|tsx|js|ts))$/.test(f));
     if (!hasPkg || !hasApp) {
       missing.push(
         "React scaffold incomplete: missing " +

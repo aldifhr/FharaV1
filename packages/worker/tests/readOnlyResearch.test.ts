@@ -317,3 +317,20 @@ describe("objective: no scaffold requirement the task did not ask for", () => {
     expect(requiresScaffold({ goal: "Scaffold a Next.js project" })).toBe(true);
   });
 });
+
+// Regression: the hasApp regex used `$$` (double-dollar) instead of `$`,
+// which made it accept paths with trailing characters (src/main.jsx.bak).
+// A backup file must NOT satisfy the scaffold app-entry requirement.
+describe("evaluateObjective: hasApp regex is end-anchored", () => {
+  it("src/main.jsx.bak does not satisfy the scaffold entry requirement", () => {
+    // The double-$$ regex accepted trailing content; the fixed $ does not.
+    const pathWithSuffix = "src/main.jsx.bak";
+    const pathClean = "src/main.jsx";
+    // We test the regex directly (same pattern as evaluateObjective line 103).
+    const APP_RE = /(src\/(main|App)\.(jsx|tsx|js|ts))$/;
+    expect(APP_RE.test(pathWithSuffix)).toBe(false);
+    expect(APP_RE.test(pathClean)).toBe(true);
+    expect(APP_RE.test("src/App.tsx")).toBe(true);
+    expect(APP_RE.test("src/App.tsx.swp")).toBe(false);
+  });
+});

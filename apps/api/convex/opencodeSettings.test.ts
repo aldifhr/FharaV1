@@ -42,6 +42,19 @@ describe("app-wide OpenCode runtime", () => {
     ).rejects.toThrow(/provider\/model/);
   });
 
+  test("refuses an anonymous write once the deployment is owned", async () => {
+    const t = convexTest(schema, modules);
+    // Local single-user mode: no owned project, so the guard is a no-op.
+    await t.mutation(api.opencodeSettings.set, { runtime: "opencode", model: "opencode/beam-free" });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p", ownerId: "owner-1" });
+    });
+    await expect(
+      t.mutation(api.opencodeSettings.set, { runtime: "api" })
+    ).rejects.toThrow(/sign in/i);
+    expect((await t.query(api.opencodeSettings.get, {})).runtime).toBe("opencode");
+  });
+
   test("the run context carries the setting only when it was written", async () => {
     const t = convexTest(schema, modules);
     const projectId = await t.run((ctx) =>

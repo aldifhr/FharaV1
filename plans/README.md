@@ -49,6 +49,7 @@ execution order and a definition of done.
 | 045 | [Role memory: each role writes its own notes per project](045-role-memory.md) | P2 | M | L4, L5 | IMPLEMENTED (convex-test + worker unit tests; browser check pending) |
 | 046 | [Drain an aborted scheduler attempt before a retry](046-scheduler-abort-drain.md) | P1 | M | — | DONE (unit tests; full worker suite has the pre-existing Windows-only failures) |
 | 047 | [Thread deep links and per-project sidebar separation](047-thread-deep-links.md) | P2 | S | — | IMPLEMENTED (typecheck + unit tests + `next build` green with NEXT_PUBLIC_CONVEX_URL; browser check done — deep-linked thread renders as the main view, `Back to chat` returns to the project) |
+| 049 | [Lease fencing for `setTaskStatus`](049-set-task-status-lease-fencing.md) | P3 | S | — | TODO (found in the backend audit: `setTaskStatus` takes no `workerId` and applies any status from any worker) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

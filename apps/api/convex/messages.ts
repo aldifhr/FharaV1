@@ -243,7 +243,7 @@ export const failMessage = internalMutation({
       leasedBy: undefined,
       leaseExpiresAt: undefined,
       error: args.error,
-    } as any);
+    });
     return { applied: true as const, next };
   },
 });
@@ -300,7 +300,7 @@ export const recoverStaleMessages = internalMutation({
             leasedBy: undefined,
             leaseExpiresAt: undefined,
             error: "stale lease exceeded retry bound",
-          } as any);
+          });
           failed++;
         } else {
           await ctx.db.patch(m._id, {

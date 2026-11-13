@@ -8,6 +8,7 @@ import { CAPABILITY } from "@/types";
 import { wantsVisualQa } from "@/orchestrator/planner";
 import { decideFixOwner } from "@/orchestrator/decisionEngine";
 import { applyOrRequestFixApproval } from "./fixApply";
+import { reReviewAfterFix } from "./execute/phases/review";
 import { buildQaCard, plannedQaRows, postStageCard } from "./cards";
 
 // Moved to the Decision Engine (L7); re-exported for existing importers.
@@ -361,7 +362,11 @@ export async function runQaLoop(ctx: RunContext): Promise<boolean> {
       // re-runs, otherwise QA validates the pre-fix app and can never
       // pass. In ask mode the fix is NOT silently applied: an approval is
       // requested and the task pauses (QA audit P0-4).
-      const landed = await applyOrRequestFixApproval(ctx, fixSubtask, "QA");
+      // Exec-pipeline: the fix made a new snapshot; it is re-reviewed before
+      // it lands and QA re-runs.
+      const reReview = await reReviewAfterFix(ctx, "QA", fixSubtask.key);
+      if (!reReview.approved) return false;
+      const landed = await applyOrRequestFixApproval(ctx, fixSubtask, "QA", reReview.fixKeys);
       if (landed === "waiting_approval") return false;
       if (landed === "failed") {
         state.feedback.push(`QA fix attempt ${iteration + 1} could not be applied`);

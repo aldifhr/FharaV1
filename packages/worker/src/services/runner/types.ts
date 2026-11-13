@@ -10,6 +10,7 @@ import type {
   WorkerTask,
 } from "@/workerApi";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
+import type { SnapshotReviewVerdict, StageOrder } from "@/orchestrator/decisionEngine/stageOrder";
 import type { ReviewResult } from "@/utils/json";
 import type { FileDiff } from "@/tools/gitDiff";
 import type { EvaluationCheck } from "@/types/execution";
@@ -69,6 +70,13 @@ export interface RunState {
    * specific pass message instead of a generic template. */
   qaChecks?: Record<string, QaCheckRecord[]>;
   reviewVerdicts: Record<string, ReviewResult>;
+  /**
+   * Exec-pipeline: the latest review verdict per change-set snapshot id
+   * (snapshotIdForChanges). Approval is only requested for a snapshot whose
+   * entry is "approved"; a verify / QA fix makes a new snapshot that has
+   * no entry until it went back through the review loop.
+   */
+  reviewBySnapshot?: Record<string, SnapshotReviewVerdict>;
   fileChanges: Map<string, FileDiff>;
   /** Applied file paths per producing subtask key (Phase 5 Step 5.1). */
   appliedFilesBySubtask: Map<string, string[]>;
@@ -305,6 +313,8 @@ export interface RunContext {
    * an apply approval and the run must end as `waiting_approval`.
    */
   pendingApproval?: boolean;
+  /** Exec-pipeline: the stage order this invocation runs (decideStageOrder); unset = legacy. */
+  stageOrder?: StageOrder;
   delegationSeq: number;
   fixSeq: number;
   lastStatusCheck: number;

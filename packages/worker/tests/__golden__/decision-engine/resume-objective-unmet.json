@@ -33,7 +33,8 @@
       "subtaskKey": null,
       "level": "error",
       "payload": {
-        "message": "Objective not satisfied after 0 replan(s): objective not satisfied: implement: code_change completed with no applied file change"
+        "message": "Objective not satisfied after 0 replan(s): objective not satisfied: implement: code_change completed with no applied file change",
+        "failureKind": "error"
       }
     }
   ],

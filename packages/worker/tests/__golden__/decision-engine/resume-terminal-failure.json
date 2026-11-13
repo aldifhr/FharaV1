@@ -22,7 +22,8 @@
       "subtaskKey": null,
       "level": "error",
       "payload": {
-        "message": "implement: Permission denied: cannot write"
+        "message": "implement: Permission denied: cannot write",
+        "failureKind": "error"
       }
     }
   ],

@@ -64,6 +64,10 @@ export { decideReplan } from "./replan";
 export type { ReplanDecision, ReplanFacts, ReplanObservation, ReplanTrigger } from "./replan";
 export { attributeFinding, decideFixOwner, fixRoundsExhausted, pickQaFixOwner, QA_UI_CAPABILITIES, verifyFixKey } from "./fixOwner";
 export type { FixNeededFacts, FixNeededObservation, FixOwnerDecision, FixStage } from "./fixOwner";
+export { FAILURE_KINDS, failureKindForEnding, failureKindForExit, isFailureKind } from "./failureKind";
+export type { FailureKind } from "./failureKind";
+export { decideApprovalGate, decideStageOrder, reviewFixRoundsSpent } from "./stageOrder";
+export type { ApprovalGateDecision, ApprovalGateFacts, SnapshotReviewVerdict, StageOrder, StageOrderDecision } from "./stageOrder";
 export { classifyFailure, decideRetry, isPermanentSubtaskError, isRetryableClass, shouldRetrySubtask } from "./retry";
 export type {
   FailedObservation,

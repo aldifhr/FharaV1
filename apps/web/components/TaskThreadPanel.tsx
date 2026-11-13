@@ -7,6 +7,7 @@ import { api } from "@/api/convex/_generated/api";
 import MessageText from "./chat/MessageText";
 import { agentName, roleLabel } from "@/lib/agentRoles";
 import { subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
+import { failureKindLabel, latestFailureKind } from "@/lib/failureKind";
 import ApprovalCard from "./ApprovalCard";
 import ChangesPane, { useThreadView } from "./changes/ChangesPane";
 import TaskThreadHeader from "./TaskThreadHeader";
@@ -68,6 +69,8 @@ export default function TaskThreadPanel({
   const taskExists = Boolean(task) && !isLegacyDirect;
   const project = useQuery(api.projects.get, task?.projectId ? { projectId: task.projectId } : "skip");
   const liveMessages = useQuery(api.messages.listByTask, taskExists ? { taskId: taskId as any } : "skip");
+  // Item 7: a failed task's precise reason (failureKind on its terminal event); read only once it failed.
+  const endedEvents = useQuery(api.taskEvents.listByTask, taskExists && (task as any)?.status === "failed" ? { taskId: taskId as any } : "skip");
   // D12: older pages behind the newest window, and the turn outline.
   const { rows: messages, history } = useMessageHistory(taskExists && taskId ? { kind: "task", taskId } : null, liveMessages);
   // Canonical event stream (plan 016): the UI reads this instead of the raw
@@ -423,6 +426,7 @@ export default function TaskThreadPanel({
             >
               <p className="font-medium">
                 {taskStatus === "rejected" ? "Task rejected" : taskStatus === "cancelled" ? "Task cancelled" : "Task failed"}
+                {taskStatus === "failed" && latestFailureKind(endedEvents as any[]) ? ` (${failureKindLabel(latestFailureKind(endedEvents as any[]))})` : ""}
                 {(task as any).errorMessage ? `: ${(task as any).errorMessage}` : ""}
               </p>
               <button

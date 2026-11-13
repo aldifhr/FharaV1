@@ -39,6 +39,7 @@ import { useMessageHistory } from "@/lib/useMessageHistory";
 import { useApprovalBinding } from "./chat/useApprovalBinding";
 import { useProjectSend } from "./chat/useProjectSend";
 import { useUnreadDivider } from "./chat/useUnreadDivider";
+import { failureKindLabel } from "@/lib/failureKind";
 
 type Props = {
   projectId: string;
@@ -629,7 +630,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
           .map((event: any) => (
             <div key={event._id} role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[14px] text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
               <span className="min-w-0 flex-1 break-words">
-                <span className="font-semibold">Agent error:</span> {event.payload?.message ?? "Task failed to process."}
+                <span className="font-semibold">{failureKindLabel(event.payload?.failureKind)}:</span> {event.payload?.message ?? "Task failed to process."}
               </span>
               <button type="button" aria-label="Dismiss error" onClick={() => dismissError(String(event._id))} className="shrink-0 rounded-md p-1 hover:bg-red-100 dark:hover:bg-red-900/40">
                 <X size={14} />

@@ -24,7 +24,8 @@
       "payload": {
         "kind": "rate_limit",
         "reason": "The LLM provider is rate-limiting requests (429)",
-        "message": "LLM request failed (429) for model m: Too Many Requests"
+        "message": "LLM request failed (429) for model m: Too Many Requests",
+        "failureKind": "provider_hold"
       }
     }
   ],

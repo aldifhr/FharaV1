@@ -4,6 +4,7 @@ import type { PlanSubtask } from "@/types";
 import { implementerAgent } from "./setup";
 import { attributeFinding, decideFixOwner, fixRoundsExhausted } from "@/orchestrator/decisionEngine";
 import { applyOrRequestFixApproval } from "./fixApply";
+import { reReviewAfterFix } from "./execute/phases/review";
 import { runVerification } from "@/execution/verification";
 import { verificationStatus } from "@/execution/verifyEnv";
 import { contentFingerprint } from "./applyLedger";
@@ -211,7 +212,12 @@ async function verificationLoopBody(ctx: RunContext): Promise<"failed" | "cancel
       }
       continue;
     }
-    const landed = await applyOrRequestFixApproval(ctx, fixSubtask, "verification");
+    // Exec-pipeline: the fix made a new snapshot; it is re-reviewed before
+    // it lands and verification re-runs (a rejection loops through the
+    // review fix owner within the review budget, or ends the loop).
+    const reReview = await reReviewAfterFix(ctx, "verification", fixSubtask.key);
+    if (!reReview.approved) return ctx.taskCancelled() ? "cancelled" : "failed";
+    const landed = await applyOrRequestFixApproval(ctx, fixSubtask, "verification", reReview.fixKeys);
     if (landed === "waiting_approval") return "waiting_approval";
     if (landed === "failed") return "cancelled";
     verifyIteration += 1;

@@ -38,7 +38,7 @@ import {
   finishCancelledTask,
   isTerminalTaskStatus,
 } from "./runner/terminal";
-import { decideReplan, type ReplanObservation } from "@/orchestrator/decisionEngine";
+import { decideReplan, failureKindForEnding, type FailureKind, type ReplanObservation } from "@/orchestrator/decisionEngine";
 import { settleCompletedRun } from "./runner/settleCompleted";
 import { finalize } from "./runner/finalize";
 import { runSetupOnWorktreeCreate } from "./runner/projectScriptHooks";
@@ -284,8 +284,8 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
   const taskAbort = armTaskAbort(deps.policy, deps.shutdownSignal, taskStatusReader(deps, task._id));
   const signal = taskAbort.controller.signal;
   const cancel = () => finishCancelledTask({ deps, task, project, signal });
-  const fail = (message: string) =>
-    failTaskWithError({ deps, taskId: task._id, projectId: project._id, message });
+  const fail = (message: string, failureKind?: FailureKind) =>
+    failTaskWithError({ deps, taskId: task._id, projectId: project._id, message, failureKind });
 
   try {
     // Every LLM call in this run (planning, replanning, decisions, stage
@@ -568,7 +568,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
           return;
         case "fail":
         case "block":
-          await fail(next.message);
+          await fail(next.message, failureKindForEnding({ trigger, executeKind: outcome.failureKind }));
           return;
         case "replan": {
           const { kind: _kind, ...replanInput } = next;

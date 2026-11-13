@@ -1,4 +1,5 @@
 import type { BudgetTracker } from "@/orchestrator/budget";
+import type { FailureKind } from "@/orchestrator/decisionEngine";
 import type { WorkerProject, WorkerTask } from "@/workerApi";
 import type { RunnerDeps } from "./types";
 import { isLeaseLostOrShutdown } from "./abort";
@@ -38,7 +39,7 @@ export async function finishBudgetExhaustedTask(input: {
     taskId: task._id,
     projectId: project._id,
     type: "budget.exhausted",
-    payload: { reason, budget: budget.snapshot() },
+    payload: { reason, budget: budget.snapshot(), failureKind: "budget_exhausted" },
     level: "error",
   });
   await deps.api
@@ -99,7 +100,7 @@ export async function finishCancelledTask(input: {
     taskId: task._id,
     projectId: project._id,
     type: "task.cancelled",
-    payload: { reason: errorMessage, timedOut },
+    payload: { reason: errorMessage, timedOut, failureKind: timedOut ? "error" : "cancelled" },
     level: "warn",
   });
   await deps.api
@@ -129,6 +130,8 @@ export async function failTaskWithError(input: {
   projectId: string;
   message: string;
   lifecycle?: boolean;
+  /** Item 7: why the run failed (defaults to "error"); provider holds are always "provider_hold". */
+  failureKind?: FailureKind;
 }): Promise<void> {
   const { deps, taskId, projectId, message } = input;
   // O3 + L7: a provider failure (offline, 429, quota, auth) is a hold, not
@@ -140,7 +143,7 @@ export async function failTaskWithError(input: {
       taskId,
       projectId,
       type: "llm.provider_hold",
-      payload: { kind: hold.kind, reason: hold.reason, message: message.slice(0, 500) },
+      payload: { kind: hold.kind, reason: hold.reason, message: message.slice(0, 500), failureKind: "provider_hold" },
       level: "warn",
     });
     await deps.api.completeTask({ taskId, status: "failed", errorMessage: message });
@@ -150,7 +153,7 @@ export async function failTaskWithError(input: {
     taskId,
     projectId,
     type: "task.error",
-    payload: { message: message.slice(0, 2000) },
+    payload: { message: message.slice(0, 2000), failureKind: input.failureKind ?? "error" },
     level: "error",
   });
   if (input.lifecycle !== false) {
@@ -184,7 +187,7 @@ export async function failStepLimit(input: {
     taskId,
     projectId,
     type: "orchestrator.step_limit",
-    payload: { maxDecisionSteps: deps.policy.maxDecisionSteps },
+    payload: { maxDecisionSteps: deps.policy.maxDecisionSteps, failureKind: "budget_exhausted" },
     level: "error",
   });
   await deps.api

@@ -74,6 +74,16 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
       action: "reject",
       decision: "denied",
     });
+    // Item 7: the precise ending rides on an additive event; status stays "rejected".
+    await deps.api
+      .logEvent({
+        taskId,
+        projectId: context.project._id,
+        type: "task.outcome",
+        payload: { status: "rejected", failureKind: "approval_rejected" },
+        level: "warn",
+      })
+      .catch(() => undefined);
     await deps.api.completeTask({
       taskId,
       status: "rejected",
@@ -280,6 +290,7 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
           status: outcome.status,
           replanFeedback: outcome.status === "replan" ? outcome.replanFeedback : undefined,
           signal: taskAbort.controller.signal,
+          failureKind: outcome.failureKind,
         });
         return;
       case "completed": {

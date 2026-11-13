@@ -3,6 +3,25 @@ import type { RunContext } from "./types";
 import type { PlanSubtask } from "@/types";
 import { collectRequestedChanges, formatReviewFindings } from "@/orchestrator/reviewLoop";
 import { decideFixOwner } from "@/orchestrator/decisionEngine";
+import { snapshotIdForChanges } from "@/tools/gitDiff";
+
+export interface ReviewLoopOptions {
+  /**
+   * Exec-pipeline re-review: a verify / QA fix changed the snapshot, so the
+   * review nodes run again even when their last verdict was "approved".
+   */
+  rerun?: boolean;
+  /**
+   * Fix rounds already spent on this plan's review (re-review continues the
+   * same maxReviewIterations budget; `review_fix_<n>` keys never collide).
+   */
+  startRound?: number;
+}
+
+/** Snapshot id of the staged changes as they are now (what a review node sees). */
+export function currentSnapshotId(ctx: Pick<RunContext, "state">): string {
+  return snapshotIdForChanges(Array.from(ctx.state.fileChanges.values()));
+}
 
 /**
  * The review correction loop (plan 012 step 2): corrections for a failing
@@ -14,7 +33,7 @@ import { decideFixOwner } from "@/orchestrator/decisionEngine";
  * objective is not judgeable — the loop closes its own findings when its
  * final verdict lands (plan 013 step 5).
  */
-export async function runReviewLoop(ctx: RunContext): Promise<boolean> {
+export async function runReviewLoop(ctx: RunContext, options: ReviewLoopOptions = {}): Promise<boolean> {
   const {
     reviewNodes,
     reviewNodeKeys,
@@ -32,24 +51,38 @@ export async function runReviewLoop(ctx: RunContext): Promise<boolean> {
   } = ctx;
   const runNodes = (nodes: PlanSubtask[]) => ctx.runNodes(nodes);
   if (reviewNodes.length === 0) return true;
+  // A re-review runs inside the verify / QA loop: hand loop ownership back
+  // to that loop afterwards instead of clearing it.
+  const ownerBefore = ctx.inStageLoop;
   ctx.inStageLoop = true;
+  const verdictBySnapshot = (verdict: "approved" | "changes_requested") => {
+    state.reviewBySnapshot = { ...(state.reviewBySnapshot ?? {}), [currentSnapshotId(ctx)]: verdict };
+  };
   try {
     // Resume/recovery: a review that already approved before the
     // interruption has its verdict seeded into state by buildStateFromDb.
     // Re-running it would re-post the same messages and burn a whole
     // extra review cycle, so the stage counts as satisfied without
     // running any review node.
+    // A seeded verdict carries no snapshot id; a verdict that names another
+    // snapshot is stale (a fix landed since) and never satisfies the stage.
+    const snapshotId = currentSnapshotId(ctx);
     if (
+      !options.rerun &&
       reviewNodeKeys.every(
-        (key) => state.reviewVerdicts[key]?.verdict === "approved"
+        (key) =>
+          state.reviewVerdicts[key]?.verdict === "approved" &&
+          (state.reviewVerdicts[key]?.snapshotId === undefined || state.reviewVerdicts[key]?.snapshotId === snapshotId)
       )
     ) {
+      verdictBySnapshot("approved");
       return true;
     }
 
     const maxIterations = deps.policy.maxReviewIterations;
+    const startRound = options.startRound ?? 0;
 
-    for (let iteration = 0; iteration <= maxIterations; iteration += 1) {
+    for (let iteration = startRound; iteration <= maxIterations; iteration += 1) {
       for (const key of reviewNodeKeys) {
         delete state.reviewVerdicts[key];
         // The loop deliberately re-runs its own nodes: clear this run's
@@ -58,9 +91,9 @@ export async function runReviewLoop(ctx: RunContext): Promise<boolean> {
       }
       // Round is stored separately (title stays stable); persist it so the
       // UI can render "Review (round N)" for the re-run review rows.
-      if (iteration > 0) {
+      if (iteration > 0 || options.rerun) {
         const rerun = plan.subtasks.filter((s) => reviewNodeKeys.includes(s.key));
-        for (const node of rerun) node.reviewRound = iteration + 1;
+        for (const node of rerun) node.reviewRound = options.rerun ? (node.reviewRound ?? 1) + 1 : iteration + 1;
         await persistDynamic(rerun, "review_fix");
       }
 
@@ -77,6 +110,7 @@ export async function runReviewLoop(ctx: RunContext): Promise<boolean> {
       const changesRequested = reviewNodeKeys.some(
         (key) => state.reviewVerdicts[key]?.verdict === "changes_requested"
       );
+      verdictBySnapshot(changesRequested ? "changes_requested" : "approved");
       if (!changesRequested) {
         await deps.api.logEvent({
           taskId,
@@ -188,6 +222,6 @@ export async function runReviewLoop(ctx: RunContext): Promise<boolean> {
 
     return false;
   } finally {
-    ctx.inStageLoop = false;
+    ctx.inStageLoop = ownerBefore;
   }
 }

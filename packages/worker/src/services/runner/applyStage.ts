@@ -67,6 +67,7 @@ export async function requestApplyApproval(
   prepared: PreparedApply,
   reason: "plan" | "broker"
 ): Promise<{ status: "waiting_approval" }> {
+  if (ctx.stageOrder === "verified_first") return requestVerifiedApproval(ctx, prepared, reason);
   const { deps, project, plan, state, input, taskId, reviewNodes, qaNodes } = ctx;
   const { preparedChanges, approvedVerdicts, reviewSnapshotId, dryRunSummary } = prepared;
   const implementer = implementerAgent(plan, input.agents);
@@ -146,6 +147,96 @@ export async function requestApplyApproval(
   return { status: "waiting_approval" };
 }
 
+/** Exec-pipeline: what QA concluded on the staged snapshot, for the approval card. */
+function qaMetric(ctx: RunContext): string {
+  const { qaNodes, state } = ctx;
+  if (qaNodes.length === 0) return "not requested";
+  const verdicts = qaNodes.map((node) => state.qaVerdicts[node.key]);
+  if (verdicts.every((verdict) => verdict === "passed")) return "passed";
+  if (verdicts.some((verdict) => verdict === "blocked")) return "skipped (QA environment blocked)";
+  return "not run";
+}
+
+/**
+ * Exec-pipeline (verified_first): the apply approval comes LAST. The
+ * changes already sit in the task's isolated worktree and passed review,
+ * verification and QA on this exact snapshot; approving merges them into
+ * the user's branch. Same row kind (apply_changes) and resume path as the
+ * legacy card; the metrics carry the real results instead of "planned".
+ */
+async function requestVerifiedApproval(
+  ctx: RunContext,
+  prepared: PreparedApply,
+  reason: "plan" | "broker"
+): Promise<{ status: "waiting_approval" }> {
+  const { deps, project, plan, state, input, taskId, reviewNodes } = ctx;
+  const { preparedChanges, approvedVerdicts, reviewSnapshotId, dryRunSummary } = prepared;
+  const implementer = implementerAgent(plan, input.agents);
+  const { warning: noTarget, dependency } = await applyWarnings(ctx, preparedChanges);
+  const secrets = scanStagedChanges(preparedChanges);
+  const secretNote = secretWarning(secrets);
+  const files = preparedChanges.map((change) => change.filePath);
+  const summary = `Merge ${preparedChanges.length} reviewed, verified file(s): ${files.join(", ")}${noTarget ? `\n\n${noTarget}` : ""}${secretNote ? `\n\n${secretNote}` : ""}`;
+  const verification = state.verification?.status ?? "not run";
+  await deps.api.requestApproval({
+    taskId,
+    projectId: project._id,
+    subtaskKey: plan.subtasks.find((subtask) => subtask.kind === "code_change")?.key,
+    kind: "apply_changes",
+    summary,
+    payload: {
+      filePaths: files,
+      planVersion: plan.version,
+      reviewSnapshotId: approvedVerdicts.length > 0 ? reviewSnapshotId : undefined,
+      stageOrder: "verified_first",
+      policyDryRun: dryRunSummary,
+      ...(noTarget ? { warning: noTarget } : {}),
+      ...secretFlag(secrets),
+      ...(dependency.status !== "skipped"
+        ? { dependencyCheck: { status: dependency.status, high: dependency.high, summary: dependency.summary } }
+        : {}),
+      metrics: {
+        files: preparedChanges.length,
+        review: reviewNodes.length > 0 ? (approvedVerdicts.length > 0 ? "approved" : "not approved") : "not run",
+        build: verification,
+        tests: verification,
+        qa: qaMetric(ctx),
+      },
+    },
+    requestedByAgentId: implementer?._id as any,
+    planVersion: plan.version,
+  });
+  await deps.api.appendAgentMessage({
+    projectId: project._id,
+    taskId,
+    agentId: implementer?._id as any,
+    content: `Changes are ready on the task branch (${preparedChanges.length} file(s))${
+      reviewNodes.length > 0 ? ", review-approved" : ""
+    }, verification ${verification}${ctx.qaNodes.length > 0 ? `, QA ${qaMetric(ctx)}` : ""}. Please approve the diff to merge it.${
+      noTarget ? `\n\n${noTarget}` : ""
+    }`,
+  });
+  await deps.api.logEvent({
+    taskId,
+    projectId: project._id,
+    type: "task.stage",
+    payload: { stage: "waiting_approval", files: preparedChanges.length, reason, stageOrder: "verified_first", snapshotId: reviewSnapshotId },
+    level: "warn",
+  });
+  await deps.api.recordAudit({
+    taskId,
+    projectId: project._id,
+    workerId: deps.workerId,
+    actor: implementer?.name ?? "orchestrator",
+    tool: "apply_changes",
+    action: "request",
+    decision: "pending",
+    target: files.join(","),
+    details: { dryRun: dryRunSummary, reason, stageOrder: "verified_first" },
+  });
+  return { status: "waiting_approval" };
+}
+
 /**
  * L2: staged secrets stop the apply for a human look in EVERY permission
  * mode (auto-accept and auto approval included). Returns the approval
@@ -181,6 +272,21 @@ export async function brokerCheckAndApply(
   ctx: RunContext,
   prepared: PreparedApply
 ): Promise<"failed" | "cancelled" | "waiting_approval" | null> {
+  const gate = await brokerGate(ctx, prepared);
+  if (gate.stop) return gate.stop;
+  return await applyPrepared(ctx, prepared, gate.autoApproved);
+}
+
+/**
+ * The permission broker + human-look gates in front of landing the
+ * prepared changes (deny, staged secrets, high dependency findings, the
+ * new-files-only guard, the permission mode's auto approval). `stop` ends
+ * the invocation (failed / waiting_approval); otherwise the changes may land.
+ */
+export async function brokerGate(
+  ctx: RunContext,
+  prepared: PreparedApply
+): Promise<{ stop: "failed" | "waiting_approval"; autoApproved?: undefined } | { stop: null; autoApproved: boolean }> {
   const { deps, project, plan, input, taskId } = ctx;
   const { preparedChanges } = prepared;
   const firstApplied = preparedChanges[0];
@@ -218,11 +324,11 @@ export async function brokerCheckAndApply(
       payload: { action: "apply_changes", reason: broker.reason },
       level: "error",
     });
-    return "failed";
+    return { stop: "failed" };
   }
   // L2: a staged secret always asks, whatever the mode.
   const secretStop = await secretGate(ctx, prepared);
-  if (secretStop) return secretStop;
+  if (secretStop) return { stop: secretStop };
   let autoApproved = false;
   // A fix that only adds new files is flagged for a human look: never
   // auto-approved by the permission mode (noTargetGuard).
@@ -241,11 +347,11 @@ export async function brokerCheckAndApply(
         payload: { stage: "dependency_check", status: dependency.status, high: dependency.high, summary: dependency.summary },
         level: "warn",
       });
-      return (await requestApplyApproval(ctx, prepared, "broker")).status;
+      return { stop: (await requestApplyApproval(ctx, prepared, "broker")).status };
     }
   }
   if (broker.decision === "ask" && input.approvalMode !== "auto" && noTarget) {
-    return (await requestApplyApproval(ctx, prepared, "broker")).status;
+    return { stop: (await requestApplyApproval(ctx, prepared, "broker")).status };
   }
   if (broker.decision === "ask" && input.approvalMode !== "auto") {
     // Plan 020: the task's permission mode may approve this batch itself.
@@ -270,9 +376,20 @@ export async function brokerCheckAndApply(
       // Never return waiting_approval without an approval row (core H2):
       // the task would stay `running`, its lease renewed by heartbeat,
       // with nothing for the user to approve.
-      return (await requestApplyApproval(ctx, prepared, "broker")).status;
+      return { stop: (await requestApplyApproval(ctx, prepared, "broker")).status };
     }
   }
+  return { stop: null, autoApproved };
+}
+
+/** Land the prepared changes once the gate passed (legacy order: into the workspace). */
+async function applyPrepared(
+  ctx: RunContext,
+  prepared: PreparedApply,
+  autoApproved: boolean
+): Promise<"failed" | "cancelled" | null> {
+  const { deps, project, plan, input, taskId } = ctx;
+  const { preparedChanges } = prepared;
   const applied = await ctx.applyStaged(
     preparedChanges,
     input.approvalResolved && !autoApproved ? "user" : "orchestrator"

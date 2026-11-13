@@ -1,4 +1,4 @@
-import { decideReplan, type ReplanDecision } from "@/orchestrator/decisionEngine";
+import { decideReplan, failureKindForEnding, type FailureKind, type ReplanDecision } from "@/orchestrator/decisionEngine";
 import type { BudgetTracker } from "@/orchestrator/budget";
 import type { WorkerProject, WorkerTask } from "@/workerApi";
 import type { RunnerDeps, RunState } from "./types";
@@ -44,6 +44,8 @@ export async function endResumedRun(input: {
   status: "replan" | "failed";
   replanFeedback?: string;
   signal: AbortSignal;
+  /** Item 7: the failure kind executePlan's terminal exit reported. */
+  failureKind?: FailureKind;
 }): Promise<void> {
   const { deps, task, project, signal } = input;
   const next = decideResumeEnding({ ...input, aborted: signal.aborted });
@@ -62,7 +64,14 @@ export async function endResumedRun(input: {
       return;
     case "fail":
     case "block":
-      await failTaskWithError({ deps, taskId: task._id, projectId: project._id, message: next.message, lifecycle });
+      await failTaskWithError({
+        deps,
+        taskId: task._id,
+        projectId: project._id,
+        message: next.message,
+        lifecycle,
+        failureKind: failureKindForEnding({ trigger: input.status === "replan" ? "objective_unmet" : "terminal_failure", executeKind: input.failureKind }),
+      });
       return;
     case "replan":
     case "proceed":

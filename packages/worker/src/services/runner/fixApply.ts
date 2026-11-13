@@ -27,13 +27,22 @@ export type FixApplyResult = "applied" | "waiting_approval" | "failed";
 export async function applyOrRequestFixApproval(
   ctx: RunContext,
   fixSubtask: PlanSubtask,
-  stage: "QA" | "verification"
+  stage: "QA" | "verification",
+  /** Exec-pipeline: review-fix nodes the re-review of this fix spawned; their files land with it. */
+  extraKeys: string[] = []
 ): Promise<FixApplyResult> {
   const { state, input, deps, taskId, project, plan, applyStaged, agents } = ctx;
-  const fixPaths = state.appliedFilesBySubtask.get(fixSubtask.key) ?? [];
+  const fixPaths = [...new Set([fixSubtask.key, ...extraKeys].flatMap((key) => state.appliedFilesBySubtask.get(key) ?? []))];
   const fixChanges = fixPaths
     .map((filePath) => state.fileChanges.get(filePath))
     .filter((change): change is FileDiff => Boolean(change));
+  // Exec-pipeline (verified_first): the fix lands in the task's isolated
+  // worktree only; the user's one approval comes after verify / QA / review
+  // passed on the final snapshot and gates the merge, so no per-fix ask.
+  if (ctx.stageOrder === "verified_first") {
+    const applied = await applyStaged(fixChanges, "orchestrator");
+    return "stop" in applied ? "failed" : "applied";
+  }
 
   // L2: a fix that stages a secret always asks, in every mode.
   const secrets = input.approvalResolved ? [] : scanStagedChanges(fixChanges);

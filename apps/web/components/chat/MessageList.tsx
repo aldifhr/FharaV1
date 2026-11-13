@@ -439,7 +439,7 @@ export default function MessageList(props: Props) {
                 )}
               </div>
               {hasText && (
-                <div className="mt-1 min-w-0 max-w-3xl text-ink">
+                <div className="mt-1 w-fit min-w-0 max-w-[min(100%,48rem)] rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-2.5 text-ink">
                   <MessageText content={parseOptions(m.content).text} isAnimating={live || (conversationTyping && index === timeline.length - 1)} />
                 </div>
               )}
@@ -501,7 +501,7 @@ export default function MessageList(props: Props) {
                   </button>
                 </div>
               )}
-              <div className="mt-1 min-w-0 max-w-3xl text-ink">
+              <div className="mt-1 w-fit min-w-0 max-w-[min(100%,48rem)] rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-2.5 text-ink">
                 {hasText ? (
                   <MessageText
                     content={parseOptions(m.content).text}
@@ -647,7 +647,7 @@ export default function MessageList(props: Props) {
       {conversationTyping && (
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="mt-6" aria-live="polite">
           <p className="text-[12.5px] font-medium text-ink-2">{typingAgent ? roleLabel(typingAgent.role) : "Team"}</p>
-          <div className="mt-1">
+          <div className="mt-1 w-fit rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-2.5">
             <ReasoningLine running />
           </div>
         </motion.div>

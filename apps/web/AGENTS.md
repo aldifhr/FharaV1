@@ -19,12 +19,19 @@ Next.js 16 app router, React 19, Tailwind 4, Convex React client. Read the root
 ## Layout
 
 ```
-app/              routes: /, /chat, /chats, /inbox, /search
-app/api/          server-side routes (llm-providers, terminal, project-files)
+app/              routes: /, /chats, /messages, /message, /project/[projectId],
+                  /runs, /team, /library, /memory, /audit, /inbox, /search, /improve,
+                  /integrations (plus the legacy redirects in plan 053)
+app/api/          server-side routes (llm-providers, mcp-servers, project-files, …)
 components/       feature components (ChatPanel, TaskBoard, TaskThreadPanel, Settings, …)
 components/ui/    shared primitives
 lib/convex.tsx    Convex provider/client bootstrap
 ```
+
+Every page segment ships a boundary: `app/error.tsx` (route errors),
+`app/global-error.tsx` (root-layout errors), `app/not-found.tsx` (404).
+`app/project/[projectId]/error.tsx` is the one page-specific override. Add a
+nested boundary only when a page needs different copy, not by default.
 
 ## Data access
 

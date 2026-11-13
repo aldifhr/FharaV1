@@ -133,10 +133,15 @@ export async function GET(request: NextRequest) {
     }
 
     const query = (request.nextUrl.searchParams.get("q") ?? "").toLowerCase();
-    const files = (await collectFiles(base))
-      .filter((file) => !query || file.toLowerCase().includes(query))
-      .slice(0, 500);
-    return NextResponse.json({ files });
+    const allFiles = (await collectFiles(base))
+      .filter((file) => !query || file.toLowerCase().includes(query));
+    const files = allFiles.slice(0, 500);
+    return NextResponse.json({
+      files,
+      totalFiles: allFiles.length,
+      returnedFiles: files.length,
+      truncated: allFiles.length > files.length,
+    });
   } catch (error) {
     if (error instanceof NotFound) return NextResponse.json({ error: error.message }, { status: 404 });
     if (error instanceof PathPolicyError) return NextResponse.json({ error: error.message }, { status: 403 });

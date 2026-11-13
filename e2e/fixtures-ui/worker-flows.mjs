@@ -121,7 +121,7 @@ const bodyText = async () => (await page.locator("body").innerText()).replace(/\
 
 async function sendInChat(text) {
   await open(`/workspace/${project}`);
-  const box = page.getByPlaceholder(/^Message .*or type/).or(page.locator("main [contenteditable=true]")).first();
+  const box = page.getByPlaceholder(/^(Message .*or type|Ask anything)/).or(page.locator("main [contenteditable=true]")).first();
   await box.waitFor({ timeout: 60_000 });
   // next dev hydrates late on a cold page: text typed into the server-rendered
   // textarea before React attaches is dropped, and Enter sends nothing. Wait for

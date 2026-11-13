@@ -40,7 +40,7 @@ const launch = async () => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let [browser, page] = await launch();
 await page.goto(`${base}/workspace/${project}`, { waitUntil: "domcontentloaded", timeout: 120_000 });
-const box = page.getByPlaceholder(/^Message .*or type/).or(page.locator("main [contenteditable=true]")).first();
+const box = page.getByPlaceholder(/^(Message .*or type|Ask anything)/).or(page.locator("main [contenteditable=true]")).first();
 await box.waitFor({ timeout: 60_000 });
 await box.fill(instruction);
 await box.press("Enter");

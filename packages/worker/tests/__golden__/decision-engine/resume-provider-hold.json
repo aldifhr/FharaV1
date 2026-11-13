@@ -1,0 +1,45 @@
+{
+  "events": [
+    "task.stage",
+    "subtask.routed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "implement",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "implement",
+        "action": "replan",
+        "reasoning": "LLM request failed (429) for model m: Too Many Requests",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 0,
+        "expectedOutcome": "recovery"
+      }
+    },
+    {
+      "type": "llm.provider_hold",
+      "subtaskKey": null,
+      "level": "warn",
+      "payload": {
+        "kind": "rate_limit",
+        "reason": "The LLM provider is rate-limiting requests (429)",
+        "message": "LLM request failed (429) for model m: Too Many Requests"
+      }
+    }
+  ],
+  "messages": [
+    "system: Sent to Frontend: implement"
+  ],
+  "delegations": [],
+  "pauses": [],
+  "replanFeedback": [],
+  "attempts": {
+    "implement": 1
+  },
+  "completion": {
+    "status": "failed",
+    "errorMessage": "LLM request failed (429) for model m: Too Many Requests"
+  },
+  "lifecycle": []
+}

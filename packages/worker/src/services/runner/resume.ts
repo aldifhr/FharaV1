@@ -24,17 +24,8 @@ import {
   withFileContexts,
 } from "./setup";
 import { armTaskAbort } from "./abort";
-import {
-  budgetReasonFromSummary,
-  failStepLimit,
-  failTaskWithError,
-  finishBudgetExhaustedTask,
-  finishCancelledTask,
-  findProviderHoldMessage,
-  alreadyDoneFiles,
-  finishAlreadyDone,
-  summaryHasBudgetFailure,
-} from "./terminal";
+import { failStepLimit, finishCancelledTask } from "./terminal";
+import { endResumedRun } from "./resumeEnding";
 import { postSystemLine } from "./systemLines";
 import { policyForResume } from "./isolationPolicy";
 import { finalize } from "./finalize";
@@ -276,59 +267,21 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
         // Plan 005 Step 5.4 mirrored from processTask.
         await failStepLimit({ deps, taskId, projectId: context.project._id });
         return;
-      case "replan": {
-        // The engine asked for a re-plan with the objective missing
-        // list (plan 013 step 3). resumeTask has no re-plan loop — the
-        // replans budget is processTask's — so the resumed run ends
-        // failed with the missing list instead of a silent done.
-        const missing = outcome.replanFeedback ?? "objective not satisfied";
-        // O3 (bug c): a provider hold behind the replan holds the task.
-        const held = findProviderHoldMessage([missing, ...state.feedback]);
-        await failTaskWithError({
+      case "replan":
+      case "failed":
+        // Fixall: decideReplan (no replan left) decides the ending exactly
+        // like a fresh run: provider hold, budget stop, cancel, no-op, fail.
+        await endResumedRun({
           deps,
-          taskId,
-          projectId: context.project._id,
-          message: held ?? `Objective not satisfied after resume: ${missing}`,
+          task: context.task,
+          project: context.project,
+          budget,
+          state,
+          status: outcome.status,
+          replanFeedback: outcome.status === "replan" ? outcome.replanFeedback : undefined,
+          signal: taskAbort.controller.signal,
         });
         return;
-      }
-      case "failed": {
-        const failureSummary =
-          state.feedback.join("; ") || "Execution failed after approval";
-        // Budget exhausted during the resumed execution (Phase 5):
-        // ends with the explicit budget.exhausted status, not a
-        // generic post-approval failure.
-        if (summaryHasBudgetFailure(failureSummary)) {
-          await finishBudgetExhaustedTask({
-            deps,
-            task: context.task,
-            project: context.project,
-            budget,
-            reason: budgetReasonFromSummary(failureSummary),
-          });
-          return;
-        }
-        // A no-op (only "No effective change", nothing staged) is done.
-        const unchangedFiles = alreadyDoneFiles(state);
-        if (unchangedFiles) {
-          await finishAlreadyDone({
-            deps,
-            taskId,
-            projectId: context.project._id,
-            files: unchangedFiles,
-            lifecycle: false,
-          });
-          return;
-        }
-        await failTaskWithError({
-          deps,
-          taskId,
-          projectId: context.project._id,
-          message: failureSummary,
-          lifecycle: false,
-        });
-        return;
-      }
       case "completed": {
         // A cancellation that landed during the resumed execution
         // wins over completion: never finalize a cancelled task.

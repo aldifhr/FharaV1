@@ -136,6 +136,34 @@ describe("executeSubtask with the web_reach tool", () => {
     expect(events).toContain("tool.web_reach");
   });
 
+  // Fixall: a web loop that ends without a JSON answer was marked complete
+  // with a "Stopped early" / "Tool findings" dump as its result.
+  const RESEARCHER: AgentDefinition = { _id: "a3", name: "Researcher", role: "researcher", supportedTools: ["read_file", "web_reach"] };
+  const SEARCH = JSON.stringify({ tool: "web_reach", arguments: { channel: "web", action: "search", query: "convex", limit: 3 } });
+  const webReach = (maxIterations: number) => ({
+    command: "agent-reach",
+    timeoutMs: 5_000,
+    maxItems: 3,
+    maxIterations,
+    execFile: async () => ({ stdout: ENVELOPE, stderr: "" }),
+  });
+
+  it("uses the plain-text answer when the loop ends without JSON", async () => {
+    const { handle } = fakeHandle([SEARCH, "Convex is a reactive backend with live queries."]);
+    const result = await executeSubtask(input(RESEARCHER, { llmHandles: [handle], webReach: webReach(2) }));
+    expect(result.status).toBe("completed");
+    const output = result.status === "completed" ? result.output ?? "" : "";
+    expect(output).toBe("Convex is a reactive backend with live queries.");
+    expect(output).not.toMatch(/Stopped early|Tool findings/);
+  });
+
+  it("fails clearly when the loop ends with no answer and no plain text", async () => {
+    const { handle } = fakeHandle([SEARCH]);
+    const result = await executeSubtask(input(RESEARCHER, { llmHandles: [handle], webReach: webReach(2) }));
+    expect(result.status).toBe("failed");
+    expect(result.status === "failed" ? result.error : "").toMatch(/^Web research ended without an answer \(.+, 2 tool call\(s\)\)$/);
+  });
+
   it("does not offer the tool to an agent that does not declare it", async () => {
     const agent: AgentDefinition = { _id: "a2", name: "Researcher", role: "researcher", supportedTools: ["read_file"] };
     const { handle } = fakeHandle([JSON.stringify({ answer: "From the repository only." })]);

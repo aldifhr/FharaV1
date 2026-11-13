@@ -139,6 +139,23 @@ export interface ToolLoopResult {
   stuck?: { pattern: StuckPattern; description: string };
   /** Tool results whose output was pruned from the conversation. */
   prunedResults?: number;
+  /** How the loop ended: a final JSON answer, or stopped without one (stuck, cancelled, step bound). */
+  ended?: "answer" | "stuck" | "aborted" | "limit";
+  /** The model's newest plain-text (non-JSON) reply, when it gave one. */
+  plainText?: string;
+}
+
+/**
+ * The loop's answer for a caller that must not pass a non-answer off as a
+ * result: the final JSON answer, else the model's newest plain-text reply,
+ * else a clear failure (never the "Stopped early" / "Tool findings" dump).
+ */
+export function loopAnswer(result: ToolLoopResult): { ok: true; content: string } | { ok: false; error: string } {
+  if (result.ended === "answer" || result.ended === undefined) return { ok: true, content: result.answer };
+  const text = result.plainText?.trim();
+  if (text) return { ok: true, content: text };
+  const why = result.ended === "stuck" && result.stuck ? result.stuck.description : result.ended === "aborted" ? "cancelled" : "step limit reached";
+  return { ok: false, error: `ended without an answer (${why}, ${result.toolCalls} tool call(s))` };
 }
 
 /** Newest-first budget for the final findings; older results show as pruned. */
@@ -215,6 +232,7 @@ export async function runToolLoop(options: ToolLoopOptions): Promise<ToolLoopRes
   // The task statement, the caller's context and the tool protocol are
   // never pruned or compacted by overflow recovery; only tool turns are.
   const protectFirst = messages.filter((m) => m.role !== "system").length;
+  let plainText: string | undefined;
   for (let iteration = 0; iteration < maxIterations; iteration += 1) {
     if (options.signal?.aborted) break;
     // A context overflow shrinks the old tool turns and retries the same
@@ -233,7 +251,7 @@ export async function runToolLoop(options: ToolLoopOptions): Promise<ToolLoopRes
     const raw = step.result;
     const parsed = extractJson(raw) as Record<string, unknown> | null;
     if (parsed && typeof parsed.answer === "string" && parsed.answer.trim()) {
-      return { answer: parsed.answer, toolCalls, toolResults };
+      return { answer: parsed.answer, toolCalls, toolResults, ended: "answer" };
     }
 
     const toolName = typeof parsed?.tool === "string" ? parsed.tool : null;
@@ -246,6 +264,7 @@ export async function runToolLoop(options: ToolLoopOptions): Promise<ToolLoopRes
       // Not a tool call and not a final answer: nudge once and continue the
       // bounded loop. Never emit free-form prose as the answer.
       events.push({ kind: "agent_message", text: raw });
+      if (!parsed && raw.trim()) plainText = raw.trim();
       if (checkStuck()) break;
       messages.push({
         role: "user",
@@ -312,5 +331,7 @@ export async function runToolLoop(options: ToolLoopOptions): Promise<ToolLoopRes
     toolResults,
     ...(stuck ? { stuck } : {}),
     ...(prunedResults > 0 ? { prunedResults } : {}),
+    ended: stuck ? "stuck" : options.signal?.aborted ? "aborted" : "limit",
+    ...(plainText ? { plainText } : {}),
   };
 }

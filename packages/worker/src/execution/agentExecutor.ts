@@ -93,7 +93,7 @@ import { wantsVisualQa } from "@/utils/qaIntent";
 import { getMcpRegistry, sessionAllowedForRole, type McpHooks, type McpRunConfig } from "@/mcp/registry";
 import { runMcpToolLoop } from "@/mcp/toolLoop";
 import type { McpToolDefinition } from "@/mcp/types";
-import { runToolLoop } from "@/tools/toolLoop";
+import { loopAnswer, runToolLoop } from "@/tools/toolLoop";
 import { webReachToolLoopPromptSet } from "@/prompts/webReach";
 import { SHOW_OPTIONS_TOOL, SHOW_OPTIONS_TOOL_NAME } from "@/review/showOptions";
 import { DESIGN_LOOKUP_TOOL, DESIGN_LOOKUP_TOOL_NAME, designLookup } from "@/design/designLookup";
@@ -366,7 +366,7 @@ async function runWebReachExploration(
   input: SubtaskExecutionInput,
   instruction: string,
   context: string
-): Promise<{ answer: string; toolCalls: number } | null> {
+): Promise<(ReturnType<typeof loopAnswer> & { toolCalls: number }) | null> {
   const config = input.webReach;
   if (!config) return null;
   if (!agentAllowsWebReach(input.agent.supportedTools)) return null;
@@ -374,10 +374,7 @@ async function runWebReachExploration(
 
   const handles = handlesFor(input);
   const health = healthFor(input);
-  const messages = baseMessages(
-    input,
-    readOnlyUserContent({ instruction, context, command: input.command })
-  );
+  const messages = baseMessages(input, readOnlyUserContent({ instruction, context, command: input.command }));
 
   const result = await runToolLoop({
     tools: [WEB_REACH_TOOL],
@@ -417,7 +414,7 @@ async function runWebReachExploration(
     },
   });
 
-  return { answer: result.answer, toolCalls: result.toolCalls };
+  return { ...loopAnswer(result), toolCalls: result.toolCalls };
 }
 
 /** Most tool-loop steps a show_options subtask may take. */
@@ -2199,8 +2196,9 @@ async function executeReadOnly(
   if (webReachAvailable) {
     const webResult = await runWebReachExploration(input, instruction, context);
     if (webResult) {
-      const content = webResult.answer.trim() || "No findings from web research.";
-      if (content) await input.onChunk(content);
+      if (!webResult.ok) return { status: "failed", error: `Web research ${webResult.error}` };
+      const content = webResult.content.trim();
+      await input.onChunk(content);
       await input.onMessage(sanitizeForChat(stripToolCallMarkup(content)));
       await input.onEvent("agent.web_reach", {
         capability: subtask.capability,

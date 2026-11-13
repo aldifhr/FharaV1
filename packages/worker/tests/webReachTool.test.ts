@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { agentAllowsWebReach, runWebReachTool, WEB_REACH_TOOL } from "@/execution/webReachTools";
-import { runToolLoop } from "@/tools/toolLoop";
+import { loopAnswer, runToolLoop } from "@/tools/toolLoop";
 
 const config = {
   command: "agent-reach-does-not-exist",
@@ -94,5 +94,28 @@ describe("bounded tool loop", () => {
     expect(steps).toBe(2);
     expect(result.toolCalls).toBe(2);
     expect(result.answer).toContain("Tool findings");
+    expect(result.ended).toBe("limit");
+    expect(loopAnswer(result)).toEqual({ ok: false, error: "ended without an answer (step limit reached, 2 tool call(s))" });
+  });
+
+  it("loopAnswer: the JSON answer, else the newest plain-text reply", async () => {
+    const replies = [
+      "Let me think about this first.",
+      JSON.stringify({ tool: "web_reach", arguments: { channel: "web", action: "search", query: "x" } }),
+      "Convex is a reactive backend.",
+    ];
+    let step = 0;
+    const base = {
+      tools: [{ name: "web_reach", description: "read public web" }],
+      messages: [{ role: "user" as const, content: "research" }],
+      callTool: async () => ({ ok: true, text: "result", isError: false }),
+    };
+    const prose = await runToolLoop({ ...base, maxIterations: 3, runLlm: async () => replies[step++] });
+    expect(prose.ended).toBe("limit");
+    expect(prose.plainText).toBe("Convex is a reactive backend.");
+    expect(loopAnswer(prose)).toEqual({ ok: true, content: "Convex is a reactive backend." });
+    const answered = await runToolLoop({ ...base, maxIterations: 3, runLlm: async () => JSON.stringify({ answer: "done" }) });
+    expect(answered.ended).toBe("answer");
+    expect(loopAnswer(answered)).toEqual({ ok: true, content: "done" });
   });
 });

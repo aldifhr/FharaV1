@@ -1,0 +1,47 @@
+{
+  "events": [
+    "task.stage",
+    "subtask.routed",
+    {
+      "type": "orchestrator.decision",
+      "subtaskKey": "implement",
+      "level": "info",
+      "payload": {
+        "subtaskKey": "implement",
+        "action": "replan",
+        "reasoning": "No effective change: a.txt would be identical to the current content",
+        "target": null,
+        "decidedBy": "deterministic",
+        "planVersion": 1,
+        "step": 0,
+        "expectedOutcome": "recovery"
+      }
+    },
+    {
+      "type": "task.no_change",
+      "subtaskKey": null,
+      "level": "info",
+      "payload": {
+        "files": [
+          "a.txt"
+        ],
+        "message": "No change needed: a.txt already has the requested content, so nothing was staged or applied."
+      }
+    }
+  ],
+  "messages": [
+    "system: Sent to Frontend: implement",
+    "-: No change needed: a.txt already has the requested content, so nothing was staged or applied."
+  ],
+  "delegations": [],
+  "pauses": [],
+  "replanFeedback": [],
+  "attempts": {
+    "implement": 1
+  },
+  "completion": {
+    "status": "done",
+    "errorMessage": null
+  },
+  "lifecycle": []
+}

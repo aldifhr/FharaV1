@@ -111,7 +111,7 @@ vi.mock("../src/execution/agentExecutor", () => ({
   },
 }));
 
-import { processTask } from "@/services/taskRunner";
+import { processTask, resumeTask } from "@/services/taskRunner";
 import { setOpencodeDetection } from "@/execution/opencodeDetect";
 
 const agent = (id: string, name: string, role: string, capabilities: string[]) =>
@@ -174,7 +174,12 @@ interface Scenario {
   opencodeMissing?: boolean;
   /** L8: also keep these events' payloads (byte-identical evidence). */
   tracePayloads?: string[];
+  /** Fixall: drive resumeTask (apply approved, plans[0] stored) instead of processTask. */
+  resume?: boolean;
 }
+
+/** Fixall: the terminal events whose payload shows how a resumed run ended. */
+const RESUME_PAYLOADS = ["task.error", "llm.provider_hold", "task.no_change"];
 
 const SCENARIOS: Scenario[] = [
   {
@@ -569,6 +574,63 @@ const SCENARIOS: Scenario[] = [
     policy: { verificationEnabled: true, subtaskRetries: 1 },
     verifications: [{ checks: [TYPECHECK_FAILED] }, { checks: [{ name: "typecheck", status: "passed" }] }],
     traceFixes: true,
+  },  // --- Fixall (resume through decideReplan): the approval-resume path's
+  // replan / failed endings, recorded BEFORE resume.ts used decideReplan. ---
+  {
+    // A provider hold (429) behind a resumed failure.
+    name: "resume-provider-hold",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "frontend-development")])],
+    steps: { implement: [{ outcome: { status: "failed", error: "LLM request failed (429) for model m: Too Many Requests" } }] },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+    tracePayloads: RESUME_PAYLOADS,
+    resume: true,
+  },
+  {
+    // A budget stop during the resumed run.
+    name: "resume-budget-exhausted",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "frontend-development")])],
+    steps: { implement: [{ outcome: { status: "failed", error: "Budget exhausted: max LLM calls reached" } }] },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+    tracePayloads: RESUME_PAYLOADS,
+    resume: true,
+  },
+  {
+    // A no-op failure ("No effective change", nothing staged) during the resumed run.
+    name: "resume-noop-already-done",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "frontend-development")])],
+    steps: { implement: [{ outcome: { status: "failed", error: "No effective change: a.txt would be identical to the current content" } }] },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+    tracePayloads: RESUME_PAYLOADS,
+    resume: true,
+  },
+  {
+    // A plain terminal failure during the resumed run.
+    name: "resume-terminal-failure",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "frontend-development")])],
+    steps: { implement: [{ outcome: { status: "failed", error: "Permission denied: cannot write" } }] },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+    tracePayloads: RESUME_PAYLOADS,
+    resume: true,
+  },
+  {
+    // The engine asks for a replan after resume (objective unmet): resume has no replan loop.
+    name: "resume-objective-unmet",
+    command: "Implement the feature",
+    plans: [plan("Implement the feature", [node("implement", "code_change", "frontend-development")])],
+    steps: { implement: [{ outcome: done("wrote nothing") }] },
+    agents: [FRONTEND],
+    traceLifecycle: true,
+    tracePayloads: RESUME_PAYLOADS,
+    policy: { orchestratorAuthoritative: false },
+    resume: true,
   },
 ];
 
@@ -604,10 +666,13 @@ async function run(s: Scenario) {
   const delegations: unknown[] = [];
   const pauses: unknown[] = [];
   const lifecycle: string[] = [];
-  const task = testTask({ title: s.command, command: s.command });
+  const task = testTask({ title: s.command, command: s.command, ...(s.resume ? { status: "needs_approval" } : {}) });
+  const resumeContext = s.resume
+    ? { plan: { payload: JSON.parse(JSON.stringify(s.plans[0])), version: 1 }, executions: [], recordedSteps: [] }
+    : { plan: null };
   const project = { _id: "project-1", name: "Fixture", workspacePath: workspace, approvalMode: "auto" as const };
   const { api, completions } = createFakeApi({
-    getContext: async () => ({ task, project, agents: s.agents, plan: null, subtasks: [], approvalMode: "auto" as const, ...(s.opencodeMissing ? { opencodeRuntime: "opencode" } : {}) }),
+    getContext: async () => ({ task, project, agents: s.agents, ...resumeContext, subtasks: [], approvalMode: "auto" as const, ...(s.opencodeMissing ? { opencodeRuntime: "opencode" } : {}) }),
     logEvent: async (input: { type: string; payload?: Record<string, unknown>; subtaskKey?: string; level?: string }) => {
       if (!KEEP_PAYLOAD.has(input.type) && !(s.traceFixes && FIX_PAYLOAD.has(input.type)) && !s.tracePayloads?.includes(input.type)) {
         events.push(input.type);
@@ -636,6 +701,9 @@ async function run(s: Scenario) {
     },
     upsertTaskContext: async () => undefined,
     getTaskContext: async () => null,
+    ...(s.resume
+      ? { getApprovals: async () => [{ kind: "apply_changes", status: "approved" }], setTaskStatus: async () => undefined }
+      : {}),
   });
   const policy = testPolicy({
     maxConcurrency: 1,
@@ -650,7 +718,9 @@ async function run(s: Scenario) {
   });
   if (s.opencodeMissing) setOpencodeDetection({ installed: false, checkedAt: 0 });
   try {
-    await processTask(task as unknown as WorkerTask, createRunnerDeps({ api, policy, workspaceRoot: workspace }));
+    const deps = createRunnerDeps({ api, policy, workspaceRoot: workspace });
+    if (s.resume) await resumeTask(String(task._id), deps);
+    else await processTask(task as unknown as WorkerTask, deps);
   } finally {
     if (s.opencodeMissing) setOpencodeDetection(null);
   }

@@ -91,7 +91,10 @@ describe("signed OAuth state (lib)", () => {
       .replace(/\//g, "_")
       .replace(/=+$/, "");
     expect(await verifyOAuthState(`${forgedBody}.${sig}`, STATE_SECRET)).toEqual({ ok: false, reason: "bad_signature" });
-    const flipped = sig.slice(0, -1) + (sig.endsWith("A") ? "B" : "A");
+    // Flip a middle character: the last base64url char of a 32-byte MAC carries
+    // padding bits, so changing it can leave the decoded bytes identical (flaky).
+    const mid = Math.floor(sig.length / 2);
+    const flipped = sig.slice(0, mid) + (sig[mid] === "A" ? "B" : "A") + sig.slice(mid + 1);
     expect(await verifyOAuthState(`${body}.${flipped}`, STATE_SECRET)).toEqual({ ok: false, reason: "bad_signature" });
     expect(await verifyOAuthState(`${body}.${sig}`, "another-secret")).toEqual({ ok: false, reason: "bad_signature" });
     // The old unsigned format (bare base64url JSON) is no longer accepted.

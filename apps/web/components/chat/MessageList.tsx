@@ -9,6 +9,7 @@ import { roleLabel } from "@/lib/agentRoles";
 import { isOfferUsed, offersCreateTask } from "@/lib/taskOffer";
 import ApprovalCard from "../ApprovalCard";
 import QaPanel from "../QaPanel";
+import InitialAvatar from "../InitialAvatar";
 import { ReasoningLine } from "../ui/trace";
 import MessageText from "./MessageText";
 import OptionCards from "./OptionCards";
@@ -256,7 +257,7 @@ export default function MessageList(props: Props) {
     const group = activityGroups.get(index);
     const open = group ? (groupOpen[group.id] ?? group.expandedByDefault) : true;
     const showSpeaker = boundary || speakerOf(previous) !== speakerOf(m) || Boolean(group && index === group.start);
-    const rowClass = `group relative ${showSpeaker ? "mt-6" : "mt-3"} flex rounded-xl transition-colors duration-700 ${flashId === String(m._id) ? "bg-hover" : ""}`;
+    const rowClass = `group relative ${showSpeaker ? "mt-6" : "mt-3"} flex gap-3 rounded-xl transition-colors duration-700 ${flashId === String(m._id) ? "bg-hover" : ""}`;
     const inner = (
       <>
         {index === firstNewIndex && (
@@ -312,7 +313,7 @@ export default function MessageList(props: Props) {
           );
         })()}
         {group && index === group.start && (
-          <div className="mt-4">
+          <div className="mt-4 pl-11">
             <ActivityGroupRow
               group={group}
               open={open}
@@ -383,6 +384,12 @@ export default function MessageList(props: Props) {
 
   const renderMessageBody = (m: any, index: number, messageAgent: any, showSpeaker = true) => m.authorType !== "agent" ? renderUserBody(m) : (
     <>
+      {/* The avatar opens a speaker group; later replies keep its column. */}
+      {showSpeaker ? (
+        <InitialAvatar agent avatarParams={messageAgent?.avatarParams} name={roleLabel(messageAgent?.role)} size={32} />
+      ) : (
+        <span aria-hidden="true" className="w-8 shrink-0" />
+      )}
       <div className="min-w-0 flex-1">
         {showSpeaker ? (
           <div className={`flex items-baseline gap-2 text-[12.5px] ${onReply ? "pr-16" : "pr-9"}`}>
@@ -645,10 +652,13 @@ export default function MessageList(props: Props) {
         <div ref={listRef}>{timeline.map((m: any, index: number) => renderItem(m, index, true))}</div>
       )}
       {conversationTyping && (
-        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="mt-6" aria-live="polite">
-          <p className="text-[12.5px] font-medium text-ink-2">{typingAgent ? roleLabel(typingAgent.role) : "Team"}</p>
-          <div className="mt-1 w-fit rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-2.5">
-            <ReasoningLine running />
+        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="mt-6 flex gap-3" aria-live="polite">
+          <InitialAvatar agent avatarParams={typingAgent?.avatarParams} name={typingAgent ? roleLabel(typingAgent.role) : "Team"} size={32} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[12.5px] font-medium text-ink-2">{typingAgent ? roleLabel(typingAgent.role) : "Team"}</p>
+            <div className="mt-1 w-fit rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-2.5">
+              <ReasoningLine running />
+            </div>
           </div>
         </motion.div>
       )}

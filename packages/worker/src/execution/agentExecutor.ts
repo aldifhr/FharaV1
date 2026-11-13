@@ -67,7 +67,7 @@ import {
   snapshotIdForChanges,
   type FileDiff,
 } from "@/tools/gitDiff";
-import { isCommandAllowed, runCommand } from "@/tools/runCommand";
+import { isCommandAllowed } from "@/tools/runCommand";
 import { runSandboxedShell } from "@/execution/shellRun";
 import { sandboxStatus } from "@/tools/osSandbox";
 import { canWriteAny, permissionsForAgent, resolveRoleKey, shellDenial, writeDenial } from "@/utils/rolePolicy";
@@ -992,8 +992,8 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
     const postRunHead = await readGitHead(workspacePath, signal);
     if (postRunHead && postRunHead !== preRunHead) {
       try {
-        await runCommand(workspacePath, "git", ["reset", "--soft", preRunHead], { signal });
-        await runCommand(workspacePath, "git", ["reset", "-q"], { signal });
+        await hostGit(workspacePath, ["reset", "--soft", preRunHead], signal);
+        await hostGit(workspacePath, ["reset", "-q"], signal);
         await onEvent("native.commit.undone", { from: postRunHead, to: preRunHead }, "warn");
       } catch (error) {
         return { status: "failed", error: `Native provider committed and the commit could not be undone: ${error instanceof Error ? error.message : String(error)}` };
@@ -2587,12 +2587,12 @@ export function isForbiddenPath(filePath: string): boolean {
   return FORBIDDEN_PATHS.some((pattern) => pattern.test(normalized));
 }
 
-
+/** W4: a runner-internal git call, not an agent command, so not via the agent allowlist (as listWorkspaceChanges). */
+const hostGit = (cwd: string, args: string[], signal?: AbortSignal) => execFileAsync("git", args, { cwd, env: buildChildEnv(), shell: false, windowsHide: true, signal });
 /** Current HEAD sha, or null when the workspace is not a git repo. */
 async function readGitHead(workspacePath: string, signal?: AbortSignal): Promise<string | null> {
   try {
-    const { stdout } = await runCommand(workspacePath, "git", ["rev-parse", "HEAD"], { signal });
-    return stdout.trim() || null;
+    return (await hostGit(workspacePath, ["rev-parse", "HEAD"], signal)).stdout.trim() || null;
   } catch {
     return null;
   }

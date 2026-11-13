@@ -92,3 +92,48 @@ Not present. Root + web `package.json` have no `@playwright/test` or e2e script;
 - **P1**: `chatContext.getContext` history ignores `conversationId` (conversation B prompts conversation A); `insertUser/AgentMessage` accepts mismatched `conversationId` without project check; `ensureForChat` reuses closed conversation.
 - **P1**: `registry.tool_call` drops `write_file.content` before governed call.
 - **P2**: `completeTask` accepts any status / no workerId check; `tasks.remove` destroys audit trail.
+
+## 7. Status after the regression suite (2026-11-13)
+
+Legend: **FIXED** = verified fixed (file + test cited); **OPEN** = still open; **OBSOLETE** = no longer applies.
+API tests live in `apps/api/convex/`, worker tests in `packages/worker/tests/`.
+
+### Bugs (§6) and security checks (§4)
+
+| Finding | Status | Fix | Test |
+|---|---|---|---|
+| P0 `search.global` / `inbox.list` return raw agents (`llmApiKey`) | FIXED | `agents.ts projectAgentDoc` strips `llmApiKey`/`llmApiKeyEnv`, used by `search.ts`, `inbox.ts` | `validation-backend.test.ts` "search.global / inbox.list must not leak plaintext keys" |
+| P0 `integrations.get` leaks `refreshToken`/`webhookSecret`/`config` | FIXED | `integrations.ts get` redacts and calls `assertProjectAccess` | `validation-backend.test.ts` "integrations.get must not leak …" |
+| P0 `integrations.*` mutators lack `assertProjectAccess` | FIXED | `disconnectGithub`, `bindRepo`, `remove`, `updateConfig` assert access; token store internal-only | `securityInvariants.test.ts` "integrations token store is internal-only" |
+| P1 `chatContext.getContext` ignores `conversationId` | FIXED | `chatContext.ts` reads history/summary by conversation, anchored to the answered message | `regressContextIsolation.test.ts` (api), "project chat: history and summary come only from the answered conversation" + personal chat + task threads |
+| P1 `insertUser/AgentMessage` accept a `conversationId` of another project | OPEN | reads are isolated (above); the insert itself still does no project check | — |
+| P1 `ensureForChat` reuses a closed conversation | OPEN (partial) | fallback uses `findActiveConversation`; an explicit closed id is still reused | — |
+| P1 `registry.tool_call` drops `write_file.content` | FIXED | `worker/src/governance/registry.ts` passes `content` to `runGovernedFileTool` (verified by reading code) | — (calls exercised in `subtaskContract.test.ts`, no assertion on the forwarded content) |
+| P2 `completeTask` accepts any status / no workerId | FIXED | `orchestration.ts completeTask` lease check + terminal guard | `regressLeaseFencing.test.ts` "completeTask from the displaced worker is refused"; `securityInvariants.test.ts` "completeTask terminal guard" |
+| P2 `setTaskStatus` unfenced (B4, plan 049) | FIXED | `orchestration.ts setTaskStatus` fenced to the lease owner, terminal never resurrected | `regressLeaseFencing.test.ts` "setTaskStatus is fenced to the lease owner (B4, plan 049)" |
+| P2 `tasks.remove` destroys audit trail | OPEN | `audit` rows survive; `taskEvents`/`lifecycleHistory` are still deleted | — |
+| `messages.send` no authz before enqueue | FIXED | `messages.ts send` calls `assertProjectAccess` | (no dedicated test) |
+| Untrusted agent output overrides policy | FIXED (covered) | planner/code-change output cannot drop approval or change policy | `regressSecurity.test.ts` (worker) "(a) malicious agent output" |
+| Approval bypass via agent text / payload | FIXED (covered) | `orchestration.ts autoApprove` decides from the task row; `git_push` never automatic | `regressSecurity.test.ts` (api): agent message claiming approval, payload claims ignored, `git_push` in every mode |
+| Workspace isolation: symlink / prefix sibling (W3) | FIXED | `worker/src/services/runner/setup.ts` realpath containment | `regressSecurity.test.ts` (worker) "(d) path sandbox" |
+| Read-only agents write; native runtime commits (W4) | FIXED | `execution/agentExecutor.ts` reverts writes on read-only nodes, undo uses host git | `regressSecurity.test.ts` (worker) "(b) read-only agents"; "(e) W4" |
+| `loadPolicy` env parsing has no tests | FIXED (covered) | — | `regressSecurity.test.ts` (worker) "(c) loadPolicy with invalid env or Settings values fails safe" |
+| Backend `any` payloads may carry credentials | OPEN | — | — |
+| Malformed ciphertext / wrong `PROVIDER_ENCRYPTION_KEY` explicit error | OPEN | — | — |
+
+### Scenarios (§2) and failure injection (§3)
+
+| Item | Status | Test |
+|---|---|---|
+| #6 Asking about an agent returns registry info | OPEN | — |
+| #8 Orchestrator not forced to answer every conversation | OPEN | — |
+| #14 / Duplicate commands | FIXED (covered) | `validation-backend.test.ts` "checkAlreadyReplied prevents duplicate reply" |
+| #19 Read-only tasks never modify the workspace | FIXED | `regressSecurity.test.ts` (worker) "(b)" |
+| LLM timeout (planning / execution / review) | FIXED | `regressFailureInjection.test.ts` "provider faults never end as a silent success"; planning errors go through `failTaskWithError` (`runner/planning.ts`), review keeps `failureKind` (`runner/reviewLoop.ts`, `execute/phases/review.ts`) |
+| Concurrent tasks: claim atomicity | FIXED (covered) | `regressLeaseFencing.test.ts` "two workers race for the same task" |
+| Claim head-of-line blocking by legacy direct rows (bug 10) | FIXED | `lib/claimQueue.ts` + `migrations.ts cancelLegacyDirectQueued`; `regressLeaseFencing.test.ts` "claimNextTask head-of-line blocking" |
+| Missing / corrupted execution context | FIXED | `runner/resume.ts`; `regressFailureInjection.test.ts` "resume with a corrupted or missing execution context fails cleanly" |
+| Delegation / task-thread context leaks between tasks | FIXED (covered) | `regressContextIsolation.test.ts` (worker + api "task threads and agent-to-agent hand-offs") |
+| Cancellation during QA re-run | OPEN (partial, as in §3) | — |
+| DB mutation conflicts (`savePlan` destructive) | OPEN | — |
+| §5 Playwright E2E | OBSOLETE | skipped by decision (AGENTS.md); no dependency added |

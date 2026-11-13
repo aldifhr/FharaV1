@@ -83,9 +83,12 @@ describe("approval signals (apply_changes park)", () => {
   });
 
   test("a pause recorded during the park drains as paused when the resumed run starts", async () => {
-    const { t, taskId } = await parked();
+    const { t, taskId, approvalId } = await parked();
+    // The resumed run holds the resume lease (plan 049: setTaskStatus is fenced to it).
+    await t.mutation(api.approvals.approve, { approvalId });
+    await t.mutation(internal.orchestration.claimResumableTask, { taskId, workerId: "w1", leaseMs: 60_000 });
     await t.mutation(api.taskControl.pause, { taskId });
-    await t.mutation(internal.orchestration.setTaskStatus, { taskId, status: "running" });
+    await t.mutation(internal.orchestration.setTaskStatus, { taskId, status: "running", workerId: "w1" });
     expect((await t.run((ctx) => ctx.db.get(taskId)))?.status).toBe("paused");
   });
 

@@ -9,7 +9,7 @@
     "lines": 1066
   },
   "apps/api/convex/orchestration.ts": {
-    "lines": 3075
+    "lines": 3068
   },
   "apps/api/convex/schema.ts": {
     "lines": 2233
@@ -18,7 +18,7 @@
     "lines": 1257
   },
   "apps/api/convex/worker.ts": {
-    "lines": 1538
+    "lines": 1536
   },
   "apps/web/app/WorkspaceContext.tsx": {
     "pulse": 1

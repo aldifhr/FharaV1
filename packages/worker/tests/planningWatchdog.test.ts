@@ -96,7 +96,7 @@ describe("planning watchdog", () => {
     expect(fake.completed[0].errorMessage).toContain("Replanning stalled: the planner made no progress for 12 min");
   });
 
-  it("other planning errors still propagate to the worker loop (which fails the task)", async () => {
+  it("other planning errors fail the task visibly (task.error + failureKind); lease loss still propagates", async () => {
     const fake = fakeApi();
     const pctx = {
       deps: { api: fake.api, policy: {} },
@@ -104,7 +104,11 @@ describe("planning watchdog", () => {
       project: { _id: "p1" },
       signal: new AbortController().signal,
     } as never;
-    await expect(finishOnPlanningError(pctx, new Error("boom"))).rejects.toThrow("boom");
+    // regress-tests: was rethrown to the worker loop, which failed the task with no task.error / failureKind.
+    await finishOnPlanningError(pctx, new Error("boom"));
+    expect(fake.events.map((e) => e.type)).toEqual(["task.error"]);
+    expect(fake.completed).toEqual([expect.objectContaining({ status: "failed", errorMessage: "boom" })]);
+    await expect(finishOnPlanningError(pctx, new Error("Lease lost: another worker owns this task"))).rejects.toThrow("Lease lost");
   });
 });
 

@@ -423,19 +423,22 @@ export const getContext = internalQuery({
           : selectDefaultChatAgents(effectiveTeamIds(project.agentIds, all), all, args.preferredAgentIds);
     }
 
-    const rows = await ctx.db
-      .query("messages")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .order("desc")
-      .take(200);
     // Context isolation: when a conversation is given, history must come
     // ONLY from that conversation (never other conversations in the same
-    // project). Messages without conversationId are legacy pre-007 and
-    // are only included when no conversation is scoped.
-    const scoped = (args.conversationId
-      ? rows.filter((m) => m.conversationId === args.conversationId)
-      : rows
-    ).filter((m) => !anchor || m._creationTime <= anchor._creationTime);
+    // project), read by conversation so a busy sibling cannot push it out of
+    // the window, and a conversation of another project yields nothing.
+    // Messages without conversationId are legacy pre-007 and are only
+    // included when no conversation is scoped.
+    const conversation = args.conversationId ? await ctx.db.get(args.conversationId) : null;
+    const inProject = conversation?.projectId === args.projectId;
+    const rows = !args.conversationId
+      ? await ctx.db.query("messages").withIndex("by_project", (q) => q.eq("projectId", args.projectId)).order("desc").take(200)
+      : inProject
+        ? await ctx.db.query("messages").withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId)).order("desc").take(200)
+        : [];
+    const scoped = rows
+      .filter((m) => m.projectId === args.projectId && (!args.conversationId || m.conversationId === args.conversationId))
+      .filter((m) => !anchor || m._creationTime <= anchor._creationTime);
     const history = scoped
       .filter((m) => !m.taskId)
       .slice(0, 12)
@@ -475,7 +478,7 @@ export const getContext = internalQuery({
     // for compaction. The latest summary for this conversation (if any)
     // is included so the router path can carry bounded context.
     let contextSummary: string | undefined;
-    if (args.conversationId) {
+    if (args.conversationId && inProject) {
       const summaries = await ctx.db
         .query("contextSummaries")
         .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId!))

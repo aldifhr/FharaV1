@@ -1,6 +1,7 @@
 import { resolveProjectPath } from "@fhara/config";
 import { wenv } from "@fhara/config/worker";
 import { WORKER_DIR } from "@/utils/rootEnv";
+import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import {
@@ -351,10 +352,14 @@ export async function withFileContexts(
   if (mentions.size === 0) return normalized;
 
   const base = resolveWorkspacePath(workspaceRoot, configuredWorkspacePath);
+  const realBase = await fs.realpath(base).catch(() => path.resolve(base));
   const blocks: string[] = [];
   for (const rel of mentions) {
-    const abs = path.resolve(base, rel);
-    if (!abs.startsWith(base)) continue;
+    // W3: symlink-aware containment (realpath + separator, so neither a link
+    // out of the workspace nor a prefix sibling such as `/repo-evil` passes),
+    // and a secret file is never inlined, also not through a link to it.
+    const abs = await resolveSandboxPathAsync(base, rel).catch(() => null);
+    if (!abs || isSecretMention(rel) || isSecretMention(path.relative(realBase, abs))) continue;
     try {
       const stat = await fs.stat(abs);
       if (!stat.isFile()) continue;
@@ -368,6 +373,11 @@ export async function withFileContexts(
 
   const mentionLine = `Attached file context:\n${[...mentions].map((rel) => `- @${rel}`).join("\n")}`;
   return `${normalized}\n\n${mentionLine}\n\n${blocks.join("\n\n")}`;
+}
+
+/** `.env` / `.env.*` anywhere, and anything under `.git/` or `.ssh/`. */
+function isSecretMention(rel: string): boolean {
+  return rel.split(/[\\/]/).some((part) => /^\.env(\..*)?$/i.test(part) || /^\.(git|ssh)$/i.test(part));
 }
 
 /**

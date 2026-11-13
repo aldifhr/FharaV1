@@ -11,7 +11,11 @@ export const reviewPhase: Phase = async ({ ctx }) => {
     state.feedback.push("The implementation produced no file changes");
     return exit({ status: "failed", failureKind: "no_change" });
   }
-  if (!(await runReviewLoop(ctx))) return exit(failedOrCancelled(ctx));
+  if (!(await runReviewLoop(ctx))) {
+    // A review that never reached a verdict (its node failed) is not a rejection.
+    const rejected = ctx.state.reviewBySnapshot?.[currentSnapshotId(ctx)] === "changes_requested";
+    return exit({ ...failedOrCancelled(ctx), ...(rejected ? {} : { failureKind: "error" as const }) });
+  }
   // Same boundary after the review stage (plan 013 step 3).
   return next("observe");
 };

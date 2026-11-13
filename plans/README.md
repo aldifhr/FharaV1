@@ -49,7 +49,7 @@ execution order and a definition of done.
 | 045 | [Role memory: each role writes its own notes per project](045-role-memory.md) | P2 | M | L4, L5 | IMPLEMENTED (convex-test + worker unit tests; browser check pending) |
 | 046 | [Drain an aborted scheduler attempt before a retry](046-scheduler-abort-drain.md) | P1 | M | — | DONE (unit tests; full worker suite has the pre-existing Windows-only failures) |
 | 047 | [Thread deep links and per-project sidebar separation](047-thread-deep-links.md) | P2 | S | — | IMPLEMENTED (typecheck + unit tests + `next build` green with NEXT_PUBLIC_CONVEX_URL; browser check done — deep-linked thread renders as the main view, `Back to chat` returns to the project) |
-| 049 | [Lease fencing for `setTaskStatus`](049-set-task-status-lease-fencing.md) | P3 | S | — | TODO (found in the backend audit: `setTaskStatus` takes no `workerId` and applies any status from any worker) |
+| 049 | [Lease fencing for `setTaskStatus`](049-set-task-status-lease-fencing.md) | P3 | S | — | DONE (`setTaskStatus` fenced to the lease owner; `apps/api/convex/regressLeaseFencing.test.ts`) |
 | 050 | [One modal primitive for every overlay](050-one-modal-primitive.md) | P2 | M | — | TODO (web-UI audit: 3 shared modal implementations + 2 bespoke overlays; the context drawer has no focus trap) |
 | 051 | [Lint the web app and pay down its `any` debt](051-lint-and-any-sweep.md) | P2 | L | — | TODO (web-UI audit: no ESLint, 269 `any`, 68 Convex id casts) |
 | 052 | [Split the oversized chat/settings components](052-split-oversized-components.md) | P3 | L | 050 (optional) | TODO (web-UI audit: six files over 700 lines, one `next/dynamic`) |

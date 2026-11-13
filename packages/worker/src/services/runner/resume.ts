@@ -109,7 +109,9 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
   // The approval was resolved, so the task is no longer waiting on the user.
   // Leaving it at `needs_approval` made the UI advertise an approval button
   // that no longer exists while the resumed run is in flight.
-  await deps.api.setTaskStatus({ taskId, status: "running" });
+  // Plan 049: fenced to this worker's resume lease. A refusal means the task
+  // is terminal or no longer this worker's: the run must not execute.
+  if ((await deps.api.setTaskStatus({ taskId, workerId: deps.workerId, status: "running" })) === false) return;
   // High/ultra changes keep their larger subtask timeout / deadline on
   // resume (scaled before the deadline is armed below).
   deps = { ...deps, policy: policyForComplexity(deps.policy, classifyCommand(context.task.command).complexity) };
@@ -126,6 +128,13 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
     ? resolveWorkspacePath(deps.workspaceRoot, context.task.worktreePath)
     : undefined;
   const workspacePath = persistedWorktree ?? resolveWorkspacePath(deps.workspaceRoot, context.project.workspacePath);
+  // A task worktree deleted while the task waited holds the staged work: fail
+  // cleanly instead of recreating an empty folder and running on in it.
+  if (persistedWorktree && !(await fs.stat(persistedWorktree).then((stat) => stat.isDirectory(), () => false))) {
+    taskAbort.dispose();
+    await deps.api.completeTask({ taskId, status: "failed", errorMessage: `Task worktree is missing (${context.task.worktreePath}); the staged work cannot be resumed` });
+    return;
+  }
   await fs.mkdir(workspacePath, { recursive: true });
 
   // Plan 009: seed the shared MCP registry (see processTask).

@@ -2,6 +2,9 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { encryptApiKey, reEncryptApiKey } from "./lib/llmCrypto";
+import type { Id } from "./_generated/dataModel";
+import { isLegacyDirect } from "./lib/legacyDirect";
+import { patchTask } from "./lib/threadIndex";
 
 /**
  * Phase 2 data migration (spec §4B/§5.3) — internal, idempotent, safe to
@@ -409,5 +412,39 @@ export const clearPerAgentLlm = internalMutation({
     }
     console.log(`[L4 clearPerAgentLlm] ${agentsCleared} agent(s), ${templatesCleared} template(s), ${cleared.length} field(s) cleared`);
     return { agentsCleared, templatesCleared, cleared };
+  },
+});
+
+export const LEGACY_DIRECT_BATCH = 200;
+
+/**
+ * Bug 10 clean-up: legacy direct threads (removed 2026-11-12) left queued
+ * are never claimed, so close them as cancelled. Idempotent (a second run
+ * finds nothing); batched, rescheduling itself until the queue is clean.
+ */
+export const cancelLegacyDirectQueued = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ cancelled: number; done: boolean }> => {
+    const legacy: Id<"tasks">[] = [];
+    let done = true;
+    for await (const task of ctx.db.query("tasks").withIndex("by_status", (q) => q.eq("status", "queued"))) {
+      if (!isLegacyDirect(task)) continue;
+      if (legacy.length >= LEGACY_DIRECT_BATCH) {
+        done = false;
+        break;
+      }
+      legacy.push(task._id);
+    }
+    const now = Date.now();
+    for (const taskId of legacy) {
+      await patchTask(ctx, taskId, {
+        status: "cancelled",
+        errorMessage: "Direct threads were removed; this thread is read-only.",
+        completedAt: now,
+        updatedAt: now,
+      });
+    }
+    if (!done) await ctx.scheduler.runAfter(0, internal.migrations.cancelLegacyDirectQueued, {});
+    return { cancelled: legacy.length, done };
   },
 });

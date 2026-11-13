@@ -47,7 +47,8 @@ import { taskBranchPrefixes } from "./lib/taskBranch";
 import { consumeTaskSignals, RESUMABLE_APPROVAL_KINDS, supersedePendingCommandApprovals } from "./taskSignals";
 import { appendAgentEvent as appendAgentEventRow, appendTaskEvent } from "./lib/taskEvents";
 import { classifyTaskHold } from "./lib/providerHold";
-import { isAutomaticTask, isAutomationHeld } from "./lib/automationHold";
+import { isAutomationHeld } from "./lib/automationHold";
+import { firstClaimableTask } from "./lib/claimQueue";
 import { holdTaskForProvider } from "./taskControl";
 import { decideResume, replayEncodedBytes, RESUME_MAX_REPLAY_EVENTS } from "./lib/eventResume";
 import { isLegacyDirect } from "./lib/legacyDirect";
@@ -354,13 +355,8 @@ export const claimNextTask = internalMutation({
   handler: async (ctx, args): Promise<Doc<"tasks"> | null> => {
     const now = Date.now();
     const leaseMs = args.leaseMs ?? DEFAULT_LEASE_MS;
-    const candidates = await ctx.db
-      .query("tasks")
-      .withIndex("by_status", (q) => q.eq("status", "queued"))
-      .order("asc")
-      .take(25);
-    const held = await isAutomationHeld(ctx); // G3: while automation is held, automatic tasks stay queued.
-    const task = candidates.find((c) => c.status === "queued" && !isLegacyDirect(c) && !(held && isAutomaticTask(c))); // legacy direct threads are never claimed
+    // G3: while automation is held, automatic tasks stay queued; legacy direct threads are never claimed (bug 10: scans past both).
+    const task = await firstClaimableTask(ctx, await isAutomationHeld(ctx));
     if (!task) return null;
     await patchTask(ctx, task._id, {
       status: "running",
@@ -1896,20 +1892,17 @@ export const completeTask = internalMutation({
 });
 
 export const setTaskStatus = internalMutation({
-  args: { taskId: v.id("tasks"), status: taskStatus },
+  args: { taskId: v.id("tasks"), status: taskStatus, workerId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     // Terminal guard (Phase 4 hardening): same absorbing rule as
     // completeTask — a raw status write may not resurrect a terminal
-    // task. Rewriting the SAME terminal status stays allowed
-    // (idempotent), anything else is refused with a false return.
+    // task. Rewriting the SAME terminal status stays an idempotent yes
+    // (nothing to write), anything else is refused with a false return.
     const task = await ctx.db.get(args.taskId);
     if (!task) return false;
-    if (
-      TERMINAL_TASK_STATUSES.has(task.status) &&
-      task.status !== args.status
-    ) {
-      return false;
-    }
+    if (TERMINAL_TASK_STATUSES.has(task.status)) return task.status === args.status;
+    // Lease fencing (B4, plan 049): only the lease owner moves the status.
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) return false;
     // A pause the user recorded while the task was parked on an approval
     // (taskControl.pause) takes effect when the resumed run leaves the
     // park: it drains as a paused task instead of running on.

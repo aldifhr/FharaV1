@@ -26,6 +26,7 @@ import type { RunnerDeps } from "./types";
 import type { RecordUsageFn } from "./session";
 import { resolveQaBaseUrl, resolveWorkspacePath } from "./setup";
 import { failTaskWithError, finishBudgetExhaustedTask, finishCancelledTask } from "./terminal";
+import { isLeaseLostOrShutdown } from "./abort";
 import { persistPlan } from "./finalize";
 import { computePlanEstimate, type PlanCreator } from "./planReview";
 import { hintOverride, taskRoutingHint } from "@/orchestrator/planningHint";
@@ -280,7 +281,11 @@ export async function finishOnPlanningError(pctx: PlanningContext, error: unknow
     });
     return;
   }
-  throw error;
+  if (isLeaseLostOrShutdown(error)) throw error;
+  // A failed planning call (provider timeout, 429, …) ends visibly: a provider
+  // hold, or task.error with its failureKind — not an uncaught throw that the
+  // worker loop settles without either.
+  await failTaskWithError({ deps, taskId: task._id, projectId: project._id, message: error instanceof Error ? error.message : String(error) });
 }
 
 /** Stored plan row as returned by `getContext`. */

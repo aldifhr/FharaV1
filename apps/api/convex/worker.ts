@@ -715,13 +715,11 @@ export const completeTask = action({
 });
 
 export const setTaskStatus = action({
-  args: { ...tokenArg, taskId: v.id("tasks"), status: taskStatus },
-  handler: async (ctx, args): Promise<any> => {
-    const { taskId, status } = withoutToken(args);
-    await ctx.runMutation(internal.orchestration.setTaskStatus, {
-      taskId,
-      status,
-    });
+  args: { ...tokenArg, taskId: v.id("tasks"), status: taskStatus, workerId: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<boolean> => {
+    const { taskId, status, workerId } = withoutToken(args);
+    // Plan 049: false = refused (terminal, or this worker no longer holds the lease).
+    return await ctx.runMutation(internal.orchestration.setTaskStatus, { taskId, status, workerId });
   },
 });
 

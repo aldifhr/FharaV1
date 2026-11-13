@@ -105,7 +105,15 @@ export async function runReviewLoop(ctx: RunContext, options: ReviewLoopOptions 
       });
 
       const reviewRun = await runNodes(reviewNodes);
-      if (reviewRun.status !== "completed") return false;
+      if (reviewRun.status !== "completed") {
+        // A review node that failed (provider 429, timeout) keeps its error in
+        // the run feedback, so the ending can hold or name it (regress-tests).
+        for (const [key, outcome] of reviewRun.outcomes ?? []) {
+          const error = outcome.status === "failed" ? outcome.error : undefined;
+          if (error && !state.feedback.some((entry) => entry.includes(error))) state.feedback.push(`${key}: ${error}`);
+        }
+        return false;
+      }
 
       const changesRequested = reviewNodeKeys.some(
         (key) => state.reviewVerdicts[key]?.verdict === "changes_requested"

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Pin, Plus } from "lucide-react";
+import { Pin } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import { parseOptions } from "@/lib/options";
@@ -9,7 +9,6 @@ import { roleLabel } from "@/lib/agentRoles";
 import { isOfferUsed, offersCreateTask } from "@/lib/taskOffer";
 import ApprovalCard from "../ApprovalCard";
 import QaPanel from "../QaPanel";
-import InitialAvatar from "../InitialAvatar";
 import { ReasoningLine } from "../ui/trace";
 import MessageText from "./MessageText";
 import OptionCards from "./OptionCards";
@@ -240,6 +239,8 @@ export default function MessageList(props: Props) {
     if (history?.pendingJump && scrollToMessageLatest.current(history.pendingJump)) history.clearJump();
   }, [history, timeline]);
 
+  // One voice: the speaker label shows only when the speaker changes.
+  const speakerOf = (m: any) => (m?.authorType === "agent" && systemLineText(m) === null ? `agent:${m.agentId ?? ""}` : m ? `${m.authorType}` : "");
   const renderItem = (m: any, index: number, animate: boolean) => {
     const previous = timeline[index - 1];
     const key = blockKey(m);
@@ -254,6 +255,8 @@ export default function MessageList(props: Props) {
       : undefined;
     const group = activityGroups.get(index);
     const open = group ? (groupOpen[group.id] ?? group.expandedByDefault) : true;
+    const showSpeaker = boundary || speakerOf(previous) !== speakerOf(m) || Boolean(group && index === group.start);
+    const rowClass = `group relative ${showSpeaker ? "mt-6" : "mt-3"} flex rounded-xl transition-colors duration-700 ${flashId === String(m._id) ? "bg-hover" : ""}`;
     const inner = (
       <>
         {index === firstNewIndex && (
@@ -309,7 +312,7 @@ export default function MessageList(props: Props) {
           );
         })()}
         {group && index === group.start && (
-          <div className="mt-4 pl-[46px]">
+          <div className="mt-4">
             <ActivityGroupRow
               group={group}
               open={open}
@@ -318,7 +321,7 @@ export default function MessageList(props: Props) {
           </div>
         )}
         {!open ? null : systemText !== null ? (
-          <SystemLineRow id={`message-${m._id}`} text={systemText} time={formatTime(m._creationTime)} className="mt-4" />
+          <SystemLineRow id={`message-${m._id}`} text={systemText} time={formatTime(m._creationTime)} className="my-5" />
         ) : animate ? (
           <motion.div
             key={m._id}
@@ -326,17 +329,17 @@ export default function MessageList(props: Props) {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
-            className={`group relative mt-5 flex gap-3.5 rounded-xl transition-colors duration-700 ${flashId === String(m._id) ? "bg-hover" : ""}`}
+            className={rowClass}
           >
-            {renderMessageBody(m, index, messageAgent)}
+            {renderMessageBody(m, index, messageAgent, showSpeaker)}
           </motion.div>
         ) : (
           <div
             key={m._id}
             id={`message-${m._id}`}
-            className={`group relative mt-5 flex gap-3.5 rounded-xl transition-colors duration-700 ${flashId === String(m._id) ? "bg-hover" : ""}`}
+            className={rowClass}
           >
-            {renderMessageBody(m, index, messageAgent)}
+            {renderMessageBody(m, index, messageAgent, showSpeaker)}
           </div>
         )}
       </>
@@ -378,22 +381,25 @@ export default function MessageList(props: Props) {
     </div>
   );
 
-  const renderMessageBody = (m: any, index: number, messageAgent: any) => m.authorType !== "agent" ? renderUserBody(m) : (
+  const renderMessageBody = (m: any, index: number, messageAgent: any, showSpeaker = true) => m.authorType !== "agent" ? renderUserBody(m) : (
     <>
-      <InitialAvatar agent avatarParams={messageAgent?.avatarParams} name={roleLabel(messageAgent?.role)} size={32} />
       <div className="min-w-0 flex-1">
-        <div className={`flex items-baseline gap-2 ${onReply ? "pr-16" : "pr-9"}`}>
-          <p className="flex flex-wrap items-center gap-1.5 text-[14px] font-semibold text-ink">
-            {roleLabel(messageAgent?.role)}
-            {(() => {
-              const kind = messageKindOf(m.content);
-              const tag = kind === "evaluation" ? "evaluated" : kind === "planning" ? "plan" : kind === "delegation" ? "handoff" : kind === "design" ? "design" : null;
-              return tag ? <span className="rounded-md border border-line px-1.5 py-px text-[11px] font-normal text-ink-2">{tag}</span> : null;
-            })()}
-          </p>
-          <span className="text-[12px] text-ink-3">{formatTime(m._creationTime)}</span>
-          {m.pinned && <Pin size={12} className="self-center text-ink" aria-label="Pinned" />}
-        </div>
+        {showSpeaker ? (
+          <div className={`flex items-baseline gap-2 text-[12.5px] ${onReply ? "pr-16" : "pr-9"}`}>
+            <p className="font-medium text-ink-2">{roleLabel(messageAgent?.role)}</p>
+            <span className="text-ink-3">
+              {formatTime(m._creationTime)}
+              {(() => {
+                const kind = messageKindOf(m.content);
+                const tag = kind === "evaluation" ? "evaluated" : kind === "planning" ? "plan" : kind === "delegation" ? "handoff" : kind === "design" ? "design" : null;
+                return tag ? ` · ${tag}` : null;
+              })()}
+            </span>
+            {m.pinned && <Pin size={12} className="self-center text-ink" aria-label="Pinned" />}
+          </div>
+        ) : m.pinned ? (
+          <Pin size={12} className="text-ink" aria-label="Pinned" />
+        ) : null}
         <MessageActions
           pinned={Boolean(m.pinned)}
           messageId={m._id}
@@ -433,7 +439,7 @@ export default function MessageList(props: Props) {
                 )}
               </div>
               {hasText && (
-                <div className="mt-1.5 w-fit min-w-0 max-w-full rounded-2xl rounded-tl-md bg-bubble px-4 py-3">
+                <div className="mt-1 min-w-0 max-w-3xl text-ink">
                   <MessageText content={parseOptions(m.content).text} isAnimating={live || (conversationTyping && index === timeline.length - 1)} />
                 </div>
               )}
@@ -495,7 +501,7 @@ export default function MessageList(props: Props) {
                   </button>
                 </div>
               )}
-              <div className="mt-1.5 w-fit min-w-0 max-w-full rounded-2xl rounded-tl-md bg-bubble px-4 py-3">
+              <div className="mt-1 min-w-0 max-w-3xl text-ink">
                 {hasText ? (
                   <MessageText
                     content={parseOptions(m.content).text}
@@ -516,24 +522,19 @@ export default function MessageList(props: Props) {
                 <TaskCreatedLink taskId={String(m.taskOffer.usedTaskId)} title={taskTitle(String(m.taskOffer.usedTaskId))} onOpen={onSelectTask} />
               )}
               {hasText && String(m._id) === suggestTaskId && taskState[String(m._id)] !== "done" && (
-                <button
-                  type="button"
-                  disabled={taskState[String(m._id)] === "busy"}
-                  title={m.taskOffer?.brief}
+                <CreateTaskButton
+                  busy={taskState[String(m._id)] === "busy"}
                   onClick={async () => {
                     const id = String(m._id);
-                    setTaskState((s) => ({ ...s, [id]: "busy" }));
+                    setTaskState((st) => ({ ...st, [id]: "busy" }));
                     try {
                       await onCreateTaskFrom?.(id);
-                      setTaskState((s) => ({ ...s, [id]: "done" }));
+                      setTaskState((st) => ({ ...st, [id]: "done" }));
                     } catch {
-                      setTaskState((s) => { const { [id]: _drop, ...rest } = s; return rest; });
+                      setTaskState((st) => { const { [id]: _drop, ...rest } = st; return rest; });
                     }
                   }}
-                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1 text-[13px] font-medium text-ink transition hover:bg-hover disabled:opacity-50"
-                >
-                  <Plus size={13} /> {taskState[String(m._id)] === "busy" ? "Creating…" : "Create task"}
-                </button>
+                />
               )}
             </>
           );
@@ -609,8 +610,8 @@ export default function MessageList(props: Props) {
             <div className="mt-1 flex max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-ink">
               <span className="font-medium">{parts.from}</span>
               <span aria-hidden="true" className="text-ink-3">→</span>
-              <span className="font-medium text-ink">@{parts.to}</span>
-              <span className="rounded-md border border-line px-1.5 py-px text-[12px] text-ink-2">{parts.capability}</span>
+              <span className="font-medium text-ink">{parts.to}</span>
+              <span className="text-[13px] text-ink-3">({parts.capability})</span>
               {parts.reason && <span className="w-full text-ink-2">{parts.reason}</span>}
             </div>
           );
@@ -644,46 +645,19 @@ export default function MessageList(props: Props) {
         <div ref={listRef}>{timeline.map((m: any, index: number) => renderItem(m, index, true))}</div>
       )}
       {conversationTyping && (
-        <motion.div
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2 }}
-          className="mt-5 flex gap-3.5"
-          aria-live="polite"
-        >
-          <InitialAvatar
-            agent
-            avatarParams={typingAgent?.avatarParams}
-            name={(typingAgent ? roleLabel(typingAgent.role) : "Team")}
-            size={32}
-          />
-          <div className="min-w-0 flex-1">
-            <p className="text-[14px] font-semibold text-ink">{(typingAgent ? roleLabel(typingAgent.role) : "Team")}</p>
-            <div className="mt-1.5 w-fit rounded-2xl rounded-tl-md bg-bubble px-4 py-3">
-              <ReasoningLine running />
-            </div>
+        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="mt-6" aria-live="polite">
+          <p className="text-[12.5px] font-medium text-ink-2">{typingAgent ? roleLabel(typingAgent.role) : "Team"}</p>
+          <div className="mt-1">
+            <ReasoningLine running />
           </div>
         </motion.div>
       )}
       {liveQa && (
-        <div role="status" aria-live="polite" className="flex min-w-0 items-center gap-2 pl-1 text-[13px] text-ink-3">
-          <span className="flex shrink-0 gap-0.5" aria-hidden="true">
-            <i className="h-1 w-1 animate-bounce rounded-full bg-current" />
-            <i className="h-1 w-1 animate-bounce rounded-full bg-current [animation-delay:120ms]" />
-            <i className="h-1 w-1 animate-bounce rounded-full bg-current [animation-delay:240ms]" />
-          </span>
-          <span className="min-w-0 truncate">
-            QA is checking{" "}
-            {liveQa.url ? (
-              <code className="rounded bg-hover px-1 py-px font-mono text-[12px] text-ink-2">
-                {liveQa.url.replace(/^https?:\/\//, "")}
-              </code>
-            ) : (
-              "the app"
-            )}
-            {liveQa.width ? ` at ${liveQa.width} px` : liveQa.label ? ` (${liveQa.label})` : ""}
-          </span>
-        </div>
+        <p role="status" aria-live="polite" className="my-5 truncate px-4 text-center text-[13px] text-ink-3">
+          QA is checking{" "}
+          {liveQa.url ? <span className="font-mono text-[12.5px] text-ink-2">{liveQa.url.replace(/^https?:\/\//, "")}</span> : "the app"}
+          {liveQa.width ? ` at ${liveQa.width} px` : liveQa.label ? ` (${liveQa.label})` : ""}
+        </p>
       )}
       {!loading && !timeline.length && (
         <div className="py-16 text-center">

@@ -32,9 +32,15 @@ function hostPath(url: string | undefined): string | null {
   }
 }
 
+/** A task this chat is waiting on: the short ref shown and its id to open. */
+export type WaitingTask = { id: string; ref: string };
+
+const WAITING_NAMED = 2;
+
 /**
- * One quiet line above the composer: who is doing what right now
- * ("QA is checking shedi.app at 375 px", "CTO is drafting a reply").
+ * One quiet, centered line above the composer: who is doing what right now
+ * ("QA is checking shedi.app at 375 px", "CTO is drafting a reply"), else
+ * which open tasks the chat is waiting on.
  */
 export default function StatusLine({
   agents,
@@ -42,6 +48,8 @@ export default function StatusLine({
   drafting,
   events,
   qaUrl,
+  waiting = [],
+  onOpenTask,
 }: {
   agents: Agent[];
   status?: StatusMap;
@@ -49,6 +57,9 @@ export default function StatusLine({
   drafting: string[];
   events?: CheckEvent[];
   qaUrl?: string;
+  /** Open tasks of this chat, newest first ("Waiting on #a1b2, #c3d4, and 3 other tasks"). */
+  waiting?: WaitingTask[];
+  onOpenTask?: (taskId: string) => void;
 }) {
   const busy = agents
     .map((a) => ({ agent: a, entry: status?.[a._id] }))
@@ -69,7 +80,7 @@ export default function StatusLine({
       text = (
         <>
           {who} is checking{" "}
-          {url ? <code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[12.5px] text-ink-2">{url}</code> : (entry.taskTitle ?? "the change")}
+          {url ? <span className="font-mono text-[12.5px] text-ink-2">{url}</span> : (entry.taskTitle ?? "the change")}
           {label ? (/\d+\s?px/i.test(label) ? ` at ${label}` : ` · ${label}`) : ""}
         </>
       );
@@ -82,18 +93,30 @@ export default function StatusLine({
   } else if (drafting.length > 0) {
     const [a, b] = drafting;
     text = drafting.length === 1 ? `${a} is drafting a reply` : drafting.length === 2 ? `${a} and ${b} are drafting replies` : `${a} and ${drafting.length - 1} others are drafting replies`;
+  } else if (waiting.length > 0) {
+    const named = waiting.slice(0, WAITING_NAMED);
+    const rest = waiting.length - named.length;
+    text = (
+      <>
+        Waiting on{" "}
+        {named.map((task, i) => (
+          <span key={task.id}>
+            {i > 0 && (rest > 0 || named.length > 2 ? ", " : " and ")}
+            <button type="button" onClick={() => onOpenTask?.(task.id)} className="text-ink-2 underline-offset-2 outline-none hover:text-ink hover:underline focus-visible:underline">
+              {task.ref}
+            </button>
+          </span>
+        ))}
+        {rest > 0 && `, and ${rest} other task${rest === 1 ? "" : "s"}`}
+      </>
+    );
   }
 
   return (
     <div className="h-7 w-full shrink-0 px-4 sm:px-9 lg:px-11" aria-live="polite">
       {text && (
-        <p role="status" className="flex h-7 min-w-0 items-center gap-2 truncate text-[13.5px] text-ink-2">
-          <span className="shell-dots flex shrink-0 items-center gap-[3px] text-ink-3" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-          <span className="truncate">{text}</span>
+        <p role="status" className="h-7 truncate text-center text-[13px] leading-7 text-ink-3">
+          {text}
         </p>
       )}
     </div>

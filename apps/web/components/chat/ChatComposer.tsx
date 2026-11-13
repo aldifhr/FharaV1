@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  AtSign,
   Bold,
   ChevronDown,
   ChevronUp,
@@ -13,12 +12,11 @@ import {
   List,
   Loader2,
   Mic,
-  Paperclip,
+  Plus,
   RotateCcw,
   SendHorizontal,
   Shield,
   Square,
-  SquareSlash,
   Sparkles,
   SquareCode,
   Type,
@@ -103,6 +101,7 @@ export default function ChatComposer({
   onKeyIntercept,
   slashCommands = DEFAULT_SLASH_ENTRIES,
   stop = null,
+  dock = null,
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -136,7 +135,7 @@ export default function ChatComposer({
   /** Message being replied to (quote bar above the input); Esc or × cancels. */
   quote?: ChatQuote | null;
   onCancelQuote?: () => void;
-  /** Overrides the default "Message the team" placeholder (decisions tray). */
+  /** Overrides the default "Ask anything" placeholder (decisions tray). */
   placeholder?: string;
   /** Runs first on Enter / Escape when no picker is open; true = handled. */
   onKeyIntercept?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => boolean;
@@ -144,6 +143,8 @@ export default function ChatComposer({
   slashCommands?: SlashMenuEntry[];
   /** The reply in flight (useReplyStop): a Stop button beside Send; the composer stays usable. */
   stop?: ReplyStop | null;
+  /** Docked above the input inside the composer frame (the project's open tasks). */
+  dock?: React.ReactNode;
 }) {
   const toast = useToast();
   const textareaRef = useAutoGrowRef([draft], 200);
@@ -278,10 +279,6 @@ export default function ChatComposer({
     });
   };
 
-  const appendToken = (token: string) => {
-    onDraftChange(`${draft}${draft && !/\s$/.test(draft) ? " " : ""}${token}`);
-    requestAnimationFrame(() => textareaRef.current?.focus());
-  };
 
   const attachFile = async (file: File) => {
     if (file.size > ATTACH_MAX_BYTES) {
@@ -461,14 +458,7 @@ export default function ChatComposer({
           <ul className="space-y-1" aria-label="Queued messages">
             {queue.map((item, idx) => {
               const editable = item.status === "queued" || item.status === "failed";
-              const tone =
-                item.status === "sending"
-                  ? "text-sky-600 dark:text-sky-400"
-                  : item.status === "sent"
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : item.status === "failed"
-                      ? "text-red-600 dark:text-red-400"
-                      : "text-ink-3";
+              const tone = item.status === "failed" ? "text-danger" : item.status === "sending" ? "text-ink-2" : "text-ink-3";
               return (
                 <li key={item.id} className="flex items-center gap-2 rounded-lg border border-line bg-panel-2 px-2.5 py-1 text-[13px]">
                   <span className="shrink-0 tabular-nums text-ink-3">{idx + 1}.</span>
@@ -508,7 +498,7 @@ export default function ChatComposer({
                       <button type="button" onClick={() => onEdit(item.id)} aria-label={`Edit message ${idx + 1}`} className={rowBtn}>
                         <Edit2 size={13} />
                       </button>
-                      <button type="button" onClick={() => onRemove(item.id)} aria-label={`Remove message ${idx + 1}`} className={`${rowBtn} hover:text-red-600`}>
+                      <button type="button" onClick={() => onRemove(item.id)} aria-label={`Remove message ${idx + 1}`} className={`${rowBtn} hover:text-danger`}>
                         <X size={14} />
                       </button>
                     </span>
@@ -519,215 +509,213 @@ export default function ChatComposer({
           </ul>
         )}
 
-        <div className="rounded-2xl border border-line-strong bg-panel shadow-[0_1px_2px_rgba(20,20,40,0.04)] transition focus-within:border-ink/30 focus-within:ring-4 focus-within:ring-ink/30">
-          {quote && onCancelQuote && <QuoteBar quote={quote} onCancel={onCancelQuote} />}
-          {formatOpen && (
-            <div className="flex items-center gap-0.5 border-b border-line px-2 py-1" role="toolbar" aria-label="Formatting">
-              <button type="button" className={rowBtn} aria-label="Bold (⌘B)" title="Bold (⌘B)" onClick={() => insertAtCursor("**", "**", "bold")}>
-                <Bold size={14} />
+        {/* One frame: the docked task list, then the input box on top of it. */}
+        <div className={dock ? "rounded-2xl border border-line bg-panel-2 p-1.5" : undefined}>
+          {dock}
+          <div className="rounded-2xl border border-line-strong bg-panel shadow-sm transition focus-within:border-ink/30">
+            {quote && onCancelQuote && <QuoteBar quote={quote} onCancel={onCancelQuote} />}
+            {formatOpen && (
+              <div className="flex items-center gap-0.5 border-b border-line px-2 py-1" role="toolbar" aria-label="Formatting">
+                <button type="button" className={rowBtn} aria-label="Bold (⌘B)" title="Bold (⌘B)" onClick={() => insertAtCursor("**", "**", "bold")}>
+                  <Bold size={14} />
+                </button>
+                <button type="button" className={rowBtn} aria-label="Italic (⌘I)" title="Italic (⌘I)" onClick={() => insertAtCursor("_", "_", "italic")}>
+                  <Italic size={14} />
+                </button>
+                <button type="button" className={rowBtn} aria-label="Inline code (⌘E)" title="Inline code (⌘E)" onClick={() => insertAtCursor("`", "`", "code")}>
+                  <Code size={14} />
+                </button>
+                <button type="button" className={rowBtn} aria-label="Code block" title="Code block" onClick={() => insertAtCursor("\n```\n", "\n```\n", "")}>
+                  <SquareCode size={14} />
+                </button>
+                <button type="button" className={rowBtn} aria-label="Bulleted list" title="Bulleted list" onClick={() => insertAtCursor("\n- ", "", "item")}>
+                  <List size={14} />
+                </button>
+              </div>
+            )}
+            {attachments.length > 0 && (
+              <ul aria-label="Attachments" className="divide-y divide-line border-b border-line">
+                {attachments.map((a) => (
+                  <li key={a.id} className="flex items-center gap-2 px-3 py-1.5 text-[13px]">
+                    <FileText size={14} className="shrink-0 text-ink-3" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink">{a.name}</span>
+                    <span className="shrink-0 tabular-nums text-[12px] text-ink-3">{formatBytes(a.bytes)}</span>
+                    <button type="button" onClick={() => setAttachments((list) => list.filter((x) => x.id !== a.id))} aria-label={`Remove ${a.name}`} className={rowBtn}>
+                      <X size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {usage && (
+              <p id="composer-slash-usage" className="truncate px-4 pt-2 font-mono text-[12px] text-ink-3">
+                {usage}
+              </p>
+            )}
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(e) => {
+                setEnhanceError("");
+                onDraftChange(e.target.value);
+              }}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              maxLength={COMPOSER_MAX_CHARS}
+              rows={1}
+              aria-label={`Message ${projectName}`}
+              aria-autocomplete="list"
+              aria-controls={slashOpen ? "composer-slash" : mentionOpen ? "composer-mentions" : undefined}
+              aria-expanded={slashOpen || mentionOpen}
+              aria-activedescendant={slashOpen ? `composer-slash-${activeIndex}` : mentionOpen ? `composer-mention-${activeIndex}` : undefined}
+              aria-describedby={usage ? "composer-slash-usage" : undefined}
+              placeholder={placeholder ?? (narrow ? "Ask anything" : "Ask anything, / for commands, @ for context")}
+              className="block w-full resize-none bg-transparent px-4 pb-1 pt-3 text-base leading-6 text-ink outline-none placeholder:text-ink-3 sm:text-[15px]"
+              style={{ minHeight: 48, maxHeight: 200 }}
+            />
+            <div className="flex items-center gap-0.5 px-2 pb-2">
+              <button type="button" className={tool} aria-label="Attach a text file" title="Attach a text file" onClick={() => fileRef.current?.click()}>
+                <Plus size={17} />
               </button>
-              <button type="button" className={rowBtn} aria-label="Italic (⌘I)" title="Italic (⌘I)" onClick={() => insertAtCursor("_", "_", "italic")}>
-                <Italic size={14} />
+              <input
+                ref={fileRef}
+                type="file"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void attachFile(file);
+                }}
+              />
+              <button type="button" className={`${tool} ${formatOpen ? "bg-hover text-ink" : ""}`} aria-label="Formatting" aria-pressed={formatOpen} title="Formatting" onClick={() => setFormatOpen((o) => !o)}>
+                <Type size={16} />
               </button>
-              <button type="button" className={rowBtn} aria-label="Inline code (⌘E)" title="Inline code (⌘E)" onClick={() => insertAtCursor("`", "`", "code")}>
-                <Code size={14} />
-              </button>
-              <button type="button" className={rowBtn} aria-label="Code block" title="Code block" onClick={() => insertAtCursor("\n```\n", "\n```\n", "")}>
-                <SquareCode size={14} />
-              </button>
-              <button type="button" className={rowBtn} aria-label="Bulleted list" title="Bulleted list" onClick={() => insertAtCursor("\n- ", "", "item")}>
-                <List size={14} />
+              {draft.trim() && (
+                <button type="button" className={`${tool} max-sm:hidden`} aria-label="Enhance prompt with AI" title="Enhance prompt with AI" disabled={enhancing} onClick={() => void handleEnhance()}>
+                  {enhancing ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                </button>
+              )}
+              {targets.length > 0 && (
+                <div ref={targetRef} className="relative ml-1 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setTargetOpen((o) => !o)}
+                    aria-haspopup="listbox"
+                    aria-expanded={targetOpen}
+                    aria-label={target ? `Only ${roleLabel(target.role)} answers` : "Choose a teammate to answer"}
+                    className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2 text-[13.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
+                  >
+                    {target && <InitialAvatar agent avatarParams={target.avatarParams} name={roleLabel(target.role)} size={18} />}
+                    <span className="truncate">{target ? roleLabel(target.role) : "Team"}</span>
+                    <ChevronDown size={13} className="shrink-0 text-ink-3" />
+                  </button>
+                  {targetOpen && (
+                    <ul role="listbox" aria-label="Who answers" className="absolute bottom-full left-0 z-30 mb-2 max-h-72 w-56 overflow-y-auto rounded-xl border border-line bg-panel py-1 shadow-[0_12px_32px_-12px_rgba(20,20,40,0.3)]">
+                      {[{ _id: null, role: "team" } as any, ...targets].map((agent: any) => (
+                        <li key={agent._id ?? "team"} role="option" aria-selected={agent._id === targetId}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onTargetChange(agent._id);
+                              setTargetOpen(false);
+                            }}
+                            className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-ink hover:bg-hover ${agent._id === targetId ? "font-medium" : ""}`}
+                          >
+                            <InitialAvatar agent={Boolean(agent._id)} avatarParams={agent.avatarParams} name={agent._id ? agentName(agent) : "Team"} size={20} />
+                            <span className="flex-1 truncate">{agent._id ? agentName(agent) : "Team"}</span>
+                            {agent._id === targetId && <span className="text-[12px] text-ink">current</span>}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+              {permissionMode && onPermissionModeChange && (
+                <div ref={modeRef} className="relative shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setModeOpen((o) => !o)}
+                    aria-haspopup="listbox"
+                    aria-expanded={modeOpen}
+                    aria-label={`Permission mode: ${PERMISSION_MODE_LABELS[permissionMode]}`}
+                    title={PERMISSION_MODE_HINTS[permissionMode]}
+                    className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
+                  >
+                    <Shield size={14} className="shrink-0 text-ink-3" aria-hidden="true" />
+                    <span className="max-sm:hidden">{PERMISSION_MODE_LABELS[permissionMode]}</span>
+                    <ChevronDown size={13} className="shrink-0 text-ink-3" />
+                  </button>
+                  {modeOpen && (
+                    <ul role="listbox" aria-label="Permission mode" className="absolute bottom-full left-0 z-30 mb-2 w-64 overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-[0_12px_32px_-12px_rgba(20,20,40,0.3)]">
+                      {PERMISSION_MODES.map((mode) => (
+                        <li key={mode} role="option" aria-selected={mode === permissionMode}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onPermissionModeChange(mode);
+                              setModeOpen(false);
+                            }}
+                            className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-hover"
+                          >
+                            <span className={`text-[13.5px] text-ink ${mode === permissionMode ? "font-medium" : ""}`}>{PERMISSION_MODE_LABELS[mode]}</span>
+                            <span className="text-[12px] text-ink-3">{PERMISSION_MODE_HINTS[mode]}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+              <span className="ml-auto" />
+              {queue.length > 0 && (
+                <button
+                  type="button"
+                  onClick={onSendAll}
+                  disabled={sending || pendingCount === 0}
+                  className="mr-1.5 h-8 shrink-0 rounded-lg border border-line px-2.5 text-[13px] text-ink outline-none hover:bg-hover disabled:opacity-50"
+                >
+                  Send queue ({pendingCount})
+                </button>
+              )}
+              {stop && (
+                <button
+                  type="button"
+                  onClick={stop.onStop}
+                  disabled={stop.stopping}
+                  aria-label={stop.stopping ? "Stopping the reply" : "Stop the reply"}
+                  className={`mr-1.5 flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-line px-2.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:cursor-not-allowed disabled:opacity-50`}
+                >
+                  <Square size={12} className="fill-current" aria-hidden />
+                  {stopLabel(stop.stopping)}
+                </button>
+              )}
+              {speechSupported && (
+                <button
+                  type="button"
+                  className={`${tool} mr-1 ${listening ? "bg-hover text-ink" : ""}`}
+                  aria-label={listening ? "Stop voice input" : "Voice input"}
+                  aria-pressed={listening}
+                  title={listening ? "Stop voice input" : "Voice input"}
+                  onClick={toggleMic}
+                >
+                  <Mic size={16} />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={send}
+                disabled={sending || !canSend}
+                aria-label="Send message"
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink text-canvas shadow-sm outline-none transition hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-40`}
+              >
+                {sending ? <Loader2 size={16} className="animate-spin" /> : <SendHorizontal size={16} />}
               </button>
             </div>
-          )}
-          {attachments.length > 0 && (
-            <ul aria-label="Attachments" className="divide-y divide-line border-b border-line">
-              {attachments.map((a) => (
-                <li key={a.id} className="flex items-center gap-2 px-3 py-1.5 text-[13px]">
-                  <FileText size={14} className="shrink-0 text-ink-3" aria-hidden="true" />
-                  <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink">{a.name}</span>
-                  <span className="shrink-0 tabular-nums text-[12px] text-ink-3">{formatBytes(a.bytes)}</span>
-                  <button type="button" onClick={() => setAttachments((list) => list.filter((x) => x.id !== a.id))} aria-label={`Remove ${a.name}`} className={rowBtn}>
-                    <X size={14} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {usage && (
-            <p id="composer-slash-usage" className="truncate px-4 pt-2 font-mono text-[12px] text-ink-3">
-              {usage}
-            </p>
-          )}
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            onChange={(e) => {
-              setEnhanceError("");
-              onDraftChange(e.target.value);
-            }}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            maxLength={COMPOSER_MAX_CHARS}
-            rows={1}
-            aria-label={`Message ${projectName}`}
-            aria-autocomplete="list"
-            aria-controls={slashOpen ? "composer-slash" : mentionOpen ? "composer-mentions" : undefined}
-            aria-expanded={slashOpen || mentionOpen}
-            aria-activedescendant={slashOpen ? `composer-slash-${activeIndex}` : mentionOpen ? `composer-mention-${activeIndex}` : undefined}
-            aria-describedby={usage ? "composer-slash-usage" : undefined}
-            placeholder={placeholder ?? (narrow ? "Message the team" : "Message the team, or type / for a command")}
-            className="block w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-base leading-6 text-ink outline-none placeholder:text-ink-3 sm:text-[15px]"
-            style={{ minHeight: 48, maxHeight: 200 }}
-          />
-          <div className="flex items-center gap-0.5 px-2 pb-2">
-            <button type="button" className={`${tool} ${formatOpen ? "bg-hover text-ink" : ""}`} aria-label="Formatting" aria-pressed={formatOpen} title="Formatting" onClick={() => setFormatOpen((o) => !o)}>
-              <Type size={16} />
-            </button>
-            <button type="button" className={tool} aria-label="Attach a text file" title="Attach a text file" onClick={() => fileRef.current?.click()}>
-              <Paperclip size={16} />
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (file) void attachFile(file);
-              }}
-            />
-            <button type="button" className={tool} aria-label="Mention a teammate or file" title="Mention" onClick={() => appendToken("@")}>
-              <AtSign size={16} />
-            </button>
-            <button type="button" className={`${tool} max-sm:hidden`} aria-label="Commands" title="Commands" onClick={() => (draft ? appendToken("/") : onDraftChange("/"))}>
-              <SquareSlash size={16} />
-            </button>
-            {speechSupported && (
-              <button
-                type="button"
-                className={`${tool} ${listening ? "bg-red-50 text-red-600 hover:bg-red-50 hover:text-red-600 dark:bg-red-950/40" : ""}`}
-                aria-label={listening ? "Stop voice input" : "Voice input"}
-                aria-pressed={listening}
-                title={listening ? "Stop voice input" : "Voice input"}
-                onClick={toggleMic}
-              >
-                <Mic size={16} />
-              </button>
-            )}
-            {draft.trim() && (
-              <button type="button" className={`${tool} max-sm:hidden`} aria-label="Enhance prompt with AI" title="Enhance prompt with AI" disabled={enhancing} onClick={() => void handleEnhance()}>
-                {enhancing ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-              </button>
-            )}
-            {targets.length > 0 && (
-              <div ref={targetRef} className="relative ml-1 min-w-0">
-                <button
-                  type="button"
-                  onClick={() => setTargetOpen((o) => !o)}
-                  aria-haspopup="listbox"
-                  aria-expanded={targetOpen}
-                  aria-label={target ? `Only ${roleLabel(target.role)} answers` : "Choose a teammate to answer"}
-                  className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg bg-hover px-2 text-[13.5px] text-ink outline-none transition hover:bg-line focus-visible:ring-2 focus-visible:ring-ink/30"
-                >
-                  {target && <InitialAvatar agent avatarParams={target.avatarParams} name={roleLabel(target.role)} size={18} />}
-                  <span className="truncate">{target ? roleLabel(target.role) : "Team"}</span>
-                  <ChevronDown size={13} className="shrink-0 text-ink-3" />
-                </button>
-                {targetOpen && (
-                  <ul role="listbox" aria-label="Who answers" className="absolute bottom-full left-0 z-30 mb-2 max-h-72 w-56 overflow-y-auto rounded-xl border border-line bg-panel py-1 shadow-[0_12px_32px_-12px_rgba(20,20,40,0.3)]">
-                    {[{ _id: null, role: "team" } as any, ...targets].map((agent: any) => (
-                      <li key={agent._id ?? "team"} role="option" aria-selected={agent._id === targetId}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onTargetChange(agent._id);
-                            setTargetOpen(false);
-                          }}
-                          className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-ink hover:bg-hover ${agent._id === targetId ? "font-medium" : ""}`}
-                        >
-                          <InitialAvatar agent={Boolean(agent._id)} avatarParams={agent.avatarParams} name={agent._id ? agentName(agent) : "Team"} size={20} />
-                          <span className="flex-1 truncate">{agent._id ? agentName(agent) : "Team"}</span>
-                          {agent._id === targetId && <span className="text-[12px] text-ink">current</span>}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-            <span className="ml-auto hidden pr-2 text-[12.5px] text-ink-3 md:block">Enter to send</span>
-            {queue.length > 0 && (
-              <button
-                type="button"
-                onClick={onSendAll}
-                disabled={sending || pendingCount === 0}
-                className="ml-auto mr-1.5 h-8 rounded-lg border border-line px-2.5 text-[13px] text-ink outline-none hover:bg-hover disabled:opacity-50 md:ml-0"
-              >
-                Send queue ({pendingCount})
-              </button>
-            )}
-            {permissionMode && onPermissionModeChange && (
-              <div ref={modeRef} className={`relative ${queue.length > 0 ? "" : "ml-auto md:ml-0"} mr-1 shrink-0`}>
-                <button
-                  type="button"
-                  onClick={() => setModeOpen((o) => !o)}
-                  aria-haspopup="listbox"
-                  aria-expanded={modeOpen}
-                  aria-label={`Permission mode: ${PERMISSION_MODE_LABELS[permissionMode]}`}
-                  title={PERMISSION_MODE_HINTS[permissionMode]}
-                  className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
-                >
-                  <Shield size={14} className="shrink-0 text-ink-3" aria-hidden="true" />
-                  <span className="max-sm:hidden">{PERMISSION_MODE_LABELS[permissionMode]}</span>
-                  <ChevronDown size={13} className="shrink-0 text-ink-3" />
-                </button>
-                {modeOpen && (
-                  <ul role="listbox" aria-label="Permission mode" className="absolute bottom-full right-0 z-30 mb-2 w-64 overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-[0_12px_32px_-12px_rgba(20,20,40,0.3)]">
-                    {PERMISSION_MODES.map((mode) => (
-                      <li key={mode} role="option" aria-selected={mode === permissionMode}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onPermissionModeChange(mode);
-                            setModeOpen(false);
-                          }}
-                          className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-hover"
-                        >
-                          <span className={`text-[13.5px] text-ink ${mode === permissionMode ? "font-medium" : ""}`}>{PERMISSION_MODE_LABELS[mode]}</span>
-                          <span className="text-[12px] text-ink-3">{PERMISSION_MODE_HINTS[mode]}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-            {stop && (
-              <button
-                type="button"
-                onClick={stop.onStop}
-                disabled={stop.stopping}
-                aria-label={stop.stopping ? "Stopping the reply" : "Stop the reply"}
-                className={`${queue.length > 0 || (permissionMode && onPermissionModeChange) ? "" : "ml-auto md:ml-0"} mr-1.5 flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-line px-2.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:cursor-not-allowed disabled:opacity-50`}
-              >
-                <Square size={12} className="fill-current" aria-hidden />
-                {stopLabel(stop.stopping)}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={send}
-              disabled={sending || !canSend}
-              aria-label="Send message"
-              className={`${stop || queue.length > 0 || (permissionMode && onPermissionModeChange) ? "" : "ml-auto md:ml-0"} flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink text-canvas shadow-sm outline-none transition hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-40`}
-            >
-              {sending ? <Loader2 size={16} className="animate-spin" /> : <SendHorizontal size={16} />}
-            </button>
           </div>
         </div>
         {(error || enhanceError) && (
-          <p role="alert" className="px-1 text-[13px] text-red-600 dark:text-red-400">
+          <p role="alert" className="px-1 text-[13px] text-danger">
             {error || enhanceError}
           </p>
         )}

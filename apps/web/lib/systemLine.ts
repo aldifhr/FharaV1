@@ -7,9 +7,9 @@
  *
  * Pure, so tests/unit/systemLine.test.mjs can run it under node:test.
  */
-import { isSystemLine, SYSTEM_LABEL } from "@/api/convex/lib/systemLine";
+import { isSystemLine } from "@/api/convex/lib/systemLine";
 
-export { isSystemLine, SYSTEM_LABEL };
+export { isSystemLine };
 
 // Same shape as `isHandoffLine` in apps/api/convex/lib/chat/dispatch.ts, with the name captured.
 const LEGACY_HANDOFF = /^(?:Handing this to @([\w.-]+) for [^\n]{1,160}\.|Saya serahkan ke @([\w.-]+) untuk [^\n]{1,160}\.)$/;

@@ -34,7 +34,9 @@ import { buildDecisionTray, latestOpenOptionPrompt, type TrayAction, type TrayIt
 import { composeOfferedTask } from "@/api/convex/lib/chat/intent";
 import { parseOptions } from "@/lib/options";
 import DecisionsTray, { trayPlaceholder, useDecisionTray } from "./chat/DecisionsTray";
-import HeldTasksLine, { AutomationHoldLine } from "./chat/HeldTasksLine";
+import AutomationHoldLine from "./chat/AutomationHoldLine";
+import TaskDock from "./chat/TaskDock";
+import { dockTasks, taskRef } from "@/lib/taskDock";
 import { useMessageHistory } from "@/lib/useMessageHistory";
 import { useApprovalBinding } from "./chat/useApprovalBinding";
 import { useProjectSend } from "./chat/useProjectSend";
@@ -429,6 +431,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       .sort((a: any, b: any) => (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime))[0];
   const branch = branchTask ? { name: branchTask.branchName as string, taskId: branchTask._id as string, taskTitle: branchTask.title as string } : null;
   const openTaskCount = (tasks ?? []).filter((t: any) => !isClosedStatus(t.status)).length;
+  const docked = useMemo(() => dockTasks((tasks ?? []) as any[], currentConversationId), [tasks, currentConversationId]);
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -699,13 +702,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
 
       {tab === "chat" && (
         <>
-          <AutomationHoldLine /><HeldTasksLine tasks={tasks as any} conversationId={currentConversationId} onOpenTask={onSelectTask} />
+          <AutomationHoldLine />
           <StatusLine
             agents={agents}
             status={status}
             drafting={conversationTyping ? [(quotedResponder ?? targetAgent) ? roleLabel((quotedResponder ?? targetAgent)!.role) : "Team"] : []}
             events={projectEvents as any}
             qaUrl={(project as any)?.qaUrl ?? (project as any)?.devUrl}
+            waiting={docked.map((t: any) => ({ id: String(t._id), ref: taskRef(String(t._id)) }))}
+            onOpenTask={onSelectTask}
           />
           <DecisionsTray tray={tray} busy={trayBusy} onAction={(item, action) => void runTrayAction(item, action)} />
           {conversationId && (conversationClosed || conversationId !== currentConversationId) ? (
@@ -764,6 +769,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             onCancelQuote={() => setQuote(null)}
             slashCommands={slashEntries}
             stop={replyStop}
+            dock={<TaskDock tasks={docked} agents={agents} onOpenTask={onSelectTask} />}
           />}
           {decisions?.pickup && !decisions.pickup.workerOnline && decisions.pickup.queuedTasks + decisions.pickup.pendingMessages > 0 && (
             <p role="status" className="-mt-2 shrink-0 bg-panel px-4 pb-2 text-[12.5px] text-ink-3 sm:px-9 lg:px-11">

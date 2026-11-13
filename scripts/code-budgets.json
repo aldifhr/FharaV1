@@ -101,9 +101,6 @@
   "apps/web/components/WorkloadSection.tsx": {
     "pulse": 1
   },
-  "apps/web/components/chat/ChatComposer.tsx": {
-    "tint": 14
-  },
   "apps/web/components/chat/FilesView.tsx": {
     "tint": 1
   },

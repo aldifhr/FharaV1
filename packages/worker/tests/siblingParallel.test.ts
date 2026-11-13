@@ -5,7 +5,7 @@ import {
   formatSiblingsSection,
   type SiblingSubtask,
 } from "@/execution/agentContext";
-import { createSiblingTracker } from "@/services/runner/runNodes";
+import { createSiblingTracker } from "@/services/runner/nodes/nodeLifecycle";
 import { nodesConflict, runScheduler, type SchedulerNode } from "@/scheduler/dagScheduler";
 import { assertPushAllowed, pushCommitToGithub, type ExecGit } from "@/tools/gitPush";
 import { defaultParallelism } from "@/orchestrator/policy";

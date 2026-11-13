@@ -8,6 +8,9 @@ import {
   READ_FIRST,
   REPO_TOOL_CAPS,
   TOOL_BUDGET_EXHAUSTED,
+  TOOL_LOOP_MAX_MS,
+  TOOL_LOOP_MAX_RESULT_CHARS,
+  createRepoToolBudget,
   stripLeadingNarration,
   capToolOutput,
   mayBeToolCall,
@@ -122,6 +125,72 @@ describe("repo tool loop (mocked LLM)", () => {
     // The budget line sends the user to the Create task button, never to "lanjut".
     expect(TOOL_BUDGET_EXHAUSTED).toMatch(/Create task button under this reply runs the full job/);
     expect(TOOL_BUDGET_EXHAUSTED).toMatch(/Never ask the user to type "lanjut"/);
+  });
+
+  test("wall-clock guard: past the deadline no tool runs and the reply ends like a spent budget", async () => {
+    let clock = 0;
+    let lastMessages: Array<{ role: string; content: string }> = [];
+    const executed: string[] = [];
+    const result = await runRepoToolLoop({
+      messages: [{ role: "user", content: "audit semua" }],
+      now: () => clock,
+      step: async (messages) => {
+        lastMessages = messages;
+        clock += 2 * 60_000; // each model step takes two minutes
+        return {
+          content: messages.at(-1)?.content === TOOL_BUDGET_EXHAUSTED ? "Dibaca: a.ts. Belum dibaca: sisanya." : '{"tool":"read_file","arguments":{"path":"a.ts"}}',
+        };
+      },
+      callTool: async (call) => {
+        executed.push(call.tool);
+        return { ok: true, text: "a.ts: 1 lines\n1: x", files: ["a.ts"] };
+      },
+    });
+    // Steps end at 2, 4, 6 min: the third call is past TOOL_LOOP_MAX_MS and never runs.
+    expect(TOOL_LOOP_MAX_MS).toBe(6 * 60_000);
+    expect(executed).toHaveLength(2);
+    expect(result.repoCalls).toBe(2);
+    expect(result.stopped).toBe("time");
+    expect(result.budgetHit).toBe(true);
+    expect(lastMessages.at(-1)?.content).toBe(TOOL_BUDGET_EXHAUSTED);
+    expect(result.answer).toBe("Dibaca: a.ts. Belum dibaca: sisanya.");
+  });
+
+  test("result-size guard: past ~120k chars of tool results the loop stops calling tools", async () => {
+    let lastMessages: Array<{ role: string; content: string }> = [];
+    const result = await runRepoToolLoop({
+      messages: [{ role: "user", content: "baca semua" }],
+      step: async (messages) => {
+        lastMessages = messages;
+        return {
+          content: messages.at(-1)?.content === TOOL_BUDGET_EXHAUSTED ? "Ringkasan dari yang sudah dibaca." : '{"tool":"read_file","arguments":{"path":"big.ts"}}',
+        };
+      },
+      callTool: async () => ({ ok: true, text: "y".repeat(REPO_TOOL_CAPS.resultMaxChars), files: ["big.ts"] }),
+    });
+    const perCall = REPO_TOOL_CAPS.resultMaxChars;
+    expect(result.stopped).toBe("size");
+    expect(result.budgetHit).toBe(true);
+    expect(result.repoCalls).toBeLessThan(MAX_REPO_TOOL_CALLS);
+    // ~12k per fed result: the 10th pushes the total past 120k.
+    expect(result.repoCalls).toBe(10);
+    expect(10 * perCall).toBeGreaterThanOrEqual(TOOL_LOOP_MAX_RESULT_CHARS);
+    expect(lastMessages.at(-1)?.content).toBe(TOOL_BUDGET_EXHAUSTED);
+    expect(result.answer).toBe("Ringkasan dari yang sudah dibaca.");
+  });
+
+  test("guards stay quiet for a short loop, and the turn budget carries one shared deadline", async () => {
+    const result = await runRepoToolLoop({
+      messages: [{ role: "user", content: "x" }],
+      step: async (messages) => ({ content: messages.length === 1 ? '{"tool":"list_files","arguments":{}}' : "Jawaban." }),
+      callTool: async () => ({ ok: true, text: "a.ts (1 bytes)" }),
+    });
+    expect(result.budgetHit).toBe(false);
+    expect(result.stopped).toBeUndefined();
+    const before = Date.now();
+    const budget = createRepoToolBudget();
+    expect(budget.deadline).toBeGreaterThanOrEqual(before + TOOL_LOOP_MAX_MS);
+    expect(budget.deadline).toBeLessThanOrEqual(Date.now() + TOOL_LOOP_MAX_MS);
   });
 
   test("read before claim: a first answer with zero tool calls gets one READ_FIRST nudge", async () => {

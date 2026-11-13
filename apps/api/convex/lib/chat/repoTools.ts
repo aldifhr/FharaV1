@@ -31,12 +31,23 @@ export type RepoToolName = (typeof REPO_TOOL_NAMES)[number];
 export const MAX_REPO_TOOL_CALLS = 25;
 
 /**
+ * Wall-clock and size guards for one tool loop: 25 calls at up to a 20 s
+ * worker wait each, plus ~300 KB of results, can outrun the Convex action
+ * limit or the model's context. Past either guard the loop stops calling
+ * tools and ends like a spent budget (read/unread list + Create task offer).
+ */
+export const TOOL_LOOP_MAX_MS = 6 * 60_000;
+export const TOOL_LOOP_MAX_RESULT_CHARS = 120_000;
+
+/**
  * Shared repo-tool budget for one chat turn: each agent may use up to
  * `perReply` calls, and all of them together (several @mentioned agents) at
  * most `total`.
  */
 export function createRepoToolBudget(total: number = MAX_REPO_TOOL_CALLS * 2, perReply: number = MAX_REPO_TOOL_CALLS) {
   let used = 0;
+  // One wall clock for the whole turn: several replies share the action's time.
+  const deadline = Date.now() + TOOL_LOOP_MAX_MS;
   return {
     /** Calls the next agent may make (0 = answer without tools). */
     capForNextReply(): number {
@@ -50,6 +61,10 @@ export function createRepoToolBudget(total: number = MAX_REPO_TOOL_CALLS * 2, pe
     },
     get total(): number {
       return total;
+    },
+    /** Epoch ms after which no reply in this turn calls a tool. */
+    get deadline(): number {
+      return deadline;
     },
   };
 }
@@ -202,6 +217,12 @@ export interface RepoToolLoopOptions {
   maxCalls?: number;
   /** The question is about repo code/files: a first answer with no read gets one READ_FIRST nudge. */
   requireRead?: boolean;
+  /** Epoch ms after which no tool runs (default: start + TOOL_LOOP_MAX_MS); pass a turn-wide one to share it. */
+  deadline?: number;
+  /** Tool-result chars fed back to the model before tools stop (default TOOL_LOOP_MAX_RESULT_CHARS). */
+  maxResultChars?: number;
+  /** Clock (tests). */
+  now?: () => number;
   /**
    * Tools that run in the caller (no worker queue), e.g. `load_skill` for an
    * on-demand agent. They have their own budget (`maxLocalCalls`) and do not
@@ -222,6 +243,10 @@ export interface RepoToolLoopResult {
   checkedFiles: string[];
   /** Calls that went to repo tools (the shared chat budget counts only these). */
   repoCalls: number;
+  /** The loop ran out of repo calls, time or result size: the reply gets the Create task offer. */
+  budgetHit: boolean;
+  /** Set when a wall-clock or result-size guard stopped tool calls. */
+  stopped?: "time" | "size";
 }
 
 /**
@@ -241,7 +266,23 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
   const checked: string[] = [];
   let repoCalls = 0;
   let localCalls = 0;
-  const done = (answer: string): RepoToolLoopResult => ({ answer: stripLeadingNarration(answer), calls, results, checkedFiles: checked, repoCalls });
+  const now = options.now ?? Date.now;
+  const deadline = options.deadline ?? now() + TOOL_LOOP_MAX_MS;
+  const maxResultChars = options.maxResultChars ?? TOOL_LOOP_MAX_RESULT_CHARS;
+  let resultChars = 0;
+  let stopped: RepoToolLoopResult["stopped"];
+  // Set when the model asks for a repo tool after the repo budget is used up
+  // while local tools still have budget: the next step is the final one.
+  let repoSpent = false;
+  const done = (answer: string): RepoToolLoopResult => ({
+    answer: stripLeadingNarration(answer),
+    calls,
+    results,
+    checkedFiles: checked,
+    repoCalls,
+    budgetHit: stopped !== undefined || repoSpent || (maxCalls > 0 && repoCalls >= maxCalls),
+    ...(stopped ? { stopped } : {}),
+  });
   const steps = maxCalls + maxLocal;
 
   // The loop always ends on an answer: when the model stops on narration
@@ -255,11 +296,10 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
   };
   let nudged = false;
   let readNudged = !options.requireRead || maxCalls <= 0;
-  // Set when the model asks for a repo tool after the repo budget is used up
-  // while local tools still have budget: the next step is the final one.
-  let repoSpent = false;
   for (let i = 0; i <= steps; i += 1) {
-    const exhausted = i === steps || repoSpent || (repoCalls >= maxCalls && localCalls >= maxLocal);
+    // Guards (only for a loop that has tools): past the deadline or the result-size cap, no more calls.
+    if (!stopped && steps > 0) stopped = now() >= deadline ? "time" : resultChars >= maxResultChars ? "size" : undefined;
+    const exhausted = i === steps || repoSpent || stopped !== undefined || (repoCalls >= maxCalls && localCalls >= maxLocal);
     if (exhausted) messages.push({ role: "user", content: TOOL_BUDGET_EXHAUSTED });
     const { content } = await options.step(messages);
     // Lenient: one reply may hold several calls and/or prose. Only the
@@ -294,6 +334,11 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
       return forceFinal();
     }
     const call: RepoToolCall = { tool: found.calls[0].tool, args: normalizeRepoToolArgs(found.calls[0].args) };
+    // The model step itself can be slow: re-check the clock before any tool runs.
+    if (now() >= deadline) {
+      stopped = "time";
+      continue;
+    }
     if (isRepoToolName(call.tool) && maxCalls > 0 && repoCalls >= maxCalls) {
       repoSpent = true;
       continue;
@@ -336,6 +381,7 @@ export async function runRepoToolLoop(options: RepoToolLoopOptions): Promise<Rep
     const fed = localNames.includes(call.tool)
       ? `[tool result: ${describeRepoToolCall(call)}${result.ok ? "" : " — failed"}]\n${result.text}${extra ? `\n${extra}` : ""}`
       : toolResultMessage(call, result, extra);
+    resultChars += fed.length;
     messages.push({ role: "user", content: fed });
   }
   return forceFinal();

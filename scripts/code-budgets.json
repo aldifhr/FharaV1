@@ -1,6 +1,6 @@
 {
   "apps/api/convex/chat.ts": {
-    "lines": 1340
+    "lines": 1339
   },
   "apps/api/convex/githubPush.ts": {
     "lines": 846

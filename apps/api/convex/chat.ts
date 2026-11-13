@@ -423,8 +423,9 @@ type StreamReplyResult = CompleteResult & {
   messageId?: Id<"messages">;
   /** Grounded replies: what the repo tools showed (for the reference check). */
   evidence?: RepoEvidence;
-  /** Grounded replies: repo tool calls this reply made (for the shared budget). */
+  /** Grounded replies: repo tool calls this reply made (for the shared budget), and whether it ran out of calls, time or result size. */
   toolCalls?: number;
+  budgetHit?: boolean;
 };
 
 type StreamReply = (
@@ -435,6 +436,7 @@ type StreamReply = (
   opts?: {
     traceNote?: string;
     maxCalls?: number;
+    deadline?: number; // turn-wide tool deadline (epoch ms, createRepoToolBudget)
     /** Question about repo code/files: nudge once to read before answering. */
     requireRead?: boolean;
     /** Skill v2: on_demand agent — load_skill runs locally in this action. */
@@ -816,7 +818,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         loop = await runRepoToolLoop({
           messages: msgs,
           maxCalls: opts?.maxCalls ?? MAX_REPO_TOOL_CALLS,
-          requireRead: opts?.requireRead,
+          requireRead: opts?.requireRead, deadline: opts?.deadline,
           // Local tools (not the worker queue): the agent's own skills, and past work of this chat's project (D11).
           ...chatLocalTools({ skillLoader, pastWork: scopeProjectId ? pastWorkRunner(ctx, scopeProjectId) : null }),
           step: async (stepMsgs) => {
@@ -901,6 +903,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         messageId: keptId,
         evidence: collectRepoEvidence(loop.results),
         toolCalls: loop.repoCalls,
+        budgetHit: loop.budgetHit,
       };
     };
 
@@ -1286,7 +1289,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           messagesFor(String(agent._id)),
           useToolLoop
             ? {
-                maxCalls: useRepoTools ? callCap : 0,
+                maxCalls: useRepoTools ? callCap : 0, deadline: toolBudget.deadline,
                 requireRead: intent.subtype === "audit" || mentionsCode(lastUserContent),
                 ...(skillLoader ? { skillLoader } : {}),
                 ...(offNote && !useRepoTools ? { traceNote: offNote } : {}),
@@ -1299,7 +1302,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         // Create task offer: the server's own reading of the request, stored on
         // the reply (the routed owner, or an @mentioned agent) so the button and "gas" never depend on wording.
         // A reply that spent its whole repo budget gets the offer too: the task runs the full job.
-        const replyOffer = offerForReply(write, content, { budgetHit: useRepoTools && (result.toolCalls ?? 0) >= callCap });
+        const replyOffer = offerForReply(write, content, { budgetHit: useRepoTools && (result.budgetHit === true || (result.toolCalls ?? 0) >= callCap) });
         if (replyOffer && result.messageId) await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, { messageId: result.messageId, taskOffer: replyOffer }).catch(() => undefined);
         // Post-answer check: file paths and file:line references the
         // answer cites but no tool result (or the snapshot) showed. A file the

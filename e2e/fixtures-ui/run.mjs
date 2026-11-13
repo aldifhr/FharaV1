@@ -117,8 +117,8 @@ const scenarios = {
     check("board badge Paused", await visible(page.getByText("Paused", { exact: true })));
     check("collapsed board row hold line", await visible(page.getByTestId("board-hold-line")), "no hold line on the collapsed row");
     await shot(page, "held-resume-board");
-    // The header breadcrumb carries the title too; open the board row in main.
-    await page.locator("main").getByText("Dark mode toggle").first().click().catch(() => {});
+    // The header breadcrumb carries the title too; open the board row (a button).
+    await page.getByRole("button", { name: "Dark mode toggle", exact: true }).first().click().catch(() => {});
     await page.waitForTimeout(2000);
     check("thread panel hold notice", await visible(page.getByText(/rate limit|429|retr/i)));
     check("thread panel Resume now", await visible(page.getByRole("button", { name: /Resume now/ })));

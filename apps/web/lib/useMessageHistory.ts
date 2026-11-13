@@ -10,7 +10,7 @@ export type MessageHistoryScope =
   | { kind: "conversation"; conversationId: string }
   | { kind: "project"; projectId: string };
 
-export type OutlineTurn = { _id: string; _creationTime: number; turn: number; preview: string };
+type OutlineTurn = { _id: string; _creationTime: number; turn: number; preview: string };
 
 /** What the "Load earlier" bar and the turn outline read and call. */
 export type MessageHistory = {

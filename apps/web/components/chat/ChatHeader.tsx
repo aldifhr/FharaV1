@@ -25,7 +25,7 @@ export type HeaderNotification = {
 type PinnedMessage = { _id: string; content: string; authorType: string; agentId?: string; taskId?: string; _creationTime: number };
 
 /** "shedi.app" from the dev URL, else the repo folder name. */
-export function appLabel(project: { devUrl?: string; workspacePath?: string } | null | undefined): string | null {
+function appLabel(project: { devUrl?: string; workspacePath?: string } | null | undefined): string | null {
   if (!project) return null;
   if (project.devUrl) {
     try {
@@ -39,7 +39,7 @@ export function appLabel(project: { devUrl?: string; workspacePath?: string } | 
 }
 
 /** The project's run state for the header tag: the user first, then any agent at work. */
-export function runStatus(status: StatusMap | undefined, waiting: number): PageHeaderStatus {
+function runStatus(status: StatusMap | undefined, waiting: number): PageHeaderStatus {
   const words = Object.values(status ?? {}).map((e) => e?.status);
   if (waiting > 0 || words.some((w) => w === "needs_you" || w === "waiting_on_you")) return { tone: "warn", label: "Needs you" };
   if (words.some((w) => w === "working" || w === "reviewing" || w === "testing")) return { tone: "active", label: "Running" };

@@ -56,7 +56,7 @@ export function errorText(err: unknown, fallback: string): string {
   return (m?.[1] ?? raw).trim() || fallback;
 }
 
-export function sizeText(chars: number): string {
+function sizeText(chars: number): string {
   return chars >= 1000 ? `${(chars / 1000).toFixed(chars >= 10_000 ? 0 : 1)}k chars` : `${chars} chars`;
 }
 

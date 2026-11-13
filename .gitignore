@@ -21,3 +21,7 @@ TASKS.md
 # build artifacts
 dist/
 *.tsbuildinfo
+
+# Playwright output
+apps/web/playwright-report/
+apps/web/test-results/

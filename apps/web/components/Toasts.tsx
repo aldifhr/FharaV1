@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 
-export type ToastKind = "success" | "error" | "info";
+type ToastKind = "success" | "error" | "info";
 type Toast = { id: number; kind: ToastKind; title: string; message?: string };
 
 type ToastState = {
@@ -15,7 +15,7 @@ type ToastState = {
 
 const AUTO_DISMISS_MS = 4200;
 
-export const useToastStore = create<ToastState>()((set) => ({
+const useToastStore = create<ToastState>()((set) => ({
   toasts: [],
   push: (kind, title, message) => {
     const id = Date.now() + Math.random();

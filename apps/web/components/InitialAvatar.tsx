@@ -40,7 +40,7 @@ const DOT: Record<string, string> = {
   waiting: "bg-orange-500",
 };
 
-export function colorForName(name: string): string {
+function colorForName(name: string): string {
   const initial = (name.trim().charAt(0) || "•").toUpperCase();
   if (ROLE_BG[initial]) return ROLE_BG[initial];
   return pickByName(name, COLORS);

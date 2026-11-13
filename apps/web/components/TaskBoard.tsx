@@ -36,7 +36,6 @@ export default function TaskBoard({
   const tasks = useQuery(api.tasks.listByProject, { projectId: projectId as any });
   const subtasksByTask = useQuery(api.workspace.listSubtasksByProject, { projectId: projectId as any });
   const plansByTask = useQuery(api.workspace.listPlansByProject, { projectId: projectId as any });
-  const projectFiles = useQuery(api.fileChanges.listByProject, { projectId: projectId as any });
   const pendingApprovals = useQuery(api.approvals.listPendingAll, {});
   const agents = useQuery(api.agents.list, {});
   const prLanes = useQuery(api.prFeedback.lanesByProject, { projectId: projectId as any });

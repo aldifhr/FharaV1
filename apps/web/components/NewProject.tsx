@@ -216,7 +216,6 @@ function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2 dark:border-gray-700">
                 {(agents ?? []).length === 0 && <p className="text-xs text-gray-500 dark:text-gray-400">No agents yet. Create one with + in the Team section of the sidebar.</p>}
                 {(agents ?? []).map((agent, index) => {
-                  const agentList = agents ?? [];
                   const roleText = agentRoleText(agent);
                   const displayLabel = roleText ? `${agentName(agent)} · ${roleText}` : agentName(agent);
                   return (

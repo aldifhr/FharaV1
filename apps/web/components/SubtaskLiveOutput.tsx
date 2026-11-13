@@ -9,7 +9,7 @@ import { useUiPref } from "@/lib/uiPrefs";
 const KEEP_LINES = 40;
 
 /** Last `n` non-empty-tail lines of the live text. */
-export function liveTail(text: string, n = KEEP_LINES): string {
+function liveTail(text: string, n = KEEP_LINES): string {
   const lines = text.replace(/\s+$/, "").split("\n");
   return lines.slice(Math.max(0, lines.length - n)).join("\n");
 }

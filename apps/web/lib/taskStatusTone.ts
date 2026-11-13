@@ -1,7 +1,7 @@
 import type { StatusTone } from "@/components/ui/status-tag";
 
 /** StatusTag tone per task status (dashboard restyle F5): frame + text, no tint. */
-export const TASK_STATUS_TONE: Record<string, StatusTone> = {
+const TASK_STATUS_TONE: Record<string, StatusTone> = {
   queued: "neutral",
   running: "active",
   needs_approval: "warn",

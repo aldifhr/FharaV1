@@ -53,7 +53,7 @@ function Evidence({ evidence }: { evidence: Opinion["evidence"] }) {
 }
 
 /** One second opinion: verdict, reason, evidence, and the replan action. */
-export function OpinionItem({ opinion, label }: { opinion: Opinion; label?: string }) {
+function OpinionItem({ opinion, label }: { opinion: Opinion; label?: string }) {
   const toast = useToast();
   const replan = useMutation(api.reviewer.replanWithOpinion);
   const [busy, setBusy] = useState(false);

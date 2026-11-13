@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { api } from "@/api/convex/_generated/api";
 import MessageText from "./chat/MessageText";
 import { agentName, roleLabel } from "@/lib/agentRoles";
-import { subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
+import { subtaskStatusMeta } from "@/lib/taskStatus";
 import { failureKindLabel, latestFailureKind } from "@/lib/failureKind";
 import ApprovalCard from "./ApprovalCard";
 import ChangesPane, { useThreadView } from "./changes/ChangesPane";

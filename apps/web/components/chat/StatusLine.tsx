@@ -14,7 +14,7 @@ const SANDBOX_NOTE: Record<string, string> = {
   unavailable: "sandbox unavailable",
 };
 
-export function sandboxNote(events: CheckEvent[] | undefined, taskId: string | null | undefined): string | null {
+function sandboxNote(events: CheckEvent[] | undefined, taskId: string | null | undefined): string | null {
   if (!taskId) return null;
   const last = (events ?? []).find((e) => e.taskId === taskId && e.type === "shell.command" && typeof e.payload?.sandbox === "string");
   return last ? (SANDBOX_NOTE[last.payload!.sandbox!] ?? null) : null;

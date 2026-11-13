@@ -16,12 +16,8 @@ export type PageHeaderStatus = { tone: StatusTone; label: string; title?: string
 /** Outline action for the header slot. */
 export const HEADER_ACTION =
   "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-field border border-line bg-panel px-2.5 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50";
-/** The one primary action in the header slot: ink, never an accent colour. */
-export const HEADER_PRIMARY =
-  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-field bg-ink px-3 text-[12.5px] font-medium text-canvas outline-none transition hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50";
-
 /** A mono id that copies itself; the icon turns into a check for a moment. */
-export function CopyId({ id, label = "id", display }: { id: string; label?: string; display?: string }) {
+function CopyId({ id, label = "id", display }: { id: string; label?: string; display?: string }) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
@@ -56,7 +52,7 @@ export function CopyId({ id, label = "id", display }: { id: string; label?: stri
 }
 
 /** Short form of a long Convex id: first 6 and last 4 characters. */
-export function shortId(id: string): string {
+function shortId(id: string): string {
   return id.length > 14 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id;
 }
 

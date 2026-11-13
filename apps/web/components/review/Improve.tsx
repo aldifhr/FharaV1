@@ -14,13 +14,13 @@ import { diffStats } from "@/api/convex/lib/improve/textDiff";
 
 export type Suggestion = FunctionReturnType<typeof api.improve.listSuggestions>[number];
 
-export function errorText(err: unknown): string | undefined {
+function errorText(err: unknown): string | undefined {
   if (!(err instanceof Error)) return undefined;
   const match = /Uncaught Error: (.*?)(?:\n|$)/.exec(err.message);
   return match ? match[1] : err.message;
 }
 
-export function DiffText({ diff }: { diff: string }) {
+function DiffText({ diff }: { diff: string }) {
   return (
     <pre className="mt-2 max-h-96 overflow-auto rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[12px] leading-relaxed">
       {diff.split("\n").map((line, i) => (

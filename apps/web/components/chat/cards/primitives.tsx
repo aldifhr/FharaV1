@@ -15,7 +15,7 @@ export const CARD_SURFACE =
   "overflow-hidden rounded-xl border border-line bg-panel shadow-[0_1px_2px_rgba(30,25,60,.04)] dark:shadow-none";
 export const CARD_DIVIDER = "border-line";
 export const MUTED = "text-ink-3";
-export const TITLE = "text-[13px] font-semibold text-ink";
+const TITLE = "text-[13px] font-semibold text-ink";
 
 const BTN_BASE =
   "inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-50";

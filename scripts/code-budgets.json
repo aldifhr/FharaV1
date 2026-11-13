@@ -171,11 +171,8 @@
   "apps/web/components/team/CollaborationSection.tsx": {
     "pulse": 1
   },
-  "apps/web/components/ui/shimmer-button.tsx": {
-    "hex": 1
-  },
   "apps/web/lib/taskStatus.ts": {
-    "tint": 34
+    "tint": 10
   },
   "packages/worker/src/execution/agentExecutor.ts": {
     "lines": 2599

@@ -54,5 +54,3 @@ export function useInspectorDraft<T extends Draft>(base: T) {
 
   return { draft, saved, set, update, discard, commit, dirty, changed, isChanged, editedAt };
 }
-
-export type InspectorDraft<T extends Draft> = ReturnType<typeof useInspectorDraft<T>>;

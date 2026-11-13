@@ -279,7 +279,7 @@ function NavButton({ item, selected, onSelect }: { item: NavItem; selected: bool
   );
 }
 
-export function SettingsModal({
+function SettingsModal({
   open,
   section,
   projectId,

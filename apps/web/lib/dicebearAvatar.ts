@@ -9,7 +9,7 @@
 export const DICEBEAR_STYLE = "lorelei";
 
 /** Backgrounds of the Lorelei "Pastel Wall" preset (dicebear 10.x). */
-export const PASTEL_WALL_BACKGROUNDS = ["ffe3ea", "e3edff", "e2f5e9", "fdf1d4", "efe6ff"] as const;
+const PASTEL_WALL_BACKGROUNDS = ["ffe3ea", "e3edff", "e2f5e9", "fdf1d4", "efe6ff"] as const;
 
 /** What `agents.avatarParams` holds for a DiceBear-rendered agent. */
 export type DicebearAvatarParams = { dicebear: typeof DICEBEAR_STYLE; seed: string };

@@ -209,8 +209,6 @@ export function relativeTime(ms: number | null | undefined, now = Date.now()): s
   return new Date(ms).toLocaleDateString();
 }
 
-export type AppSettings = NonNullable<ReturnType<typeof useAppSettings>>;
-
 export function useAppSettings() {
   return useQuery(api.appSettings.get, {});
 }
@@ -219,7 +217,7 @@ export function useAppSettings() {
  * One server knob: its effective value (UI override, else the Convex env
  * for API knobs, else the default), whether it is overridden, and a saver.
  */
-export function useKnob(key: SettingKey) {
+function useKnob(key: SettingKey) {
   const settings = useAppSettings();
   const setValue = useMutation(api.appSettings.setValue);
   const toast = useToast();
@@ -243,7 +241,7 @@ export function useKnob(key: SettingKey) {
   };
 }
 
-export function knobBool(value: string): boolean {
+function knobBool(value: string): boolean {
   return /^(1|true|yes|on)$/i.test(value.trim());
 }
 

@@ -22,7 +22,7 @@ export type RunExportOptions = {
   maxChars?: number;
 };
 
-export const EXPORT_LIMITS = {
+const EXPORT_LIMITS = {
   maxChars: 60_000,
   errorBlock: 4_000,
   ioBlock: 2_000,
@@ -35,7 +35,7 @@ export const EXPORT_LIMITS = {
 // Small helpers
 
 /** Cap text and say how much was cut. */
-export function clip(text: string, max: number): string {
+function clip(text: string, max: number): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max)}\n… [truncated ${text.length - max} chars]`;
 }
@@ -62,7 +62,7 @@ function fenced(text: string, lang = ""): string {
 const pad = (n: number, w = 2) => String(n).padStart(w, "0");
 
 /** "14:03:27" in the runtime's local zone. */
-export function hms(ms: number): string {
+function hms(ms: number): string {
   const d = new Date(ms);
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
@@ -82,7 +82,7 @@ function zoneLabel(ms: number): string {
 }
 
 /** "fix-login-redirect-bug" (ascii, max 48 chars, never empty). */
-export function slugify(text: string): string {
+function slugify(text: string): string {
   const slug = text
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")

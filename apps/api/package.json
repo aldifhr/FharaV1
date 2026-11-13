@@ -14,7 +14,6 @@
     "@convex-dev/agent": "^0.7.9",
     "@convex-dev/ai-sdk-provider": "^0.3.0",
     "@fhara/config": "*",
-    "ai": "^7.0.163",
     "convex": "^1.49.0"
   },
   "devDependencies": {

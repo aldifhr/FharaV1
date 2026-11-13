@@ -36,7 +36,7 @@ const COPY = {
 
 type Copy = (typeof COPY)["en"];
 
-export function toolStepLabel(step: ChatToolStep, copy: Copy = COPY.en): string {
+function toolStepLabel(step: ChatToolStep, copy: Copy = COPY.en): string {
   const target = step.target ?? "";
   switch (step.tool) {
     case "list_files":

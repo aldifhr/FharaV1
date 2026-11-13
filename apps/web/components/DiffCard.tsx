@@ -10,7 +10,7 @@ import { parseDiff } from "@/lib/lineComments";
 // original react-diff-viewer only supports React 16.)
 const DiffViewer = dynamic(() => import("react-diff-viewer-continued"), { ssr: false });
 
-export type FileChangeType = "new" | "modified" | "deleted";
+type FileChangeType = "new" | "modified" | "deleted";
 
 /** Count added/removed lines in a unified diff (skips file/hunk headers). */
 export function countLines(diff: string): { added: number; removed: number } {
@@ -57,7 +57,7 @@ type Props = {
 };
 
 /** "site/lib/pricing.ts" → dimmed directory + bold file name. */
-export function PathLabel({ path }: { path: string }) {
+function PathLabel({ path }: { path: string }) {
   const at = path.lastIndexOf("/");
   const dir = at >= 0 ? path.slice(0, at + 1) : "";
   const file = at >= 0 ? path.slice(at + 1) : path;

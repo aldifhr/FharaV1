@@ -26,7 +26,7 @@ export type ChatOption = {
 export type LayoutRow = { label: string; weight: number }[];
 
 /** Parses the layout field; returns undefined when it is not one. */
-export function parseLayout(spec: string | undefined): LayoutRow[] | undefined {
+function parseLayout(spec: string | undefined): LayoutRow[] | undefined {
   if (!spec || !/[+/]/.test(spec)) return undefined;
   const rows = spec
     .split("/")

@@ -35,7 +35,7 @@ import type { MessageHistory } from "@/lib/useMessageHistory";
 
 /** References the reply cites that no repo check in it showed: one quiet line, never hidden. */
 const UNVERIFIED_SHOWN = 6;
-export function unverifiedRefsLabel(refs: string[]): string {
+function unverifiedRefsLabel(refs: string[]): string {
   const shown = refs.slice(0, UNVERIFIED_SHOWN).join(", ");
   const more = refs.length - UNVERIFIED_SHOWN;
   return `Unverified: ${shown}${more > 0 ? ` +${more} more` : ""}`;

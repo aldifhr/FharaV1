@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { useState } from "react";
 import { api } from "@/api/convex/_generated/api";
 import { roleLabel } from "@/lib/agentRoles";

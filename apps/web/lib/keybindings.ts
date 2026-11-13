@@ -8,8 +8,8 @@
  */
 import { useEffect, useState } from "react";
 
-export const KEYBINDINGS_STORAGE_KEY = "fhara:keybindings";
-export const KEYBINDINGS_EVENT = "fhara:keybindings-changed";
+const KEYBINDINGS_STORAGE_KEY = "fhara:keybindings";
+const KEYBINDINGS_EVENT = "fhara:keybindings-changed";
 
 export const KEYBINDING_ACTIONS = [
   { id: "commandMenu", label: "Open command menu", scope: "Global", defaultChord: "Mod+K" },
@@ -108,7 +108,7 @@ export function chordConflicts(bindings: Keybindings, id: KeybindingId, chord: s
   return KEYBINDING_ACTIONS.filter((a) => a.id !== id && normalizeChord(bindings[a.id]) === normalized).map((a) => a.id);
 }
 
-export function readKeybindings(): Keybindings {
+function readKeybindings(): Keybindings {
   if (typeof window === "undefined") return defaultKeybindings();
   try {
     return parseKeybindings(window.localStorage.getItem(KEYBINDINGS_STORAGE_KEY));

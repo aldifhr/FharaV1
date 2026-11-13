@@ -24,7 +24,7 @@ function lastRunText(job: Job): string {
   return `${label} ${when}${job.trigger === "manual" ? " (manual)" : ""}`;
 }
 
-export function AutomationHoldRow() {
+function AutomationHoldRow() {
   const hold = useQuery(api.appSettings.automationHold, {});
   const setHold = useMutation(api.appSettings.setAutomationHold);
   const toast = useToast();

@@ -7,7 +7,7 @@ import { api } from "@/api/convex/_generated/api";
 import { useToast } from "./Toasts";
 
 /** Statuses Pause applies to (plan 022); waiting states already wait on the user. */
-export function canPause(status: string | undefined): boolean {
+function canPause(status: string | undefined): boolean {
   return status === "running" || status === "queued";
 }
 

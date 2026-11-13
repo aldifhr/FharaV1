@@ -22,7 +22,6 @@ import { sidebarNavLinks } from "./sidebar/navLinks";
 import { AccountRow, SearchBox, SidebarHeader, useShellChords } from "./sidebar/SidebarChrome";
 import { agentName } from "@/lib/agentRoles";
 import { useOptionalWorkspace } from "@/app/WorkspaceContext";
-import { onFocusTeam } from "@/lib/shellEvents";
 import { useUiPref } from "@/lib/uiPrefs";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 
@@ -76,7 +75,6 @@ export default function Sidebar({
   const [detail, setDetail] = useState<any>(null);
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const [confirmPending, setConfirmPending] = useState(false);
-  const teamRef = useRef<HTMLElement>(null);
   const activityRef = useRef<HTMLButtonElement>(null);
   const toggleSection = (key: keyof Sections) => setOpen((s) => ({ ...s, [key]: !s[key] }));
 
@@ -94,17 +92,6 @@ export default function Sidebar({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [drawerOpen, closeDrawer]);
-
-  // "Team" requests from elsewhere: expand and reveal the team list.
-  useEffect(
-    () =>
-      onFocusTeam(() => {
-        setCollapsedPref(false);
-        setOpen((s) => ({ ...s, team: true }));
-        requestAnimationFrame(() => teamRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
-      }),
-    [setCollapsedPref],
-  );
 
   const runConfirmed = async (work: () => Promise<unknown>, success: [string, string?], failure: string) => {
     setConfirmPending(true);
@@ -278,7 +265,6 @@ export default function Sidebar({
                 onRemove={askRemoveProject}
               />
               <TeamList
-                ref={teamRef}
                 projectId={projectId}
                 filter=""
                 open={open.team}

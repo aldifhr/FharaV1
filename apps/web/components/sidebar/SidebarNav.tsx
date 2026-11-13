@@ -10,7 +10,7 @@ import { readUiPref } from "@/lib/uiPrefs";
 export type NavIcon = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
 /** Thin line icons, one size everywhere in the sidebar. */
-export const ICON_SIZE = 16;
+const ICON_SIZE = 16;
 export const ICON_STROKE = 1.6;
 
 const rowBase =

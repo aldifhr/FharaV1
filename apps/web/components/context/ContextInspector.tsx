@@ -11,11 +11,11 @@ import { clockTime } from "@/lib/format";
 import { formatDuration, formatTokens } from "@/lib/runFormat";
 import CallStats from "./CallStats";
 
-export function callRoleLabel(role: string): string {
+function callRoleLabel(role: string): string {
   return CALL_ROLE_LABELS[role as CallRole] ?? role;
 }
 
-export function useCopy() {
+function useCopy() {
   const toast = useToast();
   return async (text: string, what: string) => {
     try {

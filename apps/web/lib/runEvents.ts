@@ -17,7 +17,7 @@ export type RawEvent = {
 };
 
 /** Same cap runs.get puts on message and payload text. */
-export const RAW_EVENT_TEXT_CAP = 2_000;
+const RAW_EVENT_TEXT_CAP = 2_000;
 
 const cap = (text: string | undefined | null): string | null =>
   text == null ? null : text.length > RAW_EVENT_TEXT_CAP ? `${text.slice(0, RAW_EVENT_TEXT_CAP)}…` : text;

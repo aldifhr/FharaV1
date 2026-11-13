@@ -12,7 +12,7 @@ const TONES = [
   "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15",
 ];
 
-export function projectTone(name: string): string {
+function projectTone(name: string): string {
   return pickByName(name, TONES);
 }
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 /** "12s", "3m", "1h" since a timestamp. */
-export function elapsedLabel(fromMs: number, nowMs: number): string {
+function elapsedLabel(fromMs: number, nowMs: number): string {
   const s = Math.max(0, Math.floor((nowMs - fromMs) / 1000));
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);

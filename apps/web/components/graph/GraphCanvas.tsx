@@ -52,7 +52,7 @@ function clip(box: Box, tx: number, ty: number): { x: number; y: number } {
   return { x: cx + dx * t, y: cy + dy * t };
 }
 
-export function edgePath(
+function edgePath(
   a: Box,
   b: Box,
   route: "horizontal" | "direct"

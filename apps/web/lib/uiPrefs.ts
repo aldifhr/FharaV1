@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
-export const PREFS_EVENT = "fhara:prefs-changed";
+const PREFS_EVENT = "fhara:prefs-changed";
 
 type PrefSpec<T> = { key: string; defaultValue: T; parse: (raw: string) => T | undefined };
 
@@ -32,7 +32,7 @@ const text = (key: string, defaultValue: string, maxLength = 500): PrefSpec<stri
   parse: (raw) => (raw.length <= maxLength ? raw : undefined),
 });
 
-export const UI_PREFS = {
+const UI_PREFS = {
   /** Diffs: side-by-side or unified. */
   diffView: oneOf("fhara:diff-view", "unified", ["unified", "split"] as const),
   /** Diffs: only changed hunks, or the whole file (full-file viewer). */
@@ -78,7 +78,7 @@ export function readUiPref<K extends UiPrefKey>(key: K): UiPrefValue<K> {
   }
 }
 
-export function writeUiPref<K extends UiPrefKey>(key: K, value: UiPrefValue<K>): void {
+function writeUiPref<K extends UiPrefKey>(key: K, value: UiPrefValue<K>): void {
   const spec = UI_PREFS[key];
   try {
     if (value === spec.defaultValue) window.localStorage.removeItem(spec.key);

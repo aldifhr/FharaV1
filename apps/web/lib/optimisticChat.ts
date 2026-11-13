@@ -4,7 +4,7 @@
  * by the server row carrying the same `clientId` once the mutation commits.
  */
 
-export const OPTIMISTIC_PREFIX = "optimistic:";
+const OPTIMISTIC_PREFIX = "optimistic:";
 
 export type SendArgs = {
   /** Absent in a personal chat (plan 039): its rows carry no project. */

@@ -15,7 +15,7 @@ import { useToast } from "./Toasts";
  * thread list, the task and the active conversation), and a failed save
  * rolls back with a toast. Rename is not destructive, so nothing confirms.
  */
-export function useRenameThread() {
+function useRenameThread() {
   const toast = useToast();
   const rename = useMutation(api.threads.rename).withOptimisticUpdate((store, args) => {
     const title = args.title.replace(/\s+/g, " ").trim();
@@ -58,7 +58,7 @@ const stop = (e: SyntheticEvent) => e.stopPropagation();
  * (or cancels when the text is blank). An empty or whitespace title is
  * refused with a note and the field stays open.
  */
-export function RenameInput({
+function RenameInput({
   value,
   label,
   onSave,

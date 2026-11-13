@@ -42,31 +42,3 @@ export async function expectNoRuntimeError(page: Page): Promise<void> {
 export async function waitForData(page: Page, text: string | RegExp): Promise<void> {
   await expect(page.getByText(text).first()).toBeVisible({ timeout: 20_000 });
 }
-
-/** Console/page errors collected during a test, for the no-errors assertions. */
-export function collectPageErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on("pageerror", (err) => errors.push(`pageerror: ${err.message}`));
-  page.on("console", (msg) => {
-    if (msg.type() === "error") errors.push(`console: ${msg.text()}`);
-  });
-  return errors;
-}
-
-/** Open the command palette from the icon rail and wait for its input. */
-export async function openCommandMenu(page: Page): Promise<void> {
-  const rail = page.getByRole("navigation").first();
-  await rail.getByRole("button", { name: "Search" }).click();
-  await expect(page.getByPlaceholder("Search projects, tasks, agents…")).toBeVisible();
-}
-
-/**
- * Resolve the first project's id from the sidebar. Returns null when the
- * deployment has no projects, so callers can skip data-dependent assertions.
- */
-export async function firstProjectHref(page: Page): Promise<string | null> {
-  const link = page.locator("aside a[href^='/chats/']").first();
-  await expect(link).toBeVisible({ timeout: 20_000 });
-  const href = await link.getAttribute("href");
-  return href;
-}

@@ -11,7 +11,7 @@ export const PHASES = [
   { key: "done", label: "Closed" },
 ] as const;
 
-export function kindToPhase(kind: string): string {
+function kindToPhase(kind: string): string {
   if (kind === "review") return "review";
   if (kind === "qa") return "verification";
   if (kind === "analysis" || kind === "research") return "planning";

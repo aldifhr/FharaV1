@@ -277,7 +277,7 @@ function GenericApprovalCard({
 }
 
 /** Staged-secret findings on an approval payload, or null when it carries no `secret_detected` flag. */
-export function secretDetectedFindings(payload: unknown): { filePath: string; reasons: string[] }[] | null {
+function secretDetectedFindings(payload: unknown): { filePath: string; reasons: string[] }[] | null {
   const p = payload as { flags?: unknown; secretFindings?: unknown } | null | undefined;
   if (!p || !Array.isArray(p.flags) || !p.flags.includes("secret_detected")) return null;
   const raw = Array.isArray(p.secretFindings) ? p.secretFindings : [];

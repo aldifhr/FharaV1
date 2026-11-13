@@ -9,7 +9,7 @@
  * ⌘K and deep links.)
  */
 
-export type ThreadKind = "task" | "conversation";
+type ThreadKind = "task" | "conversation";
 
 /** One `threads.list` row plus the project it came from. */
 export type ThreadItem = {

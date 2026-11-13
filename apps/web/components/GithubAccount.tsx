@@ -18,7 +18,7 @@ const PRIMARY_BTN =
  * Toasts for the OAuth popup's postMessage. Only messages from this app's
  * own origin count (the callback page posts to the web app origin).
  */
-export function useGithubOAuthMessages() {
+function useGithubOAuthMessages() {
   const toast = useToast();
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {

@@ -21,7 +21,7 @@
 
 export type ActivityCategory = "edit" | "check" | "delegate" | "read";
 
-export const CATEGORY_ORDER: ActivityCategory[] = ["edit", "check", "delegate", "read"];
+const CATEGORY_ORDER: ActivityCategory[] = ["edit", "check", "delegate", "read"];
 
 export interface ActivityMessageLike {
   _id: string;

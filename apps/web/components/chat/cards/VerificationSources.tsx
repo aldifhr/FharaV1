@@ -15,7 +15,7 @@ const AGENT: Record<VerificationCardData["outcome"], { status: StepStatus; label
   inconclusive: { status: "not_run", label: "Inconclusive" },
 };
 
-export function hostCheckWord(host: HostCheckCardData): { status: StepStatus; label: string } {
+function hostCheckWord(host: HostCheckCardData): { status: StepStatus; label: string } {
   switch (host.status) {
     case "passed":
       return { status: "passed", label: "Passed" };

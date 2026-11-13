@@ -28,6 +28,7 @@ import Observations from "@/components/runs/Observations";
 import Decisions from "@/components/runs/Decisions";
 import RawEvents from "@/components/runs/RawEvents";
 import TaskBrief from "@/components/runs/TaskBrief";
+import TaskStopButton from "@/components/TaskStopButton";
 import { MODEL_TIER_LABELS, type ModelTierKey } from "@/api/convex/lib/modelTiers";
 import { formatEstimateLine } from "@/api/convex/lib/estimate";
 import {
@@ -543,7 +544,12 @@ export default function RunTracePage() {
                   tone: statusTone(isParkedLegacyDirect(run.task.status, run.task) ? "idle" : run.task.status),
                   label: taskStatusLabel(run.task.status, run.task),
                 }}
-                actions={<ExportMenu run={run} />}
+                actions={
+                  <div className="flex items-center gap-2">
+                    <TaskStopButton task={run.task as any} />
+                    <ExportMenu run={run} />
+                  </div>
+                }
                 meta={
                 <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-ink-2">
                   <span className="tabular-nums">{formatDuration(duration)}</span>

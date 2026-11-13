@@ -386,6 +386,40 @@ describe("processTask deadline (Phase 4)", () => {
   });
 });
 
+describe("processTask user Stop", () => {
+  const onePlan = () =>
+    planWith([
+      { key: "implement", title: "Implement", description: "Write the file", kind: "code_change", capability: "frontend-development", dependencies: [], order: 0 },
+    ]);
+
+  it("tasks.cancel (status cancelled) aborts the running subtask through the DAG poll and ends cancelled", async () => {
+    mockState.mode = "hang";
+    const { deps, captured, task } = createDeps(onePlan(), [implementer(1)]);
+    // The DAG's own status poll alone (no getTaskStatus on this api): it
+    // ignored "cancelled" before, so the hang ran to its 4 s safety net.
+    setTimeout(() => ((task as { status: string }).status = "cancelled"), 200);
+    const started = Date.now();
+    await processTask(task, deps);
+    expect(mockState.sawAbort).toBe(true);
+    expect(Date.now() - started).toBeLessThan(3_500);
+    expect(captured.completions).toHaveLength(1);
+    expect(captured.completions[0]).toMatchObject({ status: "cancelled", errorMessage: "Cancelled by user" });
+  });
+
+  it("the run's own status poll (getTaskStatus) aborts too", async () => {
+    mockState.mode = "hang";
+    const { deps, captured, task } = createDeps(onePlan(), [implementer(1)]);
+    const status = { value: "running" };
+    (deps.api as unknown as { getTaskStatus: () => Promise<string> }).getTaskStatus = async () => status.value;
+    setTimeout(() => (status.value = "cancelled"), 200);
+    const started = Date.now();
+    await processTask(task, deps);
+    expect(mockState.sawAbort).toBe(true);
+    expect(Date.now() - started).toBeLessThan(3_500);
+    expect(captured.completions[0]).toMatchObject({ status: "cancelled", errorMessage: "Cancelled by user" });
+  });
+});
+
 describe("processTask recovery (Phase 4)", () => {
   it("does not re-execute subtasks the DB already marks completed", async () => {
     const plan = planWith([

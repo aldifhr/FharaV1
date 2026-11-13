@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, ArrowUpRight, Minimize2, Square } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Minimize2 } from "lucide-react";
 import { InspectorHeader } from "@/components/ui/inspector";
 import { StatusTag } from "@/components/ui/status-tag";
 import { EditableTitle } from "./ThreadRename";
 import PauseResumeButton from "./PauseResumeButton";
+import TaskStopButton from "./TaskStopButton";
 import { taskStatusLabel } from "@/lib/taskStatus";
 import { taskStatusTone } from "@/lib/taskStatusTone";
 import { isWidePanel, toggledPanelWidth } from "@/lib/useResizablePanel";
@@ -38,7 +39,6 @@ export default function TaskThreadHeader({
   width,
   onWidthChange,
   onClose,
-  onStop,
 }: {
   task: any;
   projectName?: string;
@@ -47,7 +47,6 @@ export default function TaskThreadHeader({
   width: number;
   onWidthChange: (width: number) => void;
   onClose: () => void;
-  onStop?: () => void;
 }) {
   const back = fullScreen ? (
     <button type="button" onClick={onClose} aria-label="Back to chat" className={`-ml-1 ${HEADER_BUTTON}`}>
@@ -106,11 +105,10 @@ export default function TaskThreadHeader({
           {running && task.mode !== "direct" && (
             <>
               <PauseResumeButton task={{ _id: task._id, title: task.title, status }} size={15} />
-              <button type="button" onClick={onStop} title="Stop task" aria-label="Stop task" className={`${HEADER_BUTTON} hover:text-danger`}>
-                <Square size={14} />
-              </button>
             </>
           )}
+          {/* Stop confirms in its own ConfirmDialog (TaskStopButton). */}
+          <TaskStopButton task={task} />
           {widen}
         </>
       }

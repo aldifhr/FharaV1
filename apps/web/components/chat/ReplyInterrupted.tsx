@@ -88,3 +88,16 @@ export function ReplyCutOff({ messageId, reason }: { messageId: string; reason?:
     </div>
   );
 }
+
+/**
+ * Neutral line for a reply the user stopped (composer Stop): no retry, no
+ * warning colour. Under the bubble that was streaming, or under the user's
+ * message when the reply had not shown anything yet.
+ */
+export function ReplyStopped({ align = "start" }: { align?: "start" | "end" }) {
+  return (
+    <div role="status" className={`mt-1 flex items-center text-[12px] text-ink-3 ${align === "end" ? "justify-end pr-1" : "pl-1"}`}>
+      Stopped
+    </div>
+  );
+}

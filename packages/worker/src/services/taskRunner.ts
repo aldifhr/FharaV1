@@ -29,7 +29,7 @@ import {
   toAgentDefinition,
   withFileContexts,
 } from "./runner/setup";
-import { armTaskAbort } from "./runner/abort";
+import { armTaskAbort, taskStatusReader } from "./runner/abort";
 import {
   failStepLimit,
   failTaskWithError,
@@ -281,7 +281,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
   // the deadline and a task cancelled during planning never executes a
   // fresh plan.
   const llmTaskGate = new LlmConcurrencyGate(deps.policy.maxConcurrentLLMCalls);
-  const taskAbort = armTaskAbort(deps.policy, deps.shutdownSignal);
+  const taskAbort = armTaskAbort(deps.policy, deps.shutdownSignal, taskStatusReader(deps, task._id));
   const signal = taskAbort.controller.signal;
   const cancel = () => finishCancelledTask({ deps, task, project, signal });
   const fail = (message: string) =>

@@ -171,7 +171,7 @@ export default function TaskThreadPanel({
   }
 
   const surface = fullScreen ? "sheet" : "docked";
-  const header = (extra: { needsYou?: boolean; onStop?: () => void } = {}) => (
+  const header = (extra: { needsYou?: boolean } = {}) => (
     <TaskThreadHeader
       task={task}
       projectName={(project as any)?.name}
@@ -401,7 +401,7 @@ export default function TaskThreadPanel({
         transition={{ duration: 0.2, ease: "easeOut" }}
         className="flex h-full min-h-0 flex-col overflow-hidden"
       >
-        {header({ needsYou, onStop: askCancel })}
+        {header({ needsYou })}
         <InspectorTabs
           value={threadView}
           onChange={setThreadView}

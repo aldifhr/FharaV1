@@ -25,7 +25,7 @@ import { useToast } from "../Toasts";
 import { QuotedSnippet, quoteOf } from "./QuoteBlock";
 import { ChatOpinionLine, useChatOpinions, useRequestMessageOpinion } from "../review/Reviewer";
 import ContextDrawer from "../context/ContextDrawer";
-import ReplyInterrupted, { ReplyCutOff } from "./ReplyInterrupted";
+import ReplyInterrupted, { ReplyCutOff, ReplyStopped } from "./ReplyInterrupted";
 import { CheckedFilesLine, checkedFilesLabel, delegationParts, messageKindOf } from "./messageKinds";
 import SystemLineRow from "./SystemLineRow";
 import { systemLineText } from "@/lib/systemLine";
@@ -120,6 +120,11 @@ export default function MessageList(props: Props) {
     for (const m of timeline) if (m.authorType === "agent" && m.interrupted && m.replyToMessageId) ids.add(String(m.replyToMessageId));
     return ids;
   }, [timeline]);
+  // Stop: user messages whose stopped reply shows "Stopped" on its own bubble.
+  const stoppedFor = useMemo(
+    () => new Set(timeline.filter((m: any) => m.authorType === "agent" && m.stopped && m.replyToMessageId).map((m: any) => String(m.replyToMessageId))),
+    [timeline],
+  );
 
   // The newest teammate reply offers "Create task" when it answers an option
   // pick or carries a server-stored offer.
@@ -369,6 +374,7 @@ export default function MessageList(props: Props) {
       {m.replyStatus === "failed" && !interruptedFor.has(String(m._id)) && (
         <ReplyInterrupted userMessageId={String(m._id)} reason={m.error} align="end" />
       )}
+      {m.replyStatus === "stopped" && !stoppedFor.has(String(m._id)) && <ReplyStopped align="end" />}
     </div>
   );
 
@@ -533,6 +539,7 @@ export default function MessageList(props: Props) {
           );
         })()}
         {m.interrupted && m.replyToMessageId && <ReplyInterrupted userMessageId={String(m.replyToMessageId)} />}
+        {m.stopped && <ReplyStopped />}
         {m.cutOff && !m.streaming && <ReplyCutOff messageId={String(m._id)} reason={m.cutOff.reason} />}
         {m.card && (
           <div className="mt-2 max-w-3xl">

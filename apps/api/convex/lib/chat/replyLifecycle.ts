@@ -24,7 +24,7 @@ export function chatReplyStaleMs(raw: string | undefined = cenvRaw("CHAT_REPLY_S
   return cenvParse("CHAT_REPLY_STALE_MS", raw);
 }
 
-export type ReplyStatus = "pending" | "replying" | "answered" | "failed";
+export type ReplyStatus = "pending" | "replying" | "answered" | "failed" | "stopped";
 
 /**
  * May a new replyToChat run claim this user message?

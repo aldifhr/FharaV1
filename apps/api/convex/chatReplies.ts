@@ -1,4 +1,4 @@
-import { internalMutation, mutation } from "./_generated/server";
+import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
@@ -15,6 +15,7 @@ import {
 import { loadSettingValues } from "./appSettings";
 import { insertChatUserMessage } from "./chatContext";
 import { settingFrom } from "./lib/appSettings";
+import { replyStopRequested as stopRequested } from "./lib/chat/replyStop";
 
 /**
  * Chat reply lifecycle (t3code idea #1: durable effect with lease, settle and
@@ -235,4 +236,41 @@ export const continueReply = mutation({
     });
     return { continued: true as const, userMessageId };
   },
+});
+
+/**
+ * Composer Stop (lib/chat/replyStop.ts): stop the reply to one user message
+ * while it is pending or streaming. Settles the message as "stopped" (the
+ * run's later settle is a no-op), keeps streamed text in its bubble marked
+ * `stopped`, and drops bubbles that had nothing yet. The running action sees
+ * the flag on its next poll and aborts its LLM call; until then every write it
+ * tries is refused (chatContext guards).
+ */
+export const stopReply = mutation({
+  args: { messageId: v.id("messages") },
+  handler: async (ctx, args) => {
+    const message = await ctx.db.get(args.messageId);
+    if (!message) throw new Error("Message not found");
+    await assertMessageAccess(ctx, message);
+    if (message.authorType !== "user") throw new Error("Only a reply to your message can be stopped");
+    const replies = await ctx.db
+      .query("messages")
+      .withIndex("by_reply_to", (q) => q.eq("replyToMessageId", message._id))
+      .take(50);
+    const live = replies.filter((r) => r.streaming === true);
+    const inFlight = message.replyStatus === "pending" || message.replyStatus === "replying" || live.length > 0;
+    if (!inFlight || message.replyStatus === "stopped") return { stopped: false as const };
+    for (const reply of live) {
+      if (!reply.content.trim() && !reply.card) await ctx.db.delete(reply._id);
+      else await ctx.db.patch(reply._id, { streaming: false, stopped: true });
+    }
+    await ctx.db.patch(message._id, { replyStatus: "stopped", replyLeaseExpiresAt: undefined, error: undefined });
+    return { stopped: true as const };
+  },
+});
+
+/** Polled by a running reply (lib/chat/replyRun.ts): should the run holding `runId` stop? */
+export const replyStopRequested = internalQuery({
+  args: { userMessageId: v.id("messages"), runId: v.string() },
+  handler: async (ctx, args) => stopRequested(await ctx.db.get(args.userMessageId), args.runId),
 });

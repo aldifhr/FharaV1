@@ -1,6 +1,6 @@
 {
   "apps/api/convex/chat.ts": {
-    "lines": 1357
+    "lines": 1340
   },
   "apps/api/convex/githubPush.ts": {
     "lines": 846
@@ -187,7 +187,7 @@
     "lines": 937
   },
   "packages/worker/src/services/runner/runNodes.ts": {
-    "lines": 843
+    "lines": 840
   },
   "packages/worker/tests/dagScheduler.test.ts": {
     "lines": 820

@@ -13,6 +13,18 @@ import { describeEndpoint, endpointCandidates, llmHttpError, wireProtocolFor } f
 import { ChatStreamError, chatStreamLimits, readWithLimits, withPartial, type ChatStreamLimits, type PartialReply } from "./streamLimits";
 import { mergeRawUsage, normalizeAnthropicUsage, normalizeOpenAiUsage, type UsageBreakdown } from "../usageLedger";
 import { asDroppedConnection, formatTimeoutLimit } from "../llmWireErrors";
+import { ChatStoppedError } from "./replyStop";
+
+/** Rejects with ChatStoppedError as soon as `signal` aborts (a body read that ignores the fetch signal). */
+function untilStopped<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return work;
+  if (signal.aborted) return Promise.reject(new ChatStoppedError());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new ChatStoppedError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
 
 /**
  * Endpoint + credentials for one chat completion. `fallbacks` is the rest
@@ -33,8 +45,8 @@ export type ChatLlmConfig = LlmEndpointConfig & ServedIdentity & {
 };
 export { getGlobalLLMConfig };
 
-/** Per-call options: sampling temperature (unset = provider default) and stream limits (tests; default from config). */
-export type ChatCallOptions = { temperature?: number; limits?: ChatStreamLimits };
+/** Per-call options: sampling temperature (unset = provider default), stream limits (tests; default from config) and the user's Stop. */
+export type ChatCallOptions = { temperature?: number; limits?: ChatStreamLimits; signal?: AbortSignal };
 
 interface StreamChunk {
   content: string;
@@ -124,6 +136,7 @@ export async function completeWithAgent(
   onChunk?: (partial: StreamChunk) => void,
   opts?: ChatCallOptions,
 ): Promise<CompleteResult> {
+  if (opts?.signal?.aborted) throw new ChatStoppedError();
   const { fallbacks, ...first } = globalConfig;
   if (!fallbacks || fallbacks.length === 0) {
     const only = await completeOnce(system, history, first, onChunk, opts);
@@ -151,6 +164,8 @@ export async function completeWithAgent(
       }
       return { ...result, servedBy: servedIdentity(config) };
     } catch (error) {
+      // A user Stop never fails over to the next model.
+      if (opts?.signal?.aborted || error instanceof ChatStoppedError) throw new ChatStoppedError();
       recordChatFailure(config.connectionId, error);
       if (streamed || isRequestScopedError(error) || index === ordered.length - 1) {
         if (errors.length === 0) throw error;
@@ -192,6 +207,10 @@ async function completeOnce(
   const doFetch = async (url: string, init: RequestInit, timeoutMs = limits.idleMs): Promise<Response> => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    // A user Stop aborts the request and, through the same signal, its streamed body.
+    const stop = opts?.signal;
+    if (stop?.aborted) ctrl.abort();
+    else stop?.addEventListener("abort", () => ctrl.abort(), { once: true });
     try {
       const res = await fetch(url, { ...init, signal: ctrl.signal });
       if (!res.ok && res.status >= 500 && timeoutMs > 0) {
@@ -202,6 +221,7 @@ async function completeOnce(
       }
       return res;
     } catch (error) {
+      if (stop?.aborted) throw new ChatStoppedError();
       // The gateway sometimes takes longer than the old 30s to answer; a
       // raw AbortError reads as "This operation was aborted" in the UI.
       if (ctrl.signal.aborted) {
@@ -285,9 +305,10 @@ async function completeOnce(
     for (;;) {
       let next: ReadableStreamReadResult<Uint8Array>;
       try {
-        next = await readWithLimits(() => reader.read(), limits, deadline);
+        next = await readWithLimits(() => untilStopped(reader.read(), opts?.signal), limits, deadline);
       } catch (error) {
         reader.cancel().catch(() => undefined);
+        if (opts?.signal?.aborted) throw new ChatStoppedError();
         // undici's bare "terminated" (socket closed mid-body) is named as a
         // dropped connection before it is wrapped (DeepSeek Harness D2).
         throw withPartial(asDroppedConnection(error, `${describeEndpoint(globalConfig)}, model "${model}"`) ?? error, partialNow());

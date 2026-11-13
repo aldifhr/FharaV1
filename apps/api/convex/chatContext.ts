@@ -13,6 +13,7 @@ import { loadMemorySection, loadRecalledSection } from "./memories";
 import { extractAgentMentions } from "./lib/chat/team";
 import { stripLeakedToolCallTags } from "./lib/chat/strip";
 import { isContinueRequest } from "./lib/chat/continueReply";
+import { ChatStoppedError } from "./lib/chat/replyStop";
 import { chatScopeOf, type ChatScope } from "./lib/conversationShape";
 import { effectiveTeamIds, projectTeamIds } from "./lib/projectTeam";
 import { isSystemLine, normalizeSystemLine, SYSTEM_VOICE } from "./lib/systemLine";
@@ -95,6 +96,12 @@ export async function insertChatUserMessage(
   });
 }
 
+/** The user pressed Stop on the reply to this message (lib/chat/replyStop.ts): a late run writes nothing more. */
+async function replyStopped(ctx: MutationCtx, replyToMessageId: Id<"messages"> | undefined): Promise<boolean> {
+  if (!replyToMessageId) return false;
+  return (await ctx.db.get(replyToMessageId))?.replyStatus === "stopped";
+}
+
 export const insertAgentMessage = internalMutation({
   args: {
     // Absent for a personal chat reply (plan 039 D1).
@@ -114,6 +121,7 @@ export const insertAgentMessage = internalMutation({
   handler: async (ctx, args) => {
     const content = stripLeakedToolCallTags(args.content.trim());
     if (!content && !args.card) return null;
+    if (await replyStopped(ctx, args.replyToMessageId)) return null;
     // A reply that finishes after its conversation was deleted has nowhere to go.
     if (args.conversationId && !(await ctx.db.get(args.conversationId))) return null;
     return await ctx.db.insert("messages", {
@@ -146,6 +154,7 @@ export const insertSystemLine = internalMutation({
   handler: async (ctx, args) => {
     const content = normalizeSystemLine(args.content);
     if (!content && !args.card) return null;
+    if (await replyStopped(ctx, args.replyToMessageId)) return null;
     return await ctx.db.insert("messages", {
       ...(args.projectId ? { projectId: args.projectId } : {}),
       authorType: "agent",
@@ -223,6 +232,8 @@ export const createStreamingAgentMessage = internalMutation({
     intentLine: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // Thrown, not null: the run needs an id to stream into, and it ends quietly once stopped (lib/chat/replyRun.ts).
+    if (await replyStopped(ctx, args.replyToMessageId)) throw new ChatStoppedError();
     return await ctx.db.insert("messages", {
       ...(args.projectId ? { projectId: args.projectId } : {}),
       agentId: args.agentId,
@@ -253,6 +264,8 @@ export const updateStreamingAgentMessage = internalMutation({
   },
   handler: async (ctx, args) => {
     const { messageId, clearCutOff, ...patch } = args;
+    // A stopped bubble keeps what it showed when Stop was pressed: no late text, offer or cut-off.
+    if ((await ctx.db.get(messageId))?.stopped) return null;
     const cleaned: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(patch)) {
       if (value !== undefined) cleaned[key] = value;
@@ -281,7 +294,7 @@ export const appendToolStep = internalMutation({
   },
   handler: async (ctx, args) => {
     const message = await ctx.db.get(args.messageId);
-    if (!message) return null;
+    if (!message || message.stopped) return null;
     const steps = message.toolSteps ?? [];
     if (steps.length >= MAX_TOOL_STEPS) return null;
     await ctx.db.patch(args.messageId, { toolSteps: [...steps, args.step] });

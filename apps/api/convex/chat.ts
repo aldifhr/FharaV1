@@ -62,7 +62,7 @@ import { firstReasoningSentence, intentLineFor, stripInternalPhrasing, toolStepF
 import { completeWithSnapshot, type ChatSnapshotScope } from "./lib/chat/snapshot";
 import { readRepoSnapshot } from "./lib/chat/repoSnapshot";
 import { quoteContextLine, quotedResponderId } from "./lib/chat/quote";
-import { replyFailureText } from "./lib/chat/replyLifecycle";
+import { runDurableReply } from "./lib/chat/replyRun";
 import { chatFailureText, historyBefore, isContinueRequest, keptPartial } from "./lib/chat/continueReply";
 import { TRUNCATED_CUT_OFF, keepCutReply, runContinueTurn } from "./lib/chat/continueTurn";
 import { personalNoTaskReply, type ChatScope } from "./lib/conversationShape";
@@ -520,12 +520,8 @@ export const replyToChat = internalAction({
     permissionMode: v.optional(permissionModeValidator),
   },
   handler: async (ctx, rawArgs) => {
-    // Durable reply (t3code idea #1): the "already replied?" check and the claim are one mutation, so a
-    // double-scheduled run returns here before it creates a bubble. The claim is settled answered/failed below; a run
-    // killed by the 10-minute Node cap is settled by chatReplies.sweepStale.
-    const claim = await ctx.runMutation(internal.chatReplies.claimReply, { userMessageId: rawArgs.userMessageId });
-    if (!claim.claimed) return;
-    try {
+    // Durable reply + Stop (lib/chat/replyRun.ts): claim, run, settle; a user Stop aborts the run's LLM calls.
+    await runDurableReply(ctx, rawArgs.userMessageId, async () => {
       const scope = await ctx.runQuery(internal.chatContext.getChatScope, {
         userMessageId: rawArgs.userMessageId,
         ...(rawArgs.conversationId ? { conversationId: rawArgs.conversationId } : {}),
@@ -535,19 +531,6 @@ export const replyToChat = internalAction({
       // The project comes from the conversation row (rule PC-S1), never
       // from the scheduler argument alone.
       await answerChat(ctx, rawArgs, scope);
-    } catch (error) {
-      await ctx.runMutation(internal.chatReplies.settleReply, {
-        userMessageId: rawArgs.userMessageId,
-        runId: claim.runId,
-        outcome: "failed",
-        error: replyFailureText(error),
-      });
-      throw error;
-    }
-    await ctx.runMutation(internal.chatReplies.settleReply, {
-      userMessageId: rawArgs.userMessageId,
-      runId: claim.runId,
-      outcome: "answered",
     });
   },
 });

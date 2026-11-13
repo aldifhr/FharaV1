@@ -144,6 +144,11 @@ export class WorkerApi {
     return await this.client.action(api.worker.getContext, this.args(input));
   }
 
+  /** Task Stop: the task's status alone (null once it is gone), polled by the run's abort. */
+  async getTaskStatus(taskId: string): Promise<string | null> {
+    return await this.client.action(api.taskStop.statusForWorker, this.args({ taskId: taskId as any }));
+  }
+
   async setPlanning(
     input: ActionInput<typeof api.worker.setPlanning>
   ): Promise<FunctionReturnType<typeof api.worker.setPlanning>> {

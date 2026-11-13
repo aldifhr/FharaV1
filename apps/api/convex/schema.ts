@@ -725,10 +725,10 @@ export default defineSchema({
     ),
     // Durable chat replies (t3code idea #1, idea only). A chat user message
     // carries its reply lifecycle: pending → replying (claimed by one
-    // replyToChat run) → answered | failed. The worker queue (queueStatus)
+    // replyToChat run) → answered | failed | stopped (Stop). The worker queue (queueStatus)
     // is not used for chat: nothing ever claimed those rows.
     replyStatus: v.optional(
-      v.union(v.literal("pending"), v.literal("replying"), v.literal("answered"), v.literal("failed"))
+      v.union(v.literal("pending"), v.literal("replying"), v.literal("answered"), v.literal("failed"), v.literal("stopped"))
     ),
     // The replyToChat run holding the claim and when it is presumed dead.
     replyRunId: v.optional(v.string()),
@@ -743,8 +743,8 @@ export default defineSchema({
     // Idempotent send (t3code idea #2): the composer's client id; a retried send with the same id returns this row.
     clientId: v.optional(v.string()),
     invokedSkills: invokedSkillsField, // Paradev C3: "/<skill>" — the reply inlines these for this turn only.
-    // Agent bubble whose run died (stale sweep / failed run): "Reply interrupted" + Retry.
-    interrupted: v.optional(v.boolean()),
+    // Agent bubble whose run died (stale sweep / failed run): "Reply interrupted" + Retry. `stopped`: the user pressed Stop.
+    interrupted: v.optional(v.boolean()), stopped: v.optional(v.boolean()),
     // Reply kept with its partial text: cut mid-stream or at the output limit. "Continue" appends (lib/chat/continueReply.ts).
     cutOff: v.optional(v.object({ kind: v.union(v.literal("interrupted"), v.literal("truncated")), reason: v.string() })),
     toAgentId: v.optional(v.id("agents")),

@@ -17,6 +17,7 @@ import {
   RotateCcw,
   SendHorizontal,
   Shield,
+  Square,
   SquareSlash,
   Sparkles,
   SquareCode,
@@ -36,6 +37,8 @@ import {
   type PermissionMode,
 } from "@/api/convex/lib/permissionModes";
 import SlashMenu from "./SlashMenu";
+import type { ReplyStop } from "./useReplyStop";
+import { stopLabel } from "@/lib/stopControl";
 import { ATTACH_MAX_BYTES, COMPOSER_MAX_CHARS, composeMessage, formatBytes, looksBinary, pasteAction, pastedName, utf8Bytes, type TextAttachment } from "@/lib/composerPaste";
 import { committedUsage, completeSlash, filterSlashEntries, runsOnEnter, slashMenuEntries, type SlashMenuEntry } from "@/lib/slashMenu";
 
@@ -99,6 +102,7 @@ export default function ChatComposer({
   placeholder,
   onKeyIntercept,
   slashCommands = DEFAULT_SLASH_ENTRIES,
+  stop = null,
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -138,6 +142,8 @@ export default function ChatComposer({
   onKeyIntercept?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => boolean;
   /** "/" menu rows from the shared registry (lib/slashMenu `slashMenuEntries`). */
   slashCommands?: SlashMenuEntry[];
+  /** The reply in flight (useReplyStop): a Stop button beside Send; the composer stays usable. */
+  stop?: ReplyStop | null;
 }) {
   const toast = useToast();
   const textareaRef = useAutoGrowRef([draft], 200);
@@ -697,12 +703,24 @@ export default function ChatComposer({
                 )}
               </div>
             )}
+            {stop && (
+              <button
+                type="button"
+                onClick={stop.onStop}
+                disabled={stop.stopping}
+                aria-label={stop.stopping ? "Stopping the reply" : "Stop the reply"}
+                className={`${queue.length > 0 || (permissionMode && onPermissionModeChange) ? "" : "ml-auto md:ml-0"} mr-1.5 flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-line px-2.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                <Square size={12} className="fill-current" aria-hidden />
+                {stopLabel(stop.stopping)}
+              </button>
+            )}
             <button
               type="button"
               onClick={send}
               disabled={sending || !canSend}
               aria-label="Send message"
-              className={`${queue.length > 0 || (permissionMode && onPermissionModeChange) ? "" : "ml-auto md:ml-0"} flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink text-canvas shadow-sm outline-none transition hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-40`}
+              className={`${stop || queue.length > 0 || (permissionMode && onPermissionModeChange) ? "" : "ml-auto md:ml-0"} flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink text-canvas shadow-sm outline-none transition hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-40`}
             >
               {sending ? <Loader2 size={16} className="animate-spin" /> : <SendHorizontal size={16} />}
             </button>

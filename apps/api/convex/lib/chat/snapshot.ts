@@ -9,6 +9,7 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { buildContextSnapshot, contextSnapshotsEnabled, estimateTokens, type CallRole } from "../contextSnapshot";
 import { completeWithAgent, type ChatLlmConfig, type CompleteResult } from "./llm";
+import { replyStopOf } from "./replyStop";
 import { recordChatUsage } from "./usage";
 import { DEFAULT_USER_TIME_ZONE, TimeContextThrottle, withTimeTail } from "../timeContext";
 
@@ -122,7 +123,11 @@ export async function completeWithSnapshot(
   const startedAt = Date.now();
   msgs = await chatTimeTail(ctx, scope, msgs, startedAt);
   try {
-    const result = await completeWithAgent(system, msgs, config, onChunk);
+    // A user Stop aborts this call (lib/chat/replyStop.ts): the flag is polled while it runs.
+    const stop = replyStopOf(ctx);
+    const result = stop
+      ? await stop.during(() => completeWithAgent(system, msgs, config, onChunk, { signal: stop.signal }))
+      : await completeWithAgent(system, msgs, config, onChunk);
     await recordChatSnapshot(ctx, scope, { system, msgs, config, response: result.content, durationMs: Date.now() - startedAt, result });
     await recordChatUsage(ctx, scope, { system, msgs, result, fallbackModel: config.model });
     return result;

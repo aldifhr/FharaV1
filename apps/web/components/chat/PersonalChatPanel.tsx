@@ -21,6 +21,8 @@ import { quoteOf, type ChatQuote } from "./QuoteBlock";
 import { useChatQueue } from "./useChatQueue";
 import AttachProjectDialog from "./AttachProjectDialog";
 import { useMessageHistory } from "@/lib/useMessageHistory";
+import { useReplyStop } from "./useReplyStop";
+import { isReplySettled } from "@/lib/stopControl";
 
 const NO_SUBTASKS = new Map<string, any[]>();
 const NONE: any[] = [];
@@ -172,7 +174,8 @@ export default function PersonalChatPanel({
     return () => clearInterval(id);
   }, []);
   const fresh = lastMessage ? now - lastMessage._creationTime < 300_000 : false;
-  const replySettled = lastMessage?.replyStatus === "answered" || lastMessage?.replyStatus === "failed";
+  const replySettled = isReplySettled(lastMessage?.replyStatus);
+  const replyStop = useReplyStop(timeline);
   const conversationTyping = lastMessage?.authorType === "user" && fresh && !replySettled;
 
   const wasTypingRef = useRef(false);
@@ -482,6 +485,7 @@ export default function PersonalChatPanel({
         <p className="shrink-0 border-t border-line px-6 py-4 text-[13px] text-ink-2">This chat is closed. Start a new chat to keep talking to {agentName}.</p>
       ) : (
         <ChatComposer
+          stop={replyStop}
           placeholder={`Message ${agentName}`}
           draft={draft}
           onDraftChange={setDraft}

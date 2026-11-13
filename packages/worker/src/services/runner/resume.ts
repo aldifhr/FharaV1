@@ -23,7 +23,7 @@ import {
   toAgentDefinition,
   withFileContexts,
 } from "./setup";
-import { armTaskAbort } from "./abort";
+import { armTaskAbort, taskStatusReader } from "./abort";
 import { failStepLimit, finishCancelledTask } from "./terminal";
 import { endResumedRun } from "./resumeEnding";
 import { postSystemLine } from "./systemLines";
@@ -111,7 +111,7 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
   // return disposes explicitly; everything else flows through the
   // try/finally around executePlan).
   const llmTaskGate = new LlmConcurrencyGate(deps.policy.maxConcurrentLLMCalls);
-  const taskAbort = armTaskAbort(deps.policy, deps.shutdownSignal);
+  const taskAbort = armTaskAbort(deps.policy, deps.shutdownSignal, taskStatusReader(deps, taskId));
   const persistedWorktree = context.task.worktreePath
     ? resolveWorkspacePath(deps.workspaceRoot, context.task.worktreePath)
     : undefined;

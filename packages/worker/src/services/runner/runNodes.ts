@@ -562,11 +562,8 @@ export async function runNodes(ctx: RunContext, nodes: PlanSubtask[]): Promise<S
         if (now - ctx.lastStatusCheck < 1500) return ctx.cancelled;
         ctx.lastStatusCheck = now;
         const current = await deps.api.getContext({ taskId });
-        ctx.cancelled =
-          !current ||
-          current.task.status === "failed" ||
-          current.task.status === "done" ||
-          current.task.status === "rejected";
+        // "cancelled" is the user's Stop (tasks.cancel); it was missing here, so a stop never aborted running nodes.
+        ctx.cancelled = !current || ["failed", "done", "rejected", "cancelled"].includes(current.task.status);
         // Plan 022: paused is not cancelled — it only halts new dispatch.
         // A resume that lands while this run drains does not un-halt it;
         // the run ends at its boundary and the release re-queues it.

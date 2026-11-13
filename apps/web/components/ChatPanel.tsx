@@ -15,6 +15,8 @@ import { dispatchChatTyping } from "@/lib/chatTyping";
 import { isClosedStatus } from "@/lib/taskStatus";
 import { statusFromLeases, type LeaseEntry, type StatusMap } from "@/lib/teamStatus";
 import ChatComposer from "./chat/ChatComposer";
+import { useReplyStop } from "./chat/useReplyStop";
+import { isReplySettled } from "@/lib/stopControl";
 import { useProjectSlash } from "./chat/useProjectSlash";
 import ChatHeader, { type ChatTab, type HeaderNotification } from "./chat/ChatHeader";
 import ManageProjectModal from "./chat/ManageProjectModal";
@@ -214,7 +216,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   }, []);
   const fresh = lastMessage ? typingNow - lastMessage._creationTime < 300_000 : false;
   // A settled reply (answered or failed: see chatReplies) is not typing.
-  const replySettled = lastMessage?.replyStatus === "answered" || lastMessage?.replyStatus === "failed";
+  const replySettled = isReplySettled(lastMessage?.replyStatus);
+  const replyStop = useReplyStop(timeline);
   const conversationTyping =
     lastMessage?.authorType === "user" && fresh && !replySettled && !(tasks ?? []).some((t: any) => t.title === lastMessage?.content);
 
@@ -759,6 +762,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             quote={quote}
             onCancelQuote={() => setQuote(null)}
             slashCommands={slashEntries}
+            stop={replyStop}
           />}
           {decisions?.pickup && !decisions.pickup.workerOnline && decisions.pickup.queuedTasks + decisions.pickup.pendingMessages > 0 && (
             <p role="status" className="-mt-2 shrink-0 bg-panel px-4 pb-2 text-[12.5px] text-ink-3 sm:px-9 lg:px-11">

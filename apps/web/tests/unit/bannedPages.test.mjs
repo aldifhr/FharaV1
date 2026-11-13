@@ -5,7 +5,7 @@ import { sidebarNavLinks } from "../../components/sidebar/navLinks.ts";
 
 // Pages removed on purpose; they must not come back through a route, the sidebar or ⌘K
 // (⌘K lists the same `sidebarNavLinks`).
-const BANNED = ["/playground"];
+const BANNED = ["/playground", "/intelligence", "/knowledge", "/incidents", "/browser-lab"];
 
 test("banned pages have no route and no nav entry", () => {
   for (const href of BANNED) {

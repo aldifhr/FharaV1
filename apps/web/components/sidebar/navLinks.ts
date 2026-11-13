@@ -1,4 +1,4 @@
-import { BookOpen, Brain, GitBranch, ScrollText, Sparkles } from "lucide-react";
+import { BookOpen, Brain, FlaskConical, GitBranch, ScrollText, Sparkles } from "lucide-react";
 import type { NavIcon } from "./SidebarNav";
 
 export type NavLink = { icon: NavIcon; label: string; href?: string; onClick?: () => void; active: boolean };
@@ -20,6 +20,7 @@ export function sidebarNavLinks({
   const build: NavLink[] = [
     { icon: BookOpen, label: "Library", href: withProject("/library"), active: pathname === "/library" },
     { icon: Brain, label: "Memory", href: projectId ? `/memory?scope=project&project=${projectId}` : "/memory", active: pathname === "/memory" },
+    { icon: FlaskConical, label: "Sandbox", href: withProject("/sandbox"), active: pathname === "/sandbox" },
   ];
   const development: NavLink[] = [
     { icon: GitBranch, label: "Runs", href: withProject("/runs"), active: pathname.startsWith("/runs") },

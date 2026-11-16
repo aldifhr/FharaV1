@@ -45,15 +45,15 @@ describe("role templates as seeds", () => {
         if (isTemplateText(prev)) expect(prefillPromptForRole(prev, role)).toBe(ROLE_PROMPT_TEMPLATES[role]);
       }
     }
-    // Pre-O2, and pre chat-language scoping (2026-11-13).
+    // Retired roles keep their old seed texts for stored agents, but have no
+    // live prompt template in the four-role roster.
     const preO2Support = (PREVIOUS_SEED_PROMPTS.support ?? []).filter(isTemplateText);
     expect(preO2Support).toHaveLength(2);
     expect(preO2Support[0]).toMatch(/^# Support Specialist\n/);
-    expect(ROLE_PROMPT_TEMPLATES.support).toMatch(/^# Support Specialist\n/);
   });
 
-  test("legacy and label roles resolve to their template; custom roles have none", () => {
-    expect(roleTemplateFor("UI/UX")).toBe(ROLE_PROMPT_TEMPLATES.designer);
+  test("legacy and label roles resolve to their successor's template; custom roles have none", () => {
+    expect(roleTemplateFor("UI/UX")).toBe(ROLE_PROMPT_TEMPLATES.frontend);
     expect(roleTemplateFor("QA")).toBe(ROLE_PROMPT_TEMPLATES.qa);
     expect(roleTemplateFor("data-wrangler")).toBeNull();
   });
@@ -104,14 +104,14 @@ describe("reset to role template", () => {
   test("overwrites a customised prompt and audits it", async () => {
     const t = makeT();
     const id = await t.run(async (ctx) =>
-      ctx.db.insert("agents", { name: "Reviewer", role: "reviewer", status: "idle", isEnabled: true, systemPrompt: "my own" })
+      ctx.db.insert("agents", { name: "QA 2", role: "qa", status: "idle", isEnabled: true, systemPrompt: "my own" })
     );
     const res = await t.mutation(api.agentPrompts.resetToRoleTemplate, { agentId: id });
-    expect(res.systemPrompt).toBe(ROLE_PROMPT_TEMPLATES.reviewer);
+    expect(res.systemPrompt).toBe(ROLE_PROMPT_TEMPLATES.qa);
     const row = await t.run(async (ctx) => ctx.db.get(id));
-    expect(row?.systemPrompt).toBe(ROLE_PROMPT_TEMPLATES.reviewer);
+    expect(row?.systemPrompt).toBe(ROLE_PROMPT_TEMPLATES.qa);
     const audit = await t.run(async (ctx) => ctx.db.query("audit").collect());
-    expect(audit.some((a) => a.target === "Reviewer" && (a.details as { reason?: string }).reason === "reset to role template")).toBe(true);
+    expect(audit.some((a) => a.target === "QA 2" && (a.details as { reason?: string }).reason === "reset to role template")).toBe(true);
   });
 
   test("a custom role has no template to reset to", async () => {

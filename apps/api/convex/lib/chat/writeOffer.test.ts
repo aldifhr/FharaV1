@@ -8,7 +8,7 @@ const team = [
   { _id: "cto", name: "CTO", role: "cto" },
   { _id: "fe", name: "Frontend", role: "frontend" },
   { _id: "be", name: "Backend", role: "backend" },
-  { _id: "ds", name: "Designer", role: "designer" },
+  { _id: "qa", name: "QA", role: "qa" },
 ];
 const intent = { kind: "task", subtype: "implementation" };
 const plan = (speaker: (typeof team)[number], text: string, extra: Partial<Parameters<typeof planWriteOffer>[0]> = {}) =>
@@ -64,13 +64,13 @@ describe("planWriteOffer", () => {
 });
 
 describe("offerForReply: budget hit and write fallback", () => {
-  const reviewer = { _id: "rv", name: "Reviewer", role: "reviewer" };
+  const qa = { _id: "qa", name: "QA", role: "qa" };
   const audit = (extra: Partial<Parameters<typeof planWriteOffer>[0]> = {}) =>
-    planWriteOffer({ speaker: reviewer, isCto: false, addressed: true, team: [...team, reviewer], text: "tolong audit semua file", taskIntent: { kind: "chat", subtype: "audit" }, optionPick: false, ...extra });
+    planWriteOffer({ speaker: qa, isCto: false, addressed: true, team, text: "tolong audit semua file", taskIntent: { kind: "chat", subtype: "audit" }, optionPick: false, ...extra });
 
   test("a routed audit that spent its whole repo budget carries an audit offer (not implementation)", () => {
     const offer = offerForReply(audit(), "Saya membaca 25 file; sisanya belum.", { budgetHit: true });
-    expect(offer).toMatchObject({ kind: "audit", hint: { kind: "audit", role: "reviewer" } });
+    expect(offer).toMatchObject({ kind: "audit", hint: { kind: "audit", role: "qa" } });
     expect(offer?.assigneeAgentId).toBeUndefined();
   });
 

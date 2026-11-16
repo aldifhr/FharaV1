@@ -33,8 +33,8 @@ export function isUneditedSeed(role: string | undefined, prompt: string | undefi
 }
 
 /** Whether `prompt` is any role's template or earlier seed (or empty). */
-function isAnySeed(prompt: string): boolean {
-  const text = prompt.trim();
+function isAnySeed(prompt: string | null | undefined): boolean {
+  const text = (prompt ?? "").trim();
   return !text || ROLE_KEYS.some((key) => isUneditedSeed(key, text));
 }
 
@@ -43,7 +43,7 @@ function isAnySeed(prompt: string): boolean {
  * role's template, unless the user already typed their own text, which is
  * kept. A custom role keeps whatever is there.
  */
-export function prefillPromptForRole(current: string, nextRole: string | null | undefined): string {
-  if (!isAnySeed(current)) return current;
+export function prefillPromptForRole(current: string | null | undefined, nextRole: string | null | undefined): string {
+  if (!isAnySeed(current)) return current ?? "";
   return (nextRole ? roleTemplateFor(nextRole) : null) ?? "";
 }

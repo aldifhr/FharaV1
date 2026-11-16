@@ -1,4 +1,4 @@
-import { BookOpen, Brain, FlaskConical, GitBranch, ScrollText, Sparkles } from "lucide-react";
+import { BookOpen, Brain, FlaskConical, GitBranch, GitPullRequest, ScrollText, Sparkles } from "lucide-react";
 import type { NavIcon } from "./SidebarNav";
 
 export type NavLink = { icon: NavIcon; label: string; href?: string; onClick?: () => void; active: boolean };
@@ -6,7 +6,7 @@ export type NavLink = { icon: NavIcon; label: string; href?: string; onClick?: (
 /**
  * The BUILD, DEVELOPMENT and OBSERVE rows of the sidebar, shared with the
  * command menu so both always list the same destinations (dashboard restyle
- * F2/F6). Development holds Runs. LLM & Models and Integrations are not here: they live in Settings
+ * F2/F6). Development holds Pull requests and Runs. LLM & Models and Integrations are not here: they live in Settings
  * (tabs "models" and "integrations").
  */
 export function sidebarNavLinks({
@@ -23,6 +23,7 @@ export function sidebarNavLinks({
     { icon: FlaskConical, label: "Sandbox", href: withProject("/sandbox"), active: pathname === "/sandbox" },
   ];
   const development: NavLink[] = [
+    { icon: GitPullRequest, label: "Pull requests", href: "/pull-requests", active: pathname.startsWith("/pull-requests") },
     { icon: GitBranch, label: "Runs", href: withProject("/runs"), active: pathname.startsWith("/runs") },
   ];
   const observe: NavLink[] = [

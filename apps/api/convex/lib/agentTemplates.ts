@@ -98,12 +98,12 @@ export const BUILT_IN_TEMPLATES: readonly BuiltInTemplate[] = [
   {
     key: "security-reviewer",
     name: "Security Reviewer",
-    role: "reviewer",
+    role: "qa",
     description: "Reviews diffs for auth, injection, secret handling and unsafe defaults.",
     tags: ["security", "review"],
     suggestedSkills: [],
     avatarParams: { dicebear: "lorelei", seed: "security-reviewer" },
-    systemPrompt: promptFor("reviewer", [
+    systemPrompt: promptFor("qa", [
       "Focus: security review.",
       "- Check every changed entry point for authentication and authorization (who can call it, on whose data).",
       "- Look for injection (SQL, shell, path traversal, prompt injection into tools) and unsafe deserialization.",
@@ -116,12 +116,12 @@ export const BUILT_IN_TEMPLATES: readonly BuiltInTemplate[] = [
   {
     key: "devops-ci",
     name: "DevOps CI",
-    role: "devops",
+    role: "backend",
     description: "CI pipelines, build caching and deploy checks with small, reversible changes.",
     tags: ["devops", "ci"],
     suggestedSkills: ["Conventional commits"],
     avatarParams: { dicebear: "lorelei", seed: "devops-ci" },
-    systemPrompt: promptFor("devops", [
+    systemPrompt: promptFor("backend", [
       "Focus: continuous integration and delivery.",
       "- Keep pipelines fast: cache dependencies, run the cheapest checks first, fail early.",
       "- Pin action and image versions; never echo secrets, read them only from the CI secret store.",
@@ -132,12 +132,12 @@ export const BUILT_IN_TEMPLATES: readonly BuiltInTemplate[] = [
   {
     key: "ux-researcher",
     name: "UX Researcher",
-    role: "researcher",
+    role: "frontend",
     description: "Usability and UX research: heuristics, user flows and sourced recommendations.",
     tags: ["research", "ux"],
     suggestedSkills: ["Accessible UI checklist"],
     avatarParams: { dicebear: "lorelei", seed: "ux-researcher" },
-    systemPrompt: promptFor("researcher", [
+    systemPrompt: promptFor("frontend", [
       "Focus: user experience research.",
       "- Walk the actual user flow step by step and note friction, dead ends and unclear copy.",
       "- Evaluate against established heuristics (visibility of status, error prevention, consistency, accessibility).",

@@ -419,15 +419,16 @@ describe("Skill v2 import: dependencies, permissions, versions, update all", () 
     const v1 = await t.query(api.skills.versions, { skillId: ids.get("top")! });
     expect(v1.map((v) => [v.version, v.kind, v.author, v.sourceSha])).toEqual([[1, "import", "github:emilkowalski/skills", "s1"]]);
 
-    // Assigning top pulls base in; the Reviewer is warned about run_command.
-    const reviewer = await t.run((ctx) => ctx.db.insert("agents", { name: "reviewer", role: "reviewer", status: "idle", isEnabled: true }));
-    const assigned = await t.mutation(api.agents.setSkills, { agentId: reviewer, skillIds: [ids.get("top")!] });
+    // Assigning top pulls base in; the CTO is warned about run_command (the
+    // only live role whose shell is "none"; QA may run tests).
+    const cto = await t.run((ctx) => ctx.db.insert("agents", { name: "CTO", role: "cto", status: "idle", isEnabled: true }));
+    const assigned = await t.mutation(api.agents.setSkills, { agentId: cto, skillIds: [ids.get("top")!] });
     expect(assigned.skillIds).toEqual([ids.get("top"), ids.get("base")]);
     expect(assigned.warnings).toEqual([
-      'Also added "base" to Reviewer: required by "top".',
-      'Reviewer lacks run commands, which "top" needs. Skills never grant tools.',
+      'Also added "base" to CTO: required by "top".',
+      'CTO lacks run commands, which "top" needs. Skills never grant tools.',
     ]);
-    await t.mutation(api.skills.setPin, { agentId: reviewer, skillId: ids.get("top")!, version: 1 });
+    await t.mutation(api.skills.setPin, { agentId: cto, skillId: ids.get("top")!, version: 1 });
 
     mockGithub({ files: depFiles("two"), sha: "s2" });
     const all = await t.action(api.skills.updateAllFromSource, { repo: "emilkowalski/skills" });
@@ -445,7 +446,7 @@ describe("Skill v2 import: dependencies, permissions, versions, update all", () 
     // The pinned agent still runs v1.
     const skills = await t.run(async (ctx) => {
       const { loadPromptSkills } = await import("./skillLibrary");
-      return await loadPromptSkills(ctx, (await ctx.db.get(reviewer))!);
+      return await loadPromptSkills(ctx, (await ctx.db.get(cto))!);
     });
     expect(skills[0]).toMatchObject({ name: "top", version: 1 });
     expect(skills[0].fullInstructions).toContain("one");

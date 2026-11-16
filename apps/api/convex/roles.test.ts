@@ -3,13 +3,11 @@ import { ROLES } from "./lib/roles";
 import { AGENT_TOOL_NAMES } from "./lib/toolNames";
 
 describe("role tool defaults (plan 036)", () => {
-  it("gives the researcher the read-only web tool", () => {
-    expect(ROLES.researcher.defaultTools).toContain("web_reach");
-    expect(ROLES.researcher.defaultTools).toContain("read_file");
-  });
-
-  it("keeps the web tool out of the write-capable roles", () => {
-    for (const key of ["frontend", "backend", "qa"] as const) {
+  it("keeps the four-role roster read-only except for the two writer roles", () => {
+    expect(ROLES.cto.defaultTools).not.toContain("write_file");
+    expect(ROLES.qa.defaultTools).not.toContain("web_reach");
+    for (const key of ["frontend", "backend"] as const) {
+      expect(ROLES[key].defaultTools).toContain("write_file");
       expect(ROLES[key].defaultTools).not.toContain("web_reach");
     }
   });

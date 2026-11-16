@@ -20,6 +20,7 @@
  */
 
 import { isSystemLine } from "../systemLine";
+import { backendWordPattern } from "../backendDomain";
 
 export type DispatchDomain =
   | "architecture"
@@ -53,16 +54,24 @@ export type ChatRoute<T extends TeamMember> =
       reason: string;
     };
 
-/** Roles each domain may go to, in preference order (lib/roles.ts keys). */
+/**
+ * Roles each domain may go to, in preference order (lib/roles.ts keys).
+ *
+ * A retired role name stays first so a user's custom agent with that role is
+ * still picked; the role that does the work now follows it, which is what the
+ * four-role fixed team has (Support → Backend, Reviewer → QA, DevOps →
+ * Backend, Researcher → CTO, Designer → Frontend).
+ */
 export const DOMAIN_ROLES: Record<DispatchDomain, string[]> = {
   architecture: ["cto", "architect"],
-  support: ["support"],
-  // The fixed team has no Security role; a custom "security" agent wins, else the Reviewer.
-  security: ["security", "reviewer"],
-  reviewer: ["reviewer"],
+  support: ["support", "backend"],
+  // The fixed team has no Security role; a custom "security" agent wins, else
+  // the role that owns the security-audit capability.
+  security: ["security", "reviewer", "backend"],
+  reviewer: ["reviewer", "qa"],
   qa: ["qa"],
-  devops: ["devops"],
-  researcher: ["researcher"],
+  devops: ["devops", "backend"],
+  researcher: ["researcher", "cto"],
   designer: ["designer", "ui-ux", "frontend"],
   frontend: ["frontend", "designer"],
   backend: ["backend"],
@@ -119,8 +128,7 @@ const DOMAIN_RULES: Array<{ domain: DispatchDomain; pattern: RegExp }> = [
   },
   {
     domain: "backend",
-    pattern:
-      /\b(backend|back-end|api|endpoints?|database|db|schema|skema|tabel|tables?|convex|query|mutation|server|migrasi|migration|webhook|indexes|index db)\b/i,
+    pattern: backendWordPattern(),
   },
 ];
 

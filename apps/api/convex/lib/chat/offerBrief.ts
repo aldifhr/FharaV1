@@ -78,8 +78,14 @@ export function offerPlanLine(text: string, stack: string): string | null {
   const where = file.includes("/") ? "" : " at the repo root";
   const isPage = /\.html?$/i.test(file);
   if (verb === "update") return `I'll update ${file}${where ? " (repo root)" : ""}.`;
-  if (isPage && stack === "plain HTML") return `I'll add a plain HTML ${file}${where}.`;
-  if (isPage) return `I'll add ${file}${where}, using this ${stack} project's setup.`;
+  if (isPage) {
+    // A named standalone page is plain HTML unless the request itself asks for
+    // a framework. The repo's stack is context, not the user's artifact.
+    const namedStack = /\b(?:react|next\.?js|vue|svelte|angular|tailwind|komponen|component|jsx|tsx)\b/i.test(text);
+    return namedStack
+      ? `I'll add ${file}${where}, using ${stack}.`
+      : `I'll add a plain HTML ${file}${where}.`;
+  }
   return `I'll add ${file}${where}.`;
 }
 
@@ -113,7 +119,7 @@ export const CHAT_CANNOT_WRITE_LINE = "Chat can't change files. Want me to creat
 export function writeNeededGuidance(plan: string | null): string {
   return [
     "If the request needs files created or changed, make a concrete offer instead of telling the user to create a task themselves:",
-    "infer the stack from the repo you can see (an empty repo or one with no framework means plain HTML), never ask the user for something the repo answers,",
+    "keep the artifact the user named: a standalone file stays that file (plain HTML for .html), even when this repo uses a framework; use the repo's stack only for work on its existing code, and never ask the user for something the repo answers,",
     plan ? `state the plan in one line ("${plan}"),` : 'state the plan in one line (e.g. "I\'ll add a plain HTML index.html at the repo root."),',
     `then end with "${CHAT_CANNOT_WRITE_LINE}" (in the user's language). Replying "gas" or pressing Create task under your reply starts it.`,
     "Describe the limit in plain words (chat can't change files), never as a mode or a session.",

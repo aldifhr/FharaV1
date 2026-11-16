@@ -5,6 +5,8 @@
  */
 
 import { isSystemLine } from "../systemLine";
+import { backendWordPattern } from "../backendDomain";
+import type { DispatchDomain } from "./dispatch";
 import { detectChatRunCommands, explicitRunCommand } from "./runRequest";
 import { findBuiltinSlash } from "../slashCommands";
 import { isPoliteWriteRequest } from "./offerBrief";
@@ -110,7 +112,7 @@ export function isRefusalReply(text: string, mentionedAssignees = 0): boolean {
 export function classifyChatIntent(text: string): { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean } {
   const t = text.toLowerCase();
   const frontend = /\b(frontend|ui|react|component|page|button|css|tailwind)\b/.test(t);
-  const backend = /\b(backend|api|server|database|auth|endpoint|convex)\b/.test(t);
+  const backend = backendWordPattern().test(t);
   const testing = /\b(test|qa|e2e|bug|error)\b/.test(t);
   const security = /\b(security|audit|vulnerab|secret)\b/.test(t);
 
@@ -152,6 +154,19 @@ export type IntentSubtype =
   | "continue" | "pause" | "cancel" | "status" | "approve" | "reject"
   | "other";
 
+/** Suggested teammate for an ASK message. Advisory: validated against the live team before use. */
+export interface IntentRoute {
+  domain: DispatchDomain;
+  agentId: string;
+  confidence: number;
+  reasoning: string;
+}
+
+export interface IntentRoutingContext {
+  domains: readonly DispatchDomain[];
+  team: Array<{ _id: string; name: string; role: string }>;
+}
+
 export interface IntentResult {
   intent: "ask" | "task" | "continue" | "pause" | "cancel" | "status" | "approve" | "reject";
   subtype: IntentSubtype;
@@ -160,6 +175,26 @@ export interface IntentResult {
   target?: string;
   confidence: number;
   reasoning: string;
+  route?: IntentRoute;
+}
+
+const ROUTE_MIN_CONFIDENCE = 0.6;
+
+function parseIntentRoute(value: unknown, routing?: IntentRoutingContext): IntentRoute | undefined {
+  if (!routing || typeof value !== "object" || value === null) return undefined;
+  const candidate = value as Partial<IntentRoute>;
+  if (typeof candidate.domain !== "string" || !routing.domains.includes(candidate.domain as DispatchDomain)) return undefined;
+  if (typeof candidate.agentId !== "string") return undefined;
+  if (!routing.team.some((member) => String(member._id) === candidate.agentId)) return undefined;
+  if (typeof candidate.confidence !== "number" || !Number.isFinite(candidate.confidence)) return undefined;
+  const confidence = Math.max(0, Math.min(1, candidate.confidence));
+  if (confidence < ROUTE_MIN_CONFIDENCE) return undefined;
+  return {
+    domain: candidate.domain as DispatchDomain,
+    agentId: candidate.agentId,
+    confidence,
+    reasoning: typeof candidate.reasoning === "string" ? candidate.reasoning.slice(0, 300) : "",
+  };
 }
 
 const INTENT_SUBTYPES: IntentSubtype[] = [
@@ -167,7 +202,7 @@ const INTENT_SUBTYPES: IntentSubtype[] = [
   "implementation", "debugging", "testing", "other",
 ];
 
-export function parseIntentResult(raw: string): IntentResult | null {
+export function parseIntentResult(raw: string, routing?: IntentRoutingContext): IntentResult | null {
   const text = raw.trim();
   const json = text.match(/\{[\s\S]*\}/);
   if (!json) return null;
@@ -187,6 +222,7 @@ export function parseIntentResult(raw: string): IntentResult | null {
       target: typeof o.target === "string" ? o.target : undefined,
       confidence: o.confidence,
       reasoning: typeof o.reasoning === "string" ? o.reasoning : "",
+      route: parseIntentRoute(o.route, routing),
     };
   } catch {
     return null;
@@ -462,7 +498,7 @@ export function composeOfferedTask(
  * latest message is not preceded by such an offer.
  */
 export function findOfferedTask(
-  history: Array<{ authorType: string; content: string; agentId?: string; voice?: string; taskOffer?: ChatTaskOffer }>,
+  history: Array<{ authorType: string; content: string; agentId?: string; voice?: string; taskOffer?: ChatTaskOffer; handoffFromAgentId?: string }>,
   roleOf: (agentId: string | undefined) => string | undefined
 ): OfferedTask | null {
   const last = history.length - 1;
@@ -488,7 +524,12 @@ export function findOfferedTask(
     // The offer already became a task (button or an earlier go reply).
     if (isOfferUsed(m.taskOffer)) return null;
     const pick = prevUser?.match(OPTION_PICK)?.[1];
-    if (!pick && !m.taskOffer && !(isCto && OFFERS_CREATE_TASK.test(m.content))) return null;
+    if (!pick && !m.taskOffer && !(isCto && OFFERS_CREATE_TASK.test(m.content))) {
+      // A CTO handoff teammate answered after the offer: keep looking in the
+      // same turn for the CTO reply that actually carries it (plan 059).
+      if (m.handoffFromAgentId) continue;
+      return null;
+    }
     const { command, title } = composeOfferedTask(history, i);
     const assigneeAgentId = m.taskOffer?.assigneeAgentId ?? (isCto ? undefined : m.agentId);
     const hint = m.taskOffer?.hint;
@@ -534,7 +575,7 @@ export function wantsCodeInChat(text: string): boolean {
 const FRONTEND_FILE = /\.(?:html?|css|scss|sass|less|jsx|tsx|vue|svelte)\b/i;
 const FRONTEND_WORDS = /\b(?:html|css|tailwind|halaman|page|landing|ui|komponen|component|button|tombol|tampilan|layout|frontend|website|web\s*page|background|font|warna|color|style)\b/i;
 const BACKEND_FILE = /\.(?:sql|prisma|go|py|rs|java|rb|php)\b/i;
-const BACKEND_WORDS = /\b(?:api|endpoint|server|database|db|schema|migration|migrasi|backend|auth|query|mutation|convex|cron|webhook)\b/i;
+const BACKEND_WORDS = backendWordPattern();
 
 /**
  * The role a write request's work belongs to, read from its files and words:

@@ -34,6 +34,7 @@ import {
   PERMISSION_MODE_LABELS,
   type PermissionMode,
 } from "@/api/convex/lib/permissionModes";
+import ModelPicker, { type ModelOption } from "./ModelPicker";
 import SlashMenu from "./SlashMenu";
 import type { ReplyStop } from "./useReplyStop";
 import { stopLabel } from "@/lib/stopControl";
@@ -95,6 +96,9 @@ export default function ChatComposer({
   onTargetChange,
   permissionMode,
   onPermissionModeChange,
+  models,
+  modelId,
+  onModelChange,
   quote = null,
   onCancelQuote,
   placeholder,
@@ -132,6 +136,11 @@ export default function ChatComposer({
   /** Plan 020: permission mode for tasks this composer dispatches. */
   permissionMode?: PermissionMode;
   onPermissionModeChange?: (mode: PermissionMode) => void;
+  /** Plan 055: models the composer can pick for this turn's reply (Auto = global list). */
+  models?: ModelOption[];
+  /** The picked llmModels row id, or null/undefined for Auto. */
+  modelId?: string | null;
+  onModelChange?: (id: string | null) => void;
   /** Message being replied to (quote bar above the input); Esc or × cancels. */
   quote?: ChatQuote | null;
   onCancelQuote?: () => void;
@@ -228,6 +237,8 @@ export default function ChatComposer({
       document.removeEventListener("keydown", onKey);
     };
   }, [modeOpen]);
+
+
 
   // Slash menu (Paradev C2): the draft starts with "/word"; Esc hides it for
   // this exact draft only, so the next keystroke can bring it back.
@@ -667,6 +678,7 @@ export default function ChatComposer({
                   )}
                 </div>
               )}
+              {models && onModelChange && <ModelPicker models={models} modelId={modelId} onModelChange={onModelChange} />}
               <span className="ml-auto" />
               {queue.length > 0 && (
                 <button

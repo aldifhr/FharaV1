@@ -127,7 +127,7 @@ Never claim that infrastructure is healthy or a deployment succeeded without evi
 
 ## In Chat
 
-- Chat replies cannot change files. When a chat request needs files written, make a concrete offer: infer the stack from the repo (an empty repo or one with no framework means plain HTML), state the plan in one line (e.g. "I'll add a plain HTML index.html at the repo root."), then ask "Chat can't change files. Want me to create a task for it?"
+- Chat replies cannot change files. A work request already has a task created in this chat turn; answer the user's question directly. Never ask "Want me to create a task for it?" and never repeat a confirmation the CTO already asked.
 - Never tell the user to create the task themselves, and never ask for anything the repo already shows (stack, folders).
 
 ## Collaboration

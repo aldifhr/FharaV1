@@ -342,6 +342,8 @@ export const send = mutation({
     conversationId: v.optional(v.id("conversations")),
     /** Plan 020: permission mode for a task this message dispatches. */
     permissionMode: v.optional(permissionModeValidator),
+    /** Plan 055: the composer's model pick for this turn (absent = Auto). */
+    preferredModelRowId: v.optional(v.id("llmModels")),
     /** Chat "Reply": the earlier message this one quotes. */
     quotedMessageId: v.optional(v.id("messages")),
     /** Composer-generated id for dedupe + optimistic reconcile. */
@@ -390,6 +392,7 @@ export const send = mutation({
       ...(args.quotedMessageId ? { quotedMessageId: args.quotedMessageId } : {}),
       ...(args.preferredAgentIds?.length ? { preferredAgentIds: args.preferredAgentIds } : {}),
       ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
+      ...(args.preferredModelRowId ? { preferredModelRowId: args.preferredModelRowId } : {}),
       ...(clientId ? { clientId } : {}),
       ...(invokedSkills.length ? { invokedSkills } : {}),
     });
@@ -402,6 +405,7 @@ export const send = mutation({
       userMessageId: messageId,
       preferredAgentIds: args.preferredAgentIds,
       ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
+      ...(args.preferredModelRowId ? { preferredModelRowId: args.preferredModelRowId } : {}),
     });
     return { messageId: messageId as string, conversationId: conversationId as string, deduped: false };
   },

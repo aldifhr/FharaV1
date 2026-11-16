@@ -4,6 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { register } from "node:module";
+import { fileURLToPath } from "node:url";
 
 // The web app runs React 19 from its own node_modules; lucide-react (hoisted
 // to the root) would otherwise pick up the root's React 18.
@@ -16,7 +17,7 @@ export async function resolve(spec, ctx, next) {
 }`)}`,
 );
 const Module = (await import("node:module")).default;
-const webDir = new URL("../../", import.meta.url).pathname;
+const webDir = fileURLToPath(new URL("../../", import.meta.url));
 const originalResolve = Module._resolveFilename;
 Module._resolveFilename = function (request, parent, ...rest) {
   if (/^react(-dom)?(\/|$)/.test(request)) return originalResolve.call(this, request, { ...parent, paths: Module._nodeModulePaths(webDir) }, ...rest);

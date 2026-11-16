@@ -63,24 +63,24 @@ describe("aggregateWorkload", () => {
   test("fallback routes are counted per role from subtask.routed, with inference for old events", () => {
     const r = aggregateWorkload(
       input({
-        subtasks: [sub({ key: "api", role: "backend" }), sub({ key: "ui", role: "designer" }), sub({ key: "old", role: "frontend" })],
+        subtasks: [sub({ key: "api", role: "backend" }), sub({ key: "ui", role: "frontend" }), sub({ key: "old", role: "frontend" })],
         routes: [
           { taskId: "t1", subtaskKey: "api", role: "backend", match: routeMatch({ match: "exact" }), at: daysAgo(1) },
           // Older event: no explicit match, agent lacks the capability → fallback.
           {
             taskId: "t1",
             subtaskKey: "ui",
-            role: "designer",
-            match: routeMatch({ capability: "frontend-development", capabilities: ["ui-ux-design"] }),
+            role: "frontend",
+            match: routeMatch({ capability: "backend-development", capabilities: ["ui-ux-design"] }),
             at: daysAgo(1),
           },
           // Retried route of the same subtask counts as another route.
-          { taskId: "t1", subtaskKey: "ui", role: "designer", match: "fallback", at: daysAgo(1) },
+          { taskId: "t1", subtaskKey: "ui", role: "frontend", match: "fallback", at: daysAgo(1) },
         ],
       })
     );
     expect(r.rows.find((x) => x.key === "backend")).toMatchObject({ routes: 1, fallbackRoutes: 0 });
-    expect(r.rows.find((x) => x.key === "designer")).toMatchObject({ routes: 2, fallbackRoutes: 2 });
+    expect(r.rows.find((x) => x.key === "frontend")).toMatchObject({ routes: 2, fallbackRoutes: 2 });
     expect(r.totals).toMatchObject({ routes: 3, fallbackRoutes: 2, subtasksWithoutRouteEvent: 1 });
     expect(routeMatch({ capability: "Backend Development", capabilities: ["backend-development"] })).toBe("exact");
   });
@@ -93,20 +93,14 @@ describe("aggregateWorkload", () => {
           sub({ key: "2", role: "frontend" }),
           sub({ key: "3", role: "frontend" }),
           sub({ key: "4", role: "backend" }),
-          sub({ key: "5", role: "qa", kind: "qa" }),
-          sub({ key: "6", role: "reviewer", kind: "review" }),
-          sub({ key: "7", role: "devops" }),
-          sub({ key: "8", role: "cto", kind: "analysis" }),
         ],
       })
     );
-    expect(r.idleRoles).toEqual(["Designer", "Support", "Researcher"]);
-    expect(r.summary).toBe("Frontend did 38% of subtasks; Designer, Support and Researcher did none in 30 days.");
+    expect(r.idleRoles).toEqual(["CTO", "QA"]);
+    expect(r.summary).toBe("Frontend did 75% of subtasks; CTO and QA did none in 30 days.");
     // Every fixed role is a row, idle ones with zeros.
-    expect(r.rows.map((x) => x.key).slice(0, 9)).toEqual([
-      "cto", "designer", "frontend", "backend", "qa", "support", "devops", "reviewer", "researcher",
-    ]);
-    expect(r.rows.find((x) => x.key === "support")).toMatchObject({ subtasks: 0, tokens: 0, subtaskShare: 0 });
+    expect(r.rows.map((x) => x.key)).toEqual(["cto", "frontend", "backend", "qa"]);
+    expect(r.rows.find((x) => x.key === "cto")).toMatchObject({ subtasks: 0, tokens: 0, subtaskShare: 0 });
   });
 
   test("summary handles no work, ties and full coverage", () => {
@@ -114,7 +108,7 @@ describe("aggregateWorkload", () => {
     const tie = aggregateWorkload(input({ subtasks: [sub({ key: "a", role: "frontend" }), sub({ key: "b", role: "backend" })] }));
     expect(tie.summary).toMatch(/^Frontend and Backend each did 50% of subtasks; /);
     const all = aggregateWorkload(input()).rows.map((row) => ({ ...row, subtasks: 1 }));
-    expect(workloadSummary(all, [], 90)).toBe("CTO, Designer, Frontend, Backend, QA, Support, DevOps, Reviewer and Researcher each did 11% of subtasks; every role had work in 90 days.");
+    expect(workloadSummary(all, [], 90)).toBe("CTO, Frontend, Backend and QA each did 25% of subtasks; every role had work in 90 days.");
   });
 
   test("window filter drops rows older than sinceDays across every source", () => {
@@ -165,8 +159,7 @@ describe("aggregateWorkload", () => {
     );
     const fe = r.rows.find((x) => x.key === "frontend")!;
     expect(fe).toMatchObject({ fixIterations: 2, timedRuns: 3, totalDurationMs: 12000, medianDurationMs: 3000, avgDurationMs: 4000 });
-    expect(r.rows.find((x) => x.key === "reviewer")).toMatchObject({ fixIterations: 0, reviewRounds: 1 });
-    expect(r.rows.find((x) => x.key === "qa")).toMatchObject({ qaRounds: 2 });
+    expect(r.rows.find((x) => x.key === "qa")).toMatchObject({ fixIterations: 0, reviewRounds: 1, qaRounds: 2 });
     expect(r.rows.find((x) => x.key === "backend")).toMatchObject({ timedRuns: 1, medianDurationMs: 4000 });
     expect(r.rows.find((x) => x.key === "cto")!.chatReplies).toBe(2);
     expect(r.rows.find((x) => x.key === "unattributed")!.chatReplies).toBe(1);
@@ -179,9 +172,10 @@ describe("aggregateWorkload", () => {
     expect(roleBucket("Backend Developer").key).toBe("backend");
     expect(r.unrecognizedRoleSubtasks).toBe(1);
     expect(r.rows.find((x) => x.key === "data-wizard")).toMatchObject({ subtasks: 1, recognized: false });
-    // Legacy ui-ux shows as its successor, Designer.
-    expect(r.rows.find((x) => x.key === "designer")!.subtasks).toBe(1);
-    expect(r.rows.find((x) => x.key === "frontend")!.subtasks).toBe(0);
+    // A legacy name shows as its successor: ui-ux was the Designer, whose work
+    // Frontend does now.
+    expect(roleBucket("ui-ux")).toMatchObject({ key: "frontend", recognized: true });
+    expect(r.rows.find((x) => x.key === "frontend")!.subtasks).toBe(1);
     expect(formatWorkloadTable(r)).toContain("Data Wizard*");
   });
 });

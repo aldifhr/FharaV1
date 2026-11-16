@@ -30,17 +30,34 @@ export const INTENT_CLASSIFIER_SYSTEM = "Classify intent. Return JSON only.";
 
 export function buildIntentClassifierPrompt(
   text: string,
-  activeTask?: { title: string; status: string } | null
+  activeTask?: { title: string; status: string } | null,
+  routing?: {
+    domains: readonly string[];
+    team: Array<{ id: string; name: string; role: string }>;
+    historyLines?: string[];
+    contextSummary?: string | null;
+  }
 ): string {
   return [
-    "You are an intent classifier for a software engineering workspace.",
+    "You are an intent classifier and topic router for a software engineering workspace.",
     "Return ONLY JSON with this exact schema:",
-    `{"intent":"ask"|"task","subtype":"explanation"|"recommendation"|"research"|"audit"|"implementation"|"debugging"|"testing"|"other","requiresWorkspace":bool,"requiresExecution":bool,"target":"?","confidence":0..1,"reasoning":"..."}`,
+    `{"intent":"ask"|"task","subtype":"explanation"|"recommendation"|"research"|"audit"|"implementation"|"debugging"|"testing"|"other","requiresWorkspace":bool,"requiresExecution":bool,"target":"?","confidence":0..1,"reasoning":"...","route":{"domain":"<one of: ${routing?.domains.join("|") ?? "none"}>","agentId":"<id of a listed teammate>","confidence":0..1,"reasoning":"one short sentence"}}`,
     "",
     "Choose `task` when the user wants the AI team to DO work (build, fix, test, refactor, migrate). Choose `ask` for pure questions/discussion. Subtypes: explanation/recommendation/research/audit ask; implementation/debugging/testing task.",
     "",
     "The text may be Indonesian, English, mixed, or informal. Judge by meaning, not by word list.",
+    "Explicit 'do not change code' / 'research only' stays a question, never a work request.",
+    "A short follow-up ('lebih detail', 'kenapa?', 'continue') usually stays with the teammate who just answered.",
+    "Pick agentId only from the listed teammates; if none fits, set route.confidence below 0.6.",
     "",
+    ...(routing
+      ? [
+          "Teammates:",
+          ...routing.team.map((a) => `- id=${a.id} name=${a.name} role=${a.role}`),
+          routing.historyLines?.length ? ["Recent messages:", ...routing.historyLines].join("\n") : "",
+          routing.contextSummary ? `Earlier context: ${clip500(routing.contextSummary)}` : "",
+        ]
+      : []),
     `User text: ${clip500(text)}`,
     activeTask ? `Active task: ${activeTask.title} [${activeTask.status}]` : "",
   ]
@@ -84,13 +101,13 @@ export function buildSeparateSpeakersLine(
  * concept for a task management app and recast it as cover letters
  * (job-seeker personas, /surat-lamaran routes, A4 print) after six
  * read_file calls. The selected project stays the base (stack, tokens,
- * components); only the subject must not be swapped.
+ * components when the request touches them; only the subject must not be swapped.
  */
 export function buildRequestSubjectGuard(projectName: string): string {
   return [
-    `The selected project "${projectName}" is the base: build on its stack, design tokens and shared components.`,
+    `The selected project "${projectName}" is context, not the subject: use its stack, design tokens and shared components only when the request is about its existing code. A standalone artifact (e.g. "create hello.html") is exactly what the user named — plain HTML stays plain HTML, with no framework, token or component talk.`,
     "Keep the subject of the user's request exactly as asked. Never recast it into the project's own product or domain: no personas, routes, features or copy borrowed from the project unless the request is about them.",
-    `When the subject does not fit the project's product, state your assumption in one line (e.g. "Designing <subject> as a new area inside ${projectName}, using its tokens and components.") or, only if it is truly ambiguous, ask one short question instead of answering.`,
+    `When the subject does not fit the project's product, state your assumption in one line (e.g. "Designing <subject> as a new area inside ${projectName}.") or, only if it is truly ambiguous, ask one short question instead of answering.`,
     "For a concept or spec request (\"concept\", \"do not implement\", \"no code\"), read only what the base needs (tokens, shared components, stack); do not read feature files to map the request onto existing features.",
   ].join(" ");
 }
@@ -101,7 +118,7 @@ export function buildRequestSubjectGuard(projectName: string): string {
  * short-reply and Create-task rules below win (8426134).
  */
 export const ROLE_PROMPT_CHAT_SCOPE =
-  "Your role instructions above describe how you work on tasks. In this chat the reply rules below win: keep to their length and format, and do not use task-delivery sections (output formats, completion reports, final status) unless the user asks for one. Language rules in your role instructions apply to files and UI copy you write; in chat, reply in the user's language.";
+  "Your role instructions above describe how you work on tasks. In this chat the reply rules below win: keep to their length and format, and do not use task-delivery sections (output formats, completion reports, final status) unless the user asks for one. Language rules in your role instructions apply to files and UI copy you write; in chat, reply in the user's language. Any stack, framework or component named in those instructions (React, Next.js, TypeScript, Convex) is how this project's tasks are done, not a rule for this reply: answer about the stack and artifact the USER asked for, and use the project's stack only when the request is about its existing code.";
 
 /** Opening lines of a chat-loop reply: identity, persona, repo grounding. */
 export function buildChatPersonaLines(
@@ -226,7 +243,7 @@ export function buildRoutedOwnerNotice(hasRepoTools: boolean): string {
 
 /** CTO chat conduct: delegate deep work, stay short, never speak for a teammate. */
 export const CTO_DELEGATION_GUIDANCE =
-  "Keep your own replies short. Deep work (a code audit, a test check, research, a design or security review) belongs to the teammate whose area it is: bring them in with @Name instead of doing it at length yourself. Never write lines as a teammate, speak for them, or invent what they found.";
+  "Keep your own replies short. Deep work (a code audit, a test check, research, a design or security review) belongs to the teammate whose area it is: bring them in with @Name instead of doing it at length yourself. Only @mention when the request is genuinely in that teammate's area; a question about your role, your capabilities or general advice is yours to answer alone. Never write lines as a teammate, speak for them, or invent what they found.";
 
 /** One chat history row as getContext returns it. */
 export type ChatHistoryRow = { authorType: string; content: string; agentId?: string; voice?: string };
@@ -348,6 +365,8 @@ export function buildPlanningGuidance(
     codeInChat?: boolean;
     /** The one-line plan for a write request ("I'll add a plain HTML index.html at the repo root."). */
     plan?: string | null;
+    /** Plan 061: the task was created in this turn; report it, do not offer. */
+    taskAlreadyCreated?: boolean;
   }
 ): string[] {
   const plan = opts.plan?.trim() || null;
@@ -362,6 +381,15 @@ export function buildPlanningGuidance(
   }
   if (opts.isOrchestrator && opts.taskIntent.kind === "task") {
     const who = opts.assigneeName?.trim() || "the right teammate";
+    if (opts.taskAlreadyCreated) {
+      return [
+        "You are the CTO.",
+        `The user asked the team to create or change files, and the task already exists. Reply in at most two short sentences, entirely in the user's language: ${plan ? `the plan ("${plan}"), then ` : ""}that you created the task and handed it to ${who}. Do not ask for confirmation and do not mention a Create task button.`,
+        `Shape (Indonesian): "Sudah saya buat task-nya dan saya serahkan ke ${who}." Shape (English): "I created a task and handed it to ${who}."`,
+        "No architecture, design or styling advice, no code, no bullets, no headers, no questions the repo answers. Never say read-only and never claim the file was changed already.",
+        WRITE_OFFER_OVERRIDE,
+      ];
+    }
     return [
       "You are the CTO.",
       `The user asked the team to create or change files. Reply in at most two short sentences, entirely in the user's language: ${plan ? `the plan ("${plan}"), then ` : ""}that you hand it to ${who} as a task, and that replying "gas" or pressing the Create task button under this reply starts it.`,
@@ -373,11 +401,22 @@ export function buildPlanningGuidance(
   if (opts.isOrchestrator) {
     return [
       "You are the CTO: you own architecture and technical direction (repo shape, data model, service split, priorities). Give a clear decision with the reasons.",
-      "Answer briefly. If user asks for work to be done, propose a plan + delegation, then tell them to use Create task. Do not pretend to have executed code. Respond in plain text.",
+      "Answer briefly. Only when the user actually asks for work to be done (create or change files, run checks), propose a short plan and tell them to use Create task. For a question about your role, your capabilities, architecture or advice, answer it directly: never mention Create task and never @mention a teammate unless the question is genuinely in that teammate's area. Do not pretend to have executed code. Respond in plain text.",
       CTO_DELEGATION_GUIDANCE,
     ];
   }
   if (opts.taskIntent.kind === "task" && !opts.codeInChat) {
+    if (opts.taskAlreadyCreated) {
+      return [
+        "The user asked the team to create or change files. Chat replies cannot write files; the worker does that after the existing approvals. The task has already been created in this turn" +
+          (opts.assigneeName ? ` and assigned to ${opts.assigneeName}.` : "."),
+        plan
+          ? `Reply in 1-2 short sentences, entirely in the user's language: the plan ("${plan}"). Do not ask for confirmation, do not mention a Create task button, and do not claim the file was changed already.`
+          : "Reply in 1-2 short sentences, entirely in the user's language, with a one-line plan (infer the stack from the repo). Do not ask for confirmation, do not mention a Create task button, and do not claim the file was changed already.",
+        "Do not paste the file, its contents or any code block, and do not ask the user what the repo can tell you (stack, folder). Never say read-only, and never tell the user to create the task themselves.",
+        WRITE_OFFER_OVERRIDE,
+      ];
+    }
     return [
       "The user asked you to create or change files. Chat replies cannot write files; a task does it, and the Create task button under this reply is already prepared with their request" +
         (opts.assigneeName ? ` and assigned to ${opts.assigneeName}.` : "."),
@@ -396,7 +435,7 @@ export function buildPlanningGuidance(
     opts.hasRepoTools
       ? `An audit, review or code question is yours to answer here, now, by reading the code with the repo tools, not with a plan. ${SCOPE_EXIT_LINE}`
       : "Only when the user asked for work that needs workspace access (audit, review, run code) offer a task; for plain questions never mention creating a task.",
-    writeNeededGuidance(plan),
+    opts.taskIntent.kind === "task" || plan ? writeNeededGuidance(plan) : "",
     opts.codeInChat && opts.taskIntent.kind === "task"
       ? "The user asked to see the code here: show it, then say in one line that the Create task button under this reply writes it into the project."
       : "",
@@ -433,6 +472,17 @@ export function noRepoAccessHandoffLine(offReason: string): string {
   ].join(" ");
 }
 
+/** Line for a teammate the CTO pulled into the chat by @mention. */
+export function buildHandoffNotice(ctoName: string, request = ""): string {
+  return [
+    `${ctoName} (CTO) brought you into this chat with an @mention.`,
+    request ? `What the CTO asked you: "${request}"` : "",
+    "Answer only that, briefly (2-4 sentences), in the user's language, and only about the user's LATEST message. Do not pick up earlier topics or tasks from the conversation unless the latest message is about them. Do not repeat what the CTO said, do not @mention anyone, and do not tell the user to create a task.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 /** System-prompt lines that let the CTO hand parts of a chat turn to teammates. */
 export function buildHandoffGuidance(
   team: Array<{ _id: string; name: string; role: string }>,
@@ -443,8 +493,8 @@ export function buildHandoffGuidance(
   if (others.length === 0) return [];
   return [
     `Teammates on this project: ${others.map((a) => `@${a.name}`).join(", ")}.`,
-    "Answer the user yourself. Writing @Name in your reply does NOT bring a teammate into this chat: only the user can @mention one. When a teammate's specialty is really needed, say which one (as @Name) and that the user can @mention them; for work that needs running or changing files, offer the Create task button instead. Do not ask the user for permission to bring a teammate in.",
-    "When you only describe or list the team (who does what), write their role names WITHOUT @.",
+    "Answer the user first. Writing @Name in your reply DOES bring that teammate into this chat to answer the user's latest message next: @mention only the roles whose work is actually needed (at most three), and address them with a concrete request in the same sentence. When a teammate's specialty is only being described, write the role name WITHOUT @.",
+    "Do not ask the user for permission to bring a teammate in, and do not @mention yourself. A handoff is a short opinion in chat, not execution; a question about your own role or capabilities needs no handoff and no Create task instruction.",
     repo.hasRepoTools ? SELF_VERIFY_LINE : noRepoAccessHandoffLine(repo.offReason ?? ""),
   ];
 }

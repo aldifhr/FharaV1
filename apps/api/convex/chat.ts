@@ -35,20 +35,26 @@ import {
   targetsOutsideRepo,
   type ChatTaskOffer,
   type IntentResult,
+  type IntentRoutingContext,
 } from "./lib/chat/intent";
 import { classifyIntent } from "./lib/chat/classify";
 import { type EchoContext, streamEchoSafe, stripLeadingEcho } from "./lib/chat/echo";
-import { ROLE_KEYS, ROLES } from "./lib/roles";
-import { chatPreRouteAllowed, mentionsCode, routedAnswerSubtype, systemRoutingLine } from "./lib/chat/dispatch";
-import { buildTaskStatusLine, resolveChatOwner } from "./lib/chat/owner";
+import { RETIRED_ROLE_LABELS, ROLE_KEYS, ROLES } from "./lib/roles";
+import { DOMAIN_ROLES, chatPreRouteAllowed, mentionsCode, routedAnswerSubtype, systemRoutingLine } from "./lib/chat/dispatch";
+import { buildTaskStatusLine, resolveChatOwner, type ChatOwner } from "./lib/chat/owner";
 import { detectChatRunCommands } from "./lib/chat/runRequest";
 import {
+  MAX_CTO_HANDOFFS,
   ORCHESTRATOR_ROLE,
+  handoffRequestFor,
+  isVerificationRequest,
   pickConversationalAgent,
   pickGreetingResponders,
+  selectHandoffs,
   type ChatAgent,
 } from "./lib/chat/team";
 import { TERMINAL_TASK_STATUSES, dispatchTaskFromChat, outsideRepoReply, startOfferedTask } from "./lib/chat/startTask";
+import { shouldAutoCreateTask } from "./lib/chat/autoTask";
 import {
   completeWithAgent,
   getGlobalLLMConfig,
@@ -58,6 +64,7 @@ import {
 } from "./lib/chat/llm";
 import { stripToolCallMarkup } from "./lib/chat/strip";
 import { offerForReply, planWriteOffer } from "./lib/chat/writeOffer";
+import { isPoliteWriteRequest } from "./lib/chat/offerBrief";
 import { firstReasoningSentence, intentLineFor, stripInternalPhrasing, toolStepFor } from "./lib/chat/activity";
 import { completeWithSnapshot, type ChatSnapshotScope } from "./lib/chat/snapshot";
 import { readRepoSnapshot } from "./lib/chat/repoSnapshot";
@@ -96,6 +103,7 @@ import {
   buildGreetingSystem,
   buildGroundingGuidance,
   buildHandoffGuidance,
+  buildHandoffNotice,
   buildPersonalChatSystem,
   buildPlanningGuidance,
   buildRoutedOwnerNotice,
@@ -132,10 +140,15 @@ type ChatContextData = {
   contextSummary?: string;
   activeTask?: { title: string; status: string } | null;
   llmProviders?: PoolConnectionPayload[];
+  autoCreateChatTasks?: boolean;
 };
 
 /** A chat turn as scheduled: a personal chat has no projectId (plan 039). */
 type ChatTurnArgs = Omit<ReplyArgs, "projectId"> & { projectId?: Id<"projects"> };
+
+/** A question about the CTO's own role: answered by the CTO alone, no handoff. */
+const CAPABILITY_QUESTION =
+  /\b(?:apa yang bisa (?:kamu|anda|lo|lu)|what can you do|siapa kamu|who are you|apa peran kamu|what(?:'s| is) your role|apa tugas kamu|apa yang kamu bisa)\b/i;
 
 /** Tool result when a personal chat with no project is asked for repo tools. */
 const NO_PROJECT_TOOL_TEXT = "No project is attached to this chat, so there is no repository to read.";
@@ -147,6 +160,7 @@ type ReplyArgs = {
   userMessageId: Id<"messages">;
   /** Plan 020: permission mode for the task this message may dispatch. */
   permissionMode?: PermissionMode;
+  preferredModelRowId?: Id<"llmModels">; // Plan 055: composer's model pick (absent = Auto)
 };
 
 /** How long one repo tool call may wait for a worker before it counts as not checked. */
@@ -154,6 +168,9 @@ const REPO_TOOL_WAIT_MS = 20_000;
 /** A call no worker has claimed by then fails fast: no live worker serves the queue. */
 const REPO_TOOL_CLAIM_WAIT_MS = 3_000;
 const REPO_TOOL_POLL_MS = 250;
+/** Plan 060: a chat completion on the worker's CLI may be slower than a file read. */
+const CHAT_LLM_WAIT_MS = 180_000;
+const CHAT_LLM_CLAIM_WAIT_MS = 15_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -225,6 +242,44 @@ async function callRepoToolViaWorker(
   }
 }
 
+/**
+ * Plan 060: one LLM completion on the worker's local OpenCode CLI. Resolves
+ * the model from the worker's FharaV2-style settings.json; the worker only
+ * needs the project id to route the queue row, never a workspace path.
+ */
+async function callChatLlmViaWorker(
+  ctx: ActionCtx,
+  projectId: Id<"projects">,
+  config: ChatLlmConfig,
+  system: string,
+  msgs: Array<{ role: string; content: string }>
+): Promise<Awaited<ReturnType<typeof completeWithAgent>>> {
+  const callId = await ctx.runMutation(internal.repoTools.enqueueChatLlm, {
+    projectId,
+    model: config.model,
+    system,
+    messages: JSON.stringify(msgs.slice(-12).map((m) => ({ role: m.role, content: String(m.content ?? "").slice(0, 20_000) }))),
+  });
+  const startedAt = Date.now();
+  try {
+    while (Date.now() - startedAt < CHAT_LLM_WAIT_MS) {
+      await sleep(REPO_TOOL_POLL_MS);
+      const row = await ctx.runQuery(internal.repoTools.get, { callId });
+      if (!row) break;
+      if (row.status === "done") {
+        return { content: row.result ?? "", reasoning: "", reasoningDurationMs: Date.now() - startedAt };
+      }
+      if (row.status === "error") throw new Error(row.error || "OpenCode chat call failed.");
+      if (row.status === "pending" && Date.now() - startedAt >= CHAT_LLM_CLAIM_WAIT_MS) {
+        throw new Error("No worker claimed the OpenCode chat call. Start the worker and check its heartbeat.");
+      }
+    }
+    throw new Error("The OpenCode chat call timed out.");
+  } finally {
+    await ctx.runMutation(internal.repoTools.remove, { callId }).catch(() => undefined);
+  }
+}
+
 /** Repo tools are usable for this reply (workspace set + a repo-tool worker online). Never throws. */
 async function repoToolsAvailability(
   ctx: ActionCtx,
@@ -266,7 +321,12 @@ async function resolveIntent(
   projectId: Id<"projects">,
   text: string,
   optionPick: boolean,
-  config: ChatLlmConfig
+  config: ChatLlmConfig,
+  routing: {
+    team: ChatAgent[];
+    history: ChatContextData["history"];
+    contextSummary?: string | null;
+  }
 ): Promise<IntentResult> {
   const fast = classifyChatIntent(text);
   const fastIsAsk = hasAskShape(text);
@@ -323,8 +383,15 @@ async function resolveIntent(
       reasoning: "deterministic change request (suggestion only)",
     };
   }
+  const routingCtx = {
+    domains: Object.keys(DOMAIN_ROLES) as IntentRoutingContext["domains"],
+    team: routing.team,
+    historyLines: routing.history.slice(-6).map((row) => `${row.authorType === "user" ? "User" : "Agent"}: ${row.content.slice(0, 300)}`),
+    contextSummary: routing.contextSummary,
+  };
+  const classified = await classifyIntent(text, config, activeTaskForRouter, routingCtx);
   if (fastIsAsk) {
-    return {
+    const ask: IntentResult = {
       intent: "ask",
       subtype: "explanation",
       requiresWorkspace: false,
@@ -332,8 +399,8 @@ async function resolveIntent(
       confidence: 1,
       reasoning: "deterministic question shape",
     };
+    return classified?.route ? { ...classified, ...ask, route: classified.route } : ask;
   }
-  const classified = await classifyIntent(text, config, activeTaskForRouter);
   return (
     classified ??
     ({
@@ -521,6 +588,7 @@ export const replyToChat = internalAction({
     preferredAgentIds: v.optional(v.array(v.id("agents"))),
     userMessageId: v.id("messages"),
     permissionMode: v.optional(permissionModeValidator),
+    preferredModelRowId: v.optional(v.id("llmModels")), // Plan 055: composer's model pick (absent = Auto)
   },
   handler: async (ctx, rawArgs) => {
     // Durable reply + Stop (lib/chat/replyRun.ts): claim, run, settle; a user Stop aborts the run's LLM calls.
@@ -549,6 +617,10 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // (scopeProjectId). There is no default project.
     const personal = scope.kind === "personal";
     const scopeProjectId: Id<"projects"> | null = scope.projectId;
+    // The OpenCode driver runs only on the worker bridge, which is keyed by
+    // projectId. Without a project scope the pick is unservable — ignore it
+    // and resolve the HTTP pool / env config instead.
+    const resolveOpts = { excludeOpencode: !scopeProjectId };
     const messageProjectId = personal ? undefined : (scopeProjectId ?? undefined);
     const msgScope = messageProjectId ? { projectId: messageProjectId } : {};
     const requireProjectId = (): Id<"projects"> => {
@@ -570,6 +642,8 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
 
     const personalConversationId = args.conversationId;
     if (personal && !personalConversationId) throw new Error("A personal chat reply needs its conversation");
+    // Plan 055: the composer's model pick leads every chain this turn builds; the global list follows (absent = Auto).
+    const modelPrefs = args.preferredModelRowId ? { preferredModelRowId: String(args.preferredModelRowId) } : undefined;
     const data = (personal && personalConversationId
       ? await ctx.runQuery(internal.chatContext.getPersonalContext, {
           conversationId: personalConversationId,
@@ -583,7 +657,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         })) as ChatContextData;
 
     const { agents, team: teamAgents, projectName, history, llmProviders } = data;
-    const globalConfig = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig());
+    const globalConfig = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), modelPrefs, resolveOpts);
 
     // Repo snapshot (read-only, workspace-confined) so structural chat questions ("how is this repo structured?") can
     // be answered from evidence instead of guesses. No project (personal chat not attached): no snapshot, no workspace
@@ -630,6 +704,9 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           // Every fixed role label too: a personal chat has no teammates in
           // context, yet replies still opened with "CTO:" (live test 4).
           ...ROLE_KEYS.flatMap((k) => [ROLES[k].label, k]),
+          // And the retired ones: a reply can copy "Reviewer:" or "Support:"
+          // from an older message the team no longer has.
+          ...RETIRED_ROLE_LABELS,
           "User",
           "You",
         ].filter((n) => !self || (n.toLowerCase() !== self.name.toLowerCase() && n.toLowerCase() !== self.role.toLowerCase())),
@@ -688,6 +765,24 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         return { intentLine: line };
       };
     };
+    // Plan 060: OpenCode is an HTTP-incompatible row, so chat completions on
+    // it run on the worker's CLI through the queue. Anything else keeps the
+    // existing streaming path. The check is provider identity, never a model
+    // name from a chat message.
+    const completeChat = (
+      scope: ChatSnapshotScope,
+      agentId: Id<"agents">,
+      config: ChatLlmConfig,
+      system: string,
+      msgs: Array<{ role: string; content: string }>,
+      onChunk?: Parameters<typeof completeWithSnapshot>[5]
+    ) => {
+      if (String(config.provider ?? "").toLowerCase() === "opencode" && scopeProjectId) {
+        return callChatLlmViaWorker(ctx, scopeProjectId, config, system, msgs);
+      }
+      return completeWithSnapshot(ctx, scope, system, msgs, config, onChunk);
+    };
+
     const streamReplyToAgent: StreamReply = async (agentId, config, system, msgs, opts) => {
       const messageId = await ctx.runMutation(internal.chatContext.createStreamingAgentMessage, {
         ...msgScope,
@@ -727,7 +822,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       let content: string;
       let reasoning: string;
       try {
-        raw = await completeWithSnapshot(ctx, snapScope(agentId, messageId, "chat"), system, msgs, config, onChunk);
+        raw = await completeChat(snapScope(agentId, messageId, "chat"), agentId, config, system, msgs, onChunk);
         reasoning = joinTrace(note, raw.reasoning);
         if (hasToolCallText(raw.content)) {
           // A tool call with no tools: never shown. Retry once, told plainly.
@@ -742,7 +837,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
               })
             )
             .catch(() => {});
-          const retry = await completeWithSnapshot(ctx, snapScope(agentId, messageId, "chat"), `${system}\n${NO_TOOLS_RETRY_LINE}`, msgs, config, onChunk);
+          const retry = await completeChat(snapScope(agentId, messageId, "chat"), agentId, config, `${system}\n${NO_TOOLS_RETRY_LINE}`, msgs, onChunk);
           content = stripLeadingEcho(stripInternalPhrasing(resolveNoToolsReply(retry.content, userText)), echoCtx);
           reasoning = joinTrace(traceBase, retry.reasoning);
           raw = { ...retry, reasoningDurationMs: raw.reasoningDurationMs + retry.reasoningDurationMs };
@@ -822,7 +917,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           // Local tools (not the worker queue): the agent's own skills, and past work of this chat's project (D11).
           ...chatLocalTools({ skillLoader, pastWork: scopeProjectId ? pastWorkRunner(ctx, scopeProjectId) : null }),
           step: async (stepMsgs) => {
-            const raw = await completeWithSnapshot(ctx, snapScope(agentId, messageId, "chat_tool_step"), system, stepMsgs, config, ({ content: rawContent, reasoning }) => {
+            const raw = await completeChat(snapScope(agentId, messageId, "chat_tool_step"), agentId, config, system, stepMsgs, ({ content: rawContent, reasoning }) => {
               const now = Date.now();
               if (now - lastPatchAt < 250) return;
               const content = streamEchoSafe(stripInternalPhrasing(streamVisibleText(rawContent)), echoCtx);
@@ -914,7 +1009,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       return await runContinueTurn(ctx, {
         target: cut, agent: cutAgent, projectName,
         prior: buildChatMessages(historyBefore(history, String(cut.messageId)), { selfAgentId: String(cutAgent._id), nameOf: agentNameOf }),
-        config: await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), cutAgent as any),
+        config: await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), { ...(cutAgent as any), ...modelPrefs }, resolveOpts),
         scope: snapScope(cutAgent._id as any, cut.messageId, "chat"),
         clean: (t) => stripInternalPhrasing(stripToolCallMarkup(streamVisibleText(t))),
       });
@@ -981,7 +1076,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         .filter(Boolean)
         .join("\n");
       try {
-        const config = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), agent as any);
+        const config = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), { ...(agent as any), ...modelPrefs }, resolveOpts);
         const result = await (useToolLoop ? streamGroundedReply : streamReplyToAgent)(
           agent._id as any,
           config,
@@ -1054,11 +1149,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       const greeters = pickGreetingResponders(mentionedAgents, team);
       for (const agent of greeters) {
         try {
-          const perAgentConfig = await resolveConfigFromProviders(
-            llmProviders,
-            globalConfig,
-            agent as any
-          );
+          const perAgentConfig = await resolveConfigFromProviders(llmProviders, globalConfig, { ...(agent as any), ...modelPrefs }, resolveOpts);
           await streamReplyToAgent(
             agent._id as any,
             perAgentConfig,
@@ -1080,9 +1171,10 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
 
     const lastUserContent = lastContent;
 
-    // Chat never starts a task by itself. Only an explicit command
-    // ("/task …", "kerjakan …") or a bare go reply to the CTO's Create task
-    // offer starts one here; the Create task button is the other way in.
+    // An explicit command ("/task …", "kerjakan …") or a bare go reply to a
+    // Create task offer starts a task here and returns early. Plan 061 also
+    // auto-creates for work-shaped messages further down; the Create task
+    // button remains the manual path.
     const explicitCommand = isOptionPick ? null : explicitTaskCommand(lastUserContent);
     const roleOf = (id: string | undefined) => [...team, ...agents].find((a) => String(a._id) === String(id ?? ""))?.role;
     if (explicitCommand) {
@@ -1108,7 +1200,11 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
 
     // The intent below is a suggestion that shapes the reply (answer vs a
     // plan proposal with the Create task button); it never dispatches.
-    let intent = await resolveIntent(ctx, projectId, lastUserContent, isOptionPick, globalConfig);
+    let intent = await resolveIntent(ctx, projectId, lastUserContent, isOptionPick, globalConfig, {
+      team,
+      history,
+      contextSummary: data.contextSummary,
+    });
     // `taskIntent.kind === "task"` makes the CTO propose a short plan and
     // end with the Create task sentence the web button keys on.
     let taskIntent = {
@@ -1139,59 +1235,111 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // grounding rule makes each agent say it has not checked.
     const repoTools = !isOptionPick ? await repoToolsAvailability(ctx, projectId) : null;
 
-    // O3 routing (lib/chat/owner.ts): a message nobody was @mentioned in is routed by System to the role that owns
-    // its topic; System posts "Sent to <Role>" and the owner answers. No CTO default and no CTO wrap-up.
+    // Work-shaped messages go to the CTO first (plan 059): it answers with a
+    // short plan and @mentions the roles it needs. ASK messages keep the O3
+    // deterministic route to the topic owner, with no CTO wrap-up.
+    const deterministicWork = classifyChatIntent(lastUserContent).kind === "task" && !hasAskShape(lastUserContent);
+    const runRequest = detectChatRunCommands(lastUserContent) !== null;
+    const writeRequest = deterministicWork || isPoliteWriteRequest(lastUserContent);
+    const readOnlyWork = ["audit", "review"].includes(taskIntent.subtype ?? "");
+    const workShaped = !isOptionPick && !readOnlyWork && (taskIntent.kind === "task" || writeRequest || runRequest);
+
+    // Plan 061: a work-shaped message gets its task in this same turn. The CTO
+    // still answers, but reports the task instead of asking for confirmation.
+    // dispatchTaskFromChat owns path safety, assignee/hint resolution and the
+    // live-command dedupe, so a retry cannot create a second task.
+    const autoCreated = shouldAutoCreateTask({
+      workShaped,
+      runRequest,
+      optionPick: isOptionPick,
+      pasted: isPastedContent(lastUserContent),
+      mentionCount: mentionedAgents.length,
+      autoCreateChatTasks: data.autoCreateChatTasks,
+    });
+    if (autoCreated) {
+      await dispatchTaskFromChat(ctx, projectArgs, {
+        text: lastUserContent,
+        team,
+        orchestrator,
+        title: lastUserContent.split("\n")[0].slice(0, 80),
+        conversationContext: false,
+      });
+    }
+
     let routed: ChatAgent | null = null;
     // The route's domain and code topic ride on the Create task offer's hint (P1a).
     let routeInfo: { domain: string | null; topic?: string } | null = null;
     if (mentionedAgents.length === 0) {
-      const owner = resolveChatOwner<ChatAgent>({ text: lastUserContent, team, history, repoToolsAvailable: repoTools?.available === true });
-      if (owner?.kind === "status") {
-        await ctx.runMutation(internal.chatContext.insertSystemLine, {
-          projectId,
-          conversationId: args.conversationId,
-          replyToMessageId: args.userMessageId,
-          content: await taskStatusLine(ctx, projectId, team),
-        });
-        return;
-      }
-      if (owner?.kind === "agent") {
-        routed = owner.agent;
-        routeInfo = { domain: owner.domain, ...(owner.topic ? { topic: owner.topic } : {}) };
-        // A one-agent team has no routing decision to show.
-        const line = team.length > 1 ? systemRoutingLine([owner.agent]) : "";
-        const handoffMessageId = line && await ctx.runMutation(internal.chatContext.insertSystemLine, {
+      if (workShaped && orchestrator) {
+        routed = orchestrator;
+        const line = team.length > 1 ? systemRoutingLine([orchestrator]) : "";
+        const routeMessageId = line && await ctx.runMutation(internal.chatContext.insertSystemLine, {
           projectId,
           conversationId: args.conversationId,
           replyToMessageId: args.userMessageId,
           content: line,
         });
-        // Not a reply, but a prior message for echo cleanup ("System: Sent to …").
         if (line) handoffLines.push(line);
-        if (handoffMessageId) {
-          await ctx
-            .runMutation(internal.chatContext.appendToolStep, {
-              messageId: handoffMessageId,
-              step: { tool: "handoff", target: owner.agent.role, ok: true, at: Date.now() },
-            })
-            .catch(() => undefined);
+        if (routeMessageId) {
+          await ctx.runMutation(internal.chatContext.appendToolStep, {
+            messageId: routeMessageId,
+            step: { tool: "handoff", target: orchestrator.role, ok: true, at: Date.now() },
+          }).catch(() => undefined);
         }
-        // A routed question is answered (no plan). A code audit / security review routed to the Reviewer by its topic is
-        // an audit, whatever the LLM labelled it (live test 4); a previous responder keeps the LLM's subtype. Work-shaped
-        // messages (a change request, a paste, a run request) keep their intent: the owner replies with the offer.
-        const preRoute = chatPreRouteAllowed({
-          text: lastUserContent,
-          intent,
-          optionPick: isOptionPick,
-          pasted: isPastedContent(lastUserContent),
-          workShaped: classifyChatIntent(lastUserContent).kind === "task" && !hasAskShape(lastUserContent),
-          runRequest: detectChatRunCommands(lastUserContent) !== null,
-        });
-        if (preRoute && (owner.domain || owner.via === "previous")) {
-          const routedSubtype = routedAnswerSubtype(owner.via === "previous" ? null : owner.domain, intent.subtype);
-          if (intent.intent !== "ask" || intent.subtype !== routedSubtype) {
-            intent = { ...intent, intent: "ask", subtype: routedSubtype };
-            taskIntent = { ...taskIntent, kind: "chat", subtype: intent.subtype };
+      } else {
+        const routedByLlm = intent.route
+          ? team.find((agent) => String(agent._id) === intent.route!.agentId)
+          : undefined;
+        const owner: ChatOwner<ChatAgent> | null = routedByLlm
+          ? { kind: "agent", agent: routedByLlm, domain: intent.route!.domain, via: "llm" }
+          : resolveChatOwner<ChatAgent>({ text: lastUserContent, team, history, repoToolsAvailable: repoTools?.available === true });
+        if (owner?.kind === "status") {
+          await ctx.runMutation(internal.chatContext.insertSystemLine, {
+            projectId,
+            conversationId: args.conversationId,
+            replyToMessageId: args.userMessageId,
+            content: await taskStatusLine(ctx, projectId, team),
+          });
+          return;
+        }
+        if (owner?.kind === "agent") {
+          routed = owner.agent;
+          routeInfo = { domain: owner.domain, ...(owner.topic ? { topic: owner.topic } : {}) };
+          // A one-agent team has no routing decision to show.
+          const line = team.length > 1 ? systemRoutingLine([owner.agent]) : "";
+          const handoffMessageId = line && await ctx.runMutation(internal.chatContext.insertSystemLine, {
+            projectId,
+            conversationId: args.conversationId,
+            replyToMessageId: args.userMessageId,
+            content: line,
+          });
+          // Not a reply, but a prior message for echo cleanup ("System: Sent to …").
+          if (line) handoffLines.push(line);
+          if (handoffMessageId) {
+            await ctx
+              .runMutation(internal.chatContext.appendToolStep, {
+                messageId: handoffMessageId,
+                step: { tool: "handoff", target: owner.agent.role, ok: true, at: Date.now() },
+              })
+              .catch(() => undefined);
+          }
+          // A routed question is answered (no plan). A code audit / security review routed to the Reviewer by its topic is
+          // an audit, whatever the LLM labelled it (live test 4); a previous responder keeps the LLM's subtype. Work-shaped
+          // messages (a change request, a paste, a run request) keep their intent: the owner replies with the offer.
+          const preRoute = chatPreRouteAllowed({
+            text: lastUserContent,
+            intent,
+            optionPick: isOptionPick,
+            pasted: isPastedContent(lastUserContent),
+            workShaped,
+            runRequest,
+          });
+          if (preRoute && (owner.domain || owner.via === "previous")) {
+            const routedSubtype = routedAnswerSubtype(owner.via === "previous" ? null : owner.domain, intent.subtype);
+            if (intent.intent !== "ask" || intent.subtype !== routedSubtype) {
+              intent = { ...intent, intent: "ask", subtype: routedSubtype };
+              taskIntent = { ...taskIntent, kind: "chat", subtype: intent.subtype };
+            }
           }
         }
       }
@@ -1208,11 +1356,15 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     const intentLine = intentLineFor(intent, lastUserContent);
     const selfReview = isSelfReviewRequest(lastUserContent);
     const answered = new Set<string>();
+    // Plan 059: teammates the CTO @mentions answer next, in order.
+    const handoffFrom = new Map<string, { by: string; request: string }>();
+    let handoffs = 0;
     for (let turn = 0; turn < queue.length; turn += 1) {
       const agent = queue[turn];
       if (answered.has(String(agent._id))) continue;
       answered.add(String(agent._id));
       const isCto = orchestrator !== null && agent._id === orchestrator._id;
+      const handoffBy = handoffFrom.get(String(agent._id));
       // Write request: a short reply plus the Create task offer (lib/chat/writeOffer.ts).
       // O3: routed = addressed, so the owner System routed to can offer Create task.
       const isRouted = routed !== null && String(routed._id) === String(agent._id);
@@ -1229,7 +1381,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       const offNote = !repoTools
         ? undefined
         : !repoTools.available
-          ? repoToolsOffNote(repoTools.reason)
+          ? (handoffBy === undefined ? repoToolsOffNote(repoTools.reason) : undefined)
           : workerGone
             ? repoToolsOffNote("unclaimed")
             : callCap <= 0
@@ -1239,7 +1391,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         ...buildChatPersonaLines(agent, projectName, queue, repoSnapshot, useRepoTools),
         ...buildGroundingGuidance(useRepoTools, skillLoader !== undefined), // D5: stable lines first, per-turn after
         ...(intent.intent === "ask" ? buildAnswerGuidance(intent.subtype) : []),
-        ...buildPlanningGuidance(agent, { isOrchestrator: isCto, hasRepoTools: useRepoTools, taskIntent, assigneeName: write.assignee?.name, codeInChat: write.codeInChat, plan: write.plan }),
+        ...buildPlanningGuidance(agent, { isOrchestrator: isCto, hasRepoTools: useRepoTools, taskIntent, assigneeName: write.assignee?.name, codeInChat: write.codeInChat, plan: write.plan, taskAlreadyCreated: autoCreated }),
         ...(isCto && !isOptionPick
           ? buildHandoffGuidance(team, String(agent._id), {
               hasRepoTools: useRepoTools,
@@ -1249,7 +1401,8 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         ...(isOptionPick
           ? ["The user's last message is a button pick ('I choose …'), not their language: reply in the language of their earlier messages, in 2-3 sentences, and do not bring teammates in. Say which roles would do the work (as @Role) and that the Create task button under your reply starts it; never ask them to type a command."]
           : []),
-        ...(isRouted ? [buildRoutedOwnerNotice(useRepoTools)] : []),
+        ...(isRouted && !(isCto && workShaped) ? [buildRoutedOwnerNotice(useRepoTools)] : []),
+        ...(handoffBy ? [buildHandoffNotice(handoffBy.by, handoffBy.request)] : []),
         selfReview
           ? buildSelfReviewGuidance(previousReplyOf(history, String(agent._id)), useRepoTools)
           : "",
@@ -1277,11 +1430,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       let content: string;
       let result: StreamReplyResult;
       try {
-        const perAgentConfig = await resolveConfigFromProviders(
-          llmProviders,
-          getGlobalLLMConfig(),
-          agent as any
-        );
+        const perAgentConfig = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), { ...(agent as any), ...modelPrefs }, resolveOpts);
         result = await (useToolLoop ? streamGroundedReply : streamReplyToAgent)(
           agent._id as any,
           perAgentConfig,
@@ -1290,7 +1439,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           useToolLoop
             ? {
                 maxCalls: useRepoTools ? callCap : 0, deadline: toolBudget.deadline,
-                requireRead: intent.subtype === "audit" || mentionsCode(lastUserContent),
+                requireRead: intent.subtype === "audit" || (mentionsCode(lastUserContent) && !writeRequest),
                 ...(skillLoader ? { skillLoader } : {}),
                 ...(offNote && !useRepoTools ? { traceNote: offNote } : {}),
                 intentLine,
@@ -1299,10 +1448,18 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         );
         toolBudget.spend(result.toolCalls ?? 0);
         content = result.content;
+        if (handoffBy !== undefined && orchestrator && result.messageId) {
+          await ctx.runMutation(internal.orgIntel.markChatHandoff, {
+            messageId: result.messageId,
+            fromAgentId: orchestrator._id as any,
+          }).catch(() => undefined);
+        }
         // Create task offer: the server's own reading of the request, stored on
         // the reply (the routed owner, or an @mentioned agent) so the button and "gas" never depend on wording.
         // A reply that spent its whole repo budget gets the offer too: the task runs the full job.
-        const replyOffer = offerForReply(write, content, { budgetHit: useRepoTools && (result.budgetHit === true || (result.toolCalls ?? 0) >= callCap) });
+        const replyOffer = autoCreated
+          ? null
+          : offerForReply(write, content, { budgetHit: useRepoTools && (result.budgetHit === true || (result.toolCalls ?? 0) >= callCap) });
         if (replyOffer && result.messageId) await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, { messageId: result.messageId, taskOffer: replyOffer }).catch(() => undefined);
         // Post-answer check: file paths and file:line references the
         // answer cites but no tool result (or the snapshot) showed. A file the
@@ -1331,8 +1488,39 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         // Later speakers in this turn see this reply in their system
         // section; the user's message stays the last chat message.
         turnReplies.push({ name: agent.name, content: content.trim() });
-        // An @Name inside a reply never pulls a teammate in: "izinkan @QA atau @Reviewer lanjut?" is a question to
-        // the user, not a handoff. Only the user's typed @mentions and System's routing bring an agent in.
+        // CTO handoff: the roles it @mentioned answer next, in order.
+        // Only for work turns. A plain question (even one addressed to @CTO)
+        // must be answered by the CTO alone — the model tends to @mention the
+        // whole team out of habit, so the prompt alone is not a reliable gate.
+        if (isCto && !isOptionPick && !CAPABILITY_QUESTION.test(lastUserContent)) {
+          const toolsOffForTeam = repoTools?.available !== true || workerGone;
+          const dropped: string[] = [];
+          for (const mentioned of selectHandoffs(content, team, String(agent._id))) {
+            if (handoffs >= MAX_CTO_HANDOFFS) break;
+            if (answered.has(String(mentioned._id))) continue;
+            if (queue.some((queued, index) => index > turn && String(queued._id) === String(mentioned._id))) continue;
+            const request = handoffRequestFor(content, mentioned);
+            if (toolsOffForTeam && isVerificationRequest(request)) {
+              dropped.push(mentioned.name);
+              continue;
+            }
+            queue.push(mentioned);
+            handoffFrom.set(String(mentioned._id), { by: agent.name, request });
+            handoffs += 1;
+            if (result.messageId) {
+              await ctx.runMutation(internal.chatContext.appendToolStep, {
+                messageId: result.messageId,
+                step: { tool: "handoff", target: mentioned.role, ok: true, at: Date.now() },
+              }).catch(() => undefined);
+            }
+          }
+          if (dropped.length > 0 && result.messageId) {
+            await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
+              messageId: result.messageId,
+              reasoning: joinTrace(result.reasoning ?? "", `Handoff skipped (${dropped.map((n) => `@${n}`).join(", ")}): a verification request, and teammates have no repo access in this reply either`),
+            }).catch(() => undefined);
+          }
+        }
       }
     }
 

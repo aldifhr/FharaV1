@@ -36,14 +36,12 @@ describe("buildOrgChart", () => {
     expect(chart.rootKey).toBe("c");
     expect(chart.nodes[0]).toMatchObject({ key: "c", parent: null, label: "CTO", model: "gpt-x", skills: 2, tools: ["read_file"], registryName: "CTO" });
     const children = chart.nodes.filter((n) => n.parent === "c");
-    expect(children.map((n) => n.roleKey)).toEqual([
-      "designer", "frontend", "backend", "qa", "support", "devops", "reviewer", "researcher", "data-scientist",
-    ]);
+    expect(children.map((n) => n.roleKey)).toEqual(["frontend", "backend", "qa", "data-scientist"]);
     expect(chart.nodes.find((n) => n.roleKey === "frontend")).toMatchObject({ agentId: "f", enabled: false });
     expect(chart.nodes.find((n) => n.roleKey === "qa")).toMatchObject({ agentId: null, key: "role:qa", registryEnabled: false });
     expect(chart.nodes.find((n) => n.roleKey === "data-scientist")).toMatchObject({ fixed: false, agentId: "x" });
     expect(chart.nodes.some((n) => n.agentId === "g")).toBe(false);
-    expect(chart.counts).toEqual({ agents: 4, enabled: 3, vacant: 6, custom: 1 });
+    expect(chart.counts).toEqual({ agents: 4, enabled: 3, vacant: 1, custom: 1 });
   });
 
   test("no CTO agent → a vacant CTO root", () => {
@@ -99,8 +97,9 @@ describe("collaboration graph", () => {
     { id: "c", name: "CTO", role: "cto" },
     { id: "f", name: "Frontend", role: "frontend" },
     { id: "b", name: "Backend", role: "backend" },
-    { id: "r", name: "Reviewer", role: "reviewer" },
     { id: "q", name: "QA", role: "qa" },
+    // A custom teammate, so a reply can still name more than three people.
+    { id: "d", name: "Data", role: "data-scientist" },
   ];
   const at = NOW - DAY;
 
@@ -125,7 +124,7 @@ describe("collaboration graph", () => {
   test("a CTO reply naming more than three teammates is not a handoff", () => {
     const hs = chatHandoffs(
       [
-        { id: "2", conversationId: "k", authorType: "agent", agentId: "c", content: "@Frontend @Backend @Reviewer @QA team", at: 2 },
+        { id: "2", conversationId: "k", authorType: "agent", agentId: "c", content: "@Frontend @Backend @QA @Data team", at: 2 },
         { id: "3", conversationId: "k", authorType: "agent", agentId: "f", content: "ok", at: 3 },
       ],
       agents
@@ -141,12 +140,12 @@ describe("collaboration graph", () => {
       now: NOW,
       sinceDays: 7,
       agents,
-      rosterRoles: ["cto", "frontend", "backend", "reviewer", "qa", "devops"],
+      rosterRoles: ["cto", "frontend", "backend", "qa"],
       subtasks: [
         st("api", "code_change", "backend"),
         st("ui", "code_change", "frontend", ["api"]),
         st("ui_polish", "code_change", "frontend", ["ui"]), // same role → no edge
-        st("review", "review", "reviewer", ["ui"]),
+        st("review", "review", "qa", ["ui"]),
         st("review_fix_1", "code_change", "frontend"),
         st("qa", "qa", "qa", ["ui"]),
         st("fix_qa_1", "code_change", "backend"),
@@ -166,14 +165,16 @@ describe("collaboration graph", () => {
     expect(edge("frontend", "backend")?.counts).toEqual({ delegation: 2, chat: 0, review_loop: 0, dependency: 0 });
     expect(edge("cto", "backend")?.counts.chat).toBe(1);
     expect(edge("backend", "frontend")?.counts.dependency).toBe(1);
-    expect(edge("frontend", "reviewer")?.counts.dependency).toBe(1);
-    expect(edge("reviewer", "frontend")?.counts.review_loop).toBe(1);
+    // Both the review pass and the QA pass depend on the UI subtask; QA folds
+    // the retired Reviewer role, so they land on one edge.
+    expect(edge("frontend", "qa")?.counts.dependency).toBe(2);
+    expect(edge("qa", "frontend")?.counts.review_loop).toBe(1);
     expect(edge("qa", "backend")?.counts.review_loop).toBe(1);
     expect(edge("frontend", "frontend")).toBeUndefined();
     expect(edge("cto", "frontend")).toBeUndefined();
     expect(graph.totals).toMatchObject({ delegation: 2, chat: 1, chatInferred: 1, chatRecorded: 0, review_loop: 2, dependency: 3 });
-    // Roster roles appear even without edges; the heaviest edge sorts first.
-    expect(graph.nodes.map((n) => n.key)).toContain("devops");
+    // Every roster role is drawn, in registry order, even without edges.
+    expect(graph.nodes.map((n) => n.key)).toEqual(["cto", "frontend", "backend", "qa"]);
     expect(graph.edges[0]).toMatchObject({ from: "frontend", to: "backend", total: 2 });
   });
 });

@@ -14,15 +14,15 @@ describe("orgIntel", () => {
       const cto = await ctx.db.insert("agents", { name: "CTO", role: "cto", status: "idle", skillIds: [], supportedTools: ["read_file"] });
       const fe = await ctx.db.insert("agents", { name: "Frontend", role: "frontend", status: "idle", maxConcurrency: 2, llmModel: "m-1" });
       const be = await ctx.db.insert("agents", { name: "Backend", role: "backend", status: "idle" });
-      const rv = await ctx.db.insert("agents", { name: "Reviewer", role: "reviewer", status: "idle" });
-      const projectId = await ctx.db.insert("projects", { name: "Shop", workspacePath: "/tmp/a", agentIds: [cto, fe, be, rv] });
+      const qa = await ctx.db.insert("agents", { name: "QA", role: "qa", status: "idle" });
+      const projectId = await ctx.db.insert("projects", { name: "Shop", workspacePath: "/tmp/a", agentIds: [cto, fe, be, qa] });
       const hidden = await ctx.db.insert("projects", { name: "Secret", workspacePath: "/tmp/c", ownerId: "someone-else" });
       const taskId = await ctx.db.insert("tasks", { projectId, title: "Checkout", command: "c", status: "running", updatedAt: now });
       const hiddenTask = await ctx.db.insert("tasks", { projectId: hidden, title: "Hidden", command: "c", status: "running", updatedAt: now });
       const base = { description: "d", order: 1, attempts: 1, status: "completed" as const };
       await ctx.db.insert("subtasks", { ...base, taskId, projectId, key: "api", title: "API", kind: "code_change", capability: "backend-development", dependencies: [], assignedAgentId: be });
       await ctx.db.insert("subtasks", { ...base, taskId, projectId, key: "ui", title: "UI", kind: "code_change", capability: "frontend-development", dependencies: ["api"], assignedAgentId: fe, startedAt: now - 3000, completedAt: now - 1000 });
-      await ctx.db.insert("subtasks", { ...base, taskId, projectId, key: "review", title: "Review", kind: "review", capability: "code-review", dependencies: ["ui"], assignedAgentId: rv });
+      await ctx.db.insert("subtasks", { ...base, taskId, projectId, key: "review", title: "Review", kind: "review", capability: "code-review", dependencies: ["ui"], assignedAgentId: qa });
       await ctx.db.insert("subtasks", { ...base, taskId, projectId, key: "review_fix_1", title: "Fix", kind: "code_change", capability: "frontend-development", dependencies: [], assignedAgentId: fe, origin: "review_fix", status: "running" });
       await ctx.db.insert("executions", { taskId, projectId, subtaskKey: "review_fix_1", agentId: fe, agentName: "Frontend", capability: "frontend-development", workerId: "w", status: "running", attempt: 1, startedAt: now, leaseExpiresAt: now + 60_000, createdAt: now });
       await ctx.db.insert("executions", { taskId: hiddenTask, projectId: hidden, subtaskKey: "x", agentId: fe, agentName: "Frontend", capability: "frontend-development", workerId: "w", status: "running", attempt: 1, startedAt: now, leaseExpiresAt: now + 60_000, createdAt: now });
@@ -34,7 +34,7 @@ describe("orgIntel", () => {
       await ctx.db.insert("messages", { projectId, conversationId, authorType: "user", content: "hi" });
       await ctx.db.insert("messages", { projectId, conversationId, authorType: "agent", agentId: cto, content: "@Frontend please check." });
       const reply = await ctx.db.insert("messages", { projectId, conversationId, authorType: "agent", agentId: fe, content: "checked" });
-      return { cto, fe, be, rv, projectId, reply };
+      return { cto, fe, be, qa, projectId, reply };
     });
 
     const chart = await t.query(api.orgIntel.orgChart, {});
@@ -72,8 +72,8 @@ describe("orgIntel", () => {
     const edge = (from: string, to: string) => graph.edges.find((e) => e.from === from && e.to === to);
     expect(edge("frontend", "backend")?.counts.delegation).toBe(1);
     expect(edge("backend", "frontend")?.counts.dependency).toBe(1);
-    expect(edge("frontend", "reviewer")?.counts.dependency).toBe(1);
-    expect(edge("reviewer", "frontend")?.counts.review_loop).toBe(1);
+    expect(edge("frontend", "qa")?.counts.dependency).toBe(1);
+    expect(edge("qa", "frontend")?.counts.review_loop).toBe(1);
     expect(edge("cto", "frontend")?.counts.chat).toBe(1);
     expect(graph.totals.chatRecorded).toBe(1);
   });

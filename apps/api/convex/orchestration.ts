@@ -212,6 +212,11 @@ export const getRunContext = internalQuery({
      */
     opencodeRuntime?: "api" | "opencode";
     opencodeModel?: string;
+    /**
+     * Plan 057: the provider CLI the native runtime spawns, when the
+     * app-wide setting was written. Unset = the worker's env fallback.
+     */
+    nativeDriver?: "opencode" | "codex";
     /** Enabled MCP server configs for this project (Plan 009). Config-only. */
     mcpServers: Doc<"mcpServers">[];
     /**
@@ -308,7 +313,13 @@ export const getRunContext = internalQuery({
       llmProviders,
       mcpServers,
       llmSelectionMode,
-      ...(opencode ? { opencodeRuntime: opencode.runtime, opencodeModel: opencode.model } : {}),
+      ...(opencode
+        ? {
+            opencodeRuntime: opencode.runtime,
+            opencodeModel: opencode.model,
+            ...(opencode.driver ? { nativeDriver: opencode.driver } : {}),
+          }
+        : {}),
       plannerAgent: fallback.agent
         ? {
             ...projectAgentForWorker(fallback.agent),
@@ -2689,7 +2700,10 @@ export const reportProviderHealth = internalMutation({
       .query("providerHealth")
       .withIndex("by_provider", (q) => q.eq("providerId", args.providerId))
       .first();
-    const doc = { ...args, reportedAt: Date.now() };
+    // An absent circuitOpenUntil means the breaker recovered. Convex treats an
+    // explicit undefined on patch as a deletion; omitting the key would keep
+    // the old timestamp and leave the provider looking paused forever.
+    const doc = { ...args, circuitOpenUntil: args.circuitOpenUntil, reportedAt: Date.now() };
     if (existing) {
       await ctx.db.patch(existing._id, doc);
       return existing._id;

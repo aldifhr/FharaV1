@@ -84,12 +84,13 @@ async function setup() {
     const ctoId = await mk("CTO", "cto");
     const backendId = await mk("Backend", "backend");
     const frontendId = await mk("Frontend", "frontend");
-    const reviewerId = await mk("Reviewer", "reviewer");
     const qaId = await mk("QA", "qa");
     const projectId = await ctx.db.insert("projects", {
       name: "P",
       workspacePath: "/repo",
-      agentIds: [ctoId, backendId, frontendId, reviewerId, qaId],
+      // These paths test the manual button / "gas" / "kerjakan itu" (plan 061 opt-out).
+      autoCreateChatTasks: false,
+      agentIds: [ctoId, backendId, frontendId, qaId],
     });
     const now = Date.now();
     const personalId = await ctx.db.insert("conversations", {
@@ -101,7 +102,7 @@ async function setup() {
       createdAt: now,
       lastMessageAt: now,
     });
-    return { ctoId, backendId, frontendId, reviewerId, qaId, projectId, personalId };
+    return { ctoId, backendId, frontendId, qaId, projectId, personalId };
   });
   return { t, ...ids };
 }
@@ -120,12 +121,12 @@ async function ask(s: Setup, content: string, preferredAgentIds?: any[]) {
 
 const tasksOf = (s: Setup) => s.t.run(async (ctx) => ctx.db.query("tasks").collect());
 
-/** The one task created, with its pool checked: CTO + Frontend (owner) + Reviewer + QA, and no Backend fallback. */
+/** The one task created, with its pool checked: CTO + Frontend (owner) + QA, and no Backend fallback. */
 async function onlyTask(s: Setup) {
   const tasks = await tasksOf(s);
   expect(tasks).toHaveLength(1);
   const pool = (tasks[0].assignedAgentIds ?? []).map(String);
-  expect([...pool].sort()).toEqual([s.ctoId, s.frontendId, s.reviewerId, s.qaId].map(String).sort());
+  expect([...pool].sort()).toEqual([s.ctoId, s.frontendId, s.qaId].map(String).sort());
   expect(pool).not.toContain(String(s.backendId));
   expect(tasks[0].routingHint).toBeDefined();
   return tasks[0];
@@ -154,7 +155,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("every task creation path: CTO + owner + Reviewer + QA, hint stored", () => {
+describe("every task creation path: CTO + owner + QA, hint stored", () => {
   test("Create task button (web ChatPanel): the offer's assignee and hint come from the offer message", async () => {
     const s = await setup();
     const message = await offer(s);

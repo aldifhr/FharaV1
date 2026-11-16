@@ -9,17 +9,18 @@
  *
  * Rule: the owners are the user's @mentions, the offer's assignee, the
  * hint's role and the routed topic owner. When there is at least one owner,
- * the pool is CTO + owners + Reviewer + QA (resolveAssignees). Being in the
- * pool is not running: QA and review still run only for code changes, and
- * the CTO only answers architecture-flagged plans. No owner at all: no
- * narrowing (the whole team), never a silent Backend default.
+ * the pool is CTO + owners + QA (resolveAssignees). Being in the pool is not
+ * running: QA still runs only for code changes, and the CTO only answers
+ * architecture-flagged plans. No owner at all: no narrowing (the whole
+ * team), never a silent Backend default.
  *
  * Pure: no Convex or Node APIs (the web app imports it too).
  */
 import { routeQuestion } from "./dispatch";
 import { codeRoleForRequest } from "./intent";
+import { BACKEND_WORD_SOURCE } from "../backendDomain";
 import { resolveAssignees } from "./team";
-import { normalizeRoleKey } from "../roles";
+import { normalizeRoleKey, LEGACY_ROLE_SUCCESSORS } from "../roles";
 import { buildRoutingHint, type RoutingHint } from "../routingHint";
 
 type Member = { _id: string; name: string; role: string };
@@ -27,16 +28,33 @@ type Member = { _id: string; name: string; role: string };
 const CTO_ROLE = /^(?:cto|architect)$/i;
 
 const ROLE_KEYWORDS: Array<[string, RegExp]> = [
-  ["frontend", /\b(ui|ux|component|komponen|page|halaman|tampilan|css|tailwind|react|layout|button|tombol|form|modal|frontend|next\.?js)\b/i],
-  ["backend", /\b(api|endpoint|helper|util|lib|function|fungsi|database|db|schema|server|convex|query|mutation|backend|parser|algorithm|logic|logika)\b/i],
-  ["designer", /\b(design|desain|mockup|wireframe|warna|color|palette|typography|font|logo|branding)\b/i],
-  ["devops", /\b(deploy|docker|ci|cd|pipeline|github actions|workflow|infra|kubernetes|nginx)\b/i],
-  ["researcher", /\b(riset|research|bandingkan|compare|cari tahu|investigate|analisis|analysis|benchmark)\b/i],
-  ["support", /\b(docs|dokumentasi|documentation|readme|faq|panduan|guide|changelog)\b/i],
+  [
+    "frontend",
+    /\b(ui|ux|component|komponen|page|halaman|tampilan|css|tailwind|react|layout|button|tombol|form|modal|frontend|next\.?js|design|desain|mockup|wireframe|warna|color|palette|typography|font|logo|branding)\b/i,
+  ],
+  [
+    "backend",
+    new RegExp(
+      `\\b(?:${BACKEND_WORD_SOURCE}|helper|util|lib|function|fungsi|parser|algorithm|logic|logika|deploy|docker|ci|cd|pipeline|github actions|workflow|infra|kubernetes|nginx|docs|dokumentasi|documentation|readme|faq|panduan|guide|changelog)\\b`,
+      "i"
+    ),
+  ],
 ];
 
-const byRole = <T extends Member>(team: T[], role: string | undefined): T | undefined =>
-  role ? team.find((a) => normalizeRoleKey(a.role) === normalizeRoleKey(role)) : undefined;
+/**
+ * The team member for a role name. A retired name resolves to its successor
+ * (a hint or a stored owner can still say "designer"), which is what the
+ * four-role roster has to do with the old nine.
+ */
+const byRole = <T extends Member>(team: T[], role: string | undefined): T | undefined => {
+  const key = role ? normalizeRoleKey(role) : "";
+  if (!key) return undefined;
+  const successor = LEGACY_ROLE_SUCCESSORS[key];
+  return (
+    team.find((a) => normalizeRoleKey(a.role) === key) ??
+    (successor ? team.find((a) => normalizeRoleKey(a.role) === successor) : undefined)
+  );
+};
 
 /** The team's CTO (the planner's model source), if any. */
 export function teamCto<T extends Member>(team: T[]): T | null {

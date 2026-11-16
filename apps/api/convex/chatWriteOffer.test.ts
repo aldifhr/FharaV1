@@ -89,6 +89,8 @@ async function setup(opts: { worker: "none" | "new" }) {
     const projectId = await ctx.db.insert("projects", {
       name: "P",
       workspacePath: "/repo",
+      // This suite pins the manual Create task offer path (plan 061 opt-out).
+      autoCreateChatTasks: false,
       agentIds: [ctoId, backendId, qaId, frontendId],
     });
     if (opts.worker === "new") {
@@ -167,19 +169,17 @@ describe("write requests in chat get a short reply and a routed Create task offe
     expect(tasks[0].routingHint).toMatchObject({ source: "mention", role: "frontend", kind: "implementation", files: ["bold.html"], hard: true });
   });
 
-  test("an un-mentioned HTML file request goes to Frontend directly (System line, no CTO); the offer still appears", async () => {
+  test("an un-mentioned HTML file request goes to the CTO first (System line), which offers the task to Frontend", async () => {
     const { t, projectId, frontendId, ctoId, qaId } = await setup({ worker: "none" });
-    reply = () => "Siap, ini dikerjakan lewat task — balas gas atau tekan Create task.";
+    reply = (call) => (speaker(call) === "CTO" ? "@Frontend tolong buatkan file ultimate.html-nya. Klik Create task." : "Siap.");
     const all = await ask(t, projectId, "buatkan file ultimate.html dengan teks 'Ultimate is a new vision' dengan background yang menarik");
     const system = all.filter((r) => r.voice === "system");
     const replies = all.filter((r) => r.voice !== "system");
-    expect(system.map((r) => r.content)).toEqual(["Sent to Frontend"]);
+    expect(system.map((r) => r.content)).toEqual(["Sent to CTO"]);
     expect(system[0].agentId).toBeUndefined();
-    expect(replies.map((r) => r.agentId)).toEqual([frontendId]);
-    expect(calls.some((c) => speaker(c) === "CTO")).toBe(false);
-    const prompt = calls.find((c) => speaker(c) === "Frontend")!.system;
-    expect(prompt).toContain("Do not paste the file, its contents or any code block");
-    expect(prompt).not.toContain("To execute this plan");
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId, frontendId]);
+    const prompt = calls.find((c) => speaker(c) === "CTO")!.system;
+    expect(prompt).toContain("pressing the Create task button under this reply starts it");
     expect(replies[0].taskOffer).toMatchObject({
       kind: "implementation",
       assigneeAgentId: String(frontendId),

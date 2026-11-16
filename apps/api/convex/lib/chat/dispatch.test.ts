@@ -60,8 +60,8 @@ describe("O3 routing table: every role owns its topics, no CTO default", () => {
     expect(to(route(""))).toBe("support");
   });
 
-  it("greeting with no Support in the team → none (fallback picks, not the CTO)", () => {
-    expect(route("halo", without("support")).kind).toBe("none");
+  it("greeting with no Support (or Backend, which carries it now) → none", () => {
+    expect(route("halo", without("support", "backend")).kind).toBe("none");
   });
 
   it("planning with no CTO in the team → none", () => {
@@ -89,6 +89,9 @@ describe("routing: domains (EN/ID)", () => {
     ["which convex query does the inbox endpoint use", "backend"],
     ["desain tabel log bagusnya gimana?", "backend"],
     ["what do you think about the design api for uploads", "backend"],
+    ["bikin endpoint FastAPI untuk upload file", "backend"],
+    ["kenapa service golang ini error di production", "backend"],
+    ["perbaiki migrasi database PostgreSQL", "backend"],
   ])("%s → %s", (text, role) => {
     expect(to(route(text))).toBe(role);
   });
@@ -120,8 +123,8 @@ describe("routing: missing roles", () => {
   it("security falls back to the reviewer", () => {
     expect(to(route("cek celah keamanan di login"))).toBe("reviewer");
   });
-  it("security with no reviewer and no security role → none", () => {
-    expect(route("cek celah keamanan di login", without("reviewer")).kind).toBe("none");
+  it("security with no security, reviewer or backend role → none", () => {
+    expect(route("cek celah keamanan di login", without("reviewer", "backend")).kind).toBe("none");
   });
   it("designer question goes to frontend when there is no designer", () => {
     expect(to(route("warna palet halaman landing kurang enak", without("designer")))).toBe("frontend");
@@ -134,7 +137,7 @@ describe("routing: missing roles", () => {
     expect(to(route("what do you think of the typography", team))).toBe("UI UX");
   });
   it("role missing entirely → none", () => {
-    expect(route("bandingkan zod vs valibot", without("researcher")).kind).toBe("none");
+    expect(route("bandingkan zod vs valibot", without("researcher", "cto")).kind).toBe("none");
   });
   it("roles are matched case-insensitively with suffixes", () => {
     const team = [{ _id: "cto", name: "CTO", role: "cto" }, { _id: "q", name: "Tester", role: "QA Engineer" }];
@@ -152,6 +155,31 @@ describe("routing: missing roles", () => {
   });
   it("research does not need repo tools", () => {
     expect(to(route("bandingkan zod vs valibot", full, { repoToolsAvailable: false }))).toBe("researcher");
+  });
+});
+
+describe("routing: the four-role fixed team", () => {
+  // The roster is CTO / Frontend / Backend / QA. Every topic that used to
+  // belong to a retired role still has an owner.
+  const four: M[] = [
+    { _id: "cto", name: "CTO", role: "cto" },
+    { _id: "fe", name: "Frontend", role: "frontend" },
+    { _id: "be", name: "Backend", role: "backend" },
+    { _id: "qa", name: "QA", role: "qa" },
+  ];
+  it.each([
+    ["cara pakai fitur export?", "backend"], // Support → Backend
+    ["halo", "backend"],
+    ["tolong audit fungsi parseConfig di lib/config.ts", "qa"], // Reviewer → QA
+    ["please review the auth middleware code", "qa"],
+    ["cek keamanan endpoint login", "backend"], // security-audit lives on Backend
+    ["CI gagal di github actions", "backend"], // DevOps → Backend
+    ["bandingkan zod vs valibot", "cto"], // Researcher → CTO
+    ["warna ini cocok?", "frontend"], // Designer → Frontend
+    ["kenapa query lambat?", "backend"],
+    ["kenapa tes di packages/worker flaky?", "qa"],
+  ])("%s → %s", (text, role) => {
+    expect(to(route(text, four))).toBe(role);
   });
 });
 

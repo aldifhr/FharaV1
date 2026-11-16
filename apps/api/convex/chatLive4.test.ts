@@ -92,6 +92,8 @@ async function setup() {
     const projectId = await ctx.db.insert("projects", {
       name: "P",
       workspacePath: "/repo",
+      // This suite pins manual offer idempotency (plan 061 opt-out).
+      autoCreateChatTasks: false,
       agentIds: [ctoId, reviewerId, designerId, qaId],
     });
     await ctx.db.insert("workers", {

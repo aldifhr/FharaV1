@@ -13,6 +13,7 @@ const team = [
   { _id: "be", name: "Backend", role: "backend" },
 ];
 const fe = team[1];
+const cto = team[0];
 const roleOf = (id: string | undefined) => team.find((a) => a._id === id)?.role;
 const ASK = "can you create file index.html";
 const EMPTY_SNAPSHOT = "Workspace snapshot (/repo):\n";
@@ -47,7 +48,8 @@ describe("a chat write request produces an offer with a brief", () => {
     expect(inferStack(null)).toBe("plain HTML");
     expect(inferStack('--- package.json ---\n{"dependencies":{"next":"15.0.0","react":"19"}}')).toBe("Next.js");
     expect(inferStack('{"dependencies":{"react":"19"},"devDependencies":{"vite":"6"}}')).toBe("React/Vite");
-    expect(offerPlanLine("can you create file index.html", "Next.js")).toBe("I'll add index.html at the repo root, using this Next.js project's setup.");
+    expect(offerPlanLine("can you create file index.html", "Next.js")).toBe("I'll add a plain HTML index.html at the repo root.");
+    expect(offerPlanLine("can you create a React index.html component", "React/Vite")).toBe("I'll add index.html at the repo root, using React/Vite.");
     expect(offerPlanLine("can you fix src/app.ts", "plain HTML")).toBe("I'll update src/app.ts.");
     expect(offerPlanLine("add tests for main.js", "plain HTML")).toBeNull();
     expect(buildOfferBrief("x", null)).toBeUndefined();
@@ -69,6 +71,41 @@ describe("a chat write request produces an offer with a brief", () => {
     const lines = buildPlanningGuidance(fe, { isOrchestrator: false, hasRepoTools: true, taskIntent: { kind: "task", frontend: true, backend: false, testing: false, security: false }, assigneeName: "Frontend", plan: "I'll add a plain HTML index.html at the repo root." }).join("\n");
     expect(lines).toContain("I'll add a plain HTML index.html at the repo root.");
     expect(lines).toContain("Chat can't change files. Want me to create a task for it?");
+  });
+
+  test("an auto-created task is reported, not offered again", () => {
+    const lines = buildPlanningGuidance(cto, {
+      isOrchestrator: true,
+      taskIntent: { kind: "task", frontend: true, backend: false, testing: false, security: false },
+      assigneeName: "Frontend",
+      plan: "I'll add a plain HTML index.html at the repo root.",
+      taskAlreadyCreated: true,
+    }).join("\n");
+    expect(lines).toContain("I created a task and handed it to Frontend.");
+    expect(lines).not.toContain("press the Create task button");
+  });
+
+  test("a CTO answer to a capability question offers nothing and hands off to nobody", () => {
+    const lines = buildPlanningGuidance(cto, {
+      isOrchestrator: true,
+      taskIntent: { kind: "chat", frontend: false, backend: false, testing: false, security: false },
+    }).join("\n");
+    expect(lines).toContain("never mention Create task");
+    expect(lines).toContain("genuinely in that teammate's area");
+    expect(lines).not.toContain("If user asks for work to be done");
+  });
+
+  test("a routed specialist does not ask again when the task was auto-created", () => {
+    const lines = buildPlanningGuidance(fe, {
+      isOrchestrator: false,
+      hasRepoTools: true,
+      taskIntent: { kind: "task", frontend: true, backend: false, testing: false, security: false },
+      assigneeName: "Frontend",
+      plan: "I'll add a plain HTML index.html at the repo root.",
+      taskAlreadyCreated: true,
+    }).join("\n");
+    expect(lines).toContain("The task has already been created in this turn");
+    expect(lines).not.toContain("Want me to create a task for it");
   });
 });
 
@@ -116,6 +153,7 @@ describe("prompt text never says 'read-only session'", () => {
       ...Object.values(ROLE_PROMPT_TEMPLATES),
     ].join("\n");
     expect(texts).not.toMatch(/read-only session/i);
-    expect(ROLE_PROMPT_TEMPLATES.frontend).toContain("Chat can't change files. Want me to create a task for it?");
+    expect(ROLE_PROMPT_TEMPLATES.frontend).toContain('Never ask "Want me to create a task for it?"');
+    expect(texts).not.toContain("then ask \"Chat can't change files. Want me to create a task for it?\"");
   });
 });

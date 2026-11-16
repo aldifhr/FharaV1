@@ -4,11 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
-import { MessageCircle, Trash2 } from "lucide-react";
+import { MessageCircle, Plus, Trash2 } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import Sidebar from "@/components/Sidebar";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import InitialAvatar from "@/components/InitialAvatar";
+import MessageAgentModal from "@/components/messages/MessageAgentModal";
 import { useToast } from "@/components/Toasts";
 import { roleLabel } from "@/lib/agentRoles";
 import { plainTextPreview, sidebarPersonalRows } from "@/lib/personalChat";
@@ -36,6 +37,7 @@ export default function PersonalMessagesPage() {
   const removePersonal = useMutation(api.conversations.removePersonal);
   const [confirm, setConfirm] = useState<{ request: ConfirmRequest; conversationId: string } | null>(null);
   const [pending, setPending] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const confirmDelete = async () => {
     if (!confirm) return;
@@ -61,23 +63,17 @@ export default function PersonalMessagesPage() {
               <h1 className="text-[26px] font-semibold tracking-tight">Personal messages</h1>
               <p className="mt-1 text-[15px] text-ink-2">One-to-one chats with the agents on your team.</p>
             </div>
-            <label className="flex items-center gap-2 text-[13px] text-ink-2">
-              <span className="shrink-0">New message</span>
-              <select
-                aria-label="Message an agent"
-                value=""
-                onChange={(e) => e.target.value && router.push(`/message/${e.target.value}`)}
-                disabled={rows === undefined || rows.length === 0}
-                className="max-w-52 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] text-ink outline-none focus:border-line-strong disabled:opacity-50"
-              >
-                <option value="">Choose an agent…</option>
-                {(rows ?? []).map((row) => (
-                  <option key={row.agent._id} value={row.agent._id}>
-                    {row.agent.name} · {roleLabel(row.agent.role)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <button
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              disabled={rows === undefined || rows.length === 0}
+              aria-label="New message"
+              title="New message"
+              className="flex h-9 shrink-0 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-[13px] text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
+            >
+              <Plus size={15} aria-hidden="true" />
+              <span>New message</span>
+            </button>
           </header>
 
           <section className="mt-6">
@@ -142,6 +138,17 @@ export default function PersonalMessagesPage() {
           </section>
         </div>
       </main>
+      {pickerOpen && (
+        <MessageAgentModal
+          agents={rows}
+          loading={rows === undefined}
+          onClose={() => setPickerOpen(false)}
+          onPick={(agentId) => {
+            setPickerOpen(false);
+            router.push(`/message/${agentId}`);
+          }}
+        />
+      )}
       <ConfirmDialog
         request={confirm?.request ?? null}
         pending={pending}

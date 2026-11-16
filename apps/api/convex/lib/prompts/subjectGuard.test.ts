@@ -9,7 +9,7 @@ const designer = { name: "Designer", role: "designer", systemPrompt: "You are th
 describe("request subject guard", () => {
   test("keeps the project as the base but never swaps the request's subject", () => {
     const guard = buildRequestSubjectGuard("Genlatter");
-    expect(guard).toContain('"Genlatter" is the base: build on its stack, design tokens and shared components');
+    expect(guard).toContain('"Genlatter" is context, not the subject');
     expect(guard).toContain("Never recast it into the project's own product or domain");
     expect(guard).toContain("Designing <subject> as a new area inside Genlatter");
     expect(guard).toContain("ask one short question");

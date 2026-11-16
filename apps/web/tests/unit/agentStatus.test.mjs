@@ -55,15 +55,15 @@ test("the sidebar row and the agent panel map status through the same helper and
 
 test("team order is fixed by role, never by status; extras follow oldest first", () => {
   assert.deepEqual([...FIXED_TEAM_DISPLAY_ORDER].sort(), [...FIXED_TEAM_SEED_ORDER].sort());
-  assert.deepEqual(FIXED_TEAM_DISPLAY_ORDER, ["cto", "designer", "frontend", "backend", "qa", "reviewer", "devops", "researcher", "support"]);
+  assert.deepEqual(FIXED_TEAM_DISPLAY_ORDER, ["cto", "frontend", "backend", "qa"]);
   const agents = [
     { _id: "x2", role: "backend", _creationTime: 90 },
-    { _id: "sup", role: "support", _creationTime: 1 },
+    { _id: "fe", role: "frontend", _creationTime: 1 },
     { _id: "qa", role: "qa", _creationTime: 2 },
     { _id: "x1", role: "custom", _creationTime: 50 },
     { _id: "cto", role: "cto", _creationTime: 3 },
     { _id: "be", role: "backend", _creationTime: 4 },
   ];
-  const fixed = new Set(["sup", "qa", "cto", "be"]);
-  assert.deepEqual(orderTeam(agents, fixed, FIXED_TEAM_DISPLAY_ORDER).map((a) => a._id), ["cto", "be", "qa", "sup", "x1", "x2"]);
+  const fixed = new Set(["fe", "qa", "cto", "be"]);
+  assert.deepEqual(orderTeam(agents, fixed, FIXED_TEAM_DISPLAY_ORDER).map((a) => a._id), ["cto", "fe", "be", "qa", "x1", "x2"]);
 });

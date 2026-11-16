@@ -11,7 +11,7 @@
  * Pure apart from the Convex validators: no Node or database APIs.
  */
 import { v, type Infer } from "convex/values";
-import { isRoleKey, normalizeRoleKey, type RoleKey } from "./roles";
+import { isRoleKey, LEGACY_ROLE_SUCCESSORS, normalizeRoleKey, type RoleKey } from "./roles";
 
 export const routingHintValidator = v.object({
   source: v.union(v.literal("route"), v.literal("offer"), v.literal("mention"), v.literal("command")),
@@ -64,10 +64,15 @@ export function hintFiles(text: string): string[] {
   return out;
 }
 
-/** A role string as one of the 9 fixed role keys, or undefined. */
+/**
+ * A role string as one of the four fixed role keys, or undefined. A retired
+ * name resolves to its successor, so a hint stored before the roster shrank
+ * ("designer") still names the role that does the work now (Frontend).
+ */
 export function hintRole(role: string | undefined | null): RoleKey | undefined {
   const key = normalizeRoleKey(role ?? "");
-  return isRoleKey(key) ? key : undefined;
+  if (isRoleKey(key)) return key;
+  return LEGACY_ROLE_SUCCESSORS[key];
 }
 
 /**

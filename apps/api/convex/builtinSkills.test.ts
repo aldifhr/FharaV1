@@ -33,17 +33,30 @@ describe("built-in skill metadata", () => {
       expect(skill.roles.length).toBeGreaterThan(0);
       if (skill.upstream) expect(["MIT", "Apache-2.0"]).toContain(skill.upstream.license);
     }
-    expect(builtinSkillKeysForRole("designer")).toEqual(
-      BUILTIN_SKILLS.filter((s) => s.key !== "fhara-discipline" && s.key !== "review-checklist" && s.key !== "fhara-mcp").map((s) => s.key)
-    );
+    // The Designer's design skills live on Frontend now; a retired role gets
+    // no default set of its own.
+    expect(builtinSkillKeysForRole("designer")).toEqual([]);
+    expect(builtinSkillKeysForRole("frontend")).toEqual([
+      "design-system-detection",
+      "frontend-design",
+      "ui-ux-rules",
+      "fhara-discipline",
+      "review-checklist",
+    ]);
     expect(builtinSkillKeysForRole("backend")).toEqual(["fhara-discipline", "review-checklist"]);
-    expect(builtinSkillKeysForRole("devops")).toEqual(["fhara-discipline"]);
+    expect(builtinSkillKeysForRole("qa")).toEqual([
+      "design-options-review",
+      "accessibility-audit",
+      "web-interface-guidelines",
+      "review-checklist",
+    ]);
+    expect(builtinSkillKeysForRole("cto")).toEqual(["fhara-mcp"]);
     expect(builtinSkillKeysForRole("frontend").slice(-2)).toEqual(["fhara-discipline", "review-checklist"]);
   });
 
-  test("review-checklist goes to Reviewer, Frontend, Backend and QA only, and names no upstream product", () => {
+  test("review-checklist goes to Frontend, Backend and QA only, and names no upstream product", () => {
     const holders = ROLE_KEYS.filter((role) => builtinSkillKeysForRole(role).includes("review-checklist"));
-    expect([...holders].sort()).toEqual(["backend", "frontend", "qa", "reviewer"]);
+    expect([...holders].sort()).toEqual(["backend", "frontend", "qa"]);
     const skill = BUILTIN_SKILLS.find((s) => s.key === "review-checklist")!;
     expect(skill.license).toBe("MIT");
     expect(skill.upstream?.repo).toBe("deepseek-ai/deepseek-harness");
@@ -70,11 +83,8 @@ describe("built-in skill seeding", () => {
     const seeded = await t.run(async (ctx) => (await ctx.db.query("skills").collect()).filter((s) => s.builtin));
     expect(seeded.map((s) => s.builtin).sort()).toEqual(BUILTIN_SKILLS.map((s) => s.key).sort());
 
-    const designer = await agentByRole(t, "designer");
-    expect(await skillNames(t, designer.skillIds)).toEqual(
-      BUILTIN_SKILLS.filter((s) => s.key !== "fhara-discipline" && s.key !== "review-checklist" && s.key !== "fhara-mcp").map((s) => s.name)
-    );
-    expect(await skillNames(t, (await agentByRole(t, "frontend")).skillIds)).toEqual([
+    const frontend = await agentByRole(t, "frontend");
+    expect(await skillNames(t, frontend.skillIds)).toEqual([
       "design-system-detection",
       "frontend-design",
       "ui-ux-rules",
@@ -84,22 +94,18 @@ describe("built-in skill seeding", () => {
     expect(await skillNames(t, (await agentByRole(t, "qa")).skillIds)).toEqual([
       "design-options-review",
       "accessibility-audit",
-      "review-checklist",
-    ]);
-    expect(await skillNames(t, (await agentByRole(t, "reviewer")).skillIds)).toEqual([
-      "accessibility-audit",
       "web-interface-guidelines",
       "review-checklist",
     ]);
     expect(await skillNames(t, (await agentByRole(t, "backend")).skillIds)).toEqual(["fhara-discipline", "review-checklist"]);
-    expect(await skillNames(t, (await agentByRole(t, "devops")).skillIds)).toEqual(["fhara-discipline"]);
+    expect(await skillNames(t, (await agentByRole(t, "cto")).skillIds)).toEqual(["fhara-mcp"]);
 
-    // The user edits one, deletes another and detaches a third from the Designer.
+    // The user edits one, deletes another and detaches a third from Frontend.
     const byKey = new Map(seeded.map((s) => [s.builtin!, s._id]));
     await t.run(async (ctx) => {
       await ctx.db.patch(byKey.get("frontend-design")!, { instructions: "my own text" });
       await ctx.db.delete(byKey.get("web-interface-guidelines")!);
-      const d = (await ctx.db.query("agents").collect()).find((a) => a.role === "designer")!;
+      const d = (await ctx.db.query("agents").collect()).find((a) => a.role === "frontend")!;
       await ctx.db.patch(d._id, {
         skillIds: (d.skillIds ?? []).filter((id) => id !== byKey.get("ui-ux-rules") && id !== byKey.get("web-interface-guidelines")),
       });
@@ -109,9 +115,9 @@ describe("built-in skill seeding", () => {
     const after = await t.run(async (ctx) => (await ctx.db.query("skills").collect()).filter((s) => s.builtin));
     expect(after).toHaveLength(BUILTIN_SKILLS.length - 1);
     expect(after.find((s) => s.builtin === "frontend-design")!.instructions).toBe("my own text");
-    const designerAfter = await agentByRole(t, "designer");
-    expect(designerAfter.skillIds).not.toContain(byKey.get("ui-ux-rules"));
-    expect(designerAfter.builtinSkillsApplied).toEqual(expect.arrayContaining(builtinSkillKeysForRole("designer")));
+    const frontendAfter = await agentByRole(t, "frontend");
+    expect(frontendAfter.skillIds).not.toContain(byKey.get("ui-ux-rules"));
+    expect(frontendAfter.builtinSkillsApplied).toEqual(expect.arrayContaining(builtinSkillKeysForRole("frontend")));
   });
 
   test("a same-named library skill is adopted, not duplicated", async () => {
@@ -122,7 +128,7 @@ describe("built-in skill seeding", () => {
     await t.mutation(internal.agents.syncFixedTeamInternal, {});
     const rows = await t.run(async (ctx) => (await ctx.db.query("skills").collect()).filter((s) => s.name === "frontend-design"));
     expect(rows.map((r) => r._id)).toEqual([mine]);
-    expect((await agentByRole(t, "designer")).skillIds).toContain(mine);
+    expect((await agentByRole(t, "frontend")).skillIds).toContain(mine);
   });
 
   test("Browse marks a seeded built-in as installed", () => {

@@ -23,7 +23,6 @@ import { publicConvexUrl } from "@/lib/env.client";
 export const runtime = "nodejs";
 
 const IGNORED = new Set([".git", "node_modules", ".next", "dist", "build", ".turbo"]);
-const MAX_FILES = 10_000;
 const MAX_CONTENT = 7_000;
 const MAX_TEXT_READ = 1_000_000;
 
@@ -50,7 +49,6 @@ function isBinary(buf: Buffer) {
 }
 
 async function collectFiles(base: string, current = base, result: string[] = []) {
-  if (result.length >= MAX_FILES) return result;
   for (const entry of await fs.readdir(current, { withFileTypes: true })) {
     if (IGNORED.has(entry.name) || entry.name === ".DS_Store") continue;
     const absolute = path.join(current, entry.name);
@@ -63,7 +61,6 @@ async function collectFiles(base: string, current = base, result: string[] = [])
     } else if (entry.isFile()) {
       result.push(relative);
     }
-    if (result.length >= MAX_FILES) break;
   }
   return result;
 }
@@ -133,14 +130,13 @@ export async function GET(request: NextRequest) {
     }
 
     const query = (request.nextUrl.searchParams.get("q") ?? "").toLowerCase();
-    const allFiles = (await collectFiles(base))
+    const files = (await collectFiles(base))
       .filter((file) => !query || file.toLowerCase().includes(query));
-    const files = allFiles.slice(0, 500);
     return NextResponse.json({
       files,
-      totalFiles: allFiles.length,
+      totalFiles: files.length,
       returnedFiles: files.length,
-      truncated: allFiles.length > files.length,
+      truncated: false,
     });
   } catch (error) {
     if (error instanceof NotFound) return NextResponse.json({ error: error.message }, { status: 404 });

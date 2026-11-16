@@ -90,6 +90,23 @@ describe("plan review: pause and resume", () => {
     ).toBe(true);
   });
 
+  test("the Plan card is attributed to the orchestrator when it is in the task pool", async () => {
+    const { t, taskId, projectId } = await setup();
+    await t.run(async (ctx) => {
+      const cto = (await ctx.db.query("agents").collect()).find((a) => a.role === "cto");
+      expect(cto).toBeDefined();
+      await ctx.db.patch(taskId, { assignedAgentIds: [cto!._id] });
+    });
+    await openReview(t, taskId, projectId);
+    const cards = await t.run((ctx) =>
+      ctx.db.query("messages").withIndex("by_task", (q) => q.eq("taskId", taskId)).collect()
+    );
+    const planCard = cards.find((m) => m.card?.kind === "plan");
+    expect(planCard).toBeDefined();
+    expect(planCard!.authorType).toBe("agent");
+    expect(planCard!.agentId).toBeDefined();
+  });
+
   test("a displaced worker cannot open a review", async () => {
     const { t, taskId, projectId } = await setup();
     const result = await t.mutation(internal.planReview.requestReview, { taskId, projectId, planVersion: 1, workerId: "w2" });

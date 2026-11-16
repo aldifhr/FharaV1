@@ -1,13 +1,12 @@
 import { describe, expect, test } from "vitest";
+import { hintRole } from "../routingHint";
 import { hintForCommand, resolveTaskAssignees, routedOwners, teamCto } from "./taskAssignees";
 
 const team = [
   { _id: "cto", name: "CTO", role: "cto" },
   { _id: "fe", name: "Frontend", role: "frontend" },
   { _id: "be", name: "Backend", role: "backend" },
-  { _id: "rv", name: "Reviewer", role: "reviewer" },
   { _id: "qa", name: "QA", role: "qa" },
-  { _id: "doc", name: "Support", role: "support" },
 ];
 const ids = (agents: { _id: string }[]) => agents.map((a) => a._id);
 
@@ -27,19 +26,25 @@ describe("routedOwners", () => {
   });
 
   test("a two-domain request keeps both owners", () => {
+    // Docs are Backend's now that Support is gone.
     const { owners } = routedOwners("ubah tombol di halaman login dan update README docs", team);
-    expect(ids(owners)).toEqual(expect.arrayContaining(["fe", "doc"]));
+    expect(ids(owners)).toEqual(expect.arrayContaining(["fe", "be"]));
+  });
+
+  test("design words route to Frontend, which carries the design role", () => {
+    expect(ids(routedOwners("pilih palet warna dan tipografi", team).owners)).toEqual(["fe"]);
   });
 
   test("nothing matches: no owners, no Backend default", () => {
-    const noSupport = team.filter((a) => a.role !== "support");
-    expect(routedOwners("halo semuanya", noSupport).owners).toEqual([]);
+    // "halo" is Backend's now (it carries the old Support topics), so use a
+    // question no role owns.
+    expect(routedOwners("menurutmu nama produk ini bagus?", team).owners).toEqual([]);
   });
 });
 
 describe("resolveTaskAssignees", () => {
-  test("an offer assignee gets CTO + owner + Reviewer + QA", () => {
-    expect(ids(resolveTaskAssignees({ team, offerAssigneeId: "fe" }))).toEqual(["cto", "fe", "rv", "qa"]);
+  test("an offer assignee gets CTO + owner + QA", () => {
+    expect(ids(resolveTaskAssignees({ team, offerAssigneeId: "fe" }))).toEqual(["cto", "fe", "qa"]);
   });
 
   test("mentions, the offer assignee, the hint role and routed owners are all owners, in that order, once each", () => {
@@ -47,14 +52,19 @@ describe("resolveTaskAssignees", () => {
       team,
       mentionedIds: ["be"],
       offerAssigneeId: "fe",
-      hint: { source: "offer", role: "support" },
+      hint: { source: "offer", role: "qa" },
       routed: [team[1], team[2]],
     });
-    expect(ids(pool)).toEqual(["cto", "be", "fe", "doc", "rv", "qa"]);
+    expect(ids(pool)).toEqual(["cto", "be", "fe", "qa"]);
+  });
+
+  test("a retired hint role resolves to its successor instead of being dropped", () => {
+    // A task created before the roster shrank still carries role "reviewer".
+    expect(ids(resolveTaskAssignees({ team, hint: { source: "command", role: "reviewer" } }))).toEqual(["cto", "qa"]);
   });
 
   test("a hint role alone narrows the pool", () => {
-    expect(ids(resolveTaskAssignees({ team, hint: { source: "command", role: "frontend" } }))).toEqual(["cto", "fe", "rv", "qa"]);
+    expect(ids(resolveTaskAssignees({ team, hint: { source: "command", role: "frontend" } }))).toEqual(["cto", "fe", "qa"]);
   });
 
   test("no owner, or the CTO as the only owner: no narrowing (whole team)", () => {
@@ -68,9 +78,9 @@ describe("resolveTaskAssignees", () => {
     expect(resolveTaskAssignees({ team, mentionedIds: ids(first) })).toEqual(first);
   });
 
-  test("a team without a CTO still gets Reviewer and QA", () => {
+  test("a team without a CTO still gets QA", () => {
     const noCto = team.filter((a) => a.role !== "cto");
-    expect(ids(resolveTaskAssignees({ team: noCto, offerAssigneeId: "be" }))).toEqual(["be", "rv", "qa"]);
+    expect(ids(resolveTaskAssignees({ team: noCto, offerAssigneeId: "be" }))).toEqual(["be", "qa"]);
   });
 });
 
@@ -83,12 +93,18 @@ describe("hintForCommand", () => {
 
   test("an @mention is binding and wins over the routed owner; a mentioned CTO is not an owner", () => {
     expect(hintForCommand("buatkan halaman login", team, { mentioned: [team[2]] })).toMatchObject({ source: "mention", role: "backend", hard: true });
-    const noSupport = team.filter((a) => a.role !== "support");
-    expect(hintForCommand("halo", noSupport, { mentioned: [team[0]] })).toEqual({ source: "command" });
+    expect(hintForCommand("menurutmu nama produk ini bagus?", team, { mentioned: [team[0]] })).toEqual({ source: "command" });
   });
 
   test("routed owners passed in are used as given", () => {
-    const hint = hintForCommand("apa saja", team, { routed: { owners: [team[5]], domain: "support", topic: "README.md" } });
-    expect(hint).toMatchObject({ source: "command", role: "support", domain: "support", topic: "README.md" });
+    const hint = hintForCommand("apa saja", team, { routed: { owners: [team[2]], domain: "backend", topic: "README.md" } });
+    expect(hint).toMatchObject({ source: "command", role: "backend", domain: "backend", topic: "README.md" });
+  });
+
+  test("a legacy role name resolves to its successor, an unknown one is dropped", () => {
+    expect(hintRole("designer")).toBe("frontend");
+    expect(hintRole("support")).toBe("backend");
+    expect(hintRole("reviewer")).toBe("qa");
+    expect(hintRole("wizard")).toBeUndefined();
   });
 });

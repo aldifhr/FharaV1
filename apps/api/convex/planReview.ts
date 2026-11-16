@@ -21,6 +21,7 @@ import {
 import { normalizePlanReview } from "./lib/planReviewPolicy";
 import { parseContract, type AcceptanceGate } from "./lib/subtaskContract";
 import { ROLE_KEYS } from "./lib/roles";
+import { ORCHESTRATOR_ROLE } from "./lib/chat/team";
 import { appendTaskEvent } from "./lib/taskEvents";
 
 /**
@@ -292,11 +293,17 @@ export const requestReview = internalMutation({
       .order("desc")
       .take(100);
     if (!recent.some((m) => m.card?.kind === "plan")) {
+      // The Plan card is produced by the orchestrator's planning pass. Attribute
+      // it to that teammate when it is in the task pool, so the UI shows CTO
+      // instead of the generic "Agent" label for an agent row without an id.
+      const assigned = await Promise.all((task.assignedAgentIds ?? []).map((id) => ctx.db.get(id)));
+      const plannerAgentId = assigned.find((agent) => agent && ORCHESTRATOR_ROLE.test(agent.role.trim()))?._id;
       await ctx.db.insert("messages", {
         projectId: args.projectId,
         taskId: args.taskId,
         conversationId: await taskCardConversationId(ctx, task.conversationId),
         authorType: "agent",
+        ...(plannerAgentId ? { agentId: plannerAgentId } : {}),
         content: "",
         card: { kind: "plan", data: { taskId: String(args.taskId) } },
       });

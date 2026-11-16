@@ -12,14 +12,9 @@ import { ROLE_KEYS, type RoleKey } from "../roles";
 /** The markdown file under ./roles/ that holds each role's template. */
 export const ROLE_PROMPT_FILES: Record<RoleKey, string> = {
   cto: "CTO.md",
-  designer: "DESIGNER.md",
   frontend: "FRONTEND.md",
   backend: "BACKEND.md",
   qa: "QA.md",
-  support: "SUPPORT.md",
-  devops: "DEVOPS.md",
-  reviewer: "REVIEWER.md",
-  researcher: "RESEARCHER.md",
 };
 
 /** A source file's text as stored: LF line ends, no surrounding blank space. */

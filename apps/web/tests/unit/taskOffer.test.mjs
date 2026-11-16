@@ -16,6 +16,14 @@ test("no offer and no wording: no button", () => {
 
 test("legacy wording still offers it", () => {
   assert.equal(offersCreateTask({ content: "Klik Create task untuk mulai." }), true);
+  assert.equal(offersCreateTask({ content: "Balas gas atau tekan Create task." }), true);
+});
+
+test("a descriptive mention of the button is not an offer", () => {
+  assert.equal(
+    offersCreateTask({ content: "Untuk pekerjaan yang mengubah file, gunakan tombol Create task di bawah ini." }),
+    false
+  );
 });
 
 test("live test 4: a used offer never shows Create task again", () => {

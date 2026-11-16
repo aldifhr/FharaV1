@@ -116,6 +116,13 @@ describe("CTO @mention handoff", () => {
     expect(lines[0]).toContain("@Frontend");
     expect(lines[0]).not.toContain("@CTO");
   });
+
+  test("the CTO handoff guidance does not push Create task for a question", () => {
+    const text = buildHandoffGuidance(team, "cto").join("\n");
+    expect(text).not.toContain("Work that needs running or changing files still ends");
+    expect(text).not.toMatch(/ends with the Create task button/i);
+    expect(text).toContain("needs no handoff and no Create task instruction");
+  });
 });
 
 describe("CTO task assignment", () => {
@@ -124,12 +131,11 @@ describe("CTO task assignment", () => {
     { _id: "fe", name: "Frontend", role: "frontend" },
     { _id: "be", name: "Backend", role: "backend" },
     { _id: "qa", name: "QA", role: "qa" },
-    { _id: "rv", name: "Reviewer", role: "reviewer" },
   ];
 
-  test("keeps the CTO, the assignees, and Reviewer/QA in the pool", () => {
+  test("keeps the CTO, the assignees, and QA in the pool", () => {
     const pool = resolveAssignees(team, team[0], [team[1]]).map((a) => a._id).sort();
-    expect(pool).toEqual(["cto", "fe", "qa", "rv"]);
+    expect(pool).toEqual(["cto", "fe", "qa"]);
   });
 
   test("returns no pool when nobody was assigned", () => {

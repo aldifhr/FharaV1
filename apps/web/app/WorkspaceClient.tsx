@@ -201,7 +201,7 @@ function WorkspaceShell({
             </main>
           )}
           {isDesktop ? (
-            !deepLinked && (
+            !deepLinked && project && (
               <motion.div
                 animate={{ width: selectedTaskId ? (threadCollapsed ? 44 : panelWidth) : 0 }}
                 transition={{ duration: 0.24, ease: [0.32, 0.72, 0, 1] }}
@@ -212,7 +212,7 @@ function WorkspaceShell({
             )
           ) : (
             <AnimatePresence>
-              {selectedTaskId && (
+              {selectedTaskId && project && (
                 <motion.div
                   key="thread-sheet"
                   initial={{ opacity: 0, y: 24 }}

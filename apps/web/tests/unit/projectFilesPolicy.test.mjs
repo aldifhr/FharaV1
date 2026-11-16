@@ -32,8 +32,11 @@ test("realpath containment", async () => {
 });
 
 test("workspace base resolution mirrors the worker", () => {
-  assert.equal(resolveWorkspaceBase("/abs/p", {}), "/abs/p");
-  assert.equal(resolveWorkspaceBase("proj", { WORKSPACE_ROOT: "./workspaces" }, "/repo/packages/worker"), "/repo/packages/worker/workspaces/proj");
-  assert.equal(resolveWorkspaceBase("proj", { WORKSPACE_ROOT: "/ws" }, "/repo/packages/worker"), "/ws/proj");
+  // path.resolve is platform-dependent (a leading "/" is a drive-relative
+  // absolute path on Windows), so the expectation is built the same way.
+  const at = (...parts) => path.resolve(...parts);
+  assert.equal(resolveWorkspaceBase("/abs/p", {}), at("/abs/p"));
+  assert.equal(resolveWorkspaceBase("proj", { WORKSPACE_ROOT: "./workspaces" }, "/repo/packages/worker"), at("/repo/packages/worker", "workspaces", "proj"));
+  assert.equal(resolveWorkspaceBase("proj", { WORKSPACE_ROOT: "/ws" }, "/repo/packages/worker"), at("/ws", "proj"));
   assert.throws(() => resolveWorkspaceBase("", {}));
 });

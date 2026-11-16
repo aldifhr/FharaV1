@@ -20,7 +20,7 @@ Next.js 16 app router, React 19, Tailwind 4, Convex React client. Read the root
 
 ```
 app/              routes: /, /chats, /messages, /message, /project/[projectId],
-                  /runs, /team, /library, /memory, /audit, /inbox, /search, /improve,
+                  /runs, /pull-requests, /team, /library, /memory, /audit, /inbox, /search, /improve,
                   /integrations (plus the legacy redirects in plan 053)
 app/api/          server-side routes (llm-providers, mcp-servers, project-files, …)
 components/       feature components (ChatPanel, TaskBoard, TaskThreadPanel, Settings, …)

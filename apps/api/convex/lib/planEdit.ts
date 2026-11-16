@@ -40,13 +40,10 @@ const CRITERION_MAX = 300;
 
 /** Kinds a reassigned role implies; writer roles fall back to code_change. */
 const ROLE_KIND: Partial<Record<RoleKey, ValidatedSubtaskKind>> = {
-  reviewer: "review",
   qa: "qa",
-  researcher: "research",
-  devops: "shell",
   cto: "analysis",
 };
-const WRITER_ROLES = new Set<RoleKey>(["frontend", "backend", "designer", "support"]);
+const WRITER_ROLES = new Set<RoleKey>(["frontend", "backend"]);
 const NON_WRITING_KINDS = new Set<string>(["review", "qa", "research", "shell", "analysis", "audit"]);
 
 /** The capability a role's subtask is routed by (its first seeded capability). */

@@ -18,5 +18,7 @@ export function offersCreateTask(message: { content?: string | null; taskOffer?:
   // A used offer shows "Task created", never the button again.
   if (isOfferUsed(message.taskOffer)) return false;
   if (message.taskOffer) return true;
-  return /\b(create|bikin|buat)\s+task\b/i.test(message.content ?? "");
+  // Legacy offers told the user to *click/press* the button. A descriptive
+  // mention ("gunakan tombol Create task di bawah ini") is not an offer.
+  return /\b(?:klik|tekan|press|click)\b[^.]{0,40}\bcreate\s+task\b/i.test(message.content ?? "");
 }

@@ -262,15 +262,18 @@ describe("permissions (advisory only)", () => {
     expect(normalizeSkillPermission("WebFetch")).toBe("network");
     expect(normalizeSkillPermission("playwright")).toBe("browser");
     expect(normalizeSkillPermission("nonsense")).toBeNull();
-    // Reviewer is read-only even if it declares run_command.
-    expect([...agentPermissions({ role: "reviewer", supportedTools: ["read_file", "run_command"] })]).toEqual(["read_file"]);
+    // A read-only role never gains write_file, whatever its tools declare.
+    // QA may still run commands (its shell is "verify") and browse.
+    const qaPerms = agentPermissions({ role: "qa", supportedTools: ["read_file", "write_file", "run_command"] });
+    expect([...qaPerms].sort()).toEqual(["browser", "read_file", "run_command"]);
+    expect(agentPermissions({ role: "cto", supportedTools: ["read_file", "write_file"] }).has("write_file")).toBe(false);
     expect(missingPermissions(["run_command", "browser"], { role: "qa" })).toEqual([]);
     expect(missingPermissions(["run_command", "browser"], { role: "backend" })).toEqual(["browser"]);
   });
 
-  test("assigning a skill that needs run_command to the Reviewer warns and grants nothing", async () => {
+  test("assigning a skill that needs run_command to QA warns and grants nothing", async () => {
     const t = convexTest(schema, modules);
-    const reviewer = await agent(t, "reviewer", { supportedTools: ["read_file"] });
+    const qa = await agent(t, "qa", { supportedTools: ["read_file"] });
     const backend = await agent(t, "backend", { supportedTools: ["read_file", "write_file", "run_command"] });
     const skillId = await t.mutation(api.skills.create, {
       name: "Run tests",
@@ -279,12 +282,12 @@ describe("permissions (advisory only)", () => {
     });
     expect((await t.query(api.skills.get, { skillId }))?.permissions).toEqual(["run_command"]);
 
-    const res = await t.mutation(api.skills.assignRoles, { skillId, roles: ["reviewer", "backend"] });
-    expect(res.warnings).toEqual(['Reviewer lacks run commands, which "Run tests" needs. Skills never grant tools.']);
-    expect((await t.run((ctx) => ctx.db.get(reviewer)))?.supportedTools).toEqual(["read_file"]);
+    const res = await t.mutation(api.skills.assignRoles, { skillId, roles: ["qa", "backend"] });
+    expect(res.warnings).toEqual(['QA lacks run commands, which "Run tests" needs. Skills never grant tools.']);
+    expect((await t.run((ctx) => ctx.db.get(qa)))?.supportedTools).toEqual(["read_file"]);
     expect((await t.run((ctx) => ctx.db.get(backend)))?.supportedTools).toEqual(["read_file", "write_file", "run_command"]);
     const listed = (await t.query(api.skills.list, {}))[0];
-    expect(listed.usedBy.find((a) => a.role === "reviewer")?.missingPermissions).toEqual(["run_command"]);
+    expect(listed.usedBy.find((a) => a.role === "qa")?.missingPermissions).toEqual(["run_command"]);
 
     // Adding a permission later warns about agents already using it.
     const other = await t.mutation(api.skills.create, { name: "Browse", instructions: "b" });
@@ -294,7 +297,7 @@ describe("permissions (advisory only)", () => {
 
     // The worker receives the agent row unchanged: supportedTools never widened.
     const run = await t.run(async (ctx) => {
-      const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "p", agentIds: [reviewer] } as never);
+      const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "p", agentIds: [qa] } as never);
       return await ctx.db.insert("tasks", { projectId, title: "t", command: "c", status: "queued" } as never);
     });
     const runCtx = await t.query(internal.orchestration.getRunContext, { taskId: run });

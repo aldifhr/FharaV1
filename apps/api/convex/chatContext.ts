@@ -45,6 +45,8 @@ export const insertUserMessage = internalMutation({
     quotedMessageId: v.optional(v.id("messages")),
     preferredAgentIds: v.optional(v.array(v.id("agents"))),
     permissionMode: v.optional(permissionModeValidator),
+    /** Plan 055: the composer's model pick for this turn (absent = Auto). */
+    preferredModelRowId: v.optional(v.id("llmModels")),
     clientId: v.optional(v.string()),
     invokedSkills: invokedSkillsField,
   },
@@ -62,6 +64,8 @@ export async function insertChatUserMessage(
     quotedMessageId?: Id<"messages">;
     preferredAgentIds?: Id<"agents">[];
     permissionMode?: PermissionMode;
+    /** Plan 055: the composer's model pick for this turn (absent = Auto). */
+    preferredModelRowId?: Id<"llmModels">;
     clientId?: string;
     /** Paradev C3: canonical skill names, already checked against the team. */
     invokedSkills?: string[];
@@ -81,6 +85,7 @@ export async function insertChatUserMessage(
   const replyOptions = {
     ...(args.preferredAgentIds?.length ? { preferredAgentIds: args.preferredAgentIds } : {}),
     ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
+    ...(args.preferredModelRowId ? { preferredModelRowId: args.preferredModelRowId } : {}),
   };
   if (!args.projectId && !args.conversationId) throw new Error("Message needs a project or a conversation");
   return await ctx.db.insert("messages", {
@@ -455,6 +460,7 @@ export const getContext = internalQuery({
         messageId: m._id,
         ...(m.taskOffer ? { taskOffer: m.taskOffer } : {}),
         ...(m.voice ? { voice: m.voice } : {}),
+        ...(m.handoffFromAgentId ? { handoffFromAgentId: m.handoffFromAgentId } : {}),
       }));
 
     // Plan 016: the active task for router context (title + status).
@@ -534,7 +540,7 @@ export const getContext = internalQuery({
 
     // Shared pool assembly (connections + models, encrypted key only) —
     // see lib/llmResolver.ts. chat.ts decrypts on the backend for its own call.
-    const llmProviders = await loadProviderPool(ctx, { projectId: project._id });
+    const llmProviders = await loadProviderPool(ctx, { projectId: project._id, includeOpencode: true });
 
     return {
       agents: await Promise.all(selected.map(agentShape)),
@@ -544,6 +550,7 @@ export const getContext = internalQuery({
       contextSummary,
       activeTask,
       llmProviders,
+      autoCreateChatTasks: project.autoCreateChatTasks,
     };
   },
 });
@@ -586,6 +593,7 @@ export const getPersonalContext = internalQuery({
         messageId: m._id,
         ...(m.taskOffer ? { taskOffer: m.taskOffer } : {}),
         ...(m.voice ? { voice: m.voice } : {}),
+        ...(m.handoffFromAgentId ? { handoffFromAgentId: m.handoffFromAgentId } : {}),
       }));
     const summaries = await ctx.db
       .query("contextSummaries")
@@ -620,7 +628,7 @@ export const getPersonalContext = internalQuery({
       history,
       contextSummary: summaries[0]?.summary,
       activeTask: null,
-      llmProviders: await loadProviderPool(ctx, { projectId: project?._id }),
+      llmProviders: await loadProviderPool(ctx, { projectId: project?._id, includeOpencode: true }),
     };
   },
 });

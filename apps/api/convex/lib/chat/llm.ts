@@ -3,7 +3,7 @@
  * OpenAI-compatible or Anthropic endpoint, plus config resolution from the
  * shared provider pool (llmResolver) with the env-var global fallback.
  */
-import { withoutOpencode } from "../opencodeProvider";
+import { isOpencodeConnection, withoutOpencode } from "../opencodeProvider";
 import { resolveConnectionKey, type PoolConnectionPayload, type PoolModelPayload } from "../llmResolver";
 
 import { getGlobalLLMConfig, type LlmEndpointConfig } from "../llmConfig";
@@ -537,10 +537,11 @@ function jsonUsage(raw: string): unknown {
 
 /**
  * What a chat or review call tells the chain (L4): the agent's role and the
- * call's role, read only by the role override. Per-agent model fields are
+ * call's role, read only by the role override, plus (plan 055) the model row
+ * the user picked explicitly for this turn. Per-agent model fields are
  * retired: an agent that still carries them resolves the global chain.
  */
-type AgentLlmPrefs = { role?: string; callRole?: string };
+type AgentLlmPrefs = { role?: string; callRole?: string; preferredModelRowId?: string };
 
 type PoolPair = { connection: PoolConnectionPayload; model: PoolModelPayload };
 
@@ -550,6 +551,7 @@ type PoolPair = { connection: PoolConnectionPayload; model: PoolModelPayload };
  * in round robin, or, with FHARA_LLM_ROLE_OVERRIDE on (the pool then
  * carries `roleTiers`), the role's model first and the list after it. Same
  * chain as the worker resolver for the same pool; the parity test pins it.
+ * An explicit user pick (plan 055, `preferredModelRowId`) goes first either way.
  */
 export function orderedChatPairs(
   providers: PoolConnectionPayload[] | undefined,
@@ -564,17 +566,22 @@ export function orderedChatPairs(
   return orderChain(enabled, {
     mode: enabled[0]?.selectionMode ?? "fallback",
     cursor,
-    tierModelRowId: overrideModelFor(Boolean(roleTiers), roleTiers, agent?.callRole, agent?.role),
+    // An explicit pick (plan 055) goes first; the role tier is the fallback when it is absent.
+    tierModelRowId: agent?.preferredModelRowId ?? overrideModelFor(Boolean(roleTiers), roleTiers, agent?.callRole, agent?.role),
   });
 }
 
 async function pairConfig(pair: PoolPair, fallback: ChatLlmConfig): Promise<LlmEndpointConfig & ServedIdentity & { connectionId: string }> {
   const key = await resolveConnectionKey(pair.connection);
+  // A connection with no usable key may borrow the global key ONLY when it
+  // points at the same endpoint. Otherwise LLM_API_KEY would be shipped to
+  // whatever host the row names.
+  const sameEndpoint = String(pair.connection.baseUrl ?? "").trim() === String(fallback.baseUrl ?? "").trim();
   return {
     provider: pair.connection.provider.toLowerCase(),
     model: pair.model.modelId,
     baseUrl: pair.connection.baseUrl,
-    apiKey: key || fallback.apiKey,
+    apiKey: key || (sameEndpoint ? fallback.apiKey : ""),
     connectionId: String(pair.connection._id),
     // Plan 040 P3: registry identity + pricing for the chat usage ledger.
     ...(pair.model._id && !pair.model.legacy ? { modelRowId: String(pair.model._id) } : {}),
@@ -592,12 +599,35 @@ async function pairConfig(pair: PoolPair, fallback: ChatLlmConfig): Promise<LlmE
  * the connection's `apiKeyEnv` env var as fallback. An empty pool returns
  * the env config.
  */
+export interface ResolveConfigOptions {
+  /**
+   * The OpenCode driver only runs through the worker bridge, which needs a
+   * project scope (the queue row is keyed by projectId). Where no scope
+   * exists — a personal conversation with no project — the caller passes
+   * `excludeOpencode: true` and the pick is ignored in favour of the HTTP
+   * pool or the env fallback ("the backend ignores a pick it cannot serve").
+   */
+  excludeOpencode?: boolean;
+}
+
 export async function resolveConfigFromProviders(
   providers: PoolConnectionPayload[] | undefined,
   fallback: ChatLlmConfig,
-  agent?: AgentLlmPrefs
+  agent?: AgentLlmPrefs,
+  opts?: ResolveConfigOptions
 ): Promise<ChatLlmConfig> {
-  const pairs = orderedChatPairs(providers, agent);
+  // Plan 060: an OpenCode model the user picked (or the only usable model)
+  // goes to the worker bridge. HTTP configs are never given a fake key here.
+  const pool = opts?.excludeOpencode ? withoutOpencode(providers ?? []) : (providers ?? []);
+  const opencode = pool.find(isOpencodeConnection);
+  const opencodeModel = (id?: string) =>
+    opencode?.models.find((m) => String(m._id ?? "") === String(id ?? ""))?.modelId ??
+    (!id ? opencode?.models.find((m) => (m as { isAvailable?: boolean }).isAvailable !== false)?.modelId : undefined);
+  const picked = opencodeModel(agent?.preferredModelRowId);
+  const pairs = orderedChatPairs(pool, agent);
+  if (picked && (agent?.preferredModelRowId || pairs.length === 0)) {
+    return { provider: "opencode", model: picked, baseUrl: "", apiKey: "" };
+  }
   if (pairs.length === 0) return fallback;
   const configs = await Promise.all(pairs.map((pair) => pairConfig(pair, fallback)));
   const [primary, ...rest] = configs;
@@ -611,9 +641,10 @@ export async function resolveConfigFromProviders(
 export async function resolveConfigChain(
   providers: PoolConnectionPayload[] | undefined,
   fallback: ChatLlmConfig,
-  agent?: AgentLlmPrefs
+  agent?: AgentLlmPrefs,
+  opts?: ResolveConfigOptions
 ): Promise<ChatLlmConfig[]> {
-  const { fallbacks, ...primary } = await resolveConfigFromProviders(providers, fallback, agent);
+  const { fallbacks, ...primary } = await resolveConfigFromProviders(providers, fallback, agent, opts);
   return [primary, ...(fallbacks ?? [])];
 }
 

@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { register } from "node:module";
 
 // Same React resolution as changesPane.test.mjs: the web app's React 19.
@@ -15,7 +16,7 @@ export async function resolve(spec, ctx, next) {
 }`)}`,
 );
 const Module = (await import("node:module")).default;
-const webDir = new URL("../../", import.meta.url).pathname;
+const webDir = fileURLToPath(new URL("../../", import.meta.url));
 const originalResolve = Module._resolveFilename;
 Module._resolveFilename = function (request, parent, ...rest) {
   if (/^react(-dom)?(\/|$)/.test(request)) return originalResolve.call(this, request, { ...parent, paths: Module._nodeModulePaths(webDir) }, ...rest);

@@ -101,6 +101,8 @@ async function setup(opts: { worker: "none" | "new" }) {
     const projectId = await ctx.db.insert("projects", {
       name: "P",
       workspacePath: "/repo",
+      // O3 routing / manual offer assertions (plan 061 opt-out).
+      autoCreateChatTasks: false,
       agentIds: [ctoId, backendId, qaId, frontendId],
     });
     if (opts.worker === "new") {
@@ -145,24 +147,24 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// "@CTO" typed: the CTO answers itself (no dispatch pre-route). An @Name in
-// its own reply is a pointer for the user, never a handoff (live2 3d).
+// "@CTO" typed: the CTO answers itself, then the roles it @mentions answer
+// next (plan 059). Handoff teammates get the same read-only repo tools.
 describe("handoff teammates get repo tools", () => {
-  test("an @mention inside the CTO's reply does not pull the teammate in; the CTO prompt says verify it yourself", async () => {
-    const { t, projectId, ctoId } = await setup({ worker: "new" });
+  test("an @mention inside the CTO's reply pulls the teammate in; the CTO prompt says verify it yourself", async () => {
+    const { t, projectId, ctoId, backendId, qaId } = await setup({ worker: "new" });
     reply = (call) => {
       const who = speaker(call);
       const results = toolResults(call);
-      if (who === "CTO") return results === 0 ? GREP : "Tabel ada di schema.ts. Kalau mau, izinkan @Backend atau @QA lanjut cek index users?";
-      return "should not answer";
+      if (who === "CTO") return results === 0 ? GREP : "Tabel ada di schema.ts. @Backend tolong cek index users. @QA tolong cek cakupan tesnya.";
+      return `${who} sudah meninjau bagiannya.`;
     };
     const replies = await ask(t, projectId, "@CTO tabel apa saja di schema dan apakah index users sudah benar?");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
-    expect(callsBy("Backend")).toHaveLength(0);
-    expect(callsBy("QA")).toHaveLength(0);
-    expect(replies[0].toolSteps?.some((s: any) => s.tool === "handoff")).not.toBe(true);
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId, backendId, qaId]);
+    expect(callsBy("Backend")[0].system).toContain("brought you into this chat with an @mention");
+    expect(callsBy("QA")[0].system).toContain("What the CTO asked you");
+    expect(replies[0].toolSteps?.some((s: any) => s.tool === "handoff")).toBe(true);
     expect(callsBy("CTO")[0].system).toContain(SELF_VERIFY_LINE);
-    expect(callsBy("CTO")[0].system).toContain("does NOT bring a teammate into this chat");
+    expect(callsBy("CTO")[0].system).toContain("DOES bring that teammate into this chat");
     expect(queued.count).toBe(1);
   });
 
@@ -217,24 +219,23 @@ describe("tools off: no verification handoff", () => {
     const { t, projectId, ctoId } = await setup({ worker: "none" });
     reply = () =>
       "Daftar tabel belum saya cek. @QA tolong verifikasi daftar tabel secara literal. @Backend tolong cek nama fungsinya.";
-    // O3: typed @CTO (an un-mentioned question is routed to its owner, see "O3 routing" below).
     const replies = await ask(t, projectId, "@CTO sebutkan tabel dan nama fungsi di schema");
     expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
     expect(calls).toHaveLength(1);
     expect(calls[0].system).toContain("do not @mention teammates to check, verify, or grep code");
     expect(calls[0].system).toContain("suggest restarting the worker or setting the project folder (reason: no online worker)");
     expect(calls[0].system).not.toContain(SELF_VERIFY_LINE);
-    // The CTO's @mentions never hand off, with or without tools.
-    expect(replies[0].reasoning ?? "").not.toContain("Handoff skipped");
+    // A verify/check handoff is dropped when teammates have no repo access.
+    expect(replies[0].reasoning ?? "").toContain("Handoff skipped (@QA, @Backend)");
     expect(queued.count).toBe(0);
   });
 
-  test("a specialty-opinion @mention in the CTO's reply is not a handoff either", async () => {
-    const { t, projectId, ctoId } = await setup({ worker: "none" });
-    reply = () => "Belum saya cek. @Backend bisa beri pendapat soal desain tabel kalau Anda @mention dia.";
+  test("a specialty-opinion @mention in the CTO's reply is a handoff even with repo tools off", async () => {
+    const { t, projectId, ctoId, backendId } = await setup({ worker: "none" });
+    reply = (call) => (speaker(call) === "CTO" ? "Belum saya cek. @Backend beri pendapat soal desain tabel log." : "Pendapat Backend: pakai tabel append-only.");
     const replies = await ask(t, projectId, "@CTO desain tabel log bagusnya gimana?");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
-    expect(calls).toHaveLength(1);
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId, backendId]);
+    expect(calls).toHaveLength(2);
   });
 
   test("verification wording and guidance lines", () => {
@@ -319,19 +320,19 @@ describe("O3 routing (no @mention): System routes, the owner answers, no CTO wra
     expect(callsBy("CTO")).toHaveLength(0);
   });
 
-  test("'tolong jalankan tes' gets QA's Create task offer (stored on the reply), never a task", async () => {
-    const { t, projectId, qaId } = await setup({ worker: "new" });
+  test("'tolong jalankan tes' goes to the CTO first with the Create task offer, never a task", async () => {
+    const { t, projectId, ctoId } = await setup({ worker: "new" });
     // nous ignored the plan guidance in live2 3e; the offer must not depend on the wording.
-    reply = () => "Saya tidak punya akses shell. Jalankan npm test di terminal lokal Anda.";
+    reply = () => "Rencana: jalankan npm test lewat task, bukan di chat.";
     const replies = await ask(t, projectId, "tolong jalankan tes");
-    expect(replies.map((r) => r.agentId)).toEqual([SYS, qaId]);
-    expect(callsBy("QA")[0].system).toContain("Create task button under this reply runs `npm run test`");
-    expect(callsBy("QA")[0].system).toContain("Never say you have no shell or terminal access");
+    expect(replies.map((r) => r.agentId)).toEqual([SYS, ctoId]);
+    expect(replies[0]).toMatchObject({ voice: "system", content: "Sent to CTO" });
+    expect(callsBy("CTO")[0].system).toContain("Create task button under this reply runs `npm run test`");
+    expect(callsBy("CTO")[0].system).toContain("Never say you have no shell or terminal access");
     expect(replies[1].taskOffer).toEqual({
       kind: "testing",
       commands: ["npm run test"],
-      // P1a: the route System computed (QA owns tests) rides on the offer.
-      hint: { source: "offer", role: "qa", domain: "qa", kind: "testing" },
+      hint: { source: "offer", kind: "testing" },
     });
     const tasks = await t.run(async (ctx) => ctx.db.query("tasks").collect());
     expect(tasks).toHaveLength(0);
@@ -369,32 +370,33 @@ describe("pre-route ignores the LLM's audit/review label", () => {
     expect(tasks).toHaveLength(0);
   });
 
-  test("a change request goes to its owner with the Create task offer, never auto-started", async () => {
-    const { t, projectId, qaId } = await setup({ worker: "new" });
+  test("a change request goes to the CTO first with the Create task offer, never auto-started", async () => {
+    const { t, projectId, ctoId, qaId } = await setup({ worker: "new" });
     llmIntent.intent = "task";
     llmIntent.subtype = "implementation";
-    reply = () => "Rencana singkat.";
+    reply = (call) => (speaker(call) === "CTO" ? "Rencana singkat: @QA menambahkan tes untuk main.js. Klik Create task." : "QA siap.");
     const replies = await ask(t, projectId, "tambahkan tes untuk main.js");
-    expect(replies.map((r) => r.agentId)).toEqual([undefined, qaId]);
+    expect(replies.map((r) => r.agentId)).toEqual([undefined, ctoId, qaId]);
+    expect(replies[0].content).toBe("Sent to CTO");
     expect(replies[1].taskOffer?.kind).toBe("implementation");
-    expect(callsBy("CTO")).toHaveLength(0);
     const tasks = await t.run(async (ctx) => ctx.db.query("tasks").collect());
     expect(tasks).toHaveLength(0);
   });
 
   // live2: this CTO reply came back empty (taken for narration, nudged twice,
   // then dropped), so no agent message was written for the user's turn.
-  test("'Saya cek sendiri. @QA bisa bantu kalau Anda minta.' is kept as the CTO's answer", async () => {
-    const { t, projectId, ctoId } = await setup({ worker: "new" });
+  test("an @QA handoff in the CTO's audit answer pulls QA in; the CTO answer is kept", async () => {
+    const { t, projectId, ctoId, qaId } = await setup({ worker: "new" });
     llmIntent.intent = "task";
     llmIntent.subtype = "audit";
-    reply = () => "Saya cek sendiri. @QA bisa bantu kalau Anda minta.";
+    reply = (call) =>
+      speaker(call) === "CTO" ? "Saya cek sendiri. @QA tolong nilai cakupan tesnya." : "Cakupan tes main.js belum ada.";
     const replies = await ask(t, projectId, "@CTO cek kode tes src");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
-    expect(replies[0].content).toBe("Saya cek sendiri. @QA bisa bantu kalau Anda minta.");
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId, qaId]);
+    expect(replies[0].content).toBe("Saya cek sendiri. @QA tolong nilai cakupan tesnya.");
     // One read-before-claim nudge (an audit answered with no read), then the same answer is kept.
     expect(callsBy("CTO")).toHaveLength(2);
-    expect(callsBy("QA")).toHaveLength(0);
+    expect(callsBy("QA")).toHaveLength(2);
   });
 
   test("a CTO reply that only ever announces a check still leaves an agent message", async () => {
@@ -405,13 +407,14 @@ describe("pre-route ignores the LLM's audit/review label", () => {
     expect(replies[0].content).toMatch(/^Belum saya cek — saya belum sempat membaca repo/);
   });
 
-  test("the user typed @CTO: no pre-route and no handoff", async () => {
-    const { t, projectId, ctoId } = await setup({ worker: "new" });
+  test("the user typed @CTO: no pre-route; an @QA in the answer is a handoff", async () => {
+    const { t, projectId, ctoId, qaId } = await setup({ worker: "new" });
     llmIntent.intent = "task";
     llmIntent.subtype = "audit";
-    reply = () => "Kode tes di src sudah saya baca: belum ada tes untuk main.js. Kalau perlu pendapat QA, @QA bisa Anda mention.";
+    reply = (call) =>
+      speaker(call) === "CTO" ? "Kode tes di src sudah saya baca. @QA tolong nilai cakupannya." : "Belum ada tes untuk main.js.";
     const replies = await ask(t, projectId, "@CTO cek kode tes src");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId, qaId]);
   });
 });
 

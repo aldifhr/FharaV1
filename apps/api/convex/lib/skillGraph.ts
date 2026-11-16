@@ -136,9 +136,14 @@ export function normalizeSkillPermissions(raw: readonly string[] | undefined): S
 }
 
 /** Roles that never write files or run commands (mirrors the worker's broker matrix). */
+/**
+ * Tools a role may never use, whatever a skill or a stored `supportedTools`
+ * declares: the roles whose row has `write: false`. QA and the CTO audit and
+ * plan; they never edit files.
+ */
 const READ_ONLY_ROLE_DENIED: Readonly<Record<string, readonly SkillPermission[]>> = {
-  reviewer: ["write_file", "run_command"],
-  researcher: ["write_file", "run_command"],
+  cto: ["write_file"],
+  qa: ["write_file"],
 };
 
 /**

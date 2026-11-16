@@ -326,6 +326,10 @@ export default defineSchema({
     scripts: v.optional(projectScriptsValidator),
     // O4 issue intake (additive): the connected user's issues with this label become DRAFT tasks.
     issueIntake: v.optional(v.object({ enabled: v.boolean(), label: v.optional(v.string()) })),
+    // Plan 061 (additive): a work-shaped chat message creates its task in the
+    // same turn. Unset = enabled. Only task creation is automatic; the human
+    // approval gate for apply_changes/push/PR is unchanged.
+    autoCreateChatTasks: v.optional(v.boolean()),
     commandAllowRules: v.optional(
       v.array(
         v.object({
@@ -733,13 +737,8 @@ export default defineSchema({
     // The replyToChat run holding the claim and when it is presumed dead.
     replyRunId: v.optional(v.string()),
     replyLeaseExpiresAt: v.optional(v.number()),
-    // What the reply needs to be re-run by Retry (send's routing options).
-    replyOptions: v.optional(
-      v.object({
-        preferredAgentIds: v.optional(v.array(v.id("agents"))),
-        permissionMode: v.optional(permissionModeValidator),
-      })
-    ),
+    // What the reply needs to be re-run by Retry (send's routing options); the composer's model pick rides here too (Plan 055, absent = Auto).
+    replyOptions: v.optional(v.object({ preferredAgentIds: v.optional(v.array(v.id("agents"))), permissionMode: v.optional(permissionModeValidator), preferredModelRowId: v.optional(v.id("llmModels")) })),
     // Idempotent send (t3code idea #2): the composer's client id; a retried send with the same id returns this row.
     clientId: v.optional(v.string()),
     invokedSkills: invokedSkillsField, // Paradev C3: "/<skill>" — the reply inlines these for this turn only.
@@ -1257,6 +1256,9 @@ export default defineSchema({
   opencodeSettings: defineTable({
     runtime: v.union(v.literal("api"), v.literal("opencode")),
     model: v.optional(v.string()),
+    // Plan 057: which provider CLI the native runtime spawns. Optional so a
+    // row written before this field keeps the OpenCode default.
+    driver: v.optional(v.union(v.literal("opencode"), v.literal("codex"))),
     updatedAt: v.number(),
   }),
 

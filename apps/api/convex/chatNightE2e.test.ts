@@ -193,11 +193,53 @@ describe("(1) a go reply starts the task the CTO offered", () => {
     expect(lines[0].content).not.toContain("@");
   });
 
-  test("chat never auto-starts a task: a change request gets an offer, not a task", async () => {
+  test("a change request creates its task in the same turn; chat-only replies create no extra task", async () => {
     const { t, projectId } = await setup();
     await send(t, { projectId, content: "tambahkan halaman FAQ di frontend" });
     await send(t, { projectId, content: "keren, makasih" });
+    const tasks = await t.run(async (ctx) => ctx.db.query("tasks").collect());
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].command).toContain("halaman FAQ");
+  });
+
+  test("chat-only messages never auto-create a task", async () => {
+    const { t, projectId } = await setup();
+    await send(t, { projectId, content: "halo apa kabar" });
+    await send(t, { projectId, content: "bandingkan zod vs valibot" });
+    await send(t, { projectId, content: "sampai mana progresnya?" });
     expect(await t.run(async (ctx) => ctx.db.query("tasks").collect())).toHaveLength(0);
+  });
+
+  test("an @mention keeps the manual offer path and auto-creates nothing", async () => {
+    const { t, projectId, frontendId } = await setup();
+    await send(t, {
+      projectId,
+      content: "@Frontend tolong buatkan hello.html",
+      preferredAgentIds: [frontendId],
+    });
+    expect(await t.run(async (ctx) => ctx.db.query("tasks").collect())).toHaveLength(0);
+  });
+
+  test("an auto-created task is idempotent and grants no approval by itself", async () => {
+    const { t, projectId } = await setup();
+    const content = "tambahkan halaman FAQ di frontend";
+    await send(t, { projectId, content });
+    await send(t, { projectId, content });
+    const state = await t.run(async (ctx) => ({
+      tasks: await ctx.db.query("tasks").collect(),
+      approvals: await ctx.db.query("approvals").collect(),
+    }));
+    expect(state.tasks).toHaveLength(1);
+    expect(state.approvals).toHaveLength(0);
+  });
+
+  test("the auto-created reply carries no Create task offer", async () => {
+    const { t, projectId } = await setup();
+    await send(t, { projectId, content: "tambahkan halaman FAQ di frontend" });
+    const replies = await t.run(async (ctx) => ctx.db.query("messages").collect());
+    const agentReplies = replies.filter((m) => m.authorType === "agent" && !m.voice && !m.card);
+    expect(agentReplies.length).toBeGreaterThan(0);
+    expect(agentReplies.some((m) => Boolean(m.taskOffer))).toBe(false);
   });
 });
 
@@ -247,7 +289,10 @@ describe("(2) history goes in as messages, the latest user message last", () => 
     await send(t, { projectId, content: PASTE });
     const reply = calls[calls.length - 1];
     expect(reply.msgs[reply.msgs.length - 1]).toEqual({ role: "user", content: PASTE });
-    expect(reply.msgs[0]).toEqual({ role: "user", content: "halo" });
+    // With CTO-first routing the earlier greeting reply (by another role) is
+    // teammate context appended to the "halo" turn, never part of the system prompt.
+    expect(reply.msgs[0].role).toBe("user");
+    expect(reply.msgs[0].content).toMatch(/^halo/);
     expect(reply.system).not.toContain("Conversation so far");
     expect(reply.system).not.toContain(PASTE);
     expect(reply.system).toMatch(/Answer the user's LAST message/);

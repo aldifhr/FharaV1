@@ -177,11 +177,20 @@ export const setEnabled = mutation({
  * a legacy per-agent `executionRuntime: "opencode"` or the env default from
  * taking over again).
  */
+/** Plan 057: the driver rides along with the legacy switch. */
+type LegacyOpencode = {
+  runtime: "api" | "opencode";
+  model: string;
+  driver?: "opencode" | "codex";
+};
+
 export async function effectiveLegacyOpencode(
   ctx: Ctx,
-  legacy: { runtime: "api" | "opencode"; model: string } | null
-): Promise<{ runtime: "api" | "opencode"; model: string } | null> {
+  legacy: LegacyOpencode | null
+): Promise<LegacyOpencode | null> {
   const row = await findOpencodeRow(ctx);
-  if (row) return { runtime: "api", model: "" };
+  if (row) {
+    return { runtime: "api", model: "", ...(legacy?.driver ? { driver: legacy.driver } : {}) };
+  }
   return legacy;
 }

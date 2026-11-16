@@ -204,6 +204,7 @@ export const retryReply = mutation({
       userMessageId: message._id,
       ...(message.replyOptions?.preferredAgentIds ? { preferredAgentIds: message.replyOptions.preferredAgentIds } : {}),
       ...(message.replyOptions?.permissionMode ? { permissionMode: message.replyOptions.permissionMode } : {}),
+      ...(message.replyOptions?.preferredModelRowId ? { preferredModelRowId: message.replyOptions.preferredModelRowId } : {}),
     });
     return { retried: true as const };
   },

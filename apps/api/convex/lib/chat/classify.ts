@@ -4,7 +4,7 @@
  * an unavailable or unparseable reply yields null.
  */
 import { completeWithAgent, type ChatLlmConfig } from "./llm";
-import { parseIntentResult, type IntentResult } from "./intent";
+import { parseIntentResult, type IntentResult, type IntentRoutingContext } from "./intent";
 import { INTENT_CLASSIFIER_SYSTEM, buildIntentClassifierPrompt } from "../prompts/chat";
 
 /**
@@ -14,11 +14,25 @@ import { INTENT_CLASSIFIER_SYSTEM, buildIntentClassifierPrompt } from "../prompt
 export async function classifyIntent(
   text: string,
   config: ChatLlmConfig,
-  activeTask?: { title: string; status: string } | null
+  activeTask?: { title: string; status: string } | null,
+  routing?: IntentRoutingContext & { historyLines?: string[]; contextSummary?: string | null }
 ): Promise<IntentResult | null> {
-  const prompt = buildIntentClassifierPrompt(text, activeTask);
+  const prompt = buildIntentClassifierPrompt(
+    text,
+    activeTask,
+    routing
+      ? {
+          ...routing,
+          team: routing.team.map((member) => ({
+            id: String(member._id),
+            name: member.name,
+            role: member.role,
+          })),
+        }
+      : undefined
+  );
   const raw = await completeWithAgent(INTENT_CLASSIFIER_SYSTEM, [{ role: "user", content: prompt }], config)
     .then((result) => result.content)
     .catch(() => "");
-  return parseIntentResult(raw);
+  return parseIntentResult(raw, routing);
 }

@@ -10,7 +10,7 @@ describe("app-wide OpenCode runtime", () => {
   test("unset reads as the built-in runtime and is not configured", async () => {
     const t = convexTest(schema, modules);
     const settings = await t.query(api.opencodeSettings.get, {});
-    expect(settings).toEqual({ runtime: "api", model: "", configured: false });
+    expect(settings).toEqual({ runtime: "api", model: "", driver: "opencode", configured: false });
   });
 
   test("set stores the runtime and the model, and reads them back", async () => {
@@ -23,6 +23,7 @@ describe("app-wide OpenCode runtime", () => {
     expect(settings).toEqual({
       runtime: "opencode",
       model: "opencode/beam-free",
+      driver: "opencode",
       configured: true,
     });
 
@@ -33,6 +34,30 @@ describe("app-wide OpenCode runtime", () => {
     const after = await t.query(api.opencodeSettings.get, {});
     expect(after.runtime).toBe("api");
     expect(after.model).toBe("");
+  });
+
+  test("setDriver upserts the driver without touching the runtime or model", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.opencodeSettings.set, { runtime: "opencode", model: "opencode/beam-free" });
+    const codex = await t.mutation(api.opencodeSettings.setDriver, { driver: "codex" });
+    expect(codex).toEqual({
+      runtime: "opencode",
+      model: "opencode/beam-free",
+      driver: "codex",
+      configured: true,
+    });
+    const rows = await t.run((ctx) => ctx.db.query("opencodeSettings").collect());
+    expect(rows.length).toBe(1);
+
+    // An older deployment with no row gets one with the built-in runtime.
+    const fresh = convexTest(schema, modules);
+    const created = await fresh.mutation(api.opencodeSettings.setDriver, { driver: "codex" });
+    expect(created).toEqual({
+      runtime: "api",
+      model: "",
+      driver: "codex",
+      configured: true,
+    });
   });
 
   test("an invalid model id is refused", async () => {
@@ -72,6 +97,7 @@ describe("app-wide OpenCode runtime", () => {
     let context = await t.query(internal.orchestration.getRunContext, { taskId });
     expect(context?.opencodeRuntime).toBeUndefined();
     expect(context?.opencodeModel).toBeUndefined();
+    expect(context?.nativeDriver).toBeUndefined();
 
     await t.mutation(api.opencodeSettings.set, {
       runtime: "opencode",
@@ -80,5 +106,10 @@ describe("app-wide OpenCode runtime", () => {
     context = await t.query(internal.orchestration.getRunContext, { taskId });
     expect(context?.opencodeRuntime).toBe("opencode");
     expect(context?.opencodeModel).toBe("opencode/beam-free");
+    expect(context?.nativeDriver).toBe("opencode");
+
+    await t.mutation(api.opencodeSettings.setDriver, { driver: "codex" });
+    context = await t.query(internal.orchestration.getRunContext, { taskId });
+    expect(context?.nativeDriver).toBe("codex");
   });
 });

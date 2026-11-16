@@ -181,6 +181,10 @@ export default function LlmSettingsSection({
   const opencodeCatalog = useQuery(api.opencodeModels.list, {});
   const requestOpencodeCheck = useMutation(api.opencodeModels.requestRefresh);
   const requestOpencodeTest = useMutation(api.opencodeModels.requestTest);
+  // Plan 057: which provider CLI the native runtime spawns.
+  const nativeSettings = useQuery(api.opencodeSettings.get, {});
+  const setNativeDriver = useMutation(api.opencodeSettings.setDriver);
+  const [driverBusy, setDriverBusy] = useState(false);
   const toast = useToast();
 
   const [opencodeBusy, setOpencodeBusy] = useState(false);
@@ -404,6 +408,24 @@ export default function LlmSettingsSection({
       setOpencodeTestKey(key);
     } catch (err) {
       toast("error", "Failed to ask the worker", err instanceof Error ? err.message : "");
+    }
+  }
+
+  async function changeNativeDriver(driver: "opencode" | "codex") {
+    setDriverBusy(true);
+    try {
+      await setNativeDriver({ driver });
+      toast(
+        "success",
+        "Native runtime driver updated",
+        driver === "codex"
+          ? "Codex CLI runs tasks with its own login and tools."
+          : "OpenCode CLI runs tasks with its own login and tools."
+      );
+    } catch (err) {
+      toast("error", "Failed to update the driver", err instanceof Error ? err.message : "");
+    } finally {
+      setDriverBusy(false);
     }
   }
 
@@ -715,10 +737,31 @@ export default function LlmSettingsSection({
             {opencodeTestKey === "p:opencode" && !opencode?.pendingTest && opencodeTest && (
               <p className={opencodeTest.ok ? HINT : ERROR_TEXT}>
                 {opencodeTest.ok
-                  ? `OK · ${opencodeTest.model ?? "OpenCode default model"} · ${opencodeTest.latencyMs} ms`
-                  : `Failed · ${opencodeTest.model ?? "OpenCode"} · ${opencodeTest.error ?? "error"}`}
+                  ? `OK A� ${opencodeTest.model ?? "OpenCode default model"} A� ${opencodeTest.latencyMs} ms`
+                  : `Failed A� ${opencodeTest.model ?? "OpenCode"} A� ${opencodeTest.error ?? "error"}`}
               </p>
             )}
+          </div>
+
+          {/* Plan 057: the CLI behind the native runtime (app-wide). */}
+          <div className="grid gap-1.5 border-b border-line py-2" aria-label="Native runtime driver">
+            <label className={LABEL}>
+              Native runtime driver
+              <select
+                value={nativeSettings?.driver ?? "opencode"}
+                disabled={!nativeSettings || driverBusy}
+                onChange={(e) => void changeNativeDriver(e.target.value === "codex" ? "codex" : "opencode")}
+                className={FIELD}
+              >
+                <option value="opencode">OpenCode CLI</option>
+                <option value="codex">Codex CLI</option>
+              </select>
+            </label>
+            <p className={HINT}>
+              {nativeSettings?.driver === "codex"
+                ? "Tasks run on the worker's own codex login; the OpenCode model list does not apply."
+                : "Tasks run on the OpenCode CLI. The Codex binary path stays worker-local (ORCHESTRATOR_CODEX_COMMAND)."}
+            </p>
           </div>
 
           {sortedProviders === undefined && <p className={HINT}>Loading…</p>}

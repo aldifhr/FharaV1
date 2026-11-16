@@ -30,16 +30,16 @@ export type BuiltinSkillMeta = {
 
 /** Attach order matters: inline skills share one budget (lib/skills.ts). */
 export const BUILTIN_SKILL_META: readonly BuiltinSkillMeta[] = [
-  { key: "design-system-detection", roles: ["designer", "frontend"], tags: ["design", "frontend", "builtin"] },
+  { key: "design-system-detection", roles: ["frontend"], tags: ["design", "frontend", "builtin"] },
   {
     key: "design-options-review",
-    roles: ["designer", "qa"],
+    roles: ["qa"],
     tags: ["design", "review", "builtin"],
     upstream: { repo: "mikecann/threadbear", path: "AGENTS.md (show_options rules)", license: "MIT", sha: "b697f32" },
   },
   {
     key: "frontend-design",
-    roles: ["designer", "frontend"],
+    roles: ["frontend"],
     tags: ["design", "frontend", "builtin"],
     upstream: {
       repo: "anthropics/skills",
@@ -50,7 +50,7 @@ export const BUILTIN_SKILL_META: readonly BuiltinSkillMeta[] = [
   },
   {
     key: "ui-ux-rules",
-    roles: ["designer", "frontend"],
+    roles: ["frontend"],
     tags: ["design", "ux", "builtin"],
     upstream: {
       repo: "nextlevelbuilder/ui-ux-pro-max-skill",
@@ -60,8 +60,10 @@ export const BUILTIN_SKILL_META: readonly BuiltinSkillMeta[] = [
     },
   },
   {
+    // Audit-shaped (report findings, WCAG criteria), so QA owns it; Frontend
+    // builds against the accessibility rules inside ui-ux-rules instead.
     key: "accessibility-audit",
-    roles: ["designer", "qa", "reviewer"],
+    roles: ["qa"],
     tags: ["a11y", "review", "builtin"],
     upstream: {
       repo: "khasky/awesome-agent-skills",
@@ -71,8 +73,9 @@ export const BUILTIN_SKILL_META: readonly BuiltinSkillMeta[] = [
     },
   },
   {
+    // Also audit-shaped, and the live rules are fetched at run time.
     key: "web-interface-guidelines",
-    roles: ["designer", "reviewer"],
+    roles: ["qa"],
     tags: ["design", "review", "builtin"],
     upstream: {
       repo: "vercel-labs/agent-skills",
@@ -84,7 +87,7 @@ export const BUILTIN_SKILL_META: readonly BuiltinSkillMeta[] = [
   {
     // Last, so a code role's design skills keep their place in the budget.
     key: "fhara-discipline",
-    roles: ["frontend", "backend", "devops"],
+    roles: ["frontend", "backend"],
     tags: ["discipline", "verification", "builtin"],
     upstream: {
       repo: "goat-si/goat",
@@ -96,7 +99,7 @@ export const BUILTIN_SKILL_META: readonly BuiltinSkillMeta[] = [
   {
     // After the discipline skill: the code roles' budget drops it first.
     key: "review-checklist",
-    roles: ["reviewer", "frontend", "backend", "qa"],
+    roles: ["frontend", "backend", "qa"],
     tags: ["review", "testing", "builtin"],
     upstream: {
       repo: "deepseek-ai/deepseek-harness",

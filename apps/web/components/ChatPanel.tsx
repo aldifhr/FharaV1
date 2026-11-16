@@ -40,6 +40,7 @@ import { dockTasks, taskRef } from "@/lib/taskDock";
 import { useMessageHistory } from "@/lib/useMessageHistory";
 import { useApprovalBinding } from "./chat/useApprovalBinding";
 import { useProjectSend } from "./chat/useProjectSend";
+import { useModelOptions } from "./chat/useModelOptions";
 import { useUnreadDivider } from "./chat/useUnreadDivider";
 import { failureKindLabel } from "@/lib/failureKind";
 
@@ -92,6 +93,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const projectFiles = useQuery(api.fileChanges.listByProject, { projectId: projectId as any });
   const subtasksByTask = useQuery(api.workspace.listSubtasksByProject, { projectId: projectId as any });
   const activeByAgent = useQuery(api.executionView.activeByAgent, {});
+  const modelOptions = useModelOptions();
   const approve = useMutation(api.approvals.approve);
   const reject = useMutation(api.approvals.reject);
   const hold = useMutation(api.approvals.hold);
@@ -106,7 +108,12 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   // Plan 020: permission mode for tasks dispatched from this composer.
   // Starts at the project's default; a pick holds until the project changes.
   const [permissionModeChoice, setPermissionModeChoice] = useState<PermissionMode | null>(null);
-  useEffect(() => setPermissionModeChoice(null), [projectId]);
+  // Plan 055: model pick per project chat; holds until the project changes.
+  const [modelChoice, setModelChoice] = useState<string | null>(null);
+  useEffect(() => {
+    setPermissionModeChoice(null);
+    setModelChoice(null);
+  }, [projectId]);
   const permissionMode: PermissionMode = permissionModeChoice ?? projectDefaultPermissionMode(project as any);
   const [liveStatus, setLiveStatus] = useState<StatusMap | undefined>(undefined);
   const [pins, setPins] = useState<any[] | undefined>(undefined);
@@ -286,7 +293,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const queue = useChatQueue(
     async (content, queueId) => {
       // The queue row id doubles as the client id: a retried row never sends twice.
-      await sendMessage({ projectId: projectId as any, content, preferredAgentIds: recipientsFor(content) as any, permissionMode, clientId: queueId });
+      await sendMessage({ projectId: projectId as any, content, preferredAgentIds: recipientsFor(content) as any, permissionMode, ...(modelChoice ? { preferredModelRowId: modelChoice as never } : {}), clientId: queueId });
     },
     (message) => setChatError(message),
   );
@@ -302,7 +309,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const handleChooseProposal = async (choice: string) => {
     setChatSending(true);
     try {
-      await sendMessage({ projectId: projectId as any, content: choice, preferredAgentIds: recipientsFor(choice) as any, permissionMode });
+      await sendMessage({ projectId: projectId as any, content: choice, preferredAgentIds: recipientsFor(choice) as any, permissionMode, ...(modelChoice ? { preferredModelRowId: modelChoice as never } : {}) });
     } catch (err) {
       toast("error", "Failed to select option", err instanceof Error ? err.message : "Error");
     } finally {
@@ -377,6 +384,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
           content,
           preferredAgentIds: recipientsFor(content) as any,
           permissionMode,
+          ...(modelChoice ? { preferredModelRowId: modelChoice as never } : {}),
           ...(quote ? { quotedMessageId: quote.messageId as any } : {}), ...(skillFor(text) ?? {}),
         });
       }
@@ -765,6 +773,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             onTargetChange={setTargetId}
             permissionMode={permissionMode}
             onPermissionModeChange={setPermissionModeChoice}
+            models={modelOptions}
+            modelId={modelChoice}
+            onModelChange={setModelChoice}
             quote={quote}
             onCancelQuote={() => setQuote(null)}
             slashCommands={slashEntries}

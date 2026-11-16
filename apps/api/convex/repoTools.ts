@@ -12,6 +12,13 @@ import { REPO_TOOL_CAPS, REPO_TOOLS_CAPABILITY } from "./lib/chat/repoTools";
 
 /** A worker's claim on a call; an expired lease lets another worker take it. */
 const CLAIM_LEASE_MS = 15_000;
+/**
+ * Chat completions on the worker's CLI run up to CHAT_LLM_WAIT_MS (180 s in
+ * chat.ts), so their rows get a lease long enough to cover one completion;
+ * the 15 s tool lease would let a second worker re-claim mid-run and run it
+ * twice (its own `complete` would then be refused as stale).
+ */
+const CHAT_LLM_LEASE_MS = 200_000;
 /** A worker counts as online when it heartbeat within this window. */
 const WORKER_FRESH_MS = 45_000;
 /** Rows older than this were abandoned by their action (it waits ~20 s). */
@@ -52,6 +59,63 @@ export const enqueue = internalMutation({
       projectId: args.projectId,
       tool: args.tool.slice(0, 40),
       args: args.args.slice(0, 2_000),
+      status: "pending",
+      createdAt: Date.now(),
+    });
+  },
+});
+
+/** Row cap for one chat payload; the worker slices its own prompt at the same size. */
+export const CHAT_LLM_PAYLOAD_MAX_CHARS = 120_000;
+
+export interface ChatLlmMessage {
+  role: string;
+  content: string;
+}
+
+/**
+ * Fit one chat completion into the row cap by shrinking components BEFORE
+ * serialization: the system prompt first, then the oldest turns, then the
+ * last turn's content. Slicing the serialized JSON would cut it mid-string
+ * and hand the worker an unparseable payload.
+ */
+export function fitChatLlmPayload(model: string, system: string, messages: ChatLlmMessage[]): string {
+  const serialize = (sys: string, msgs: ChatLlmMessage[]) =>
+    JSON.stringify({ model: model.slice(0, 200), system: sys, messages: msgs });
+  let sys = system.slice(0, 60_000);
+  const msgs = messages.map((m) => ({ role: String(m?.role ?? "user"), content: String(m?.content ?? "") }));
+  if (serialize(sys, msgs).length <= CHAT_LLM_PAYLOAD_MAX_CHARS) return serialize(sys, msgs);
+  sys = sys.slice(0, 20_000);
+  // Keep the newest turn; drop older ones while the payload is too big.
+  while (serialize(sys, msgs).length > CHAT_LLM_PAYLOAD_MAX_CHARS && msgs.length > 1) msgs.shift();
+  if (serialize(sys, msgs).length > CHAT_LLM_PAYLOAD_MAX_CHARS && msgs.length > 0) {
+    // One huge turn left: binary-shrink its content until it fits (JSON
+    // escaping can inflate a slice, so a fixed cut could still overflow).
+    const envelope = serialize(sys, []).length;
+    let keep = Math.max(0, CHAT_LLM_PAYLOAD_MAX_CHARS - envelope);
+    while (
+      keep > 1 &&
+      serialize(sys, [{ role: msgs[0].role, content: msgs[0].content.slice(0, keep) }]).length > CHAT_LLM_PAYLOAD_MAX_CHARS
+    ) {
+      keep = Math.floor(keep / 2);
+    }
+    msgs[0] = { role: msgs[0].role, content: msgs[0].content.slice(0, keep) };
+  }
+  return serialize(sys, msgs);
+}
+
+/**
+ * Plan 060: one chat completion on the worker's local OpenCode CLI. The prompt
+ * (system + history) is larger than a repo tool's argument cap, so it gets its
+ * own bounded enqueue with the same queue and lease mechanics.
+ */
+export const enqueueChatLlm = internalMutation({
+  args: { projectId: v.id("projects"), model: v.string(), system: v.string(), messages: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("repoToolCalls", {
+      projectId: args.projectId,
+      tool: "opencode_chat",
+      args: fitChatLlmPayload(args.model, args.system, JSON.parse(args.messages) as ChatLlmMessage[]),
       status: "pending",
       createdAt: Date.now(),
     });
@@ -101,7 +165,8 @@ export const claimNext = internalMutation({
       row = claimed.find((c) => (c.leaseExpiresAt ?? 0) < now) ?? null;
     }
     if (!row) return null;
-    await ctx.db.patch(row._id, { status: "claimed", workerId: args.workerId, leaseExpiresAt: now + CLAIM_LEASE_MS });
+    const leaseMs = row.tool === "opencode_chat" ? CHAT_LLM_LEASE_MS : CLAIM_LEASE_MS;
+    await ctx.db.patch(row._id, { status: "claimed", workerId: args.workerId, leaseExpiresAt: now + leaseMs });
     const project = await ctx.db.get(row.projectId);
     return {
       callId: row._id,

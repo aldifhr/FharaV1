@@ -26,7 +26,7 @@ export type ChatOwner<T extends Member> =
       /** The topic domain when routeQuestion matched one. */
       domain: DispatchDomain | null;
       topic?: string;
-      via: "route" | "previous" | "files" | "fallback";
+      via: "route" | "previous" | "files" | "fallback" | "llm";
     };
 
 const CTO_ROLE = /^(?:cto|architect)$/i;

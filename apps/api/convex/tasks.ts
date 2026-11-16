@@ -393,7 +393,9 @@ export const cancel = mutation({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
     const task = await assertTaskAccess(ctx, args.taskId);
-    if (task.status === "done" || task.status === "rejected" || task.status === "cancelled") return false;
+    // failed is terminal too: overwriting it would erase the failure reason
+    // and completedAt (root AGENTS.md terminal-status rule).
+    if (["done", "rejected", "failed", "cancelled"].includes(task.status)) return false;
     const now = Date.now();
     await patchTask(ctx, args.taskId, {
       // A user stop is its own terminal status, never a failure.

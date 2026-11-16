@@ -1,7 +1,60 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { FileText, FolderX } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  ChevronsUpDown,
+  FileCode2,
+  FileImage,
+  FileText,
+  FolderX,
+} from "lucide-react";
+
+import {
+  CollapseButton,
+  File,
+  Folder,
+  Tree,
+  type TreeViewElement,
+} from "@/components/ui/file-tree";
+
+function buildTree(paths: string[]): TreeViewElement[] {
+  const roots: TreeViewElement[] = [];
+  const byPath = new Map<string, TreeViewElement>();
+
+  for (const filePath of paths) {
+    const parts = filePath.split("/").filter(Boolean);
+    let siblings = roots;
+    let accumulated = "";
+
+    parts.forEach((part, index) => {
+      accumulated = accumulated ? `${accumulated}/${part}` : part;
+      const isFile = index === parts.length - 1;
+      let node = byPath.get(accumulated);
+      if (!node) {
+        node = isFile
+          ? { id: accumulated, name: part, type: "file" }
+          : { id: accumulated, name: part, type: "folder", children: [] };
+        byPath.set(accumulated, node);
+        siblings.push(node);
+      }
+      if (!isFile && node.children) siblings = node.children;
+    });
+  }
+  return roots;
+}
+
+function fileIconFor(name: string) {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "avif", "bmp"].includes(ext)) {
+    return <FileImage className="size-4 shrink-0 text-ink-3" />;
+  }
+  if (
+    ["ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "rs", "java", "c", "cpp", "css", "html", "json", "yml", "yaml", "sh"].includes(ext)
+  ) {
+    return <FileCode2 className="size-4 shrink-0 text-ink-3" />;
+  }
+  return <FileText className="size-4 shrink-0 text-ink-3" />;
+}
 
 export default function FilesView({ project }: { project: any }) {
   const workspacePath = (project as any)?.workspacePath as string | undefined;
@@ -84,9 +137,39 @@ export default function FilesView({ project }: { project: any }) {
       });
   };
 
-  const visible = (files ?? []).filter(
-    (file) => !query || file.toLowerCase().includes(query.toLowerCase())
+  const visible = useMemo(
+    () => (files ?? []).filter((file) => !query || file.toLowerCase().includes(query.toLowerCase())),
+    [files, query]
   );
+  const tree = useMemo(() => buildTree(visible), [visible]);
+  const initialExpanded = useMemo(
+    () => tree.filter((node) => node.type === "folder").map((node) => node.id),
+    [tree]
+  );
+
+  const renderNodes = (nodes: TreeViewElement[]): ReactNode =>
+    nodes.map((node) =>
+      node.type === "folder" ? (
+        <Folder
+          key={node.id}
+          value={node.id}
+          element={node.name}
+          className="w-full text-[13px] text-ink"
+        >
+          {renderNodes(node.children ?? [])}
+        </Folder>
+      ) : (
+        <File
+          key={node.id}
+          value={node.id}
+          handleSelect={openFile}
+          fileIcon={fileIconFor(node.name)}
+          className="w-full max-w-full text-[13px] text-ink"
+        >
+          <span className="min-w-0 truncate">{node.name}</span>
+        </File>
+      )
+    );
 
   if (project && !workspacePath) {
     return (
@@ -100,7 +183,17 @@ export default function FilesView({ project }: { project: any }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
-      <div className={`flex w-full shrink-0 flex-col gap-2 md:w-72 ${selected ? "max-md:hidden" : ""}`}>
+      <div className={`flex w-full shrink-0 flex-col gap-3 md:w-80 ${selected ? "max-md:hidden" : ""}`}>
+        <div className="flex items-end justify-between gap-2">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-ink">Workspace files</p>
+            <p className="truncate text-xs text-ink-3">
+              {files
+                ? `${files.length} of ${totalFiles} file${totalFiles === 1 ? "" : "s"}${truncated ? " (listing truncated)" : ""}`
+                : "Loading workspace…"}
+            </p>
+          </div>
+        </div>
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -108,29 +201,28 @@ export default function FilesView({ project }: { project: any }) {
           aria-label="Search files"
           className="rounded-xl border border-line bg-panel px-3 py-2 text-base outline-none focus:border-ink/30 focus-visible:ring-2 focus-visible:ring-ink/10 sm:text-sm"
         />
-        <div className="max-h-[60vh] min-h-0 flex-1 overflow-y-auto rounded-xl border md:max-h-[calc(100dvh-16rem)] border-line bg-panel p-1">
-          {error && <p className="px-2 py-2 text-xs text-rose-600">{error}</p>}
-          {!error && !files && <p role="status" className="px-2 py-2 text-xs text-ink-3">Loading files…</p>}
-          {truncated && files !== null && files.length > 0 ? (
-            <p className="px-2 py-2 text-xs text-ink-3">Showing {files.length} of {totalFiles} files — the listing was truncated.</p>
-          ) : null}
-          {files && visible.length === 0 && (
-            <p className="px-2 py-2 text-xs text-ink-3">{query ? "No files match." : "No files found."}</p>
-          )}
-          {visible.map((file) => (
-            <button
-              key={file}
-              type="button"
-              onClick={() => openFile(file)}
-              aria-current={selected === file ? "true" : undefined}
-              className={`flex w-full items-center gap-2 truncate rounded-lg px-2 py-1.5 text-left text-[13px] outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 ${
-                selected === file ? "bg-hover font-semibold" : ""
-              }`}
+        <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-line bg-panel">
+          {error ? (
+            <p className="px-3 py-2 text-xs text-rose-600">{error}</p>
+          ) : !files ? (
+            <p role="status" className="px-3 py-2 text-xs text-ink-3">Loading files…</p>
+          ) : visible.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-ink-3">
+              {query ? "No files match your search." : "No files found."}
+            </p>
+          ) : (
+            <Tree
+              key={query || "all"}
+              initialExpandedItems={initialExpanded}
+              className="h-full py-2"
+              indicator
             >
-              <FileText size={13} className="shrink-0 text-ink-3" />
-              <span className="min-w-0 flex-1 truncate">{file}</span>
-            </button>
-          ))}
+              <CollapseButton elements={tree} className="bottom-auto top-1">
+                <ChevronsUpDown className="size-3.5 text-ink-3" />
+              </CollapseButton>
+              {renderNodes(tree)}
+            </Tree>
+          )}
         </div>
       </div>
       <div className={`h-[calc(100dvh-16rem)] min-h-[320px] min-w-0 flex-1 overflow-hidden rounded-xl border border-line bg-panel ${selected ? "" : "max-md:hidden"}`}>

@@ -47,6 +47,8 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
   /* Shell design tokens (workspace redesign). */
   --color-canvas: var(--shell-canvas);
   --color-panel: var(--shell-panel);
@@ -281,6 +283,15 @@ body {
 .shell-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--shell-line-strong) transparent;
+}
+
+@keyframes accordion-down {
+  from { height: 0; }
+  to { height: var(--radix-accordion-content-height); }
+}
+@keyframes accordion-up {
+  from { height: var(--radix-accordion-content-height); }
+  to { height: 0; }
 }
 
 @keyframes shell-dot {

@@ -5,7 +5,6 @@ import { useState } from "react";
 import InitialAvatar from "../InitialAvatar";
 import OpenInMenu from "./OpenInMenu";
 import ProjectAvatar from "../shell/ProjectAvatar";
-import { EditableTitle } from "../ThreadRename";
 import { PageHeader, type PageHeaderStatus } from "../ui/page-header";
 import { iconButtonClass, popoverClass, usePopover } from "../shell/usePopover";
 import { agentName, roleLabel } from "@/lib/agentRoles";
@@ -71,7 +70,7 @@ export default function ChatHeader({
   formatTime,
 }: {
   project: { _id?: string; name?: string; devUrl?: string; workspacePath?: string } | null | undefined;
-  /** The project's active conversation; its title is renamed in place (Paradev B3). */
+  /** The project's active conversation; only its id is shown (copy affordance). */
   conversation?: { _id: string; title?: string } | null;
   agents: Agent[];
   status?: StatusMap;
@@ -144,19 +143,7 @@ export default function ChatHeader({
           variant="bar"
           className="min-w-0"
           leading={<ProjectAvatar name={project?.name ?? "•"} size={34} />}
-          title={
-            <>
-              <span className="min-w-0 shrink truncate">{project?.name ?? "Project"}</span>
-              {conversation && (
-                <>
-                  <span aria-hidden="true" className="font-normal text-ink-3">/</span>
-                  <span className="min-w-0 flex-1 font-normal text-ink-2">
-                    <EditableTitle title={conversation.title?.trim() || "Chat"} renameRef={{ conversationId: String(conversation._id) }} label="chat" />
-                  </span>
-                </>
-              )}
-            </>
-          }
+          title={<span className="min-w-0 shrink truncate">{project?.name ?? "Project"}</span>}
           id={conversation ? String(conversation._id) : null}
           idLabel="conversation id"
           status={runStatus(status, notifications.length)}

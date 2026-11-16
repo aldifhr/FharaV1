@@ -125,13 +125,13 @@ export function isVerificationRequest(text: string): boolean {
   return /\b(?:cek|ngecek|mengecek|dicek|pengecekan|periksa|memeriksa|diperiksa|pemeriksaan|verifikasi|memverifikasi|diverifikasi|grep|check(?:s|ed|ing)?|verif(?:y|ies|ied|ying))\b/i.test(text);
 }
 
-/** Roles that always stay in an assigned task's pool so review and QA still run. */
-const ALWAYS_IN_POOL = /^(reviewer|qa)$/i;
+/** Roles that always stay in an assigned task's pool so QA still runs. */
+const ALWAYS_IN_POOL = /^qa$/i;
 
 /**
  * The task's agent pool when the CTO (or the user) assigned specific
- * teammates: the CTO (planner), the assignees, and the Reviewer/QA so the
- * checks still run. Empty when nobody was assigned (the whole team is used).
+ * teammates: the CTO (planner), the assignees, and QA so the checks still
+ * run. Empty when nobody was assigned (the whole team is used).
  */
 export function resolveAssignees<T extends { _id: string; role: string }>(
   team: T[],

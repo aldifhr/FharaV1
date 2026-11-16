@@ -53,7 +53,15 @@ execution order and a definition of done.
 | 050 | [One modal primitive for every overlay](050-one-modal-primitive.md) | P2 | M | — | TODO (web-UI audit: 3 shared modal implementations + 2 bespoke overlays; the context drawer has no focus trap) |
 | 051 | [Lint the web app and pay down its `any` debt](051-lint-and-any-sweep.md) | P2 | L | — | TODO (web-UI audit: no ESLint, 269 `any`, 68 Convex id casts) |
 | 052 | [Split the oversized chat/settings components](052-split-oversized-components.md) | P3 | L | 050 (optional) | TODO (web-UI audit: six files over 700 lines, one `next/dynamic`) |
-| 053 | [Retire the legacy route layer](053-retire-legacy-routes.md) | P3 | S | — | TODO (web-UI audit: 5 redirect-only routes; decision A/B/C needed) |
+| 053 | [Retire the legacy route layer](053-retire-legacy-routes.md) | P3 | S | - | TODO (web-UI audit: 5 redirect-only routes; decision A/B/C needed) |
+| 054 | [Pull Requests page in the sidebar](054-pull-requests-page.md) | P2 | M | - | DONE (typecheck + convex-test + headless browser check; no PR rows locally to click through) |
+| 055 | [Per-message model picker in the chat composer](055-composer-model-picker.md) | P2 | M | 032, 037 | DONE (typecheck + convex-test + browser check of the picker; no message sent) |
+| 056 | [Port FharaV2 file/index and git tooling (A)](056-port-file-git-tooling.md) | P1 | M | - | DONE (fff index for list/grep, `diff` hunks, `-z` porcelain; tests + typecheck green; full-suite failures are pre-existing) |
+| 057 | [Provider-native runtime parity with FharaV2 (B)](057-provider-native-runtime-parity.md) | P1 | L | 014, 035, 038, 056 | IN PROGRESS (Codex driver done in the worker; app-wide driver selection landed via `opencodeSettings.driver`; session resume and Codex model catalog remain) |
+| 058 | [Port FharaV2 tooling verbatim, stage by stage (C)](058-verbatim-tooling-port.md) | P1 | L | 056, 057 | IN PROGRESS (stages 1-2 done: `effect-acp` + provider foundation copied; typecheck clean; tests match upstream baseline; pnpm switch approved) |
+| 059 | [CTO-first work chat, constrained handoff, stack-neutral chat replies](059-cto-first-chat.md) | P1 | M | 040 | DONE (typecheck + targeted convex tests green; prompt-level live check with `opencode/hy4-flash-free` passed; full-app live chat blocked by the deployment's HTTP provider 503/404) |
+| 060 | [FharaV2-style settings.json model for chat via the worker](060-settings-json-chat-model.md) | P1 | M | 059 | IN PROGRESS (settings.json + worker bridge + chat client; live smoke pending) |
+| 061 | [CTO auto-creates the task from a work-shaped chat message](061-cto-auto-create-task.md) | P1 | M | 059, 060 | DONE (API typecheck + 1523 tests + web typecheck green; convex-test covers auto-create, negatives, idempotency and no approval grant; no live provider smoke) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

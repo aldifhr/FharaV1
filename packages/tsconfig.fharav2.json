@@ -1,0 +1,27 @@
+{
+  // Shared base for the packages lifted verbatim from FharaV2 (plan 058).
+  // Mirrors FharaV2's tsconfig.base.json semantics that the copied sources
+  // rely on (ESNext target, explicit `.ts` import extensions, strict flags),
+  // adapted to this repo's npm/tsc/vitest toolchain. Package tsconfigs
+  // extend this and add their own `types`/`lib`/`include`.
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext"],
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "useDefineForClassFields": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true
+  }
+}

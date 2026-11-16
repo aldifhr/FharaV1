@@ -1,6 +1,6 @@
 {
   "apps/api/convex/chat.ts": {
-    "lines": 1339
+    "lines": 1407
   },
   "apps/api/convex/githubPush.ts": {
     "lines": 846
@@ -9,10 +9,10 @@
     "lines": 1066
   },
   "apps/api/convex/orchestration.ts": {
-    "lines": 3068
+    "lines": 3079
   },
   "apps/api/convex/schema.ts": {
-    "lines": 2233
+    "lines": 2231
   },
   "apps/api/convex/skills.ts": {
     "lines": 1257
@@ -78,7 +78,7 @@
     "tint": 62
   },
   "apps/web/components/LlmSettings.tsx": {
-    "lines": 985,
+    "lines": 1028,
     "tint": 4
   },
   "apps/web/components/Modal.tsx": {
@@ -172,7 +172,7 @@
     "tint": 10
   },
   "packages/worker/src/execution/agentExecutor.ts": {
-    "lines": 2599
+    "lines": 2592
   },
   "packages/worker/src/execution/nativeProvider.ts": {
     "lines": 1099

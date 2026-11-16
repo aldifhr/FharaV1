@@ -25,3 +25,7 @@ dist/
 # Playwright output
 apps/web/playwright-report/
 apps/web/test-results/
+
+# Local agent tooling state (memory logs, per-machine plans mirror)
+.workbuddy-ai/
+.zcode/

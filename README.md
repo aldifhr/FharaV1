@@ -1,456 +1,108 @@
-# Fhara
+<p align="center">
+  <a href="https://github.com/aldifhr/FharaCode">
+    <img src="./assets/prod/fhara-black-web-icon-192x192.png" width="80" height="80" alt="Fhara logo" />
+  </a>
+</p>
 
-Fhara is a multi-agent software team you talk to in chat. You describe a
-change to your project; the CTO agent plans it and assigns it to teammates
-by `@mention`; agents write the code in your repository; the change is
-reviewed, approved by you, verified (typecheck / lint / test / build) and
-checked in a real browser before the task is done. With GitHub connected, the
-result can be pushed as a branch with a draft PR.
+<h1 align="center">Fhara</h1>
 
-It is a **single-user, local-first prototype** (no login, no rate limiting —
-see [Safety model](#safety-model)). Open work is tracked in
-[ROADMAP.md](ROADMAP.md).
+<p align="center">The open-source control plane for coding agents.</p>
 
-## Architecture
+<p align="center">
+  <a href="https://github.com/aldifhr/FharaCode/releases"><strong>Download</strong></a> Â·
+  <a href="https://apps.apple.com/us/app/fhara-code-remote-claude-more/id6787819824">iOS</a> Â·
+  <a href="https://play.google.com/store/apps/details?id=com.fhara.fhara">Android</a> Â·
+  <a href="https://github.com/aldifhr/FharaCode">Web</a> Â·
+  <a href="./docs/README.md">Docs</a> Â·
+  <a href="https://discord.gg/jn4EGJjrvv">Discord</a>
+</p>
 
-```
- Browser ──► apps/web (Next.js)  ──queries/mutations──►  apps/api (Convex)
-                │ server routes (token-gated writes)          ▲
-                └────────────────────────────────────────────┤ service-token actions
-                                                              │ (claim · run context · events · cards)
-                                     packages/worker (Node) ──┘
-                                       plan → DAG → agents → review → verify → QA
-                                       works in the project's git repo on disk
-```
+<p align="center">
+  <a href="https://github.com/aldifhr/FharaCode">
+    <img src="./.github/readme/hero.webp" width="100%" alt="Fhara on desktop with a finished Claude thread, next to the phone app asking to approve a command from Codex" />
+  </a>
+</p>
 
-| Workspace | Package | What it holds |
-|---|---|---|
-| `apps/web` | `@fhara/web` | Next.js UI: projects, chat + task threads, cards, team, Settings (LLM providers), Integrations (MCP servers + GitHub), Inbox, Analytics |
-| `apps/api` | `@fhara/api` | Convex backend in `apps/api/convex`: schema, chat + CTO assignment, tasks, approvals, permission broker, GitHub push, provider pool |
-| `packages/worker` | `@fhara/worker` | Claims tasks from Convex and runs them end to end |
-| `electron/` | — | Optional desktop shell (`npm run electron:dev` starts api, web, worker and the app window; closing the window stops all) |
+Fhara runs the coding agents on your machine and gives them one fast interface. Start a thread at your desk, then approve the next step from your phone.
 
-Module map (details in each `AGENTS.md`):
+It works with Claude Code, Codex, Cursor, OpenCode, Grok Build, Antigravity, Kiro, Pi, Muse Code, fx, and any [ACP](./docs/user/providers-acp.md) agent. If an agent is set up on your computer, Fhara can control it.
 
-- **`apps/api/convex/lib/`** — function-less shared code: `roles.ts` (the
-  single source of truth for the team roles, used by Convex, web and worker),
-  `authz.ts` (project access, service-token check), `llmCrypto.ts`
-  (AES-256-GCM provider keys), `llmResolver.ts` / `llmConfig.ts` (provider
-  pool), `chat/` and `prompts/`.
-- **`packages/worker/src/`** — layered, enforced by `tests/layering.test.ts`:
-  `types/ prompts/ utils/` ← `llm/ effects/ governance/ context/ workerApi` ←
-  `tools/ mcp/` ← `execution/` ← `orchestrator/ scheduler/ router/` ←
-  `services/` (task lifecycle: `taskRunner` + `runner/` stages) ← `index`.
-- **`apps/web`** — `app/` routes, `components/` (chat, cards, sidebar),
-  `lib/` (shared UI types, formatting, task status).
+## What you get
 
-## The team
+- **Your subscriptions.** Fhara does not resell tokens. It drives the agents you are already signed in to.
+- **Every agent in one place.** Change models in the middle of a thread. Let Claude hand a task to Codex.
+- **Desktop, web, and phone.** One server, and every client shows the same threads. There are apps for iOS and Android.
+- **Remote ready.** Run agents on any machine. Connect over your local network, Tailscale, or [Fhara Connect](./docs/user/remote-access.md).
+- **Git built in.** Each thread can work in its own worktree. Review the diff, then commit, push, and open a pull request with one button.
+- **Fast.** Performance is a feature here. We measure it, and we treat a dropped frame as a bug.
+- **Open.** MIT licensed. If you don't like something, fork it.
 
-Every project gets the same fixed team of nine roles
-(`apps/api/convex/lib/roles.ts`):
+## Install
 
-| Role | Does | Writes code |
-|---|---|---|
-| **CTO** | Answers by default, plans, assigns work by `@mention`, decides architecture and risk | no |
-| **Designer** | Implementable design specs (layout, tokens, states, accessibility) | no |
-| **Frontend** | React / Next.js / UI implementation | yes |
-| **Backend** | API, Convex functions, schema, server logic | yes |
-| **QA** | Browser checks and test evidence | no |
-| **Support** | Documentation and how-to answers | docs |
-| **DevOps** | CI/CD, Docker, deployment (policy-gated) | via commands |
-| **Reviewer** | Independent code review | no |
-| **Researcher** | Technical research with sources | no |
+### Desktop app
 
-**How the CTO assigns.** When you ask for a change in chat, the CTO replies
-with a short plan and `@mentions` the teammates who own each part
-(`@Frontend`, `@Backend`, …). Those mentions — plus anyone you `@mention`
-yourself — become the task's assignees. If the CTO names nobody, owners are
-picked from the request by keywords. A question without a change gets an
-answer, not a task.
+[Download Fhara](https://github.com/aldifhr/FharaCode/releases) for macOS, Windows, or Linux. You can also use a package manager:
 
-## Task lifecycle
+| Platform       | Command                                                              |
+| -------------- | -------------------------------------------------------------------- |
+| macOS          | `brew install --cask fhara-code`                                        |
+| Windows        | `winget install FharaTools.FharaCode` or `scoop install extras/fhara`     |
+| Arch Linux     | `yay -S fhara-bin`                                                  |
+| Nix            | `nix profile add github:NixOS/nixpkgs/nixos-unstable#fhara`         |
+| Debian, Ubuntu | `.deb` from [Releases](https://github.com/pingdotgg/t3code/releases) |
 
-1. **Plan** — the worker claims the task, classifies it (low / medium / high /
-   ultra) and the orchestrator builds an execution plan: a DAG of subtask
-   nodes, each with an owner role and its `allowedPaths`.
-2. **Nodes** — the scheduler runs ready nodes (per-agent concurrency, LLM
-   gates, per-subtask timeouts). Code changes are *staged*, not written yet.
-3. **Review** — the Reviewer checks the staged diff when the change is risky
-   or multi-domain (`ORCHESTRATOR_REVIEW_MODE=auto`); "changes requested"
-   spawns a fix round.
-4. **Approval** — in the default `ask` mode you approve the change set on the
-   approval card; the permission broker decides allow / ask / deny.
-5. **Apply + verify** — approved files are written, then typecheck / lint /
-   test / build run; failures get a bounded fix round.
-6. **QA** — for applied UI changes in a browser-runnable project, Chromium
-   opens the app and checks it (live QA card). An environment problem
-   (no Chromium) is reported as "QA skipped", not as a code defect.
-7. **Commit** — with worktree isolation on (`auto` turns it on for a clean git
-   checkout, or `ORCHESTRATOR_WORKTREE_ISOLATION=1`) the task runs on its own
-   branch, which is committed and merged.
-8. **Push card / draft PR** — the commit shows up as a push card. Clicking
-   Push is the approval: the worker pushes the branch and opens a **draft PR**.
+### Command line
 
-Progress shows in chat as cards: task, changed files, verification, QA,
-push.
-
-## Quickstart
-
-Requires Node ≥ 20.9 (`.nvmrc`: 24) and git.
+This installs the `fhara` command. Run `fhara` to start the server and open the web app.
 
 ```bash
-git clone <this repo> Fhara && cd Fhara
-npm install
-
-cp .env.example .env                          # the only env file you edit (worker, web and Convex)
-
-cd apps/api && npx convex dev --once && cd ../..   # log in / pick a deployment, push functions, generate convex/_generated
-npm run doctor                                     # checks the setup, prints ✓ / ! / ✗ with fixes
-npm run dev                                        # Convex dev + web (http://localhost:3000) + worker
+curl -fsSL https://raw.githubusercontent.com/aldifhr/FharaCode/main/scripts/install.sh | sh
 ```
 
-`npx convex dev` writes the deployment to `apps/api/.env.local`; copy its
-URL into `NEXT_PUBLIC_CONVEX_URL` in `.env`.
-For a self-hosted backend set `CONVEX_SELF_HOSTED_URL` /
-`CONVEX_SELF_HOSTED_ADMIN_KEY` instead (see `apps/api/.env.example`).
+On Windows, in PowerShell:
 
-Put `CONVEX_SERVICE_TOKEN` (`openssl rand -hex 32`) and
-`PROVIDER_ENCRYPTION_KEY` (`openssl rand -base64 32`) in `.env`. Convex
-functions cannot read files, so `npm run dev` copies the keys they use
-(`LLM_*`, `GITHUB_*`, `PROVIDER_ENCRYPTION_KEY`, `CONVEX_SERVICE_TOKEN`, …)
-from `.env` to the Convex deployment env, only when a value changed. Run
-`npm run env:sync` to do that by hand.
-
-Add an LLM provider in **Settings → LLM** (or set the `LLM_*` fallback in
-`.env`), create a project pointing at a local git
-repository, and send a request in its chat.
-
-`npm run dev` runs three processes with prefixed logs (`[api]`, `[web]`,
-`[worker]`). The worker runs under `scripts/supervise.mjs`, which restarts it
-on a crash with backoff (1 s → 30 s) and stops it cleanly on Ctrl-C. Single
-pieces: `npm run dev:web`, `npm run dev:api`, `npm run worker`,
-`npm run worker:supervised`, `npm run convex` (Convex dev + worker).
-
-## Configuration
-
-Everything lives in the root `.env`: the worker reads it, the web app loads
-it in `next.config.mjs` (`apps/web/.env.local` still works as an override),
-and `npm run dev` / `npm run env:sync` copies the backend keys to the Convex
-deployment env. All are listed in `.env.example`.
-
-| Variable | Where | Default | What it does |
-|---|---|---|---|
-| `NEXT_PUBLIC_CONVEX_URL` | `.env`, web | — (required) | Convex deployment URL (`CONVEX_URL` also accepted by the worker) |
-| `CONVEX_SERVICE_TOKEN` | `.env`, web (server-only), Convex | — (required) | Shared secret for worker actions and token-gated web routes |
-| `PROVIDER_ENCRYPTION_KEY` | `.env`, Convex | — | Encrypts provider keys saved in Settings (base64, 32 bytes) |
-| `LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | `.env`, Convex | anthropic | Fallback LLM when no provider is configured in Settings |
-| `WORKSPACE_ROOT` | `.env` | `./workspaces` | Base for relative project paths |
-| `ORCHESTRATOR_LLM_MAX_TOKENS` | `.env` | `8192` | Max output tokens per LLM call |
-| `ORCHESTRATOR_LLM_TIMEOUT_MS` | `.env` | `300000` | Ceiling for one LLM request |
-| `ORCHESTRATOR_SUBTASK_TIMEOUT_MS` | `.env` | `300000` | Subtask budget, low/medium tasks |
-| `ORCHESTRATOR_SUBTASK_TIMEOUT_HIGH_MS` | `.env` | `900000` | Subtask budget, high/ultra tasks |
-| `ORCHESTRATOR_TASK_TIMEOUT_MS` | `.env` | `1200000` | Task deadline, low/medium |
-| `ORCHESTRATOR_TASK_TIMEOUT_HIGH_MS` | `.env` | `2400000` | Task deadline, high/ultra |
-| `ORCHESTRATOR_EXECUTION_RUNTIME` | `.env` | `api` | `api` or `opencode` (legacy `ORCHESTRATOR_RUNTIME`) |
-| `ORCHESTRATOR_NATIVE_PROVIDER_COMMAND` | `.env` | `opencode` | OpenCode CLI binary |
-| `ORCHESTRATOR_NATIVE_TIMEOUT_MS` | `.env` | `600000` | Wall-clock limit per OpenCode run |
-| `ORCHESTRATOR_REVIEW_MODE` / `ORCHESTRATOR_QA_MODE` | `.env` | `auto` | `always` / `auto` / `never` |
-| `ORCHESTRATOR_QA_REQUIRED` | `.env` | `0` | `1` = environment-blocked QA fails the task |
-| `QA_CHROMIUM_PATH` | `.env` | Playwright's Chromium | System Chromium (fallback `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`) |
-| `QA_CHROMIUM_NO_SANDBOX` | `.env` | auto | `1` = `--no-sandbox` (auto as root / in containers) |
-| `ORCHESTRATOR_WORKTREE_ISOLATION` | `.env` | `auto` | Run each task on its own branch (needed for push / PR, and for OpenCode entries). `auto` decides per task: on, with `ORCHESTRATOR_PARALLEL_DEFAULT` parallel subtasks, for a git repo with a commit, a clean checkout and a local or self-hosted backend; otherwise one step at a time in the checkout. `1` = always (holds non-repos), `0` = never. See [docs/worktree-isolation.md](docs/worktree-isolation.md) |
-| `ORCHESTRATOR_OPENCODE_ALLOW_UNISOLATED` | `.env` | unset | `1` lets OpenCode run without worktree isolation (in the real checkout) |
-| `WORKER_OPENCODE_CATALOG_POLL_MS` | `.env` | `15000` | How often the worker checks for an OpenCode Check again / Test request |
-| `ORCHESTRATOR_PARALLEL_DEFAULT` | `.env` | `2` | Parallel subtasks (1–3) when worktree isolation is on (also when `auto` turns it on); `1` without it |
-| `FHARA_ALLOW_BASE_BRANCH_PUSH` | `.env` | `0` | Allow pushes to the base branch / main / master |
-| `FHARA_ALLOW_FORCE_PUSH` | `.env` | `0` | Allow force pushes |
-| `FHARA_WORKTREE_RETENTION_HOURS` | Convex env | `72` | Remove finished tasks' worktrees after this (kept while the PR is open) |
-| `ORCHESTRATOR_MAX_TOKEN_BUDGET_PER_TASK` | `.env` | `2000000` | Per-task token budget |
-| `ORCHESTRATOR_BUDGET_MODE` | `.env` | warn | `enforce` = hard stop at the budget |
-| `WORKER_POLL_INTERVAL_MS` | `.env` | `1500` | Task poll interval |
-| `MOAGENT_WEEKLY_TOKEN_BUDGET` | Convex | — | Weekly budget shown in the usage meter (display only) |
-| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Convex | — | GitHub OAuth app (push / draft PR) |
-| `GITHUB_OAUTH_CALLBACK_URL` | Convex | `http://localhost:3000/api/integrations/github/callback` | OAuth redirect |
-| `OAUTH_STATE_SECRET` | Convex | `PROVIDER_ENCRYPTION_KEY` | HMAC key for the signed, one-time OAuth `state` |
-| `APP_ORIGIN` | Convex | origin of `GITHUB_OAUTH_CALLBACK_URL` | Web app origin the OAuth popup posts its result to |
-| `GITHUB_WEBHOOK_SECRET` | Convex | — | Fallback GitHub webhook secret when a project has none (webhooks are rejected with 401 without any secret) |
-| `CONVEX_SITE_URL` | web | derived | Convex HTTP actions URL for the OAuth callback forwarder |
-
-Every limit is read in one place, `packages/worker/src/orchestrator/policy.ts`.
-
-### Provider keys and migrations
-
-Provider API keys saved in Settings are stored only as AES-256-GCM
-ciphertext. `PROVIDER_ENCRYPTION_KEY` must be the same in the Convex env
-(encrypts on write) and the worker `.env` (decrypts on use); if they differ,
-provider calls fail with an error naming the provider. After upgrading an
-older deployment:
-
-```bash
-cd apps/api
-npx convex run migrations:migrateProvidersAndAgents   # idempotent
-npx convex run migrations:verifyMigration             # reports zero plaintext keys
+```powershell
+irm https://raw.githubusercontent.com/aldifhr/FharaCode/main/scripts/install.ps1 | iex
 ```
 
-Key rotation: set the new key, then `npx convex run migrations:rotateEncryptionKeys`.
+To try it once without an install, run `npx fhara@latest`.
 
-## OpenCode runtime
+### Phone
 
-Agents can run on two runtimes:
+Get the app from the [App Store](https://apps.apple.com/us/app/fhara-code-remote-claude-more/id6787819824) or [Google Play](https://play.google.com/store/apps/details?id=com.fhara.fhara). Then follow [remote access](./docs/user/remote-access.md) to connect it to your computer.
 
-- **`api`** (default) — the agent's LLM (provider pool or `LLM_*`) with
-  Fhara's own host tools, every action gated.
-- **`opencode`** — the [OpenCode](https://opencode.ai) CLI
-  (`npm i -g opencode-ai`) runs its own tools in the task worktree. Its
-  changes still pass the staging and approval gate.
+### Sign in to an agent
 
-OpenCode is a provider in Settings → LLM & Models (plan 038). The worker
-detects the CLI at startup and every ~5 min (PATH lookup, `opencode.cmd` on
-Windows, then `opencode --version`); the OpenCode row shows "Detected v<x> at
-<path>", "Not installed" (with the install command) or "Worker offline", with
-an Enable switch, Test (a one-word `opencode run` on the worker) and Check
-again. Its models take positions in the same ordered list as the API models:
-when the order (fallback or round robin, or an agent's own provider) picks an
-OpenCode entry, that subtask runs on the OpenCode CLI with that model; an API
-entry runs on the built-in runtime. Chat always skips OpenCode entries. A
-disabled or undetected OpenCode is skipped, and the next entry runs.
+Fhara needs one agent that is installed and signed in. For example, install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`, or install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`.
 
-OpenCode only runs with worktree isolation on (`ORCHESTRATOR_WORKTREE_ISOLATION=1`,
-or a task `auto` isolated): without it the worker skips OpenCode
-entries (event `opencode.skipped`) so the CLI never edits the real checkout.
-`ORCHESTRATOR_OPENCODE_ALLOW_UNISOLATED=1` is the explicit opt-out.
+[Provider setup](./docs/user/install.md#providers) has the steps for each agent. [Install Fhara](./docs/user/install.md) covers nightly builds, AppImage, WSL, and NixOS.
 
-Before the OpenCode provider is enabled, the older app-wide switch (plan 035,
-`opencodeSettings`) and `ORCHESTRATOR_EXECUTION_RUNTIME` still apply; enabling
-the provider moves a configured OpenCode model to the top of the list and
-retires the switch. Each agent still picks its own model (Provider / Model /
-Fallback) in the agent form.
+## "Wait, what are you selling me?"
 
-Without an OpenCode model the CLI is pointed at the agent's resolved Fhara
-LLM through a temporary config; the key travels only in the child process env
-(`MOAGENT_OPENCODE_API_KEY`). Each run is killed after
-`ORCHESTRATOR_NATIVE_TIMEOUT_MS`.
+Nothing. We built Fhara because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
 
-The OpenCode model is a dropdown: the worker reads the models the local CLI
-can run (`opencode models`) and publishes them, so the agent form offers the
-ids instead of making you type one. "Fhara LLM (default)" leaves the field
-empty; "Refresh" asks the worker to re-read the list.
+We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the tool that you want.
 
-## Skills library
+## Documentation
 
-`/library` holds reusable agent skills: short markdown instructions you attach
-to agents (from a skill's "Assign to roles" list or the Skills section of the
-agent form). When an agent runs, in a chat reply or a task subtask, each
-attached skill is appended after its system prompt as
-`## Skill: <name>`. The total is capped at 12,000 characters. Skills that
-don't fit get truncated, and later ones are dropped.
+- [Install and first run](./docs/user/install.md)
+- [Remote access from a phone or another machine](./docs/user/remote-access.md)
+- [Permission modes](./docs/user/permission-modes.md)
+- [Source control](./docs/user/source-control.md)
+- [Connect outside agents over MCP](./docs/user/outside-agents.md)
+- [FAQ](./docs/user/faq.md)
 
-To add the three starter skills (Conventional commits, Accessible UI
-checklist, Write tests first), use the empty-state button on `/library`, or run:
+[All docs](./docs/README.md) has the full list.
 
-```bash
-cd apps/api
-npx convex run skills:seedDefaults   # only seeds an empty library; idempotent
-```
+## Contributing
 
-### Import from GitHub
+We have limited review capacity. Small, focused fixes are the most likely to be merged. Features need an approved discussion first.
 
-"Import from GitHub" on `/library` takes a repository, folder
-(`…/tree/main/skills`) or single `SKILL.md` URL, lists every `SKILL.md`
-(name and description from the front matter; size; whether it needs
-trimming), and imports the ones you pick. Imported skills keep their source
-(repo, path, commit, license) and can be refreshed from the row's ⋯ menu
-("Update from source"). Bodies over the import cap (11,929 chars, so a skill
-fits the 12,000-char prompt budget with its header) are trimmed at section
-headings with a `(trimmed from N chars; full: <url>)` line. Public repos work
-without sign-in; a connected GitHub integration is used for rate limits and
-private repos. See [docs/skills-import.md](docs/skills-import.md) for the
-recommended role mapping for `emilkowalski/skills`.
+- Read [CONTRIBUTING.md](./CONTRIBUTING.md) before you report a bug or open a pull request.
+- Put feature requests in [Ideas](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
+- Build from source with the [development runbook](./docs/operations/development.md#first-checkout). The [architecture overview](./docs/internals/overview.md) explains how it works.
+- Get help in [Discord](https://discord.gg/jn4EGJjrvv).
 
-## Integrations (MCP servers)
+## License
 
-`/integrations` (the old `/mcp` redirects there) manages MCP servers globally
-or per project (`?project=<id>`). Add one from a preset (Filesystem, GitHub,
-Browser automation via `@playwright/mcp`, Postgres, Fetch, Custom) or edit a
-row to change its scope, role allowlist, secrets and on/off state.
-
-- **Scope.** A task run gets the global servers plus its project's, enabled
-  only. Each agent then sees only the servers whose role allowlist admits its
-  role (empty = every role).
-- **Secrets.** Env values are encrypted with `PROVIDER_ENCRYPTION_KEY` (the
-  same key as provider API keys, set on Convex and on the worker). The page
-  only ever gets the key names; the worker decrypts at spawn.
-- **Test.** "Test" queues a request that a running worker picks up: it spawns
-  the server, lists its tools and records the result. Without a worker the row
-  stays "Testing…". Remote (SSE/HTTP) servers are saved but not connected:
-  the worker only launches stdio servers today.
-- Host requirements: Node (npx) for most presets, Docker for GitHub, `uv`
-  for Fetch.
-
-## Web research (Agent Reach)
-
-Read-only agents (research / audit) can read public web content during a
-subtask with the `web_reach` tool. It wraps
-[Agent Reach](https://github.com/Panniantong/Agent-Reach), a CLI that
-returns one JSON object per call for public channels only: `web` (search +
-page text), `v2ex`, `youtube` (search, metadata, subtitles), `github` and
-`bilibili`. There is no write, post, comment, like, message or login action,
-so the tool cannot change anything.
-
-Install the CLI once per worker machine:
-
-```bash
-uv tool install https://github.com/Panniantong/Agent-Reach/releases/latest/download/agent-reach.zip
-```
-
-Then give an agent the tool: an agent's **Tool permissions** must contain
-`web_reach` (the Researcher role has it by default). Without that entry the
-tool is neither offered nor callable.
-
-How it is governed:
-
-- The argv is built from a fixed channel/action table; the model's free text
-  can never add a flag or a channel.
-- URL arguments go through the same outbound guard as the browser
-  (loopback, private and metadata hosts are refused).
-- The binary runs without a shell, with the scrubbed child env, a timeout
-  (`ORCHESTRATOR_AGENT_REACH_TIMEOUT_MS`) and the task's abort signal.
-- Every call is reported as a task event and the tool result is capped
-  (`ORCHESTRATOR_AGENT_REACH_MAX_ITEMS`).
-
-The knobs live in the root `.env`; see `.env.example`.
-
-## GitHub push and draft PRs
-
-1. Create a GitHub OAuth app with the callback
-   `http://localhost:3000/api/integrations/github/callback`.
-2. `npx convex env set GITHUB_CLIENT_ID …` and `GITHUB_CLIENT_SECRET …` in
-   `apps/api`. For a non-cloud backend set `CONVEX_SITE_URL` in
-   `apps/web/.env.local` if the HTTP actions do not run on the API port + 1.
-3. Keep `ORCHESTRATOR_WORKTREE_ISOLATION=auto` (the default; a clean checkout gets
-   a committed branch) or set `1` so every task gets one.
-4. **Integrations → Account → GitHub account → Connect** (once, for every
-   project). The token is stored encrypted with `PROVIDER_ENCRYPTION_KEY`.
-5. In each project's **Manage project → GitHub**, pick the repo and base
-   branch. Projects only hold this binding (and their webhook secret).
-
-Connecting uses a signed `state` (HMAC-SHA256 with `OAUTH_STATE_SECRET`,
-else `PROVIDER_ENCRYPTION_KEY`) carrying a one-time nonce: the callback
-rejects a forged, expired (10 min) or reused state, and the popup reports
-back only to the web app origin (`APP_ORIGIN`, else the callback URL's).
-
-Manual token instead of OAuth (also account-wide):
-`npx convex run integrations:upsertGithubIntegration '{"accessToken":"gho_…"}'`.
-
-Upgrading from per-project GitHub connections: run once (idempotent)
-
-```bash
-npm run migrate:github-global   # = cd apps/api && npx convex run integrations:migrateGithubToGlobal
-```
-
-It promotes the most recently updated connected project token to the
-account connection, clears the old plaintext project tokens, and keeps
-every project's repo and webhook secret. Until it runs (or you connect in
-Integrations), each project keeps using its old token.
-
-After a task commits, its push card offers **Push**. The click records an
-approved `git_push` approval; the worker pushes `<sha>:refs/heads/<branch>`
-with the token passed only through `GIT_CONFIG_*` env (never argv, git
-config or logs) and opens a draft PR. A cron refreshes PR state. Fhara
-never pushes without that click.
-
-### GitHub webhooks (optional)
-
-Every delivery is verified as HMAC-SHA256 of the raw body
-(`X-Hub-Signature-256`, constant-time compare) before it is parsed, and
-deduped on `X-GitHub-Delivery`. With no secret configured the endpoint
-answers 401.
-
-1. **Integrations** (scope: the project) **→ Repo → Webhook**: click **Generate secret**.
-   The secret is shown once and stored encrypted with
-   `PROVIDER_ENCRYPTION_KEY`. Without that key, set `GITHUB_WEBHOOK_SECRET`
-   in the root `.env` instead (`npm run env:sync` copies it to Convex).
-2. In the GitHub repo: **Settings → Webhooks → Add webhook**. Payload URL =
-   the URL shown next to the button
-   (`https://<deployment>.convex.site/integrations/github/webhook/<integrationId>`),
-   content type `application/json`, the secret from step 1, and the events
-   you want. GitHub's ping should show a green 200.
-
-The bare `/integrations/github/webhook` URL also works with the env
-secret; the project is then matched from the payload's repository.
-Events are recorded (`integrationEvents`) but not acted on yet.
-
-## Safety model
-
-- **Repository boundary.** A request that targets a path outside the
-  project repository (`../…`, `~/…`, `/etc/…`) is refused in chat before
-  any task is created.
-- **`allowedPaths`.** Each subtask may only change files inside its
-  `allowedPaths`; anything else is dropped from its output and reported.
-  Forbidden files (`.env*`, secrets) are never written.
-- **Permission broker** (`apps/api/convex/permissionBroker.ts`). One
-  server-side decision for risky actions: *allow* (a live approval covers
-  this task, plan version and every target file), *ask* (request approval),
-  *deny* (target outside the workspace, terminal task, or a standing
-  rejection). Applying a change set goes through it; a push needs an
-  approved `git_push` row, re-checked when the worker claims it.
-- **Approval gate.** Projects default to `ask`: no file is written until you
-  approve. Pushes need an explicit click.
-- **Commands** run through an argv allowlist in a sandbox; tool calls are
-  audited and secret-shaped arguments are redacted.
-- **Credentials.** Provider keys are encrypted at rest and only ciphertext
-  reaches the worker; public queries return `apiKeyConfigured`, never a key.
-  GitHub tokens reach the worker only through a token-gated claim.
-- **Auth.** There is deliberately no login and no rate limiting in this
-  prototype. Ownership is enforced only when a project has an owner
-  (`apps/api/convex/lib/authz.ts`); worker ↔ backend calls use the static
-  `CONVEX_SERVICE_TOKEN` (timing-safe, fails closed when unset). Do not
-  expose a deployment to an untrusted network.
-- **Web server.** `npm run dev`/`start` bind to `127.0.0.1` (override with
-  `FHARA_HOST`). `apps/web/proxy.ts` rejects `/api/*` requests with an
-  unexpected `Host` (DNS rebinding; extend with `FHARA_ALLOWED_HOSTS`) and
-  cross-origin writes. `/api/project-files` serves only a registered
-  project's workspace and never `.env*`, `.git` or key files; Browser Lab
-  refuses private, loopback, link-local and metadata addresses. Custom
-  local (stdio) MCP commands need `FHARA_ALLOW_LOCAL_MCP=1`.
-
-## Evaluations and audit log
-
-The rail's **Insights** button opens two read-only pages (both take
-`?project=<id>`):
-
-- **Evaluations** (`/evals`, `apps/api/convex/evals.ts`): task success
-  rate, QA pass rate (evaluation verdicts, else QA subtasks), tool-call
-  success (allowed vs denied `audit` rows), cost per task (from
-  `tokenUsage.estimatedCost`; calls without model pricing are left out and
-  flagged), per-agent and per-model tables and a daily trend, over 7/30/90
-  days. Every table is read through a time index with a scan cap.
-- **Audit log** (`/audit`, `apps/api/convex/auditLog.ts`): tool calls,
-  approval decisions and config changes, newest first. Config writes
-  (agents, projects, roles, LLM providers/models, integrations, MCP
-  servers) record `tool: "config"` rows through `lib/recordAudit.ts` with
-  the changed field **names** only, never values.
-
-## Testing
-
-```bash
-npm run doctor                             # setup checks (exit 1 on a required failure)
-npm run stats:roles -- --days 30            # workload per role from your Convex (--project <name|id>, --json)
-npm run typecheck                          # web + api + worker (needs convex/_generated)
-npm test                                   # worker unit/integration tests (vitest)
-npm run --workspace=@fhara/api test      # backend tests (convex-test, in-memory)
-npm run test:scripts                       # doctor / supervisor unit tests (node:test)
-cd apps/web && npx next build              # production build (needs NEXT_PUBLIC_CONVEX_URL)
-npm run knip                               # unused files / dependencies
-```
-
-`npm test` does not need Convex codegen; `npm run typecheck` fails in
-`apps/api` and `packages/worker` until `apps/api/convex/_generated/` exists
-(`npx convex dev --once`).
-
-## More
-
-- [ROADMAP.md](ROADMAP.md) — open work, grouped Now / Next / Later.
-- `AGENTS.md` (root, `apps/web`, `apps/api/convex`, `packages/worker`) —
-  contributor rules and module contracts.
-- `plans/` — design notes for larger changes.
+[MIT](./LICENSE)

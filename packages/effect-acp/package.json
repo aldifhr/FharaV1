@@ -1,0 +1,55 @@
+{
+  "name": "effect-acp",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./client": {
+      "types": "./src/client.ts",
+      "import": "./src/client.ts"
+    },
+    "./agent": {
+      "types": "./src/agent.ts",
+      "import": "./src/agent.ts"
+    },
+    "./schema": {
+      "types": "./src/schema.ts",
+      "import": "./src/schema.ts"
+    },
+    "./compat": {
+      "types": "./src/compat.ts",
+      "import": "./src/compat.ts"
+    },
+    "./rpc": {
+      "types": "./src/rpc.ts",
+      "import": "./src/rpc.ts"
+    },
+    "./protocol": {
+      "types": "./src/protocol.ts",
+      "import": "./src/protocol.ts"
+    },
+    "./errors": {
+      "types": "./src/errors.ts",
+      "import": "./src/errors.ts"
+    },
+    "./schema-v1": {
+      "types": "./src/_generated/schema-v1.gen.ts",
+      "import": "./src/_generated/schema-v1.gen.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "generate": "node scripts/generate.ts"
+  },
+  "dependencies": {
+    "effect": "^4.1.3"
+  },
+  "devDependencies": {
+    "@effect/openapi-generator": "4.1.2",
+    "@effect/platform-node": "4.1.2",
+    "@effect/vitest": "4.1.2",
+    "@types/node": "^26.6.6",
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.0"
+  }
+}

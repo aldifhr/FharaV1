@@ -24,6 +24,20 @@
     "packages/worker": {
       "entry": ["tests/**/*.test.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/shared": {
+      // Loaded by path as a Vitest setup file by the unported client-runtime.
+      "entry": ["src/testing/providerEnv.ts"]
+    },
+    "packages/contracts": {
+      // Duplicate exports retained verbatim from FharaV2; upstream knip
+      // reports the same four files, so they are not new to this port.
+      "ignoreIssues": {
+        "src/checkpointDiff.ts": ["duplicates"],
+        "src/orchestratorMcp.ts": ["duplicates"],
+        "src/server.ts": ["duplicates"],
+        "src/terminal.ts": ["duplicates"]
+      }
     }
   }
 }

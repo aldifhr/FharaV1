@@ -1,0 +1,7 @@
+{
+  "extends": "../tsconfig.fharav2.json",
+  "compilerOptions": {},
+  "include": [
+    "src"
+  ]
+}

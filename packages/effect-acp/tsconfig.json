@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext"],
+    "types": ["node"],
+    // The FharaV2 sources import relative modules with explicit `.ts`
+    // extensions; keep that style so upstream merges stay trivial.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "useDefineForClassFields": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true
+  },
+  // `scripts/generate.ts` is the upstream schema-regeneration utility; it uses
+  // APIs typed only by FharaV2's effect-tsgo fork (e.g. `RegExp.escape`), and
+  // the generated schemas ship committed in `src/_generated`. It is excluded
+  // from this package's typecheck.
+  "include": ["src", "test"]
+}

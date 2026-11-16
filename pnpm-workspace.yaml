@@ -1,0 +1,35 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Single source for versions the FharaV2-lifted packages (plan 058) share
+# with the overrides below.
+catalog:
+  effect: ^4.1.3
+
+overrides:
+  # Same policy as FharaV2: one effect tree. @opencode/* peers pin exact old
+  # effect versions; the named edges keep that visible (plan 058).
+  effect: "catalog:"
+  "@opencode/protocol>effect": "catalog:"
+  "@opencode/schema>effect": "catalog:"
+  # Markdown stack pinned so the patchedDependencies below cannot drift.
+  mdast-util-math: 3.0.0
+  micromark-extension-gfm-table: 2.1.1
+  micromark-extension-llm-math: 3.1.0
+  # remark-math must run the llm-math fork: it understands the \(..\) and
+  # \[..\] TeX delimiters models emit, upstream micromark-extension-math
+  # does not (packages/shared markdown pipeline).
+  "remark-math>micromark-extension-math": npm:micromark-extension-llm-math@3.1.0
+
+patchedDependencies:
+  mdast-util-math@3.0.0: patches/mdast-util-math@3.0.0.patch
+  micromark-extension-gfm-table@2.1.1: patches/micromark-extension-gfm-table@2.1.1.patch
+  micromark-extension-llm-math@3.1.0: patches/micromark-extension-llm-math@3.1.0.patch
+
+# Postinstall allowlist, ported from the old package.json "allowScripts"
+# (pnpm 11+ syntax; true = allowed to run build scripts).
+allowBuilds:
+  "@lydell/node-pty": true
+  electron: true
+  esbuild: true

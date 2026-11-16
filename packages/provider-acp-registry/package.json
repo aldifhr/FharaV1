@@ -1,0 +1,52 @@
+{
+  "name": "@fhara/provider-acp-registry",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./client": {
+      "types": "./src/client.ts",
+      "import": "./src/client.ts"
+    },
+    "./settings": {
+      "types": "./src/settings.ts",
+      "import": "./src/settings.ts"
+    },
+    "./server": {
+      "types": "./src/server.ts",
+      "import": "./src/server.ts"
+    },
+    "./testing": {
+      "types": "./src/testing.ts",
+      "import": "./src/testing.ts"
+    },
+    "./server/AcpRegistrySupport": {
+      "types": "./src/server/AcpRegistrySupport.ts",
+      "import": "./src/server/AcpRegistrySupport.ts"
+    },
+    "./server/AcpRegistryRuntimeCoordinator": {
+      "types": "./src/server/AcpRegistryRuntimeCoordinator.ts",
+      "import": "./src/server/AcpRegistryRuntimeCoordinator.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fhara/contracts": "workspace:*",
+    "@fhara/provider-acp": "workspace:*",
+    "@fhara/provider-core": "workspace:*",
+    "@fhara/shared": "workspace:*",
+    "@noble/hashes": "1.8.0",
+    "effect": "^4.1.3"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "4.1.2",
+    "@effect/vitest": "4.1.2",
+    "@fhara/provider-testing": "workspace:*",
+    "@types/node": "^26.6.6",
+    "effect-acp": "workspace:*",
+    "vitest": "^5.1.0",
+    "typescript": "^5.9.3"
+  }
+}

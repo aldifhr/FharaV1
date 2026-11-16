@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.fharav2.json",
+  "compilerOptions": {
+    "types": [
+      "node"
+    ],
+    "lib": [
+      "ESNext",
+      "esnext.disposable"
+    ]
+  },
+  "include": [
+    "src"
+  ]
+}

@@ -19,7 +19,15 @@ import { REPO_ROOT, RULE_HELP, compareMeasures, isBudgeted, measureFile } from "
 export const BASELINE_PATH = path.join(import.meta.dirname, "code-budgets.json");
 
 // Vendored reference trees and build output are not ours to hold to a budget.
-const EXCLUDED = /^(?:node_modules|audit|plans|docs|e2e\/fixtures-ui\/out)\/|\/node_modules\/|^apps\/web\/(?:\.next|playwright-report|test-results)\//u;
+// The `@fhara/*` packages ported verbatim from FharaV2 (plan 058) are upstream
+// code kept line-for-line so a later merge stays mechanical: splitting them to
+// fit a size budget would defeat the port.
+const VENDORED_PACKAGES =
+  /^packages\/(?:shared|contracts|provider-core|provider-acp|provider-acp-registry|provider-testing|provider-opencode|effect-acp|effect-codex-app-server)\//u;
+const EXCLUDED = new RegExp(
+  `${VENDORED_PACKAGES.source}|^(?:node_modules|audit|plans|docs|e2e/fixtures-ui/out)/|/node_modules/|^apps/web/(?:\\.next|playwright-report|test-results)/`,
+  "u",
+);
 
 /** Tracked plus untracked-but-not-ignored source files, repo-relative with forward slashes. */
 export function listSourceFiles(root = REPO_ROOT) {

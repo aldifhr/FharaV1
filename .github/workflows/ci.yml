@@ -28,31 +28,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
-          cache: npm
+          cache: pnpm
 
       - name: Install
-        run: npm ci --no-audit --no-fund
+        run: pnpm install --frozen-lockfile
 
       - name: Generate Convex _generated (offline, no deploy key)
-        run: npm run codegen:offline
+        run: pnpm run codegen:offline
 
       - name: Guards (code budget, UI rules, import cycles)
-        run: npm run check:guards
+        run: pnpm run check:guards
 
-      - name: Typecheck web
-        run: npm run --workspace=@fhara/web typecheck
-
-      - name: Typecheck api
-        run: npm run --workspace=@fhara/api typecheck
-
-      - name: Typecheck worker
-        run: npm run --workspace=@fhara/worker typecheck
+      - name: Typecheck (all workspaces)
+        run: pnpm -r run typecheck
 
       - name: Test api (vitest)
-        run: npm run --workspace=@fhara/api test
+        run: pnpm --filter @fhara/api run test
 
       - name: Test worker (vitest)
-        run: npm run --workspace=@fhara/worker test
+        run: pnpm --filter @fhara/worker run test

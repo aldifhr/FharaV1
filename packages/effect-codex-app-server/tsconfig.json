@@ -1,0 +1,11 @@
+{
+  // Shared FharaV2 compiler settings (plan 058), adapted to tsc/vitest.
+  "extends": "../tsconfig.fharav2.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  // `scripts/generate.ts` is the upstream schema-regeneration utility; like
+  // effect-acp's generator it relies on the effect-tsgo fork's typings, and
+  // its output ships committed under `src/_generated`.
+  "include": ["src", "test"]
+}
